@@ -21,43 +21,54 @@ inside it is a no-op, so running this somewhere unexpected costs nothing.
 
 | Flag | Effect |
 | --- | --- |
-| `--dry-run` | Fetch and report what would happen. No checkout, merge, install, or delete. |
+| `--dry-run` | Fetch and report what would happen. No checkout, merge, install, or delete. The fetch itself still updates remote-tracking refs. |
 | `--no-install` | Skip dependency installation even when a lock file changed. |
 | `-j N` | Parallel jobs in fan-out mode (default 4). |
 
 ### What one repository gets
 
 1. Skipped outright, before anything is modified, if it is not a git repo, has no `origin`,
-   has a git operation in progress, or has uncommitted changes. Untracked files do not count:
-   nothing this command does can touch them.
+   has a git operation in progress in any of its worktrees, has uncommitted changes, or has a
+   working tree that cannot be read at all. Untracked files do not block it: the checkout,
+   fast-forward, and branch deletion cannot touch them. A dependency install can.
+   A repo is also skipped, after the fetch, if its default branch cannot be resolved or
+   `origin/<default>` does not exist locally.
 2. `git fetch --prune origin`.
 3. Checkout of the default branch, then `git merge --ff-only`. Fast-forward only, so a
    diverged branch is reported for manual handling rather than merged automatically.
 4. Dependency install, but only if the pull actually changed a lock file. Detected from
-   `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, or `bun.lockb`.
+   `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`, or `bun.lockb`.
 5. Branch and worktree pruning.
 
 ### How a branch is proven merged
 
 A branch is deleted only with positive proof, from either of two independent signals:
 
-- **A merged pull request** whose head ref is that branch. This is what catches squash and
-  rebase merges, which leave no ancestry behind. One `gh` call covers the whole repository.
-- **Ancestry**, via `git branch --merged origin/<default>`. This is what catches a branch
-  merged locally and pushed with no pull request at all.
+- **A merged pull request.** It must have merged into the default branch, must have come from
+  this repository rather than a fork, and its head commit must be exactly where your local
+  branch still points. That last condition is what makes it evidence about your commits rather
+  than about a branch name: a name that was reused, or a branch you committed to after the merge
+  landed, no longer matches and is kept. This signal is what catches squash and rebase merges,
+  which leave no ancestry behind. One `gh` call covers the 200 most recently merged pull
+  requests; if that limit is reached, branches with no proof say so in the report.
+- **Ancestry**, via `git branch --merged origin/<default>`. This is what catches a branch merged
+  locally and pushed with no pull request at all.
 
 Either one is sufficient; neither one alone is complete. A branch with no proof is kept and
 reported. A `gone` upstream is never treated as proof on its own, since a pruned remote branch
 can equally mean the work was abandoned.
 
-Two branches are deliberately never deleted: the default branch, and any branch pointing exactly
-at the default branch tip, which is a branch that was just created and has no commits yet. Once
-the default branch moves past it, such a branch becomes an ordinary merged branch and is pruned;
-that is safe, because every commit it contains is already in the default branch.
+If **both** signals are unavailable (no `gh`, or the branch listing failed), the repo is
+reported and pruning is skipped entirely rather than run on the surviving signal.
+
+Two further branches are excluded even when they do have proof: the default branch itself, and
+any branch whose tip is the same commit as `origin/<default>`, which has nothing to prune and is
+typically a branch just created and not yet committed to.
 
 Deletion uses `git branch -D`, which is required because a squash-merged branch is not an
 ancestor of anything. Every deleted branch is reported with its SHA, so a mistake is undone with
-`git branch <name> <sha>`.
+`git branch <name> <sha>`. If the branch also had a worktree, that directory was removed too, and
+restoring it needs `git worktree add` plus a fresh dependency install.
 
 A worktree holding uncommitted changes outranks the merge proof: both the worktree and its
 branch are left alone and reported.
@@ -72,8 +83,10 @@ check and, if there is anything worth acting on, asks whether to run `/gh:sync`.
   purely local and does not hit the network.
 - Otherwise it stays silent.
 
-The hook never modifies a repository and always exits 0, so it cannot block a session from
-starting or surprise you with a change you did not ask for.
+The hook never changes a branch, worktree, or working tree, and always exits 0, so it cannot
+block a session from starting or surprise you with a change you did not ask for. In fan-out mode
+it does fetch, which updates remote-tracking refs, and that is one network round trip per
+repository against the hook's 60 second budget.
 
 ## Credentials
 

@@ -28,12 +28,17 @@ while (($#)); do
     --no-install) NO_INSTALL=1 ;;
     -j) shift; JOBS="${1:-4}" ;;
     -j*) JOBS="${1#-j}" ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     -*) printf 'unknown flag: %s\n' "$1" >&2; exit 2 ;;
     *) TARGET="$1" ;;
   esac
   shift
 done
+
+# An unvalidated -j is not merely wrong, it hangs: in arithmetic context a
+# non-numeric word evaluates to 0, so the throttle condition "0 >= JOBS" is
+# permanently true and no job is ever launched.
+[[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || { printf 'invalid -j value: %s\n' "$JOBS" >&2; exit 2; }
 
 TARGET="${TARGET:-$PWD}"
 [[ -d "$TARGET" ]] || { printf 'not a directory: %s\n' "$TARGET" >&2; exit 2; }
@@ -69,7 +74,9 @@ if ((${#repos[@]} == 0)); then
   exit 0
 fi
 
-TMP="$(mktemp -d)"
+# Unchecked, a failed mktemp leaves TMP empty, which turns the report into
+# `cat /*` and the cleanup into `rm -rf ""`.
+TMP="$(mktemp -d)" || { printf 'cannot create a temporary directory\n' >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
 
 # Bounded parallelism with plain job control rather than xargs: each job needs a
@@ -81,7 +88,15 @@ for repo in "${repos[@]}"; do
   while (( $(jobs -pr | wc -l) >= JOBS )); do
     wait -n 2>/dev/null || sleep 0.2
   done
-  bash "$REPO_SCRIPT" "$repo" > "$TMP/$(printf '%04d' "$i")" 2>&1 &
+  # The job records its own exit status into its own report, so a crashed or
+  # killed repo cannot pass for one that simply had nothing to say. Doing it here
+  # rather than with `wait <pid>` keeps it correct on bash 5, where the throttle
+  # above has already reaped some children.
+  {
+    bash "$REPO_SCRIPT" "$repo" 2>&1
+    rc=$?
+    ((rc == 0)) || printf '  ✗ sync script exited with status %d\n' "$rc"
+  } > "$TMP/$(printf '%04d' "$i")" &
   i=$((i + 1))
 done
 wait

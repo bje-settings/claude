@@ -16,14 +16,11 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 
 ### Plugins
 
-| Plugin | Contents |
-| --- | --- |
-| `gh` | Git and GitHub workflow commands. `/gh:sync` plus a report-only `SessionStart` hook. See `plugins/gh/README.md`. |
+Plugins are listed in `README.md`; each has its own README.
 
-`gh` is the intended home for the `gh` commands currently in
+New `gh` commands belong in the `gh` plugin, which is the intended home for the ones still in
 `~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
-`tidy-user-notifications`). They already use the `gh:` prefix, so migrating one is a file move
-plus a manifest entry, with no command rename.
+`tidy-user-notifications`).
 
 Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
 arrays, no `wait -n` without a fallback.

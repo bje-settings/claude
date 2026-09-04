@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
 # session-start.sh — report-only sync check at session start.
 #
-# Never mutates a repo: the fan-out branch runs gh-sync.sh in --dry-run, and the
-# in-repo branch does not even fetch. Always exits 0, so nothing here can stop a
-# session from starting. Stays silent unless there is something worth acting on,
-# because a hook that speaks every single time stops being read.
+# Never changes a branch, worktree, or working tree: the fan-out branch runs
+# gh-sync.sh in --dry-run, and the in-repo branch does not touch the network at
+# all. The fan-out branch does fetch, which updates remote-tracking refs.
+# Always exits 0, so nothing here can stop a session from starting. Stays silent
+# unless there is something worth acting on, because a hook that speaks every
+# single time stops being read.
 
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNC="$HERE/../scripts/gh-sync.sh"
 
-# The hook receives its JSON payload on stdin; cwd is the useful field. Fall back
-# to $PWD rather than taking a dependency on jq being installed.
-PAYLOAD="$(cat 2>/dev/null || true)"
-CWD="$(printf '%s' "$PAYLOAD" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
-[[ -n "${CWD:-}" && -d "$CWD" ]] || CWD="$PWD"
-
 command -v python3 >/dev/null 2>&1 || exit 0
+
+# The hook receives its JSON payload on stdin; cwd is the useful field. Parsed
+# with python3 rather than a regex, because a greedy match picks up the last
+# cwd-like key in the payload and any escaped character truncates the path, and
+# a wrong answer here points the fan-out at an unintended directory.
+PAYLOAD="$(cat 2>/dev/null || true)"
+CWD="$(printf '%s' "$PAYLOAD" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("cwd", "") or "")
+except Exception:
+    print("")
+' 2>/dev/null)"
+[[ -n "${CWD:-}" && -d "$CWD" ]] || CWD="$PWD"
 [[ -r "$SYNC" ]] || exit 0
 
 emit() {
@@ -56,10 +66,13 @@ fi
 report="$(bash "$SYNC" --dry-run --no-install "$CWD" 2>/dev/null)" || exit 0
 
 # Only speak when the report contains something actionable: a proposed change
-# ("would ...") or a problem ("✗"). Repos that are already in order say neither.
-printf '%s' "$report" | grep -q -e 'would ' -e '✗' || exit 0
+# ("would ..."), a problem ("✗"), or a degraded run ("could not ..."). A run
+# whose merge lookups all failed has nothing to propose, and silence there would
+# read as "everything is in order" rather than "nothing could be checked".
+printf '%s' "$report" | grep -q -e 'would ' -e '✗' -e 'could not' || exit 0
 
-emit "A read-only /gh:sync check ran for the repositories below. Nothing was modified.
+emit "A read-only /gh:sync check ran for the repositories below. No branch, worktree, or
+working tree was changed (it does fetch, so remote-tracking refs are current).
 
 $report
 

@@ -1,6 +1,6 @@
 {
   "name": "bje",
-  "description": "Claude Code plugins for the bje enterprise: git and GitHub workflow automation, with shared rules and settings to follow.",
+  "description": "Claude Code plugins for the bje enterprise: git and GitHub workflow automation.",
   "owner": {
     "name": "Brian Espinosa",
     "email": "b@bje.co"

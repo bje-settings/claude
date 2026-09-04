@@ -1,5 +1,5 @@
 {
-  "description": "Report-only sync check when a session starts. Never modifies a repository.",
+  "description": "Report-only sync check when a session starts. Fetches, but never changes a branch, worktree, or working tree.",
   "hooks": {
     "SessionStart": [
       {

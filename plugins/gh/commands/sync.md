@@ -29,4 +29,5 @@ that were skipped along with the reason given for each. Do not re-run git comman
 verify or expand on the report.
 
 Deleted branches are printed with their SHA. If the user thinks one was removed in error,
-it is restored with `git branch <name> <sha>`.
+it is restored with `git branch <name> <sha>`; if it also had a worktree, that needs
+`git worktree add` and a fresh dependency install.
