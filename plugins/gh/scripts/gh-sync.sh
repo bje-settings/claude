@@ -42,7 +42,10 @@ done
 
 TARGET="${TARGET:-$PWD}"
 [[ -d "$TARGET" ]] || { printf 'not a directory: %s\n' "$TARGET" >&2; exit 2; }
-TARGET="$(cd "$TARGET" && pwd)"
+# pwd -P, because git reports symlink-resolved paths and the comparison below
+# must agree with it. On macOS /tmp and /var are symlinks, so the logical path
+# never matches and every repo beneath one would be silently skipped.
+TARGET="$(cd "$TARGET" && pwd -P)"
 
 [[ -x "$REPO_SCRIPT" || -r "$REPO_SCRIPT" ]] || {
   printf 'missing %s\n' "$REPO_SCRIPT" >&2; exit 2
@@ -64,9 +67,10 @@ repos=()
 for dir in "$TARGET"/*/; do
   dir="${dir%/}"
   [[ -d "$dir" ]] || continue
+  real="$(cd "$dir" && pwd -P)" || continue
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || continue
   # Only the checkout root counts, never a subdirectory of one.
-  [[ "$top" == "$dir" ]] && repos+=("$dir")
+  [[ "$top" == "$real" ]] && repos+=("$real")
 done
 
 if ((${#repos[@]} == 0)); then

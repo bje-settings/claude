@@ -106,3 +106,21 @@ plugins/gh/scripts/gh-sync-repo.sh --dry-run ~/Code/@bje/@bje-settings/terraform
 ```
 
 They are written for bash 3.2, the version macOS ships at `/bin/bash`.
+
+## Tests
+
+Because this command deletes branches and removes worktrees, its behaviour is asserted against
+real git repositories rather than mocks. Specs live in `spec/gh/`, fixtures in `fixtures/gh/`.
+
+```bash
+spec/run.sh              # lint, then the suite under bash 5 and bash 3.2
+spec/run.sh --quick      # the suite once, under the default shell
+```
+
+The suite runs under both shells deliberately: bash 5 is what most contributors have on `PATH`,
+but `/bin/bash` is 3.2 on macOS and is what actually executes these scripts.
+
+Covered in particular: every path that can delete something (each merge signal, a reused branch
+name, a fork's pull request, a pull request merged into another base, worktrees clean and dirty),
+every preflight refusal, and the guarantee that `--dry-run` changes nothing it says it would
+change. See `fixtures/gh/README.md` for how to build a scenario.

@@ -9,6 +9,17 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 | --- | --- |
 | [`gh`](plugins/gh) | Git and GitHub workflow commands. `/gh:sync` moves a checkout to its default branch, fast-forwards it, and prunes branches and worktrees whose work has already landed, for one repo or every repo one level down. |
 
+## Tests
+
+```bash
+spec/run.sh
+```
+
+Specs live in `spec/`, fixtures in `fixtures/<plugin>/`. See `fixtures/gh/README.md`.
+Requires `shellspec` and `jq`; `shellcheck` is used if present.
+
+## Local install
+
 Add the marketplace locally for testing:
 
 ```bash

@@ -25,6 +25,17 @@ New `gh` commands belong in the `gh` plugin, which is the intended home for the 
 Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
 arrays, no `wait -n` without a fallback.
 
+### Tests
+
+Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
+with `spec/run.sh`, which lints and then runs the suite under both bash 5 and bash 3.2.
+
+Any script that can delete or overwrite something needs a spec proving both that it acts when it
+should and that it refuses when it should. Assert against real repositories built by the fixtures
+rather than mocking git; see `fixtures/gh/README.md`. When a fixture makes a claim about the state
+it produces, assert that claim in `spec/gh/fixtures_spec.sh` too, so the other specs cannot pass
+for the wrong reason.
+
 ## Rules and settings syncing (future)
 
 Not yet implemented. When added, this section should describe how `.claude/rules/` and

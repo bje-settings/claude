@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# A stand-in for the gh CLI, for specs. Put this directory on PATH.
+#
+# It deliberately does NOT fake the output of the command under test. It holds a
+# canned set of pull requests, applies the same filtering the real `gh pr list`
+# applies server-side (--state, --base, --limit), projects the fields named by
+# --json, and then runs the caller's own --jq expression with real jq. That way
+# the jq filter in gh-sync-repo.sh, including the fork exclusion, is exercised
+# rather than assumed.
+#
+# Controlled by:
+#   GH_FIXTURE_PRS      path to a JSON array of PR objects (default: no PRs)
+#   GH_FIXTURE_FAIL     if non-empty, exit non-zero to simulate a failed lookup
+#   GH_FIXTURE_DEFAULT  default branch reported by `gh repo view` (default: main)
+
+set -uo pipefail
+
+[[ -n "${GH_FIXTURE_FAIL:-}" ]] && { echo "gh: simulated failure" >&2; exit 1; }
+
+cmd="${1:-}"; sub="${2:-}"; shift 2 2>/dev/null || true
+
+state=""; base=""; limit=1000; fields=""; jq_expr="."
+while (($#)); do
+  case "$1" in
+    --state) state="$2"; shift ;;
+    --base) base="$2"; shift ;;
+    --limit) limit="$2"; shift ;;
+    --json) fields="$2"; shift ;;
+    --jq|-q) jq_expr="$2"; shift ;;
+    *) : ;;
+  esac
+  shift
+done
+
+if [[ "$cmd" == "repo" && "$sub" == "view" ]]; then
+  jq -n --arg b "${GH_FIXTURE_DEFAULT:-main}" '{defaultBranchRef:{name:$b}}' \
+    | jq -r "$jq_expr"
+  exit 0
+fi
+
+[[ "$cmd" == "pr" && "$sub" == "list" ]] || { echo "gh stub: unsupported: $cmd $sub" >&2; exit 1; }
+
+src="${GH_FIXTURE_PRS:-}"
+[[ -n "$src" && -f "$src" ]] || src=/dev/null
+if [[ "$src" == /dev/null ]]; then payload='[]'; else payload="$(cat "$src")"; fi
+
+# Emulate the server-side filtering, then the field projection that --json does,
+# then hand the result to the caller's --jq expression.
+printf '%s' "$payload" | jq \
+  --arg state "$state" --arg base "$base" --argjson limit "$limit" --arg fields "$fields" '
+  map(select($state == "" or (.state // "MERGED") == ($state | ascii_upcase)))
+  | map(select($base == "" or .baseRefName == $base))
+  | .[0:$limit]
+  | if $fields == "" then .
+    else map( . as $pr | reduce ($fields | split(",")[]) as $f ({}; .[$f] = $pr[$f]) )
+    end
+' | jq -r "$jq_expr"
