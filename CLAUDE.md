@@ -18,3 +18,8 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 
 Not yet implemented. When added, this section should describe how `.claude/rules/` and
 `settings.json` get shared into other `@bje` repos.
+
+## Enterprise CLAUDE.md
+
+`ENTERPRISE_CLAUDE.md` is the `CLAUDE.md` for the `~/Code/@bje/` directory itself, symlinked there
+so enterprise-wide context lives here instead of in the personal dotfiles repo.
