@@ -147,20 +147,25 @@ if [[ "$CURRENT" != "$DEFAULT" ]]; then
 fi
 
 if ((CAN_ADVANCE)); then
-  BEFORE="$(git rev-parse --short HEAD)"
   TARGET="$(git rev-parse --short "origin/$DEFAULT" 2>/dev/null)"
-  if [[ "$BEFORE" == "$TARGET" ]]; then
-    note "$DEFAULT already up to date ($BEFORE)"
-  elif ((DRY_RUN)); then
-    if git merge-base --is-ancestor HEAD "origin/$DEFAULT" 2>/dev/null; then
-      note "would fast-forward $DEFAULT $BEFORE..$TARGET"
-    else
-      bad "$DEFAULT has diverged from origin/$DEFAULT; needs a manual merge"
-    fi
-  elif git merge --ff-only "origin/$DEFAULT" >/dev/null 2>&1; then
-    ok "fast-forwarded $DEFAULT $BEFORE..$TARGET"
+  if ! git show-ref --verify --quiet "refs/heads/$DEFAULT"; then
+    # Only reachable in --dry-run, where the checkout above was not performed.
+    note "would create $DEFAULT from origin/$DEFAULT ($TARGET)"
   else
-    bad "$DEFAULT has diverged from origin/$DEFAULT; needs a manual merge"
+    # Always compare the default branch itself, never HEAD: in --dry-run we have
+    # not switched, so HEAD is still whatever branch the user was sitting on.
+    BEFORE="$(git rev-parse --short "$DEFAULT")"
+    if [[ "$BEFORE" == "$TARGET" ]]; then
+      note "$DEFAULT already up to date ($BEFORE)"
+    elif ! git merge-base --is-ancestor "$DEFAULT" "origin/$DEFAULT" 2>/dev/null; then
+      bad "$DEFAULT has diverged from origin/$DEFAULT; needs a manual merge"
+    elif ((DRY_RUN)); then
+      note "would fast-forward $DEFAULT $BEFORE..$TARGET"
+    elif git merge --ff-only "origin/$DEFAULT" >/dev/null 2>&1; then
+      ok "fast-forwarded $DEFAULT $BEFORE..$TARGET"
+    else
+      bad "could not fast-forward $DEFAULT"
+    fi
   fi
 fi
 
