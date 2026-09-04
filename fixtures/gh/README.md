@@ -40,8 +40,8 @@ Everything else composes on top:
 | `fixture_diverge` | A local commit and an origin commit, so the default branch cannot fast-forward. |
 | `fixture_remote_advance` | Origin gains a commit the clone lacks, optionally touching a lock file. |
 | `fixture_lockfile` | A committed lock file, for the install-detection specs. |
-| `fixture_js_project` | A `package.json` plus lock file with no dependencies, so a real install succeeds offline. Defaults to pnpm, the package manager these repos use and the branch the script checks first. |
-| `fixture_remote_update_lock` | Origin regenerates the lock file legitimately. Appending to a lock file would corrupt it, so this perturbs something the lock actually records. |
+| `fixture_js_project` | A `package.json` plus lock file with no dependencies, so a real install succeeds offline. Takes `pnpm` (the default), `yarn`, or `npm`. Yarn means Berry, pinned per project through the `packageManager` field so the fixture does not depend on which yarn is on `PATH`. |
+| `fixture_remote_update_lock` | Origin regenerates the lock file legitimately, by adding a dependency on a directory inside the repo. Appending to a lock file would corrupt it instead. A `file:` path resolves without the network and every manager records a real dependency, so one mechanism covers all three. |
 | `fixture_remote_break_lock` | Origin pushes an unparseable lock file, so the install fails for a real reason. |
 | `fixture_break_origin` | The remote exists but is unreachable, so fetch fails while the preflight still passes. |
 | `fixture_forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
@@ -56,6 +56,10 @@ branch pointing at the same commit as the default branch, so the tip guard keeps
 ancestry path is never reached. `spec/gh/fixtures_spec.sh` asserts each of these claims directly,
 so a fixture that quietly stopped producing its state cannot make the other specs pass for the
 wrong reason.
+
+Do not perturb manager-specific metadata to force a lock change. An override for a package
+nothing depends on moved the lock under pnpm 10 and was dropped by pnpm 11, so the install spec
+passed locally and failed in CI. A real dependency is recorded by every version of every manager.
 
 ## The `gh` stub
 

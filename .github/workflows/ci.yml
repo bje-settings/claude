@@ -53,9 +53,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The specs that exercise the dependency-install path need a real package
-      # manager. pnpm is the one gh-sync-repo.sh checks first and the one these
-      # repos use; without it those examples skip themselves rather than fail.
+      # The specs that exercise the dependency-install path need real package
+      # managers. corepack is what makes a project's packageManager field
+      # authoritative, which is how the Yarn Berry fixture pins its version; the
+      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
       - uses: pnpm/action-setup@v6
         with:
           version: 10
@@ -104,8 +109,12 @@ jobs:
           sudo apt-get install -y -qq kcov
           kcov --version
 
-      # The install specs need a real package manager. pnpm is the one these
-      # repos use and the branch gh-sync-repo.sh checks first.
+      # As in the test job: corepack makes the packageManager field authoritative
+      # for the Yarn Berry fixture, and pnpm is the branch checked first.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
       - uses: pnpm/action-setup@v6
         with:
           version: 10
@@ -122,14 +131,19 @@ jobs:
       # Coverage is measured for the plugin only. Specs and fixtures are test
       # code: counting them would inflate the number without saying anything
       # about how well the plugin is tested.
-      #
-      # --fail-low-coverage makes this job fail here, with the per-file numbers
-      # in the log, rather than leaving a drop to be discovered later as a
-      # blocked pull request.
       - name: Run specs under kcov
         run: |
-          shellspec --kcov --covdir coverage --fail-low-coverage \
-            --kcov-options "--include-path=./plugins/gh --path-strip-level=1 --limits=95,100"
+          shellspec --kcov --covdir coverage \
+            --kcov-options "--include-path=./plugins/gh --path-strip-level=1"
+
+      # The threshold is enforced here rather than with shellspec's
+      # --fail-low-coverage, which reports a failure at any coverage level once
+      # enabled: it exits 101 at 97% with kcov's low limit set to 95, and exits 0
+      # for the same run without the flag. This step fails the job before the
+      # upload, with the per-file numbers and the uncovered lines in the log, so
+      # a drop says which file moved.
+      - name: Enforce the coverage threshold
+        run: python3 spec/coverage-check.py coverage/cobertura.xml 95
 
       - uses: actions/upload-code-coverage@v1
         with:

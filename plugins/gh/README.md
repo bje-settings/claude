@@ -37,7 +37,9 @@ inside it is a no-op, so running this somewhere unexpected costs nothing.
 3. Checkout of the default branch, then `git merge --ff-only`. Fast-forward only, so a
    diverged branch is reported for manual handling rather than merged automatically.
 4. Dependency install, but only if the pull actually changed a lock file. Detected from
-   `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lock`, or `bun.lockb`.
+   `pnpm-lock.yaml`, `yarn.lock`, or `package-lock.json`, and run with pnpm, Yarn Berry, or
+   npm respectively. Yarn 1 and bun are deliberately out of scope: a repo on either gets the
+   lock-file notice and installs by hand.
 5. Branch and worktree pruning.
 
 ### How a branch is proven merged
@@ -124,11 +126,11 @@ spec/run.sh --quick      # the suite once, under the default shell
 The suite runs under both shells deliberately: bash 5 is what most contributors have on `PATH`,
 but `/bin/bash` is 3.2 on macOS and is what actually executes these scripts.
 
-CI adds a coverage job (`kcov`, measured over `plugins/gh` only) which fails below 95%. Four
-branches of `install_deps` are knowingly uncovered: yarn 1 writes no lock file for a project with
-no dependencies, and bun is not on the runners, so neither can be exercised offline. A handful of
-defensive branches are also uncovered because they guard states that cannot be provoked, such as
-a ref that resolves during enumeration and fails immediately after.
+CI adds a coverage job (`kcov`, measured over `plugins/gh` only) which fails below 95%, enforced
+by `spec/coverage-check.py`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
+All three supported package managers have an install spec. The uncovered remainder is defensive branches
+guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
+immediately after.
 
 Covered in particular: every path that can delete something (each merge signal, a reused branch
 name, a fork's pull request, a pull request merged into another base, worktrees clean and dirty),

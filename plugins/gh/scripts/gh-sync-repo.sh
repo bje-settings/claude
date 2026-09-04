@@ -110,22 +110,17 @@ DEFAULT="$(resolve_default_branch)" || skip "cannot determine the default branch
 
 # ------------------------------------------------------------------- lockfiles ---
 
-LOCKFILES=(pnpm-lock.yaml yarn.lock package-lock.json bun.lock bun.lockb)
+LOCKFILES=(pnpm-lock.yaml yarn.lock package-lock.json)
 
+# pnpm, Yarn Berry, and npm. Yarn 1 and bun are deliberately out of scope: a
+# repo on either gets the lock-file notice and installs by hand.
 install_deps() {
   if [[ -f pnpm-lock.yaml ]]; then
     pnpm install --frozen-lockfile
   elif [[ -f yarn.lock ]]; then
-    # Yarn classic and Berry spell the same intent differently.
-    if [[ "$(yarn --version 2>/dev/null)" == 1.* ]]; then
-      yarn install --frozen-lockfile
-    else
-      yarn install --immutable
-    fi
+    yarn install --immutable
   elif [[ -f package-lock.json ]]; then
     npm ci
-  elif [[ -f bun.lock || -f bun.lockb ]]; then
-    bun install --frozen-lockfile
   else
     return 3   # no recognised lock file; nothing to install
   fi

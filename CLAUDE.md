@@ -35,6 +35,10 @@ the enterprise Code Coverage ruleset's threshold. Coverage uses `kcov`, pinned t
 newer kcov builds break shellspec, and the alternative, bashcov, prevents shellspec running at
 all. Re-test before changing either.
 
+The threshold is enforced by `spec/coverage-check.py`, not shellspec's `--fail-low-coverage`,
+which reports a failure at any coverage level once enabled. Reproduce a CI coverage run with
+`spec/run.sh --coverage`.
+
 Any script that can delete or overwrite something needs a spec proving both that it acts when it
 should and that it refuses when it should. Assert against real repositories built by the fixtures
 rather than mocking git; see `fixtures/gh/README.md`. When a fixture makes a claim about the state

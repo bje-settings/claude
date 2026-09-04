@@ -104,11 +104,37 @@ Describe 'gh-sync-repo.sh edge paths'
     # and then fails, which would surface as a confusing spec failure.
     install_unavailable() { ! pnpm --version >/dev/null 2>&1; }
     npm_unavailable() { ! npm --version >/dev/null 2>&1; }
+    # Berry is resolved from the project's packageManager field, which only the
+    # corepack shim honours. A globally installed yarn 1 ignores it and would
+    # fail the example rather than skip it, so probe what yarn actually resolves
+    # to in a project that asks for Berry.
+    yarn_berry_unavailable() {
+      command -v yarn >/dev/null 2>&1 || return 0
+      local probe version
+      probe="$(mktemp -d)"
+      _fixture_write_package_json "$probe" yarn probe
+      version="$(cd "$probe" && yarn --version 2>/dev/null)"
+      rm -rf "$probe"
+      case "$version" in
+        [2-9].* | [1-9][0-9].*) return 1 ;;
+        *) return 0 ;;
+      esac
+    }
 
     It 'runs pnpm when the pull changed pnpm-lock.yaml'
       Skip if 'pnpm is unavailable or not working' install_unavailable
       fixture_js_project "$REPO" pnpm
       fixture_remote_update_lock "$REPO" pnpm
+      When run script "$SYNC_REPO" "$REPO"
+      The status should be success
+      The output should include 'dependencies installed'
+      The stderr should be defined
+    End
+
+    It 'runs yarn when the project uses Yarn Berry'
+      Skip if 'yarn berry is unavailable' yarn_berry_unavailable
+      fixture_js_project "$REPO" yarn
+      fixture_remote_update_lock "$REPO" yarn
       When run script "$SYNC_REPO" "$REPO"
       The status should be success
       The output should include 'dependencies installed'

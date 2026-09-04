@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # run.sh — lint and test the plugin scripts.
 #
-#   spec/run.sh           lint, then the suite under both shells
-#   spec/run.sh --quick   the suite under the default shell only
+#   spec/run.sh             lint, then the suite under both shells
+#   spec/run.sh --quick     the suite under the default shell only
+#   spec/run.sh --coverage  the suite under kcov, with the CI threshold applied
 #
 # The suite runs twice by design. bash 5 is what most contributors have on PATH;
 # /bin/bash is 3.2 on macOS and is what actually executes these scripts when the
@@ -30,9 +31,19 @@ command -v shellspec >/dev/null 2>&1 || {
   exit 1
 }
 
-run "shellspec (default shell)" shellspec "$@"
-if [[ "${1:-}" != "--quick" ]]; then
-  run "shellspec (/bin/bash, the shell that ships on macOS)" shellspec --shell /bin/bash
+if [[ "${1:-}" == "--coverage" ]]; then
+  command -v kcov >/dev/null 2>&1 || {
+    printf 'kcov is required for --coverage: brew install kcov\n' >&2
+    exit 1
+  }
+  run "shellspec (kcov)" shellspec --kcov --covdir coverage \
+    --kcov-options "--include-path=./plugins/gh --path-strip-level=1"
+  run "coverage threshold" python3 spec/coverage-check.py coverage/cobertura.xml 95
+else
+  run "shellspec (default shell)" shellspec "$@"
+  if [[ "${1:-}" != "--quick" ]]; then
+    run "shellspec (/bin/bash, the shell that ships on macOS)" shellspec --shell /bin/bash
+  fi
 fi
 
 ((fail)) && { printf '\n\033[31mFAILED\033[0m\n'; exit 1; }

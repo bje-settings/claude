@@ -14,6 +14,12 @@
 
 FIXTURE_DEFAULT_BRANCH="${FIXTURE_DEFAULT_BRANCH:-main}"
 
+# Yarn Berry is selected per project through package.json's packageManager field,
+# which corepack honours, so these fixtures do not depend on which yarn happens
+# to be on PATH. Yarn 1 and bun are out of scope for /gh:sync.
+FIXTURE_YARN_VERSION="${FIXTURE_YARN_VERSION:-4.5.3}"
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
 # Keep fixture repos isolated from the developer's real git config, which may set
 # a different default branch, sign commits, or install hooks.
 fixture_git() {
@@ -213,32 +219,53 @@ EOF
   return 0
 }
 
-# fixture_js_project <work> [pnpm|npm] — a package.json and lock file with no
-# dependencies, so the install succeeds offline and the real install path runs.
-#
-# Only pnpm and npm. Yarn 1 writes no lock file at all for a project with no
-# dependencies, and bun is not on the runners, so those two branches of
-# install_deps are exercised by neither this nor CI.
-# pnpm is the default because it is the house package manager and the branch
-# gh-sync-repo.sh checks first.
+# fixture_js_project <work> [pnpm|yarn|npm] — a package.json and lock file with
+# no dependencies, so the install succeeds offline and the real install path runs.
+# pnpm is the default: it is the house package manager and the branch
+# gh-sync-repo.sh checks first. Yarn means Berry; yarn 1 and bun are out of scope
+# for /gh:sync and have no fixtures.
 #
 # The developer's own ~/.npmrc is kept out of it: it may reference registries or
 # auth tokens that are unavailable, which would make an offline install fail for
 # reasons that have nothing to do with the code under test.
 fixture_js_project() {
   local w="$1" mgr="${2:-pnpm}"
-  printf '{"name":"fixture","version":"1.0.0"}\n' > "$w/package.json"
-  (
-    cd "$w" || exit 1
-    export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
-    case "$mgr" in
-      pnpm) pnpm install --lockfile-only --silent ;;
-      npm)  npm install --package-lock-only --silent ;;
-    esac
-  ) >/dev/null 2>&1
+  _fixture_write_package_json "$w" "$mgr" fixture
+  if [ "$mgr" = yarn ]; then
+    # Berry writes a PnP bundle and a cache directory beside the lock file.
+    # Neither belongs in the fixture's history.
+    printf '.yarn/\n.pnp.*\n' > "$w/.gitignore"
+  fi
+  _fixture_install "$w" "$mgr"
   fixture_git "$w" add -A
   fixture_git "$w" commit -qm "add $mgr project"
   fixture_push "$w"
+}
+
+# _fixture_write_package_json <dir> <mgr> <name>
+# Berry is pinned per project through the packageManager field, which corepack
+# honours, so the fixture does not depend on which yarn is on PATH.
+_fixture_write_package_json() {
+  local dir="$1" mgr="$2" name="$3"
+  if [ "$mgr" = yarn ]; then
+    printf '{"name":"%s","version":"1.0.0","packageManager":"yarn@%s"}\n' \
+      "$name" "$FIXTURE_YARN_VERSION" > "$dir/package.json"
+  else
+    printf '{"name":"%s","version":"1.0.0"}\n' "$name" > "$dir/package.json"
+  fi
+}
+
+# _fixture_install <dir> <mgr> — write the lock file without fetching anything
+_fixture_install() {
+  (
+    cd "$1" || exit 1
+    export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
+    case "$2" in
+      pnpm) pnpm install --lockfile-only --silent ;;
+      yarn) yarn install ;;
+      npm)  npm install --package-lock-only --silent ;;
+    esac
+  ) >/dev/null 2>&1
 }
 
 # fixture_lockfile_name <manager>
@@ -249,29 +276,31 @@ fixture_lockfile_name() {
   esac
 }
 
-# fixture_remote_update_lock <work> [pnpm|npm] — origin legitimately regenerates
-# the lock file, so the sync sees a real lock change and a VALID file to install
-# from. Appending to a lock file, as fixture_remote_advance would, corrupts it.
+# fixture_remote_update_lock <work> [pnpm|yarn|npm] — origin legitimately
+# regenerates the lock file, so the sync sees a real lock change and a VALID file
+# to install from. Appending to a lock file, as fixture_remote_advance would,
+# corrupts it instead.
+#
+# The change is a dependency on a directory inside the repo. Every manager
+# records a real dependency, and a file: path resolves without the network, so
+# this works the same for all three and does not depend on which metadata a
+# given version happens to write. Perturbing manager-specific fields does not
+# survive: pnpm 10 records an override for a package nothing depends on and
+# pnpm 11 drops it, which passed here and failed in CI.
 fixture_remote_update_lock() {
   local w="$1" mgr="${2:-pnpm}" origin scratch
   origin="$(fixture_git "$w" remote get-url origin)"
   scratch="$(mktemp -d)"
   git clone -q "$origin" "$scratch/c" 2>/dev/null
+  mkdir -p "$scratch/c/local-dep"
+  printf '{"name":"local-dep","version":"1.0.0"}\n' > "$scratch/c/local-dep/package.json"
   (
     cd "$scratch/c" || exit 1
-    export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
-    # A version bump leaves a dependency-free pnpm lock byte-identical, so
-    # perturb something the lock actually records. An override for a package
-    # that is never depended on changes the file without needing the network.
-    jq '.version = "1.0.1" | .pnpm = {"overrides":{"left-pad":"1.3.0"}}' \
-      package.json > package.json.tmp && mv package.json.tmp package.json
-    case "$mgr" in
-      pnpm) pnpm install --lockfile-only --silent ;;
-      npm)  npm install --package-lock-only --silent ;;
-    esac
+    jq '.dependencies = {"local-dep":"file:./local-dep"}' package.json > t && mv t package.json
   ) >/dev/null 2>&1
+  _fixture_install "$scratch/c" "$mgr"
   fixture_git "$scratch/c" add -A
-  fixture_git "$scratch/c" commit -qm 'regenerate lock file'
+  fixture_git "$scratch/c" commit -qm 'add a local dependency'
   fixture_push "$scratch/c"
   rm -rf "$scratch"
 }
