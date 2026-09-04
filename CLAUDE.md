@@ -14,6 +14,20 @@ entries in the marketplace manifest's `plugins` array. See
 Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 `/plugin install <plugin-name>@bje`.
 
+### Plugins
+
+| Plugin | Contents |
+| --- | --- |
+| `gh` | Git and GitHub workflow commands. `/gh:sync` plus a report-only `SessionStart` hook. See `plugins/gh/README.md`. |
+
+`gh` is the intended home for the `gh` commands currently in
+`~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
+`tidy-user-notifications`). They already use the `gh:` prefix, so migrating one is a file move
+plus a manifest entry, with no command rename.
+
+Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
+arrays, no `wait -n` without a fallback.
+
 ## Rules and settings syncing (future)
 
 Not yet implemented. When added, this section should describe how `.claude/rules/` and

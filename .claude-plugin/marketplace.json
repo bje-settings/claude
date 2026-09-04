@@ -4,5 +4,12 @@
     "name": "Brian Espinosa",
     "email": "b@bje.co"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "gh",
+      "source": "./plugins/gh",
+      "description": "GitHub and git workflow commands. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed.",
+      "category": "development"
+    }
+  ]
 }
