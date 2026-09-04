@@ -45,6 +45,11 @@ Everything else composes on top:
 | `fixture_remote_break_lock` | Origin pushes an unparseable lock file, so the install fails for a real reason. |
 | `fixture_break_origin` | The remote exists but is unreachable, so fetch fails while the preflight still passes. |
 | `fixture_forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
+| `fixture_lock_index` | An index lock, which `git status` tolerates but ref-updating commands refuse, so a mid-run git failure can be provoked without corrupting anything. |
+| `fixture_many_prs` | Enough merged pull requests to hit the lookup limit, for the truncation notice. |
+
+`fixture_corrupt_index` resolves the real git dir rather than assuming `$work/.git` is a
+directory, because in a linked worktree it is a file.
 
 The distinction between the three merge builders is load-bearing. A fast-forward merge leaves the
 branch pointing at the same commit as the default branch, so the tip guard keeps it and the

@@ -103,11 +103,22 @@ Describe 'gh-sync-repo.sh edge paths'
     # PATH: a corepack shim for a Node version it does not support resolves fine
     # and then fails, which would surface as a confusing spec failure.
     install_unavailable() { ! pnpm --version >/dev/null 2>&1; }
+    npm_unavailable() { ! npm --version >/dev/null 2>&1; }
 
     It 'runs pnpm when the pull changed pnpm-lock.yaml'
       Skip if 'pnpm is unavailable or not working' install_unavailable
       fixture_js_project "$REPO" pnpm
       fixture_remote_update_lock "$REPO" pnpm
+      When run script "$SYNC_REPO" "$REPO"
+      The status should be success
+      The output should include 'dependencies installed'
+      The stderr should be defined
+    End
+
+    It 'runs npm when the project uses package-lock.json'
+      Skip if 'npm is unavailable' npm_unavailable
+      fixture_js_project "$REPO" npm
+      fixture_remote_update_lock "$REPO" npm
       When run script "$SYNC_REPO" "$REPO"
       The status should be success
       The output should include 'dependencies installed'
@@ -134,5 +145,103 @@ Describe 'gh-sync-repo.sh edge paths'
       The output should include 'install failed'
       The stderr should be defined
     End
+  End
+End
+
+Describe 'gh-sync-repo.sh failure branches'
+  BeforeEach 'setup_sandbox'
+  AfterEach 'cleanup_sandbox'
+
+  It 'offers to create the default branch when the checkout has never had it'
+    fixture_git "$REPO" checkout -q -b side
+    fixture_git "$REPO" branch -D main
+    When run script "$SYNC_REPO" --dry-run "$REPO"
+    The status should be success
+    The output should include 'would create main from origin/main'
+  End
+
+  It 'reports a fast-forward that git refuses'
+    # An index lock is tolerated by git status but refused by anything that
+    # updates refs, so the merge fails after the preflight has passed.
+    fixture_remote_advance "$REPO"
+    fixture_lock_index "$REPO"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'could not fast-forward main'
+  End
+
+  It 'uses ancestry alone when gh is not installed at all'
+    fixture_branch_with_work "$REPO" landed
+    fixture_merge_commit "$REPO" landed
+    # A PATH with no gh on it, as opposed to a gh that fails.
+    export PATH="/usr/bin:/bin"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'could not read merged pull requests'
+    The output should include 'deleted landed'
+  End
+
+  It 'says the pull-request list was truncated rather than blaming the branch'
+    fixture_many_prs "$GH_FIXTURE_PRS" 200
+    fixture_branch_with_work "$REPO" wip
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'PR list truncated at 200'
+  End
+
+  It 'keeps a branch whose worktree cannot be read'
+    fixture_branch_with_work "$REPO" wt
+    fixture_merge_commit "$REPO" wt
+    fixture_worktree "$REPO" "$SANDBOX/wt" wt
+    fixture_corrupt_index "$SANDBOX/wt"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'cannot read worktree'
+    The value "$(branches "$REPO")" should include wt
+  End
+
+  It 'keeps a branch when its worktree cannot be removed'
+    # An untracked file passes the cleanliness guard but makes git worktree
+    # remove refuse without --force, which this deliberately never passes.
+    fixture_branch_with_work "$REPO" wt
+    fixture_merge_commit "$REPO" wt
+    fixture_worktree "$REPO" "$SANDBOX/wt" wt
+    printf 'scratch\n' > "$SANDBOX/wt/notes.txt"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'could not remove worktree'
+    The value "$(branches "$REPO")" should include wt
+    The path "$SANDBOX/wt" should be exist
+  End
+
+  It 'describes a worktree removal in --dry-run without doing it'
+    fixture_branch_with_work "$REPO" wt
+    fixture_merge_commit "$REPO" wt
+    fixture_worktree "$REPO" "$SANDBOX/wt" wt
+    When run script "$SYNC_REPO" --dry-run "$REPO"
+    The status should be success
+    The output should include 'would remove worktree'
+    The path "$SANDBOX/wt" should be exist
+    The value "$(branches "$REPO")" should include wt
+  End
+End
+
+Describe 'a branch that cannot be deleted'
+  BeforeEach 'setup_sandbox'
+  AfterEach 'cleanup_sandbox'
+
+  It 'reports the branch it could not delete rather than claiming success'
+    # With main held by another worktree the sync cannot switch away, so it is
+    # still standing on the very branch it has proof to delete. git refuses,
+    # which is the right outcome; the report has to say so.
+    fixture_branch_with_work "$REPO" side
+    fixture_merge_commit "$REPO" side
+    fixture_git "$REPO" checkout -q side
+    fixture_worktree "$REPO" "$SANDBOX/wt-main" main
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'cannot switch to main'
+    The output should include 'could not delete side'
+    The value "$(branches "$REPO")" should include side
   End
 End

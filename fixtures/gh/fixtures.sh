@@ -117,8 +117,12 @@ fixture_dirty() { printf 'dirty\n' >> "${1}/${2:-file.txt}"; }
 # fixture_untracked <work> [file] — an untracked file, which must NOT block a sync
 fixture_untracked() { printf 'untracked\n' > "${1}/${2:-untracked.txt}"; }
 
-# fixture_corrupt_index <work> — git status then exits non-zero with empty stdout
-fixture_corrupt_index() { printf 'GARBAGE' > "$1/.git/index"; }
+# fixture_corrupt_index <work> — git status then exits non-zero with empty stdout.
+# Resolves the real git dir rather than assuming $work/.git is a directory, which
+# it is not in a linked worktree.
+fixture_corrupt_index() {
+  printf 'GARBAGE' > "$(fixture_git "$1" rev-parse --absolute-git-dir)/index"
+}
 
 # fixture_in_progress <work> <marker> — e.g. rebase-merge, MERGE_HEAD
 fixture_in_progress() {
@@ -170,6 +174,20 @@ fixture_remote_advance() {
 
 fixture_remove_origin() { fixture_git "$1" remote remove origin; }
 
+# fixture_lock_index <work> — an index lock, which git status tolerates but any
+# ref-updating command refuses. Lets a mid-run git failure be provoked without
+# corrupting anything.
+fixture_lock_index() { : > "$(fixture_git "$1" rev-parse --absolute-git-dir)/index.lock"; }
+
+# fixture_many_prs <file> <count> — enough merged pull requests to hit the lookup
+# limit, so the truncation notice can be exercised
+fixture_many_prs() {
+  local file="$1" count="$2"
+  jq -n --argjson n "$count" --arg base "$FIXTURE_DEFAULT_BRANCH" \
+    '[range($n) | {headRefName:("old-\(.)"), headRefOid:("\(.)"), baseRefName:$base,
+                   isCrossRepository:false, state:"MERGED"}]' > "$file"
+}
+
 # fixture_break_origin <work> — the remote still exists but is unreachable, so
 # fetch and set-head fail while the preflight still passes
 fixture_break_origin() { fixture_git "$1" remote set-url origin /nonexistent/gone.git; }
@@ -197,6 +215,10 @@ EOF
 
 # fixture_js_project <work> [pnpm|npm] — a package.json and lock file with no
 # dependencies, so the install succeeds offline and the real install path runs.
+#
+# Only pnpm and npm. Yarn 1 writes no lock file at all for a project with no
+# dependencies, and bun is not on the runners, so those two branches of
+# install_deps are exercised by neither this nor CI.
 # pnpm is the default because it is the house package manager and the branch
 # gh-sync-repo.sh checks first.
 #

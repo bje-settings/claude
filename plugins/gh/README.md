@@ -83,6 +83,10 @@ check and, if there is anything worth acting on, asks whether to run `/gh:sync`.
   purely local and does not hit the network.
 - Otherwise it stays silent.
 
+JSON on both ends (reading the payload, writing the response) is handled by `hooks/hook-io.py`,
+which also holds the message text. Doing that inline with `python3 -c` buried it in quoted
+heredocs inside the shell, where it could not be linted or tested.
+
 The hook never changes a branch, worktree, or working tree, and always exits 0, so it cannot
 block a session from starting or surprise you with a change you did not ask for. In fan-out mode
 it does fetch, which updates remote-tracking refs, and that is one network round trip per
@@ -119,6 +123,12 @@ spec/run.sh --quick      # the suite once, under the default shell
 
 The suite runs under both shells deliberately: bash 5 is what most contributors have on `PATH`,
 but `/bin/bash` is 3.2 on macOS and is what actually executes these scripts.
+
+CI adds a coverage job (`kcov`, measured over `plugins/gh` only) which fails below 95%. Four
+branches of `install_deps` are knowingly uncovered: yarn 1 writes no lock file for a project with
+no dependencies, and bun is not on the runners, so neither can be exercised offline. A handful of
+defensive branches are also uncovered because they guard states that cannot be provoked, such as
+a ref that resolves during enumeration and fails immediately after.
 
 Covered in particular: every path that can delete something (each merge signal, a reused branch
 name, a fork's pull request, a pull request merged into another base, worktrees clean and dirty),

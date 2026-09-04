@@ -42,6 +42,18 @@ assert isinstance(h["additionalContext"], str) and h["additionalContext"].strip(
       The status should be success
     End
 
+    It 'falls back to a local main when origin/HEAD is not cached'
+      # A fresh clone of a repo whose origin/HEAD was never fetched still needs
+      # an answer, and asking the remote would mean going to the network.
+      fixture_forget_origin_head "$REPO"
+      fixture_git "$REPO" checkout -q -b side
+      Data "$(payload "$REPO")"
+      When run script "$HOOK"
+      The status should be success
+      The output should include 'side'
+      The output should include 'main'
+    End
+
     It 'does not reach the network for the in-repo check'
       # Proven by breaking the remote: a fetch would fail and change the report.
       fixture_git "$REPO" checkout -q -b side

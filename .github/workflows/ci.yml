@@ -79,3 +79,60 @@ jobs:
       # git config is needed here.
       - name: Run specs
         run: shellspec ${{ matrix.shellspec_args }}
+
+  coverage:
+    name: coverage
+    # ubuntu-22.04, not ubuntu-latest, because of kcov. kcov is the coverage tool
+    # shellspec integrates with directly (--kcov); the obvious alternative,
+    # bashcov, forces xtrace globally and stops shellspec running any examples at
+    # all. kcov 38 from this image's archive works. It is absent from the 24.04
+    # archive that ubuntu-latest now uses, and upstream's own kcov/kcov:v42 image
+    # carries a newer build that breaks shellspec: the same suite reports 51
+    # failures under it and none under kcov 38. So this pins the runner rather
+    # than the container. When 22.04 is retired, re-test a newer kcov before
+    # moving; do not silently switch images.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      code-quality: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kcov
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq kcov
+          kcov --version
+
+      # The install specs need a real package manager. pnpm is the one these
+      # repos use and the branch gh-sync-repo.sh checks first.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install shellspec
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/shellspec.tar.gz \
+            "https://github.com/shellspec/shellspec/releases/download/${SHELLSPEC_VERSION}/shellspec-dist.tar.gz"
+          sudo mkdir -p /opt/shellspec
+          sudo tar xzf /tmp/shellspec.tar.gz -C /opt/shellspec --strip-components=1
+          sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
+
+      # Coverage is measured for the plugin only. Specs and fixtures are test
+      # code: counting them would inflate the number without saying anything
+      # about how well the plugin is tested.
+      #
+      # --fail-low-coverage makes this job fail here, with the per-file numbers
+      # in the log, rather than leaving a drop to be discovered later as a
+      # blocked pull request.
+      - name: Run specs under kcov
+        run: |
+          shellspec --kcov --covdir coverage --fail-low-coverage \
+            --kcov-options "--include-path=./plugins/gh --path-strip-level=1 --limits=95,100"
+
+      - uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage/cobertura.xml
+          language: Shell
+          label: code-coverage/kcov

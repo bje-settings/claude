@@ -30,6 +30,11 @@ arrays, no `wait -n` without a fallback.
 Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
 with `spec/run.sh`, which lints and then runs the suite under both bash 5 and bash 3.2.
 
+CI runs shellcheck, the suite on both shells, and a coverage job that fails below 95%, which is
+the enterprise Code Coverage ruleset's threshold. Coverage uses `kcov`, pinned to `ubuntu-22.04`:
+newer kcov builds break shellspec, and the alternative, bashcov, prevents shellspec running at
+all. Re-test before changing either.
+
 Any script that can delete or overwrite something needs a spec proving both that it acts when it
 should and that it refuses when it should. Assert against real repositories built by the fixtures
 rather than mocking git; see `fixtures/gh/README.md`. When a fixture makes a claim about the state
