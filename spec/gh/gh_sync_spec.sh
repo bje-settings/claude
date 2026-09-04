@@ -24,6 +24,20 @@ Describe 'gh-sync.sh'
       The stderr should include 'unknown flag'
     End
 
+    It 'accepts the attached -j4 form as well as -j 4'
+      fixture_create_at "$SANDBOX/fan" a >/dev/null
+      When run script "$SYNC" --dry-run -j2 "$SANDBOX/fan"
+      The status should be success
+      The output should include '(1 repos)'
+    End
+
+    It 'prints usage for --help without leaking code'
+      When run script "$SYNC" --help
+      The status should be success
+      The output should include 'Usage:'
+      The output should not include 'set -uo pipefail'
+    End
+
     It 'rejects a target that is not a directory'
       When run script "$SYNC" "$SANDBOX/nothing-here"
       The status should equal 2
@@ -95,6 +109,25 @@ Describe 'gh-sync.sh'
       When run script "$SANDBOX/fake/gh-sync.sh" "$SANDBOX/fan"
       The status should be success
       The output should include 'exited with status 7'
+    End
+  End
+
+  Describe 'wiring' 
+    It 'refuses to run when the per-repo script is missing'
+      mkdir -p "$SANDBOX/lonely"
+      cp "$SYNC" "$SANDBOX/lonely/gh-sync.sh"
+      When run script "$SANDBOX/lonely/gh-sync.sh" "$SANDBOX"
+      The status should equal 2
+      The stderr should include 'missing'
+    End
+
+    It 'throttles to the requested number of jobs'
+      fixture_create_at "$SANDBOX/fan" a >/dev/null
+      fixture_create_at "$SANDBOX/fan" b >/dev/null
+      fixture_create_at "$SANDBOX/fan" c >/dev/null
+      When run script "$SYNC" --dry-run -j 1 "$SANDBOX/fan"
+      The status should be success
+      The output should match pattern "*a*b*c*"
     End
   End
 

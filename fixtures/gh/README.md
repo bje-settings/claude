@@ -40,6 +40,11 @@ Everything else composes on top:
 | `fixture_diverge` | A local commit and an origin commit, so the default branch cannot fast-forward. |
 | `fixture_remote_advance` | Origin gains a commit the clone lacks, optionally touching a lock file. |
 | `fixture_lockfile` | A committed lock file, for the install-detection specs. |
+| `fixture_js_project` | A `package.json` plus lock file with no dependencies, so a real install succeeds offline. Defaults to pnpm, the package manager these repos use and the branch the script checks first. |
+| `fixture_remote_update_lock` | Origin regenerates the lock file legitimately. Appending to a lock file would corrupt it, so this perturbs something the lock actually records. |
+| `fixture_remote_break_lock` | Origin pushes an unparseable lock file, so the install fails for a real reason. |
+| `fixture_break_origin` | The remote exists but is unreachable, so fetch fails while the preflight still passes. |
+| `fixture_forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
 
 The distinction between the three merge builders is load-bearing. A fast-forward merge leaves the
 branch pointing at the same commit as the default branch, so the tip guard keeps it and the

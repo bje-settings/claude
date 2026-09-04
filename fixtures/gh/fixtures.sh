@@ -170,6 +170,118 @@ fixture_remote_advance() {
 
 fixture_remove_origin() { fixture_git "$1" remote remove origin; }
 
+# fixture_break_origin <work> — the remote still exists but is unreachable, so
+# fetch and set-head fail while the preflight still passes
+fixture_break_origin() { fixture_git "$1" remote set-url origin /nonexistent/gone.git; }
+
+# fixture_forget_origin_head <work> — drop the cached origin/HEAD, forcing the
+# default-branch resolution to fall through to its later strategies
+# origin/HEAD is a SYMBOLIC ref, so update-ref -d leaves it resolvable. It has to
+# be deleted as a symref or the resolution never falls through.
+fixture_forget_origin_head() {
+  fixture_git "$1" symbolic-ref --delete refs/remotes/origin/HEAD 2>/dev/null
+  return 0
+}
+
+# fixture_drop_remote_branches <work> — remove every remote-tracking branch, so
+# no default branch can be resolved at all
+fixture_drop_remote_branches() {
+  local w="$1" ref
+  while IFS= read -r ref; do
+    [ -n "$ref" ] && fixture_git "$w" update-ref -d "$ref"
+  done <<EOF
+$(fixture_git "$w" for-each-ref --format='%(refname)' refs/remotes/origin/)
+EOF
+  return 0
+}
+
+# fixture_js_project <work> [pnpm|npm] — a package.json and lock file with no
+# dependencies, so the install succeeds offline and the real install path runs.
+# pnpm is the default because it is the house package manager and the branch
+# gh-sync-repo.sh checks first.
+#
+# The developer's own ~/.npmrc is kept out of it: it may reference registries or
+# auth tokens that are unavailable, which would make an offline install fail for
+# reasons that have nothing to do with the code under test.
+fixture_js_project() {
+  local w="$1" mgr="${2:-pnpm}"
+  printf '{"name":"fixture","version":"1.0.0"}\n' > "$w/package.json"
+  (
+    cd "$w" || exit 1
+    export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
+    case "$mgr" in
+      pnpm) pnpm install --lockfile-only --silent ;;
+      npm)  npm install --package-lock-only --silent ;;
+    esac
+  ) >/dev/null 2>&1
+  fixture_git "$w" add -A
+  fixture_git "$w" commit -qm "add $mgr project"
+  fixture_push "$w"
+}
+
+# fixture_lockfile_name <manager>
+fixture_lockfile_name() {
+  case "$1" in
+    pnpm) printf 'pnpm-lock.yaml\n' ;;
+    npm)  printf 'package-lock.json\n' ;;
+  esac
+}
+
+# fixture_remote_update_lock <work> [pnpm|npm] — origin legitimately regenerates
+# the lock file, so the sync sees a real lock change and a VALID file to install
+# from. Appending to a lock file, as fixture_remote_advance would, corrupts it.
+fixture_remote_update_lock() {
+  local w="$1" mgr="${2:-pnpm}" origin scratch
+  origin="$(fixture_git "$w" remote get-url origin)"
+  scratch="$(mktemp -d)"
+  git clone -q "$origin" "$scratch/c" 2>/dev/null
+  (
+    cd "$scratch/c" || exit 1
+    export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
+    # A version bump leaves a dependency-free pnpm lock byte-identical, so
+    # perturb something the lock actually records. An override for a package
+    # that is never depended on changes the file without needing the network.
+    jq '.version = "1.0.1" | .pnpm = {"overrides":{"left-pad":"1.3.0"}}' \
+      package.json > package.json.tmp && mv package.json.tmp package.json
+    case "$mgr" in
+      pnpm) pnpm install --lockfile-only --silent ;;
+      npm)  npm install --package-lock-only --silent ;;
+    esac
+  ) >/dev/null 2>&1
+  fixture_git "$scratch/c" add -A
+  fixture_git "$scratch/c" commit -qm 'regenerate lock file'
+  fixture_push "$scratch/c"
+  rm -rf "$scratch"
+}
+
+# fixture_remote_break_lock <work> [lock] — origin pushes a lock file that cannot
+# be parsed, so the install fails for a real, reportable reason
+fixture_remote_break_lock() {
+  local w="$1" lock="${2:-pnpm-lock.yaml}" origin scratch
+  origin="$(fixture_git "$w" remote get-url origin)"
+  scratch="$(mktemp -d)"
+  git clone -q "$origin" "$scratch/c" 2>/dev/null
+  printf 'not: [valid\n' > "$scratch/c/$lock"
+  fixture_git "$scratch/c" add -A
+  fixture_git "$scratch/c" commit -qm 'break the lock file'
+  fixture_push "$scratch/c"
+  rm -rf "$scratch"
+}
+
+# fixture_remote_drop_lockfile <work> — origin deletes the lock file, so the range
+# shows a lock change but nothing is left to install
+fixture_remote_drop_lockfile() {
+  local w="$1" lock="${2:-pnpm-lock.yaml}" origin scratch
+  origin="$(fixture_git "$w" remote get-url origin)"
+  scratch="$(mktemp -d)"
+  git clone -q "$origin" "$scratch/c" 2>/dev/null
+  rm -f "$scratch/c/$lock"
+  fixture_git "$scratch/c" add -A
+  fixture_git "$scratch/c" commit -qm 'drop lock file'
+  fixture_push "$scratch/c"
+  rm -rf "$scratch"
+}
+
 # fixture_sha <work> <rev>
 fixture_sha() { fixture_git "$1" rev-parse "$2"; }
 
