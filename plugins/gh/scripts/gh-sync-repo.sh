@@ -95,13 +95,6 @@ DEFAULT="$(resolve_default_branch)" || skip "cannot determine the default branch
 
 LOCKFILES=(pnpm-lock.yaml yarn.lock package-lock.json bun.lockb)
 
-lock_fingerprint() {
-  local f
-  for f in "${LOCKFILES[@]}"; do
-    [[ -f "$f" ]] && printf '%s:%s ' "$f" "$(shasum -a 256 "$f" | cut -d' ' -f1)"
-  done
-}
-
 install_deps() {
   if [[ -f pnpm-lock.yaml ]]; then
     pnpm install --frozen-lockfile
@@ -127,7 +120,6 @@ if ! git fetch --prune origin >/dev/null 2>&1; then
   exit 0
 fi
 
-LOCKS_BEFORE="$(lock_fingerprint)"
 CURRENT="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 CAN_ADVANCE=1
 
@@ -155,14 +147,17 @@ if ((CAN_ADVANCE)); then
     # Always compare the default branch itself, never HEAD: in --dry-run we have
     # not switched, so HEAD is still whatever branch the user was sitting on.
     BEFORE="$(git rev-parse --short "$DEFAULT")"
+    ADVANCED_FROM=""
     if [[ "$BEFORE" == "$TARGET" ]]; then
       note "$DEFAULT already up to date ($BEFORE)"
     elif ! git merge-base --is-ancestor "$DEFAULT" "origin/$DEFAULT" 2>/dev/null; then
       bad "$DEFAULT has diverged from origin/$DEFAULT; needs a manual merge"
     elif ((DRY_RUN)); then
       note "would fast-forward $DEFAULT $BEFORE..$TARGET"
+      ADVANCED_FROM="$BEFORE"
     elif git merge --ff-only "origin/$DEFAULT" >/dev/null 2>&1; then
       ok "fast-forwarded $DEFAULT $BEFORE..$TARGET"
+      ADVANCED_FROM="$BEFORE"
     else
       bad "could not fast-forward $DEFAULT"
     fi
@@ -171,11 +166,12 @@ fi
 
 # ----------------------------------------------------------------- install ---
 
-if ((CAN_ADVANCE)) && ((!NO_INSTALL)); then
-  LOCKS_AFTER="$(lock_fingerprint)"
-  if [[ "$LOCKS_BEFORE" != "$LOCKS_AFTER" ]]; then
+if ((CAN_ADVANCE)) && ((!NO_INSTALL)) && [[ -n "${ADVANCED_FROM:-}" ]]; then
+  # Diff the range the branch moved over rather than hashing files on disk, so
+  # --dry-run can answer this without having merged anything.
+  if [[ -n "$(git diff --name-only "$ADVANCED_FROM" "$TARGET" -- "${LOCKFILES[@]}" 2>/dev/null)" ]]; then
     if ((DRY_RUN)); then
-      note "lock file would change; would run install"
+      note "lock file changed in that range; would run install"
     elif install_deps >/dev/null 2>&1; then
       ok "lock file changed; dependencies installed"
     else
