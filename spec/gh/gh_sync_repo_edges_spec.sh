@@ -211,6 +211,11 @@ Describe 'gh-sync-repo.sh failure branches'
     # Found in the field: a repo with more merged pull requests than the bulk
     # limit drops the oldest, and branches merged before that window looked
     # unproven and were kept forever. The per-branch query closes it.
+    #
+    # Real gh returns newest-first, so the limit drops the OLDEST. The stub keeps
+    # the first N after filtering, and fixture_many_prs appends, so the appended
+    # pull request stands in for the dropped-oldest one. The mechanism under test
+    # is the same; only the ordering that produces it differs.
     fixture_branch_with_work "$REPO" landed
     sha="$(fixture_sha "$REPO" landed)"
     fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr landed "$sha")"
@@ -219,6 +224,38 @@ Describe 'gh-sync-repo.sh failure branches'
     The output should include 'deleted landed'
     The output should include 'merged PR'
     The value "$(branches "$REPO")" should not include landed
+  End
+
+  It 'does not ask about a branch the bulk lookup already proved'
+    # Guards the call volume: the per-branch query is a fallback, not a second
+    # opinion. If it were called unconditionally, a repo with many branches would
+    # make an API call for each, which is what makes rate limiting likely.
+    fixture_branch_with_work "$REPO" landed
+    sha="$(fixture_sha "$REPO" landed)"
+    # 199 fillers + landed + one more: saturated, with landed inside the window.
+    fixture_many_prs "$GH_FIXTURE_PRS" 199 "$(fixture_pr landed "$sha")" "$(fixture_pr spare zzz)"
+    export GH_FIXTURE_CALL_LOG="$SANDBOX/calls.log"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'deleted landed'
+    The value "$(grep -c -- '--head' "$SANDBOX/calls.log" || true)" should equal 0
+  End
+
+  It 'stops asking after the first failure, and says the run was incomplete'
+    # A failing lookup is very unlikely to be branch-specific, and a rate limit
+    # only gets worse if we keep asking.
+    fixture_branch_with_work "$REPO" first
+    fixture_branch_with_work "$REPO" second
+    fixture_many_prs "$GH_FIXTURE_PRS" 200
+    export GH_FIXTURE_FAIL_HEAD=1
+    export GH_FIXTURE_CALL_LOG="$SANDBOX/calls.log"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'kept first (could not ask about this branch'
+    The output should include 'kept second (could not ask about this branch'
+    The output should include '2 branch(es) were never checked'
+    # One attempt, not one per branch.
+    The value "$(grep -c -- '--head' "$SANDBOX/calls.log" || true)" should equal 1
   End
 
   It 'says it could not check when the per-branch query fails'

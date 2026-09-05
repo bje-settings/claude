@@ -82,6 +82,7 @@ Controlled by three environment variables:
 | `GH_FIXTURE_PRS` | Path to a JSON array of pull requests. Write it with `fixture_prs`. |
 | `GH_FIXTURE_FAIL` | Non-empty makes every call exit non-zero, exercising the degraded path. |
 | `GH_FIXTURE_FAIL_HEAD` | Non-empty fails only `--head` calls, so a bulk lookup can succeed while the per-branch one does not. |
+| `GH_FIXTURE_CALL_LOG` | If set, every invocation appends its arguments to this file, so a spec can assert how many calls were made and of what shape. |
 | `GH_FIXTURE_DEFAULT` | Default branch reported by `gh repo view`. |
 
 Build the pull-request set with the helpers, which take the head ref name, the head commit, and

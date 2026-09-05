@@ -254,6 +254,8 @@ else
   PR_LOOKUP_OK=0
 fi
 PR_OWN=""
+PR_FALLBACK_OFF=0
+PR_UNCHECKED=0
 if ((PR_LOOKUP_OK)); then
   pr_count="$(printf '%s' "$PR_PAIRS" | grep -c . 2>/dev/null)" || pr_count=0
   ((pr_count >= PR_LIMIT)) && PR_BULK_SATURATED=1
@@ -297,7 +299,12 @@ pr_proof_for_branch() {
   pairs="$(gh pr list --state merged --base "$DEFAULT" --head "$1" \
       --limit "$PR_BRANCH_LIMIT" \
       --json headRefName,headRefOid,isCrossRepository --jq "$PR_JQ" 2>/dev/null)" \
-    || { PR_BRANCH_STATE=error; return 1; }
+    || {
+      # Only downgrade to "unknown" if the bulk list established nothing. A
+      # "moved" from the bulk list is still a fact this failure does not undo.
+      [ "$PR_BRANCH_STATE" = none ] && PR_BRANCH_STATE=error
+      return 1
+    }
   own="$(own_rows "$pairs")"
   if [ -n "$own" ] && in_list "false$TAB$1$TAB$2" "$own"; then
     PR_BRANCH_STATE=match
@@ -385,8 +392,17 @@ while IFS= read -r branch; do
     # Only worth asking when the bulk window filled up: an unsaturated window
     # already listed every merged pull request, so a second call cannot find one
     # it missed, and asking anyway would be an API call per branch.
-    if ((PR_LOOKUP_OK)) && ((PR_BULK_SATURATED)) && pr_proof_for_branch "$branch" "$sha"; then
-      proof="merged PR"
+    if ((PR_LOOKUP_OK)) && ((PR_BULK_SATURATED)); then
+      if ((PR_FALLBACK_OFF)); then
+        # A previous branch's query already failed. Whatever is wrong is very
+        # unlikely to be branch-specific, and a rate limit only gets worse if we
+        # keep asking, so stop calling and say these were never checked.
+        [[ "$PR_BRANCH_STATE" == none ]] && PR_BRANCH_STATE=error
+      elif pr_proof_for_branch "$branch" "$sha"; then
+        proof="merged PR"
+      elif [[ "$PR_BRANCH_STATE" == error ]]; then
+        PR_FALLBACK_OFF=1
+      fi
     fi
   fi
 
@@ -397,6 +413,7 @@ while IFS= read -r branch; do
       crowded)
         note "kept $branch (too many merged PRs used this name to tell)" ;;
       error)
+        PR_UNCHECKED=$((PR_UNCHECKED + 1))
         bad "kept $branch (could not ask about this branch; unproven, not disproven)" ;;
       *)
         note "kept $branch (no merge proof)" ;;
@@ -452,6 +469,8 @@ while IFS= read -r branch; do
     bad "could not delete $branch"
   fi
 done <<< "$BRANCHES"
+
+((PR_UNCHECKED)) && bad "$PR_UNCHECKED branch(es) were never checked against pull requests; this run is incomplete"
 
 ((DRY_RUN)) || git worktree prune >/dev/null 2>&1
 

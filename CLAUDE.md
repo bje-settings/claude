@@ -65,15 +65,23 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
 - Plugin state lives under `${CLAUDE_PLUGIN_DATA}`. `${CLAUDE_PLUGIN_ROOT}` changes on update.
 
+### Skills
+
+Every skill directory carries a `FLOW.md` beside its `SKILL.md`, holding a mermaid flow diagram.
+The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforced by
+`spec/skills_spec.sh` across all plugins; see `.claude/rules/file-skill-md.md`.
+
 ### Tests
 
 Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
 with `spec/run.sh`, which lints and then runs the suite under both bash 5 and bash 3.2.
 
 CI runs shellcheck, the suite on both shells, and a coverage job that fails below 95%, which is
-the enterprise Code Coverage ruleset's threshold. Coverage uses `kcov`, pinned to `ubuntu-22.04`:
-newer kcov builds break shellspec, and the alternative, bashcov, prevents shellspec running at
-all. Re-test before changing either.
+the enterprise Code Coverage ruleset's threshold. That number does not mean "tested" where the
+logic lives inside a `jq` program; see `.claude/rules/type-sh.md`.
+
+Coverage uses `kcov`, pinned to `ubuntu-22.04`: newer kcov builds break shellspec, and the
+alternative, bashcov, prevents shellspec running at all. Re-test before changing either.
 
 The threshold is enforced by `spec/coverage-check.py`, not shellspec's `--fail-low-coverage`,
 which reports a failure at any coverage level once enabled. Reproduce a CI coverage run with
