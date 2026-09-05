@@ -105,7 +105,8 @@ If `ws-pr-status.sh` fails, the worker reported a PR that does not exist: set th
   - `checks: none`: the same as pending the first time, since workflows may not have queued yet;
     `done` if it is still `none` on the following tick.
   - `checks: fail`: set status `paused` with the question
-    `CI is failing on PR #N after review; decide whether to fix, retry, or drop the stream`.
+    `CI is failing on PR #N after review (<failing>); decide whether to fix, retry, or drop the stream`,
+    where `<failing>` is the `failing` list from the status output.
 
 For a stack, review the layers bottom-up and do not start the review of a layer until the layer
 below it is `done`; a change applied below changes what the layer above rebases onto.

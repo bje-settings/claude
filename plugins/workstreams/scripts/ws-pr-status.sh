@@ -10,13 +10,15 @@
 #     "base": "main", "head": "wktr-12-thing", "headSha": "...",
 #     "mergeable": "MERGEABLE|CONFLICTING|UNKNOWN",
 #     "checks": "pass|fail|pending|none",
+#     "failing": ["lint"],
 #     "reviewDecision": "APPROVED|CHANGES_REQUESTED|REVIEW_REQUIRED|"
 #   }
 #
 # checks folds the status rollup (see lib/pr-status.jq): fail if any check failed,
 # failed to start, errored, timed out, was cancelled, went stale, or needs action;
 # pending if none failed but any is still running or has no conclusion; pass if
-# every check succeeded, was neutral, or skipped; none if there are none.
+# every check succeeded, was neutral, or skipped; none if there are none. failing
+# names the checks that failed (a CheckRun's name or a StatusContext's context).
 #
 # Exit 0 on success, 1 when gh or jq fails or the PR does not exist, 2 on usage.
 # Written for bash 3.2.
@@ -25,7 +27,7 @@ set -uo pipefail
 
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 
-usage() { sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die()   { printf 'ws-pr-status.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 case "${1:-}" in

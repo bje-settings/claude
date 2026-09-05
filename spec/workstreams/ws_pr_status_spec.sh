@@ -38,6 +38,21 @@ Describe 'ws-pr-status.sh'
     The result of function m13 should equal '["UNKNOWN","APPROVED",false]'
   End
 
+  failing11() { "$WS_PR_STATUS" 11 | jq -c '.failing'; }
+  It 'names the failing checks by CheckRun name or StatusContext context'
+    jq '.[] |= (if .number == 11 then .statusCheckRollup += [{"__typename": "StatusContext", "context": "coverage/kcov", "state": "FAILURE"}] else . end)' \
+      "$WS_GH_FIXTURE_DIR/prs.json" > "$WS_GH_FIXTURE_DIR/prs.new" && mv "$WS_GH_FIXTURE_DIR/prs.new" "$WS_GH_FIXTURE_DIR/prs.json"
+    When run script "$WS_PR_STATUS" 11
+    The status should be success
+    The result of function failing11 should equal '["lint","coverage/kcov"]'
+  End
+
+  It 'reports no failing checks on a passing PR'
+    When run script "$WS_PR_STATUS" 10
+    The status should be success
+    The output should include '"failing": []'
+  End
+
   It 'accepts a url'
     When run script "$WS_PR_STATUS" https://example.invalid/p/14
     The status should be success
