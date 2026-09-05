@@ -25,6 +25,23 @@ New `gh` commands belong in the `gh` plugin, which is the intended home for the 
 Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
 arrays, no `wait -n` without a fallback.
 
+### Plugin design
+
+Every plugin should be as efficient as possible. Not everything should be a skill, a command, a
+workflow, or a hook. Pick the mechanism that fits the job. If a plugin evolves far enough that the
+right mechanism changes, raise it during planning or review rather than leaving the original
+choice in place.
+
+Not everything should run through an agent or need model context. Anything deterministic enough
+belongs in a script: it is more consistent, cheaper, and testable, and it lets a smaller model
+handle the parts that still need one. Split work so a script does the deterministic part and
+emits structured output, and an agent makes decisions based on that output.
+
+Testing is critical for anything built here, and scripts are what make determinism provable.
+Build fixtures from real use cases seen in field tests wherever possible. Do not leak specifics
+from field tests on repos outside the `bje` enterprise into this repo; reconstruct the shape of
+the case instead.
+
 ### Tests
 
 Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
