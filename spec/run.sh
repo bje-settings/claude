@@ -12,6 +12,11 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
+# Run as CI does. Package managers change behaviour when CI is set: Yarn Berry
+# turns on immutable installs, which forbids creating the lock file a fixture
+# exists to write. Without this, that failure only appears after a push.
+export CI="${CI:-true}"
+
 fail=0
 run() { printf '\n\033[1m== %s\033[0m\n' "$1"; shift; "$@" || fail=1; }
 

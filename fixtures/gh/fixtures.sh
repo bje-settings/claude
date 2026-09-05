@@ -284,7 +284,11 @@ _fixture_install() {
       export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
       case "$mgr" in
         (pnpm) pnpm install --lockfile-only --silent ;;
-        (yarn) yarn install ;;
+        # --no-immutable because Yarn Berry turns immutable installs on by
+        # itself whenever CI is set, and an immutable install refuses to create
+        # the lock file this fixture exists to write (YN0028). The code under
+        # test still runs a plain --immutable install; only the fixture opts out.
+        (yarn) yarn install --no-immutable ;;
         (npm)  npm install --package-lock-only --silent ;;
       esac
     } 2>&1

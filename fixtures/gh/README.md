@@ -57,6 +57,12 @@ ancestry path is never reached. `spec/gh/fixtures_spec.sh` asserts each of these
 so a fixture that quietly stopped producing its state cannot make the other specs pass for the
 wrong reason.
 
+Package managers change behaviour when `CI` is set, and the fixtures have to opt out of it.
+Yarn Berry enables immutable installs on its own under CI, which forbids creating a lock file
+(`YN0028`) and so breaks the very fixture whose job is to write one; it is run with
+`--no-immutable`. The code under test still performs a plain `--immutable` install. `spec/run.sh`
+exports `CI=true` for this reason, so a local run exercises the same behaviour the runner does.
+
 Do not perturb manager-specific metadata to force a lock change. An override for a package
 nothing depends on moved the lock under pnpm 10 and was dropped by pnpm 11, so the install spec
 passed locally and failed in CI. A real dependency is recorded by every version of every manager.
