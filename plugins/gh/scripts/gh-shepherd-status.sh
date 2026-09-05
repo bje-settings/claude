@@ -66,35 +66,8 @@ prs="$(gh pr list --repo "$REPO" --state open --label dependencies --limit 100 \
 # judging health. No runs at all (a repo without Actions) falls back to 300 s.
 runs="$(gh run list --repo "$REPO" --branch "$DEFAULT" --status completed --limit 20 \
   --json createdAt,updatedAt 2>/dev/null)" || runs='[]'
-ci_seconds="$(printf '%s' "$runs" | jq -r '
-  [ .[] | select(.createdAt != null and .updatedAt != null)
-        | ((.updatedAt | fromdateiso8601) - (.createdAt | fromdateiso8601))
-        | select(. > 0) ]
-  | if length == 0 then 300
-    else sort | .[length / 2 | floor] end' 2>/dev/null)"
+ci_seconds="$(printf '%s' "$runs" | shepherd_jq -r -f "$HERE/lib/ci-seconds.jq" 2>/dev/null)"
 [[ "$ci_seconds" =~ ^[0-9]+$ ]] || ci_seconds=300
 
-printf '%s' "$prs" | jq \
-  --arg repo "$REPO" --arg default "$DEFAULT" --argjson ci "$ci_seconds" \
-  "$SHEPHERD_JQ_LIB"'
-  def rank:
-    (.labels | map(.name) | map(select(startswith("merge-risk:"))) | first // "")
-    | if . == "merge-risk:low" then 0
-      elif . == "" then 1
-      elif . == "merge-risk:medium" then 2
-      elif . == "merge-risk:high" then 3
-      else 4 end;
-  map(select(.isDraft | not)) as $open
-  | {
-      repo: $repo,
-      default_branch: $default,
-      ci_seconds: $ci,
-      targets: ($open
-        | map(select(.autoMergeRequest != null))
-        | sort_by([rank, .createdAt])
-        | map(summary)),
-      skipped_no_automerge: ($open
-        | map(select(.autoMergeRequest == null))
-        | sort_by(.createdAt)
-        | map({number, title, author: .author.login}))
-    }'
+printf '%s' "$prs" | shepherd_jq -f "$HERE/lib/shepherd-status.jq" \
+  --arg repo "$REPO" --arg default "$DEFAULT" --argjson ci "$ci_seconds"

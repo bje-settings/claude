@@ -121,12 +121,13 @@ case "$cmd $sub" in
     # Emulate the server-side filtering, then the field projection that --json
     # does, then hand the result to the caller's --jq expression.
     printf '%s' "$payload" | jq \
-      --arg state "$state" --arg base "$base" --arg head "$head" --arg label "$label" \
+      --arg state "$state" --arg base "$base" --arg head "$head" --arg lbl "$label" \
       --argjson limit "$limit" --arg fields "$fields" '
       map(select($state == "" or (.state // "MERGED") == ($state | ascii_upcase)))
       | map(select($base == "" or .baseRefName == $base))
       | map(select($head == "" or .headRefName == $head))
-      | map(select($label == "" or ((.labels // []) | map(.name) | index($label)) != null))
+      | # $lbl, not $label: "label" is a reserved word in jq 1.6.
+      map(select($lbl == "" or ((.labels // []) | map(.name) | index($lbl)) != null))
       | .[0:$limit]
       | '"$project" | jq -r "$jq_expr"
     ;;

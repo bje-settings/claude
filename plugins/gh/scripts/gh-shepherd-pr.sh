@@ -97,7 +97,7 @@ emit() {
 # The pull request as `summary` shapes it, or nothing if gh cannot answer.
 read_pr() {
   gh pr view "$NUMBER" --repo "$REPO" --json "$SHEPHERD_PR_FIELDS" 2>/dev/null \
-    | jq -c "$SHEPHERD_JQ_LIB summary" 2>/dev/null
+    | shepherd_jq -c 'include "shepherd"; summary' 2>/dev/null
 }
 
 field() { printf '%s' "$1" | jq -r "$2"; }
