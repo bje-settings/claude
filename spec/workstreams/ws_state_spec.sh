@@ -1,10 +1,16 @@
 # shellcheck shell=bash
+# Every example runs the script through `When run script` so kcov traces it; the
+# helper functions only read the resulting state file back.
 Describe 'ws-state.sh'
   BeforeEach 'setup_ws_sandbox'
   AfterEach 'cleanup_ws_sandbox'
 
   STATE_FILE() { printf '%s/bje-settings__example.json' "$WS_STATE_DIR"; }
-  add_s1() { "$WS_STATE" add-stream s1 --issues 1,3 --kind stack --model sonnet --effort low --reason 'mechanical' "$@"; }
+  add_s1() { "$WS_STATE" add-stream s1 --issues 1,3 --kind stack --stack parser --order 1 --model sonnet --effort low --reason 'mechanical' "$@"; }
+  field() { jq -c ".streams[0].$1" "$(STATE_FILE)"; }
+  s1() { jq -c '.streams[0]' "$(STATE_FILE)"; }
+  count() { jq '.streams | length' "$(STATE_FILE)"; }
+  snapshot() { cat "$(STATE_FILE)"; }
 
   Describe 'location'
     It 'derives the path from gh repo view under the state dir'
@@ -35,11 +41,12 @@ Describe 'ws-state.sh'
       The output should equal "$WS_STATE_DIR/acme__widgets.json"
     End
 
-    It 'fails when gh cannot resolve the repository'
+    It 'reports the gh error when the repository cannot be resolved'
       export WS_GH_FIXTURE_FAIL=1
       When run script "$WS_STATE" path
       The status should equal 1
-      The stderr should include 'cannot resolve the repository'
+      The stderr should include 'cannot resolve the repository (gh: simulated failure)'
+      The stderr should include 'set WS_REPO'
     End
 
     It 'rejects a repo that is not owner/name'
@@ -59,14 +66,14 @@ Describe 'ws-state.sh'
       The result of function shape should equal 'bje-settings/example 1 0 0'
     End
 
-    count() { jq '.streams | length' "$(STATE_FILE)"; }
-    It 'refuses to overwrite an existing plan'
+    It 'refuses to overwrite an existing plan and leaves it untouched'
       "$WS_STATE" init >/dev/null
       add_s1 >/dev/null
+      before="$(snapshot)"
       When run script "$WS_STATE" init
       The status should equal 3
       The stderr should include 'pass --force'
-      The result of function count should equal '1'
+      The result of function snapshot should equal "$before"
     End
 
     It 'starts over with --force'
@@ -83,14 +90,46 @@ Describe 'ws-state.sh'
       The output should equal "$WS_STATE_DIR/acme__widgets.json"
     End
 
+    It 'honours WS_REPO like every other command'
+      export WS_REPO=acme/widgets
+      When run script "$WS_STATE" init
+      The status should be success
+      The output should equal "$WS_STATE_DIR/acme__widgets.json"
+    End
+
+    It 'rejects --repo without a value'
+      When run script "$WS_STATE" init --repo
+      The status should equal 2
+      The stderr should include '--repo needs a value'
+    End
+
     It 'rejects unknown arguments'
       When run script "$WS_STATE" init --now
       The status should equal 2
       The stderr should include 'unknown argument'
     End
+
+    It 'fails, and says so, when the state dir cannot be created'
+      : > "$WS_SANDBOX/blocker"
+      export WS_STATE_DIR="$WS_SANDBOX/blocker/state"
+      When run script "$WS_STATE" init
+      The status should equal 1
+      The stderr should include 'cannot create'
+      The output should equal ''
+    End
+
+    It 'fails, and says so, when the state file cannot be written'
+      Skip if 'running as root, permissions do not apply' [ "$(id -u)" = 0 ]
+      mkdir -p "$WS_STATE_DIR" && chmod 555 "$WS_STATE_DIR"
+      When run script "$WS_STATE" init
+      The status should equal 1
+      The stderr should include 'cannot write'
+      The output should equal ''
+      The path "$(STATE_FILE)" should not be exist
+    End
   End
 
-  Describe 'without a state file'
+  Describe 'without a usable state file'
     It 'show fails and says to init'
       When run script "$WS_STATE" show
       The status should equal 1
@@ -98,34 +137,80 @@ Describe 'ws-state.sh'
     End
 
     It 'add-stream fails the same way'
-      When run add_s1
+      When run script "$WS_STATE" add-stream s1 --issues 1 --kind independent --model haiku --effort low
       The status should equal 1
       The stderr should include 'run init first'
+    End
+
+    It 'rejects a corrupt state file with its own message, not a jq trace'
+      mkdir -p "$WS_STATE_DIR"; printf '{"streams": [' > "$(STATE_FILE)"
+      When run script "$WS_STATE" show
+      The status should equal 1
+      The stderr should include 'not valid workstreams JSON'
+    End
+
+    It 'rejects a JSON file that is not a workstreams state'
+      mkdir -p "$WS_STATE_DIR"; printf '{"plugins": {}}' > "$(STATE_FILE)"
+      When run script "$WS_STATE" set s1 status done
+      The status should equal 1
+      The stderr should include 'not valid workstreams JSON'
     End
   End
 
   Describe 'streams'
     BeforeEach '"$WS_STATE" init >/dev/null'
 
-    s1() { jq -c '.streams[0]' "$(STATE_FILE)"; }
-    It 'adds a stream with defaults filled in'
-      When run add_s1
+    It 'adds an independent stream with defaults filled in'
+      When run script "$WS_STATE" add-stream s1 --issues 1,3 --kind independent --model sonnet --effort low --reason 'mechanical'
       The status should be success
-      The result of function s1 should equal '{"id":"s1","issues":[1,3],"kind":"stack","order":null,"base":null,"model":"sonnet","effort":"low","reason":"mechanical","status":"planned","branch":null,"worktree":null,"pr":null,"agent":null,"question":null,"attempts":0}'
+      The result of function s1 should equal '{"id":"s1","issues":[1,3],"kind":"independent","stack":null,"order":null,"base":null,"model":"sonnet","effort":"low","reason":"mechanical","status":"planned","branch":null,"worktree":null,"pr":null,"prs":null,"agent":null,"question":null,"attempts":0}'
     End
 
-    order_base() { jq -c '[.streams[0].order, .streams[0].base]' "$(STATE_FILE)"; }
-    It 'records --order and --base as given'
-      When run add_s1 --order 2 --base wktr-1-parser
+    layer() { jq -c '[.streams[0].stack, .streams[0].order, .streams[0].base]' "$(STATE_FILE)"; }
+    It 'records a stack layer with its stack, order, and base'
+      When run script "$WS_STATE" add-stream s1b --issues 3 --kind stack --stack parser --order 2 --base wktr-1-parser --model sonnet --effort low
       The status should be success
-      The result of function order_base should equal '[2,"wktr-1-parser"]'
+      The result of function layer should equal '["parser",2,"wktr-1-parser"]'
     End
 
-    It 'rejects a duplicate id'
+    It 'requires --stack and --order for a stack layer'
+      When run script "$WS_STATE" add-stream s1 --issues 1 --kind stack --model sonnet --effort low
+      The status should equal 2
+      The stderr should include 'needs --stack and --order'
+    End
+
+    It 'rejects stack flags on an independent stream'
+      When run script "$WS_STATE" add-stream s1 --issues 1 --kind independent --model sonnet --effort low --order 1
+      The status should equal 2
+      The stderr should include 'are for --kind stack'
+    End
+
+    It 'rejects an effort that has no stream agent'
+      When run script "$WS_STATE" add-stream s1 --issues 1 --kind independent --model sonnet --effort max
+      The status should equal 2
+      The stderr should include 'effort must be low, medium, or high'
+    End
+
+    It 'rejects an unknown model alias'
+      When run script "$WS_STATE" add-stream s1 --issues 1 --kind independent --model gpt --effort low
+      The status should equal 2
+      The stderr should include 'model must be one of'
+    End
+
+    It 'rejects a flag given last with no value'
+      When run script "$WS_STATE" add-stream s1 --issues 1 --kind independent --model sonnet --effort low --reason
+      The status should equal 2
+      The stderr should include '--reason needs a value'
+    End
+
+    issues() { field issues; }
+    It 'rejects a duplicate id and keeps the first'
       add_s1 >/dev/null
-      When run add_s1
+      When run script "$WS_STATE" add-stream s1 --issues 2 --kind independent --model haiku --effort low
       The status should equal 1
       The stderr should include 'already exists: s1'
+      The result of function count should equal '1'
+      The result of function issues should equal '[1,3]'
     End
 
     It 'rejects a missing required flag'
@@ -146,90 +231,134 @@ Describe 'ws-state.sh'
       The stderr should include 'comma-separated numbers'
     End
 
-    It 'rejects a non-numeric order'
-      When run add_s1 --order first
+    It 'rejects a non-numeric or zero order'
+      When run script "$WS_STATE" add-stream s2 --issues 2 --kind stack --stack p --model haiku --effort low --order 0
       The status should equal 2
-      The stderr should include '--order must be a number'
+      The stderr should include '--order must be a number from 1'
     End
 
-    It 'rejects a missing id and unknown flags'
+    It 'rejects a missing id'
       When run script "$WS_STATE" add-stream --issues 2
       The status should equal 2
       The stderr should include 'needs a stream id'
     End
 
     It 'rejects an unknown add-stream flag'
-      When run add_s1 --colour red
+      When run script "$WS_STATE" add-stream s2 --issues 2 --kind independent --model haiku --effort low --colour red
       The status should equal 2
       The stderr should include 'unknown argument: --colour'
     End
 
-    branch() { jq -r '.streams[0].branch' "$(STATE_FILE)"; }
-    It 'sets a string field'
-      add_s1 >/dev/null
-      When run script "$WS_STATE" set s1 branch wktr-1-parser
-      The status should be success
-      The result of function branch should equal 'wktr-1-parser'
+    Describe 'set'
+      BeforeEach 'add_s1 >/dev/null'
+
+      branch() { field branch; }
+      It 'sets a string field'
+        When run script "$WS_STATE" set s1 branch wktr-1-parser
+        The status should be success
+        The result of function branch should equal '"wktr-1-parser"'
+      End
+
+      pr() { field pr; }
+      It 'stores pr as a number without needing --json'
+        When run script "$WS_STATE" set s1 pr 10
+        The status should be success
+        The result of function pr should equal '10'
+      End
+
+      It 'clears a numeric field back to null'
+        "$WS_STATE" set s1 pr 10
+        When run script "$WS_STATE" set s1 pr null
+        The status should be success
+        The result of function pr should equal 'null'
+      End
+
+      It 'rejects a non-numeric pr'
+        When run script "$WS_STATE" set s1 pr twelve
+        The status should equal 2
+        The stderr should include 'pr takes a number or null'
+      End
+
+      prs() { field prs; }
+      It 'stores prs as a JSON array'
+        When run script "$WS_STATE" set s1 prs '[10, 12]'
+        The status should be success
+        The result of function prs should equal '[10,12]'
+      End
+
+      question() { field question; }
+      It 'accepts null and false through --json'
+        When run script "$WS_STATE" set s1 question null --json
+        The status should be success
+        The result of function question should equal 'null'
+      End
+
+      It 'rejects invalid JSON with --json and leaves the stream unchanged'
+        before="$(s1)"
+        When run script "$WS_STATE" set s1 prs '{oops'
+        The status should equal 2
+        The stderr should include 'not valid JSON'
+        The result of function s1 should equal "$before"
+      End
+
+      It 'rejects an empty --json value'
+        When run script "$WS_STATE" set s1 question '' --json
+        The status should equal 2
+        The stderr should include 'not valid JSON'
+      End
+
+      It 'validates status values and leaves the stream unchanged'
+        before="$(s1)"
+        When run script "$WS_STATE" set s1 status shipped
+        The status should equal 2
+        The stderr should include 'invalid status: shipped'
+        The result of function s1 should equal "$before"
+      End
+
+      status() { field status; }
+      It 'accepts every documented status'
+        for s in planned running draft reviewing paused done; do
+          "$WS_STATE" set s1 status "$s" || return 1
+        done
+        When run script "$WS_STATE" set s1 status failed
+        The status should be success
+        The result of function status should equal '"failed"'
+      End
+
+      It 'rejects a field outside the schema, so a typo cannot create one'
+        before="$(s1)"
+        When run script "$WS_STATE" set s1 statu running
+        The status should equal 2
+        The stderr should include 'unknown field: statu'
+        The result of function s1 should equal "$before"
+      End
+
+      It 'refuses to change the id'
+        When run script "$WS_STATE" set s1 id s9
+        The status should equal 2
+        The stderr should include 'unknown field: id'
+      End
+
+      It 'fails for an unknown stream'
+        When run script "$WS_STATE" set nope status done
+        The status should equal 1
+        The stderr should include 'unknown stream: nope'
+      End
+
+      It 'rejects a fourth argument other than --json'
+        When run script "$WS_STATE" set s1 branch b --raw
+        The status should equal 2
+        The stderr should include 'unknown argument: --raw'
+      End
+
+      It 'needs three arguments'
+        When run script "$WS_STATE" set s1 status
+        The status should equal 2
+        The stderr should include 'set needs'
+      End
     End
 
-    pr() { jq -c '.streams[0].pr' "$(STATE_FILE)"; }
-    It 'sets a JSON field with --json'
-      add_s1 >/dev/null
-      When run script "$WS_STATE" set s1 pr 10 --json
-      The status should be success
-      The result of function pr should equal '10'
-    End
-
-    It 'rejects invalid JSON with --json'
-      add_s1 >/dev/null
-      When run script "$WS_STATE" set s1 pr '{oops' --json
-      The status should equal 2
-      The stderr should include 'not valid JSON'
-    End
-
-    It 'validates status values'
-      add_s1 >/dev/null
-      When run script "$WS_STATE" set s1 status shipped
-      The status should equal 2
-      The stderr should include 'invalid status: shipped'
-    End
-
-    It 'accepts every documented status'
-      add_s1 >/dev/null
-      for s in planned running draft reviewing paused done failed; do
-        "$WS_STATE" set s1 status "$s" || return 1
-      done
-      When call jq -r '.streams[0].status' "$(STATE_FILE)"
-      The output should equal 'failed'
-    End
-
-    It 'refuses to change the id'
-      add_s1 >/dev/null
-      When run script "$WS_STATE" set s1 id s9
-      The status should equal 2
-      The stderr should include 'immutable'
-    End
-
-    It 'fails for an unknown stream'
-      When run script "$WS_STATE" set nope status done
-      The status should equal 1
-      The stderr should include 'unknown stream: nope'
-    End
-
-    It 'rejects a fourth argument other than --json'
-      add_s1 >/dev/null
-      When run script "$WS_STATE" set s1 pr 10 --raw
-      The status should equal 2
-      The stderr should include 'unknown argument: --raw'
-    End
-
-    It 'needs three arguments for set'
-      When run script "$WS_STATE" set s1 status
-      The status should equal 2
-      The stderr should include 'set needs'
-    End
-
-    It 'lists streams, optionally by status'
+    It 'lists streams by status'
       add_s1 >/dev/null
       "$WS_STATE" add-stream s2 --issues 2 --kind independent --model haiku --effort low >/dev/null
       "$WS_STATE" set s2 status draft
@@ -248,10 +377,22 @@ Describe 'ws-state.sh'
       The result of function listed should equal '2'
     End
 
+    It 'rejects a misspelled status filter rather than returning nothing'
+      When run script "$WS_STATE" list-streams --status runing
+      The status should equal 2
+      The stderr should include 'invalid status: runing'
+    End
+
     It 'rejects unknown list-streams flags'
       When run script "$WS_STATE" list-streams --kind stack
       The status should equal 2
       The stderr should include 'unknown argument'
+    End
+
+    It 'rejects --status with no value'
+      When run script "$WS_STATE" list-streams --status
+      The status should equal 2
+      The stderr should include '--status needs a value'
     End
   End
 
@@ -273,7 +414,7 @@ Describe 'ws-state.sh'
     End
 
     meta() { jq -c '.meta' "$(STATE_FILE)"; }
-    It 'stores plan-level metadata'
+    It 'stores plan-level metadata as strings'
       When run script "$WS_STATE" meta loop_delay 1800
       The status should be success
       The result of function meta should equal '{"loop_delay":"1800"}'
@@ -293,11 +434,24 @@ Describe 'ws-state.sh'
   End
 
   Describe 'atomic writes'
+    tmpfiles() { find "$WS_STATE_DIR" -name '*.tmp.*'; }
     It 'leaves no temp file behind after an update'
       "$WS_STATE" init >/dev/null
-      add_s1 >/dev/null
-      When call find "$WS_STATE_DIR" -name '*.tmp.*'
-      The output should equal ''
+      When run script "$WS_STATE" meta a b
+      The status should be success
+      The result of function tmpfiles should equal ''
+    End
+
+    It 'keeps the old state when the update cannot be written'
+      Skip if 'running as root, permissions do not apply' [ "$(id -u)" = 0 ]
+      "$WS_STATE" init >/dev/null
+      before="$(snapshot)"
+      chmod 555 "$WS_STATE_DIR"
+      When run script "$WS_STATE" meta a b
+      The status should equal 1
+      The stderr should include 'cannot write'
+      The result of function snapshot should equal "$before"
+      The result of function tmpfiles should equal ''
     End
   End
 
@@ -306,6 +460,7 @@ Describe 'ws-state.sh'
       When run script "$WS_STATE" --help
       The status should be success
       The output should include 'add-stream'
+      The output should include 'Stream statuses'
     End
 
     It 'prints usage with no command'

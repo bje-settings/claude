@@ -10,11 +10,11 @@ and what landing them changes.>
 | Stream | Kind | Issues | Touches | Model / effort | Why this size |
 | --- | --- | --- | --- | --- | --- |
 | s1 | independent | #N | `path/one.sh` | sonnet / medium | known cause, single module |
-| s2a | stack, layer 1 | #N | `path/two.sh` (read side) | opus / high | foundational; s2b builds on it |
-| s2b | stack, layer 2 | #N | `path/two.sh` (emit side) | opus / high | inherits the stack's top |
+| s2a | stack `parser`, layer 1 | #N | `path/two.sh` (read side) | opus / high | foundational; s2b builds on it |
+| s2b | stack `parser`, layer 2 | #N | `path/two.sh` (emit side) | opus / high | sized with the stack |
 
-Stacks are listed bottom-up. Each layer is its own draft PR based on the layer below; the bottom
-layer is based on the default branch.
+Stacks are listed bottom-up and named. Each layer is its own draft PR based on the layer below;
+the bottom layer is based on the default branch. A stack is one unit of work for one worker.
 
 ## Cross-repo dependencies
 
@@ -36,9 +36,10 @@ reader see what was decided and by whom.>
 ## Loop
 
 Streams run in parallel as subagents, one per independent stream and one per stack. Progress is
-checked every <N> seconds (<reason: longest stream, CI duration>). A stream that hits a decision
-it cannot make pauses with its question; the others continue. The run ends when every stream is
-done, paused, or failed, with a report of every PR, every deferred issue, and every open question.
+checked every <N> seconds, between 60 and 3600 (<reason: longest stream, CI duration>). A stream
+that hits a decision it cannot make pauses with its question; the others continue. The run ends
+when every stream is done, paused, or failed, with a report of every PR, every deferred issue,
+and every open question.
 
 ## Out of scope
 

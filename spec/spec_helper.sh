@@ -73,22 +73,20 @@ setup_ws_sandbox() {
 }
 
 cleanup_ws_sandbox() {
-  [ -n "${WS_SANDBOX:-}" ] && rm -rf "$WS_SANDBOX"
+  # Some examples make the state dir read-only; give it back before removing.
+  [ -n "${WS_SANDBOX:-}" ] && { chmod -R u+w "$WS_SANDBOX" 2>/dev/null; rm -rf "$WS_SANDBOX"; }
   return 0
 }
 
-# ws_path_without <tool>... — a PATH that has the gh stub and every other tool, but
-# not the named ones, for the "tool is not installed" branches.
+# ws_path_without <tool>...: a PATH holding the gh stub and the handful of tools
+# the scripts call, minus the named ones, for the "tool is not installed" branches.
 ws_path_without() {
-  local dir="$WS_SANDBOX/bin-without" t p
+  local dir="$WS_SANDBOX/bin-without" t real
   mkdir -p "$dir"
-  for p in $(printf '%s' "$PATH" | tr ':' ' '); do
-    [ -d "$p" ] || continue
-    for t in "$p"/*; do
-      [ -x "$t" ] || continue
-      case " $* " in *" $(basename "$t") "*) continue ;; esac
-      [ -e "$dir/$(basename "$t")" ] || ln -s "$t" "$dir/$(basename "$t")"
-    done
+  for t in bash sh jq gh grep sed awk tr cat mkdir mv rm date find dirname basename env id chmod; do
+    case " $* " in *" $t "*) continue ;; esac
+    real="$(command -v "$t" 2>/dev/null)" || continue
+    [ -e "$dir/$t" ] || ln -s "$real" "$dir/$t"
   done
   printf '%s' "$dir"
 }

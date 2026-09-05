@@ -26,16 +26,17 @@ Supported: `auth status`, `extension list`, `repo view`, `issue view`, `issue li
 
 | Function | Produces |
 | --- | --- |
-| `ws_fixture_issues <path>` | Six issues reconstructing the shape of the field test in issue #7: a bug referencing two others, a bodiless chore, a refactor blocked on the bug, a spike in a milestone, a closed bug, and a docs issue whose body has a `#7` inside a url |
-| `ws_fixture_prs <path>` | Five PRs covering every `checks` fold: pass, fail, pending, none, and a merged PR with a StatusContext |
+| `ws_fixture_issues <path>` | Seven records reconstructing the shape of the field test in issue #7: a bug referencing two others, a bodiless chore, a refactor blocked on the bug that also mentions itself, a spike in a milestone, a closed bug, a docs issue whose body has a `#7` inside a url, and a pull request that `gh issue view` answers for |
+| `ws_fixture_prs <path>` | Nine PRs covering every `checks` fold: pass, fail, pending, none, a merged PR with a StatusContext, and one PR each for CANCELLED, NEUTRAL, a completed run with no conclusion, and STALE |
 | `ws_fixture_extensions <path> [with-stack\|without-stack]` | `gh extension list` output |
 | `ws_fixture_installed_plugins <path> [with-review\|without-review]` | The shape of `~/.claude/plugins/installed_plugins.json` |
 | `ws_fixture_home <dir> [with-skill\|without-skill]` | A fake `$HOME` with the gh-stack skill where `gh skill install` puts it |
 
-`spec/workstreams/fixtures_spec.sh` asserts every claim in this table, so the other specs cannot
-pass for the wrong reason.
+`spec/workstreams/fixtures_spec.sh` asserts the shapes the other specs rely on (counts, states,
+references, which conclusions appear), so those specs cannot pass for the wrong reason.
 
 `setup_ws_sandbox` in `spec/spec_helper.sh` wires all of this together for one example: a temp
 dir with the canned data, an empty `WS_STATE_DIR`, a fake `HOME`, and the stub on `PATH`. Specs
 remove or replace individual pieces to build the negative cases. `ws_path_without <tool>...`
-builds a `PATH` missing the named tools for the "not installed" branches.
+builds a small `PATH` (the stub plus the tools the scripts call) missing the named tools, for the
+"not installed" branches.

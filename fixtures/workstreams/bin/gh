@@ -5,8 +5,14 @@
 # It holds canned issues, pull requests, and extensions, applies the filtering the
 # real gh applies server-side, projects the fields named by --json, and runs the
 # caller's own --jq expression with real jq, so the jq in the scripts is exercised
-# rather than assumed. Any flag it does not emulate is an error (exit 64), so a
-# spec cannot pass against a query the real gh would answer differently.
+# rather than assumed. Anything it does not emulate is an error, so a spec cannot
+# pass against a query the real gh would answer differently: an unknown flag exits
+# 64, an unknown --json field exits 1 like gh's "Unknown JSON field", a failing
+# --jq exits 1, and a second positional argument is rejected.
+#
+# --search is a case-insensitive substring match over title and body. Real GitHub
+# search is tokenised and takes qualifiers; the scripts only forward the string,
+# so specs must not read anything into which issues a search matches.
 #
 # Controlled by:
 #   WS_GH_FIXTURE_DIR    directory holding issues.json, prs.json, extensions.txt
@@ -21,7 +27,7 @@ set -uo pipefail
 
 dir="${WS_GH_FIXTURE_DIR:-}"
 load() {
-  # load <basename> <empty-value> — print the fixture file or the empty value
+  # load <basename> <empty-value>: print the fixture file or the empty value
   if [[ -n "$dir" && -f "$dir/$1" ]]; then cat "$dir/$1"; else printf '%s' "$2"; fi
 }
 
@@ -39,19 +45,35 @@ while (($#)); do
     --json) fields="$2"; shift ;;
     --jq|-q) jq_expr="$2"; shift ;;
     -*) echo "gh stub: unhandled flag: $1" >&2; exit 64 ;;
-    *) positional="$1" ;;
+    *)
+      [[ -z "$positional" ]] || { echo "gh stub: unexpected second argument: $1" >&2; exit 1; }
+      positional="$1" ;;
   esac
   shift
 done
 
-# project <json> — apply the --json field projection, then the caller's --jq
+# project <json>: apply the --json field projection, then the caller's --jq.
+# Every requested field must exist on the object(s), as with real gh.
 project() {
-  printf '%s' "$1" | jq --arg fields "$fields" '
+  local out
+  out="$(printf '%s' "$1" | jq --arg fields "$fields" '
+    def pick: . as $o
+      | reduce ($fields | split(",")[]) as $f ({};
+          if ($o | has($f)) then .[$f] = $o[$f]
+          else error("Unknown JSON field: \"" + $f + "\"") end);
     if $fields == "" then .
-    elif type == "array" then
-      map(. as $o | reduce ($fields | split(",")[]) as $f ({}; .[$f] = $o[$f]))
-    else . as $o | reduce ($fields | split(",")[]) as $f ({}; .[$f] = $o[$f])
-    end' | jq -rc "$jq_expr"
+    elif type == "array" then map(pick)
+    else pick end' 2>&1)" || { echo "gh stub: $out" >&2; exit 1; }
+  printf '%s' "$out" | jq -rc "$jq_expr" || exit 1
+}
+
+# one <file> <number> <kind>: the single record with that number, or a gh-style error
+one() {
+  local found
+  found="$(load "$1" '[]' | jq -c --argjson n "$2" 'map(select(.number == $n)) | .[0] // empty')" \
+    || { echo "gh stub: jq failed reading $1" >&2; exit 1; }
+  [[ -n "$found" ]] || { echo "GraphQL: Could not resolve to $3 with the number of $2." >&2; exit 1; }
+  printf '%s' "$found"
 }
 
 case "$cmd $sub" in
@@ -63,14 +85,12 @@ case "$cmd $sub" in
     load extensions.txt ""; exit 0 ;;
 
   "repo view")
-    project "$(jq -cn --arg r "${WS_GH_FIXTURE_REPO:-bje-settings/example}" '{nameWithOwner:$r}')"
-    exit 0 ;;
+    project "$(jq -cn --arg r "${WS_GH_FIXTURE_REPO:-bje-settings/example}" '{nameWithOwner:$r}')" ;;
 
   "issue view")
-    n="${positional#\#}"
-    found="$(load issues.json '[]' | jq -c --argjson n "$n" 'map(select(.number == $n)) | .[0] // empty')"
-    [[ -n "$found" ]] || { echo "GraphQL: Could not resolve to an Issue with the number of $n." >&2; exit 1; }
-    project "$found"; exit 0 ;;
+    [[ "$positional" =~ ^#?[0-9]+$ ]] || { echo "gh stub: issue view needs a number, got: $positional" >&2; exit 1; }
+    rec="$(one issues.json "${positional#\#}" 'an Issue')" || exit 1
+    project "$rec" ;;
 
   "issue list")
     # $label is renamed $lbl inside jq: label is a reserved word in jq 1.6.
@@ -83,13 +103,13 @@ case "$cmd $sub" in
       | map(select($search == "" or
           ((.title + " " + (.body // "")) | ascii_downcase | contains($search | ascii_downcase))))
       | .[0:$limit]')" || { echo "gh stub: jq failed while filtering issues" >&2; exit 1; }
-    project "$filtered"; exit 0 ;;
+    project "$filtered" ;;
 
   "pr view")
     n="${positional#\#}"; n="${n##*/}"
-    found="$(load prs.json '[]' | jq -c --argjson n "$n" 'map(select(.number == $n)) | .[0] // empty')"
-    [[ -n "$found" ]] || { echo "GraphQL: Could not resolve to a PullRequest with the number of $n." >&2; exit 1; }
-    project "$found"; exit 0 ;;
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo "gh stub: pr view needs a number or url, got: $positional" >&2; exit 1; }
+    rec="$(one prs.json "$n" 'a PullRequest')" || exit 1
+    project "$rec" ;;
 
   *)
     echo "gh stub: unsupported: $cmd $sub" >&2; exit 1 ;;

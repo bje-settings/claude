@@ -1,8 +1,8 @@
 # workstreams
 
 Turn a set of GitHub issues into parallel workstreams run by subagents, each ending in a
-reviewed draft PR. The procedure that used to be a long hand-typed prompt at the end of a
-debugging session, as a pair of skills.
+reviewed draft PR. Two skills: `/workstreams:plan` proposes the streams; `/workstreams:run`
+executes them. Each skill directory has a `FLOW.md` with the decision diagram.
 
 ## Requirements
 
@@ -33,10 +33,10 @@ Selectors, in any mix: issue numbers (`12`, `#12`, `10-14`), `label:<name>`,
 4. Map the files each work-now issue touches. Overlaps become a stack, foundational change at the
    bottom; disjoint changes become independent streams. Cross-repo dependencies are named.
 5. Size each stream: model and effort, with a reason (see `skills/plan/sizing.md`).
-6. Ask the user every question the plan depends on, then propose the plan in plan mode and
-   record it in the state file.
+6. Ask the user every question the plan depends on, propose the plan in plan mode, and once it
+   is approved record it in the state file.
 
-Nothing is started. Re-running with an existing plan asks before replacing it.
+Nothing is started. An existing plan is only replaced when the user says so.
 
 ## `/workstreams:run`
 
@@ -48,7 +48,8 @@ Nothing is started. Re-running with an existing plan asks before replacing it.
    interval. A stream that needs a decision pauses with its question; the others continue.
 4. Review every draft with `workstreams:reviewer`, which runs `/pr-review-toolkit:review-pr`,
    verifies each finding against the code, applies the ones that hold, and refreshes the PR title
-   and body if they went stale. A PR is re-reviewed until a pass applies nothing.
+   and body if they went stale. A PR is re-reviewed until a pass applies nothing, then its checks
+   decide: pass is done, pending waits, fail pauses the stream with a question.
 5. Report every PR (stacks in order), every deferred issue with its reason, every paused stream
    with its question, and every failure.
 
@@ -60,7 +61,9 @@ One state file per repository at `${CLAUDE_PLUGIN_DATA}/<owner>__<repo>.json`, w
 `scripts/ws-state.sh`. `/workstreams:run` reads stream statuses from it, so a session that stops
 mid-run can re-run the skill and continue. `ws-state.sh show` prints it.
 
-Stream statuses: `planned`, `running`, `draft`, `reviewing`, `paused`, `done`, `failed`.
+Stream statuses: `planned`, `running`, `draft`, `reviewing`, `paused`, `done`, `failed`. A stack
+is several stream records sharing a `stack` name, ordered from the bottom; the run skill treats
+it as one unit of work.
 
 ## Scripts
 
@@ -70,7 +73,7 @@ All deterministic, bash 3.2, spec'd under `spec/workstreams/`.
 | --- | --- |
 | `ws-preflight.sh` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.sh` | Selectors to a JSON array of issues, with `#N` references extracted |
-| `ws-state.sh` | Atomic read/write of the state file |
+| `ws-state.sh` | Atomic read/write of the state file; validates fields, statuses, efforts, and models |
 | `ws-pr-status.sh` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision |
 
 ## Out of scope for now

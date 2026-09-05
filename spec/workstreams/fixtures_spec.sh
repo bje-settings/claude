@@ -5,32 +5,55 @@ Describe 'workstreams fixtures'
   BeforeEach 'setup_ws_sandbox'
   AfterEach 'cleanup_ws_sandbox'
 
+  issues() { jq -c "$1" "$WS_GH_FIXTURE_DIR/issues.json"; }
+  prs() { jq -c "$1" "$WS_GH_FIXTURE_DIR/prs.json"; }
+
   Describe 'issues.json'
-    It 'holds six issues, one of them closed'
-      When call jq -r '[length, ([.[] | select(.state == "CLOSED")] | length)] | @tsv' "$WS_GH_FIXTURE_DIR/issues.json"
-      The output should equal "$(printf '6\t1')"
+    It 'holds seven records: six issues, one of them closed, and one pull request'
+      When call issues '[length, ([.[] | select(.state == "CLOSED")] | length), ([.[] | select(.url | test("/pull/"))] | map(.number))]'
+      The output should equal '[7,1,[7]]'
     End
 
     It 'gives issue 1 references to #2 and #4, and issue 2 a null body'
-      When call jq -c '[(.[0].body | test("#2") and test("#4")), .[1].body]' "$WS_GH_FIXTURE_DIR/issues.json"
+      When call issues '[(.[0].body | test("#2") and test("#4")), .[1].body]'
       The output should equal '[true,null]'
     End
 
+    It 'has issue 3 mention itself and mention #1 twice'
+      When call issues '.[2].body | [test("#3"), ([scan("#1\\b")] | length)]'
+      The output should equal '[true,2]'
+    End
+
     It 'puts only issue 4 in the observe milestone'
-      When call jq -c '[.[] | select(.milestone.title == "observe") | .number]' "$WS_GH_FIXTURE_DIR/issues.json"
+      When call issues '[.[] | select(.milestone.title == "observe") | .number]'
       The output should equal '[4]'
+    End
+
+    It 'gives issue 6 a #7 only inside a url'
+      When call issues '.[5].body | [test("/#7"), test("(^|[^A-Za-z0-9/])#7")]'
+      The output should equal '[true,false]'
     End
   End
 
   Describe 'prs.json'
     It 'covers open drafts, a ready PR, and a merged PR'
-      When call jq -c '[.[] | [.state, .isDraft]]' "$WS_GH_FIXTURE_DIR/prs.json"
+      When call prs '[.[] | select(.number <= 14) | [.state, .isDraft]]'
       The output should equal '[["OPEN",true],["OPEN",true],["OPEN",true],["OPEN",false],["MERGED",false]]'
     End
 
     It 'stacks PR 12 on the branch of PR 10'
-      When call jq -r '(.[] | select(.number == 12) | .baseRefName) == (.[] | select(.number == 10) | .headRefName)' "$WS_GH_FIXTURE_DIR/prs.json"
+      When call prs '(.[] | select(.number == 12) | .baseRefName) == (.[] | select(.number == 10) | .headRefName)'
       The output should equal 'true'
+    End
+
+    It 'carries one PR per check conclusion the fold distinguishes'
+      When call prs '[.[] | .statusCheckRollup[]? | (.conclusion // .state // "null")] | unique'
+      The output should equal '["CANCELLED","FAILURE","NEUTRAL","PENDING","SKIPPED","STALE","SUCCESS","null"]'
+    End
+
+    It 'has PR 13 with no checks and PR 14 with only a StatusContext'
+      When call prs '[(.[] | select(.number == 13) | .statusCheckRollup | length), (.[] | select(.number == 14) | .statusCheckRollup | map(.__typename))]'
+      The output should equal '[0,["StatusContext"]]'
     End
   End
 
@@ -67,6 +90,29 @@ Describe 'workstreams fixtures'
       The stderr should include 'unhandled flag: --assignee'
     End
 
+    It 'projects to exactly the --json fields asked for'
+      When run command gh issue view 1 --json number,title --jq 'keys'
+      The output should equal '["number","title"]'
+    End
+
+    It 'rejects a --json field that does not exist, like real gh'
+      When run command gh pr view 10 --json number,isDrft
+      The status should equal 1
+      The stderr should include 'Unknown JSON field: "isDrft"'
+    End
+
+    It 'fails when the --jq expression fails'
+      When run command gh repo view --json nameWithOwner --jq 'bad('
+      The status should equal 1
+      The stderr should include 'compile error'
+    End
+
+    It 'rejects a second positional argument'
+      When run command gh issue view 1 2 --json number
+      The status should equal 1
+      The stderr should include 'unexpected second argument: 2'
+    End
+
     It 'rejects a subcommand it does not emulate'
       When run command gh api graphql
       The status should equal 1
@@ -87,6 +133,13 @@ Describe 'workstreams fixtures'
       The output should equal ''
     End
 
+    It 'reports a corrupt fixture as a jq failure, not as not-found'
+      printf '{oops' > "$WS_GH_FIXTURE_DIR/issues.json"
+      When run command gh issue view 1 --json number
+      The status should equal 1
+      The stderr should include 'jq failed reading issues.json'
+    End
+
     It 'accepts a pull request by number, #number, or url'
       When run command gh pr view https://example.invalid/p/13 --json number --jq .number
       The output should equal '13'
@@ -98,14 +151,20 @@ Describe 'workstreams fixtures'
       The path "$HOME/.claude/skills/gh-stack/SKILL.md" should be file
     End
 
+    It 'lists extensions tab-separated with the repo in the second column'
+      When call awk -F'\t' '{ print $2 }' "$WS_GH_FIXTURE_DIR/extensions.txt"
+      The output should equal "$(printf 'github/gh-stack\ndlvhdr/gh-dash')"
+    End
+
     jq_keys() { jq -c '.plugins | keys' "$WS_SANDBOX/bare.json"; }
-    It 'can omit the skill and the review plugin'
+    It 'can omit the skill and the review plugin, and offers a near-miss extension name'
       ws_fixture_home "$WS_SANDBOX/bare" without-skill
       ws_fixture_installed_plugins "$WS_SANDBOX/bare.json" without-review
       ws_fixture_extensions "$WS_SANDBOX/ext.txt" without-stack
       The path "$WS_SANDBOX/bare/.claude/skills/gh-stack" should not be exist
       The result of function jq_keys should equal '["gh@bje"]'
-      The contents of file "$WS_SANDBOX/ext.txt" should not include 'gh-stack'
+      The contents of file "$WS_SANDBOX/ext.txt" should include 'github/gh-stack-anything'
+      The contents of file "$WS_SANDBOX/ext.txt" should not include "$(printf '\tgithub/gh-stack\t')"
     End
   End
 End

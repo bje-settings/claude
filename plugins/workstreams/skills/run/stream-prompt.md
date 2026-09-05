@@ -13,9 +13,9 @@ You are working stream `<id>` of a workstreams plan for `<owner/repo>`, checked 
 Quoted from the repository's `CLAUDE.md` and `.claude/rules/`; read those files yourself before
 starting and treat them as authoritative over this brief.
 
-- Branch name: `<pattern, e.g. wktr-<issue>-<one-to-three-words>>`
-- Worktree location: `<path pattern, e.g. .claude/worktrees/<branch>>`, created with
-  `git worktree add <path> -b <branch>` from `<base branch>`. Never edit the root checkout.
+- Branch name: `<pattern; for example wktr-N-two-words>`
+- Worktree location: `<path pattern; for example .claude/worktrees/BRANCH>`, created with
+  `git worktree add PATH -b BRANCH` from `<base branch>`. Never edit the root checkout.
 - After creating the worktree: `<dependency install command, or "no install needed">`
 - Commit messages: `<convention, e.g. Conventional Commits, brief>`. Never use `--no-verify`.
 - Tests to run before opening the PR: `<command>`
@@ -24,14 +24,14 @@ starting and treat them as authoritative over this brief.
 
 <For an independent stream: one section. For a stack: one section per layer, bottom-up.>
 
-### Layer 1 (bottom) — issue #<n>: <title>
+### Layer 1 (bottom): issue #<n>: <title>
 
 Base branch: `<default branch>`.
 
 <The issue body's substance, the files and regions the plan says it touches, and any decision
 the plan already made for it. Do not widen the scope: anything the issue does not ask for is out.>
 
-### Layer 2 — issue #<n>: <title>
+### Layer 2: issue #<n>: <title>
 
 Base branch: `<layer 1 branch>`. Use `gh stack` to create this branch on top of layer 1 and to
 open its PR with the right base; the `gh-stack` skill describes the commands.
@@ -59,12 +59,12 @@ End your reply with exactly one fenced JSON block:
 
 ```json
 {
-  "stream": "<id>",
+  "stream": "<id; for a stack, the bottom layer's id>",
   "status": "draft | paused | failed",
-  "branch": "<branch, or for a stack the top branch>",
+  "branch": "<branch; for a stack, the top branch>",
   "worktree": "<absolute path>",
-  "pr": <number, or for a stack the bottom PR number, or null>,
-  "prs": [<every PR number bottom-up, for a stack>],
+  "pr": <number; for a stack, the bottom PR number; null if none opened>,
+  "prs": [<every PR number bottom-up; for a stack only, else omit>],
   "question": "<the decision you need, or the error, or null>"
 }
 ```

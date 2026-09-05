@@ -1,33 +1,27 @@
 # shellcheck shell=bash
+# Every example runs the script through `When run script` so kcov traces it.
 Describe 'ws-pr-status.sh'
   BeforeEach 'setup_ws_sandbox'
   AfterEach 'cleanup_ws_sandbox'
 
-  checks() { "$WS_PR_STATUS" "$1" | jq -r .checks; }
+  Describe 'checks fold'
+    Parameters
+      10 pass    'successes and skips'
+      11 fail    'one failure beside a success'
+      12 pending 'an in-progress CheckRun and a pending StatusContext'
+      13 none    'no checks at all'
+      14 pass    'a StatusContext SUCCESS'
+      15 fail    'a cancelled run'
+      16 pass    'a neutral run beside a success'
+      17 pending 'a completed CheckRun with no conclusion'
+      18 fail    'a stale run that needs a rerun'
+    End
 
-  It 'folds a rollup of successes and skips to pass'
-    When call checks 10
-    The output should equal 'pass'
-  End
-
-  It 'folds any failure to fail'
-    When call checks 11
-    The output should equal 'fail'
-  End
-
-  It 'folds an in-progress CheckRun or a pending StatusContext to pending'
-    When call checks 12
-    The output should equal 'pending'
-  End
-
-  It 'reports none when there are no checks'
-    When call checks 13
-    The output should equal 'none'
-  End
-
-  It 'reads StatusContext state as an outcome'
-    When call checks 14
-    The output should equal 'pass'
+    It "folds $3 to $2"
+      When run script "$WS_PR_STATUS" "$1"
+      The status should be success
+      The output should include "\"checks\": \"$2\""
+    End
   End
 
   fields() { "$WS_PR_STATUS" 10 | jq -c '[.number, .draft, .state, .base, .head, .headSha, .mergeable, .reviewDecision]'; }
