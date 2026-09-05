@@ -9,8 +9,10 @@
 # rather than assumed.
 #
 # Controlled by:
-#   GH_FIXTURE_PRS      path to a JSON array of PR objects (default: no PRs)
-#   GH_FIXTURE_FAIL     if non-empty, exit non-zero to simulate a failed lookup
+#   GH_FIXTURE_PRS       path to a JSON array of PR objects (default: no PRs)
+#   GH_FIXTURE_FAIL      if non-empty, every call exits non-zero
+#   GH_FIXTURE_FAIL_HEAD if non-empty, only --head calls fail, so a bulk lookup
+#                        can succeed while the per-branch one does not
 #   GH_FIXTURE_DEFAULT  default branch reported by `gh repo view` (default: main)
 
 set -uo pipefail
@@ -28,10 +30,18 @@ while (($#)); do
     --limit) limit="$2"; shift ;;
     --json) fields="$2"; shift ;;
     --jq|-q) jq_expr="$2"; shift ;;
+    # Anything unrecognised is a filter this stub does not emulate. Ignoring it
+    # silently would let specs pass against a query the real gh answers
+    # differently, which is how --head came to be missing in the first place.
+    -*) echo "gh stub: unhandled flag: $1" >&2; exit 64 ;;
     *) : ;;
   esac
   shift
 done
+
+[[ -n "${GH_FIXTURE_FAIL_HEAD:-}" && -n "$head" ]] && {
+  echo "gh: simulated per-branch failure" >&2; exit 1
+}
 
 if [[ "$cmd" == "repo" && "$sub" == "view" ]]; then
   jq -n --arg b "${GH_FIXTURE_DEFAULT:-main}" '{defaultBranchRef:{name:$b}}' \

@@ -210,6 +210,24 @@ fi
 
 
 PR_LIMIT=200
+PR_BRANCH_LIMIT=100
+TAB=$'\t'
+
+# own_rows <pairs> — the rows from this repository, dropping forks. Forks are
+# kept in the raw result so the row count reflects the real window size, but they
+# say nothing about a local branch: a fork's head ref is just a name.
+own_rows() {
+  printf '%s' "$1" | grep "^false$TAB" 2>/dev/null || true
+}
+
+# name_in_rows <branch> <rows> — does any row name this branch, at any commit?
+name_in_rows() {
+  local needle="false$TAB$1$TAB" line
+  while IFS= read -r line; do
+    case "$line" in ("$needle"*) return 0 ;; esac
+  done <<< "$2"
+  return 1
+}
 
 # One API call covers every branch in the repo. Three things are required of a
 # pull request before it counts as proof, because a bare branch-name match is not
@@ -219,45 +237,30 @@ PR_LIMIT=200
 #     a name like "patch-1", which collides with local branches trivially)
 #   - its head commit is exactly where the local branch still points, so a branch
 #     that was reused or committed to after the merge is not treated as landed
+#
+# Forks are carried in the row rather than filtered out by jq, so the row count
+# is the real number of pull requests the window returned. That count is what
+# tells us whether the window was saturated, and a fork row can never match a
+# lookup key, which always begins "false".
+PR_JQ='.[] | "\(.isCrossRepository)\t\(.headRefName)\t\(.headRefOid)"'
 PR_PAIRS=""
 PR_LOOKUP_OK=1
+PR_BULK_SATURATED=0
 if command -v gh >/dev/null 2>&1; then
   PR_PAIRS="$(gh pr list --state merged --base "$DEFAULT" --limit "$PR_LIMIT" \
-      --json headRefName,headRefOid,isCrossRepository \
-      --jq '.[] | select(.isCrossRepository == false) | "\(.headRefName)\t\(.headRefOid)"' \
-      2>/dev/null)" || PR_LOOKUP_OK=0
+      --json headRefName,headRefOid,isCrossRepository --jq "$PR_JQ" 2>/dev/null)" \
+    || PR_LOOKUP_OK=0
 else
   PR_LOOKUP_OK=0
 fi
-((PR_LOOKUP_OK)) || note "could not read merged pull requests; using ancestry alone"
-
-# The bulk list above covers the common case in one call, but it is a window:
-# a repo with more merged pull requests than the limit drops the oldest, and a
-# branch merged before that window looks unproven. This asks about one branch
-# directly, and is used only for branches nothing else could prove, so it costs
-# a call per genuinely-unproven branch rather than a call per branch.
-# Sets PR_BRANCH_STATE to one of:
-#   match  a merged pull request whose head is exactly this commit
-#   moved  a merged pull request for this branch, at a different commit
-#   none   no merged pull request for this branch at all
-# "moved" is worth separating: it means the work landed but the local branch is
-# not the copy that landed, which is common when a bot rebases the remote branch.
-# Deleting it would still throw away a commit that exists nowhere else.
-pr_proof_for_branch() {
-  local pairs
-  PR_BRANCH_STATE=none
-  pairs="$(gh pr list --state merged --base "$DEFAULT" --head "$1" --limit 5 \
-      --json headRefName,headRefOid,isCrossRepository \
-      --jq '.[] | select(.isCrossRepository == false) | "\(.headRefName)\t\(.headRefOid)"' \
-      2>/dev/null)" || return 1
-  [ -n "$pairs" ] || return 1
-  if in_list "$1	$2" "$pairs"; then
-    PR_BRANCH_STATE=match
-    return 0
-  fi
-  PR_BRANCH_STATE=moved
-  return 1
-}
+PR_OWN=""
+if ((PR_LOOKUP_OK)); then
+  pr_count="$(printf '%s' "$PR_PAIRS" | grep -c . 2>/dev/null)" || pr_count=0
+  ((pr_count >= PR_LIMIT)) && PR_BULK_SATURATED=1
+  PR_OWN="$(own_rows "$PR_PAIRS")"
+else
+  note "could not read merged pull requests; using ancestry alone"
+fi
 
 # Ancestry catches the other case: merged locally with no pull request at all.
 # A failed probe must not masquerade as "nothing is merged", which would silently
@@ -271,6 +274,45 @@ if ((!PR_LOOKUP_OK)) && ((!ANCESTRY_OK)); then
   bad "no way to prove what has merged; skipped pruning entirely"
   exit 0
 fi
+
+# Asks about a single branch, for the case the bulk window cannot answer: a repo
+# with more merged pull requests than the limit drops the oldest, so a branch
+# merged before that window is absent from the list without being unmerged.
+#
+# Sets PR_BRANCH_STATE to one of:
+#   match    a merged pull request from this repo, into the default branch, whose
+#            head is exactly this commit
+#   moved    merged pull requests used this name, none of them at this commit
+#   none     no merged pull request used this name
+#   crowded  the window filled up, so "none of them" could not be established
+#   error    the query did not complete, so nothing was established either way
+#
+# The last three are all reasons to keep the branch, but they are different
+# statements and the report says which. Reporting a failed query as "none" would
+# assert an absence that was never checked.
+# Asks about a single branch. Never resets PR_BRANCH_STATE: the caller sets it
+# per branch, and this can only raise what is already known.
+pr_proof_for_branch() {
+  local pairs own count
+  pairs="$(gh pr list --state merged --base "$DEFAULT" --head "$1" \
+      --limit "$PR_BRANCH_LIMIT" \
+      --json headRefName,headRefOid,isCrossRepository --jq "$PR_JQ" 2>/dev/null)" \
+    || { PR_BRANCH_STATE=error; return 1; }
+  own="$(own_rows "$pairs")"
+  if [ -n "$own" ] && in_list "false$TAB$1$TAB$2" "$own"; then
+    PR_BRANCH_STATE=match
+    return 0
+  fi
+  # A saturated result is a window, not an answer. Concluding "none at this
+  # commit" from a truncated list is the mistake this change exists to fix.
+  count="$(printf '%s' "$pairs" | grep -c . 2>/dev/null)" || count=0
+  if ((count >= PR_BRANCH_LIMIT)); then
+    PR_BRANCH_STATE=crowded
+    return 1
+  fi
+  [ -n "$own" ] && PR_BRANCH_STATE=moved
+  return 1
+}
 
 in_list() {
   local needle="$1" line
@@ -287,7 +329,7 @@ _wt=""
 while IFS= read -r line; do
   case "$line" in
     worktree\ *) _wt="${line#worktree }" ;;
-    branch\ refs/heads/*) WORKTREES+="${line#branch refs/heads/}	$_wt"$'\n' ;;
+    branch\ refs/heads/*) WORKTREES+="${line#branch refs/heads/}"$'\t'"$_wt"$'\n' ;;
   esac
 done < <(git worktree list --porcelain 2>/dev/null) \
   || skip "cannot list worktrees"
@@ -327,20 +369,38 @@ while IFS= read -r branch; do
   }
 
   proof=""
-  if ((PR_LOOKUP_OK)) && [[ -n "$PR_PAIRS" ]] && in_list "$branch	$sha" "$PR_PAIRS"; then
+  # Reset per branch rather than relying on the arms below to always run, so a
+  # verdict can never carry over from the previous iteration.
+  PR_BRANCH_STATE=none
+  if ((PR_LOOKUP_OK)) && [[ -n "$PR_PAIRS" ]] && in_list "false$TAB$branch$TAB$sha" "$PR_OWN"; then
     proof="merged PR"
   elif ((ANCESTRY_OK)) && [[ -n "$ANCESTRY" ]] && in_list "$branch" "$ANCESTRY"; then
     proof="merged into $DEFAULT"
-  elif ((PR_LOOKUP_OK)) && pr_proof_for_branch "$branch" "$sha"; then
-    proof="merged PR"
+  else
+    # The bulk list can already show this name at another commit, so say so
+    # without a second call. The per-branch query below can only raise this.
+    if ((PR_LOOKUP_OK)) && [[ -n "$PR_OWN" ]] && name_in_rows "$branch" "$PR_OWN"; then
+      PR_BRANCH_STATE=moved
+    fi
+    # Only worth asking when the bulk window filled up: an unsaturated window
+    # already listed every merged pull request, so a second call cannot find one
+    # it missed, and asking anyway would be an API call per branch.
+    if ((PR_LOOKUP_OK)) && ((PR_BULK_SATURATED)) && pr_proof_for_branch "$branch" "$sha"; then
+      proof="merged PR"
+    fi
   fi
 
   if [[ -z "$proof" ]]; then
-    if [[ "${PR_BRANCH_STATE:-none}" == "moved" ]]; then
-      note "kept $branch (a merged PR used this name, but at a different commit)"
-    else
-      note "kept $branch (no merge proof)"
-    fi
+    case "$PR_BRANCH_STATE" in
+      moved)
+        note "kept $branch (merged PRs used this name; none at this commit)" ;;
+      crowded)
+        note "kept $branch (too many merged PRs used this name to tell)" ;;
+      error)
+        bad "kept $branch (could not ask about this branch; unproven, not disproven)" ;;
+      *)
+        note "kept $branch (no merge proof)" ;;
+    esac
     continue
   fi
 

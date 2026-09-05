@@ -221,6 +221,42 @@ Describe 'gh-sync-repo.sh failure branches'
     The value "$(branches "$REPO")" should not include landed
   End
 
+  It 'says it could not check when the per-branch query fails'
+    # Distinct from "no merge proof": nothing was established either way, and
+    # reporting an absence that was never checked is the defect this fixes.
+    fixture_branch_with_work "$REPO" unchecked
+    fixture_many_prs "$GH_FIXTURE_PRS" 200
+    export GH_FIXTURE_FAIL_HEAD=1
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'could not ask about this branch'
+    The value "$(branches "$REPO")" should include unchecked
+  End
+
+  It 'refuses to conclude anything when one name fills the per-branch window'
+    # 100 merged pull requests share the name, so "none at this commit" cannot
+    # be established from a saturated list.
+    fixture_branch_with_work "$REPO" busy
+    fixture_many_prs "$GH_FIXTURE_PRS" 200
+    reuse=""
+    for i in $(seq 1 100); do reuse="$reuse $(fixture_pr busy "sha$i")"; done
+    # shellcheck disable=SC2086
+    fixture_many_prs "$GH_FIXTURE_PRS" 200 $reuse
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'too many merged PRs used this name to tell'
+    The value "$(branches "$REPO")" should include busy
+  End
+
+  It 'ignores a PR into another base when falling back to a per-branch query'
+    fixture_branch_with_work "$REPO" for-release-2
+    sha="$(fixture_sha "$REPO" for-release-2)"
+    fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr for-release-2 "$sha" release)"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'kept for-release-2 (no merge proof)'
+  End
+
   It 'still requires the commit to match when falling back to a per-branch query'
     # The fallback must not be a weaker signal than the bulk lookup.
     fixture_branch_with_work "$REPO" moved
@@ -231,7 +267,7 @@ Describe 'gh-sync-repo.sh failure branches'
     fixture_git "$REPO" checkout -q main
     When run script "$SYNC_REPO" "$REPO"
     The status should be success
-    The output should include 'kept moved (a merged PR used this name, but at a different commit)'
+    The output should include 'kept moved (merged PRs used this name; none at this commit)'
     The value "$(branches "$REPO")" should include moved
   End
 
@@ -241,7 +277,7 @@ Describe 'gh-sync-repo.sh failure branches'
     fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr patch-2 "$sha" main true)"
     When run script "$SYNC_REPO" "$REPO"
     The status should be success
-    The output should include 'kept patch-2'
+    The output should include 'kept patch-2 (no merge proof)'
     The value "$(branches "$REPO")" should include patch-2
   End
 

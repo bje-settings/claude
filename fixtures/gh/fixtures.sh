@@ -186,8 +186,11 @@ fixture_remove_origin() { fixture_git "$1" remote remove origin; }
 fixture_lock_index() { : > "$(fixture_git "$1" rev-parse --absolute-git-dir)/index.lock"; }
 
 # fixture_many_prs <file> <count> [pr-json...] — <count> filler pull requests,
-# followed by any given explicitly. Anything past the lookup limit is invisible
-# to the bulk query and reachable only by asking about that branch directly.
+# followed by any given explicitly. When <count> is at least the script's bulk
+# lookup limit, anything appended is past the window: invisible to the bulk query
+# and reachable only by asking about that branch directly. With a smaller <count>
+# the appended entries are visible to both, so the limit has to be passed
+# deliberately to exercise the fallback.
 fixture_many_prs() {
   local file="$1" count="$2"
   shift 2

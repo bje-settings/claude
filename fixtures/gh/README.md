@@ -46,7 +46,7 @@ Everything else composes on top:
 | `fixture_break_origin` | The remote exists but is unreachable, so fetch fails while the preflight still passes. |
 | `fixture_forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
 | `fixture_lock_index` | An index lock, which `git status` tolerates but ref-updating commands refuse, so a mid-run git failure can be provoked without corrupting anything. |
-| `fixture_many_prs` | Enough merged pull requests to hit the lookup limit, for the truncation notice. |
+| `fixture_many_prs` | Filler merged pull requests, plus any passed explicitly. When the filler count reaches the script's bulk limit, the explicit ones sit past the window and are reachable only by a per-branch query. |
 
 `fixture_corrupt_index` resolves the real git dir rather than assuming `$work/.git` is a
 directory, because in a linked worktree it is a file.
@@ -81,6 +81,7 @@ Controlled by three environment variables:
 | --- | --- |
 | `GH_FIXTURE_PRS` | Path to a JSON array of pull requests. Write it with `fixture_prs`. |
 | `GH_FIXTURE_FAIL` | Non-empty makes every call exit non-zero, exercising the degraded path. |
+| `GH_FIXTURE_FAIL_HEAD` | Non-empty fails only `--head` calls, so a bulk lookup can succeed while the per-branch one does not. |
 | `GH_FIXTURE_DEFAULT` | Default branch reported by `gh repo view`. |
 
 Build the pull-request set with the helpers, which take the head ref name, the head commit, and

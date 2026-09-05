@@ -92,11 +92,50 @@ Describe 'fixtures'
       The output should equal 'onto-main'
     End
 
-    It 'honours --limit, so truncation can be exercised'
+    It 'honours --limit, so the bulk lookup window can be exercised'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_pr a 1)" "$(fixture_pr b 2)" "$(fixture_pr c 3)"
       When run gh pr list --state merged --base main --limit 2 --json headRefName --jq '.[].headRefName'
       The status should be success
       The lines of output should equal 2
+    End
+
+    It 'filters by --head, as the real gh does'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_pr wanted aaa)" "$(fixture_pr other bbb)"
+      When run gh pr list --state merged --base main --head wanted --limit 5 --json headRefName --jq '.[].headRefName'
+      The status should be success
+      The output should equal 'wanted'
+    End
+
+    It 'places explicit pull requests past the lookup limit' 
+      # The spec that proves the per-branch fallback works is only meaningful if
+      # this holds. Verified by mutation: appending at the front instead leaves
+      # every fallback spec passing without the fallback ever running.
+      fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr late abc123)"
+      When run gh pr list --state merged --base main --limit 200 --json headRefName --jq '.[].headRefName'
+      The status should be success
+      The output should not include late
+    End
+
+    It 'still reaches a past-the-limit pull request by branch'
+      fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr late abc123)"
+      When run gh pr list --state merged --base main --head late --limit 100 --json headRefName --jq '.[].headRefName'
+      The status should be success
+      The output should equal 'late'
+    End
+
+    It 'rejects a flag it does not emulate, rather than ignoring it'
+      # Silently accepting an unknown filter would let specs pass against a
+      # query the real gh answers differently.
+      When run gh pr list --state merged --author someone
+      The status should equal 64
+      The stderr should include 'unhandled flag'
+    End
+
+    It 'can fail only the per-branch query'
+      export GH_FIXTURE_FAIL_HEAD=1
+      When run gh pr list --state merged --base main --head x --limit 5 --json headRefName --jq '.[].headRefName'
+      The status should not be success
+      The stderr should include 'simulated per-branch failure'
     End
 
     It 'fails on demand, to exercise the degraded path'
