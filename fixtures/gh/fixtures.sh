@@ -236,10 +236,23 @@ fixture_js_project() {
     # Neither belongs in the fixture's history.
     printf '.yarn/\n.pnp.*\n' > "$w/.gitignore"
   fi
-  _fixture_install "$w" "$mgr"
+  _fixture_install "$w" "$mgr" || return 1
+  _fixture_require_lock "$w" "$mgr" || return 1
   fixture_git "$w" add -A
   fixture_git "$w" commit -qm "add $mgr project"
   fixture_push "$w"
+}
+
+# _fixture_require_lock <dir> <mgr> — fail loudly if no lock file was written.
+# A package manager that cannot satisfy its pinned version may print guidance and
+# still exit 0, which would otherwise surface as an unexplained assertion failure
+# much later.
+_fixture_require_lock() {
+  local lock
+  lock="$(fixture_lockfile_name "$2")"
+  [ -f "$1/$lock" ] && return 0
+  printf 'fixture: %s produced no %s in %s\n' "$2" "$lock" "$1" >&2
+  return 1
 }
 
 # _fixture_write_package_json <dir> <mgr> <name>
@@ -255,23 +268,40 @@ _fixture_write_package_json() {
   fi
 }
 
-# _fixture_install <dir> <mgr> — write the lock file without fetching anything
+# _fixture_install <dir> <mgr> — write the lock file without fetching anything.
+#
+# Reports the package manager's own output on failure rather than swallowing it.
+# A silent failure here surfaces as "Example aborted" with no reason, which costs
+# a CI round trip to diagnose.
 _fixture_install() {
-  (
-    cd "$1" || exit 1
-    export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
-    case "$2" in
-      pnpm) pnpm install --lockfile-only --silent ;;
-      yarn) yarn install ;;
-      npm)  npm install --package-lock-only --silent ;;
-    esac
-  ) >/dev/null 2>&1
+  local dir="$1" mgr="$2" out rc
+  # Two bash 3.2 constraints in five lines. The redirect goes on a brace group
+  # rather than on esac, and every case pattern carries a leading parenthesis:
+  # bash 3.2 mis-parses the unbalanced ")" of a case pattern inside $( ).
+  out="$(
+    {
+      cd "$dir" || exit 1
+      export NPM_CONFIG_USERCONFIG=/dev/null npm_config_userconfig=/dev/null
+      case "$mgr" in
+        (pnpm) pnpm install --lockfile-only --silent ;;
+        (yarn) yarn install ;;
+        (npm)  npm install --package-lock-only --silent ;;
+      esac
+    } 2>&1
+  )"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'fixture: %s install failed in %s (exit %s)\n' "$mgr" "$dir" "$rc" >&2
+    printf '%s\n' "$out" | tail -20 >&2
+  fi
+  return "$rc"
 }
 
 # fixture_lockfile_name <manager>
 fixture_lockfile_name() {
   case "$1" in
     pnpm) printf 'pnpm-lock.yaml\n' ;;
+    yarn) printf 'yarn.lock\n' ;;
     npm)  printf 'package-lock.json\n' ;;
   esac
 }
@@ -298,7 +328,10 @@ fixture_remote_update_lock() {
     cd "$scratch/c" || exit 1
     jq '.dependencies = {"local-dep":"file:./local-dep"}' package.json > t && mv t package.json
   ) >/dev/null 2>&1
-  _fixture_install "$scratch/c" "$mgr"
+  if ! _fixture_install "$scratch/c" "$mgr" || ! _fixture_require_lock "$scratch/c" "$mgr"; then
+    rm -rf "$scratch"
+    return 1
+  fi
   fixture_git "$scratch/c" add -A
   fixture_git "$scratch/c" commit -qm 'add a local dependency'
   fixture_push "$scratch/c"
