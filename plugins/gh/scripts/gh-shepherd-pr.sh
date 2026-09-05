@@ -38,6 +38,8 @@
 #   SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default
 #                          derived from SHEPHERD_CI_SECONDS, minimum 15).
 #   SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).
+#   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
+#                          specs and for repos whose CI is far from typical.
 #
 # Exits 0 when the action ran and reported (including ok:false refusals), 2 on
 # a usage error, 1 when gh could not answer at all.
@@ -212,6 +214,7 @@ action_wait() {
   # has been seen to keep watching a fully finished rollup that contains
   # skipped checks, and a watcher that cannot return is worse than no watcher.
   bound="$(clamp $((CI_SECONDS * 2)) 120 540)"
+  [[ "${SHEPHERD_WAIT_BOUND:-}" =~ ^[1-9][0-9]*$ ]] && bound="$SHEPHERD_WAIT_BOUND"
   BOUNDED_RC=0
   if [[ "$(field "$pr" .checks.state)" == "pending" ]]; then
     run_bounded "$bound" gh pr checks "$NUMBER" --repo "$REPO" --watch --fail-fast
