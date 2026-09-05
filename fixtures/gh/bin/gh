@@ -142,8 +142,10 @@ case "$cmd $sub" in
     if ((watch)) && [[ -n "${GH_FIXTURE_WATCH_HANG:-}" ]]; then
       i=0
       while ((i < 30)); do sleep 1; i=$((i + 1)); done
+      # 65, not 8: 8 is gh's real "pending" code, which an unbounded caller
+      # that loops on pending would read as ordinary and try again.
       echo "gh stub: --watch hung for 30s and nothing bounded it" >&2
-      exit 8
+      exit 65
     fi
     case "$(checks_state "$pr")" in
       failed) exit 1 ;;
