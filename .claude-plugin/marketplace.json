@@ -1,6 +1,6 @@
 {
   "name": "bje",
-  "description": "Claude Code plugins for the bje enterprise: git and GitHub workflow automation.",
+  "description": "bje Claude Code plugins",
   "owner": {
     "name": "Brian Espinosa",
     "email": "b@bje.co"
