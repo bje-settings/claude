@@ -7,7 +7,8 @@ FIXTURES_DIR="$ROOT/fixtures/gh"
 SYNC_REPO="$PLUGIN_DIR/scripts/gh-sync-repo.sh"
 SYNC="$PLUGIN_DIR/scripts/gh-sync.sh"
 HOOK="$PLUGIN_DIR/hooks/session-start.sh"
-export ROOT PLUGIN_DIR FIXTURES_DIR SYNC_REPO SYNC HOOK
+DISCOVER="$PLUGIN_DIR/scripts/lib/discover.sh"
+export ROOT PLUGIN_DIR FIXTURES_DIR SYNC_REPO SYNC HOOK DISCOVER
 
 # shellcheck source=../fixtures/gh/fixtures.sh
 . "$FIXTURES_DIR/fixtures.sh"

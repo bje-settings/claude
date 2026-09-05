@@ -16,6 +16,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_SCRIPT="$HERE/gh-sync-repo.sh"
+DISCOVER_LIB="$HERE/lib/discover.sh"
 
 DRY_RUN=0
 NO_INSTALL=0
@@ -50,28 +51,29 @@ TARGET="$(cd "$TARGET" && pwd -P)"
 [[ -x "$REPO_SCRIPT" || -r "$REPO_SCRIPT" ]] || {
   printf 'missing %s\n' "$REPO_SCRIPT" >&2; exit 2
 }
+[[ -r "$DISCOVER_LIB" ]] || { printf 'missing %s\n' "$DISCOVER_LIB" >&2; exit 2; }
+# shellcheck source=lib/discover.sh
+. "$DISCOVER_LIB"
 
 export GH_SYNC_DRY_RUN="$DRY_RUN"
 export GH_SYNC_NO_INSTALL="$NO_INSTALL"
 
 # ------------------------------------------------------------- repo scope ---
 
-if git -C "$TARGET" rev-parse --show-toplevel >/dev/null 2>&1; then
-  bash "$REPO_SCRIPT" "$TARGET"
+# A target inside a repo yields exactly that repo; anything else yields the
+# checkout roots one level down. Either way the list drives the same fan-out
+# below, and a single repo simply runs in the foreground.
+repos=()
+while IFS= read -r repo; do
+  [[ -n "$repo" ]] && repos+=("$repo")
+done < <(discover_repos "$TARGET")
+
+if ((${#repos[@]} == 1)) && git -C "$TARGET" rev-parse --show-toplevel >/dev/null 2>&1; then
+  bash "$REPO_SCRIPT" "${repos[0]}"
   exit 0
 fi
 
 # ----------------------------------------------------------- fan-out scope ---
-
-repos=()
-for dir in "$TARGET"/*/; do
-  dir="${dir%/}"
-  [[ -d "$dir" ]] || continue
-  real="$(cd "$dir" && pwd -P)" || continue
-  top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" || continue
-  # Only the checkout root counts, never a subdirectory of one.
-  [[ "$top" == "$real" ]] && repos+=("$real")
-done
 
 if ((${#repos[@]} == 0)); then
   printf 'No git repositories directly inside %s\n' "$TARGET"
