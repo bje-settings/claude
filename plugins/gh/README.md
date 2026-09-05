@@ -67,6 +67,11 @@ report says what was actually established rather than guessing at a cause:
 | `too many merged PRs used this name to tell` | The per-branch lookup filled up, so "none at this commit" could not be established. |
 | `could not ask about this branch` | The lookup did not complete. Nothing was established either way. |
 
+After the first failed lookup the command stops asking, since the cause is rarely branch-specific
+and a rate limit only worsens if you keep going. Remaining branches are reported the same way, and
+the run closes with a count of how many were never checked, so a partial run is not mistaken for a
+complete one.
+
 The last three are all reasons to keep a branch, but they are different statements, and a report
 that collapsed them would be asserting things it had not checked. A `gone` upstream is never
 treated as proof on its own, since a pruned remote branch can equally mean the work was abandoned.

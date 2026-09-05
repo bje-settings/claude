@@ -13,9 +13,14 @@
 #   GH_FIXTURE_FAIL      if non-empty, every call exits non-zero
 #   GH_FIXTURE_FAIL_HEAD if non-empty, only --head calls fail, so a bulk lookup
 #                        can succeed while the per-branch one does not
+#   GH_FIXTURE_CALL_LOG  if set, every invocation appends its arguments here
 #   GH_FIXTURE_DEFAULT  default branch reported by `gh repo view` (default: main)
 
 set -uo pipefail
+
+# Optional call log, so a spec can assert how many calls were made and of what
+# shape. Written before any failure check, so failed calls are recorded too.
+[[ -n "${GH_FIXTURE_CALL_LOG:-}" ]] && printf '%s\n' "$*" >> "$GH_FIXTURE_CALL_LOG"
 
 [[ -n "${GH_FIXTURE_FAIL:-}" ]] && { echo "gh: simulated failure" >&2; exit 1; }
 
