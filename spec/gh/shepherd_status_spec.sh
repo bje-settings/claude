@@ -122,12 +122,16 @@ Describe 'gh-shepherd-status.sh'
   End
 
   Describe 'ci_seconds'
-    runs() {  # runs <file> <durations in seconds...>
+    # runs <file> <run...> where each run is "<seconds>[:<branch>[:<status>]]",
+    # defaulting to the default branch and "completed".
+    runs() {
       local f="$1"; shift
-      local out="[" first=1 d
-      for d in "$@"; do
+      local out="[" first=1 spec d b st
+      for spec in "$@"; do
+        d="${spec%%:*}"; b=main; st=completed
+        case "$spec" in *:*:*) b="${spec#*:}"; b="${b%%:*}"; st="${spec##*:}" ;; *:*) b="${spec#*:}" ;; esac
         ((first)) || out="$out,"
-        out="$out{\"createdAt\":\"2026-01-01T00:00:00Z\",\"updatedAt\":\"$(python3 -c "import datetime;print((datetime.datetime(2026,1,1)+datetime.timedelta(seconds=$d)).strftime('%Y-%m-%dT%H:%M:%SZ'))")\"}"
+        out="$out{\"headBranch\":\"$b\",\"status\":\"$st\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"updatedAt\":\"$(python3 -c "import datetime;print((datetime.datetime(2026,1,1)+datetime.timedelta(seconds=$d)).strftime('%Y-%m-%dT%H:%M:%SZ'))")\"}"
         first=0
       done
       printf '%s]\n' "$out" > "$f"
@@ -138,6 +142,15 @@ Describe 'gh-shepherd-status.sh'
       runs "$GH_FIXTURE_RUNS" 30 900 60 45 50
       When call status
       # sorted: 30 45 50 60 900; the middle one, not the mean the outlier would drag up
+      The output should include '"ci_seconds": 50'
+    End
+
+    It 'measures only completed runs on the default branch'
+      # Two long runs that must not count: one still in progress on main, one
+      # completed on a feature branch. If either leaked in, the median would move.
+      export GH_FIXTURE_RUNS="$SANDBOX/runs.json"
+      runs "$GH_FIXTURE_RUNS" 40 50 60 5000:main:in_progress 6000:feature
+      When call status
       The output should include '"ci_seconds": 50'
     End
 

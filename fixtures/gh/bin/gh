@@ -21,7 +21,8 @@
 # same canned set, so a pull request's checks are whatever its own
 # statusCheckRollup says and there is one source of truth:
 #   GH_FIXTURE_REPO         nameWithOwner from `gh repo view` (default: acme/widgets)
-#   GH_FIXTURE_RUNS         JSON array for `gh run list` (default: no runs)
+#   GH_FIXTURE_RUNS         JSON array for `gh run list` (default: no runs);
+#                           --branch matches headBranch, --status matches status
 #   GH_FIXTURE_RUN_LOG      file whose content `gh run view --log-failed` prints
 #   GH_FIXTURE_FAIL_REBASE  if non-empty, `pr update-branch` fails
 #   GH_FIXTURE_WATCH_HANG   if non-empty, `pr checks --watch` never returns, so
@@ -41,7 +42,7 @@ set -uo pipefail
 cmd="${1:-}"; sub="${2:-}"; shift 2 2>/dev/null || true
 
 state=""; base=""; head=""; label=""; limit=1000; fields=""; jq_expr="."
-body=""; body_file=""; watch=0; positional=()
+body=""; body_file=""; watch=0; branch=""; run_status=""; positional=()
 while (($#)); do
   case "$1" in
     --state) state="$2"; shift ;;
@@ -51,9 +52,15 @@ while (($#)); do
     --limit) limit="$2"; shift ;;
     --json) fields="$2"; shift ;;
     --jq|-q) jq_expr="$2"; shift ;;
-    # Accepted and ignored: the stub has one repository and one branch of runs.
-    --repo|-R|--branch|--status|--job) shift ;;
+    # Accepted and ignored: the stub has one repository, so --repo cannot
+    # change a result. --job and --log-failed select within a log the spec
+    # authored, so there is nothing to narrow.
+    --repo|-R|--job) shift ;;
     --rebase|--fail-fast|--log-failed) : ;;
+    # Filters real gh applies server-side on `run list`; emulated below so a
+    # spec proves the script filters rather than getting a superset for free.
+    --branch) branch="$2"; shift ;;
+    --status) run_status="$2"; shift ;;
     --watch) watch=1 ;;
     --body) body="$2"; shift ;;
     --body-file) body_file="$2"; shift ;;
@@ -129,8 +136,14 @@ case "$cmd $sub" in
   "pr checks")
     # Exit codes as real gh: 0 all passed, 1 something failed, 8 pending.
     pr="$(one_pr)" || exit 1
+    # A "hang" that is long enough to outlast any bound a spec sets, but not
+    # infinite: a script with no bound of its own then fails in 30 s with a
+    # message, instead of eating the CI job's whole timeout in silence.
     if ((watch)) && [[ -n "${GH_FIXTURE_WATCH_HANG:-}" ]]; then
-      while :; do sleep 1; done
+      i=0
+      while ((i < 30)); do sleep 1; i=$((i + 1)); done
+      echo "gh stub: --watch hung for 30s and nothing bounded it" >&2
+      exit 8
     fi
     case "$(checks_state "$pr")" in
       failed) exit 1 ;;
@@ -161,7 +174,12 @@ case "$cmd $sub" in
   "run list")
     runs="${GH_FIXTURE_RUNS:-}"
     if [[ -n "$runs" && -f "$runs" ]]; then cat "$runs"; else printf '[]'; fi \
-      | jq --arg fields "$fields" --argjson limit "$limit" ".[0:\$limit] | $project" | jq -r "$jq_expr"
+      | jq --arg fields "$fields" --argjson limit "$limit" \
+           --arg branch "$branch" --arg status "$run_status" '
+        map(select($branch == "" or .headBranch == $branch))
+        | map(select($status == "" or ((.status // "") | ascii_downcase) == ($status | ascii_downcase)))
+        | .[0:$limit]
+        | '"$project" | jq -r "$jq_expr"
     ;;
   "run view")
     if [[ -n "${GH_FIXTURE_RUN_LOG:-}" && -f "$GH_FIXTURE_RUN_LOG" ]]; then
