@@ -56,7 +56,11 @@ If a plugin grows until the right mechanism changes, raise it during planning or
   zero context unless they return output. Guardrails belong in `PreToolUse` hooks; an instruction
   in CLAUDE.md or a skill is a request, not enforcement.
 - Skill when Claude has to decide how to apply the steps, or the content is knowledge.
-- Subagent only for context isolation or parallel work.
+- Subagent only for context isolation or parallel work. A subagent that has to wait on
+  something external waits in the foreground with a bounded blocking call and returns once,
+  with structured output. It must not arm a Monitor or a scheduled wake and end its turn: that
+  idles the worker and the orchestrator sees only "waiting". Wakes belong to the session that
+  dispatched it, if anywhere.
 - Anything deterministic runs in a script, not an agent. Split work so the script emits
   structured output and the agent decides from it. Where an agent is still needed, set `model`
   and `effort` in its frontmatter to the smallest that passes the specs.
