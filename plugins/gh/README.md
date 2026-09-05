@@ -91,6 +91,94 @@ restoring it needs `git worktree add` plus a fresh dependency install.
 A worktree holding uncommitted changes outranks the merge proof: both the worktree and its
 branch are left alone and reported.
 
+## `/gh:shepherd`
+
+Merges a repository's open `dependencies` pull requests one at a time. Each one is rebased if it
+is behind, CI is waited on once per cycle, mechanical failures are fixed, and anything that would
+need a logic change is skipped with a comment saying why. Auto-merge does the merging; the skill
+only gets each pull request to green and confirms it landed before starting the next.
+
+Serial is the point. Under a strict up-to-date rule every merge puts every other open pull
+request behind, so shepherding them in parallel costs a CI run per pull request per merge. One
+at a time costs exactly one rebase each, which is what a by-hand run of six Dependabot pull
+requests measured.
+
+Scope comes from the working directory, as with `/gh:sync`:
+
+| Working directory | What happens |
+| --- | --- |
+| A git repository | That repository's pull requests are shepherded, serially. |
+| Not a git repository | Every **immediate** subdirectory that is a git repository gets its own subagent; repos run in parallel, each one serial inside. |
+
+### What counts as a target
+
+An open, non-draft pull request that carries the `dependencies` label **and** already has
+auto-merge enabled. Auto-merge is the human's signal that the pull request is wanted; the skill
+never enables it. `dependencies` pull requests without auto-merge are listed in the report so
+you can enable it and rerun.
+
+Order is gh-security's `merge-risk:<band>` label first (low, then unlabelled, then medium, then
+high), oldest first within a band.
+
+### Flags
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | Print each repository's target list, in order, and stop. Nothing is rebased, commented on, or waited for. |
+| `--repo <path>` | Shepherd only that repository. |
+
+### The loop, per pull request
+
+| State | Action |
+| --- | --- |
+| Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. |
+| Conflicts, Dependabot branch | Comment `@dependabot recreate`, wait for the head to move, then wait for CI. |
+| Conflicts, human branch | Reported as needing escalation. Never resolved by the skill. |
+| Checks running | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
+| Checks green, auto-merge fired | Recorded with the merge commit. Next. |
+| Checks green, still open | Reported as blocked with the merge state (a review requirement, for instance). Never merged by hand. |
+| Checks failed, mechanical | Fixed once in a throwaway worktree and pushed: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
+| Checks failed, not mechanical | Skipped with a comment saying why: anything touching program logic, tests' expectations of behaviour, configuration semantics, or a CI workflow. |
+| Checks failed, unclear | Reported as needing escalation. |
+
+The report ends with an offer to rerun the escalated pull requests with a larger model. The
+default worker is Sonnet at medium effort, since rebasing, reading a check, and classifying a
+failure are small-model work; cost scales with the rare hard case rather than the common easy one.
+
+### Waiting
+
+The wait is a blocking `gh pr checks --watch`, run inside the per-repo subagent, once per CI
+cycle. It is deliberately not a Monitor or a scheduled wake: those idle the worker and leave the
+orchestrator seeing only "waiting". The bound comes from the median duration of the last twenty
+completed runs on the default branch, doubled, clamped to two to nine minutes; a wait that hits
+its bound returns `pending` and the agent calls it again. A rollup that is already terminal is
+answered from the pull request without watching at all.
+
+### What it never does
+
+Merge by hand, enable or disable auto-merge, bypass or re-run a required check, edit labels,
+resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
+
+### Scripts
+
+The deterministic parts are two scripts; the agent only decides between their results.
+
+```bash
+plugins/gh/scripts/gh-shepherd-status.sh <path>                       # the work list, as JSON
+plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> state|rebase|recreate|wait|merged
+plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> skip <reason-file>
+```
+
+`status` changes nothing. `gh-shepherd-pr.sh` writes only through `rebase` (the branch update),
+`recreate` and `skip` (one comment each), and refuses each of those when its precondition does
+not hold: a pull request that is not open, a `recreate` on a branch Dependabot did not author, a
+`skip` with an empty reason. Every action prints one JSON object with `ok` and `detail`, and
+exits 0 whether or not it acted, so a refusal is data for the agent rather than a crash.
+Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
+`SHEPHERD_LOG_LINES`) are documented at the top of the script.
+
+Repository discovery is shared with `/gh:sync` through `scripts/lib/discover.sh`.
+
 ## Session start hook
 
 On session start only (not on resume, `/clear`, or compaction) the plugin runs a **report-only**
@@ -120,11 +208,13 @@ would need different credentials per org anyway.
 
 ## Running outside Claude Code
 
-Both scripts are plain bash with no dependency on the plugin runtime:
+The scripts are plain bash with no dependency on the plugin runtime:
 
 ```bash
 plugins/gh/scripts/gh-sync.sh --dry-run ~/Code/@bje/@bje-settings
 plugins/gh/scripts/gh-sync-repo.sh --dry-run ~/Code/@bje/@bje-settings/terraform
+plugins/gh/scripts/gh-shepherd-status.sh ~/Code/@bje/@bje-settings/terraform
+plugins/gh/scripts/gh-shepherd-pr.sh ~/Code/@bje/@bje-settings/terraform 12 state
 ```
 
 They are written for bash 3.2, the version macOS ships at `/bin/bash`.

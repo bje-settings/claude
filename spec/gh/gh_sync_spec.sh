@@ -103,6 +103,7 @@ Describe 'gh-sync.sh'
       # to prove a crashed job cannot pass for a repo with nothing to say.
       mkdir -p "$SANDBOX/fake"
       cp "$SYNC" "$SANDBOX/fake/gh-sync.sh"
+      cp -R "$PLUGIN_DIR/scripts/lib" "$SANDBOX/fake/lib"
       printf '#!/usr/bin/env bash\nexit 7\n' > "$SANDBOX/fake/gh-sync-repo.sh"
       chmod +x "$SANDBOX/fake/gh-sync-repo.sh"
       fixture_create_at "$SANDBOX/fan" a >/dev/null
@@ -116,9 +117,20 @@ Describe 'gh-sync.sh'
     It 'refuses to run when the per-repo script is missing'
       mkdir -p "$SANDBOX/lonely"
       cp "$SYNC" "$SANDBOX/lonely/gh-sync.sh"
+      cp -R "$PLUGIN_DIR/scripts/lib" "$SANDBOX/lonely/lib"
       When run script "$SANDBOX/lonely/gh-sync.sh" "$SANDBOX"
       The status should equal 2
       The stderr should include 'missing'
+    End
+
+    It 'refuses to run when the discovery library is missing'
+      mkdir -p "$SANDBOX/lonely"
+      cp "$SYNC" "$SANDBOX/lonely/gh-sync.sh"
+      cp "$SYNC_REPO" "$SANDBOX/lonely/gh-sync-repo.sh"
+      When run script "$SANDBOX/lonely/gh-sync.sh" "$SANDBOX"
+      The status should equal 2
+      The stderr should include 'missing'
+      The stderr should include 'discover.sh'
     End
 
     It 'throttles to the requested number of jobs'

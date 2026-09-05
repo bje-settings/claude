@@ -46,6 +46,7 @@ Everything else composes on top:
 | `fixture_break_origin` | The remote exists but is unreachable, so fetch fails while the preflight still passes. |
 | `fixture_forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
 | `fixture_lock_index` | An index lock, which `git status` tolerates but ref-updating commands refuse, so a mid-run git failure can be provoked without corrupting anything. |
+| `fixture_dep_pr` | One `dependencies` pull request as the shepherd scripts see it: number, state, merge state, a check rollup in one of several shapes, auto-merge on or off, Dependabot or human author, an optional merge-risk label. The stub answers `pr view`, `pr checks`, `pr update-branch`, and `pr comment` from the same object, so a spec's claims about checks and its claims about the loop cannot drift apart. |
 | `fixture_many_prs` | Filler merged pull requests, plus any passed explicitly. When the filler count reaches the script's bulk limit, the explicit ones sit past the window and are reachable only by a per-branch query. |
 
 `fixture_corrupt_index` resolves the real git dir rather than assuming `$work/.git` is a

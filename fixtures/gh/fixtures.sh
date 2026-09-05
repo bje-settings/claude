@@ -406,3 +406,74 @@ fixture_prs() {
 }
 
 fixture_no_prs() { printf '[]\n' > "$1"; }
+
+# fixture_dep_pr <number> [key=value ...] — one dependencies pull request as the
+# shepherd scripts see it. Keys and defaults:
+#   state=OPEN          OPEN | MERGED | CLOSED
+#   merge=CLEAN         mergeStateStatus: CLEAN | BEHIND | DIRTY | BLOCKED | ...
+#   checks=passed       passed | failed | pending | none | mixed (one of each)
+#                       | neutral (NEUTRAL and SKIPPED conclusions only)
+#                       | cancelled (a CANCELLED run beside a success)
+#                       | null-conclusion (COMPLETED with conclusion null)
+#                       | status-failed | status-pending | status-passed
+#                         (StatusContext rows, the older commit-status shape)
+#   auto=true           auto-merge enabled
+#   bot=true            authored by app/dependabot; false gives a human author
+#   draft=false
+#   risk=               merge-risk band label to add: low | medium | high
+#   created=            createdAt; defaults to 2026-01-<number>T00:00:00Z
+#   head=               headRefOid; defaults to sha<number>
+fixture_dep_pr() {
+  local number="$1"; shift
+  local state=OPEN merge=CLEAN checks=passed auto=true bot=true draft=false risk="" created="" head="" kv
+  for kv in "$@"; do
+    case "$kv" in
+      state=*) state="${kv#*=}" ;;
+      merge=*) merge="${kv#*=}" ;;
+      checks=*) checks="${kv#*=}" ;;
+      auto=*) auto="${kv#*=}" ;;
+      bot=*) bot="${kv#*=}" ;;
+      draft=*) draft="${kv#*=}" ;;
+      risk=*) risk="${kv#*=}" ;;
+      created=*) created="${kv#*=}" ;;
+      head=*) head="${kv#*=}" ;;
+      *) printf 'fixture_dep_pr: unknown key %s\n' "$kv" >&2; return 1 ;;
+    esac
+  done
+  [[ -n "$created" ]] || created="$(printf '2026-01-%02dT00:00:00Z' "$number")"
+  [[ -n "$head" ]] || head="sha$number"
+  jq -nc --argjson n "$number" --arg state "$state" --arg merge "$merge" --arg checks "$checks" \
+    --argjson auto "$auto" --argjson bot "$bot" --argjson draft "$draft" --arg risk "$risk" \
+    --arg created "$created" --arg head "$head" '
+    def run(name; status; conclusion):
+      {__typename: "CheckRun", name: name, status: status, conclusion: conclusion,
+       detailsUrl: ("https://github.com/acme/widgets/actions/runs/1" + ($n|tostring) + "/job/2" + ($n|tostring))};
+    {
+      number: $n,
+      title: ("build(deps): bump dep-" + ($n|tostring)),
+      state: $state,
+      isDraft: $draft,
+      author: (if $bot then {login: "app/dependabot", is_bot: true} else {login: "someone", is_bot: false} end),
+      labels: ([{name: "dependencies"}] + (if $risk == "" then [] else [{name: ("merge-risk:" + $risk)}] end)),
+      autoMergeRequest: (if $auto then {mergeMethod: "MERGE"} else null end),
+      mergeStateStatus: $merge,
+      mergeable: (if $merge == "DIRTY" then "CONFLICTING" else "MERGEABLE" end),
+      headRefOid: $head,
+      headRefName: ("dependabot/npm/dep-" + ($n|tostring)),
+      baseRefName: "main",
+      createdAt: $created,
+      mergeCommit: (if $state == "MERGED" then {oid: ("merged" + ($n|tostring))} else null end),
+      statusCheckRollup: (
+        if $checks == "passed" then [run("test"; "COMPLETED"; "SUCCESS"), run("lint"; "COMPLETED"; "SKIPPED")]
+        elif $checks == "failed" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "COMPLETED"; "FAILURE")]
+        elif $checks == "pending" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "IN_PROGRESS"; null)]
+        elif $checks == "mixed" then [run("test"; "IN_PROGRESS"; null), run("build"; "COMPLETED"; "FAILURE")]
+        elif $checks == "neutral" then [run("lint"; "COMPLETED"; "NEUTRAL"), run("docs"; "COMPLETED"; "SKIPPED")]
+        elif $checks == "cancelled" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "COMPLETED"; "CANCELLED")]
+        elif $checks == "null-conclusion" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "COMPLETED"; null)]
+        elif $checks == "status-failed" then [{__typename: "StatusContext", context: "ci/legacy", state: "FAILURE", targetUrl: "https://ci.example/1"}]
+        elif $checks == "status-pending" then [{__typename: "StatusContext", context: "ci/legacy", state: "PENDING", targetUrl: "https://ci.example/1"}]
+        elif $checks == "status-passed" then [{__typename: "StatusContext", context: "ci/legacy", state: "SUCCESS", targetUrl: "https://ci.example/1"}]
+        else [] end)
+    }'
+}

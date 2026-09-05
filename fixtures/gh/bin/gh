@@ -15,6 +15,21 @@
 #                        can succeed while the per-branch one does not
 #   GH_FIXTURE_CALL_LOG  if set, every invocation appends its arguments here
 #   GH_FIXTURE_DEFAULT  default branch reported by `gh repo view` (default: main)
+#
+# For the shepherd scripts the stub also answers `pr view`, `pr checks`,
+# `pr update-branch`, `pr comment`, `run list`, and `run view`, all against the
+# same canned set, so a pull request's checks are whatever its own
+# statusCheckRollup says and there is one source of truth:
+#   GH_FIXTURE_REPO         nameWithOwner from `gh repo view` (default: acme/widgets)
+#   GH_FIXTURE_RUNS         JSON array for `gh run list` (default: no runs);
+#                           --branch matches headBranch, --status matches status
+#   GH_FIXTURE_RUN_LOG      file whose content `gh run view --log-failed` prints
+#   GH_FIXTURE_FAIL_REBASE  if non-empty, `pr update-branch` fails
+#   GH_FIXTURE_WATCH_HANG   if non-empty, `pr checks --watch` never returns, so
+#                           a caller's own bound can be exercised
+# `pr update-branch --rebase` and `pr comment` are mutations: the first rewrites
+# the pull request in GH_FIXTURE_PRS with a new head SHA, the second appends to
+# "$GH_FIXTURE_PRS.comments". Both are also visible in GH_FIXTURE_CALL_LOG.
 
 set -uo pipefail
 
@@ -26,20 +41,34 @@ set -uo pipefail
 
 cmd="${1:-}"; sub="${2:-}"; shift 2 2>/dev/null || true
 
-state=""; base=""; head=""; limit=1000; fields=""; jq_expr="."
+state=""; base=""; head=""; label=""; limit=1000; fields=""; jq_expr="."
+body=""; body_file=""; watch=0; branch=""; run_status=""; positional=()
 while (($#)); do
   case "$1" in
     --state) state="$2"; shift ;;
     --base) base="$2"; shift ;;
     --head) head="$2"; shift ;;
+    --label) label="$2"; shift ;;
     --limit) limit="$2"; shift ;;
     --json) fields="$2"; shift ;;
     --jq|-q) jq_expr="$2"; shift ;;
+    # Accepted and ignored: the stub has one repository, so --repo cannot
+    # change a result. --job and --log-failed select within a log the spec
+    # authored, so there is nothing to narrow.
+    --repo|-R|--job) shift ;;
+    --rebase|--fail-fast|--log-failed) : ;;
+    # Filters real gh applies server-side on `run list`; emulated below so a
+    # spec proves the script filters rather than getting a superset for free.
+    --branch) branch="$2"; shift ;;
+    --status) run_status="$2"; shift ;;
+    --watch) watch=1 ;;
+    --body) body="$2"; shift ;;
+    --body-file) body_file="$2"; shift ;;
     # Anything unrecognised is a filter this stub does not emulate. Ignoring it
     # silently would let specs pass against a query the real gh answers
     # differently, which is how --head came to be missing in the first place.
     -*) echo "gh stub: unhandled flag: $1" >&2; exit 64 ;;
-    *) : ;;
+    *) positional+=("$1") ;;
   esac
   shift
 done
@@ -49,27 +78,118 @@ done
 }
 
 if [[ "$cmd" == "repo" && "$sub" == "view" ]]; then
-  jq -n --arg b "${GH_FIXTURE_DEFAULT:-main}" '{defaultBranchRef:{name:$b}}' \
+  jq -n --arg b "${GH_FIXTURE_DEFAULT:-main}" --arg r "${GH_FIXTURE_REPO:-acme/widgets}" \
+    '{defaultBranchRef:{name:$b}, nameWithOwner:$r}' \
     | jq -r "$jq_expr"
   exit 0
 fi
-
-[[ "$cmd" == "pr" && "$sub" == "list" ]] || { echo "gh stub: unsupported: $cmd $sub" >&2; exit 1; }
 
 src="${GH_FIXTURE_PRS:-}"
 [[ -n "$src" && -f "$src" ]] || src=/dev/null
 if [[ "$src" == /dev/null ]]; then payload='[]'; else payload="$(cat "$src")"; fi
 
-# Emulate the server-side filtering, then the field projection that --json does,
-# then hand the result to the caller's --jq expression.
-printf '%s' "$payload" | jq \
-  --arg state "$state" --arg base "$base" --arg head "$head" \
-  --argjson limit "$limit" --arg fields "$fields" '
-  map(select($state == "" or (.state // "MERGED") == ($state | ascii_upcase)))
-  | map(select($base == "" or .baseRefName == $base))
-  | map(select($head == "" or .headRefName == $head))
-  | .[0:$limit]
-  | if $fields == "" then .
-    else map( . as $pr | reduce ($fields | split(",")[]) as $f ({}; .[$f] = $pr[$f]) )
-    end
-' | jq -r "$jq_expr"
+# --json projection, shared by every listing and view below.
+project='if $fields == "" then .
+  else map( . as $pr | reduce ($fields | split(",")[]) as $f ({}; .[$f] = $pr[$f]) )
+  end'
+
+# one_pr: the pull request named by the first positional argument, or exit 1
+# the way real gh does for an unknown number.
+one_pr() {
+  local n="${positional[0]:-}" pr
+  [[ "$n" =~ ^[0-9]+$ ]] || { echo "gh stub: pull request number required" >&2; exit 1; }
+  pr="$(printf '%s' "$payload" | jq -c --argjson n "$n" 'map(select(.number == $n)) | first // empty')"
+  [[ -n "$pr" ]] || { echo "GraphQL: Could not resolve to a PullRequest with the number of $n." >&2; exit 1; }
+  printf '%s' "$pr"
+}
+
+# checks_state: none | pending | failed | passed, from one PR's rollup, using
+# the same CheckRun and StatusContext reading the scripts use.
+checks_state() {
+  printf '%s' "$1" | jq -r '
+    (.statusCheckRollup // []) | map(
+      if .__typename == "StatusContext" then
+        (if .state == "SUCCESS" then "passed" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failed" end)
+      else
+        (if .status != "COMPLETED" then "pending" elif (.conclusion | IN("SUCCESS","NEUTRAL","SKIPPED")) then "passed" else "failed" end)
+      end)
+    | if length == 0 then "none" elif any(. == "failed") then "failed" elif any(. == "pending") then "pending" else "passed" end'
+}
+
+case "$cmd $sub" in
+  "pr list")
+    # Emulate the server-side filtering, then the field projection that --json
+    # does, then hand the result to the caller's --jq expression.
+    printf '%s' "$payload" | jq \
+      --arg state "$state" --arg base "$base" --arg head "$head" --arg lbl "$label" \
+      --argjson limit "$limit" --arg fields "$fields" '
+      map(select($state == "" or (.state // "MERGED") == ($state | ascii_upcase)))
+      | map(select($base == "" or .baseRefName == $base))
+      | map(select($head == "" or .headRefName == $head))
+      | # $lbl, not $label: "label" is a reserved word in jq 1.6.
+      map(select($lbl == "" or ((.labels // []) | map(.name) | index($lbl)) != null))
+      | .[0:$limit]
+      | '"$project" | jq -r "$jq_expr"
+    ;;
+  "pr view")
+    one_pr | jq --arg fields "$fields" "[.] | $project | .[0]" | jq -r "$jq_expr"
+    ;;
+  "pr checks")
+    # Exit codes as real gh: 0 all passed, 1 something failed, 8 pending.
+    pr="$(one_pr)" || exit 1
+    # A "hang" that is long enough to outlast any bound a spec sets, but not
+    # infinite: a script with no bound of its own then fails in 30 s with a
+    # message, instead of eating the CI job's whole timeout in silence.
+    if ((watch)) && [[ -n "${GH_FIXTURE_WATCH_HANG:-}" ]]; then
+      i=0
+      while ((i < 30)); do sleep 1; i=$((i + 1)); done
+      # 65, not 8: 8 is gh's real "pending" code, which an unbounded caller
+      # that loops on pending would read as ordinary and try again.
+      echo "gh stub: --watch hung for 30s and nothing bounded it" >&2
+      exit 65
+    fi
+    case "$(checks_state "$pr")" in
+      failed) exit 1 ;;
+      pending) exit 8 ;;
+      *) exit 0 ;;
+    esac
+    ;;
+  "pr update-branch")
+    pr="$(one_pr)" || exit 1
+    [[ -n "${GH_FIXTURE_FAIL_REBASE:-}" ]] && {
+      echo "GraphQL: merge conflict between base and head (updatePullRequestBranch)" >&2; exit 1
+    }
+    # The rebase moves the head and leaves the pull request current with its base.
+    n="$(printf '%s' "$pr" | jq -r .number)"
+    printf '%s' "$payload" | jq --argjson n "$n" '
+      map(if .number == $n then .headRefOid = ("rebased-" + (.headRefOid // "")) | .mergeStateStatus = "BLOCKED" else . end)' \
+      > "$src"
+    echo "✓ Pull request #$n branch has been updated"
+    ;;
+  "pr comment")
+    pr="$(one_pr)" || exit 1
+    n="$(printf '%s' "$pr" | jq -r .number)"
+    if [[ -n "$body_file" ]]; then body="$(cat "$body_file")"; fi
+    printf '#%s\t%s\n' "$n" "$(printf '%s' "$body" | tr '\n' ' ')" >> "$src.comments"
+    count="$(wc -l < "$src.comments" | tr -d ' ')"
+    echo "https://github.com/${GH_FIXTURE_REPO:-acme/widgets}/pull/$n#issuecomment-$count"
+    ;;
+  "run list")
+    runs="${GH_FIXTURE_RUNS:-}"
+    if [[ -n "$runs" && -f "$runs" ]]; then cat "$runs"; else printf '[]'; fi \
+      | jq --arg fields "$fields" --argjson limit "$limit" \
+           --arg branch "$branch" --arg status "$run_status" '
+        map(select($branch == "" or .headBranch == $branch))
+        | map(select($status == "" or ((.status // "") | ascii_downcase) == ($status | ascii_downcase)))
+        | .[0:$limit]
+        | '"$project" | jq -r "$jq_expr"
+    ;;
+  "run view")
+    if [[ -n "${GH_FIXTURE_RUN_LOG:-}" && -f "$GH_FIXTURE_RUN_LOG" ]]; then
+      cat "$GH_FIXTURE_RUN_LOG"
+    else
+      printf 'build\tUNKNOWN STEP\t2026-01-01T00:00:00Z ##[error]Process completed with exit code 1.\n'
+    fi
+    ;;
+  *) echo "gh stub: unsupported: $cmd $sub" >&2; exit 1 ;;
+esac

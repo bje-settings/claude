@@ -7,7 +7,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 | Plugin | What it does |
 | --- | --- |
-| [`gh`](plugins/gh) | Git and GitHub workflow skills. `/gh:sync` moves a checkout to its default branch, fast-forwards it, and prunes branches and worktrees whose work has already landed, for one repo or every repo one level down. |
+| [`gh`](plugins/gh) | Git and GitHub workflow skills. `/gh:sync` moves a checkout to its default branch, fast-forwards it, and prunes branches and worktrees whose work has already landed, for one repo or every repo one level down. `/gh:shepherd` merges a repo's auto-merge-enabled `dependencies` PRs one at a time, rebasing and waiting on CI between merges. |
 
 ## Tests
 
