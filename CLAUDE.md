@@ -65,6 +65,11 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
 - Plugin state lives under `${CLAUDE_PLUGIN_DATA}`. `${CLAUDE_PLUGIN_ROOT}` changes on update.
 
+### Skills
+
+Every `SKILL.md` carries a mermaid flow diagram, enforced by `spec/skills_spec.sh` across all
+plugins. See `.claude/rules/file-skill-md.md` for what the diagram has to show.
+
 ### Tests
 
 Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
