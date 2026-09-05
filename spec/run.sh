@@ -25,6 +25,9 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/gh/scripts/gh-sync.sh \
     plugins/gh/scripts/gh-sync-repo.sh \
     plugins/gh/scripts/lib/discover.sh \
+    plugins/gh/scripts/lib/shepherd.sh \
+    plugins/gh/scripts/gh-shepherd-status.sh \
+    plugins/gh/scripts/gh-shepherd-pr.sh \
     plugins/gh/hooks/session-start.sh \
     fixtures/gh/fixtures.sh \
     fixtures/gh/bin/gh

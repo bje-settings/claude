@@ -9,7 +9,7 @@
     {
       "name": "gh",
       "source": "./plugins/gh",
-      "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed.",
+      "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed. /gh:shepherd merges a repo's auto-merge-enabled dependencies PRs one at a time.",
       "category": "development"
     }
   ]
