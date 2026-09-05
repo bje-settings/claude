@@ -38,16 +38,22 @@ jobs:
     # what most contributors have on PATH. macOS gives us /bin/bash 3.2, which is
     # what actually executes these scripts when the plugin runs, so a green Linux
     # run on its own would not prove much.
+    #
+    # THESE JOB NAMES ARE A CONTRACT. The branch ruleset requires them by exact
+    # string, so renaming one does not fail the build: the required check simply
+    # never reports and every pull request waits forever for something that will
+    # not arrive. Keep them short and stable, and put descriptive text in step
+    # names, where it helps in logs without becoming load-bearing.
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: bash 5 (ubuntu)
+          - name: bash-5
             os: ubuntu-latest
             shellspec_args: ""
-          - name: bash 3.2 (macos, the shell these scripts run under)
+          - name: bash-3.2
             os: macos-latest
             shellspec_args: "--shell /bin/bash"
     steps:
@@ -75,7 +81,7 @@ jobs:
           sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
           shellspec --version
 
-      - name: Report the shell actually under test
+      - name: Report the shell actually under test (macOS runs /bin/bash 3.2)
         run: |
           bash --version | head -1
           /bin/bash --version | head -1

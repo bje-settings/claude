@@ -78,10 +78,14 @@ with `spec/run.sh`, which lints and then runs the suite under both bash 5 and ba
 
 CI runs shellcheck, the suite on both shells, and a coverage job that fails below 95%, which is
 the enterprise Code Coverage ruleset's threshold. That number does not mean "tested" where the
-logic lives inside a `jq` program; see `.claude/rules/type-sh.md`.
+logic lives inside a `jq` program; see `.claude/rules/type-jq.md`.
 
 Coverage uses `kcov`, pinned to `ubuntu-22.04`: newer kcov builds break shellspec, and the
 alternative, bashcov, prevents shellspec running at all. Re-test before changing either.
+
+The CI job names `shellcheck`, `bash-5`, `bash-3.2` and `coverage` are required checks on the
+default branch, matched by exact string. Renaming one does not fail the build: the required check
+never reports and pull requests wait forever. Put descriptive text in step names instead.
 
 The threshold is enforced by `spec/coverage-check.py`, not shellspec's `--fail-low-coverage`,
 which reports a failure at any coverage level once enabled. Reproduce a CI coverage run with
