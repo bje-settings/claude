@@ -207,12 +207,42 @@ Describe 'gh-sync-repo.sh failure branches'
     The output should include 'deleted landed'
   End
 
-  It 'says the pull-request list was truncated rather than blaming the branch'
-    fixture_many_prs "$GH_FIXTURE_PRS" 200
-    fixture_branch_with_work "$REPO" wip
+  It 'proves a branch whose pull request falls outside the bulk lookup window'
+    # Found in the field: a repo with more merged pull requests than the bulk
+    # limit drops the oldest, and branches merged before that window looked
+    # unproven and were kept forever. The per-branch query closes it.
+    fixture_branch_with_work "$REPO" landed
+    sha="$(fixture_sha "$REPO" landed)"
+    fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr landed "$sha")"
     When run script "$SYNC_REPO" "$REPO"
     The status should be success
-    The output should include 'PR list truncated at 200'
+    The output should include 'deleted landed'
+    The output should include 'merged PR'
+    The value "$(branches "$REPO")" should not include landed
+  End
+
+  It 'still requires the commit to match when falling back to a per-branch query'
+    # The fallback must not be a weaker signal than the bulk lookup.
+    fixture_branch_with_work "$REPO" moved
+    merged_sha="$(fixture_sha "$REPO" moved)"
+    fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr moved "$merged_sha")"
+    fixture_git "$REPO" checkout -q moved
+    fixture_commit "$REPO" 'work after the merge' after.txt after
+    fixture_git "$REPO" checkout -q main
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'kept moved (a merged PR used this name, but at a different commit)'
+    The value "$(branches "$REPO")" should include moved
+  End
+
+  It 'ignores a fork pull request found by the per-branch query too'
+    fixture_branch_with_work "$REPO" patch-2
+    sha="$(fixture_sha "$REPO" patch-2)"
+    fixture_many_prs "$GH_FIXTURE_PRS" 200 "$(fixture_pr patch-2 "$sha" main true)"
+    When run script "$SYNC_REPO" "$REPO"
+    The status should be success
+    The output should include 'kept patch-2'
+    The value "$(branches "$REPO")" should include patch-2
   End
 
   It 'keeps a branch whose worktree cannot be read'

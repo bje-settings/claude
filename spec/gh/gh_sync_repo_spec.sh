@@ -140,7 +140,8 @@ Describe 'gh-sync-repo.sh'
       fixture_git "$REPO" checkout -q main
       When run script "$SYNC_REPO" "$REPO"
       The status should be success
-      The output should include 'kept reused (no merge proof)'
+      # The report names the reason: the work landed, but not this commit.
+      The output should include 'kept reused (a merged PR used this name, but at a different commit)'
       The value "$(branches "$REPO")" should include reused
       The value "$(fixture_sha "$REPO" reused)" should equal "$danger"
     End

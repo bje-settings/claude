@@ -57,7 +57,10 @@ A branch is deleted only with positive proof, from either of two independent sig
   locally and pushed with no pull request at all.
 
 Either one is sufficient; neither one alone is complete. A branch with no proof is kept and
-reported. A `gone` upstream is never treated as proof on its own, since a pruned remote branch
+reported. A branch whose name matches a merged pull request at a *different* commit is reported
+as such, rather than as unproven: the work landed, but this local copy is not what landed, which
+is what a bot rebasing its remote branch leaves behind. Deleting it would still discard a commit
+that exists nowhere else. A `gone` upstream is never treated as proof on its own, since a pruned remote branch
 can equally mean the work was abandoned.
 
 If **both** signals are unavailable (no `gh`, or the branch listing failed), the repo is

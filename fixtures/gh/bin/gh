@@ -19,11 +19,12 @@ set -uo pipefail
 
 cmd="${1:-}"; sub="${2:-}"; shift 2 2>/dev/null || true
 
-state=""; base=""; limit=1000; fields=""; jq_expr="."
+state=""; base=""; head=""; limit=1000; fields=""; jq_expr="."
 while (($#)); do
   case "$1" in
     --state) state="$2"; shift ;;
     --base) base="$2"; shift ;;
+    --head) head="$2"; shift ;;
     --limit) limit="$2"; shift ;;
     --json) fields="$2"; shift ;;
     --jq|-q) jq_expr="$2"; shift ;;
@@ -47,9 +48,11 @@ if [[ "$src" == /dev/null ]]; then payload='[]'; else payload="$(cat "$src")"; f
 # Emulate the server-side filtering, then the field projection that --json does,
 # then hand the result to the caller's --jq expression.
 printf '%s' "$payload" | jq \
-  --arg state "$state" --arg base "$base" --argjson limit "$limit" --arg fields "$fields" '
+  --arg state "$state" --arg base "$base" --arg head "$head" \
+  --argjson limit "$limit" --arg fields "$fields" '
   map(select($state == "" or (.state // "MERGED") == ($state | ascii_upcase)))
   | map(select($base == "" or .baseRefName == $base))
+  | map(select($head == "" or .headRefName == $head))
   | .[0:$limit]
   | if $fields == "" then .
     else map( . as $pr | reduce ($fields | split(",")[]) as $f ({}; .[$f] = $pr[$f]) )

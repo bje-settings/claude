@@ -221,7 +221,6 @@ PR_LIMIT=200
 #     that was reused or committed to after the merge is not treated as landed
 PR_PAIRS=""
 PR_LOOKUP_OK=1
-PR_TRUNCATED=0
 if command -v gh >/dev/null 2>&1; then
   PR_PAIRS="$(gh pr list --state merged --base "$DEFAULT" --limit "$PR_LIMIT" \
       --json headRefName,headRefOid,isCrossRepository \
@@ -230,12 +229,35 @@ if command -v gh >/dev/null 2>&1; then
 else
   PR_LOOKUP_OK=0
 fi
-if ((PR_LOOKUP_OK)); then
-  pr_count="$(printf '%s' "$PR_PAIRS" | grep -c . 2>/dev/null)" || pr_count=0
-  ((pr_count >= PR_LIMIT)) && PR_TRUNCATED=1
-else
-  note "could not read merged pull requests; using ancestry alone"
-fi
+((PR_LOOKUP_OK)) || note "could not read merged pull requests; using ancestry alone"
+
+# The bulk list above covers the common case in one call, but it is a window:
+# a repo with more merged pull requests than the limit drops the oldest, and a
+# branch merged before that window looks unproven. This asks about one branch
+# directly, and is used only for branches nothing else could prove, so it costs
+# a call per genuinely-unproven branch rather than a call per branch.
+# Sets PR_BRANCH_STATE to one of:
+#   match  a merged pull request whose head is exactly this commit
+#   moved  a merged pull request for this branch, at a different commit
+#   none   no merged pull request for this branch at all
+# "moved" is worth separating: it means the work landed but the local branch is
+# not the copy that landed, which is common when a bot rebases the remote branch.
+# Deleting it would still throw away a commit that exists nowhere else.
+pr_proof_for_branch() {
+  local pairs
+  PR_BRANCH_STATE=none
+  pairs="$(gh pr list --state merged --base "$DEFAULT" --head "$1" --limit 5 \
+      --json headRefName,headRefOid,isCrossRepository \
+      --jq '.[] | select(.isCrossRepository == false) | "\(.headRefName)\t\(.headRefOid)"' \
+      2>/dev/null)" || return 1
+  [ -n "$pairs" ] || return 1
+  if in_list "$1	$2" "$pairs"; then
+    PR_BRANCH_STATE=match
+    return 0
+  fi
+  PR_BRANCH_STATE=moved
+  return 1
+}
 
 # Ancestry catches the other case: merged locally with no pull request at all.
 # A failed probe must not masquerade as "nothing is merged", which would silently
@@ -309,11 +331,13 @@ while IFS= read -r branch; do
     proof="merged PR"
   elif ((ANCESTRY_OK)) && [[ -n "$ANCESTRY" ]] && in_list "$branch" "$ANCESTRY"; then
     proof="merged into $DEFAULT"
+  elif ((PR_LOOKUP_OK)) && pr_proof_for_branch "$branch" "$sha"; then
+    proof="merged PR"
   fi
 
   if [[ -z "$proof" ]]; then
-    if ((PR_TRUNCATED)); then
-      note "kept $branch (no merge proof; PR list truncated at $PR_LIMIT)"
+    if [[ "${PR_BRANCH_STATE:-none}" == "moved" ]]; then
+      note "kept $branch (a merged PR used this name, but at a different commit)"
     else
       note "kept $branch (no merge proof)"
     fi
