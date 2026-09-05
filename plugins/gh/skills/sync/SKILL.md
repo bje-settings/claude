@@ -1,4 +1,5 @@
 ---
+name: sync
 description: >
   Move a checkout to its default branch, fast-forward it, and prune local branches
   and worktrees whose work has already landed. Scope is detected from the working
@@ -6,6 +7,7 @@ description: >
   immediate subdirectory that is a git repo. Never clones, and skips any repo with
   uncommitted changes.
 allowed-tools: Bash
+disable-model-invocation: true
 ---
 
 Sync the current checkout, or every checkout one level down.

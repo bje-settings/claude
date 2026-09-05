@@ -1,6 +1,6 @@
 {
   "name": "gh",
-  "description": "GitHub and git workflow commands. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed, for one repo or every repo one level down.",
+  "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed, for one repo or every repo one level down.",
   "version": "0.1.0",
   "author": {
     "name": "Brian Espinosa",
