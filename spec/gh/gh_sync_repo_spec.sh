@@ -140,7 +140,9 @@ Describe 'gh-sync-repo.sh'
       fixture_git "$REPO" checkout -q main
       When run script "$SYNC_REPO" "$REPO"
       The status should be success
-      The output should include 'kept reused (no merge proof)'
+      # The report names what was established: something merged under this name,
+      # but not this commit. Whether it was a rebase or a reused name is unknown.
+      The output should include 'kept reused (merged PRs used this name; none at this commit)'
       The value "$(branches "$REPO")" should include reused
       The value "$(fixture_sha "$REPO" reused)" should equal "$danger"
     End
@@ -153,7 +155,7 @@ Describe 'gh-sync-repo.sh'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_pr patch-1 "$sha" main true)"
       When run script "$SYNC_REPO" "$REPO"
       The status should be success
-      The output should include 'kept patch-1'
+      The output should include 'kept patch-1 (no merge proof)'
       The value "$(branches "$REPO")" should include patch-1
     End
 
@@ -163,7 +165,7 @@ Describe 'gh-sync-repo.sh'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_pr for-release "$sha" release)"
       When run script "$SYNC_REPO" "$REPO"
       The status should be success
-      The output should include 'kept for-release'
+      The output should include 'kept for-release (no merge proof)'
       The value "$(branches "$REPO")" should include for-release
     End
 

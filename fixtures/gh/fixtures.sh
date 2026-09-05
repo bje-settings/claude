@@ -185,13 +185,22 @@ fixture_remove_origin() { fixture_git "$1" remote remove origin; }
 # corrupting anything.
 fixture_lock_index() { : > "$(fixture_git "$1" rev-parse --absolute-git-dir)/index.lock"; }
 
-# fixture_many_prs <file> <count> — enough merged pull requests to hit the lookup
-# limit, so the truncation notice can be exercised
+# fixture_many_prs <file> <count> [pr-json...] — <count> filler pull requests,
+# followed by any given explicitly. When <count> is at least the script's bulk
+# lookup limit, anything appended is past the window: invisible to the bulk query
+# and reachable only by asking about that branch directly. With a smaller <count>
+# the appended entries are visible to both, so the limit has to be passed
+# deliberately to exercise the fallback.
 fixture_many_prs() {
   local file="$1" count="$2"
+  shift 2
   jq -n --argjson n "$count" --arg base "$FIXTURE_DEFAULT_BRANCH" \
     '[range($n) | {headRefName:("old-\(.)"), headRefOid:("\(.)"), baseRefName:$base,
                    isCrossRepository:false, state:"MERGED"}]' > "$file"
+  local pr
+  for pr in "$@"; do
+    jq --argjson pr "$pr" '. + [$pr]' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+  done
 }
 
 # fixture_break_origin <work> — the remote still exists but is unreachable, so

@@ -51,14 +51,25 @@ A branch is deleted only with positive proof, from either of two independent sig
   branch still points. That last condition is what makes it evidence about your commits rather
   than about a branch name: a name that was reused, or a branch you committed to after the merge
   landed, no longer matches and is kept. This signal is what catches squash and rebase merges,
-  which leave no ancestry behind. One `gh` call covers the 200 most recently merged pull
-  requests; if that limit is reached, branches with no proof say so in the report.
+  which leave no ancestry behind. One `gh` call lists the 200 most recently merged pull requests.
+  If that window fills up it may be hiding older ones, so any branch it cannot account for gets a
+  second call asking about that branch alone, and a busy repository does not quietly stop pruning.
 - **Ancestry**, via `git branch --merged origin/<default>`. This is what catches a branch merged
   locally and pushed with no pull request at all.
 
-Either one is sufficient; neither one alone is complete. A branch with no proof is kept and
-reported. A `gone` upstream is never treated as proof on its own, since a pruned remote branch
-can equally mean the work was abandoned.
+Either one is sufficient; neither one alone is complete. A branch with no proof is kept, and the
+report says what was actually established rather than guessing at a cause:
+
+| Report | What it means |
+| --- | --- |
+| `no merge proof` | No merged pull request from this repository used this name, and it is not an ancestor of the default branch. |
+| `merged PRs used this name; none at this commit` | Something merged under this name, but not this commit. Either the branch was rebased before merging, or the name was reused for unrelated work. The two are indistinguishable here, so the branch is kept. |
+| `too many merged PRs used this name to tell` | The per-branch lookup filled up, so "none at this commit" could not be established. |
+| `could not ask about this branch` | The lookup did not complete. Nothing was established either way. |
+
+The last three are all reasons to keep a branch, but they are different statements, and a report
+that collapsed them would be asserting things it had not checked. A `gone` upstream is never
+treated as proof on its own, since a pruned remote branch can equally mean the work was abandoned.
 
 If **both** signals are unavailable (no `gh`, or the branch listing failed), the repo is
 reported and pruning is skipped entirely rather than run on the surviving signal.
