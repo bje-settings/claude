@@ -67,8 +67,9 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 
 ### Skills
 
-Every `SKILL.md` carries a mermaid flow diagram, enforced by `spec/skills_spec.sh` across all
-plugins. See `.claude/rules/file-skill-md.md` for what the diagram has to show.
+Every skill directory carries a `FLOW.md` beside its `SKILL.md`, holding a mermaid flow diagram.
+The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforced by
+`spec/skills_spec.sh` across all plugins; see `.claude/rules/file-skill-md.md`.
 
 ### Tests
 
