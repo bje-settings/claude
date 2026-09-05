@@ -104,6 +104,19 @@ Describe 'gh-shepherd-status.sh'
       When call status
       The output should include '"state": "failed"'
       The output should include '"link": "https://ci.example/1"'
+      The output should include '"name": "ci/legacy"'
+    End
+
+    It 'folds every conclusion the way the loop needs, not just SUCCESS and FAILURE'
+      # NEUTRAL and SKIPPED pass; CANCELLED and a completed run with no
+      # conclusion fail; a pending commit status waits; a green one passes.
+      fixture_prs "$GH_FIXTURE_PRS" \
+        "$(fixture_dep_pr 1 checks=neutral)" "$(fixture_dep_pr 2 checks=cancelled)" \
+        "$(fixture_dep_pr 3 checks=null-conclusion)" "$(fixture_dep_pr 4 checks=status-pending)" \
+        "$(fixture_dep_pr 5 checks=status-passed)"
+      states() { status | jq -r '[.targets[] | "\(.number)=\(.checks.state)"] | join(" ")'; }
+      When call states
+      The output should equal '1=passed 2=failed 3=failed 4=pending 5=passed'
     End
 
     It 'calls a rollup pending when anything is still running, even beside a failure'

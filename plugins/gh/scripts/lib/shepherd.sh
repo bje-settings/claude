@@ -10,8 +10,11 @@
 # statusCheckRollup mixes two shapes. A CheckRun (GitHub Actions and most apps)
 # has `status` (QUEUED, IN_PROGRESS, COMPLETED) and `conclusion` (SUCCESS,
 # FAILURE, NEUTRAL, SKIPPED, ...). A StatusContext (the older commit-status API)
-# has a single `state` (SUCCESS, FAILURE, ERROR, PENDING, EXPECTED). `checks`
-# folds both into one of: none, pending, failed, passed.
+# has a single `state` (SUCCESS, FAILURE, ERROR, PENDING, EXPECTED), names
+# itself with `context` rather than `name`, links with `targetUrl` rather than
+# `detailsUrl`, and carries no `conclusion` key at all (checked against a real
+# Vercel status row). `checks` folds both into one of: none, pending, failed,
+# passed.
 
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
 SHEPHERD_PR_FIELDS='number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit'
@@ -37,7 +40,7 @@ SHEPHERD_JQ_LIB='
                 elif any($each[]; .result == "pending") then "pending"
                 else "passed" end),
         failing: ($each | map(select(.result == "failed"))
-                  | map({name, link: (.detailsUrl // .targetUrl // null)}))
+                  | map({name: (.name // .context), link: (.detailsUrl // .targetUrl // null)}))
       };
   def is_bot:
     (.author.is_bot == true) or ((.author.login // "") | test("^(app/)?dependabot"));

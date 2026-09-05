@@ -147,13 +147,18 @@ Describe 'fixtures'
   End
   Describe 'fixture_dep_pr'
     It 'produces the check shapes it names, as the stub reads them'
+      # Every arm of the fold gets a fixture, because coverage cannot see inside
+      # a jq program: one statement scores as covered whichever branch is wrong.
       fixture_prs "$GH_FIXTURE_PRS" \
         "$(fixture_dep_pr 1 checks=passed)" "$(fixture_dep_pr 2 checks=failed)" \
         "$(fixture_dep_pr 3 checks=pending)" "$(fixture_dep_pr 4 checks=none)" \
-        "$(fixture_dep_pr 5 checks=status-failed)" "$(fixture_dep_pr 6 checks=mixed)"
-      codes() { local n; for n in 1 2 3 4 5 6; do gh pr checks "$n"; printf '%s ' "$?"; done; }
+        "$(fixture_dep_pr 5 checks=status-failed)" "$(fixture_dep_pr 6 checks=mixed)" \
+        "$(fixture_dep_pr 7 checks=neutral)" "$(fixture_dep_pr 8 checks=cancelled)" \
+        "$(fixture_dep_pr 9 checks=null-conclusion)" "$(fixture_dep_pr 10 checks=status-pending)" \
+        "$(fixture_dep_pr 11 checks=status-passed)"
+      codes() { local n; for n in 1 2 3 4 5 6 7 8 9 10 11; do gh pr checks "$n"; printf '%s ' "$?"; done; }
       When call codes
-      The output should equal '0 1 8 0 1 1 '
+      The output should equal '0 1 8 0 1 1 0 1 1 8 0 '
     End
 
     It 'defaults to an open, auto-merge, Dependabot pull request with no risk label'

@@ -412,7 +412,11 @@ fixture_no_prs() { printf '[]\n' > "$1"; }
 #   state=OPEN          OPEN | MERGED | CLOSED
 #   merge=CLEAN         mergeStateStatus: CLEAN | BEHIND | DIRTY | BLOCKED | ...
 #   checks=passed       passed | failed | pending | none | mixed (one of each)
-#                       | status-failed (a StatusContext, the older API shape)
+#                       | neutral (NEUTRAL and SKIPPED conclusions only)
+#                       | cancelled (a CANCELLED run beside a success)
+#                       | null-conclusion (COMPLETED with conclusion null)
+#                       | status-failed | status-pending | status-passed
+#                         (StatusContext rows, the older commit-status shape)
 #   auto=true           auto-merge enabled
 #   bot=true            authored by app/dependabot; false gives a human author
 #   draft=false
@@ -464,7 +468,12 @@ fixture_dep_pr() {
         elif $checks == "failed" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "COMPLETED"; "FAILURE")]
         elif $checks == "pending" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "IN_PROGRESS"; null)]
         elif $checks == "mixed" then [run("test"; "IN_PROGRESS"; null), run("build"; "COMPLETED"; "FAILURE")]
+        elif $checks == "neutral" then [run("lint"; "COMPLETED"; "NEUTRAL"), run("docs"; "COMPLETED"; "SKIPPED")]
+        elif $checks == "cancelled" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "COMPLETED"; "CANCELLED")]
+        elif $checks == "null-conclusion" then [run("test"; "COMPLETED"; "SUCCESS"), run("build"; "COMPLETED"; null)]
         elif $checks == "status-failed" then [{__typename: "StatusContext", context: "ci/legacy", state: "FAILURE", targetUrl: "https://ci.example/1"}]
+        elif $checks == "status-pending" then [{__typename: "StatusContext", context: "ci/legacy", state: "PENDING", targetUrl: "https://ci.example/1"}]
+        elif $checks == "status-passed" then [{__typename: "StatusContext", context: "ci/legacy", state: "SUCCESS", targetUrl: "https://ci.example/1"}]
         else [] end)
     }'
 }
