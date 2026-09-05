@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SHELLSPEC_VERSION: "0.28.1"
+
+jobs:
+  lint:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # shellcheck ships on the Ubuntu runner image, so there is nothing to install.
+      - name: Lint shell scripts
+        run: |
+          shellcheck -S warning \
+            plugins/gh/scripts/gh-sync.sh \
+            plugins/gh/scripts/gh-sync-repo.sh \
+            plugins/gh/hooks/session-start.sh \
+            fixtures/gh/fixtures.sh \
+            fixtures/gh/bin/gh \
+            spec/run.sh
+
+  test:
+    # The suite runs on both images on purpose. Linux gives us bash 5, which is
+    # what most contributors have on PATH. macOS gives us /bin/bash 3.2, which is
+    # what actually executes these scripts when the plugin runs, so a green Linux
+    # run on its own would not prove much.
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: bash 5 (ubuntu)
+            os: ubuntu-latest
+            shellspec_args: ""
+          - name: bash 3.2 (macos, the shell these scripts run under)
+            os: macos-latest
+            shellspec_args: "--shell /bin/bash"
+    steps:
+      - uses: actions/checkout@v7
+
+      # The specs that exercise the dependency-install path need real package
+      # managers. corepack is what makes a project's packageManager field
+      # authoritative, which is how the Yarn Berry fixture pins its version; the
+      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install shellspec
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/shellspec.tar.gz \
+            "https://github.com/shellspec/shellspec/releases/download/${SHELLSPEC_VERSION}/shellspec-dist.tar.gz"
+          sudo mkdir -p /opt/shellspec
+          sudo tar xzf /tmp/shellspec.tar.gz -C /opt/shellspec --strip-components=1
+          sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
+          shellspec --version
+
+      - name: Report the shell actually under test
+        run: |
+          bash --version | head -1
+          /bin/bash --version | head -1
+
+      # The fixtures pass identity to every git command they run, so no global
+      # git config is needed here.
+      - name: Run specs
+        run: shellspec ${{ matrix.shellspec_args }}
+
+  coverage:
+    name: coverage
+    # ubuntu-22.04, not ubuntu-latest, because of kcov. kcov is the coverage tool
+    # shellspec integrates with directly (--kcov); the obvious alternative,
+    # bashcov, forces xtrace globally and stops shellspec running any examples at
+    # all. kcov 38 from this image's archive works. It is absent from the 24.04
+    # archive that ubuntu-latest now uses, and upstream's own kcov/kcov:v42 image
+    # carries a newer build that breaks shellspec: the same suite reports 51
+    # failures under it and none under kcov 38. So this pins the runner rather
+    # than the container. When 22.04 is retired, re-test a newer kcov before
+    # moving; do not silently switch images.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      code-quality: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kcov
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq kcov
+          kcov --version
+
+      # As in the test job: corepack makes the packageManager field authoritative
+      # for the Yarn Berry fixture, and pnpm is the branch checked first.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install shellspec
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/shellspec.tar.gz \
+            "https://github.com/shellspec/shellspec/releases/download/${SHELLSPEC_VERSION}/shellspec-dist.tar.gz"
+          sudo mkdir -p /opt/shellspec
+          sudo tar xzf /tmp/shellspec.tar.gz -C /opt/shellspec --strip-components=1
+          sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
+
+      # Coverage is measured for the plugin only. Specs and fixtures are test
+      # code: counting them would inflate the number without saying anything
+      # about how well the plugin is tested.
+      - name: Run specs under kcov
+        run: |
+          shellspec --kcov --covdir coverage \
+            --kcov-options "--include-path=./plugins/gh --path-strip-level=1"
+
+      # The threshold is enforced here rather than with shellspec's
+      # --fail-low-coverage, which reports a failure at any coverage level once
+      # enabled: it exits 101 at 97% with kcov's low limit set to 95, and exits 0
+      # for the same run without the flag. This step fails the job before the
+      # upload, with the per-file numbers and the uncovered lines in the log, so
+      # a drop says which file moved.
+      - name: Enforce the coverage threshold
+        run: python3 spec/coverage-check.py coverage/cobertura.xml 95
+
+      - uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage/cobertura.xml
+          language: Shell
+          label: code-coverage/kcov

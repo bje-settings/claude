@@ -1,0 +1,17 @@
+{
+  "description": "Report-only sync check when a session starts. Fetches, but never changes a branch, worktree, or working tree.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
