@@ -195,7 +195,7 @@ action_recreate() {
 }
 
 action_wait() {
-  local pr bound failing logs link run job
+  local pr bound failing logs link run job esc
   pr="$(read_pr)"
   [[ -n "$pr" ]] || { emit false "could not read pull request #$NUMBER"; return; }
   if [[ "$(field "$pr" .state)" == "MERGED" ]]; then
@@ -207,20 +207,28 @@ action_wait() {
     return
   fi
 
+  # Only watch while something is still running. A rollup that is already
+  # terminal is answered from the pull request itself: `gh pr checks --watch`
+  # has been seen to keep watching a fully finished rollup that contains
+  # skipped checks, and a watcher that cannot return is worse than no watcher.
   bound="$(clamp $((CI_SECONDS * 2)) 120 540)"
-  run_bounded "$bound" gh pr checks "$NUMBER" --repo "$REPO" --watch --fail-fast
+  BOUNDED_RC=0
+  if [[ "$(field "$pr" .checks.state)" == "pending" ]]; then
+    run_bounded "$bound" gh pr checks "$NUMBER" --repo "$REPO" --watch --fail-fast
+  fi
   # gh pr checks exit codes: 0 all passed, 1 a check failed, 8 still pending.
   # 124 is our bound. Re-read the pull request afterwards in every case, since
-  # a passing rollup may already have let auto-merge fire.
+  # a passing rollup may already have let auto-merge fire, and decide from the
+  # rollup rather than the watcher's exit code.
   pr="$(read_pr)"
   [[ -n "$pr" ]] || { emit false "checks finished but the pull request could not be re-read"; return; }
   if [[ "$(field "$pr" .state)" == "MERGED" ]]; then
     emit true "merged" '.result = "merged"' ".pr = $pr"
     return
   fi
-  case "$BOUNDED_RC" in
-    0) emit true "checks passed" '.result = "passed"' ".pr = $pr"; return ;;
-    124|8) emit true "checks still running after ${bound}s" '.result = "pending"' ".bound = $bound" ".pr = $pr"; return ;;
+  case "$(field "$pr" .checks.state)" in
+    passed|none) emit true "checks passed" '.result = "passed"' ".pr = $pr"; return ;;
+    pending) emit true "checks still running after ${bound}s" '.result = "pending"' ".bound = $bound" ".watcher_rc = $BOUNDED_RC" ".pr = $pr"; return ;;
   esac
 
   # Something failed. Name the checks and pull the failed steps' log for the
@@ -232,7 +240,10 @@ action_wait() {
   if [[ -n "$link" ]]; then
     run="$(printf '%s' "$link" | sed -E 's#.*/actions/runs/([0-9]+)/job/([0-9]+).*#\1#')"
     job="$(printf '%s' "$link" | sed -E 's#.*/actions/runs/([0-9]+)/job/([0-9]+).*#\2#')"
-    logs="$(gh run view "$run" --repo "$REPO" --job "$job" --log-failed 2>/dev/null | tail -n "$LOG_LINES")"
+    # Strip ANSI colour so the tail reads as text in a JSON string.
+    esc="$(printf '\033')"
+    logs="$(gh run view "$run" --repo "$REPO" --job "$job" --log-failed 2>/dev/null \
+      | sed "s/${esc}\[[0-9;]*m//g" | tail -n "$LOG_LINES")"
   fi
   emit true "checks failed" '.result = "failed"' ".pr = $pr" \
     ".log_tail = $(printf '%s' "$logs" | jq -Rs .)"
