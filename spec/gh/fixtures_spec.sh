@@ -145,4 +145,59 @@ Describe 'fixtures'
       The stderr should include 'simulated failure'
     End
   End
+  Describe 'fixture_dep_pr'
+    It 'produces the check shapes it names, as the stub reads them'
+      fixture_prs "$GH_FIXTURE_PRS" \
+        "$(fixture_dep_pr 1 checks=passed)" "$(fixture_dep_pr 2 checks=failed)" \
+        "$(fixture_dep_pr 3 checks=pending)" "$(fixture_dep_pr 4 checks=none)" \
+        "$(fixture_dep_pr 5 checks=status-failed)" "$(fixture_dep_pr 6 checks=mixed)"
+      codes() { local n; for n in 1 2 3 4 5 6; do gh pr checks "$n"; printf '%s ' "$?"; done; }
+      When call codes
+      The output should equal '0 1 8 0 1 1 '
+    End
+
+    It 'defaults to an open, auto-merge, Dependabot pull request with no risk label'
+      When call fixture_dep_pr 7
+      The output should include '"state":"OPEN"'
+      The output should include '"autoMergeRequest":{"mergeMethod":"MERGE"}'
+      The output should include '"login":"app/dependabot"'
+      The output should not include 'merge-risk'
+    End
+
+    It 'honours every key and rejects one it does not know'
+      When call fixture_dep_pr 8 state=MERGED merge=DIRTY auto=false bot=false draft=true risk=high created=2020-01-01T00:00:00Z head=abc
+      The output should include '"state":"MERGED"'
+      The output should include '"mergeStateStatus":"DIRTY"'
+      The output should include '"autoMergeRequest":null'
+      The output should include '"is_bot":false'
+      The output should include '"isDraft":true'
+      The output should include '"name":"merge-risk:high"'
+      The output should include '"createdAt":"2020-01-01T00:00:00Z"'
+      The output should include '"headRefOid":"abc"'
+      The output should include '"mergeCommit":{"oid":"merged8"}'
+    End
+
+    It 'rejects a key it does not know rather than ignoring it'
+      When call fixture_dep_pr 9 colour=blue
+      The status should equal 1
+      The stderr should include 'unknown key colour=blue'
+    End
+  End
+
+  Describe 'gh stub mutations'
+    It 'rewrites the head on update-branch and records comments'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=BEHIND)"
+      gh pr update-branch 1 --rebase >/dev/null
+      gh pr comment 1 --body "hello" >/dev/null
+      When call jq -r '.[0] | "\(.headRefOid) \(.mergeStateStatus)"' "$GH_FIXTURE_PRS"
+      The output should equal 'rebased-sha1 BLOCKED'
+      The contents of file "$GH_FIXTURE_PRS.comments" should include 'hello'
+    End
+
+    It 'fails an unknown pull request number the way gh does'
+      When run script "$FIXTURES_DIR/bin/gh" pr view 42 --json number
+      The status should equal 1
+      The stderr should include 'Could not resolve to a PullRequest'
+    End
+  End
 End
