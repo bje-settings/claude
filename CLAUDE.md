@@ -78,7 +78,7 @@ with `spec/run.sh`, which lints and then runs the suite under both bash 5 and ba
 
 CI runs shellcheck, the suite on both shells, and a coverage job that fails below 95%, which is
 the enterprise Code Coverage ruleset's threshold. That number does not mean "tested" where the
-logic lives inside a `jq` program; see `.claude/rules/type-sh.md`.
+logic lives inside a `jq` program; see `.claude/rules/type-jq.md`.
 
 Coverage uses `kcov`, pinned to `ubuntu-22.04`: newer kcov builds break shellspec, and the
 alternative, bashcov, prevents shellspec running at all. Re-test before changing either.
