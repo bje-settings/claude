@@ -25,6 +25,26 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
 arrays, no `wait -n` without a fallback.
 
+### Plugin domains
+
+Plugins are the unit of installation, so each plugin is one domain of work (`gh` is GitHub and
+git workflow). Users and repos install only the domains they need, and a skill lands in the plugin
+whose domain it belongs to, never in a catch-all plugin.
+
+When adding a skill, name the domain it belongs to before writing it. If no existing plugin fits,
+or a plugin has accumulated skills that split along a natural seam, raise it during planning and
+propose the new domain (or split) with a name and a one-line scope. Domains are expected to
+emerge and change as the marketplace grows; it is fine to start a plugin with a single skill.
+
+Signals that a domain boundary is off:
+
+- A user who wants one skill would have to install several unrelated ones to get it.
+- A skill's description leads with a tool or system that no other skill in the plugin touches.
+- Two plugins would each want the same skill.
+
+Moving a skill between plugins changes its `/plugin:skill` name, so settle the domain before the
+skill ships rather than after.
+
 ### Plugin design
 
 Pick the mechanism by the decision rule in the
