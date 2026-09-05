@@ -35,6 +35,12 @@ jobs:
             plugins/gh/hooks/session-start.sh \
             fixtures/gh/fixtures.sh \
             fixtures/gh/bin/gh \
+            plugins/workstreams/scripts/ws-preflight.sh \
+            plugins/workstreams/scripts/ws-issues.sh \
+            plugins/workstreams/scripts/ws-state.sh \
+            plugins/workstreams/scripts/ws-pr-status.sh \
+            fixtures/workstreams/fixtures.sh \
+            fixtures/workstreams/bin/gh \
             spec/run.sh
 
   test:
@@ -138,13 +144,14 @@ jobs:
           sudo tar xzf /tmp/shellspec.tar.gz -C /opt/shellspec --strip-components=1
           sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
 
-      # Coverage is measured for the plugin only. Specs and fixtures are test
-      # code: counting them would inflate the number without saying anything
-      # about how well the plugin is tested.
+      # Coverage is measured for the plugins only, pooled across every plugin
+      # under plugins/. Specs and fixtures are test code: counting them would
+      # inflate the number without saying anything about how well the plugins
+      # are tested.
       - name: Run specs under kcov
         run: |
           shellspec --kcov --covdir coverage \
-            --kcov-options "--include-path=./plugins/gh --path-strip-level=1"
+            --kcov-options "--include-path=./plugins --path-strip-level=1"
 
       # The threshold is enforced here rather than with shellspec's
       # --fail-low-coverage, which reports a failure at any coverage level once

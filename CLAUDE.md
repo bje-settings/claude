@@ -26,6 +26,10 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
 arrays, no `wait -n` without a fallback.
 
+`workstreams` is the orchestration plugin: a set of issues to parallel subagent streams and
+stacked PRs. It depends on the `gh-stack` extension and skill and on `pr-review-toolkit`, checked
+by its preflight script rather than vendored; keep it that way so the domains stay separate.
+
 ### Plugin domains
 
 Plugins are the unit of installation, so each plugin is one domain of work (`gh` is GitHub and
