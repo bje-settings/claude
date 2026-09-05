@@ -407,6 +407,13 @@ Describe 'ws-state.sh'
       The result of function deferred should equal '[{"issue":4,"reason":"needs a week of data"}]'
     End
 
+    It 'keeps other deferred issues when adding one'
+      "$WS_STATE" defer 4 'needs hardware'
+      When run script "$WS_STATE" defer 5 'already closed'
+      The status should be success
+      The result of function deferred should equal '[{"issue":4,"reason":"needs hardware"},{"issue":5,"reason":"already closed"}]'
+    End
+
     It 'requires a numeric issue for defer'
       When run script "$WS_STATE" defer four 'reason'
       The status should equal 2
