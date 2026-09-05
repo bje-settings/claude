@@ -1,6 +1,6 @@
 # gh
 
-GitHub and git workflow commands for the `bje` enterprise.
+GitHub and git workflow skills for the `bje` enterprise.
 
 ## `/gh:sync`
 
@@ -115,7 +115,7 @@ They are written for bash 3.2, the version macOS ships at `/bin/bash`.
 
 ## Tests
 
-Because this command deletes branches and removes worktrees, its behaviour is asserted against
+Because this skill deletes branches and removes worktrees, its behaviour is asserted against
 real git repositories rather than mocks. Specs live in `spec/gh/`, fixtures in `fixtures/gh/`.
 
 ```bash

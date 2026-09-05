@@ -18,7 +18,7 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 
 Plugins are listed in `README.md`; each has its own README.
 
-New `gh` commands belong in the `gh` plugin, which is the intended home for the ones still in
+New `gh` skills belong in the `gh` plugin, which is the intended home for the commands still in
 `~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
 `tidy-user-notifications`).
 
