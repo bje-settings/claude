@@ -316,32 +316,43 @@ def test_write_json_cleans_up_after_a_write_it_cannot_finish(tmp_path):
 def test_note_transcript_records_the_path_once(tmp_path):
     path = tmp_path / "run.json"
     path.write_text(json.dumps({"finished_at": None}))
-    run_lib.note_transcript(str(tmp_path), "/transcripts/main.jsonl")
-    run_lib.note_transcript(str(tmp_path), "/transcripts/second.jsonl")
+    assert run_lib.note_transcript(str(tmp_path), "/transcripts/main.jsonl") == (True, "")
+    # The second hook to see one finds it already there, which is a success and
+    # not a write: only the first hook of a run records it.
+    assert run_lib.note_transcript(str(tmp_path), "/transcripts/second.jsonl") == (True, "")
     assert json.loads(path.read_text())["transcript_path"] == "/transcripts/main.jsonl"
 
 
 def test_note_transcript_with_nothing_to_record_does_nothing(tmp_path):
     path = tmp_path / "run.json"
     path.write_text(json.dumps({"finished_at": None}))
-    run_lib.note_transcript(str(tmp_path), None)
+    assert run_lib.note_transcript(str(tmp_path), None) == (True, "")
     assert "transcript_path" not in json.loads(path.read_text())
 
 
 def test_note_transcript_without_a_marker_does_nothing(tmp_path):
-    run_lib.note_transcript(str(tmp_path), "/transcripts/main.jsonl")
+    assert run_lib.note_transcript(str(tmp_path), "/transcripts/main.jsonl") == (True, "")
     assert list(tmp_path.iterdir()) == []
 
 
 @not_as_root
-def test_note_transcript_gives_up_on_a_marker_it_cannot_write(tmp_path):
+def test_note_transcript_reports_a_marker_it_cannot_write(tmp_path):
+    """Reported, not swallowed: this is the only place the transcript is learned.
+
+    A run whose marker never took the path is why `ft-collect.py --report` says
+    afterwards that no hook event carried one. Silent, that message is untrue, and
+    it is the one output whose whole job is telling "the target said nothing"
+    apart from "this could not find out".
+    """
     path = tmp_path / "run.json"
     path.write_text(json.dumps({"finished_at": None}))
     tmp_path.chmod(0o555)
     try:
-        run_lib.note_transcript(str(tmp_path), "/transcripts/main.jsonl")
+        ok, error = run_lib.note_transcript(str(tmp_path), "/transcripts/main.jsonl")
     finally:
         tmp_path.chmod(0o755)
+    assert ok is False
+    assert error
     assert "transcript_path" not in json.loads(path.read_text())
 
 

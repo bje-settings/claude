@@ -81,22 +81,23 @@ def now():
     return load_run_lib().now()
 
 
-def append(path, record):
-    """Append one event to the run's events file, saying so on stderr if it cannot.
+def report_failed_write(what, path, error):
+    """One line to stderr for a record that did not reach disk, and then on.
 
-    One line, to stderr, and then on: a hook cannot stop the session over a full
-    disk. But it must not go quiet either. Every finding this plugin produces is
-    computed from these records, so a write that failed is a finding that will
-    never reach an issue, and the debug log keeping this line is the only place
-    that is visible.
+    A hook cannot stop the session over a full disk. But it must not go quiet
+    either: everything this plugin later says about a run is computed from what
+    was written here, so a write that failed is a finding, or a whole report,
+    that will never reach an issue. The debug log keeps a hook's stderr, which is
+    the only place that is visible.
     """
+    sys.stderr.write(f"field-test: could not record {what} in {path}: {error}\n")
+
+
+def append(path, record):
+    """Append one event to the run's events file, saying so on stderr if it cannot."""
     ok, error = load_run_lib().append_event(path, record)
     if not ok:
-        sys.stderr.write(
-            "field-test: could not record {} in {}: {}\n".format(
-                record.get("event"), os.path.join(path, "events.jsonl"), error
-            )
-        )
+        report_failed_write(record.get("event"), os.path.join(path, "events.jsonl"), error)
 
 
 def read_payload():
@@ -318,8 +319,8 @@ def dispatch(event, payload, path):
         handle_stop(payload, path)
 
 
-def reconfigure(stream):
-    """UTF-8 out, replacing what will not encode, on a stream that allows it.
+def reconfigure_streams():
+    """UTF-8 out, replacing what will not encode, on the streams that allow it.
 
     A deny reason carries the target's own command, which can hold anything. Under
     a non-UTF-8 locale writing it would raise UnicodeEncodeError, and a decision
@@ -327,19 +328,27 @@ def reconfigure(stream):
     shared with the scripts under scripts/lib/: a hook runs on every tool call and
     must not depend on an import to be able to speak at all.
 
-    Guarded because `reconfigure` needs a text stream that is still open: a caller
-    that replaced sys.stdout with something else has neither the method nor the
-    encoding problem.
+    A stream that is None gets a devnull one instead: Python leaves it None when
+    it starts with the descriptor closed, and a hook that raised AttributeError on
+    its first write would record nothing at all for that call.
+
+    Guarded otherwise because `reconfigure` needs a text stream that is still
+    open: a caller that replaced sys.stdout with something else has neither the
+    method nor the encoding problem.
     """
-    try:
-        stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        return
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            continue
 
 
 def main(argv):
-    reconfigure(sys.stdout)
-    reconfigure(sys.stderr)
+    reconfigure_streams()
     # Silently, with no usage text: hooks.json is the only caller, and anything
     # this wrote would reach the user as output from a hook they did not run.
     event = argv[1] if len(argv) > 1 else ""
@@ -362,18 +371,31 @@ def main(argv):
         path = run_lib.live_run_dir(payload.get("session_id"))
         if path is None:
             return 0
-        run_lib.note_transcript(path, payload.get("transcript_path"))
+        # Reported for the same reason an unwritten event is. This is the only
+        # place the transcript's location is ever learned, so a marker that did
+        # not take it is what makes `ft-collect.py --report` say later that no
+        # hook event carried one -- which would not be true.
+        ok, error = run_lib.note_transcript(path, payload.get("transcript_path"))
+        if not ok:
+            report_failed_write("transcript_path", os.path.join(path, "run.json"), error)
         dispatch(event, payload, path)
         # Forced now, while a closed pipe still lands in the arm below rather
         # than in the interpreter's shutdown flush, which prints its own trace.
         sys.stdout.flush()
     except BrokenPipeError:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-            os.dup2(devnull, sys.stderr.fileno())
-        finally:
-            os.close(devnull)
+        # Claude Code stopped reading the decision. Not this hook's failure, and
+        # the interpreter must not resurface it as a trace from its own shutdown
+        # flush either, so both descriptors go somewhere that always accepts.
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                fileno = stream.fileno()
+            except (AttributeError, OSError, ValueError):
+                continue
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            try:
+                os.dup2(devnull, fileno)
+            finally:
+                os.close(devnull)
         return 0
     except Exception:
         if path is None:
@@ -397,7 +419,12 @@ if __name__ == "__main__":
         sys.exit(main(sys.argv))
     except SystemExit:
         raise
-    except BaseException:  # noqa: BLE001 - a hook never fails the session
+    except (KeyboardInterrupt, Exception):
+        # The two arms spelled out rather than BaseException, which also swallows
+        # GeneratorExit and anything else the interpreter uses to unwind. A hook
+        # interrupted with the session it runs in is not a hook that failed, and
+        # it must not be the reason that session stops either, so both land here.
+        #
         # To stderr before exiting 0. Claude Code's debug log keeps a hook's
         # stderr, so this is the one place a failure that recorded nothing --
         # a broken lib/run.py, most of all -- can still be diagnosed. Exiting
