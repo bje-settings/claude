@@ -232,3 +232,72 @@ def test_a_marker_whose_resolved_is_not_an_object_still_renders():
     """A marker can be written by hand; a string where the object goes renders anyway."""
     run = a_run(resolved="gh 0.2.0")
     assert field(a_record(), run, "version") == "version unknown"
+
+
+# --- jq's `//` fires on null, never on the empty string ----------------------
+#
+# render.jq spelled each of these `//`, which takes the fallback only for null
+# and false. Python's `or` also takes it for "", and the difference is a claim in
+# the issue: a field recorded as empty would be rendered as the words for a field
+# that was never recorded at all.
+
+
+@pytest.mark.parametrize(
+    ("key", "run_key"),
+    [("target", "target"), ("repo", "cwd")],
+)
+def test_an_empty_run_field_is_kept_rather_than_called_unknown(key, run_key):
+    assert field(a_record(), a_run(**{run_key: ""}), key) == ""
+
+
+@pytest.mark.parametrize(
+    ("key", "resolved_key"),
+    [("version", "version"), ("commit", "commit")],
+)
+def test_an_empty_resolved_field_is_kept(key, resolved_key):
+    run = a_run(resolved={"plugin": "gh", "version": "0.2.0", "commit": "deadbee"})
+    run["resolved"][resolved_key] = ""
+    assert field(a_record(), run, key) == ""
+
+
+def test_an_empty_plugin_does_not_fall_through_to_the_target():
+    """`//` chains on null only, so an empty plugin is the answer, not the target."""
+    run = a_run(resolved={"plugin": "", "version": "0.2.0", "commit": "deadbee"})
+    assert field(a_record(), run, "plugin") == ""
+
+
+def test_a_null_plugin_falls_through_to_the_target():
+    run = a_run(resolved={"plugin": None, "version": "0.2.0", "commit": "deadbee"})
+    assert field(a_record(), run, "plugin") == "gh:shepherd"
+
+
+def test_an_empty_reason_is_kept_rather_than_described():
+    record = a_record()
+    record["evidence"]["reason"] = ""
+    assert field(record, a_run(), "reason") == ""
+
+
+def test_an_empty_command_is_kept_rather_than_described():
+    record = a_record()
+    record["evidence"]["command"] = ""
+    assert field(record, a_run(), "command") == ""
+
+
+def test_an_empty_severity_is_kept_rather_than_called_medium():
+    assert field(a_record(severity=""), a_run(), "severity") == ""
+
+
+def test_a_finding_with_no_kind_reads_the_way_jq_rendered_it():
+    """`"A " + null` in jq is `"A "`, so the sentence kept two spaces, not "None"."""
+    record = a_record(kind=None)
+    record["evidence"]["reason"] = None
+    assert field(record, a_run(), "reason") == "A  finding recorded during the run."
+
+
+# --- ltrimstr strips one space, not every space ------------------------------
+
+
+def test_only_one_leading_space_is_stripped_from_the_summary():
+    """jq's `ltrimstr(" ")` removes a single prefix; a title is compared with filed ones."""
+    record = a_record(signature="bash_nonzero:  two spaces")
+    assert field(record, a_run(), "summary") == " two spaces"

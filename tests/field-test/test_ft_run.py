@@ -410,3 +410,100 @@ def test_records_no_claude_version_when_claude_fails(ft_sandbox, run_script, tmp
     result = run_script(FT_RUN, "start", "gh:sync", env={"PATH": str(bin_dir)})
     assert result.status == 0
     assert ft_sandbox.read_marker()["claude_version"] == ""
+
+
+@not_as_root
+def test_start_reports_an_events_file_it_cannot_create(ft_sandbox, run_script):
+    """reports an events file `start` cannot create, rather than starting without one"""
+    fresh(ft_sandbox)
+    ft_sandbox.run_dir.chmod(0o555)
+    try:
+        result = run_script(FT_RUN, "start", "gh:shepherd")
+    finally:
+        ft_sandbox.run_dir.chmod(0o755)
+    assert result.status == 1
+    assert result.stdout == ""
+    assert "cannot create" in result.stderr
+
+
+def test_start_reports_a_marker_it_cannot_write(ft_sandbox, run_script):
+    """reports a marker `start` cannot write, rather than reporting a run that did not start
+
+    The mirror of `test_reports_a_marker_it_cannot_write` for `finish`: the atomic
+    write is this plugin's own code now rather than jq's, so both ends of it are
+    this script's to answer for. A start that printed a marker path nothing was
+    written to leaves the hooks looking for a run that does not exist, and the
+    path on stdout is what the run skill hands to everything downstream.
+
+    A directory where the marker goes, rather than a read-only run directory: the
+    temp file and the events file both need that directory writable, so taking it
+    away fails the step before this one and never reaches the write.
+    """
+    fresh(ft_sandbox)
+    ft_sandbox.marker.mkdir()
+    result = run_script(FT_RUN, "start", "gh:shepherd")
+    assert result.status == 1
+    assert result.stdout == ""
+    assert "cannot write" in result.stderr
+    # Nothing half-written left behind for the next run to find and guess at.
+    assert sorted(path.name for path in ft_sandbox.run_dir.iterdir()) == [
+        "events.jsonl",
+        "run.json",
+    ]
+
+
+def test_start_refuses_a_marker_that_is_json_but_not_an_object(ft_sandbox, run_script):
+    """refuses a marker holding JSON that is not an object as a run already in progress
+
+    Exit 3, not 1: the shell's `jq -e .finished_at` accepted `[]` as JSON and then
+    failed indexing it, so `start` refused it as an active run. The run skill
+    branches on 3 to tell the user to finish first, and 3 is also the status that
+    keeps events.jsonl, the one thing `start` would otherwise truncate.
+    """
+    ft_sandbox.marker.write_text("[]", encoding="utf-8")
+    ft_sandbox.events.write_text('{"event": "PostToolUse"}\n', encoding="utf-8")
+    result = run_script(FT_RUN, "start", "gh:shepherd")
+    assert result.status == 3
+    assert "already running" in result.stderr
+    assert ft_sandbox.events.read_text(encoding="utf-8") == '{"event": "PostToolUse"}\n'
+
+
+def test_finish_names_a_marker_that_is_json_but_not_an_object(ft_sandbox, run_script):
+    """names a marker that parses but is not an object, rather than raising on it"""
+    ft_sandbox.marker.write_text("[]", encoding="utf-8")
+    result = run_script(FT_RUN, "finish")
+    assert result.status == 1
+    assert "is not an object" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_records_the_version_of_a_claude_that_exits_non_zero(ft_sandbox, run_script, tmp_path):
+    """records what `claude --version` printed even when claude exited non-zero
+
+    The shell ran it through `| head -1`, so the status was head's and never
+    claude's. The field this fills is how an issue says which build produced the
+    behaviour, and a build that prints its version and exits 1 still answered.
+    """
+    fresh(ft_sandbox)
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "claude").write_text("#!/bin/sh\necho '2.1.0 (Claude Code)'\nexit 1\n")
+    (stub / "claude").chmod(0o755)
+    ft_sandbox.sandbox.stub_path(stub)
+    result = run_script(FT_RUN, "start", "gh:shepherd")
+    assert result.status == 0, result.stderr
+    assert ft_sandbox.read_marker()["claude_version"] == "2.1.0 (Claude Code)"
+
+
+def test_show_prints_a_marker_under_an_ascii_locale(ft_sandbox, run_script):
+    """prints a marker holding a non-ASCII name even when the locale cannot encode it
+
+    A target's cwd or arguments can hold anything. Under PYTHONIOENCODING=ascii
+    writing one raises on the way out, and `show` would report an internal error
+    for a marker that is perfectly good.
+    """
+    fresh(ft_sandbox)
+    assert run_script(FT_RUN, "start", "gh:shepherd", "--cwd", "/tmp/café").status == 0
+    result = run_script(FT_RUN, "show", env={"PYTHONIOENCODING": "ascii"})
+    assert result.status == 0, result.stderr
+    assert "café" in result.stdout

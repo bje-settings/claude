@@ -194,3 +194,36 @@ def test_answers_from_the_first_page_when_the_second_cannot_be_read(ft_sandbox, 
     document = answer(run_script(FT_ENTERPRISE, plugin, target))
     assert document["inside"] is False
     assert "not both organizations" in document["reason"]
+
+
+def test_answers_from_the_first_page_when_the_second_gh_call_fails(ft_sandbox, repos, run_script):
+    """stops paginating when a later gh call exits non-zero, rather than raising
+
+    The other half of the pagination guard: the test above it breaks the answer,
+    this one breaks the call. Both leave the run outside the enterprise, which is
+    the direction failing closed has to go.
+    """
+    plugin, target = repos()
+    stub = ft_sandbox.path / "bin" / "gh"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    real = STUB_BIN / "gh"
+    stub.write_text(f'#!/bin/sh\ncase "$*" in *slug=*) exit 1 ;; esac\nexec "{real}" "$@"\n')
+    stub.chmod(0o755)
+    ft_fixture_enterprise(ft_sandbox.gh_dir, "paged")
+    ft_sandbox.setenv("FT_GH", stub)
+    document = answer(run_script(FT_ENTERPRISE, plugin, target))
+    assert document["inside"] is False
+    assert "not both organizations" in document["reason"]
+
+
+def test_answers_under_an_ascii_locale(ft_sandbox, repos, run_script):
+    """answers even when the locale cannot encode the name it has to print
+
+    A repository owner, a branch, or gh's own error can hold any character. Under
+    PYTHONIOENCODING=ascii writing one raises UnicodeEncodeError on the way out,
+    and the script would report an internal error for a request that was fine.
+    """
+    plugin, target = repos()
+    result = run_script(FT_ENTERPRISE, plugin, "/no/such/café", env={"PYTHONIOENCODING": "ascii"})
+    assert result.status == 0, result.stderr
+    assert "café" in result.stdout

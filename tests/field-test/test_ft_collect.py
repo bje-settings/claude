@@ -90,7 +90,11 @@ def test_refuses_a_run_marker_that_is_json_but_not_an_object(ft_sandbox, run_scr
     ft_sandbox.marker.write_text("[]")
     result = collect(ft_sandbox, run_script)
     assert result.status == 1
-    assert "not valid JSON" in result.stderr
+    # Its own message, not the one for a file that does not parse: a marker
+    # holding `[]` is a caller who named the wrong file, and "not valid JSON"
+    # sends them looking for a corruption that is not there.
+    assert "not a run marker" in result.stderr
+    assert "not valid JSON" not in result.stderr
 
 
 def test_refuses_an_events_file_that_is_not_json_lines(ft_sandbox, run_script):
@@ -114,7 +118,24 @@ def test_refuses_an_events_file_it_cannot_read(ft_sandbox, run_script):
     finally:
         ft_sandbox.events.chmod(0o644)
     assert result.status == 1
-    assert "not valid JSON lines" in result.stderr
+    # Named as a read failure, not as bad JSON: the file may be perfectly good
+    # JSON lines, and "not valid JSON lines" sends the reader to inspect content
+    # when the thing to fix is a permission.
+    assert "could not read the events file" in result.stderr
+
+
+def test_refuses_an_events_line_that_is_not_an_object(ft_sandbox, run_script):
+    """refuses an events line that parses but is not an object
+
+    Every collector indexes an event as an object. A bare array on a line parses
+    and then raises an AttributeError somewhere inside them, which reaches the
+    caller as a traceback instead of the name of the file that is wrong.
+    """
+    ft_sandbox.events.write_text('["not", "an", "object"]\n', encoding="utf-8")
+    result = collect(ft_sandbox, run_script)
+    assert result.status == 1
+    assert "events file is not valid JSON lines" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_treats_a_missing_events_file_as_no_events(ft_sandbox, run_script):
@@ -392,3 +413,29 @@ def test_says_so_when_the_transcript_is_gone(ft_sandbox, run_script):
     result = collect(ft_sandbox, run_script, "--report")
     assert result.status == 1
     assert "no transcript at" in result.stderr
+
+
+def test_the_report_ends_in_exactly_one_newline(ft_sandbox, run_script):
+    """ends the report in exactly one newline, whatever the message ended with
+
+    The shell read this through `$(...)`, which strips every trailing newline,
+    and printed it with `printf '%s\\n'`, which puts one back. The caller is a
+    skill that reads the output into a variable, so the bytes are the contract.
+    """
+    transcript = ft_sandbox.path / "transcript.jsonl"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "All done.\n\n\n"}]},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    marker = ft_sandbox.read_marker()
+    marker["transcript_path"] = str(transcript)
+    ft_sandbox.marker.write_text(json.dumps(marker))
+    result = collect(ft_sandbox, run_script, "--report")
+    assert result.status == 0, result.stderr
+    assert result.stdout == "All done.\n"
