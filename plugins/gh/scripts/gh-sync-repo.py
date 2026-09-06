@@ -65,10 +65,11 @@ def flag_is_set(name):
 def git(*args, **kwargs):
     """Run git, capturing stdout and discarding stderr, as the shell did.
 
-    A git that is not on PATH is reported as a failed command rather than raised:
-    every caller already handles "git said no", and the preflight turns the first
-    such failure into the ordinary "not a git repository" skip. Letting the OSError
-    out would replace that one-line skip with a traceback.
+    A git that cannot be run at all is reported as a failed command rather than
+    raised: every caller already handles "git said no", and letting the OSError out
+    would replace a one-line skip with a traceback. The exception is kept on the
+    synthetic result as `oserror`, because "git could not be run" and "git said no"
+    are different answers and the preflight has to tell the reader which it got.
     """
     try:
         return subprocess.run(
@@ -77,8 +78,10 @@ def git(*args, **kwargs):
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-    except OSError:
-        return subprocess.CompletedProcess(["git", *args], 127, b"")
+    except OSError as exc:
+        completed = subprocess.CompletedProcess(["git", *args], 127, b"")
+        completed.oserror = exc
+        return completed
 
 
 def git_out(*args, **kwargs):
@@ -116,6 +119,8 @@ class SyncRepo:
         # Refined to the work tree name once the checkout root is resolved.
         self.name = os.path.basename(repo)
         self.header_printed = False
+        # Set once the reader closes the pipe: the report stops, the work does not.
+        self.quiet = False
         self.top = None
         self.default = None
         self.tip = None
@@ -133,20 +138,38 @@ class SyncRepo:
 
     def ok(self, text):
         self.ensure_header()
-        print(f"  ✓ {text}")
+        self.emit(f"  ✓ {text}")
 
     def bad(self, text):
         self.ensure_header()
-        print(f"  ✗ {text}")
+        self.emit(f"  ✗ {text}")
 
     def note(self, text):
         self.ensure_header()
-        print(f"  · {text}")
+        self.emit(f"  · {text}")
 
     def ensure_header(self):
         if not self.header_printed:
-            print(self.name)
             self.header_printed = True
+            self.emit(self.name)
+
+    def emit(self, text):
+        """Print one report line. A reader that has gone away stops the output only.
+
+        `gh-sync-repo.py <repo> | head` closes the pipe partway through, and the
+        next buffered flush raises here. That is the reader's business and it is
+        not a reason to stop halfway through deleting branches: a run abandoned
+        there leaves the prune half done and `git worktree prune` never called,
+        and it exits 0, so nothing says so. So the first BrokenPipeError silences
+        the report and the sync carries on to the end.
+        """
+        if self.quiet:
+            return
+        try:
+            print(text)
+        except BrokenPipeError:
+            self.quiet = True
+            silence_output()
 
     # ---------------------------------------------------------- preflight ---
 
@@ -169,8 +192,21 @@ class SyncRepo:
         except OSError:
             raise Skip("cannot enter directory") from None
 
-        top = git_out("rev-parse", "--show-toplevel")
-        if not top:
+        if shutil.which("git") is None:
+            # Named for what it is. Every git call below fails, and reporting the
+            # first of them as "not a git repository" sends the reader to inspect a
+            # checkout that is fine.
+            raise Skip("git is not on PATH")
+
+        probe = git("rev-parse", "--show-toplevel")
+        error = getattr(probe, "oserror", None)
+        if error is not None:
+            # On PATH and still unrunnable: not executable, a bad interpreter line,
+            # an exec format it cannot load. Also not a statement about the
+            # repository, so it does not borrow that one's wording either.
+            raise Skip(f"cannot run git: {error.strerror or error}")
+        top = probe.stdout.decode("utf-8", "replace").rstrip("\n")
+        if probe.returncode != 0 or not top:
             raise Skip("not a git repository")
         try:
             os.chdir(top)
@@ -210,7 +246,7 @@ class SyncRepo:
         if ref:
             return ref[len("refs/remotes/origin/") :]
 
-        view = self.gh_json(["repo", "view", "--json", "defaultBranchRef"])
+        view, _ = self.gh_json(["repo", "view", "--json", "defaultBranchRef"])
         if isinstance(view, dict):
             name = (view.get("defaultBranchRef") or {}).get("name")
             if name:
@@ -224,29 +260,36 @@ class SyncRepo:
     # --------------------------------------------------------------- gh ---
 
     def gh_json(self, args):
-        """Run gh and parse its JSON, or None if anything about that failed.
+        """(parsed JSON, reason it could not be read); exactly one of them is None.
 
         A missing gh is one of those failures rather than a crash: the caller
-        falls back to ancestry and says so.
+        falls back to ancestry and says so. The reason travels with the None
+        because "gh is not installed", "gh refused the query" and "gh answered
+        with something that is not JSON" send the reader to three different
+        places, and a bare "could not read" sends them to none of them.
         """
         if shutil.which("gh") is None:
-            return None
+            return None, "gh is not on PATH"
         try:
             completed = subprocess.run(
                 ["gh", *args],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                capture_output=True,
             )
-        except OSError:
-            return None
+        except OSError as exc:
+            return None, f"cannot run gh: {exc.strerror or exc}"
         if completed.returncode != 0:
-            return None
+            # gh's own last line is the useful half of a failure -- an auth
+            # prompt, a rate limit, a repository it cannot see. Its absence still
+            # leaves the status, which at least separates a refusal from a crash.
+            detail = last_line(completed.stderr.decode("utf-8", "replace").strip())
+            return None, detail or f"gh exited {completed.returncode}"
         try:
-            return json.loads(completed.stdout.decode("utf-8", "replace") or "null")
+            return json.loads(completed.stdout.decode("utf-8", "replace") or "null"), None
         except ValueError:
-            return None
+            return None, "gh returned malformed JSON"
 
     def pr_list(self, limit=PR_LIMIT, extra=()):
+        """(merged pull requests, reason they could not be read), as gh_json returns."""
         args = [
             "pr",
             "list",
@@ -260,16 +303,18 @@ class SyncRepo:
             "--json",
             prs_lib.FIELDS,
         ]
-        rows = self.gh_json(args)
+        rows, reason = self.gh_json(args)
+        if reason is not None:
+            return None, reason
         if not isinstance(rows, list):
-            return None
+            return None, "gh returned no pull-request list"
         # Every reader below calls .get on a row. A payload that is a list of
         # something else is not an answer about merged pull requests, so it takes
         # the same route a failed query does rather than crashing here or, worse,
         # being read as an empty window.
         if not all(isinstance(row, dict) for row in rows):
-            return None
-        return rows
+            return None, "gh returned rows that are not pull requests"
+        return rows, None
 
     # ------------------------------------------------------------ advance ---
 
@@ -333,6 +378,21 @@ class SyncRepo:
         # unreadable abbreviation still has a full SHA behind it, and this value is
         # both printed and used as the left end of the lock-file diff.
         before = git_out("rev-parse", "--short", self.default) or git_out("rev-parse", self.default)
+        if before is None:
+            # Both forms failed, so there is no left end: nothing to compare with
+            # the target, nothing honest to print as a range, and nothing to diff a
+            # lock file over. Reported the way a failed lock-file diff is, because
+            # it has the same consequence -- the checkout may end up on new code
+            # with stale dependencies -- and skipping the install without a word is
+            # the silent half of that. The branch is still advanced, which is the
+            # part that does not need the old tip.
+            self.bad(
+                f"could not read the tip of {self.default}; install by hand if a lock file changed"
+            )
+            moved = f"{self.default} to {target}"
+        else:
+            moved = f"{self.default} {before}..{target}"
+
         if before == target:
             self.note(f"{self.default} already up to date ({before})")
         elif not git_ok("merge-base", "--is-ancestor", self.default, "origin/" + self.default):
@@ -340,10 +400,12 @@ class SyncRepo:
                 f"{self.default} has diverged from origin/{self.default}; needs a manual merge"
             )
         elif self.dry_run:
-            self.note(f"would fast-forward {self.default} {before}..{target}")
+            self.note(f"would fast-forward {moved}")
+            # `before` is None here only when it could not be read, and the caller
+            # reads that as "no range to diff", which is exactly right.
             return True, target, before
         elif git_ok("merge", "--ff-only", "origin/" + self.default):
-            self.ok(f"fast-forwarded {self.default} {before}..{target}")
+            self.ok(f"fast-forwarded {moved}")
             return True, target, before
         else:
             self.bad(f"could not fast-forward {self.default}")
@@ -388,9 +450,9 @@ class SyncRepo:
         Returns the ancestry list, or None when it could not be read. Raises
         nothing: a failure of one signal is reported and the other carries on.
         """
-        rows = self.pr_list()
+        rows, reason = self.pr_list()
         if rows is None:
-            self.note("could not read merged pull requests; using ancestry alone")
+            self.note(f"could not read merged pull requests ({reason}); using ancestry alone")
         else:
             self.pr_lookup_ok = True
             self.pr_rows = rows
@@ -427,7 +489,7 @@ class SyncRepo:
         raised here, never reset: a "moved" from the bulk list is a fact this
         call's failure does not undo.
         """
-        rows = self.pr_list(PR_BRANCH_LIMIT, ["--head", branch])
+        rows, _ = self.pr_list(PR_BRANCH_LIMIT, ["--head", branch])
         if rows is None:
             if state == "none":
                 state = "error"
@@ -674,30 +736,36 @@ def use_utf8(stream):
         pass
 
 
+def silence_output():
+    """Send both descriptors to devnull, for a reader that has gone away.
+
+    Both, not just stdout, so nothing the interpreter still tries to flush on the
+    way out can resurface as a broken-pipe trace either.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, sys.stdout.fileno())
+        os.dup2(devnull, sys.stderr.fileno())
+    finally:
+        os.close(devnull)
+
+
 def main(argv):
     use_utf8(sys.stdout)
     use_utf8(sys.stderr)
     repo, dry_run, no_install, status = parse_args(argv)
     if status is not None:
         return status
+    result = SyncRepo(repo, dry_run=dry_run, no_install=no_install).run()
     try:
-        result = SyncRepo(repo, dry_run=dry_run, no_install=no_install).run()
         # Forces the write now, while BrokenPipeError still lands in the handler
         # below. Left implicit, buffered output is flushed during interpreter
         # shutdown instead, which prints its own "Exception ignored in" trace.
+        # Only the flush is wrapped: the run has already finished here, and
+        # wrapping it too is what let a closed pipe abandon a half-done prune.
         sys.stdout.flush()
     except BrokenPipeError:
-        # `gh-sync-repo.py <repo> | head` closes the pipe early. That is the
-        # reader's business, not a failure here. Both descriptors go to devnull,
-        # not just stdout, so nothing the interpreter still tries to flush on the
-        # way out can resurface as a broken-pipe trace either.
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-            os.dup2(devnull, sys.stderr.fileno())
-        finally:
-            os.close(devnull)
-        return 0
+        silence_output()
     return result
 
 
