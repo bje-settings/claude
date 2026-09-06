@@ -20,7 +20,7 @@ level down, to merge. Serial within a repo, parallel across repos.
 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/scripts"
-. "$S/lib/discover.sh" && discover_repos "$PWD"
+python3 "$S/lib/discover.py" "$PWD"
 ```
 
 One path per line. If there are none, say "No git repositories directly inside <cwd>" and
