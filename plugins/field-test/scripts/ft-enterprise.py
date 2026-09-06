@@ -6,10 +6,11 @@ on in the same GitHub enterprise?
 
 Prints one JSON object:
   {inside, enterprise, plugin_owner, target_owner, reason}
-Exit 2 on usage. Otherwise always 0, with an answer, because "we could not tell"
-is an answer: it is `inside: false`, and the reason says why. Names are redacted
-whenever this says false, so failing closed costs detail in an issue and never
-leaks a repository name.
+Exit 2 on usage, 1 on an internal error, and otherwise 0 with an answer, because
+"we could not tell" is an answer: it is `inside: false`, and the reason says why.
+Names are redacted whenever this says false, so failing closed costs detail in an
+issue and never leaks a repository name. A non-zero exit prints no answer at all,
+and the caller must read it the same way: redact.
 
 `inside` is true only when both owners appear under one enterprise slug in
   viewer { enterprises { nodes { slug organizations { nodes { login } } } } }

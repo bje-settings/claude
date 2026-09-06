@@ -286,11 +286,16 @@ def test_search_finds_a_signature_holding_quotes(run_script):
 
 
 def test_search_treats_a_gh_failure_as_no_match(ft_sandbox, run_script):
-    """treats a gh failure as no match rather than a duplicate"""
+    """treats a gh failure as no match rather than a duplicate, and names it"""
     ft_sandbox.setenv("FT_GH_FIXTURE_FAIL", "1")
     result = run_script(FT_ISSUE, "search", REPO, "bash_nonzero:gh pr merge --auto --squash N")
     assert result.status == 0
     assert result.stdout.strip() == ""
+    # The status and the empty stdout are the contract; the line is so that a run
+    # which filed a duplicate because gh failed does not look identical to one
+    # that filed the first report of a new bug. See #74.
+    assert "search: gh exited" in result.stderr
+    assert "treating as no existing issue" in result.stderr
 
 
 def test_search_treats_a_missing_gh_as_no_match(ft_sandbox, run_script):
@@ -303,6 +308,8 @@ def test_search_treats_a_missing_gh_as_no_match(ft_sandbox, run_script):
     result = run_script(FT_ISSUE, "search", REPO, "bash_nonzero:gh pr merge --auto --squash N")
     assert result.status == 0
     assert result.stdout.strip() == ""
+    assert "search: gh could not run" in result.stderr
+    assert "treating as no existing issue" in result.stderr
 
 
 # --- ensure-label ------------------------------------------------------------
@@ -648,6 +655,7 @@ def test_search_treats_an_answer_it_cannot_read_as_no_match(ft_sandbox, run_scri
     result = run_script(FT_ISSUE, "search", REPO, "bash_nonzero:gh pr merge --auto --squash N")
     assert result.status == 0
     assert result.stdout.strip() == ""
+    assert "search: gh's answer is not JSON" in result.stderr
 
 
 def test_names_refuses_an_events_file_it_cannot_open(ft_sandbox, target, run_script):
@@ -707,3 +715,29 @@ def test_render_ends_the_body_the_way_the_shell_did(
     assert result.status == 0, result.stderr
     assert result.stdout.endswith("The shape of the case is real; the names are not.\n\n")
     assert "\n\n\n> This run was on a repository" not in result.stdout
+
+
+def test_search_names_an_answer_that_is_not_a_list(ft_sandbox, run_script):
+    """names an answer that parses but is not a list of issues, and finds no match"""
+    stub = ft_sandbox.path / "bin" / "gh"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text("#!/bin/sh\nprintf '%s' '{\"message\": \"Not Found\"}'\n")
+    stub.chmod(0o755)
+    ft_sandbox.setenv("FT_GH", stub)
+    result = run_script(FT_ISSUE, "search", REPO, "bash_nonzero:gh pr merge --auto --squash N")
+    assert result.status == 0
+    assert result.stdout == ""
+    assert "search: gh's answer is not a list of issues" in result.stderr
+
+
+def test_search_says_nothing_when_it_really_found_nothing(ft_sandbox, run_script):
+    """stays silent when the search worked and matched nothing
+
+    The point of the lines above: "no existing issue" and "could not find out"
+    lead to the same next step and to very different duplicates, so only one of
+    them may be silent.
+    """
+    result = run_script(FT_ISSUE, "search", REPO, "denied:git push --force origin main")
+    assert result.status == 0
+    assert result.stdout == ""
+    assert result.stderr == ""

@@ -6,9 +6,9 @@ skills: `/field-test:run` observes one run; `/field-test:harden` loops it over a
 repositories. Each skill directory has a `FLOW.md` with the decision diagram.
 
 This is not a test runner. The tests under `tests/` and the specs in `spec/` cover the
-deterministic parts; a field test covers the part they cannot, which is how a skill behaves against a real repository in a state
-nobody thought to write a fixture for. The point of the run is to come out of it with those
-fixtures.
+deterministic parts; a field test covers the part they cannot, which is how a skill behaves
+against a real repository in a state nobody thought to write a fixture for. The point of the run
+is to come out of it with those fixtures.
 
 ## Requirements
 
@@ -165,8 +165,8 @@ starts matching too much, fails.
 
 `${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/runs/<session-id>/` holds `run.json` and `events.jsonl`,
 the whole of the run side's state, beside whatever one run writes there for itself
-(`resolved.json`, `names.json`). The harden side keeps state of its own. Nothing is cached: enterprise membership decides what gets
-published, and a stale answer would decide it wrongly.
+(`resolved.json`, `names.json`). The harden side keeps state of its own. Nothing is cached:
+enterprise membership decides what gets published, and a stale answer would decide it wrongly.
 
 ## Scripts
 
