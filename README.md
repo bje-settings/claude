@@ -41,21 +41,6 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 - [`stream-low`, `stream-medium`, `stream-high`](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun): work one stream through to a draft PR at the effort the plan sized it; dispatched by `/workstreams:run`.
 - [`reviewer`](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun): reviews one draft PR with `pr-review-toolkit`, applies the findings that hold, and refreshes a stale title or body.
 
-## Tests
+## Contributing
 
-```bash
-spec/run.sh
-```
-
-Specs live in `spec/`, fixtures in `fixtures/<plugin>/`. See `fixtures/gh/README.md` and `fixtures/workstreams/README.md`.
-Requires `shellspec` and `jq`; `shellcheck` is used if present.
-
-## Local install
-
-Add the marketplace locally for testing:
-
-```bash
-/plugin marketplace add ./path/to/this/repo
-/plugin install gh@bje
-/plugin install workstreams@bje
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for running the tests and installing the marketplace locally.
