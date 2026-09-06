@@ -113,7 +113,13 @@ def gh_repo() -> str:
     output = finished.stdout.decode("utf-8", "replace").strip()
     errors = finished.stderr.decode("utf-8", "replace").strip()
     if finished.returncode != 0:
-        unresolvable(" ".join(part for part in (errors, output) if part))
+        detail = " ".join(part for part in (errors, output) if part)
+        unresolvable(detail or f"gh exited {finished.returncode}")
+    if errors:
+        # gh exited 0 but still had something to say (a warning, an update
+        # notice): a skill reading our stderr should see it too, the way the
+        # shell version passed it through.
+        sys.stderr.write(errors + "\n")
     try:
         name = json.loads(output)["nameWithOwner"]
     except (ValueError, KeyError, TypeError):
@@ -169,8 +175,12 @@ def write_state(path: str, document) -> None:
         with open(tmp, "w", encoding="utf-8") as handle:
             handle.write(dumps(document))
         os.replace(tmp, path)
-    except OSError:
-        trouble = f"cannot write {path}"
+    except (OSError, ValueError) as error:
+        # ValueError alongside OSError: dumps() itself can raise one (a
+        # circular reference, say), and it must land here too so the finally
+        # block's "temp file left at" note is not lost to an exception this
+        # function never caught.
+        trouble = f"cannot write {path}: {error}"
     finally:
         if os.path.lexists(tmp):
             try:
@@ -187,7 +197,11 @@ def require_state(path: str):
         die(f"no state file at {path}; run init first")
     try:
         with open(path, encoding="utf-8") as handle:
-            document = json.load(handle)
+            # parse_constant refuses NaN and both infinities by name, the same
+            # as --json does for `set`: a state file holding one is not valid
+            # JSON, and has to report as one rather than surviving the parse
+            # and failing later, unrecognisably, when it is written back out.
+            document = json.load(handle, parse_constant=st.no_constants)
     except OSError as error:
         # A file that is there but unreadable is a different problem from one
         # holding the wrong bytes, and the fix is a different one too.
@@ -362,6 +376,13 @@ COMMANDS = {
 
 
 def main(argv):
+    # dumps() writes with ensure_ascii=False, so a reason or a repo name with a
+    # non-ASCII character goes to stdout as raw UTF-8; without this a non-UTF-8
+    # locale (PYTHONIOENCODING=ascii and the like) would fail `show` with a
+    # UnicodeEncodeError the internal-error handler below would report as one
+    # more unanticipated failure, rather than the request just working.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     command = argv[1] if len(argv) > 1 else ""
     if command in ("-h", "--help"):
         sys.stdout.write(__doc__)
@@ -373,6 +394,11 @@ def main(argv):
         if command not in COMMANDS:
             die(f"unknown command: {command}", 2)
         COMMANDS[command](argv[2:])
+        # Forces the write now, while BrokenPipeError still lands in the
+        # handler below. Left implicit, small output stays buffered until the
+        # interpreter's own shutdown flush, which runs after this function
+        # returns and prints its own "Exception ignored in" trace instead.
+        sys.stdout.flush()
     except (Failure, st.Invalid) as error:
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
@@ -380,13 +406,20 @@ def main(argv):
         # `ws-state.py show | head` closes the pipe early. That is the reader's
         # business, not a failure here, and the interpreter must not try to
         # flush the closed stream on the way out and print its own trace.
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        # Both descriptors go to devnull -- not just stdout -- so nothing the
+        # interpreter still tries to flush during shutdown (stdout again, or a
+        # stray write to stderr) can resurface as a broken-pipe trace either.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.dup2(devnull, sys.stderr.fileno())
         return 0
     except Exception as error:
         # The docstring promises the script's own message rather than a
         # traceback. Deliberate: an arm nobody anticipated still reports one
-        # line and exit 1, the way every anticipated one does.
-        sys.stderr.write(f"{PROG}: internal error: {error}\n")
+        # line and exit 1, the way every anticipated one does. The class name
+        # is included so an exception with an empty message (str(error) == "")
+        # still names what happened instead of printing a bare colon.
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
         return 1
     return 0
 

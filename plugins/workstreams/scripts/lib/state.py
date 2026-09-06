@@ -288,12 +288,12 @@ def json_value(value: str):
     if value == "":
         raise Invalid(f"set: --json value is not valid JSON: {value}")
     try:
-        return json.loads(value, parse_constant=_no_constants)
+        return json.loads(value, parse_constant=no_constants)
     except ValueError:
         raise Invalid(f"set: --json value is not valid JSON: {value}") from None
 
 
-def _no_constants(name: str):
+def no_constants(name: str):
     """The `parse_constant` hook: refuse NaN and both infinities by name."""
     raise ValueError(f"not JSON: {name}")
 
