@@ -75,7 +75,7 @@ def emit(kind, target, plugin, skill, marketplace, path, version, install, mpath
         "commit": commit or None,
         "repo": repo or None,
     }
-    sys.stdout.write(json.dumps(document, separators=(",", ":"), ensure_ascii=False) + "\n")
+    cli.write_out(json.dumps(document, separators=(",", ":"), ensure_ascii=False) + "\n")
 
 
 def read_json(path: str):
@@ -205,6 +205,10 @@ def main(argv):
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
     except BrokenPipeError:
+        # Only the flush above and the usage text can reach this: every line this
+        # script prints as an answer goes through cli.write_out, which stops the
+        # output and lets the work finish. By here there is no work left, so
+        # losing stderr with it costs nothing.
         cli.silence_broken_pipe()
         return 0
     except Exception as error:

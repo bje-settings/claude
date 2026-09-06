@@ -164,7 +164,7 @@ def cmd_names(argv):
             ),
         }
     )
-    sys.stdout.write(json.dumps(table, indent=2, ensure_ascii=False) + "\n")
+    cli.write_out(json.dumps(table, indent=2, ensure_ascii=False) + "\n")
 
 
 def cmd_search(argv):
@@ -213,7 +213,7 @@ def cmd_search(argv):
             # nothing at all. The caller tests for empty output and opens a new
             # issue, and the string "None" would read to it as issue None.
             if number is not None:
-                sys.stdout.write(str(number) + "\n")
+                cli.write_out(str(number) + "\n")
             return
 
 
@@ -242,7 +242,7 @@ def cmd_render(argv):
     body = body.rstrip("\n") + "\n"
     try:
         redact.check_present(names_path)
-        sys.stdout.write(redact.redact(body, names_path, mode == "--inside"))
+        cli.write_out(redact.redact(body, names_path, mode == "--inside"))
     except redact.RedactError as error:
         die(error.message, error.status)
 
@@ -315,6 +315,10 @@ def main(argv):
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
     except BrokenPipeError:
+        # Only the flush above and the usage text can reach this: every line this
+        # script prints as an answer goes through cli.write_out, which stops the
+        # output and lets the work finish. By here there is no work left, so
+        # losing stderr with it costs nothing.
         cli.silence_broken_pipe()
         return 0
     except Exception as error:
