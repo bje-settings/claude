@@ -4,6 +4,8 @@
 #   spec/run.sh             lint, then the suite under both shells
 #   spec/run.sh --quick     the suite under the default shell only
 #   spec/run.sh --coverage  the suite under kcov, with the CI threshold applied
+#                           (Linux only; refuses on macOS, where kcov cannot
+#                            measure anything — see spec/kcov-probe.sh)
 #   SPEC_JOBS=N spec/run.sh shellspec --jobs to use (default: the core count,
 #                           split between the two passes when both run)
 #
@@ -42,7 +44,8 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/workstreams/scripts/ws-state.sh \
     plugins/workstreams/scripts/ws-pr-status.sh \
     fixtures/workstreams/fixtures.sh \
-    fixtures/workstreams/bin/gh
+    fixtures/workstreams/bin/gh \
+    spec/kcov-probe.sh
 else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
@@ -59,10 +62,22 @@ jobs="${SPEC_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 
 }
 
 if [[ "${1:-}" == "--coverage" ]]; then
-  command -v kcov >/dev/null 2>&1 || {
-    printf 'kcov is required for --coverage: brew install kcov\n' >&2
-    exit 1
-  }
+  # Ask whether kcov can measure anything here before running a suite whose
+  # result would be a silent 0.00%. See spec/kcov-probe.sh.
+  spec/kcov-probe.sh
+  case $? in
+    2)
+      printf 'kcov is required for --coverage: brew install kcov\n' >&2
+      exit 1
+      ;;
+    1)
+      printf 'kcov is installed but cannot measure a shell script on this machine, so\n' >&2
+      printf 'coverage cannot run here. On macOS this is expected and has no local\n' >&2
+      printf 'workaround; the number comes from the CI coverage job on the pull request.\n' >&2
+      printf 'See CLAUDE.md, Tests, for why.\n' >&2
+      exit 1
+      ;;
+  esac
   run "shellspec (kcov)" shellspec --kcov --covdir coverage \
     --kcov-options "--include-path=./plugins --path-strip-level=1"
   run "coverage threshold" python3 spec/coverage-check.py coverage/cobertura.xml 95

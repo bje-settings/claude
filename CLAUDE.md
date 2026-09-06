@@ -107,8 +107,20 @@ default branch, matched by exact string. Renaming one does not fail the build: t
 never reports and pull requests wait forever. Put descriptive text in step names instead.
 
 The threshold is enforced by `spec/coverage-check.py`, not shellspec's `--fail-low-coverage`,
-which reports a failure at any coverage level once enabled. Reproduce a CI coverage run with
-`spec/run.sh --coverage`.
+which reports a failure at any coverage level once enabled. On Linux, reproduce a CI coverage run
+with `spec/run.sh --coverage`.
+
+Coverage cannot run on macOS, so on this repo's usual development machine the number only comes
+from the pull request's `coverage` job; budget a CI round for it. shellspec's kcov executor always
+passes `--bash-method=DEBUG` and `--bash-parser=<the shell under test>`, and Homebrew's kcov 43
+fails on each independently: under `DEBUG` it cannot attach (`Failed to exchange stderr for pipe:
+Bad file descriptor`), and `--bash-parser` pointed at Homebrew's bash 5 fails the same way, though
+`/bin/bash` as the parser is fine. The one arrangement that does attach, kcov's default `PS4`
+method, turns xtrace on globally: every example then fails with 0 lines executed, which is the
+same reason bashcov is unusable. There is no local workaround; only a Linux kcov 38 measures this
+suite. `spec/run.sh --coverage` probes for a working kcov first (`spec/kcov-probe.sh`, covered by
+`spec/kcov_probe_spec.sh`) and refuses with an explanation, rather than running the whole suite to
+report a silent 0.00%.
 
 Any script that can delete or overwrite something needs a spec proving both that it acts when it
 should and that it refuses when it should. Assert against real repositories built by the fixtures

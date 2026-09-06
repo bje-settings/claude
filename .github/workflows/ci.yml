@@ -41,7 +41,8 @@ jobs:
             plugins/workstreams/scripts/ws-pr-status.sh \
             fixtures/workstreams/fixtures.sh \
             fixtures/workstreams/bin/gh \
-            spec/run.sh
+            spec/run.sh \
+            spec/kcov-probe.sh
 
   test:
     # The suite runs on both images on purpose. Linux gives us bash 5, which is
