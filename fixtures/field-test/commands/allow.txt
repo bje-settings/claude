@@ -1,0 +1,10 @@
+git push --force-with-lease origin wktr-9-fix
+git push origin wktr-9-fix
+git push --dry-run origin main
+git log --oneline -5
+git worktree remove .claude/worktrees/wktr-9-fix
+rm -rf .claude/worktrees/wktr-9-fix
+rm -rf node_modules
+rm -f /tmp/one-file
+gh pr merge --squash --auto 12
+./scripts/filter-branch.sh --check

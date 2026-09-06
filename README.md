@@ -67,6 +67,32 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+### [`field-test`](plugins/field-test)
+
+> Plugin quality assurance: run a skill under observation, and turn what went wrong into issues
+> somebody who did not watch the run can reproduce. Names from a repository outside the plugin's
+> enterprise are redacted before anything is published.
+
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testrun-target-args"><code>/field-test:run</code></a>: run a skill or command as a field test, collect what its scripts and subagents actually did, and file one reproducible issue per problem on the repository that owns the plugin under test. Every issue is shown before it is created.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Hooks</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#hooks">Tool and subagent recording</a>: records every Bash call, subagent report, and refused command while a field test is running. Silent and immediate in any other session.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#the-deny-list">Deny list</a>: refuses the handful of commands a field test must not let its target run, and records the attempt as the highest-severity finding.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for running the tests and installing the marketplace locally.

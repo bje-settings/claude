@@ -1,0 +1,11 @@
+git push --force origin main
+git push -f origin wktr-9-fix
+cd /tmp/repo && git push --force origin main
+git push origin --delete wktr-9-old
+git push origin :wktr-9-old
+git push --mirror git@github.com:acme/copy.git
+git filter-branch --tree-filter 'rm -f secrets' HEAD
+git filter-repo --path secrets --invert-paths
+rm -rf ~/Code/scratch
+rm -rf /var/tmp/build
+cd repo && rm -fr ../scratch

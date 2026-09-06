@@ -1,0 +1,36 @@
+# The commands a field test refuses to let its target run.
+#
+# One Python regular expression per line, matched against the whole Bash command
+# with `re.search`. The comment lines directly above a pattern are its reason, and
+# that reason is what the target is told when the command is blocked, so keep them
+# written for the reader on the other side.
+#
+# The list is deliberately short. A field test observes; the only thing it stops is
+# an action that cannot be undone from the transcript. Every pattern here has a
+# denied sample and an allowed sample in fixtures/field-test/commands/, and the
+# specs assert both, so a pattern that stops matching, or starts matching too much,
+# fails the suite.
+#
+# `(?s)` makes `.` match newlines, because a Bash call is often several lines
+# joined by && or a heredoc.
+
+# Force-pushing rewrites history other people may already have. --force-with-lease
+# is allowed: it refuses when the remote moved, which is the case that loses work.
+(?s)^(?!.*--force-with-lease).*\bgit\s+push\b.*?(--force\b|\s-f\b)
+
+# Deleting a remote branch, either with --delete or with an empty-source refspec,
+# throws away the only copy of work that is not merged anywhere.
+(?s)\bgit\s+push\b.*(--delete\b|\s-d\s|\s:[\w./-]+)
+
+# A mirror push replaces every ref on the remote with the local set, deleting any
+# branch or tag this checkout does not have.
+(?s)\bgit\s+push\b.*--mirror\b
+
+# Rewriting history across a whole branch invalidates every clone and open PR of it.
+(?s)\bgit\s+(filter-branch|filter-repo)\b
+
+# Recursive delete of an absolute or parent path. A field test may create worktrees
+# and scratch directories under the checkout and remove them again; anything above
+# the checkout is out of bounds, and a regex cannot tell where the checkout ends, so
+# a rooted or upward path is refused and the user re-runs it if it was meant.
+(?s)\brm\s+(-[a-zA-Z]+\s+)*-[a-zA-Z]*(rf|fr)[a-zA-Z]*\s+(/|~|\$HOME|\$\{HOME\}|\.\.)
