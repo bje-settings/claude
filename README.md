@@ -14,8 +14,8 @@ Git and GitHub workflow.
 
 Skills
 
-- [`/gh:sync`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghsync): move a checkout to its default branch, fast-forward it, and prune branches and worktrees whose work has landed, for one repo or every repo one level down.
-- [`/gh:shepherd`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd): merge auto-merge-enabled `dependencies` PRs one at a time, rebasing and waiting on CI between merges, for one repo or every repo one level down in parallel.
+- [`/gh:sync`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghsync): move a checkout to its default branch, fast-forward it, and prune branches and worktrees whose work has landed. _Scope: `cwd` can be a single repo or a directory of repo subdirs._
+- [`/gh:shepherd`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd): merge auto-merge-enabled `dependencies` PRs one at a time, rebasing and waiting on CI between merges. _Scope: `cwd` can be a single repo or a directory of repo subdirs._
 
 Agents
 
