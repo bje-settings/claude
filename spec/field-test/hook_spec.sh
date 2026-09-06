@@ -190,9 +190,10 @@ Describe 'the field-test hooks'
   End
 
   Describe 'the deny list'
-    # Every pattern in hooks/deny-list.txt has a sample on each side in
-    # fixtures/field-test/commands/, and both files are walked here: a pattern that
-    # stops matching, or starts matching too much, fails one of these two.
+    # Every pattern in hooks/deny-list.txt has a denied sample in
+    # fixtures/field-test/commands/deny.txt, and allow.txt holds the near misses no
+    # pattern may match. Both files are walked here: a pattern that stops matching,
+    # or starts matching too much, fails one of these two.
     payload_for() {
       jq -nc --arg s ft-session --arg c "$1" \
         '{session_id: $s, tool_name: "Bash", tool_input: {command: $c}}' > "$FT_SANDBOX/payload.json"
@@ -219,6 +220,28 @@ Describe 'the field-test hooks'
       When call decisions allow.txt no
       The status should be success
       The output should equal ''
+    End
+
+    # deny.txt is one command per line, so the only place the `(?s)` in every rule can
+    # be exercised is here. Drop it and a wrapped or chained command walks through.
+    It 'refuses a command the list names when it is wrapped across lines'
+      payload_for 'git push \
+  --mirror git@github.com:acme/copy.git'
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PreToolUse
+      The status should be success
+      The output should include '"deny"'
+      The output should include 'mirror push'
+    End
+
+    It 'refuses a command the list names when it follows a newline in an && chain'
+      payload_for 'git fetch origin &&
+git push origin --delete wktr-9-old'
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PreToolUse
+      The status should be success
+      The output should include '"deny"'
+      The output should include 'Deleting a remote branch'
     End
 
     It 'tells the target why, in the words of the list itself'
@@ -285,6 +308,9 @@ Describe 'the field-test hooks'
       The status should be success
       The output should include '"deny"'
       The output should include 'real'
+      # Not just 'real': the comment above the rule that was dropped must not be read
+      # as the reason for the rule that fired.
+      The output should not include 'broken'
     End
 
     It 'records the rule it had to drop, so a hole in the guardrail is not silent'

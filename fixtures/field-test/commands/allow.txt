@@ -10,3 +10,8 @@ gh pr merge --squash --auto 12
 ./scripts/filter-branch.sh --check
 git push origin HEAD:main
 rm -rf "node_modules"
+git push origin main && git branch -d feature
+git push origin main && gh pr merge 12 --squash --delete-branch
+git push origin main; echo "use --force only in emergencies"
+git remote add mirror git@github.com:acme/copy.git
+rm -r -f node_modules

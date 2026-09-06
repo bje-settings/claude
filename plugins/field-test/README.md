@@ -99,13 +99,23 @@ FT_STATE_DIR=/tmp/no-runs \
 The one place a field test intervenes. It covers force-pushing without a lease, deleting a remote
 branch, a mirror push, `filter-branch` and `filter-repo`, and a recursive delete of a rooted or
 upward path. A denied command is recorded as the highest-severity finding: the target reaching
-for it is the thing worth writing down. Every pattern has a denied sample and an allowed sample
-in `fixtures/field-test/commands/`, asserted by the specs, so the list stays short and honest.
+for it is the thing worth writing down.
+
+Every rule is scoped to the one command it is about, not the whole line: `git push origin main &&
+git branch -d feature` is a safe push followed by a local branch delete, and a rule that scanned
+past the `&&` would refuse it and file the refusal as the run's headline finding. The recursive
+delete rule finds the recursive flag and the force flag separately, so `rm -r -f /` and
+`rm --recursive --force /` are refused alongside `rm -rf /`.
+
+Every pattern has a denied sample in `fixtures/field-test/commands/deny.txt`, asserted one
+pattern at a time, and `allow.txt` holds the near misses no pattern may match. Both files are
+walked by the specs, so a pattern that stops matching, or starts matching too much, fails.
 
 ## State
 
 `${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/runs/<session-id>/` holds `run.json` and `events.jsonl`,
-and that is the whole of it. Nothing is cached: enterprise membership decides what gets
+the only two files the scripts and hooks own, beside whatever one run writes there for itself
+(`resolved.json`, `names.json`). Nothing is cached: enterprise membership decides what gets
 published, and a stale answer would decide it wrongly.
 
 ## Scripts

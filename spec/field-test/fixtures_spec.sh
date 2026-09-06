@@ -154,6 +154,16 @@ PY
       The status should be success
       The output should equal '5'
     End
+
+    # Empty allow.txt and hook_spec.sh's 'allows every command the list is careful not
+    # to name' passes without checking anything, which is the only guard against a
+    # pattern that matches too much.
+    It 'has near misses to check the patterns against'
+      allow_count() { grep -c . "$FT_FIXTURES_DIR/commands/allow.txt"; }
+      When call allow_count
+      The status should be success
+      The output should equal '17'
+    End
   End
 
   Describe 'ft_fixture_issues and the gh stub'

@@ -23,7 +23,9 @@ Environment:
   FT_DENY_LIST                        default: deny-list.txt beside this file
   FT_RUN_SH                           default: ../scripts/ft-run.sh
 
-Always exits 0. A hook that fails must not take the session down with it.
+Always exits 0. A hook that fails must not take the session down with it, but it
+records a `hook_error` event first, so a run whose guardrail crashed is not
+mistaken for a run that had nothing to block.
 """
 
 import datetime
@@ -32,10 +34,13 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVENTS = ("PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStop", "Stop")
 STDERR_TAIL_CHARS = 2000
+# The first line of a PostToolUseFailure `error` for a Bash call: "Exit code 1".
+EXIT_CODE_RE = re.compile(r"\s*Exit code (\d+)", re.IGNORECASE)
 
 DENY_REASON = (
     "Blocked by the field-test plugin: {reason}\n"
@@ -139,26 +144,43 @@ def load_deny_list(path):
     return rules, broken
 
 
-def exit_code_of(response):
-    """The tool's exit code, whichever spelling the payload uses, else None."""
-    if not isinstance(response, dict):
-        return None
-    for key in ("exit_code", "exitCode", "returnCode", "code"):
-        value = response.get(key)
-        if isinstance(value, bool):
-            continue
-        if isinstance(value, int):
-            return value
-    return None
+def exit_code_of(response, error=""):
+    """The tool's exit code, whichever spelling the payload uses, else None.
+
+    A PostToolUseFailure payload carries no `tool_response` at all: the failure
+    arrives as a top-level `error` string whose first line is `Exit code N`, with
+    the command's output after it. Read that too, or every tool_failure finding
+    reaches the issue saying the exit code was not recorded.
+    """
+    if isinstance(response, dict):
+        for key in ("exit_code", "exitCode", "returnCode", "code"):
+            value = response.get(key)
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                return value
+    match = EXIT_CODE_RE.match(error or "")
+    return int(match.group(1)) if match else None
 
 
-def stderr_tail(response):
-    if not isinstance(response, dict):
+def error_text(payload):
+    """The top-level `error` string of a PostToolUseFailure payload."""
+    text = payload.get("error")
+    if text is None:
         return ""
-    text = response.get("stderr") or ""
-    if not isinstance(text, str):
-        text = str(text)
-    return text[-STDERR_TAIL_CHARS:]
+    return text if isinstance(text, str) else str(text)
+
+
+def stderr_tail(response, error=""):
+    if isinstance(response, dict):
+        text = response.get("stderr") or ""
+        if not isinstance(text, str):
+            text = str(text)
+    else:
+        text = ""
+    # `error` is the only output a failed call reports, so it stands in when there
+    # is no tool_response to read a stderr out of.
+    return (text or error)[-STDERR_TAIL_CHARS:]
 
 
 def base_record(event, payload):
@@ -175,13 +197,14 @@ def handle_bash(event, payload, path):
         return
     tool_input = payload.get("tool_input") or {}
     response = payload.get("tool_response")
+    error = error_text(payload)
     record = base_record(event, payload)
     record.update(
         {
             "tool_use_id": payload.get("tool_use_id"),
             "command": tool_input.get("command") if isinstance(tool_input, dict) else None,
-            "exit_code": exit_code_of(response),
-            "stderr_tail": stderr_tail(response),
+            "exit_code": exit_code_of(response, error),
+            "stderr_tail": stderr_tail(response, error),
         }
     )
     append(path, record)
@@ -193,7 +216,10 @@ def handle_pre_tool_use(payload, path):
         return
     tool_input = payload.get("tool_input") or {}
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not command:
+    # Not `if not command`: a command that is not a string reaches re.search and
+    # raises, and an exception here is the deny list silently switched off for the
+    # rest of the run. There is nothing to match against, so there is nothing to deny.
+    if not isinstance(command, str) or not command:
         return
     deny_list = os.environ.get("FT_DENY_LIST") or os.path.join(HERE, "deny-list.txt")
     rules, broken = load_deny_list(deny_list)
@@ -247,6 +273,17 @@ def handle_stop(payload, path):
         return
 
 
+def dispatch(event, payload, path):
+    if event == "PreToolUse":
+        handle_pre_tool_use(payload, path)
+    elif event in ("PostToolUse", "PostToolUseFailure"):
+        handle_bash(event, payload, path)
+    elif event == "SubagentStop":
+        handle_subagent_stop(payload, path)
+    else:
+        handle_stop(payload, path)
+
+
 def main(argv):
     event = argv[1] if len(argv) > 1 else ""
     if event not in EVENTS:
@@ -259,14 +296,16 @@ def main(argv):
     if path is None:
         return 0
     note_transcript(path, payload.get("transcript_path"))
-    if event == "PreToolUse":
-        handle_pre_tool_use(payload, path)
-    elif event in ("PostToolUse", "PostToolUseFailure"):
-        handle_bash(event, payload, path)
-    elif event == "SubagentStop":
-        handle_subagent_stop(payload, path)
-    else:
-        handle_stop(payload, path)
+    # A crash here is invisible from the outside: the wrapper exits 0, Claude Code
+    # allows the command, and a run that lost its deny list looks exactly like a run
+    # the target never reached for anything. Record it as an event so collection can
+    # say the guardrail was off, then still exit 0.
+    try:
+        dispatch(event, payload, path)
+    except Exception:
+        record = base_record("hook_error", payload)
+        record.update({"hook": event, "error": traceback.format_exc()[-STDERR_TAIL_CHARS:]})
+        append(path, record)
     return 0
 
 

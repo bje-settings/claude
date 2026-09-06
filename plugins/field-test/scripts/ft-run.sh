@@ -10,7 +10,8 @@
 # It lives at
 #   ${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/runs/<session-id>/run.json
 # beside the events.jsonl the hooks append to. Those two files are the whole of
-# the plugin's state; nothing is cached and nothing is written anywhere else.
+# the plugin's own state; nothing is cached, and the only other files in the run
+# directory are the ones a run writes there for itself (resolved.json, names.json).
 #
 # The session id comes from --session, then $CLAUDE_CODE_SESSION_ID, which the
 # Bash tool exports and which matches the session_id hooks receive on stdin.
