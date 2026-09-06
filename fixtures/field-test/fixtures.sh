@@ -296,7 +296,7 @@ JSON
   fi
 }
 
-# ft_fixture_repo <dir> [owner/name] [ssh|https|none]: a real git repository with a
+# ft_fixture_repo <dir> [owner/name] [ssh|https|alias|none]: a real git repository with a
 # remote, two branches, and two commits, which is what the redaction table is built
 # from. Identity is passed per command so no global git config is needed.
 ft_fixture_repo() {
@@ -312,6 +312,9 @@ ft_fixture_repo() {
   case "$form" in
     ssh) ft_fixture_git "$dir" remote add origin "git@github.com:$slug.git" ;;
     https) ft_fixture_git "$dir" remote add origin "https://github.com/$slug.git" ;;
+    # An ssh host alias, which is how one machine holds two GitHub accounts. The
+    # owner is the same; only the host in the URL differs.
+    alias) ft_fixture_git "$dir" remote add origin "git@github.com-work:$slug.git" ;;
     none) : ;;
   esac
   printf '%s' "$dir"

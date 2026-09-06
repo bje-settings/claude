@@ -66,16 +66,24 @@ answer() {
   exit 0
 }
 
-# owner_of <dir>: the owner segment of the origin remote, ssh or https, or nothing
+# owner_of <dir>: the owner segment of the origin remote, ssh or https, or nothing.
+# Split on the last host separator rather than on the literal "github.com": an ssh
+# host alias (git@github.com-work:acme/app.git, which is how one machine holds two
+# accounts) otherwise parses as the owner "-work:acme", which matches no enterprise
+# organization and reads as a repository outside the enterprise.
 owner_of() {
-  local url="" path
+  local url="" u
   url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 0
-  url="${url%.git}"
-  path="${url#*github.com}"
-  path="${path#:}"
-  path="${path#/}"
-  case "$path" in
-    */*) printf '%s' "${path%%/*}" ;;
+  u="${url%.git}"
+  u="${u#*://}"
+  u="${u#*@}"
+  u="${u#*:}"
+  case "$u" in
+    */*/*) u="${u#*/}" ;;
+  esac
+  case "$u" in
+    */*/*) ;;
+    */*) printf '%s' "${u%%/*}" ;;
   esac
 }
 

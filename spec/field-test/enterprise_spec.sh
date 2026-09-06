@@ -37,6 +37,17 @@ Describe 'ft-enterprise.sh'
     The output should include '"inside":true'
   End
 
+  # A machine holding two GitHub accounts writes remotes as git@github.com-work:...,
+  # which a parse anchored on the literal "github.com" reads as the owner -work:acme.
+  # The run would be reported as outside its own enterprise and every name redacted.
+  It 'reads a remote written through an ssh host alias'
+    plugin_repo alias; target_repo acme-tools/widgets alias
+    When run script "$FT_ENTERPRISE" "$FT_SANDBOX/plugin" "$FT_SANDBOX/target"
+    The status should be success
+    The output should include '"inside":true'
+    The output should include '"plugin_owner":"acme-org"'
+  End
+
   It 'follows a second page of organizations rather than answering from the first'
     ft_fixture_enterprise "$FT_GH_FIXTURE_DIR" paged
     plugin_repo; target_repo

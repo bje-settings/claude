@@ -90,15 +90,22 @@ emit() {
 }
 
 # owner_repo <dir>: owner/name from the checkout's origin remote, ssh or https.
+# Split on the last host separator rather than on the literal "github.com", or an
+# ssh host alias (git@github.com-work:acme/app.git) resolves to the repository
+# "-work:acme/app", which no issue can be filed against.
 owner_repo() {
-  local url
+  local url u
   url="$(git -C "$1" remote get-url origin 2>/dev/null)" || return 0
-  url="${url%.git}"
-  url="${url#*github.com}"
-  url="${url#:}"
-  url="${url#/}"
-  case "$url" in
-    */*) printf '%s' "$url" ;;
+  u="${url%.git}"
+  u="${u#*://}"
+  u="${u#*@}"
+  u="${u#*:}"
+  case "$u" in
+    */*/*) u="${u#*/}" ;;
+  esac
+  case "$u" in
+    */*/*) ;;
+    */*) printf '%s' "$u" ;;
   esac
 }
 

@@ -128,6 +128,15 @@ JSON
       The output should not include '"placeholder": "<org>/<repo>"'
     End
 
+    It 'reads the owner through an ssh host alias, which names the same repository'
+      target acme-org/widgets alias
+      When run script "$FT_ISSUE" names "$FT_SANDBOX/target"
+      The status should be success
+      The output should include '"repo": "acme-org/widgets"'
+      The output should include '"value": "acme-org"'
+      The output should include '"value": "widgets"'
+    End
+
     It 'drops a value too short to replace safely'
       ft_fixture_repo "$FT_SANDBOX/target" "a/b" >/dev/null
       When run script "$FT_ISSUE" names "$FT_SANDBOX/target"

@@ -35,6 +35,26 @@ LIB="$HERE/lib"
 TEMPLATE="$HERE/../skills/run/issue-template.md"
 
 usage() { sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+# owner_repo_of <remote-url>: the owner/name a git remote ends in, for the ssh,
+# scp and https spellings. Split on the last host separator rather than on the
+# literal "github.com": an ssh host alias (git@github.com-work:acme/app.git, which
+# is how one machine holds two accounts) otherwise parses as the owner
+# "-work:acme", and a wrong owner is one that redaction never replaces.
+owner_repo_of() {
+  local u="${1%.git}"
+  u="${u#*://}"
+  u="${u#*@}"
+  u="${u#*:}"
+  case "$u" in
+    */*/*) u="${u#*/}" ;;
+  esac
+  case "$u" in
+    */*/*) printf '' ;;
+    */*) printf '%s' "$u" ;;
+  esac
+}
+
 die() { printf 'ft-issue.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 cmd="${1:-}"; shift 2>/dev/null || true
@@ -90,10 +110,7 @@ $abs"
     remote="$(git -C "$dir" remote get-url origin 2>/dev/null)"
     slug=""; owner=""; name=""
     if [[ -n "$remote" ]]; then
-      slug="${remote%.git}"
-      slug="${slug#*github.com}"
-      slug="${slug#:}"
-      slug="${slug#/}"
+      slug="$(owner_repo_of "$remote")"
       case "$slug" in
         */*) owner="${slug%%/*}"; name="${slug#*/}" ;;
         *) slug="" ;;

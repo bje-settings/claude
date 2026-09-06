@@ -25,7 +25,10 @@ set -uo pipefail
 usage() { sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'ft-redact.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
-NOTE='This run was on a repository outside the plugin'"'"'s enterprise, so the organization, repository, path, branch, commit, and pull request names above were replaced with placeholders. The shape of the case is real; the names are not.'
+# The note says what was done, not which categories were present: a checkout with no
+# origin remote collects no organization name, and a note that named one anyway would
+# be asserting a redaction that never happened.
+NOTE='This run was on a repository outside the plugin'"'"'s enterprise, so every name collected from it was replaced with a placeholder. The shape of the case is real; the names are not.'
 
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;

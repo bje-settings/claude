@@ -45,7 +45,7 @@ second page), `error` (the query fails), `empty` (a well-formed answer with no e
 | `ft_fixture_hook_input <path> <case> [session]` | One hook payload: `post-ok`, `post-fail`, `post-failure`, `pre-deny`, `pre-allow`, `pre-other`, `subagent-stop`, `stop`, `malformed` |
 | `ft_fixture_installed_plugins <path> <install-dir> [with-skill\|without-skill]` | The shape of `~/.claude/plugins/installed_plugins.json`, version 2 |
 | `ft_fixture_marketplaces <path> <local-dir> [directory\|github]` | The shape of `~/.claude/plugins/known_marketplaces.json` |
-| `ft_fixture_repo <dir> [owner/name] [ssh\|https\|none]` | A real repository: two commits, two branches, an origin remote |
+| `ft_fixture_repo <dir> [owner/name] [ssh\|https\|alias\|none]` | A real repository: two commits, two branches, an origin remote (`alias` writes it through an ssh host alias) |
 | `ft_fixture_git <dir> <args...>` | git with identity passed per command, so no global config is needed |
 | `ft_fixture_enterprise <dir> [mode]` | The answer the gh stub gives to the enterprise query |
 | `ft_fixture_issues <path>` | Four issues: one open `field-test` issue carrying a signature the duplicate search must find, and three near misses it must not |
