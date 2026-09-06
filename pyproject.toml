@@ -59,10 +59,11 @@ omit = [
   # the Python gate; #59 removes the line along with the gap.
   "plugins/field-test/hooks/hook-io.py",
   # The tests are not the thing under test. Only tests/coverage_check.py survives
-  # this, which is the whole reason tests/ is in source above.
-  "tests/conftest.py",
-  "tests/test_*.py",
-  "tests/*/test_*.py",
+  # this, which is the whole reason tests/ is in source above. ** and not *:
+  # coverage's globs do not cross a directory separator, so "tests/test_*.py"
+  # alone would leave every tests/<plugin>/ file measured.
+  "tests/**/test_*.py",
+  "tests/**/conftest.py",
 ]
 
 [tool.coverage.report]

@@ -19,8 +19,11 @@ cannot be what decides whether a build passes.
 
   coverage_check.py <cobertura.xml> [threshold]
 
-Exit codes: 0 pass, 1 below the threshold or nothing measured, 2 bad usage or an
-unreadable report.
+Exit codes: 0 the report clears the threshold; 1 a legible report that does not
+(below the threshold, or nothing measured at all); 2 the caller's fault, which is
+bad usage or a report that cannot be read. The split matters to whoever reads the
+build: 1 is a coverage problem to go and fix, 2 is a broken invocation or a
+broken report and says nothing about coverage either way.
 """
 
 import sys
@@ -30,8 +33,21 @@ DEFAULT_THRESHOLD = 95.0
 USAGE = "usage: coverage_check.py <cobertura.xml> [threshold]\n"
 
 
+class UsageError(Exception):
+    """The caller got the arguments wrong."""
+
+
+class UnreadableReport(Exception):
+    """The XML parsed, but a value this script must have is missing or malformed.
+
+    Grouped with a genuine parse failure rather than with a coverage failure: a
+    line-rate that is not a number says nothing about coverage, and reporting it
+    as 0% would fail a build for the wrong reason.
+    """
+
+
 class ReportError(Exception):
-    """The report parsed, but does not say what this script needs to know."""
+    """The report is legible, and its answer is not one that can pass."""
 
 
 def parse_threshold(text):
@@ -44,22 +60,26 @@ def parse_threshold(text):
     try:
         value = float(text)
     except (TypeError, ValueError):
-        raise ReportError(f"threshold is not a number: {text}") from None
+        raise UsageError(f"threshold is not a number: {text}") from None
     # NaN fails every comparison, so it would pass any coverage level.
     if value != value or not 0 <= value <= 100:
-        raise ReportError(f"threshold must be between 0 and 100: {text}")
+        raise UsageError(f"threshold must be between 0 and 100: {text}")
     return value
 
 
-def rate_of(element, attribute="line-rate"):
-    """A cobertura rate attribute as a percentage."""
+def rate_of(element, where, attribute="line-rate"):
+    """A cobertura rate attribute as a percentage.
+
+    `where` names the element in the message, so a malformed report says which
+    file to look at rather than only that something in it was wrong.
+    """
     raw = element.get(attribute)
     if raw is None:
-        raise ReportError(f"report has no {attribute}")
+        raise UnreadableReport(f"{where} has no {attribute}")
     try:
         return float(raw) * 100
     except ValueError:
-        raise ReportError(f"report has an unreadable {attribute}: {raw}") from None
+        raise UnreadableReport(f"{where} has an unreadable {attribute}: {raw}") from None
 
 
 def partial_branches(cls):
@@ -78,7 +98,9 @@ def partial_branches(cls):
         condition = line.get("condition-coverage")
         if not condition or condition.startswith("100%"):
             continue
-        numbers.append(line.get("number"))
+        # A line element with no number is not worth raising over; say so and
+        # let the rest of the report through.
+        numbers.append(line.get("number", "?"))
     return numbers
 
 
@@ -92,15 +114,18 @@ def report(path, threshold):
         raise ReportError("report contains no measured files")
 
     for cls in classes:
-        rate = rate_of(cls)
-        uncovered = [line.get("number") for line in cls.iter("line") if line.get("hits") == "0"]
+        filename = cls.get("filename") or "(unnamed file)"
+        rate = rate_of(cls, filename)
+        uncovered = [
+            line.get("number", "?") for line in cls.iter("line") if line.get("hits") == "0"
+        ]
         suffix = "  uncovered: " + ",".join(uncovered) if uncovered else ""
         partial = partial_branches(cls)
         if partial:
             suffix += "  partial branches: " + ",".join(partial)
-        print("  {:6.2f}%  {}{}".format(rate, cls.get("filename"), suffix))
+        print(f"  {rate:6.2f}%  {filename}{suffix}")
 
-    overall = rate_of(root)
+    overall = rate_of(root, "report root")
     print(f"\noverall: {overall:.2f}%   threshold: {threshold:.2f}%")
     return overall
 
@@ -111,12 +136,12 @@ def main(argv):
         return 2
     try:
         threshold = parse_threshold(argv[2]) if len(argv) > 2 else DEFAULT_THRESHOLD
-    except ReportError as error:
+    except UsageError as error:
         sys.stderr.write(f"{error}\n{USAGE}")
         return 2
     try:
         overall = report(argv[1], threshold)
-    except (OSError, ET.ParseError) as error:
+    except (OSError, ET.ParseError, UnreadableReport) as error:
         sys.stderr.write(f"FAIL: cannot read {argv[1]}: {error}\n")
         return 2
     except ReportError as error:

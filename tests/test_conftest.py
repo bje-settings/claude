@@ -20,9 +20,13 @@ def test_sandbox_puts_home_inside_its_own_tmp_dir(sandbox, tmp_path):
     assert home.is_dir()
 
 
-def test_sandbox_unsets_the_plugin_data_dir(sandbox, monkeypatch):
-    # Set before the fixture would have run in a real session; the fixture has
-    # already cleared it by the time the test body runs.
+def test_sandbox_unsets_the_plugin_data_dir(monkeypatch, request):
+    # Set it first, then pull the fixture in by hand, so the assertion is about
+    # the fixture clearing a value that was there. Taking `sandbox` as an argument
+    # would run it before this line and the test would pass on a machine where the
+    # variable was simply never set.
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", "leaked-from-the-session")
+    request.getfixturevalue("sandbox")
     assert "CLAUDE_PLUGIN_DATA" not in os.environ
 
 

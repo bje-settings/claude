@@ -182,21 +182,64 @@ def test_rejects_a_report_with_no_measured_files(run_script, report):
 
 
 def test_rejects_a_report_with_no_line_rate(run_script, report):
-    """calls a missing root line-rate a parse error rather than 0%"""
+    """treats a missing root line-rate as an unreadable report, not as 0%"""
     write_report(report, 100, 100, root_rate='lines-valid="100"')
     result = run_script(CHECK, report, 95)
-    assert result.status == 1
-    assert "no line-rate" in result.stderr
+    # 2, not 1: it says nothing about coverage, so it is not a coverage failure.
+    assert result.status == 2
+    assert "cannot read" in result.stderr
+    assert "report root has no line-rate" in result.stderr
     # Not reported as a 0% run: there is no overall line at all.
     assert "overall:" not in result.stdout
 
 
 def test_rejects_a_report_with_an_unreadable_line_rate(run_script, report):
-    """calls an unparsable root line-rate a parse error rather than 0%"""
+    """treats an unparsable root line-rate as an unreadable report, not as 0%"""
     write_report(report, 100, 100, root_rate='line-rate="most of it"')
     result = run_script(CHECK, report, 95)
-    assert result.status == 1
-    assert "unreadable line-rate" in result.stderr
+    assert result.status == 2
+    assert "cannot read" in result.stderr
+    assert "report root has an unreadable line-rate" in result.stderr
+
+
+def test_names_the_file_when_a_class_rate_is_unreadable(run_script, report):
+    """names the file whose line-rate could not be read
+
+    "something in the report is wrong" sends the reader through the whole file;
+    the filename sends them to the line.
+    """
+    report.write_text(
+        '<?xml version="1.0"?>\n<coverage line-rate="1">\n'
+        '  <packages><package name="p"><classes>\n'
+        '    <class name="c" filename="plugins/gh/scripts/thing.sh" line-rate="none">\n'
+        '      <lines><line number="1" hits="1"/></lines>\n'
+        "    </class>\n  </classes></package></packages>\n</coverage>\n",
+        encoding="utf-8",
+    )
+    result = run_script(CHECK, report, 95)
+    assert result.status == 2
+    assert "plugins/gh/scripts/thing.sh has an unreadable line-rate" in result.stderr
+
+
+def test_tolerates_a_line_element_with_no_number(run_script, report):
+    """does not fall over on a line element that carries no number
+
+    Neither tool writes one, but a report is input from outside this script, and
+    crashing on it would fail a build with a traceback instead of a number.
+    """
+    report.write_text(
+        '<?xml version="1.0"?>\n<coverage line-rate="1">\n'
+        '  <packages><package name="p"><classes>\n'
+        '    <class name="c" filename="plugins/gh/scripts/thing.sh" line-rate="1">\n'
+        '      <lines><line hits="0"/>'
+        '<line branch="true" hits="1" condition-coverage="50% (1/2)"/></lines>\n'
+        "    </class>\n  </classes></package></packages>\n</coverage>\n",
+        encoding="utf-8",
+    )
+    result = run_script(CHECK, report, 95)
+    assert result.status == 0
+    assert "uncovered: ?" in result.stdout
+    assert "partial branches: ?" in result.stdout
 
 
 def test_rejects_a_report_it_cannot_read(run_script, tmp_path):
@@ -227,6 +270,8 @@ def test_rejects_a_threshold_that_is_not_a_number(run_script, report):
     assert result.status == 2
     assert "not a number" in result.stderr
     assert "usage:" in result.stderr
+    # A usage error must not be dressed up as a coverage failure.
+    assert "below the threshold" not in result.stderr
 
 
 def test_rejects_a_nan_threshold(run_script, report):

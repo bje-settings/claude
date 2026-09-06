@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+PLUGINS = ROOT / "plugins"
 
 MERMAID_FENCE = re.compile(r"^```mermaid", re.MULTILINE)
 
@@ -26,12 +27,17 @@ BARE_EXPANSION = re.compile(r"^\$[A-Za-z_][A-Za-z0-9_]* ")
 
 
 def skill_files():
-    # rglob, not a fixed-depth glob: the shell spec this replaced used
-    # `find -path '*/skills/*' -name SKILL.md`, which matches a skill nested any
-    # number of directories below skills/, and a narrower glob here would quietly
-    # stop checking one the day someone groups skills into subdirectories.
+    # Rooted at plugins/ and walked to any depth, which is exactly what the shell
+    # spec this replaced did: `find "$ROOT/plugins" -path '*/skills/*' -name
+    # SKILL.md`. Both halves matter. Walking from the repo root instead would
+    # descend into .claude/worktrees/, where a checkout of this same repo doubles
+    # every skill and makes the count meaningless. A fixed-depth glob instead
+    # would quietly stop checking a skill the day someone groups them into
+    # subdirectories.
     return sorted(
-        path for path in ROOT.rglob("SKILL.md") if "skills" in path.relative_to(ROOT).parts[:-1]
+        path
+        for path in PLUGINS.rglob("SKILL.md")
+        if "skills" in path.relative_to(PLUGINS).parts[:-1]
     )
 
 

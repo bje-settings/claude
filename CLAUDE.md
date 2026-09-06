@@ -105,14 +105,15 @@ and bash 3.2, and fails if either does.
 
 Python tests are pytest. A plugin's tests live in `tests/<plugin>/`; tests that span plugins or
 cover the harness itself sit at the root of `tests/`. Run them alone with
-`uv run pytest -n auto --cov`. A script is driven black-box through the `run_script` fixture, which
-runs it as its own process under `sys.executable` the way Claude Code runs it; decision logic that
-is awkward to provoke from the outside gets direct unit tests beside that. The other fixture is
-`sandbox`, a private temp dir with `HOME` inside it and `CLAUDE_PLUGIN_DATA` unset; it returns an
-object whose `stub_path` method puts a directory ahead of everything on `PATH` (for stubs) and
-whose `path_without` method builds a `PATH` holding the real tools minus the named ones (for the
-"tool is not installed" branches). Each port brings its own stub `gh` and its own canned data on
-top of those.
+`uv run --locked pytest -n auto --cov`; `--locked` everywhere, as in CI, so a stale `uv.lock`
+fails instead of being rewritten under you. A script is driven black-box through the `run_script`
+fixture, which runs it as its own process under `sys.executable` the way Claude Code runs it;
+decision logic that is awkward to provoke from the outside gets direct unit tests beside that. The
+other fixture is `sandbox`, a private temp dir with `HOME` inside it and `CLAUDE_PLUGIN_DATA`
+unset; it returns an object whose `stub_path` method puts a directory ahead of everything on
+`PATH` (for stubs) and whose `path_without` method builds a `PATH` holding the real tools minus
+the named ones (for the "tool is not installed" branches). Each port brings its own stub `gh` and
+its own canned data on top of those.
 
 Coverage for the Python side is coverage.py with `branch = true` and `patch = ["subprocess"]`, so a
 script exercised black-box in a child process is still measured. Branch coverage is the point: a
