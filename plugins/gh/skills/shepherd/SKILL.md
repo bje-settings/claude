@@ -64,6 +64,9 @@ Then list `skipped_no_automerge` per repo, and the `ci_seconds` each agent measu
 
 If any pull request needs escalation, offer to rerun just those with a larger model
 (`shepherd-repo` with `model: opus`), and wait for the user's answer; do not rerun on your own.
+When rerunning, pass each escalated pull request's `reason` and, if present, `hypothesis` into
+the worker's prompt, so the larger model starts from the first worker's diagnosis instead of
+from zero.
 
 If the `gh-security` plugin is installed, mention that `/gh-security:resolve-alerts` is the
 natural next step: merging `dependencies` pull requests first usually shrinks the alert set

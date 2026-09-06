@@ -139,7 +139,7 @@ high), oldest first within a band.
 | Checks green, still open | Reported as blocked with the merge state (a review requirement, for instance). Never merged by hand. |
 | Checks failed, mechanical | Fixed once in a throwaway worktree and pushed: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
 | Checks failed, not mechanical | Skipped with a comment saying why: anything touching program logic, tests' expectations of behaviour, configuration semantics, or a CI workflow. |
-| Checks failed, unclear | Reported as needing escalation. |
+| Checks failed, unclear | Reported as needing escalation, with a `hypothesis` when the worker has one, so the escalation rerun does not start from zero. This also covers a failure that matches a mechanical class but cannot be verified locally, for example one that only reproduces with CI-only secrets: never a speculative push, since that would stop Dependabot maintaining the branch and the one-fix cap would turn a wrong guess into a skip. |
 
 `@dependabot recreate` re-resolves the version instead of reusing the original bump, so a pull
 request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed

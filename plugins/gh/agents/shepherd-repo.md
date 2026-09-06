@@ -41,6 +41,10 @@ S="${CLAUDE_PLUGIN_ROOT}/scripts"
   and never push to a Dependabot branch when `recreate` would do the same job.
 - Work only on pull requests the status script listed as targets. A `dependencies` pull
   request without auto-merge is not yours: report it, do not enable it.
+- **A diagnosis worktree is allowed for read-only investigation only** (checkout, install, a
+  local build or test), separate from the fix worktree in step 5. It must never push, and it
+  must be removed before you write the report. Name it
+  `.claude/worktrees/wktr-pr<n>-shepherd-diag` so it cannot be confused with a fix worktree.
 
 ## The loop
 
@@ -89,8 +93,15 @@ in the order given:
      Write the reason to a file and `skip`. Record it as skipped with the comment URL.
    - **Ambiguous**: you can see what is wrong but the fix is a judgment call. Record as
      `needs-escalation` with what you saw, and continue.
+   - **Unverifiable mechanical**: the failure matches a mechanical class, but you cannot verify
+     the fix locally, for example it only reproduces with CI-only secrets. This is
+     `needs-escalation` with a `hypothesis`, never a speculative push. Two reasons: a push to a
+     Dependabot branch stops Dependabot maintaining it, and the one-fix cap turns a wrong guess
+     into a skip.
    Fix each pull request at most once. A second `failed` after your fix is a skip, with both
-   attempts described in the comment.
+   attempts described in the comment. When you skip, write a short comment giving: the failing
+   check's name, the error quoted from the log, the files or suites affected, and one sentence
+   on why it is not mechanical.
 5. Mechanical fix, when `pr.is_bot`: if a `recreate` would produce the fix (a stale lockfile
    against a moved base is the common case), do that instead of pushing. Otherwise, and for
    non-bot pull requests:
@@ -101,6 +112,11 @@ in the order given:
    Make the change, commit with a Conventional Commits message that says what was mechanical
    about it, push, then `git worktree remove` the directory. Never `--force`, never
    `--no-verify`.
+
+   Before deciding a failure is mechanical or ambiguous, you may investigate in a diagnosis
+   worktree (`.claude/worktrees/wktr-pr<n>-shepherd-diag`): checkout, install, and a local build
+   or test to see whether the log's failure reproduces. Read-only: never push from it, and
+   remove it with `git worktree remove` before moving on, whether or not it confirmed a fix.
 6. After a merge the next target is BEHIND; that is expected and step 2 handles it.
 
 ## Report
@@ -114,7 +130,7 @@ Return one JSON object and nothing else:
   "merged": [{"number": 1, "mergeCommit": "sha", "rebases": 1, "fixed": false, "merged_as": "x.y.z+2 (title said x.y.z+1)"}],
   "skipped": [{"number": 2, "reason": "…", "comment_url": "…"}],
   "blocked": [{"number": 3, "mergeStateStatus": "BLOCKED", "reason": "…"}],
-  "needs_escalation": [{"number": 4, "reason": "…"}],
+  "needs_escalation": [{"number": 4, "reason": "…", "hypothesis": "…"}],
   "closed": [{"number": 5, "reason": "already closed"}],
   "skipped_no_automerge": [{"number": 6, "title": "…", "author": "…"}],
   "model": "sonnet"
@@ -126,6 +142,11 @@ Count `rebases` per pull request from your own `rebase` and `recreate` calls; th
 uses it to confirm the serial argument (one per pull request is the expected number). `closed`
 entries carry a `reason`: "already closed" from step 1, or the `recreate` detail when the pull
 request was closed while `recreate` waited.
+
+`hypothesis` is optional and only for `needs_escalation`: what you think the fix is and why you
+could not verify it (a plausible mechanical fix behind CI-only secrets, for example). Omit the
+field when you have no concrete guess. The orchestrator's escalation rerun passes both `reason`
+and `hypothesis` to the larger model so it does not start from zero.
 
 `@dependabot recreate` re-resolves the version rather than reusing the original bump: a pull
 request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed in

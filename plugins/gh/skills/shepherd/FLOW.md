@@ -39,7 +39,7 @@ flowchart TD
         W -->|Checks failed| K{Fix is mechanical?}
         K -->|Yes, first attempt| F[Fix in a throwaway worktree, push] --> W
         K -->|No: touches logic, tests, or config meaning| SK([Skip, comment says why]):::stop --> S
-        K -->|Cannot tell| E
+        K -->|Cannot tell, or mechanical but unverifiable locally| E
     end
 
     C --> D[Collate worker reports]
