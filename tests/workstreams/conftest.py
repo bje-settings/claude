@@ -396,10 +396,6 @@ def ws_sandbox(sandbox, monkeypatch) -> WsSandbox:
     ws_fixture_prs(gh_dir / "prs.json")
     ws_fixture_extensions(gh_dir / "extensions.txt")
     ws_fixture_home(home)
-    # Inside the sandbox, not the checkout: ws-preflight.py asks git for the
-    # repository root and accepts a `.claude/skills/gh-stack` under it, so a test
-    # run from this repository would be answering about this repository.
-    monkeypatch.chdir(sandbox.path)
     ws_fixture_installed_plugins(home / ".claude" / "plugins" / "installed_plugins.json")
     monkeypatch.setenv(
         "WS_INSTALLED_PLUGINS", str(home / ".claude" / "plugins" / "installed_plugins.json")
