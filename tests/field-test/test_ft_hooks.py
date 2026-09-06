@@ -119,11 +119,25 @@ def test_exits_0_on_an_event_it_does_not_handle(ft_sandbox, ft_hook):
     assert ft_sandbox.read_events() == []
 
 
-def test_prints_usage_for_an_event_it_does_not_know(ft_sandbox, ft_hook):
-    """prints usage for an event it does not know"""
+def test_says_nothing_at_all_for_an_event_it_does_not_know(ft_sandbox, ft_hook):
+    """says nothing at all for an event it does not know
+
+    Not usage text, which is what the port printed. hooks.json is the only caller,
+    so nobody is at a prompt to read it, and a hook's stderr surfaces to the user
+    as output from something they never ran.
+    """
     result = ft_hook("Whatever", ft_fixture_hook_input("post-ok"))
     assert result.status == 0
-    assert "usage: hook-io.py" in result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_says_nothing_at_all_when_it_is_given_no_event(ft_sandbox, ft_hook):
+    """says nothing at all when it is given no event either"""
+    result = ft_hook(None, ft_fixture_hook_input("post-ok"))
+    assert result.status == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
 
 
 def test_exits_0_when_it_cannot_import_the_plugins_library(ft_sandbox, ft_hook):
@@ -139,6 +153,46 @@ def test_exits_0_when_it_cannot_import_the_plugins_library(ft_sandbox, ft_hook):
     assert result.status == 0
     assert result.stdout == ""
     assert ft_sandbox.read_events() == []
+
+
+def test_prints_the_traceback_when_it_cannot_import_the_plugins_library(ft_sandbox, ft_hook):
+    """prints the traceback for a library it cannot import, and still exits 0
+
+    Exiting 0 in silence is the same outcome as a session that was never a field
+    test, and there is nowhere else this failure is written down: nothing was
+    learned about which run directory to record it in. Claude Code keeps a hook's
+    stderr in the debug log, so this is the one place it can be diagnosed.
+    """
+    broken = ft_sandbox.path / "broken"
+    (broken / "scripts" / "lib").mkdir(parents=True)
+    (broken / "hooks").mkdir()
+    shutil.copy(HOOK_IO, broken / "hooks" / "hook-io.py")
+    (broken / "scripts" / "lib" / "__init__.py").write_text("", encoding="utf-8")
+    (broken / "scripts" / "lib" / "run.py").write_text("def (\n", encoding="utf-8")
+    result = ft_hook(
+        "PostToolUse", ft_fixture_hook_input("post-ok"), script=broken / "hooks" / "hook-io.py"
+    )
+    assert result.status == 0
+    assert result.stdout == ""
+    assert "Traceback" in result.stderr
+    assert "SyntaxError" in result.stderr
+
+
+def test_says_so_on_stderr_when_it_cannot_write_the_record(ft_sandbox, ft_hook):
+    """says so on stderr when the record cannot be written, and still exits 0
+
+    Every finding this plugin produces is computed from these records, so a write
+    that failed is a finding that will never reach an issue. It cannot stop the
+    session over a full disk, but going quiet would leave the run looking clean.
+    """
+    ft_sandbox.events.chmod(0o444)
+    try:
+        result = ft_hook("PostToolUse", ft_fixture_hook_input("post-ok"))
+    finally:
+        ft_sandbox.events.chmod(0o644)
+    assert result.status == 0
+    assert "field-test: could not record PostToolUse in " in result.stderr
+    assert str(ft_sandbox.events) in result.stderr
 
 
 # --- recording Bash calls ----------------------------------------------------
@@ -433,6 +487,26 @@ def test_blocks_nothing_when_the_list_cannot_be_read(ft_sandbox, ft_hook):
     assert result.stdout == ""
 
 
+def test_records_a_list_it_could_not_read_at_all(ft_sandbox, ft_hook):
+    """records a deny_list_error when the list cannot be read at all
+
+    The whole guardrail was off for that call, which is strictly worse than the
+    one dropped rule the test above it covers, and it was the one case that said
+    nothing. A run that blocked nothing because it had no rules is otherwise
+    indistinguishable from a run whose target never reached for anything.
+    """
+    missing = ft_sandbox.path / "missing-list.txt"
+    ft_sandbox.setenv("FT_DENY_LIST", missing)
+    result = ft_hook("PreToolUse", ft_fixture_hook_input("pre-deny"))
+    assert result.status == 0
+    recorded = ft_sandbox.read_events()
+    assert [event["event"] for event in recorded] == ["deny_list_error"]
+    assert recorded[0]["pattern"] is None
+    assert recorded[0]["line"] == 0
+    assert str(missing) in recorded[0]["error"]
+    assert recorded[0]["deny_list"] == str(missing)
+
+
 def test_skips_a_line_that_is_not_a_valid_expression(ft_sandbox, ft_hook):
     """skips a line of the list that is not a valid expression"""
     listing = ft_sandbox.path / "list.txt"
@@ -463,8 +537,13 @@ def test_records_the_rule_it_had_to_drop(ft_sandbox, ft_hook):
     assert dropped["error"]
 
 
-def test_records_nothing_when_the_command_is_not_a_string(ft_sandbox, ft_hook):
-    """records nothing and denies nothing when the command is not a string"""
+def test_records_a_command_that_is_not_a_string(ft_sandbox, ft_hook):
+    """records a hook_error, and denies nothing, when the command is not a string
+
+    Nothing was matched against, so nothing can be said about whether the deny
+    list would have refused it. Staying silent would put that call in the run as
+    one the guardrail cleared, which is the one thing it must not read as.
+    """
     result = ft_hook(
         "PreToolUse",
         json.dumps(
@@ -477,7 +556,9 @@ def test_records_nothing_when_the_command_is_not_a_string(ft_sandbox, ft_hook):
     )
     assert result.status == 0
     assert result.stdout == ""
-    assert ft_sandbox.read_events() == []
+    recorded = ft_sandbox.read_events()
+    assert [event["event"] for event in recorded] == ["hook_error"]
+    assert recorded[0]["error"] == ("tool_input.command is list, not a string; nothing was matched")
 
 
 def test_costs_one_rule_not_the_list(ft_sandbox, ft_hook):
@@ -542,38 +623,76 @@ def manifest():
     return json.loads(MANIFEST.read_text())
 
 
-def test_passes_each_hook_the_event_name_it_is_registered_under():
-    """passes each hook the event name it is registered under"""
+COMMAND = (
+    'command -v python3 >/dev/null 2>&1 && python3 "${{CLAUDE_PLUGIN_ROOT}}/hooks/hook-io.py" '
+    "{event}; exit 0"
+)
+
+
+def hook_commands():
     for event, matchers in manifest()["hooks"].items():
         for matcher in matchers:
             for hook in matcher["hooks"]:
-                assert hook["command"].endswith(" " + event), event
+                yield event, hook
+
+
+def test_passes_each_hook_the_event_name_it_is_registered_under():
+    """passes each hook the event name it is registered under"""
+    for event, hook in hook_commands():
+        assert hook["command"] == COMMAND.format(event=event), event
+
+
+def test_every_hook_command_exits_0_whatever_the_helper_does():
+    """ends every hook command in `; exit 0`, whatever python3 did
+
+    The guarantee the deleted `ft-hook.sh` held and hook-io.py cannot hold for
+    itself: a hook that exits non-zero can stop the session, and the cases left
+    are the ones the helper is never reached in at all. A `&&` that short-circuits
+    because python3 is missing would otherwise be the hook's exit status.
+    """
+    for _event, hook in hook_commands():
+        assert hook["command"].endswith("; exit 0")
+
+
+def test_every_hook_checks_for_python3_before_running_it():
+    """checks python3 is there before running it, rather than letting the shell fail"""
+    for _event, hook in hook_commands():
+        assert hook["command"].startswith("command -v python3 >/dev/null 2>&1 && python3 ")
+
+
+def test_every_hook_keeps_its_timeout():
+    """keeps the 10 second timeout on every hook"""
+    for _event, hook in hook_commands():
+        assert hook["timeout"] == 10
+
+
+def test_only_the_bash_events_are_matched_on_bash():
+    """matches on Bash for the tool events and on nothing for the session ones"""
+    matchers = {
+        event: [group.get("matcher") for group in groups]
+        for event, groups in manifest()["hooks"].items()
+    }
+    assert matchers["PreToolUse"] == ["Bash"]
+    assert matchers["PostToolUse"] == ["Bash"]
+    assert matchers["PostToolUseFailure"] == ["Bash"]
+    assert matchers["SubagentStop"] == [None]
+    assert matchers["Stop"] == [None]
 
 
 def test_points_every_hook_at_a_file_that_is_there():
     """points every hook at a script that is there"""
-    for matchers in manifest()["hooks"].values():
-        for matcher in matchers:
-            for hook in matcher["hooks"]:
-                relative = hook["command"].split("${CLAUDE_PLUGIN_ROOT}/")[1].split('"')[0]
-                assert (HOOK_IO.parent.parent / relative).is_file(), relative
+    for _event, hook in hook_commands():
+        relative = hook["command"].split("${CLAUDE_PLUGIN_ROOT}/")[1].split('"')[0]
+        assert (HOOK_IO.parent.parent / relative).is_file(), relative
 
 
 def test_registers_exactly_the_events_the_helper_handles():
-    """registers exactly the events the JSON helper handles"""
-    handled = next(line for line in HOOK_IO.read_text().split("\n") if line.startswith("EVENTS = "))
-    names = sorted(part.strip('"') for part in handled.split("(")[1].strip(")").split(", "))
-    assert sorted(manifest()["hooks"]) == names
+    """registers exactly the events the JSON helper handles
 
-
-def test_runs_the_helper_with_python3():
-    """runs the JSON helper with python3, which is what replaced the shell wrapper"""
-    for matchers in manifest()["hooks"].values():
-        for matcher in matchers:
-            for hook in matcher["hooks"]:
-                assert hook["command"].startswith(
-                    'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py"'
-                )
+    The tuple itself, imported, rather than the line of source it is written on:
+    a reformat that wrapped it would have made this pass against an empty list.
+    """
+    assert sorted(manifest()["hooks"]) == sorted(load_hook_io().EVENTS)
 
 
 def test_the_deny_list_is_beside_the_hook():
@@ -592,3 +711,45 @@ def test_records_a_stderr_that_is_not_a_string(ft_sandbox, ft_hook):
     result = ft_hook("PostToolUse", payload)
     assert result.status == 0
     assert "one" in ft_sandbox.read_events()[0]["stderr_tail"]
+
+
+def test_a_reader_that_closed_early_is_not_a_failure(ft_sandbox, run_with_no_reader):
+    """exits 0, with no traceback, when Claude Code stopped reading the decision
+
+    A hook writes its PreToolUse decision to stdout. If nobody is reading it any
+    more that is not this hook's failure, and the interpreter must not print its
+    own trace on the way out either: exiting non-zero, or writing anything to
+    stderr, is how a hook becomes the reason a session stops.
+    """
+    completed = run_with_no_reader(HOOK_IO, "PreToolUse", stdin=ft_fixture_hook_input("pre-deny"))
+    assert completed.returncode == 0
+    assert completed.stderr == b""
+
+
+def test_a_failure_before_the_run_directory_is_known_reaches_the_outer_guard(monkeypatch):
+    """lets a failure before the run directory is known reach the outermost guard
+
+    Nothing is known yet about where this run records anything, so there is no
+    events file to write a hook_error into. Swallowing it here would leave the
+    failure written down nowhere at all; the guard around `main` prints the
+    traceback and still exits 0.
+    """
+    module = load_hook_io()
+
+    def explode():
+        raise RuntimeError("the plugin directory is not importable")
+
+    monkeypatch.setattr(module, "load_run_lib", explode)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(ft_fixture_hook_input("post-ok")))
+    with pytest.raises(RuntimeError):
+        module.main(["hook-io.py", "PostToolUse"])
+
+
+def test_reconfigure_leaves_a_stream_that_cannot_be_reconfigured():
+    """leaves a stream with no reconfigure alone, rather than raising on it
+
+    The hook keeps its own copy of this rather than importing the one in
+    scripts/lib/cli.py: it runs on every tool call in every session, and must not
+    need an import to succeed before it can speak.
+    """
+    assert load_hook_io().reconfigure(io.StringIO()) is None

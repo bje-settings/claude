@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -645,6 +646,38 @@ def ft_sandbox(sandbox, monkeypatch) -> FtSandbox:
     ft.events.write_text("", encoding="utf-8")
     sandbox.stub_path(STUB_BIN)
     return ft
+
+
+@pytest.fixture
+def run_with_no_reader():
+    """Run a script whose stdout is a pipe nobody is reading.
+
+    `ft-run.py show | head` is the real case, and a hook whose stdout Claude Code
+    stopped reading is the other. A pipe with its read end already closed is the
+    deterministic version: the first write gets EPIPE, and Python raises
+    BrokenPipeError rather than dying on the signal the shell relied on.
+    """
+
+    def run(path, *args, env=None, stdin=b""):
+        read_fd, write_fd = os.pipe()
+        os.close(read_fd)
+        child_env = dict(os.environ)
+        child_env.update({key: str(value) for key, value in (env or {}).items()})
+        if isinstance(stdin, str):
+            stdin = stdin.encode("utf-8")
+        try:
+            return subprocess.run(
+                [sys.executable, str(path), *[str(argument) for argument in args]],
+                input=stdin,
+                stdout=write_fd,
+                stderr=subprocess.PIPE,
+                env=child_env,
+                check=False,
+            )
+        finally:
+            os.close(write_fd)
+
+    return run
 
 
 @pytest.fixture
