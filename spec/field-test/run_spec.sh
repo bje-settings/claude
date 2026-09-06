@@ -152,6 +152,9 @@ Describe 'ft-run.sh'
       The stderr should include 'not valid JSON'
     End
 
+    # `start` truncates events.jsonl, which is the one destructive thing this script
+    # does. The refusals below all happen before the truncation; only a test keeps
+    # them in that order, and reordering them would lose a live run's recorded events.
     It 'refuses to start a second run over a live one'
       ft_fixture_run "$FT_RUN_DIR/run.json"
       When run script "$FT_RUN" start gh:sync
@@ -159,14 +162,35 @@ Describe 'ft-run.sh'
       The stderr should include 'already running'
     End
 
+    It 'leaves a live run its recorded events when it refuses to start over it'
+      ft_fixture_run "$FT_RUN_DIR/run.json"
+      printf '{"event":"PostToolUse"}\n{"event":"PostToolUse"}\n' > "$FT_RUN_DIR/events.jsonl"
+      When run script "$FT_RUN" start gh:sync
+      The status should equal 3
+      The stderr should include 'already running'
+      The value "$(grep -c . "$FT_RUN_DIR/events.jsonl")" should equal '2'
+    End
+
+    It 'keeps the recorded events when it refuses a resolved file it cannot read'
+      printf '{"event":"PostToolUse"}\n{"event":"PostToolUse"}\n' > "$FT_RUN_DIR/events.jsonl"
+      When run script "$FT_RUN" start gh:sync --resolved "$FT_SANDBOX/nowhere.json"
+      The status should equal 2
+      The stderr should include 'no such resolved file'
+      The value "$(grep -c . "$FT_RUN_DIR/events.jsonl")" should equal '2'
+    End
+
     It 'starts again once the previous run finished'
       ft_fixture_run "$FT_RUN_DIR/run.json"
       jq '.finished_at = "2026-01-02T04:00:00Z"' "$FT_RUN_DIR/run.json" > "$FT_RUN_DIR/x" && mv "$FT_RUN_DIR/x" "$FT_RUN_DIR/run.json"
+      printf '{"event":"PostToolUse"}\n{"event":"PostToolUse"}\n' > "$FT_RUN_DIR/events.jsonl"
       When run script "$FT_RUN" start gh:sync
       The status should be success
       The output should include 'run.json'
       The value "$(field '.target')" should equal 'gh:sync'
       The value "$(field '.finished_at')" should equal 'null'
+      # The finished run's events belonged to that run; collecting them against this
+      # marker would file the last run's failures as this one's.
+      The value "$(grep -c . "$FT_RUN_DIR/events.jsonl")" should equal '0'
     End
 
     It 'leaves the target its own --session, which it does not answer for'

@@ -119,6 +119,28 @@ Describe 'ft-collect.sh'
       The value "$(first 'evidence.stderr')" should include 'TypeError'
     End
 
+    # The trail stops at three, and an event with no command of its own is not one of
+    # them: both are what makes the evidence block in an issue readable.
+    It 'carries the three commands before a failure, skipping one that ran none'
+      events preceding
+      ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
+      When run script "$FT_COLLECT" "$FT_RUN_DIR"
+      The status should be success
+      The output should include '"kind"'
+      The value "$(first 'evidence.preceding | join(", ")')" should equal 'gh pr list --state open, gh pr checks 11'
+    End
+
+    # Without the agent_id guard a claim made with no subagent id would be matched
+    # against every failure in the run that also has none, which is the main session.
+    It 'raises no contradiction when neither the claim nor the failure names a subagent'
+      events null-agent
+      ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
+      When run script "$FT_COLLECT" "$FT_RUN_DIR"
+      The status should be success
+      The output should include '"kind"'
+      The value "$(kinds)" should equal 'bash_nonzero'
+    End
+
     It 'keeps the other findings when a failed call has no command recorded'
       events no-command
       ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'

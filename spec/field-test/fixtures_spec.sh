@@ -55,6 +55,56 @@ Describe 'field-test fixtures'
       The output should equal 'gh pr merge --auto --squash 11|gh pr merge --auto --squash 12'
     End
 
+    It 'gives the failure case a tool call that failed outright'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" failure
+        jq -rs '[.[] | [.event, (.exit_code | tostring)] | join(":")] | join(" ")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal 'PostToolUseFailure:127'
+    End
+
+    It 'gives the denied case a command the hook refused, with its reason'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" denied
+        jq -rs '[.[] | select(.event == "denied") | .command] | join(" ")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal 'git push --force origin main'
+    End
+
+    It 'gives the args-used case a call that carries --dry-run'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" args-used
+        jq -rs '[.[] | select(.command | test("--dry-run"))] | length' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal '1'
+    End
+
+    It 'gives the preceding case five calls before the failure, one running none'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" preceding
+        jq -rs '[.[] | .command // "-"] | join(" ")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal 'git fetch origin git status --short gh pr list --state open gh pr checks 11 - gh pr merge --auto --squash 11'
+    End
+
+    It 'gives the null-agent case a claim and a failure with no subagent id'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" null-agent
+        jq -rs '[.[] | .agent_id | tojson] | join(" ")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal 'null null'
+    End
+
     It 'gives the hook-error case a hook that raised and a call that still ran'
       shape() {
         ft_fixture_events "$FT_SANDBOX/e.jsonl" hook-error

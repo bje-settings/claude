@@ -40,6 +40,8 @@ JSON
 #   args-used      a call carrying --dry-run                      -> no args_dropped
 #   no-command     a failed call whose command was never recorded -> the rest survive
 #   hook-error     a hook that raised on one tool call            -> hook_error
+#   preceding      five calls before a failure, one with no command -> evidence trail
+#   null-agent     a failure and a claim, neither from a subagent  -> no contradiction
 #   mixed          one of each severity                           -> ordering and dedupe
 ft_fixture_events() {
   local path="$1" name="${2:-clean}"
@@ -98,6 +100,22 @@ JSON
       cat >> "$path" <<'JSON'
 {"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":"agent-1","agent_type":"shepherd-repo","tool_use_id":"t1","command":"bash spec/run.sh","exit_code":1,"stderr_tail":"1 example failed"}
 {"ts":"2026-01-02T03:04:08Z","event":"SubagentStop","agent_id":"agent-1","agent_type":"shepherd-repo","transcript_path":"/transcripts/agent-1.jsonl","last_assistant_message":"{\"status\": \"ok\", \"summary\": \"nothing worth reporting\"}"}
+JSON
+      ;;
+    preceding)
+      cat >> "$path" <<'JSON'
+{"ts":"2026-01-02T03:04:01Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":"git fetch origin","exit_code":0,"stderr_tail":""}
+{"ts":"2026-01-02T03:04:02Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t2","command":"git status --short","exit_code":0,"stderr_tail":""}
+{"ts":"2026-01-02T03:04:03Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t3","command":"gh pr list --state open","exit_code":0,"stderr_tail":""}
+{"ts":"2026-01-02T03:04:04Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t4","command":"gh pr checks 11","exit_code":0,"stderr_tail":""}
+{"ts":"2026-01-02T03:04:05Z","event":"Stop","agent_id":null,"agent_type":null}
+{"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t5","command":"gh pr merge --auto --squash 11","exit_code":1,"stderr_tail":"GraphQL: Pull request is in unstable status"}
+JSON
+      ;;
+    null-agent)
+      cat >> "$path" <<'JSON'
+{"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":"bash spec/run.sh","exit_code":1,"stderr_tail":"1 example failed"}
+{"ts":"2026-01-02T03:04:08Z","event":"SubagentStop","agent_id":null,"agent_type":null,"transcript_path":"/transcripts/agent-1.jsonl","last_assistant_message":"All done, merged."}
 JSON
       ;;
     hook-error)

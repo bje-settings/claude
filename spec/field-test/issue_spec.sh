@@ -290,6 +290,82 @@ JSON
       The output should include 'built by the fixtures rather than mocked'
     End
 
+    # One example per remaining arm of render.jq: the whole program is one line to
+    # kcov, so an arm with nothing asserting it reads as covered while being untested.
+    It 'writes the expected and actual for a non-zero exit'
+      target; names_file; record bash_nonzero
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'the command to exit 0'
+      The output should include 'exited non-zero and the run continued'
+    End
+
+    It 'writes the expected and actual for a tool call that failed'
+      target; names_file; record tool_failure
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'the tool call to complete'
+      The output should include 'the tool call failed and the run continued'
+    End
+
+    It 'writes the expected, actual and fixture for a dropped option'
+      target; names_file; record args_dropped low
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'every option given to the target to reach the commands it runs'
+      The output should include 'never appeared in any command'
+      The output should include 'runs the target with this option'
+    End
+
+    It 'writes the fixture a denied command would need'
+      target; names_file; record denied high
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'still allows the benign form of it'
+    End
+
+    It 'writes the fixture a contradicting subagent would need'
+      target; names_file; record subagent_contradiction high
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'A canned subagent result'
+    End
+
+    It 'writes the fixture a dropped deny-list rule would need'
+      target; names_file; record deny_list_error high
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'leave the remaining rules in force'
+    End
+
+    It 'writes the fixture a crashed hook would need'
+      target; names_file; record hook_error high
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'record every tool call and filter every Bash call'
+      The output should include 'went through unrecorded and unfiltered'
+      The output should include 'leave the session running'
+    End
+
+    It 'still renders a kind it has no words for, rather than an empty issue'
+      target; names_file; record something_new
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'the target to complete the step without this'
+      The output should include 'see the output below'
+      The output should include 'built by the fixtures rather than mocked'
+    End
+
+    It 'says so when the marker recorded no plugin, version or commit'
+      target; names_file; record
+      ft_fixture_run "$FT_SANDBOX/bare-run.json" gh:shepherd '[]' null
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_SANDBOX/bare-run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include '`gh:shepherd` version unknown'
+      The output should include 'not a local checkout'
+      The output should include '| Arguments | `(none)` |'
+    End
+
     It 'carries the run detail an issue is useless without'
       target; names_file; record
       When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
