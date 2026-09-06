@@ -46,10 +46,32 @@ esac
 command -v jq >/dev/null 2>&1 || die 'jq is required: brew install jq'
 GH="${FT_GH:-gh}"
 
+# The jq programs below are held in variables filled from a heredoc rather than
+# written inline across several lines. Both forms are one shell statement, but kcov
+# marks the continuation lines of a multi-line command as code that never runs, so
+# an inline program reads as a block of permanently uncovered lines. A heredoc body
+# is not instrumented, which is what the coverage number already assumes a jq
+# program to be: one line, and the branches inside it tested by their own fixtures
+# (see .claude/rules/type-jq.md).
+
+read -r -d '' REFS_JQ <<'JQ' || true
+[.command? // "", .last_assistant_message? // "", .reason? // ""] | join(" ")
+JQ
+
+read -r -d '' NAMES_JQ <<'JQ' || true
+{remote: $remote, repo: $repo, owner: $owner, name: $name,
+ branches: $branches, paths: $paths, refs: $refs, subjects: $subjects}
+JQ
+
 case "$cmd" in
   names)
     dir="${1:-}"; shift 2>/dev/null || true
     [[ -n "$dir" && -d "$dir" ]] || die 'names needs an existing repository directory' 2
+    # Everything below is collected with git. Without a checkout the table comes
+    # back nearly empty and ft-redact.sh would still append its note saying the
+    # names were replaced, which is how a real name reaches a public issue.
+    git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 \
+      || die "names needs a git checkout, and $dir is not one; nothing could be redacted" 2
     run_dir=""
     while (($#)); do
       case "$1" in
@@ -84,8 +106,7 @@ $abs"
     # the repository under test, which name it as surely as its branches do.
     refs=""
     if [[ -n "$run_dir" && -f "$run_dir/events.jsonl" ]]; then
-      refs="$(jq -r '[.command? // "", .last_assistant_message? // "", .reason? // ""] | join(" ")' \
-        "$run_dir/events.jsonl" 2>/dev/null | grep -o '#[0-9][0-9]*' | sort -u)"
+      refs="$(jq -r "$REFS_JQ" "$run_dir/events.jsonl" 2>/dev/null | grep -o '#[0-9][0-9]*' | sort -u)"
     fi
     lines_to_json() { printf '%s' "$1" | jq -Rc 'select(length > 0)' | jq -sc .; }
     jq -n --arg remote "${remote:-}" --arg repo "${slug:-}" --arg owner "${owner:-}" \
@@ -93,9 +114,7 @@ $abs"
       --argjson branches "$(lines_to_json "$branches")" \
       --argjson paths "$(lines_to_json "$paths")" \
       --argjson refs "$(lines_to_json "$refs")" \
-      --argjson subjects "$(lines_to_json "$subjects")" \
-      '{remote: $remote, repo: $repo, owner: $owner, name: $name,
-        branches: $branches, paths: $paths, refs: $refs, subjects: $subjects}' \
+      --argjson subjects "$(lines_to_json "$subjects")" "$NAMES_JQ" \
       | jq -f "$LIB/names.jq"
     ;;
 
@@ -105,9 +124,13 @@ $abs"
     # The signature is in the issue body verbatim, so a substring search on it is
     # exact enough; anything gh cannot answer means "no match", and the caller
     # opens a new issue rather than silently attaching to the wrong one.
+    # The signature goes to jq through --arg, never spliced into the program: a
+    # signature is normalised command text and routinely holds quotes, which would
+    # otherwise break the filter and report every duplicate as a new bug.
     "$GH" issue list --repo "$repo" --state open --label field-test \
-      --search "$signature" --json number,body \
-      --jq "[.[] | select(.body | contains(\"$signature\"))] | .[0].number // empty" 2>/dev/null
+      --search "$signature" --json number,body 2>/dev/null \
+      | jq -r --arg sig "$signature" \
+        '[.[] | select(.body | contains($sig))] | .[0].number // empty' 2>/dev/null
     exit 0
     ;;
 

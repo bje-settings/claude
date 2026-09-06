@@ -34,14 +34,35 @@ esac
 command -v jq >/dev/null 2>&1 || die 'jq is required: brew install jq'
 GH="${FT_GH:-gh}"
 
+# The jq programs below are held in variables filled from a heredoc rather than
+# written inline across several lines. Both forms are one shell statement, but kcov
+# marks the continuation lines of a multi-line command as code that never runs, so
+# an inline program reads as a block of permanently uncovered lines. A heredoc body
+# is not instrumented, which is what the coverage number already assumes a jq
+# program to be: one line, and the branches inside it tested by their own fixtures
+# (see .claude/rules/type-jq.md).
+
+read -r -d '' ANSWER_JQ <<'JQ' || true
+{inside: $inside, enterprise: (if $ent == "" then null else $ent end),
+ plugin_owner: (if $po == "" then null else $po end),
+ target_owner: (if $to == "" then null else $to end),
+ reason: $reason}
+JQ
+
+read -r -d '' ENTERPRISE_ROWS_JQ <<'JQ' || true
+.data.viewer.enterprises.nodes[]?
+| [.slug, (.organizations.pageInfo.hasNextPage | tostring), (.organizations.pageInfo.endCursor // "")]
+| @tsv
+JQ
+
+read -r -d '' ENTERPRISE_LOGINS_JQ <<'JQ' || true
+.data.viewer.enterprises.nodes[]? | select(.slug == $s) | .organizations.nodes[]?.login
+JQ
+
 # answer <inside> <enterprise> <reason>
 answer() {
   jq -nc --argjson inside "$1" --arg ent "$2" --arg reason "$3" \
-    --arg po "${plugin_owner:-}" --arg to "${target_owner:-}" \
-    '{inside: $inside, enterprise: (if $ent == "" then null else $ent end),
-      plugin_owner: (if $po == "" then null else $po end),
-      target_owner: (if $to == "" then null else $to end),
-      reason: $reason}'
+    --arg po "${plugin_owner:-}" --arg to "${target_owner:-}" "$ANSWER_JQ"
   exit 0
 }
 
@@ -98,16 +119,12 @@ printf '%s' "$first" | jq -e '.data.viewer.enterprises.nodes' >/dev/null 2>&1 \
 # One line per enterprise: slug, whether there are more organizations, the cursor.
 # Enterprises are few; the pagination below only runs for one that has more than a
 # hundred organizations, which is the case the first page would answer wrongly.
-enterprises="$(printf '%s' "$first" | jq -r '
-  .data.viewer.enterprises.nodes[]?
-  | [.slug, (.organizations.pageInfo.hasNextPage | tostring), (.organizations.pageInfo.endCursor // "")]
-  | @tsv')"
+enterprises="$(printf '%s' "$first" | jq -r "$ENTERPRISE_ROWS_JQ")"
 
 match_slug=""
 while IFS="$(printf '\t')" read -r slug more cursor; do
   [[ -n "$slug" ]] || continue
-  logins="$(printf '%s' "$first" | jq -r --arg s "$slug" '
-    .data.viewer.enterprises.nodes[]? | select(.slug == $s) | .organizations.nodes[]?.login')"
+  logins="$(printf '%s' "$first" | jq -r --arg s "$slug" "$ENTERPRISE_LOGINS_JQ")"
   while [[ "$more" == "true" && -n "$cursor" ]]; do
     page="$("$GH" api graphql -f query="$NEXT_PAGE" -f slug="$slug" -f after="$cursor" 2>/dev/null)" || break
     logins="$logins

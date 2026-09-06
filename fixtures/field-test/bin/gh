@@ -17,6 +17,7 @@
 #   both     one enterprise, acme-org and acme-tools both in it
 #   neither  one enterprise holding only acme-org
 #   paged    acme-org on the first page, acme-tools on the second
+#   second   two enterprises; only the second holds both owners
 #   error    the query fails
 #   empty    a well-formed response with no enterprises node
 
@@ -88,6 +89,16 @@ viewer_page() {
         nodes: [$logins[] | {login: .}]}}]}}}}'
 }
 
+# Two enterprises in one answer: the first holds neither owner, so a reader that
+# stops at the first node gets the wrong answer.
+two_viewer_pages() {
+  jq -nc '{data: {viewer: {enterprises: {nodes: [
+      {slug: "other", organizations: {pageInfo: {hasNextPage: false, endCursor: null},
+                                      nodes: [{login: "unrelated-org"}]}},
+      {slug: "acme", organizations: {pageInfo: {hasNextPage: false, endCursor: null},
+                                     nodes: [{login: "acme-org"}, {login: "acme-tools"}]}}]}}}}'
+}
+
 case "$cmd $sub" in
   "api graphql")
     [[ -n "$query" ]] || { echo "gh stub: api graphql needs -f query=..." >&2; exit 1; }
@@ -100,6 +111,7 @@ case "$cmd $sub" in
         both) viewer_page '["acme-org","acme-tools"]' false "" ;;
         neither) viewer_page '["acme-org"]' false "" ;;
         paged) viewer_page '["acme-org"]' true "CURSOR1" ;;
+        second) two_viewer_pages ;;
       esac
       exit 0
     fi

@@ -107,6 +107,14 @@ Describe 'the field-test hooks'
       The value "$(events | jq -r '.stderr_tail')" should include 'unstable status'
     End
 
+    It 'does not read a boolean where an exit code belongs as a failure'
+      input post-bool-code
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PostToolUse
+      The status should be success
+      The value "$(events | jq -r '.exit_code')" should equal 'null'
+    End
+
     It 'records which subagent made the call'
       input post-fail
       Data "$(cat "$FT_SANDBOX/payload.json")"

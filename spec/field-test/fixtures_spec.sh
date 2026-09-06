@@ -138,6 +138,17 @@ PY
       The output should equal '40'
     End
 
+    It 'serves an open field-test issue whose signature holds quotes'
+      matches() {
+        gh issue list --repo acme-org/plugins --state open --label field-test \
+          --search 'bash_nonzero:gh pr comment -b "done" N' --json number \
+          --jq '[.[].number] | join(",")'
+      }
+      When call matches
+      The status should be success
+      The output should equal '44'
+    End
+
     It 'keeps a closed issue with the same signature out of the open set'
       closed() { gh issue list --repo acme-org/plugins --state closed --json number --jq '[.[].number] | join(",")'; }
       When call closed
@@ -227,6 +238,16 @@ PY
       When call ft_fixture_transcript "$FT_SANDBOX/t.jsonl" nosuchcase
       The status should equal 1
       The stderr should include 'unknown case'
+    End
+
+    It 'writes a transcript whose last assistant turn carries no text of its own'
+      tail_kinds() {
+        ft_fixture_transcript "$FT_SANDBOX/t.jsonl" tool-tail
+        jq -rs 'last.message.content | map(.type) | join(",")' "$FT_SANDBOX/t.jsonl"
+      }
+      When call tail_kinds
+      The status should be success
+      The output should equal 'thinking,tool_use'
     End
 
     It 'writes a transcript whose last assistant turn is the report'

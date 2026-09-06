@@ -45,6 +45,15 @@ Describe 'ft-enterprise.sh'
     The output should include '"inside":true'
   End
 
+  It 'keeps looking past an enterprise that holds only one of the owners'
+    ft_fixture_enterprise "$FT_GH_FIXTURE_DIR" second
+    plugin_repo; target_repo
+    When run script "$FT_ENTERPRISE" "$FT_SANDBOX/plugin" "$FT_SANDBOX/target"
+    The status should be success
+    The output should include '"inside":true'
+    The output should include '"enterprise":"acme"'
+  End
+
   It 'says outside when the target owner is in no enterprise of yours'
     plugin_repo; target_repo someone-else/thing
     When run script "$FT_ENTERPRISE" "$FT_SANDBOX/plugin" "$FT_SANDBOX/target"

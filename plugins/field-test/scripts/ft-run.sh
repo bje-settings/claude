@@ -31,6 +31,19 @@ die() { printf 'ft-run.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 command -v jq >/dev/null 2>&1 || die 'jq is required: brew install jq'
 
+# The jq programs below are held in variables filled from a heredoc rather than
+# written inline across several lines. Both forms are one shell statement, but kcov
+# marks the continuation lines of a multi-line command as code that never runs, so
+# an inline program reads as a block of permanently uncovered lines. A heredoc body
+# is not instrumented, which is what the coverage number already assumes a jq
+# program to be: one line, and the branches inside it tested by their own fixtures
+# (see .claude/rules/type-jq.md).
+
+read -r -d '' MARKER_JQ <<'JQ' || true
+{version: 1, session_id: $session, target: $target, args: $args, cwd: $cwd,
+ resolved: $resolved, claude_version: $cv, started_at: $started, finished_at: null}
+JQ
+
 cmd="${1:-}"; shift 2>/dev/null || true
 case "$cmd" in
   -h|--help) usage; exit 0 ;;
@@ -48,6 +61,9 @@ while (($#)); do
     --session)
       [[ -n "${2:-}" && "${2:-}" != -* ]] || die '--session needs a value' 2
       session="$2"; shift 2 ;;
+    # Everything from `--` on belongs to the target, including a --session of its
+    # own. Scanning past it would send the marker to a directory no hook looks in.
+    --) while (($#)); do args+=("$1"); shift; done ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -71,6 +87,15 @@ write_json() {
 
 require_marker() {
   [[ -f "$run_json" ]] || die "no field test is running for session $session" 1
+  valid_marker
+}
+
+# A marker that is not JSON is a crashed write, not a live run. Saying so is the
+# difference between a user deleting one file and a session that can neither
+# start nor finish a run.
+valid_marker() {
+  jq -e . "$run_json" >/dev/null 2>&1 \
+    || die "the run marker at $run_json is not valid JSON; delete it and start again" 1
 }
 
 case "$cmd" in
@@ -94,13 +119,23 @@ case "$cmd" in
         *) break ;;
       esac
     done
-    if [[ -f "$run_json" ]] && ! jq -e '.finished_at != null' "$run_json" >/dev/null 2>&1; then
-      die "a field test is already running for session $session; run finish first" 3
+    if [[ -f "$run_json" ]]; then
+      valid_marker
+      jq -e '.finished_at != null' "$run_json" >/dev/null 2>&1 \
+        || die "a field test is already running for session $session; run finish first" 3
     fi
     if [[ -n "$resolved" ]]; then
       [[ -f "$resolved" ]] || die "no such resolved file: $resolved" 2
       jq -e . "$resolved" >/dev/null 2>&1 || die "resolved file is not valid JSON: $resolved"
     fi
+    # One --arg per argument, rather than a newline-joined list: an argument may be
+    # empty or may itself contain a newline, and either one silently changes the
+    # recorded argv, which is what args_dropped findings are computed against.
+    args_json='[]'
+    for arg in ${1+"$@"}; do
+      args_json="$(printf '%s' "$args_json" | jq -c --arg a "$arg" '. + [$a]')" \
+        || die 'jq failed while recording the arguments'
+    done
     mkdir -p "$run_dir" || die "cannot create $run_dir"
     : > "$run_dir/events.jsonl" || die "cannot create $run_dir/events.jsonl"
     # `claude --version` is recorded because an issue body has to say which
@@ -109,10 +144,9 @@ case "$cmd" in
     write_json "$run_json" -n \
       --arg session "$session" --arg target "$target" --arg cwd "$run_cwd" \
       --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cv "${claude_version:-}" \
-      --argjson args "$(printf '%s\n' ${1+"$@"} | jq -R . | jq -sc 'map(select(. != ""))')" \
+      --argjson args "$args_json" \
       --argjson resolved "$(if [[ -n "$resolved" ]]; then cat "$resolved"; else printf 'null'; fi)" \
-      '{version: 1, session_id: $session, target: $target, args: $args, cwd: $cwd,
-        resolved: $resolved, claude_version: $cv, started_at: $started, finished_at: null}'
+      "$MARKER_JQ"
     printf '%s\n' "$run_json"
     ;;
 

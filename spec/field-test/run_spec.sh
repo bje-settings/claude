@@ -169,6 +169,40 @@ Describe 'ft-run.sh'
       The value "$(field '.finished_at')" should equal 'null'
     End
 
+    It 'leaves the target its own --session, which it does not answer for'
+      When run script "$FT_RUN" start gh:sync -- --dry-run --session other-session
+      The status should be success
+      The output should equal "$FT_RUN_DIR/run.json"
+      The value "$(field '.session_id')" should equal 'ft-session'
+      The value "$(field '.args | join(" ")')" should equal '--dry-run --session other-session'
+      The path "$FT_STATE_DIR/runs/other-session/run.json" should not be exist
+    End
+
+    It 'records an empty argument and one holding a newline as given'
+      When run script "$FT_RUN" start gh:sync -- "" "$(printf 'a\nb')" --x
+      The status should be success
+      The output should include 'run.json'
+      The value "$(field '.args | length')" should equal '3'
+      The value "$(field '.args[0]')" should equal ''
+      The value "$(field '.args[1] | @json')" should equal '"a\nb"'
+    End
+
+    It 'stops reading its own options at the first bare argument'
+      When run script "$FT_RUN" start gh:sync sub-target --cwd /elsewhere
+      The status should be success
+      The output should include 'run.json'
+      The value "$(field '.cwd')" should equal "$PWD"
+      The value "$(field '.args | join(" ")')" should equal 'sub-target --cwd /elsewhere'
+    End
+
+    It 'names a corrupt marker rather than calling it a live run'
+      printf 'not json' > "$FT_RUN_DIR/run.json"
+      When run script "$FT_RUN" start gh:sync
+      The status should equal 1
+      The stderr should include 'not valid JSON'
+      The stderr should include 'delete it'
+    End
+
     It 'reports a state directory it cannot create'
       : > "$FT_SANDBOX/blocked"
       export FT_STATE_DIR="$FT_SANDBOX/blocked"
@@ -204,6 +238,13 @@ Describe 'ft-run.sh'
       When run script "$FT_RUN" show
       The status should be success
       The output should include '"target": "gh:shepherd"'
+    End
+
+    It 'refuses to finish a corrupt marker rather than failing inside jq'
+      printf 'not json' > "$FT_RUN_DIR/run.json"
+      When run script "$FT_RUN" finish
+      The status should equal 1
+      The stderr should include 'not valid JSON'
     End
 
     It 'refuses to show a session with no run'

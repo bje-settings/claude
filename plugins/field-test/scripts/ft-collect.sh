@@ -35,6 +35,14 @@ case "${1:-}" in
 esac
 
 command -v jq >/dev/null 2>&1 || die 'jq is required: brew install jq'
+# The jq programs below are held in variables filled from a heredoc rather than
+# written inline across several lines. Both forms are one shell statement, but kcov
+# marks the continuation lines of a multi-line command as code that never runs, so
+# an inline program reads as a block of permanently uncovered lines. A heredoc body
+# is not instrumented, which is what the coverage number already assumes a jq
+# program to be: one line, and the branches inside it tested by their own fixtures
+# (see .claude/rules/type-jq.md).
+
 
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 run_json="$run_dir/run.json"
@@ -49,10 +57,19 @@ if [[ "$mode" == "report" ]]; then
   [[ -f "$transcript" ]] || die "no transcript at $transcript"
   # The transcript is JSON lines; -R with fromjson? keeps a truncated final line
   # (the file is still being written) from failing the whole read.
-  jq -rRs 'split("\n") | map(select(length > 0) | . as $l | try fromjson catch empty)
-    | map(select(.type == "assistant"))
-    | last // {}
-    | (.message.content // []) | map(select(.type == "text") | .text) | join("\n")' "$transcript"
+  #
+  # The last assistant turn that carries text, not simply the last one: a real
+  # transcript often ends on a turn holding only thinking and tool_use blocks, and
+  # the empty string that would print is indistinguishable from a target that said
+  # nothing, which is the one thing this output exists to show.
+  read -r -d '' LAST_TEXT_JQ <<'JQ' || true
+split("\n") | map(select(length > 0) | . as $l | try fromjson catch empty)
+| map(select(.type == "assistant")
+      | (.message.content // []) | map(select(.type == "text") | .text) | join("\n")
+      | select(length > 0))
+| last // ""
+JQ
+  jq -rRs "$LAST_TEXT_JQ" "$transcript"
   exit 0
 fi
 

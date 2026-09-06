@@ -55,21 +55,38 @@ case "$lower" in
     die "workflow targets are not supported yet: $target (hooks may not see a background workflow agent's tool calls)" 5 ;;
 esac
 
+# The jq programs below are held in variables filled from a heredoc rather than
+# written inline across several lines. Both forms are one shell statement, but kcov
+# marks the continuation lines of a multi-line command as code that never runs, so
+# an inline program reads as a block of permanently uncovered lines. A heredoc body
+# is not instrumented, which is what the coverage number already assumes a jq
+# program to be: one line, and the branches inside it tested by their own fixtures
+# (see .claude/rules/type-jq.md).
+
+read -r -d '' EMIT_JQ <<'JQ' || true
+{kind: $kind, target: $target,
+ plugin: (if $plugin == "" then null else $plugin end),
+ skill: (if $skill == "" then null else $skill end),
+ marketplace: (if $marketplace == "" then null else $marketplace end),
+ path: $path,
+ version: (if $version == "" then null else $version end),
+ install_path: (if $install == "" then null else $install end),
+ marketplace_path: (if $mpath == "" then null else $mpath end),
+ commit: (if $commit == "" then null else $commit end),
+ repo: (if $repo == "" then null else $repo end)}
+JQ
+
+read -r -d '' MARKETPLACE_PATH_JQ <<'JQ' || true
+(.[$m] // {}) as $e
+| if ($e.source.source // "") == "directory"
+  then ($e.source.path // $e.installLocation // "") else "" end
+JQ
+
 # emit <kind> <plugin> <skill> <marketplace> <path> <version> <install_path> <marketplace_path> <commit> <repo>
 emit() {
   jq -nc --arg kind "$1" --arg target "$target" --arg plugin "$2" --arg skill "$3" \
     --arg marketplace "$4" --arg path "$5" --arg version "$6" --arg install "$7" \
-    --arg mpath "$8" --arg commit "$9" --arg repo "${10}" \
-    '{kind: $kind, target: $target,
-      plugin: (if $plugin == "" then null else $plugin end),
-      skill: (if $skill == "" then null else $skill end),
-      marketplace: (if $marketplace == "" then null else $marketplace end),
-      path: $path,
-      version: (if $version == "" then null else $version end),
-      install_path: (if $install == "" then null else $install end),
-      marketplace_path: (if $mpath == "" then null else $mpath end),
-      commit: (if $commit == "" then null else $commit end),
-      repo: (if $repo == "" then null else $repo end)}'
+    --arg mpath "$8" --arg commit "$9" --arg repo "${10}" "$EMIT_JQ"
 }
 
 # owner_repo <dir>: owner/name from the checkout's origin remote, ssh or https.
@@ -118,10 +135,7 @@ EOF
 
   mpath=""; commit=""; repo=""
   if [[ -f "$markets" ]]; then
-    mpath="$(jq -r --arg m "$market" '
-      (.[$m] // {}) as $e
-      | if ($e.source.source // "") == "directory"
-        then ($e.source.path // $e.installLocation // "") else "" end' "$markets" 2>/dev/null)"
+    mpath="$(jq -r --arg m "$market" "$MARKETPLACE_PATH_JQ" "$markets" 2>/dev/null)"
     [[ "$mpath" == "null" ]] && mpath=""
   fi
   if [[ -n "$mpath" && -d "$mpath" ]]; then

@@ -41,6 +41,14 @@ case "${1:-}" in
 esac
 
 command -v jq >/dev/null 2>&1 || die 'jq is required: brew install jq'
+# The jq programs below are held in variables filled from a heredoc rather than
+# written inline across several lines. Both forms are one shell statement, but kcov
+# marks the continuation lines of a multi-line command as code that never runs, so
+# an inline program reads as a block of permanently uncovered lines. A heredoc body
+# is not instrumented, which is what the coverage number already assumes a jq
+# program to be: one line, and the branches inside it tested by their own fixtures
+# (see .claude/rules/type-jq.md).
+
 [[ -f "$names" ]] || die "no names file at $names" 2
 
 if [[ -n "$inside" ]]; then
@@ -52,6 +60,8 @@ table="$(jq -c '.placeholders // []' "$names")" || die "names file is not valid 
 
 # split/join with a plain string is a literal replacement in jq; gsub would treat
 # the value as a regular expression.
-jq -Rrs --argjson table "$table" --arg note "$NOTE" '
-  reduce $table[] as $n (.; split($n.value) | join($n.placeholder))
-  | . + "\n> " + $note + "\n"'
+read -r -d '' REDACT_JQ <<'JQ' || true
+reduce $table[] as $n (.; split($n.value) | join($n.placeholder))
+| . + "\n> " + $note + "\n"
+JQ
+jq -Rrs --argjson table "$table" --arg note "$NOTE" "$REDACT_JQ"

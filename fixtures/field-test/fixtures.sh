@@ -35,6 +35,7 @@ JSON
 #   contradiction  subagent claims success, failure never resolved-> subagent_contradiction
 #   retried        same, but the command later succeeded          -> no contradiction
 #   honest         subagent reports status failed                 -> no contradiction
+#   status-ok      subagent reports a status that is not failed   -> subagent_contradiction
 #   args-used      a call carrying --dry-run                      -> no args_dropped
 #   mixed          one of each severity                           -> ordering and dedupe
 ft_fixture_events() {
@@ -84,6 +85,12 @@ JSON
 {"ts":"2026-01-02T03:04:08Z","event":"SubagentStop","agent_id":"agent-1","agent_type":"shepherd-repo","transcript_path":"/transcripts/agent-1.jsonl","last_assistant_message":"{\"status\": \"failed\", \"question\": \"the suite does not pass on this branch\"}"}
 JSON
       ;;
+    status-ok)
+      cat >> "$path" <<'JSON'
+{"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":"agent-1","agent_type":"shepherd-repo","tool_use_id":"t1","command":"bash spec/run.sh","exit_code":1,"stderr_tail":"1 example failed"}
+{"ts":"2026-01-02T03:04:08Z","event":"SubagentStop","agent_id":"agent-1","agent_type":"shepherd-repo","transcript_path":"/transcripts/agent-1.jsonl","last_assistant_message":"{\"status\": \"ok\", \"summary\": \"nothing worth reporting\"}"}
+JSON
+      ;;
     args-used)
       cat >> "$path" <<'JSON'
 {"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":"bash scripts/gh-shepherd-pr.sh status --dry-run","exit_code":0,"stderr_tail":""}
@@ -105,10 +112,11 @@ JSON
   esac
 }
 
-# ft_fixture_transcript <path> [with-report|no-assistant|truncated]
+# ft_fixture_transcript <path> [with-report|no-assistant|truncated|tool-tail]
 # The session transcript, as Claude Code writes it: one JSON object per line. The
 # truncated form ends mid-object, which is what a transcript still being written
-# looks like when it is read.
+# looks like when it is read. The tool-tail form ends on an assistant turn holding
+# only thinking and tool_use blocks, which is how a real transcript usually ends.
 ft_fixture_transcript() {
   local path="$1" name="${2:-with-report}"
   case "$name" in
@@ -122,6 +130,12 @@ JSON
     no-assistant)
       cat > "$path" <<'JSON'
 {"type":"user","message":{"content":[{"type":"text","text":"run it"}]}}
+JSON
+      ;;
+    tool-tail)
+      cat > "$path" <<'JSON'
+{"type":"assistant","message":{"content":[{"type":"text","text":"| PR | Outcome |\n| #11 | merged |"}]}}
+{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"one more check"},{"type":"tool_use","name":"Bash","input":{"command":"gh pr view 11"}}]}}
 JSON
       ;;
     truncated)
@@ -139,7 +153,7 @@ JSON
 
 # ft_fixture_hook_input <path> <case> [session]: one hook payload.
 #
-#   post-ok post-fail post-failure pre-deny pre-allow pre-other
+#   post-ok post-bool-code post-fail post-failure pre-deny pre-allow pre-other
 #   subagent-stop stop malformed
 ft_fixture_hook_input() {
   local path="$1" name="${2:-post-ok}" session="${3:-ft-session}"
@@ -149,6 +163,13 @@ ft_fixture_hook_input() {
 {"session_id": "$session", "transcript_path": "/transcripts/main.jsonl", "tool_name": "Bash",
  "tool_use_id": "t1", "tool_input": {"command": "git fetch origin"},
  "tool_response": {"stdout": "", "stderr": "", "exit_code": 0}}
+JSON
+      ;;
+    post-bool-code)
+      cat > "$path" <<JSON
+{"session_id": "$session", "transcript_path": "/transcripts/main.jsonl", "tool_name": "Bash",
+ "tool_use_id": "t1", "tool_input": {"command": "git fetch origin"},
+ "tool_response": {"stdout": "", "stderr": "", "code": true}}
 JSON
       ;;
     post-fail)
@@ -267,7 +288,7 @@ ft_fixture_git() {
     -c commit.gpgsign=false -c init.defaultBranch=main "$@"
 }
 
-# ft_fixture_enterprise <dir> [both|neither|paged|error|empty]: the canned answers
+# ft_fixture_enterprise <dir> [both|neither|paged|second|error|empty]: the canned answers
 # fixtures/field-test/bin/gh gives to `api graphql`.
 ft_fixture_enterprise() {
   local dir="$1" mode="${2:-both}"
@@ -276,8 +297,9 @@ ft_fixture_enterprise() {
 }
 
 # ft_fixture_issues <path>: the open issues fixtures/field-test/bin/gh serves to
-# `gh issue list`. One already carries a finding's signature, so the duplicate
-# search has something to find; the others are near misses that must not match.
+# `gh issue list`. Two already carry a finding's signature, one of them holding the
+# quotes a real command holds, so the duplicate search has something to find; the
+# others are near misses that must not match.
 ft_fixture_issues() {
   cat > "$1" <<'JSON'
 [
@@ -291,7 +313,10 @@ ft_fixture_issues() {
    "labels": [{"name": "bug"}, {"name": "field-test"}],
    "body": "Signature: `bash_nonzero:gh pr merge --auto --squash N`\n\nAlready fixed."},
   {"number": 43, "title": "chore: unrelated", "state": "OPEN", "labels": [{"name": "chore"}],
-   "body": "Mentions bash_nonzero:gh pr merge --auto --squash N but is not a field-test issue."}
+   "body": "Mentions bash_nonzero:gh pr merge --auto --squash N but is not a field-test issue."},
+  {"number": 44, "title": "fix: gh:shepherd: gh pr comment", "state": "OPEN",
+   "labels": [{"name": "bug"}, {"name": "field-test"}],
+   "body": "Signature: `bash_nonzero:gh pr comment -b \"done\" N`\n\nA signature holding quotes."}
 ]
 JSON
 }

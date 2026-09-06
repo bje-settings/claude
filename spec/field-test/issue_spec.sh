@@ -103,6 +103,31 @@ JSON
       The output should include '"value": "target"'
     End
 
+    It 'refuses a directory that is not a git checkout, rather than redacting nothing'
+      mkdir -p "$FT_SANDBOX/plain"
+      When run script "$FT_ISSUE" names "$FT_SANDBOX/plain"
+      The status should equal 2
+      The stderr should include 'not one'
+    End
+
+    It 'collects both spellings of a checkout reached through a symlink'
+      target
+      ln -s "$FT_SANDBOX/target" "$FT_SANDBOX/link"
+      paths() { "$FT_ISSUE" names "$FT_SANDBOX/link" | jq -r '[.placeholders[] | select(.placeholder == "<path>") | .value] | index("'"$FT_SANDBOX"'/link") != null'; }
+      When call paths
+      The status should be success
+      The output should equal 'true'
+    End
+
+    It 'keeps the remote out of the table when it names no owner and repo'
+      target singleton
+      When run script "$FT_ISSUE" names "$FT_SANDBOX/target"
+      The status should be success
+      The output should include '"repo": null'
+      The output should include '"value": "target"'
+      The output should not include '"placeholder": "<org>/<repo>"'
+    End
+
     It 'drops a value too short to replace safely'
       ft_fixture_repo "$FT_SANDBOX/target" "a/b" >/dev/null
       When run script "$FT_ISSUE" names "$FT_SANDBOX/target"
@@ -135,6 +160,12 @@ JSON
       When run script "$FT_ISSUE" search acme-org/plugins 'is not a field-test issue'
       The status should be success
       The output should equal ''
+    End
+
+    It 'finds a signature holding the quotes a shell command normally holds'
+      When run script "$FT_ISSUE" search acme-org/plugins 'bash_nonzero:gh pr comment -b "done" N'
+      The status should be success
+      The output should equal '44'
     End
 
     It 'treats a gh failure as no match rather than a duplicate'

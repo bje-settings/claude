@@ -135,6 +135,14 @@ Describe 'ft-collect.sh'
       The output should not include 'subagent_contradiction'
     End
 
+    It 'reads a structured status that is neither failed nor paused as a claim of success'
+      events status-ok
+      ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
+      When run script "$FT_COLLECT" "$FT_RUN_DIR"
+      The status should be success
+      The output should include 'subagent_contradiction'
+    End
+
     It 'raises no contradiction when the subagent reported the failure itself'
       events honest
       ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
@@ -199,6 +207,15 @@ Describe 'ft-collect.sh'
       When run script "$FT_COLLECT" "$FT_RUN_DIR" --report
       The status should be success
       The output should equal 'the whole line'
+    End
+
+    It 'prints the last turn that said something, not the tool call after it'
+      ft_fixture_transcript "$FT_SANDBOX/transcript.jsonl" tool-tail
+      jq --arg t "$FT_SANDBOX/transcript.jsonl" '.transcript_path = $t' "$FT_RUN_DIR/run.json" > "$FT_SANDBOX/x"
+      mv "$FT_SANDBOX/x" "$FT_RUN_DIR/run.json"
+      When run script "$FT_COLLECT" "$FT_RUN_DIR" --report
+      The status should be success
+      The output should include '| #11 | merged |'
     End
 
     It 'prints nothing when the transcript holds no assistant turn'
