@@ -190,6 +190,45 @@ class Result:
 
 
 @pytest.fixture
+def run_with_closed_reader():
+    """Run a script whose stdout reader has already gone away.
+
+    What `<script> | head` leaves behind once head has had enough, except that
+    the read end is closed before the child is even spawned, so there is no race
+    over how far it got. Stdout has to be a real pipe: `capture_output` gives a
+    buffer nobody ever closes, and the branch this exists to reach never fires.
+
+    `unbuffered` makes every line its own flush, which is how a failure lands
+    mid-run rather than on the final flush. A pipe is block buffered by default,
+    so a script printing a few dozen lines writes nothing until it exits, and
+    only the final flush fails -- a real case too, and the other one to cover.
+    Reaching the mid-run case honestly would take enough output to fill 8KB.
+    """
+
+    def run(path, *args, env=None, unbuffered=False):
+        child_env = dict(os.environ)
+        if unbuffered:
+            child_env["PYTHONUNBUFFERED"] = "1"
+        if env:
+            child_env.update({key: str(value) for key, value in env.items()})
+        read_fd, write_fd = os.pipe()
+        os.close(read_fd)
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(path), *[str(arg) for arg in args]],
+                stdout=write_fd,
+                stderr=subprocess.PIPE,
+                env=child_env,
+                check=False,
+            )
+        finally:
+            os.close(write_fd)
+        return completed.returncode, completed.stderr.decode("utf-8", "replace")
+
+    return run
+
+
+@pytest.fixture
 def run_script():
     """Run a Python script as its own process, the way Claude Code runs it.
 

@@ -64,6 +64,8 @@ def install_deps(root="."):
         # A lock file whose manager is present but unrunnable -- not executable,
         # a bad interpreter line, a too-long argument list -- is a different
         # failure, and saying "command not found" for it sends the reader looking
-        # for the wrong thing.
-        return 127, f"{command[0]}: {exc.strerror or exc}"
+        # for the wrong thing. 126 is what a shell exits for exactly that, beside
+        # the 127 above, so the two stay distinguishable in the status as well as
+        # in the wording.
+        return 126, f"{command[0]}: {exc.strerror or exc}"
     return completed.returncode, completed.stdout.decode("utf-8", "replace")
