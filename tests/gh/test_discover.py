@@ -6,6 +6,7 @@ The nine examples there exercised the shell function directly; these exercise
 
 from __future__ import annotations
 
+import io
 import os
 
 import pytest
@@ -156,3 +157,28 @@ def test_a_missing_git_is_no_repositories_rather_than_a_crash(gh, sandbox, monke
     """git absent answers the same as a directory outside any checkout."""
     monkeypatch.setenv("PATH", sandbox.path_without("git"))
     assert discover.discover_repos(gh.repo) == []
+
+
+def test_exits_cleanly_when_the_reader_closes_the_pipe(gh, run_with_closed_reader):
+    """`discover.py | head` is the reader's business, not a failure here
+
+    Unhandled it exits 120 and prints "Exception ignored in ... BrokenPipeError"
+    from the interpreter's own shutdown flush, which reads as a bug in the skill
+    that called it.
+    """
+    gh.create_at(gh.path / "fan", "aaa")
+    status, stderr = run_with_closed_reader(DISCOVER, gh.path / "fan")
+    assert status == 0
+    assert stderr == ""
+
+
+def test_use_utf8_leaves_a_stream_it_cannot_reconfigure_alone(sandbox):
+    """A replaced or detached stdout must not turn one crash into another.
+
+    The two shapes the guard names: an object with no `reconfigure` at all, and a
+    real wrapper whose buffer has been taken away, which raises ValueError.
+    """
+    discover.use_utf8(io.StringIO())
+    detached = io.TextIOWrapper(io.BytesIO())
+    detached.detach()
+    discover.use_utf8(detached)

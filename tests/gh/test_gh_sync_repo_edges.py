@@ -4,16 +4,20 @@ The paths a happy-path run never reaches: argument handling, the default-branch
 resolution fallbacks, a failing remote, and the real dependency install.
 
 The install examples are marked `slow`: each writes a lock file with the real
-package manager and then installs from it, which makes them the slowest here and
-the only ones that need a package manager installed. The pre-commit hook
-deselects them; CI runs them.
+package manager and then installs from it, which makes them the only ones that
+need a package manager installed. The marker is that dependency, not speed. The
+pre-commit hook deselects them; CI runs them.
 """
 
 from __future__ import annotations
 
+import importlib.util
+import io
+import shutil
+
 import pytest
 import scenarios
-from conftest import has_working, has_yarn_berry
+from conftest import SYNC_REPO, has_working, has_yarn_berry
 
 # --- arguments ----------------------------------------------------------------
 
@@ -211,7 +215,9 @@ def test_uses_ancestry_alone_when_gh_is_not_installed(gh, sync_repo, sandbox):
     gh.merge_commit(gh.repo, "landed")
     result = sync_repo(gh.repo, env={"PATH": sandbox.path_without("gh")})
     assert result.status == 0
-    assert "could not read merged pull requests" in result.stdout
+    assert "could not read merged pull requests (gh is not on PATH); using ancestry alone" in (
+        result.stdout
+    )
     assert "deleted landed" in result.stdout
 
 
@@ -499,10 +505,33 @@ def test_reports_a_lock_file_diff_it_could_not_read(gh, sync_repo):
 
 
 def test_skips_when_git_is_not_installed(gh, sync_repo, sandbox):
-    """a git that is not on PATH is a skip, not a traceback"""
+    """a git that is not on PATH is named as that, not as a bad repository
+
+    Reporting the first failed git call as "not a git repository" sends the
+    reader to inspect a checkout that is perfectly fine.
+    """
     result = sync_repo(gh.repo, env={"PATH": sandbox.path_without("git")})
     assert result.status == 0
-    assert "skipped: not a git repository" in result.stdout
+    assert "skipped: git is not on PATH" in result.stdout
+    assert "not a git repository" not in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_skips_when_git_is_present_but_cannot_be_run(gh, sync_repo, sandbox):
+    """a git on PATH that will not exec is its own reason
+
+    An empty file with the execute bit set passes `which` and then fails to exec,
+    which is the shape of a broken install, a bad interpreter line, or a wrapper
+    for an architecture this machine cannot load.
+    """
+    bin_dir = gh.path / "broken-git"
+    bin_dir.mkdir()
+    (bin_dir / "git").write_bytes(b"")
+    (bin_dir / "git").chmod(0o755)
+    result = sync_repo(gh.repo, env={"PATH": str(bin_dir) + ":" + sandbox.path_without("git")})
+    assert result.status == 0
+    assert "skipped: cannot run git: " in result.stdout
+    assert "not a git repository" not in result.stdout
     assert "Traceback" not in result.stderr
 
 
@@ -521,8 +550,116 @@ def test_treats_a_pull_request_list_of_non_objects_as_unreadable(gh, sync_repo, 
     stub.chmod(0o755)
     result = sync_repo(gh.repo, env={"PATH": str(bin_dir) + ":" + scenarios._path()})
     assert result.status == 0
-    assert "could not read merged pull requests; using ancestry alone" in result.stdout
+    assert (
+        "could not read merged pull requests (gh returned rows that are not pull requests); "
+        "using ancestry alone" in result.stdout
+    )
     assert "deleted landed" in result.stdout
+
+
+def _stub_gh(gh, name, body):
+    """A PATH whose gh is a two-line shell script, for the malformed-answer arms."""
+    bin_dir = gh.path / name
+    bin_dir.mkdir()
+    stub = bin_dir / "gh"
+    stub.write_text(body)
+    stub.chmod(0o755)
+    return {"PATH": str(bin_dir) + ":" + scenarios._path()}
+
+
+def test_names_a_gh_that_answers_with_something_that_is_not_json(gh, sync_repo):
+    """A malformed answer is not an empty window, and the reason says which it was.
+
+    "could not read merged pull requests" on its own sends the reader to check
+    their auth; this one sends them to look at what gh actually printed.
+    """
+    gh.branch_with_work(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    env = _stub_gh(gh, "loud-gh", "#!/bin/sh\necho 'gh out of date, update it'\n")
+    result = sync_repo(gh.repo, env=env)
+    assert result.status == 0
+    assert "could not read merged pull requests (gh returned malformed JSON)" in result.stdout
+    assert "deleted landed" in result.stdout
+
+
+def test_names_a_gh_that_answers_with_a_payload_that_is_not_a_list(gh, sync_repo):
+    """Valid JSON that is not a list of pull requests says nothing about merges."""
+    gh.branch_with_work(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    env = _stub_gh(gh, "object-gh", '#!/bin/sh\necho \'{"message":"Not Found"}\'\n')
+    result = sync_repo(gh.repo, env=env)
+    assert result.status == 0
+    assert "could not read merged pull requests (gh returned no pull-request list)" in result.stdout
+    assert "deleted landed" in result.stdout
+
+
+def test_names_a_gh_that_refuses_the_query(gh, sync_repo):
+    """gh's own last line is the useful half of a failure: a rate limit, an auth prompt."""
+    gh.branch_with_work(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    env = _stub_gh(
+        gh,
+        "angry-gh",
+        "#!/bin/sh\necho 'gh: warming up' >&2\necho 'gh: API rate limit exceeded' >&2\nexit 1\n",
+    )
+    result = sync_repo(gh.repo, env=env)
+    assert result.status == 0
+    assert "could not read merged pull requests (gh: API rate limit exceeded)" in result.stdout
+    assert "warming up" not in result.stdout
+
+
+def test_names_a_gh_that_refuses_the_query_without_saying_why(gh, sync_repo):
+    """A silent non-zero exit still has a status, which separates refusal from crash."""
+    gh.branch_with_work(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    env = _stub_gh(gh, "mute-gh", "#!/bin/sh\nexit 4\n")
+    result = sync_repo(gh.repo, env=env)
+    assert result.status == 0
+    assert (
+        "could not read merged pull requests (gh exited 4); using ancestry alone" in result.stdout
+    )
+
+
+def test_names_a_gh_that_is_present_but_cannot_be_run(gh, sync_repo, sandbox):
+    """On PATH and still unrunnable is neither missing nor a refusal.
+
+    An empty file with the execute bit set: `which` finds it and the exec then
+    fails. It has to be the only gh on the PATH, because exec walks on to the
+    next candidate rather than giving up on the first one that will not load.
+    """
+    gh.branch_with_work(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    bin_dir = gh.path / "broken-gh"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_bytes(b"")
+    (bin_dir / "gh").chmod(0o755)
+    result = sync_repo(gh.repo, env={"PATH": str(bin_dir) + ":" + sandbox.path_without("gh")})
+    assert result.status == 0
+    assert "could not read merged pull requests (cannot run gh: " in result.stdout
+    assert "deleted landed" in result.stdout
+
+
+def test_reports_a_default_branch_tip_it_could_not_read(gh, sync_repo):
+    """says so when the old tip is unreadable, rather than printing None..<sha>
+
+    With no left end there is no range to print and nothing to diff a lock file
+    over, so the install has to be skipped -- but skipping it in silence leaves
+    the checkout on new code with possibly stale dependencies, which is the same
+    failure the unreadable lock-file diff guards against.
+    """
+    gh.lockfile(gh.repo, "package-lock.json")
+    gh.remote_advance(gh.repo, "package-lock.json")
+    directory, failing = gh.git_shim("rev-parse --short", "rev-parse main")
+    result = sync_repo(
+        gh.repo, env={"PATH": directory + ":" + scenarios._path(), "GIT_STUB_FAIL": failing}
+    )
+    assert result.status == 0
+    assert "could not read the tip of main; install by hand if a lock file changed" in result.stdout
+    assert "None" not in result.stdout
+    assert "dependencies installed" not in result.stdout
+    # The branch still advances: that part never needed the old tip.
+    assert "fast-forwarded main to" in result.stdout
+    assert gh.sha(gh.repo, "main") == gh.sha(gh.repo, "refs/remotes/origin/main")
 
 
 def test_prints_its_report_under_a_single_byte_locale(gh, sync_repo):
@@ -573,3 +710,68 @@ def test_falls_back_to_the_full_sha_when_an_abbreviation_cannot_be_read(gh, sync
     assert result.status == 0
     assert f"deleted landed ({sha}, merged into main)" in result.stdout
     assert "None" not in result.stdout
+
+
+# --- a reader that goes away ---------------------------------------------------
+
+
+def test_finishes_the_prune_when_the_reader_closes_the_pipe(gh, run_with_closed_reader):
+    """a closed pipe silences the report; it does not abandon the work
+
+    Reproduced in the field on a checkout with 601 prunable branches: piping into
+    `head` closed the pipe partway through the prune, the BrokenPipeError escaped
+    the loop into the handler wrapped around the whole run, and the script exited
+    0 with 78 branches still there and `git worktree prune` never called. Nothing
+    said so, because saying so was the thing that had failed.
+    """
+    for name in ("landed-a", "landed-b", "landed-c"):
+        gh.branch_with_work(gh.repo, name)
+        gh.merge_commit(gh.repo, name)
+    gh.branch_with_work(gh.repo, "wt-landed")
+    gh.merge_commit(gh.repo, "wt-landed")
+    gh.worktree(gh.repo, str(gh.path / "wt"), "wt-landed")
+    # A worktree whose directory is gone: only `git worktree prune` clears the
+    # administrative entry, so its absence afterwards is proof the run reached
+    # the end rather than stopping at the first failed write.
+    stale = gh.path / "stale"
+    gh.branch_with_work(gh.repo, "open-work")
+    gh.worktree(gh.repo, str(stale), "open-work")
+    shutil.rmtree(str(stale))
+
+    status, stderr = run_with_closed_reader(SYNC_REPO, gh.repo, unbuffered=True)
+
+    assert status == 0
+    assert stderr == ""
+    branches = gh.branches(gh.repo)
+    for name in ("landed-a", "landed-b", "landed-c", "wt-landed"):
+        assert name not in branches
+    assert not (gh.path / "wt").exists()
+    assert str(stale) not in gh.git(gh.repo, "worktree", "list")
+
+
+def test_exits_cleanly_when_a_short_report_meets_a_closed_pipe(gh, run_with_closed_reader):
+    """the final flush is the other place a closed pipe surfaces
+
+    A report small enough to sit in the pipe buffer writes nothing until the
+    process ends, so the failure lands on the explicit flush rather than inside
+    the run. Left unhandled it exits 120 and prints "Exception ignored in".
+    """
+    status, stderr = run_with_closed_reader(SYNC_REPO, gh.repo)
+    assert status == 0
+    assert stderr == ""
+
+
+def test_use_utf8_leaves_a_stream_it_cannot_reconfigure_alone():
+    """A replaced or detached stdout must not turn one crash into another.
+
+    The two shapes the guard names: something with no `reconfigure` at all, and a
+    real wrapper whose buffer has been taken away, which raises ValueError.
+    Imported rather than run, because both arms are silent by design.
+    """
+    spec = importlib.util.spec_from_file_location("gh_sync_repo", SYNC_REPO)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.use_utf8(io.StringIO())
+    detached = io.TextIOWrapper(io.BytesIO())
+    detached.detach()
+    module.use_utf8(detached)

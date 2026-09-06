@@ -7,8 +7,10 @@ they build their state from.
 repositories rather than mocks. Every fixture builds an actual git repository with an actual
 (local, bare) origin, so `git fetch`, `git merge --ff-only`, ancestry checks, and worktree
 operations all behave exactly as they do in production. Nothing here reaches the network for the
-code under test; the examples marked `slow` do run a real package manager, which is given the
-developer's own corepack cache (`COREPACK_HOME`) so its shim has nothing left to download.
+code under test; the examples marked `slow` do run a real package manager, and those examples
+alone are given the developer's own corepack cache (`COREPACK_HOME`), so a corepack shim has
+nothing left to download. Every other example runs against the sandbox `HOME` and never touches
+that cache.
 
 The bash half of the plugin still has its shellspec specs in `spec/gh/` and its own fixtures in
 `fixtures/gh/`, documented in `fixtures/gh/README.md`. Those are a port behind; the two sets are
@@ -148,6 +150,8 @@ skipped without it. The install tests are skipped wherever their package manager
 cannot run.
 
 Those install tests are marked `slow`: each writes a lock file with the real package manager and
-then installs from it, which makes them the slowest examples here and the only ones that need a
-package manager installed at all. The pre-commit `pytest` hook deselects them with
-`-m "not slow"`; CI and `spec/run.sh` run the whole suite.
+then installs from it, which makes them the only ones that need a package manager installed at
+all. That dependency is what the marker is for, not speed -- against a warm corepack cache they
+cost about three seconds apiece, beside the ordinary sync examples rather than ahead of them. The
+pre-commit `pytest` hook deselects them with `-m "not slow"`; CI and `spec/run.sh` run the whole
+suite.

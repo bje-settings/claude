@@ -201,7 +201,10 @@ def test_falls_back_to_ancestry_when_the_pull_request_lookup_fails(gh, sync_repo
     argv, env = scenarios.pull_request_lookup_failed(gh)
     result = sync_repo(*argv, env=env)
     assert result.status == 0
-    assert "could not read merged pull requests" in result.stdout
+    assert (
+        "could not read merged pull requests (gh: simulated failure); using ancestry alone"
+        in result.stdout
+    )
     assert "deleted ff-done" in result.stdout
 
 

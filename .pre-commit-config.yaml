@@ -39,12 +39,16 @@ repos:
         args: ["."]
         always_run: true
 
-      # The Python suite minus the examples marked `slow`, which are the ones
-      # that run a real package-manager install. They are the slowest in the
-      # suite and the only ones that need pnpm, yarn or npm installed, so a
-      # commit does not wait on them; CI runs the whole suite, and nothing is
-      # only ever checked here. -x stops at the first failure so the message you
-      # get is the failure itself.
+      # The Python suite minus the examples marked `slow`. The marker means "needs
+      # pnpm, yarn or npm installed", not "slowest": the five of them run about
+      # three seconds each, which several ordinary sync examples also do, and
+      # under -n auto deselecting them takes the run from about 45 seconds to
+      # about 44. So a commit still waits the better part of a minute here; what
+      # the marker buys is that a machine without a package manager gets the same
+      # result. CI runs the whole suite, and nothing is only ever checked here.
+      # -x stops at the first failure so the message you get is the failure
+      # itself. If the wait grows further, scope it to tests/<plugin>/ for the
+      # plugins whose files changed and leave the full run to CI.
       - id: pytest
         name: pytest
         entry: uv run --locked pytest -n auto -x -q -m "not slow"

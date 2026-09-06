@@ -94,7 +94,8 @@ def test_install_deps_reports_a_manager_that_cannot_be_run(tmp_path, monkeypatch
 
     A lock file whose manager is on PATH without the execute bit fails with a
     different errno, and reporting it as missing sends the reader looking for an
-    install that is already there.
+    install that is already there. 126 rather than 127, which is the pair of
+    statuses a shell uses for exactly this distinction.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -106,6 +107,6 @@ def test_install_deps_reports_a_manager_that_cannot_be_run(tmp_path, monkeypatch
     project.mkdir()
     touch(project, "package-lock.json")
     status, log = install.install_deps(str(project))
-    assert status == 127
+    assert status == 126
     assert log.startswith("npm: ")
     assert "command not found" not in log

@@ -630,12 +630,23 @@ def gh(sandbox, monkeypatch):
     # would hang a run rather than fail it. Set for the whole example, so the
     # install the code under test performs inherits it too.
     monkeypatch.setenv("COREPACK_ENABLE_DOWNLOAD_PROMPT", "0")
-    # The sandbox HOME has no corepack cache, so without this the shim would
-    # download a package manager over the network on every install example.
-    monkeypatch.setenv("COREPACK_HOME", COREPACK_HOME)
     sandbox.stub_path(STUB_BIN)
     fixtures.repo = fixtures.create(sandbox.path / "r")
     return fixtures
+
+
+@pytest.fixture(autouse=True)
+def corepack_cache(request, monkeypatch):
+    """The developer's real corepack cache, for the examples marked `slow`.
+
+    The sandbox HOME has no corepack cache, so without this a corepack shim
+    downloads a package manager over the network on every install example. Only
+    those examples run one, so only they get it: reading the developer's real
+    cache is a dependency on the machine, and an example that does not need a
+    package manager must not quietly acquire one.
+    """
+    if request.node.get_closest_marker("slow") is not None:
+        monkeypatch.setenv("COREPACK_HOME", COREPACK_HOME)
 
 
 @pytest.fixture
