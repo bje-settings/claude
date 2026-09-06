@@ -55,12 +55,38 @@ def replace_bounded(text: str, value: str, placeholder: str) -> str:
 
 
 def apply_table(text: str, table) -> str:
-    """Every value in the table replaced by its placeholder, in table order."""
+    """Every value in the table replaced by its placeholder, in table order.
+
+    An entry this cannot use is refused, never skipped. The jq this replaced
+    aborted on one, because `split` on a number is an error, and aborting is the
+    right answer: skipping leaves the name in the text and still appends the note
+    below saying every name was replaced. That is the one failure mode that
+    publishes a real repository name under a line asserting it was removed, which
+    is the whole reason this module exists.
+
+    An empty value is the exception, and is skipped rather than refused: it
+    matches at every position, so it is the one entry that cannot leak a name.
+    """
     for entry in table:
+        if not isinstance(entry, dict):
+            raise RedactError(
+                f"names table entry is not an object: {entry!r}; "
+                "refusing to claim a redaction that did not happen"
+            )
         value = entry.get("value")
         placeholder = entry.get("placeholder")
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str):
+            raise RedactError(
+                f"names table entry has a non-string value: {value!r}; "
+                "refusing to claim a redaction that did not happen"
+            )
+        if not value:
             continue
+        if not isinstance(placeholder, str):
+            raise RedactError(
+                f"names table entry for {value!r} has no placeholder; "
+                "refusing to claim a redaction that did not happen"
+            )
         if len(value) < BOUNDED_BELOW:
             text = replace_bounded(text, value, placeholder)
         else:
@@ -89,7 +115,7 @@ def load_table(path: str):
     asserting it was removed.
     """
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             document = json.load(handle)
     except OSError:
         raise RedactError(f"no names file at {path}", 2) from None
@@ -109,7 +135,11 @@ def redact(text: str, path: str, inside: bool) -> str:
     Inside the enterprise this is the identity function, byte for byte: the
     repository under test belongs to the same enterprise as the plugin, so the
     specifics are exactly what makes the issue reproducible and they stay.
+
+    The trailing newline is jq's, not a stylistic choice: the shell ran this text
+    through `jq -Rrs`, whose raw output ends every result with one. The callers
+    are shell skills that read the bytes, so it stays.
     """
     if inside:
         return text
-    return apply_table(text, load_table(path)) + "\n> " + NOTE + "\n"
+    return apply_table(text, load_table(path)) + "\n> " + NOTE + "\n\n"

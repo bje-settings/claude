@@ -2,7 +2,7 @@
 
 Ported from `spec/field-test/redact_spec.sh`, plus one named test per placeholder
 the table can carry: redaction can only fail in two ways, and both are checked
-here against a real repository rather than a hand-written table — a name that
+here against a real repository rather than a hand-written table: a name that
 survives into a public issue, and a name stripped from an issue entitled to keep
 it. "requires jq" did not come across; there is no jq to require.
 """
@@ -163,6 +163,18 @@ def test_keeps_everything_that_is_not_a_name(ft_sandbox, names, run_script):
     assert "Ran against" in output
 
 
+def test_ends_the_note_the_way_jq_did(ft_sandbox, names, run_script):
+    """ends with the blank line `jq -Rrs` put there
+
+    The bytes, not the text: the shell piped this through `jq -Rrs`, whose raw
+    output appends a newline of its own after the note. A skill reads the result
+    into a here-document, so one byte is the difference between an issue body
+    that matches the shell's and one that does not.
+    """
+    output = redacted(ft_sandbox, run_script, names())
+    assert output.endswith("The shape of the case is real; the names are not.\n\n")
+
+
 # A short repository or branch name is a word that also appears inside other
 # words. Replacing it everywhere rewrites the prose until the issue is
 # unreadable, so a value under four characters is replaced only where it stands
@@ -218,3 +230,41 @@ def test_inside_still_refuses_a_names_file_that_is_not_there(ft_sandbox, run_scr
     result = run_script(FT_REDACT, str(ft_sandbox.path / "nope.json"), "--inside", stdin="text")
     assert result.status == 2
     assert "no names file" in result.stderr
+
+
+def test_inside_passes_a_byte_that_is_not_utf8_through_unchanged(ft_sandbox, names, run_script):
+    """passes a byte that is not valid UTF-8 through unchanged
+
+    "byte for byte" is the documented contract, and only a byte that no decoder
+    accepts can show it holds. A commit subject or a command the target ran can
+    carry one, and decoding it would silently rewrite the evidence the issue
+    exists to carry.
+    """
+    result = run_script(FT_REDACT, str(names()), "--inside", stdin=b"a\xffb")
+    assert result.status == 0, result.stderr
+    assert result.stdout_bytes == b"a\xffb"
+
+
+def test_a_byte_that_is_not_utf8_survives_redaction(ft_sandbox, names, run_script):
+    """keeps a byte that is not valid UTF-8 while still replacing the names around it"""
+    result = run_script(FT_REDACT, str(names()), stdin=b"acme-org/widgets a\xffb\n")
+    assert result.status == 0, result.stderr
+    assert result.stdout_bytes.startswith(b"<org>/<repo> a\xffb\n")
+
+
+def test_refuses_a_table_entry_it_cannot_redact_with(ft_sandbox, names, run_script):
+    """refuses a names table entry it cannot redact with, rather than skipping it
+
+    Skipping leaves the name in the text and still appends the note saying every
+    name was replaced. That is the one failure that publishes a real repository
+    name under a line asserting it was removed.
+    """
+    path = ft_sandbox.path / "bad-names.json"
+    path.write_text(
+        json.dumps({"placeholders": [{"value": 12, "placeholder": "<x>"}]}), encoding="utf-8"
+    )
+    result = run_script(FT_REDACT, str(path), stdin="acme-org/widgets\n")
+    assert result.status == 1
+    assert result.stdout == ""
+    assert "outside the plugin" not in result.stdout
+    assert "refusing to claim a redaction that did not happen" in result.stderr

@@ -79,8 +79,20 @@ def test_an_entry_with_no_value_is_skipped():
     assert redact.apply_table("text", [{"value": "", "placeholder": "<x>"}]) == "text"
 
 
-def test_an_entry_whose_value_is_not_a_string_is_skipped():
-    assert redact.apply_table("text", [{"value": 12, "placeholder": "<x>"}]) == "text"
+def test_an_entry_whose_value_is_not_a_string_is_refused():
+    """Refused, not skipped: skipping leaves the name in and still claims it went."""
+    with pytest.raises(redact.RedactError):
+        redact.apply_table("text", [{"value": 12, "placeholder": "<x>"}])
+
+
+def test_an_entry_with_no_placeholder_is_refused():
+    with pytest.raises(redact.RedactError):
+        redact.apply_table("text", [{"value": "acme-org"}])
+
+
+def test_an_entry_that_is_not_an_object_is_refused():
+    with pytest.raises(redact.RedactError):
+        redact.apply_table("text", ["acme-org"])
 
 
 # --- load_table --------------------------------------------------------------
@@ -129,8 +141,10 @@ def test_check_present_accepts_a_file_that_is_there(tmp_path):
 
 def test_redact_appends_the_note(tmp_path):
     path = table_file(tmp_path, {"placeholders": TABLE})
+    # Two newlines at the end: the one the note carries, and the one `jq -Rrs`
+    # appended to its raw output in the shell this replaced.
     assert redact.redact("acme-org/widgets\n", path, False) == (
-        "<org>/<repo>\n\n> " + redact.NOTE + "\n"
+        "<org>/<repo>\n\n> " + redact.NOTE + "\n\n"
     )
 
 
