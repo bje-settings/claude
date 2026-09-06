@@ -55,6 +55,16 @@ Describe 'field-test fixtures'
       The output should equal 'gh pr merge --auto --squash 11|gh pr merge --auto --squash 12'
     End
 
+    It 'gives the hook-error case a hook that raised and a call that still ran'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" hook-error
+        jq -rs '[.[] | .event] | join(" ")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal 'hook_error PostToolUse'
+    End
+
     It 'gives the no-command case a null command and an empty one'
       shape() {
         ft_fixture_events "$FT_SANDBOX/e.jsonl" no-command

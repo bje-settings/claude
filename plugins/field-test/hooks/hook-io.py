@@ -120,6 +120,10 @@ def load_deny_list(path):
     is a hole in the only thing this plugin stops, and a run that recorded nothing
     about it is indistinguishable from a run the target never tested that rule in,
     so each one comes back as a broken-rule entry for the caller to record.
+
+    Every exception, not only re.error: a repetition count too large for the engine
+    raises OverflowError, and one rule written that way must cost that rule rather
+    than the whole list.
     """
     rules = []
     broken = []
@@ -138,7 +142,7 @@ def load_deny_list(path):
         else:
             try:
                 rules.append((re.compile(stripped), " ".join(comment) or stripped))
-            except re.error as error:
+            except Exception as error:  # noqa: BLE001 - one bad rule, not the list
                 broken.append({"pattern": stripped, "line": number, "error": str(error)})
             comment = []
     return rules, broken

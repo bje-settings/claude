@@ -80,6 +80,9 @@ and decide: a real problem, or the target working correctly?
 - A `deny_list_error` record is always real, and it is about this plugin rather than the target:
   a rule was dropped, so nothing it names was refused all run. File it against the plugin's own
   repository and say which rule was lost.
+- A `hook_error` record is always real, and it is also about this plugin: a hook raised, so that
+  one tool call went through unrecorded and, if it was a `PreToolUse`, unfiltered. File it against
+  the plugin's own repository with the traceback.
 - A `subagent_contradiction` is a real finding unless the failure it names is one of the handled
   cases above.
 - An `args_dropped` record is real only if the option should have reached that command. Options a

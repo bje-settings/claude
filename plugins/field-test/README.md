@@ -46,6 +46,7 @@ that says no.
 | --- | --- |
 | `denied` | The `PreToolUse` hook refused a command on the deny list. Highest severity. |
 | `deny_list_error` | A deny-list rule did not compile, so it was skipped and blocked nothing for the whole run. High severity: it is a hole in the guardrail, not a finding about the target. |
+| `hook_error` | A hook raised on one tool call, so that call was neither recorded nor filtered. High severity, and about this plugin rather than the target. |
 | `tool_failure` | A Bash tool call failed outright. |
 | `bash_nonzero` | A Bash call exited non-zero. |
 | `subagent_contradiction` | A subagent's last message claims success while its recorded events hold a failure that was never resolved by re-running the same command. |

@@ -363,6 +363,30 @@ git push origin --delete wktr-9-old'
       The value "$(events | jq -r 'select(.event == "deny_list_error") | .error | length > 0')" should equal 'true'
     End
 
+    It 'records nothing and denies nothing when the command is not a string'
+      jq -nc --arg s ft-session \
+        '{session_id: $s, tool_name: "Bash", tool_input: {command: ["rm", "-rf", "/"]}}' \
+        > "$FT_SANDBOX/payload.json"
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PreToolUse
+      The status should be success
+      The output should equal ''
+      The value "$(event_count)" should equal '0'
+    End
+
+    # An OverflowError, not an re.error: caught only as a syntax error, one rule
+    # written this way takes the whole list down for that call.
+    It 'costs one rule, not the list, when a pattern breaks the engine outright'
+      printf '# too big\na{4294967296}\n\n# real\ngit push --force\n' > "$FT_SANDBOX/list.txt"
+      export FT_DENY_LIST="$FT_SANDBOX/list.txt"
+      input pre-deny
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PreToolUse
+      The status should be success
+      The output should include '"deny"'
+      The value "$(events | jq -r 'select(.event == "deny_list_error") | .pattern')" should equal 'a{4294967296}'
+    End
+
     It 'falls back to the pattern itself when a rule has no comment'
       printf 'git push --force\n' > "$FT_SANDBOX/list.txt"
       export FT_DENY_LIST="$FT_SANDBOX/list.txt"

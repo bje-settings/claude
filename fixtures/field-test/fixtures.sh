@@ -39,6 +39,7 @@ JSON
 #   status-ok      subagent reports a status that is not failed   -> subagent_contradiction
 #   args-used      a call carrying --dry-run                      -> no args_dropped
 #   no-command     a failed call whose command was never recorded -> the rest survive
+#   hook-error     a hook that raised on one tool call            -> hook_error
 #   mixed          one of each severity                           -> ordering and dedupe
 ft_fixture_events() {
   local path="$1" name="${2:-clean}"
@@ -97,6 +98,12 @@ JSON
       cat >> "$path" <<'JSON'
 {"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":"agent-1","agent_type":"shepherd-repo","tool_use_id":"t1","command":"bash spec/run.sh","exit_code":1,"stderr_tail":"1 example failed"}
 {"ts":"2026-01-02T03:04:08Z","event":"SubagentStop","agent_id":"agent-1","agent_type":"shepherd-repo","transcript_path":"/transcripts/agent-1.jsonl","last_assistant_message":"{\"status\": \"ok\", \"summary\": \"nothing worth reporting\"}"}
+JSON
+      ;;
+    hook-error)
+      cat >> "$path" <<'JSON'
+{"ts":"2026-01-02T03:04:06Z","event":"hook_error","agent_id":null,"agent_type":null,"hook":"PreToolUse","error":"Traceback (most recent call last):\n  File \"hook-io.py\", line 206, in handle_pre_tool_use\nTypeError: expected string or bytes-like object"}
+{"ts":"2026-01-02T03:04:07Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":"git fetch origin","exit_code":0,"stderr_tail":""}
 JSON
       ;;
     no-command)

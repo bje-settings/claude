@@ -107,6 +107,18 @@ Describe 'ft-collect.sh'
       The value "$(kinds)" should equal 'tool_failure'
     End
 
+    It 'raises hook_error, at the highest severity, when a hook raised on a tool call'
+      events hook-error
+      ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
+      When run script "$FT_COLLECT" "$FT_RUN_DIR"
+      The status should be success
+      The output should include '"kind"'
+      The value "$(kinds)" should equal 'hook_error'
+      The value "$(first 'severity')" should equal 'high'
+      The value "$(first 'evidence.reason')" should include 'PreToolUse hook raised'
+      The value "$(first 'evidence.stderr')" should include 'TypeError'
+    End
+
     It 'keeps the other findings when a failed call has no command recorded'
       events no-command
       ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'

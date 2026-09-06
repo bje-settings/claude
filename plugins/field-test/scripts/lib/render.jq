@@ -22,6 +22,7 @@ def expected_of:
   elif kind == "bash_nonzero" then "the command to exit 0, or the target to stop and report the non-zero exit"
   elif kind == "subagent_contradiction" then "a subagent that hit a failure it never resolved to report that failure"
   elif kind == "deny_list_error" then "every rule in the deny list to be in force for the whole run"
+  elif kind == "hook_error" then "the field-test hooks to record every tool call and filter every Bash call"
   elif kind == "args_dropped" then "every option given to the target to reach the commands it runs"
   else "the target to complete the step without this" end;
 
@@ -31,6 +32,7 @@ def actual_of:
   elif kind == "bash_nonzero" then "the command exited non-zero and the run continued"
   elif kind == "subagent_contradiction" then "the subagent's last message reported success: " + (($record.evidence.claim // "") | .[0:400])
   elif kind == "deny_list_error" then "the rule did not compile, so it blocked nothing and nothing it names was refused"
+  elif kind == "hook_error" then "the hook raised and the tool call went through unrecorded and unfiltered"
   elif kind == "args_dropped" then "the option never appeared in any command the target ran"
   else "see the output below" end;
 
@@ -39,6 +41,7 @@ def fixture_of:
   elif kind == "args_dropped" then "A spec that runs the target with this option and asserts it reaches the command the target builds."
   elif kind == "subagent_contradiction" then "A canned subagent result whose text claims success beside recorded events holding an unresolved failure, asserted to produce this finding."
   elif kind == "deny_list_error" then "A deny list holding this pattern, asserted to leave the remaining rules in force and to record the rule it lost."
+  elif kind == "hook_error" then "The payload that made the hook raise, asserted to leave the session running and to record the call the hook could not handle."
   else "A repository in the state the commands above left it in, built by the fixtures rather than mocked, plus a spec asserting the target's behaviour from that state." end;
 
 def summary_of:

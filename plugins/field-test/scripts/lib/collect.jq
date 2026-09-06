@@ -81,6 +81,19 @@ def deny_list_error_findings:
                   pattern: (.value.pattern // ""), line: .value.line,
                   deny_list: (.value.deny_list // ""), preceding: []}} ];
 
+# A hook that raised. The wrapper still exits 0, so the tool call went through
+# unexamined and, for a PreToolUse, unfiltered: the guardrail was off for that call
+# and nothing else in the run would say so.
+def hook_error_findings:
+  [ $events | to_entries[]
+    | select(.value.event == "hook_error")
+    | {kind: "hook_error", severity: "high",
+       signature: ("hook_error:" + ((.value.hook // "") + ":" + ((.value.error // "") | split("\n") | last // "")) | norm),
+       agent_id: .value.agent_id, agent_type: .value.agent_type,
+       evidence: {command: null,
+                  reason: ("the " + (.value.hook // "unknown") + " hook raised, so that tool call was neither recorded nor filtered"),
+                  exit_code: null, stderr: (.value.error // ""), preceding: []}} ];
+
 def tool_failure_findings:
   [ $events | to_entries[]
     | select(.value.event == "PostToolUseFailure")
@@ -131,7 +144,8 @@ def args_dropped_findings:
        evidence: {command: null, reason: ("argument " + $a + " never appeared in any command the target ran"),
                   exit_code: null, stderr: "", argument: $a, preceding: []}} ];
 
-(denied_findings + deny_list_error_findings + tool_failure_findings + nonzero_findings
+(denied_findings + deny_list_error_findings + hook_error_findings
+ + tool_failure_findings + nonzero_findings
  + contradiction_findings + args_dropped_findings)
 | group_by(.signature)
 | map(.[0] + {count: length})
