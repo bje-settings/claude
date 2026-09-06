@@ -33,6 +33,29 @@ DEFAULT_BRANCH = "main"
 # to be on PATH. Yarn 1 and bun are out of scope for /gh:sync.
 YARN_VERSION = "4.5.3"
 
+
+# Corepack keeps the package-manager binaries it has downloaded under HOME, and
+# the sandbox moves HOME. Without carrying the real cache in, a corepack shim
+# starts every install example with an empty cache and reaches the registry to
+# refill it, which is slow and, when the network is unavailable, a failure rather
+# than a skip (seen locally as a ConnectTimeoutError). Resolved at import time,
+# before any fixture has moved HOME. An explicit COREPACK_HOME wins; otherwise
+# this is corepack's own per-platform default.
+def _real_corepack_home():
+    explicit = os.environ.get("COREPACK_HOME")
+    if explicit:
+        return explicit
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Caches", "node", "corepack")
+    if sys.platform == "win32":
+        return os.path.join(os.environ.get("LOCALAPPDATA", home), "node", "corepack")
+    cache = os.environ.get("XDG_CACHE_HOME") or os.path.join(home, ".cache")
+    return os.path.join(cache, "node", "corepack")
+
+
+COREPACK_HOME = _real_corepack_home()
+
 LOCKFILE_NAMES = {
     "pnpm": "pnpm-lock.yaml",
     "yarn": "yarn.lock",
@@ -342,6 +365,7 @@ class Fixtures:
         env["NPM_CONFIG_USERCONFIG"] = "/dev/null"
         env["npm_config_userconfig"] = "/dev/null"
         env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
+        env["COREPACK_HOME"] = COREPACK_HOME
         completed = subprocess.run(
             list(INSTALL_ARGS[manager]),
             cwd=str(directory),
@@ -606,6 +630,9 @@ def gh(sandbox, monkeypatch):
     # would hang a run rather than fail it. Set for the whole example, so the
     # install the code under test performs inherits it too.
     monkeypatch.setenv("COREPACK_ENABLE_DOWNLOAD_PROMPT", "0")
+    # The sandbox HOME has no corepack cache, so without this the shim would
+    # download a package manager over the network on every install example.
+    monkeypatch.setenv("COREPACK_HOME", COREPACK_HOME)
     sandbox.stub_path(STUB_BIN)
     fixtures.repo = fixtures.create(sandbox.path / "r")
     return fixtures
@@ -621,6 +648,18 @@ def sync_repo(run_script, gh):
     return run
 
 
+def probe_env():
+    """The environment the probes run under: the same corepack cache the tests use.
+
+    A probe that resolved against a different cache would answer a question the
+    examples never ask, and a manager could pass the probe and then download.
+    """
+    env = dict(os.environ)
+    env["COREPACK_HOME"] = COREPACK_HOME
+    env["COREPACK_ENABLE_DOWNLOAD_PROMPT"] = "0"
+    return env
+
+
 def has_working(manager):
     """Is this package manager both installed and actually able to run?
 
@@ -630,7 +669,10 @@ def has_working(manager):
     if shutil.which(manager) is None:
         return False
     completed = subprocess.run(
-        [manager, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        [manager, "--version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=probe_env(),
     )
     return completed.returncode == 0
 
@@ -651,7 +693,11 @@ def has_yarn_berry(tmp_path):
         + "\n"
     )
     completed = subprocess.run(
-        ["yarn", "--version"], cwd=str(probe), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        ["yarn", "--version"],
+        cwd=str(probe),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env=probe_env(),
     )
     if completed.returncode:
         return False
