@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 
 import pytest
 from conftest import STUB_BIN, WS_PR_STATUS, load_lib_module
@@ -166,10 +168,64 @@ def test_reduces_a_pull_request_with_jq_absent_from_path(ws_pr_status, sandbox):
 
 def test_says_so_when_gh_is_not_installed(ws_pr_status, sandbox):
     """Not in the shell spec, where a missing gh reported only "gh pr view
-    failed"; naming the reason saves the reader working out why."""
+    failed"; naming the reason saves the reader working out why. The OSError's
+    own text is the naming: without it the message says only which call it was."""
     result = ws_pr_status("10", env={"PATH": sandbox.path_without("gh")})
     assert result.status == 1
-    assert "gh pr view failed for 10" in result.stderr
+    assert "gh pr view failed for 10: " in result.stderr
+    assert "No such file or directory" in result.stderr
+
+
+@pytest.mark.parametrize("rollup", [{"nodes": []}, "SUCCESS", ["lint"]])
+def test_reports_a_rollup_it_cannot_fold_as_a_failure_rather_than_an_internal_error(
+    ws_pr_status, ws_sandbox, rollup
+):
+    """Not in the shell spec, where jq's own error came out as "jq failed while
+    folding the pull request". Folded blind, a rollup of this shape raised an
+    AttributeError, which the run loop recorded as an internal error with
+    nothing in it for the reader to act on."""
+    path = ws_sandbox.gh_dir / "prs.json"
+    prs = json.loads(path.read_text(encoding="utf-8"))
+    for pull_request in prs:
+        if pull_request["number"] == 10:
+            pull_request["statusCheckRollup"] = rollup
+    path.write_text(json.dumps(prs), encoding="utf-8")
+    result = ws_pr_status("10")
+    assert result.status == 1
+    assert result.stderr == (
+        "ws-pr-status.py: statusCheckRollup is not a list of objects for PR 10\n"
+    )
+
+
+def test_prints_a_non_ascii_title_under_a_non_utf8_locale(ws_pr_status, ws_sandbox):
+    """Not in the shell spec. The output is written with ensure_ascii=False, so
+    an accented title goes to stdout as raw UTF-8; without reconfiguring stdout
+    a non-UTF-8 locale would fail the write with a UnicodeEncodeError."""
+    path = ws_sandbox.gh_dir / "prs.json"
+    prs = json.loads(path.read_text(encoding="utf-8"))
+    for pull_request in prs:
+        if pull_request["number"] == 10:
+            pull_request["title"] = "fix: caf\u00e9 parser"
+    path.write_text(json.dumps(prs), encoding="utf-8")
+    result = ws_pr_status("10", env={"LC_ALL": "C", "PYTHONIOENCODING": "ascii", "PYTHONUTF8": "0"})
+    assert result.status == 0
+    assert "caf\u00e9" in result.stdout
+
+
+def test_exits_quietly_when_the_reader_closes_the_pipe(ws_sandbox):
+    """Not in the shell spec, where the shell was killed by SIGPIPE and nobody
+    noticed. Python turns it into a BrokenPipeError, which without a handler is
+    a traceback on stderr and a non-zero exit for `ws-pr-status.py 10 | head`."""
+    process = subprocess.Popen(
+        [sys.executable, str(WS_PR_STATUS), "10"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=dict(os.environ),
+    )
+    process.stdout.close()
+    stderr = process.communicate()[1].decode("utf-8", "replace")
+    assert process.returncode == 0
+    assert stderr == ""
 
 
 # --- the arm no stub can provoke ----------------------------------------------

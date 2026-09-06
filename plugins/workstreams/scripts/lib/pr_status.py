@@ -33,6 +33,22 @@ PASSED = ("SUCCESS", "NEUTRAL", "SKIPPED")
 PENDING = "PENDING"
 
 
+class Malformed(Exception):
+    """An answer from gh this fold cannot read, with the message to report.
+
+    The status is 1, gh's own: a rollup that is not a list of objects is gh (or
+    a GitHub schema change) answering with something else, not the caller
+    mistyping an argument. It carries the pair `cli.run` reports, and the script
+    names the class when it calls `run`, the way `issues.Invalid` is handled:
+    nothing under `lib/` imports another `lib/` module.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = 1
+
+
 def coalesce(*values):
     """The first value that is neither null nor false, the way jq's `//` chose.
 
@@ -48,10 +64,13 @@ def coalesce(*values):
 def present(value):
     """The value unless it is absent, where "" counts as absent as null does.
 
-    GitHub reports a check that has not concluded either way -- as null on one
-    row type and as the empty string on another -- so the two are one case here.
+    GitHub reports a check that has not concluded either way as null or, on
+    some rows, as the empty string, so the two are one case here. `false` joins
+    them: it is not a state either, and without this the fold would upper-case
+    it into the outcome FALSE, which is in neither the failed nor the passed
+    set and would quietly report the whole rollup as pending.
     """
-    return None if value is None or value == "" else value
+    return None if value is None or value is False or value == "" else value
 
 
 def outcome(row: dict) -> str:
@@ -107,8 +126,18 @@ def failing(rows) -> list:
 
 
 def reduce(document: dict) -> dict:
-    """One pull request reduced to the fields the run loop decides on."""
+    """One pull request reduced to the fields the run loop decides on.
+
+    The rollup is checked before it is folded, so a shape gh never answers with
+    is named rather than raising an AttributeError from inside `outcome`: the
+    run loop records a reported failure with its message, and an internal error
+    with a traceback's worth of nothing.
+    """
     rollup = coalesce(document.get("statusCheckRollup"), [])
+    if not isinstance(rollup, list) or not all(isinstance(row, dict) for row in rollup):
+        raise Malformed(
+            "statusCheckRollup is not a list of objects for PR {}".format(document.get("number"))
+        )
     return {
         "number": document.get("number"),
         "url": document.get("url"),
