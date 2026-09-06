@@ -211,6 +211,13 @@ Describe 'ft-run.sh'
       The value "$(field '.args[1] | @json')" should equal '"a\nb"'
     End
 
+    It 'refuses when it cannot create the events file in an existing run directory'
+      chmod a-w "$FT_RUN_DIR"
+      When run script "$FT_RUN" start gh:sync
+      The status should equal 1
+      The stderr should include 'cannot create'
+    End
+
     It 'stops reading its own options at the first bare argument'
       When run script "$FT_RUN" start gh:sync sub-target --cwd /elsewhere
       The status should be success

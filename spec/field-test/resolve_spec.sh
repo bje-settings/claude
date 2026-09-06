@@ -76,6 +76,14 @@ Describe 'ft-resolve.sh'
       The output should include '"repo":"acme-org/plugins"'
     End
 
+    It 'leaves the commit and repo null when the local marketplace path is gone'
+      rm -rf "$FT_PLUGIN_CHECKOUT"
+      When run script "$FT_RESOLVE" gh:shepherd
+      The status should be success
+      The output should include '"commit":null'
+      The output should include '"repo":null'
+    End
+
     It 'leaves the commit and repo null when the marketplace came from github'
       ft_fixture_marketplaces "$FT_MARKETPLACES" "$FT_PLUGIN_CHECKOUT" github
       When run script "$FT_RESOLVE" gh:shepherd

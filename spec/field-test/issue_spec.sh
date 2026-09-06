@@ -356,6 +356,24 @@ JSON
       The output should include 'built by the fixtures rather than mocked'
     End
 
+    It 'says what was not recorded rather than leaving the issue blank'
+      target; names_file
+      cat > "$FT_SANDBOX/record.json" <<'JSON'
+{"kind": "args_dropped", "severity": "low", "count": 1,
+ "signature": "args_dropped:--dry-run",
+ "agent_id": null, "agent_type": null,
+ "evidence": {"command": null, "reason": null, "exit_code": null, "stderr": "",
+              "argument": "--dry-run", "preceding": []}}
+JSON
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'the finding is about the run as a whole'
+      The output should include '(no output recorded)'
+      The output should include 'Exit code: not recorded'
+      The output should include 'Nothing was recorded before it.'
+      The output should include 'A args_dropped finding recorded during the run.'
+    End
+
     It 'says so when the marker recorded no plugin, version or commit'
       target; names_file; record
       ft_fixture_run "$FT_SANDBOX/bare-run.json" gh:shepherd '[]' null

@@ -241,6 +241,25 @@ Describe 'the field-test hooks'
     End
   End
 
+  Describe 'a payload or marker it cannot use'
+    It 'records nothing when the payload is JSON but not an object'
+      printf '[1, 2, 3]' > "$FT_SANDBOX/payload.json"
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PostToolUse
+      The status should be success
+      The value "$(event_count)" should equal '0'
+    End
+
+    It 'records nothing when the run marker is JSON but not an object'
+      printf '[]' > "$FT_RUN_DIR/run.json"
+      input post-ok
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PostToolUse
+      The status should be success
+      The value "$(event_count)" should equal '0'
+    End
+  End
+
   Describe 'the deny list'
     # Every pattern in hooks/deny-list.txt has a denied sample in
     # fixtures/field-test/commands/deny.txt, and allow.txt holds the near misses no
