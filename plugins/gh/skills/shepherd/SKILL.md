@@ -42,8 +42,8 @@ author, `mergeStateStatus`, `checks.state`) and stop here.
 ## Step 3 — Shepherd
 
 Launch one `shepherd-repo` agent per repo that has targets, all in a single message so they
-run in parallel. Each agent gets exactly one argument, the repo path, and returns a JSON
-report. Do not start a second agent for the same repo, and do not shepherd a repo yourself:
+run in parallel. On a first run each agent gets exactly one argument, the repo path, and
+returns a JSON report. Do not start a second agent for the same repo, and do not shepherd a repo yourself:
 the serial-within-a-repo guarantee lives in the agent.
 
 If the user named a single repo with `--repo <path>`, shepherd only that one.
@@ -57,13 +57,17 @@ Collate the agents' JSON into one table per repo:
 | #n | merged `sha` | rebases: 1; `merged_as` when the version differs from the title |
 | #n | skipped | reason, comment URL |
 | #n | blocked | `mergeStateStatus`, reason |
-| #n | needs escalation | reason |
+| #n | needs escalation | reason; `hypothesis` when present |
 | #n | closed | reason |
 
 Then list `skipped_no_automerge` per repo, and the `ci_seconds` each agent measured.
 
 If any pull request needs escalation, offer to rerun just those with a larger model
 (`shepherd-repo` with `model: opus`), and wait for the user's answer; do not rerun on your own.
+When rerunning, dispatch one `shepherd-repo` agent per repo with the repo path plus the
+escalated pull request numbers, each with its `reason` and, if present, `hypothesis`, so the
+larger model works only those pull requests and starts from the first worker's diagnosis
+instead of from zero.
 
 If the `gh-security` plugin is installed, mention that `/gh-security:resolve-alerts` is the
 natural next step: merging `dependencies` pull requests first usually shrinks the alert set

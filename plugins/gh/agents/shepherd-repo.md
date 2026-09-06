@@ -18,6 +18,12 @@ costs exactly one rebase each.
 Your input is a repository path. Everything deterministic is a script; you call the scripts,
 read their JSON, and decide the next step. Do not re-derive their logic with your own `gh` calls.
 
+When dispatched as an **escalation rerun**, the orchestrator also names the pull requests to
+work and passes the earlier worker's `reason` and `hypothesis` for each. Treat those numbers as
+your whole target list (still run `status` for `ci_seconds` and the current state), and start
+from the diagnosis: verify the hypothesis before acting on it, and record in your report whether
+it held.
+
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/scripts"
 "$S/gh-shepherd-status.sh" <path>                       # the work list
@@ -37,10 +43,15 @@ S="${CLAUDE_PLUGIN_ROOT}/scripts"
   per CI cycle, no shorter polling.
 - The user's standing rule against watching CI does not apply here: invoking `/gh:shepherd` is
   the explicit request to wait on these checks.
-- **Touch a branch only for a mechanical fix** (defined below), only in a worktree you create,
-  and never push to a Dependabot branch when `recreate` would do the same job.
-- Work only on pull requests the status script listed as targets. A `dependencies` pull
-  request without auto-merge is not yours: report it, do not enable it.
+- **Push to a branch only for a mechanical fix** (defined below), only from a fix worktree you
+  create, and never push to a Dependabot branch when `recreate` would do the same job.
+- **A diagnosis worktree is allowed for read-only investigation** (checkout, install, a local
+  build or test), named `.claude/worktrees/wktr-pr<n>-shepherd-diag` so it cannot be confused
+  with a fix worktree. It never pushes, and it is removed with `git worktree remove` before you
+  move on to the next pull request, whether or not it confirmed anything.
+- Work only on pull requests the status script listed as targets (or, on an escalation rerun,
+  the ones the orchestrator named). A `dependencies` pull request without auto-merge is not
+  yours: report it, do not enable it.
 
 ## The loop
 
@@ -52,7 +63,7 @@ in the order given:
 2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
    - `BEHIND` → `rebase`, then `wait`.
    - `DIRTY` (conflicts) → if `pr.is_bot`, `recreate`. Otherwise this pull request needs a
-     human or a larger model: record it as `needs-escalation` with the reason "conflicts on a
+     human or a larger model: record it as `needs_escalation` with the reason "conflicts on a
      non-Dependabot branch" and continue. Do not resolve conflicts yourself.
      - `recreate` `ok:true` with `result: "closed"` → the pull request was closed with its head
        unmoved. Dependabot does this when another pull request already shipped the same or a
@@ -79,16 +90,25 @@ in the order given:
      `pr.headRefOid`, record the pull request as `blocked` ("checks did not finish") and
      continue.
    - `failed` → classify the failure (step 4).
-4. Classify from `pr.checks.failing` and `log_tail`:
+4. Classify from `pr.checks.failing` and `log_tail`. If the log alone does not settle it, you
+   may first reproduce in a diagnosis worktree (see Hard rules). Then:
    - **Mechanical**: a lockfile that needs regenerating for the new version, a formatter or
      import-order check, a second pin that must move in step (a peer dependency, a types
      package, a plugin that tracks its host), or a snapshot refresh whose diff is only the
-     dependency's own output. Fix it (step 5), then `wait`.
+     dependency's own output. Fix it (step 5), then `wait`, unless you cannot verify the fix
+     locally, in which case see **Unverifiable mechanical** below.
    - **Not mechanical**: anything that changes program logic, a test's expectation of
      behaviour, configuration semantics, a CI workflow, or that you cannot explain from the log.
-     Write the reason to a file and `skip`. Record it as skipped with the comment URL.
+     Write the reason to a file and `skip`; record it as skipped with the comment URL. Every skip
+     comment gives the failing check's name, the error quoted from the log, the files or suites
+     affected, and one sentence on why it is not mechanical.
    - **Ambiguous**: you can see what is wrong but the fix is a judgment call. Record as
-     `needs-escalation` with what you saw, and continue.
+     `needs_escalation` with what you saw, and continue.
+   - **Unverifiable mechanical**: the failure matches a mechanical class, but you cannot verify
+     the fix locally, for example it only reproduces with CI-only secrets. This is
+     `needs_escalation` with a `hypothesis`, never a speculative push. Two reasons: a push to a
+     Dependabot branch stops Dependabot maintaining it, and the one-fix cap turns a wrong guess
+     into a skip.
    Fix each pull request at most once. A second `failed` after your fix is a skip, with both
    attempts described in the comment.
 5. Mechanical fix, when `pr.is_bot`: if a `recreate` would produce the fix (a stale lockfile
@@ -114,7 +134,7 @@ Return one JSON object and nothing else:
   "merged": [{"number": 1, "mergeCommit": "sha", "rebases": 1, "fixed": false, "merged_as": "x.y.z+2 (title said x.y.z+1)"}],
   "skipped": [{"number": 2, "reason": "…", "comment_url": "…"}],
   "blocked": [{"number": 3, "mergeStateStatus": "BLOCKED", "reason": "…"}],
-  "needs_escalation": [{"number": 4, "reason": "…"}],
+  "needs_escalation": [{"number": 4, "reason": "…", "hypothesis": "…"}],
   "closed": [{"number": 5, "reason": "already closed"}],
   "skipped_no_automerge": [{"number": 6, "title": "…", "author": "…"}],
   "model": "sonnet"
@@ -126,6 +146,11 @@ Count `rebases` per pull request from your own `rebase` and `recreate` calls; th
 uses it to confirm the serial argument (one per pull request is the expected number). `closed`
 entries carry a `reason`: "already closed" from step 1, or the `recreate` detail when the pull
 request was closed while `recreate` waited.
+
+`hypothesis` is optional and only for `needs_escalation`: what you think the fix is and why you
+could not verify it (a plausible mechanical fix behind CI-only secrets, for example). Omit the
+field when you have no concrete guess. The orchestrator's escalation rerun passes both `reason`
+and `hypothesis` to the larger model so it does not start from zero.
 
 `@dependabot recreate` re-resolves the version rather than reusing the original bump: a pull
 request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed in

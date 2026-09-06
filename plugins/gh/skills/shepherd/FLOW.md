@@ -28,7 +28,7 @@ flowchart TD
         RC -->|Closed, head unmoved: usually superseded by another PR| CS([Closed, terminal]):::stop --> S
         RC -->|Merged, head unmoved| S
         RC -->|Head never moved, comment failed, or PR unreadable| BR([Blocked: recreate did not land]):::stop --> S
-        T -->|Conflicts, human branch| E([Needs escalation: never resolved here]):::stop --> S
+        T -->|Conflicts, human branch| E([Needs escalation: a human or larger model decides]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
         W -->|Checks green| P{Auto-merge fired?}
@@ -39,7 +39,7 @@ flowchart TD
         W -->|Checks failed| K{Fix is mechanical?}
         K -->|Yes, first attempt| F[Fix in a throwaway worktree, push] --> W
         K -->|No: touches logic, tests, or config meaning| SK([Skip, comment says why]):::stop --> S
-        K -->|Cannot tell| E
+        K -->|Cannot tell, or mechanical but unverifiable locally| E
     end
 
     C --> D[Collate worker reports]
