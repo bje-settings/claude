@@ -13,7 +13,7 @@ branch is `<branch>`, checked out in the worktree at `<absolute path>`. Work onl
 Current status from the loop:
 
 ```json
-<output of ft-wait-pr.sh, or the PR state you have>
+<output of gh pr view <n> --repo <owner/repo> --json number,state,isDraft,mergeable,statusCheckRollup>
 ```
 
 ## Procedure

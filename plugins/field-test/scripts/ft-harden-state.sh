@@ -18,8 +18,8 @@
 # session that stopped can re-run the skill and continue. `next` prints the path
 # of the first target still to do, and nothing when the list is exhausted.
 #
-# `set` accepts only the fields below. pr takes a number or null; issues takes a
-# JSON array (pass --json); everything else is stored as a string.
+# `set` accepts only the fields below. pr takes a number or null and issues a JSON
+# array (--json is implied for both); everything else is stored as a string.
 #   status phase issues pr merge_sha question summary repo
 # Target statuses: pending running paused done failed
 # Phases: field-test verify fix review merge summary done

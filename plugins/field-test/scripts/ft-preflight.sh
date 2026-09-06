@@ -4,7 +4,10 @@
 # Prints one JSON object: {"ok": true|false, "missing": [{"id": ..., "hint": ...}]}
 # and exits 0 when everything is present, 1 when anything is missing, 2 on usage,
 # 4 when jq itself is missing (plain text on stderr, since no JSON can be built).
-# The skill prints each hint verbatim and stops, so hints are commands to run.
+# The skill prints each hint verbatim and stops, so hints are commands to run,
+# except registry-unreadable, whose hint names the file. A `detail` field carries
+# the tool's own message when there is one, so a network error is not reported
+# as a missing login.
 #
 # `harden` reuses the workstreams worker and reviewer agents and the review loop
 # they already own rather than growing its own, so both plugins have to be

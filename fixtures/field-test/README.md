@@ -1,6 +1,6 @@
 # field-test fixtures
 
-Canned input for `spec/field-test/`. Two kinds live here, for two different reasons.
+Canned input for `spec/field-test/`. Three kinds live here, for three different reasons.
 
 **Real git repositories**, built by `ft_fixture_repo`. The redaction table is derived from a
 checkout's actual remote, branches, and commit subjects, and redaction is the one thing in this
@@ -10,6 +10,10 @@ the specs assert against repositories that exist.
 **Recorded events**, one file per branch of `plugins/field-test/scripts/lib/collect.jq`. A
 multi-line jq program is a single line to kcov, so a branch with no example reads as covered while
 being untested; `.claude/rules/type-jq.md` asks for one fixture per arm and these are those arms.
+
+**Canned gh answers**, served by `bin/gh`: the pull requests `ft_fixture_prs` writes, one per arm
+of `checks.jq`, and the reports `ft_fixture_report` writes for the verifier. The stub filters and
+projects them the way the real gh does, so the jq in the scripts runs against them unchanged.
 
 Nothing here was copied from a repository outside the `bje` enterprise. The shapes are
 reconstructed from field tests of `/gh:shepherd` and `/workstreams:run`; the names (`acme-org`,
@@ -33,7 +37,7 @@ across polls the way a real one does.
 
 | Variable | Effect |
 | --- | --- |
-| `FT_GH_FIXTURE_DIR` | Directory holding `issues.json` and `enterprise-mode` |
+| `FT_GH_FIXTURE_DIR` | Directory holding `issues.json`, `prs.json` and `enterprise-mode` |
 | `FT_GH_FIXTURE_FAIL` | Every call fails |
 
 `enterprise-mode` picks the answer to the enterprise query: `both` (one enterprise holding
@@ -74,9 +78,11 @@ pattern cannot be narrowed to nothing while the suite stays green.
 
 `spec/field-test/fixtures_spec.sh` asserts the claims the other specs rely on: which branches and
 commit subjects a fixture repository has, that the contradiction case really holds an unresolved
-failure while the retried case does not, and what the gh stub refuses to answer.
+failure while the retried case does not, what the gh stub refuses to answer, which check verdict
+every fixture pull request folds to, that a sequenced pull request moves across polls and stays
+at its final state afterwards, and which claims each report case makes.
 
 `setup_ft_sandbox` in `spec/spec_helper.sh` wires it together for one example: a temp state
 directory holding a live run marker for session `ft-session`, a fake `HOME` with Claude's plugin
-registry, the canned enterprise answer, and the stub on `PATH`. Specs replace individual pieces to
+registry, the canned enterprise answer, the canned pull requests, and the stub on `PATH`. Specs replace individual pieces to
 build the negative cases.

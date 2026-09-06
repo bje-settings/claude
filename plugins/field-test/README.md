@@ -82,23 +82,26 @@ real and the names read as placeholders.
 
 ## `/field-test:harden <plugin:skill> --targets <repo-path>...`
 
-The loop the first pass of `/gh:shepherd` was hardened by hand: field-test, verify, file, fix,
-review, merge, next. Targets are explicit and worked in the order given; discovering them per
+The loop that hardened the first pass of `/gh:shepherd` by hand, made repeatable: field-test,
+verify, file, fix, review, merge, next. Targets are explicit and worked in the order given; discovering them per
 skill is not in this version.
 
 Per target, with every transition written to state before the next action is taken:
 
 1. **Field test.** `/field-test:run` in the target repository. It observes and files; `harden`
    records the issue numbers.
-2. **Verify.** `ft-verify-report.sh` re-reads every pull request the target skill's own report
-   named and compares the claim against GitHub. A mismatch becomes a finding of its own, which
-   in the by-hand pass was twice the most valuable finding of the round.
+2. **Verify**, always, even when the field test saw nothing. `ft-verify-report.sh` re-reads
+   every pull request the target skill's own report named and compares the claim against
+   GitHub. A mismatch becomes a finding of its own, which in the by-hand pass was twice the most
+   valuable finding of the round.
 3. **Fix.** One `workstreams:stream-<effort>` worker, one worktree, one draft PR closing every
-   issue of the round. A worker that pauses pauses the loop.
+   issue of the round. A worker that pauses pauses the loop; one that fails marks the target
+   `failed` and leaves its issues open for a person.
 4. **Review.** `workstreams:reviewer`, which runs `/pr-review-toolkit:review-pr`, until a pass
    applies nothing.
 5. **Merge.** Ready, auto-merge, then `ft-wait-pr.sh` blocking in the foreground. A mechanical CI
-   failure goes back to the fix step once; anything behavioural pauses with the question.
+   failure goes back to the fix step once; anything behavioural pauses with the question, and so
+   does a green pull request that auto-merge has not landed after three looks.
 6. **Summarise** in the same table every round, then the next target.
 
 The wait blocks rather than arming a wake on purpose. A worker that schedules a wake and ends its
@@ -109,9 +112,9 @@ that prompted this skill; the other is a report nobody checked.
 
 `${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/<plugin>__<skill>.json`, written by
 `ft-harden-state.sh`. Target statuses: `pending`, `running`, `paused`, `done`, `failed`. Phases:
-`field-test`, `verify`, `fix`, `review`, `merge`, `summary`, `done`. `next` prints the first
-target that is neither done nor failed, including a paused one, so a question cannot be stepped
-over. `init` refuses to overwrite a run in progress without `--force`.
+`field-test`, `verify`, `fix`, `review`, `merge`, `summary`, `done`. A target is `failed` when its
+fix worker failed or returned no report; its issues stay open. `next` prints the first target
+that is neither done nor failed, including a paused one, so a question cannot be stepped over. `init` refuses to overwrite a run in progress without `--force`.
 
 ## Hooks
 
