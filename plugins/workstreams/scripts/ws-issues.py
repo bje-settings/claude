@@ -4,7 +4,7 @@
   ws-issues.py <selector>...
 
 Selectors, in any mix:
-  12  #12  10-14        issue numbers and inclusive ranges
+  12  #12  10-14        issue numbers and inclusive ranges, up to the limit wide
   label:<name>          open issues carrying the label
   milestone:<title>     open issues in the milestone
   anything else         joined into one `gh issue list --search` query
@@ -19,7 +19,8 @@ Exit 0 with issues, 3 when nothing matched (stdout is still `[]`), 2 on usage,
 1 when gh fails. Deterministic: no judgment lives here.
 
 Overridable for tests:
-  WS_ISSUE_LIMIT   the --limit one `gh issue list` is given (default: 200)
+  WS_ISSUE_LIMIT   the --limit one `gh issue list` is given, and the widest
+                   range one selector may name (default: 200)
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -43,7 +44,7 @@ PROG = "ws-issues.py"
 
 # What every gh call asks for, so a list and a view answer with the same shape.
 FIELDS = "number,title,body,state,url,labels"
-DEFAULT_LIMIT = "200"
+DEFAULT_LIMIT = str(iss.DEFAULT_LIMIT)
 
 
 def die(message: str, status: int = 1):
@@ -53,6 +54,19 @@ def die(message: str, status: int = 1):
 def limit() -> str:
     """The --limit to give gh, as text: whatever it is, gh is the one that judges it."""
     return os.environ.get("WS_ISSUE_LIMIT") or DEFAULT_LIMIT
+
+
+def range_cap() -> int:
+    """The widest range a selector may name: the limit, when it is a number.
+
+    A WS_ISSUE_LIMIT gh would refuse is still gh's to refuse, so the range
+    check falls back to the default rather than guessing at what was meant.
+    """
+    try:
+        cap = int(limit())
+    except ValueError:
+        return iss.DEFAULT_LIMIT
+    return cap if cap > 0 else iss.DEFAULT_LIMIT
 
 
 def gh_json(arguments, failure: str):
@@ -105,8 +119,12 @@ def gh_view(number: int):
         ["issue", "view", str(number), "--json", FIELDS],
         f"gh issue view failed for #{number}",
     )
-    url = answer.get("url") or "" if isinstance(answer, dict) else ""
-    if "/pull/" in str(url):
+    if not isinstance(answer, dict):
+        # Not a shape to carry on with: the pull-request check below would find
+        # no url on it and wave through whatever it is, and the merge would
+        # then look for a number that is not there either.
+        die(f"gh issue view answered with something other than an issue for #{number}")
+    if "/pull/" in str(answer.get("url") or ""):
         die(f"#{number} is a pull request, not an issue")
     return answer
 
@@ -121,8 +139,9 @@ def resolve(selectors):
     answers = []
     numbers = []
     search = []
+    cap = range_cap()
     for selector in selectors:
-        kind, payload = iss.classify(selector)
+        kind, payload = iss.classify(selector, cap)
         if kind == "list":
             answers.append(gh_list(payload[0], payload[1], selector))
         elif kind == "numbers":
@@ -134,7 +153,7 @@ def resolve(selectors):
             search.append(selector)
     for number in numbers:
         answers.append(gh_view(number))
-    query = " ".join(part for part in search if part)
+    query = " ".join(search)
     if query:
         answers.append(gh_list("--search", query, f"search: {query}"))
     return answers

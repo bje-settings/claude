@@ -20,7 +20,8 @@ pending if none failed but any is still running or has no conclusion; pass if
 every check succeeded, was neutral, or skipped; none if there are none. failing
 names the checks that failed (a CheckRun's name or a StatusContext's context).
 
-Exit 0 on success, 1 when gh fails or the PR does not exist, 2 on usage.
+Exit 0 on success, 1 when gh fails, the PR does not exist, or gh answers with a
+rollup this cannot fold, 2 on usage.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -92,7 +93,7 @@ def body(argv) -> int:
 
 
 def main(argv) -> int:
-    return cli.run(PROG, lambda: body(argv))
+    return cli.run(PROG, lambda: body(argv), (cli.Failure, pr_status.Malformed))
 
 
 if __name__ == "__main__":
