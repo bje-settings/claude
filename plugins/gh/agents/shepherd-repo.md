@@ -61,7 +61,9 @@ in the order given:
 1. `state`. If `pr.state` is `MERGED`, record it and continue. If `CLOSED`, record as closed
    and continue.
 2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
-   - `BEHIND` → `rebase`, then `wait`.
+   - `BEHIND` → `rebase`, then `wait`. If `rebase` returns `ok:false` (GitHub refused the
+     branch update, usually a conflict that appeared since `status` ran), re-read `state` and
+     decide again; a second `ok:false` is `blocked` with the detail.
    - `DIRTY` (conflicts) → if `pr.is_bot`, `recreate`. Otherwise this pull request needs a
      human or a larger model: record it as `needs_escalation` with the reason "conflicts on a
      non-Dependabot branch" and continue. Do not resolve conflicts yourself.
@@ -79,6 +81,9 @@ in the order given:
        one). Do not retry.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait` (it returns at once when the checks
      are already terminal) and go to step 3.
+   - Right after a `rebase` or a `recreate` that moved the head, do not re-enter this list: go
+     straight to `wait`. The `BLOCKED` or `UNKNOWN` state with pending checks you see then is
+     GitHub recomputing mergeability for the new head, not a new decision.
    - `CLEAN`, `HAS_HOOKS`, or checks `pending` → `wait`.
    - `UNKNOWN` → GitHub has not computed it yet; `wait` once, then re-read `state`.
 3. Act on the `wait` result:
