@@ -216,13 +216,28 @@ Describe 'the field-test hooks'
       The value "$(jq -r '.finished_at | length > 0' "$FT_RUN_DIR/run.json")" should equal 'true'
     End
 
+    # A marker that never gets its finished_at wedges the session: every later hook
+    # keeps recording, and the next start is refused as a run already running.
+    It 'records the finish it could not make, rather than leaving the run wedged'
+      printf 'nope' > "$FT_RUN_DIR/run.json.broken"
+      export FT_RUN_SH="$FT_SANDBOX/failing-run.sh"
+      printf '#!/bin/sh\necho "cannot write the marker" >&2\nexit 1\n' > "$FT_RUN_SH"
+      chmod +x "$FT_RUN_SH"
+      input stop
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" Stop
+      The status should be success
+      The value "$(events | jq -r 'select(.event == "hook_error") | .hook')" should equal 'Stop'
+      The value "$(events | jq -r 'select(.event == "hook_error") | .error')" should include 'cannot write the marker'
+    End
+
     It 'still exits 0 when the run script it calls is gone'
       export FT_RUN_SH="$FT_SANDBOX/nowhere.sh"
       input stop
       Data "$(cat "$FT_SANDBOX/payload.json")"
       When run script "$FT_HOOK" Stop
       The status should be success
-      The value "$(events | jq -r '.event')" should equal 'Stop'
+      The value "$(events | jq -rs '[.[].event] | join(" ")')" should equal 'Stop hook_error'
     End
   End
 

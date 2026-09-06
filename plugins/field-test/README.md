@@ -86,7 +86,7 @@ on what the machine already has.
 | `PostToolUse` (Bash) | Command, exit code, stderr tail, subagent id |
 | `PostToolUseFailure` (Bash) | The same, for a call that failed outright. This payload carries no `tool_response`: the exit code is read from the first line of its `error` string and the rest of that string is the output |
 | `SubagentStop` | The subagent's own transcript path and last message |
-| `Stop` | Marks the run finished |
+| `Stop` | Marks the run finished, and records a `hook_error` when it could not |
 
 The cost in a session that is not a field test is one `bash` and one `python3` start, which
 measures around 45 ms per Bash call on an M-series Mac and is all process startup: the hook reads

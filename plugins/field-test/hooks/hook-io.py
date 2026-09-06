@@ -270,7 +270,7 @@ def handle_stop(payload, path):
     append(path, base_record("Stop", payload))
     run_sh = os.environ.get("FT_RUN_SH") or os.path.join(HERE, "..", "scripts", "ft-run.sh")
     try:
-        subprocess.run(
+        finished = subprocess.run(
             ["bash", run_sh, "finish", "--session", payload.get("session_id") or ""],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -278,6 +278,23 @@ def handle_stop(payload, path):
         )
     except OSError:
         return
+    if finished.returncode == 0:
+        return
+    # A marker that never gets its finished_at keeps every later hook recording into
+    # a run nobody will collect, and the next start in this session is refused as one
+    # already running. Nothing else in the run would say why.
+    record = base_record("hook_error", payload)
+    record.update(
+        {
+            "hook": "Stop",
+            "error": "ft-run.sh finish exited %d: %s"
+            % (
+                finished.returncode,
+                finished.stderr.decode("utf-8", "replace")[-STDERR_TAIL_CHARS:],
+            ),
+        }
+    )
+    append(path, record)
 
 
 def dispatch(event, payload, path):
