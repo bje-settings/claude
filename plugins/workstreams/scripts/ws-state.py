@@ -410,8 +410,11 @@ def main(argv):
         # interpreter still tries to flush during shutdown (stdout again, or a
         # stray write to stderr) can resurface as a broken-pipe trace either.
         devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
-        os.dup2(devnull, sys.stderr.fileno())
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+            os.dup2(devnull, sys.stderr.fileno())
+        finally:
+            os.close(devnull)
         return 0
     except Exception as error:
         # The docstring promises the script's own message rather than a
