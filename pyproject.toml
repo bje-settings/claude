@@ -20,7 +20,8 @@ dev = [
   # through subprocess, so without the patch the coverage denominator is empty.
   "coverage>=7.10.7,<7.11",
   "ruff>=0.14",
-  # Installed ahead of its config: issue #14 lands .pre-commit-config.yaml.
+  # Runs the hooks in .pre-commit-config.yaml. Stays below 4.4: that release
+  # needs Python 3.10, and the floor here is 3.9.
   "pre-commit>=4.3",
 ]
 
