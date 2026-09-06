@@ -76,6 +76,14 @@ read -r -d '' EMIT_JQ <<'JQ' || true
  repo: (if $repo == "" then null else $repo end)}
 JQ
 
+# One line per installed copy: "<marketplace>\t<installPath>\t<version>".
+read -r -d '' INSTALLED_ROWS_JQ <<'JQ' || true
+.plugins // {} | to_entries[]
+| select(.key | startswith($p + "@"))
+| (.key | split("@")[1]) as $m
+| .value[]? | [$m, (.installPath // ""), (.version // "")] | @tsv
+JQ
+
 read -r -d '' MARKETPLACE_PATH_JQ <<'JQ' || true
 (.[$m] // {}) as $e
 | if ($e.source.source // "") == "directory"
@@ -117,9 +125,14 @@ if [[ "$target" == *:* ]]; then
   [[ -f "$installed" ]] || die "no installed plugins file at $installed" 3
   jq -e . "$installed" >/dev/null 2>&1 || die "installed plugins file is not valid JSON: $installed" 3
 
-  # One line per installed copy: "<marketplace>\t<installPath>\t<version>".
   # A plugin can be installed from more than one marketplace and at more than one
   # scope; the first copy that actually carries the skill is the one under test.
+  # Read before the loop so a jq failure is told apart from an empty result: a
+  # registry whose shape has changed is not the same problem as a plugin that is
+  # not installed, and "install it and try again" cannot fix the first one.
+  rows="$(jq -r --arg p "$plugin" "$INSTALLED_ROWS_JQ" "$installed" 2>&1)" \
+    || die "could not read $installed; its shape is not what this expects: $rows" 3
+
   found=""
   while IFS="$(printf '\t')" read -r market install version; do
     [[ -n "$install" ]] || continue
@@ -127,11 +140,7 @@ if [[ "$target" == *:* ]]; then
     found="$market"$'\t'"$install"$'\t'"$version"
     break
   done <<EOF
-$(jq -r --arg p "$plugin" '
-  .plugins // {} | to_entries[]
-  | select(.key | startswith($p + "@"))
-  | (.key | split("@")[1]) as $m
-  | .value[]? | [$m, (.installPath // ""), (.version // "")] | @tsv' "$installed" 2>/dev/null)
+$rows
 EOF
   [[ -n "$found" ]] || die "no installed plugin provides $target; install it and try again" 3
 

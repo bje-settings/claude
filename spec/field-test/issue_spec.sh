@@ -128,6 +128,14 @@ JSON
       The output should not include '"placeholder": "<org>/<repo>"'
     End
 
+    It 'refuses an events file it cannot read, rather than dropping the #N references'
+      target
+      printf '{"event":"PostToolUse","command":"gh pr view 12 # closes #12"\n' > "$FT_RUN_DIR/events.jsonl"
+      When run script "$FT_ISSUE" names "$FT_SANDBOX/target" --run "$FT_RUN_DIR"
+      The status should equal 1
+      The stderr should include 'would survive redaction'
+    End
+
     It 'reads the owner through an ssh host alias, which names the same repository'
       target acme-org/widgets alias
       When run script "$FT_ISSUE" names "$FT_SANDBOX/target"
@@ -207,6 +215,23 @@ JSON
   End
 
   Describe 'render'
+    It 'refuses a record that is not JSON, rather than printing an empty title'
+      target; names_file
+      printf 'nope' > "$FT_SANDBOX/record.json"
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json"
+      The status should equal 2
+      The stderr should include 'record is not valid JSON'
+      The output should equal ''
+    End
+
+    It 'refuses a run marker that is not JSON'
+      target; names_file; record
+      printf 'nope' > "$FT_SANDBOX/broken-run.json"
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_SANDBOX/broken-run.json" "$FT_SANDBOX/names.json"
+      The status should equal 2
+      The stderr should include 'run marker is not valid JSON'
+      The output should equal ''
+    End
     It 'needs all three files'
       When run script "$FT_ISSUE" render "$FT_SANDBOX/nope.json"
       The status should equal 2

@@ -123,7 +123,11 @@ $abs"
     # the repository under test, which name it as surely as its branches do.
     refs=""
     if [[ -n "$run_dir" && -f "$run_dir/events.jsonl" ]]; then
-      refs="$(jq -r "$REFS_JQ" "$run_dir/events.jsonl" 2>/dev/null | grep -o '#[0-9][0-9]*' | sort -u)"
+      # Checked: a truncated last line makes jq exit non-zero after partial output,
+      # and the missing <pr> entries would survive into a public issue unremarked.
+      refs_text="$(jq -r "$REFS_JQ" "$run_dir/events.jsonl" 2>&1)" \
+        || die "could not read $run_dir/events.jsonl; the #N references it names would survive redaction"
+      refs="$(printf '%s\n' "$refs_text" | grep -o '#[0-9][0-9]*' | sort -u)"
     fi
     lines_to_json() { printf '%s' "$1" | jq -Rc 'select(length > 0)' | jq -sc .; }
     jq -n --arg remote "${remote:-}" --arg repo "${slug:-}" --arg owner "${owner:-}" \
@@ -162,10 +166,15 @@ $abs"
       *) die "render: unknown argument: $1" 2 ;;
     esac
     [[ -f "$TEMPLATE" ]] || die "no issue template at $TEMPLATE"
-    jq -rn --rawfile template "$TEMPLATE" \
+    jq -e . "$record" >/dev/null 2>&1 || die "record is not valid JSON: $record" 2
+    jq -e . "$run" >/dev/null 2>&1 || die "run marker is not valid JSON: $run" 2
+    # Rendered into a variable first. Piping jq straight into redaction publishes
+    # whatever it managed to write before it failed, and redaction appends its note
+    # to that, so a failed render still looks like an issue with an empty title.
+    body="$(jq -rn --rawfile template "$TEMPLATE" \
       --argjson record "$(cat "$record")" --argjson run "$(cat "$run")" \
-      -f "$LIB/render.jq" \
-      | bash "$HERE/ft-redact.sh" "$names" $inside
+      -f "$LIB/render.jq")" || die "could not render $record"
+    printf '%s\n' "$body" | bash "$HERE/ft-redact.sh" "$names" $inside
     ;;
 
   ensure-label)

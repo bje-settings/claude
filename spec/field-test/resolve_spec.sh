@@ -111,6 +111,15 @@ Describe 'ft-resolve.sh'
       The stderr should include 'no installed plugin provides gh:nosuch'
     End
 
+    # A registry whose shape has changed is not a plugin that is not installed, and
+    # "install it and try again" is advice that cannot fix it.
+    It 'says the registry shape is wrong rather than blaming a missing plugin'
+      printf '{"plugins": [{"name": "gh"}]}' > "$FT_INSTALLED_PLUGINS"
+      When run script "$FT_RESOLVE" gh:shepherd
+      The status should equal 3
+      The stderr should include 'its shape is not what this expects'
+    End
+
     It 'refuses when the registry is missing'
       rm -f "$FT_INSTALLED_PLUGINS"
       When run script "$FT_RESOLVE" gh:shepherd

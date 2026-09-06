@@ -267,6 +267,18 @@ Describe 'ft-collect.sh'
       The stderr should include 'no transcript_path'
     End
 
+    # Every way this can fail prints nothing, and so does a target that said nothing.
+    It 'refuses a transcript it cannot read, rather than reporting silence'
+      ft_fixture_transcript "$FT_SANDBOX/transcript.jsonl" with-report
+      jq --arg t "$FT_SANDBOX/transcript.jsonl" '.transcript_path = $t' "$FT_RUN_DIR/run.json" > "$FT_SANDBOX/x"
+      mv "$FT_SANDBOX/x" "$FT_RUN_DIR/run.json"
+      chmod a-r "$FT_SANDBOX/transcript.jsonl"
+      When run script "$FT_COLLECT" "$FT_RUN_DIR" --report
+      The status should equal 1
+      The stderr should include 'could not read the transcript'
+      The output should equal ''
+    End
+
     It 'says so when the transcript is gone'
       jq '.transcript_path = "/nowhere/transcript.jsonl"' "$FT_RUN_DIR/run.json" > "$FT_SANDBOX/x"
       mv "$FT_SANDBOX/x" "$FT_RUN_DIR/run.json"

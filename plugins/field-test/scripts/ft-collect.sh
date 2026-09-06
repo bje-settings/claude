@@ -69,7 +69,12 @@ split("\n") | map(select(length > 0) | . as $l | try fromjson catch empty)
       | select(length > 0))
 | last // ""
 JQ
-  jq -rRs "$LAST_TEXT_JQ" "$transcript"
+  # Checked, not printed straight out: every way this can fail prints nothing, and
+  # nothing is also what a target that said nothing prints. The whole point of this
+  # output is telling those two apart.
+  report="$(jq -rRs "$LAST_TEXT_JQ" "$transcript")" \
+    || die "could not read the transcript at $transcript"
+  printf '%s\n' "$report"
   exit 0
 fi
 
