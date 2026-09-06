@@ -10,6 +10,13 @@ opposite instead, that a preflight with jq absent from PATH still passes.
 The "tool is not installed" cases use `sandbox.path_without`, which builds a
 PATH of the real tools minus the named ones, in place of `ws_path_without` from
 the deleted `spec/spec_helper.sh`.
+
+Two examples that ran the script from a directory of their own making -- the
+repo-local skill and the git fallback -- drive `check_gh_stack_skill` and
+`repo_root` in this process instead. A Python child started from outside the
+checkout resolves coverage.py's relative `omit` patterns against its own working
+directory, which silently mis-reports every file in the run; `git` is not a
+Python child, so calling it from a temporary repository is safe.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import subprocess
 
 import pytest
 from conftest import (
+    ROOT,
     STUB_BIN,
     WS_PREFLIGHT,
     load_lib_module,
@@ -91,29 +99,20 @@ def test_reports_a_broken_gh_apart_from_a_missing_extension(ws_preflight):
 def test_reports_the_gh_stack_skill_when_neither_the_user_nor_the_repo_has_it(
     ws_preflight, ws_sandbox
 ):
-    """reports the gh-stack skill when neither the user nor the repo has it"""
+    """reports the gh-stack skill when neither the user nor the repo has it
+
+    "the repo" is this checkout, which the script is run from and which carries
+    no `.claude/skills/gh-stack`; the shell spec depended on the same thing. The
+    fixtures cannot move the script somewhere else to be sure of it: a child
+    process started from outside the checkout resolves coverage.py's own
+    relative `omit` patterns against that directory instead, and every later
+    file in the report comes out wrong."""
+    assert not (ROOT / ".claude" / "skills" / "gh-stack").exists()
     shutil.rmtree(ws_sandbox.home / ".claude" / "skills" / "gh-stack")
     result = ws_preflight()
     assert result.status == 1
     assert ids(result) == ["gh-stack-skill"]
     assert "gh skill install github/gh-stack" in result.stdout
-
-
-def test_accepts_a_repo_local_gh_stack_skill_from_any_directory(
-    ws_preflight, ws_sandbox, monkeypatch
-):
-    """accepts a repo-local gh-stack skill from any directory in the repo"""
-    shutil.rmtree(ws_sandbox.home / ".claude" / "skills" / "gh-stack")
-    repo = ws_sandbox.path / "repo"
-    (repo / ".claude" / "skills" / "gh-stack").mkdir(parents=True)
-    (repo / ".claude" / "skills" / "gh-stack" / "SKILL.md").write_text("", encoding="utf-8")
-    deep = repo / "deep" / "er"
-    deep.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    monkeypatch.chdir(deep)
-    result = ws_preflight()
-    assert result.status == 0
-    assert '"ok": true' in result.stdout
 
 
 def test_accepts_a_gh_stack_skill_delivered_by_an_installed_plugin(ws_preflight, ws_sandbox):
@@ -213,24 +212,6 @@ def test_passes_with_jq_absent_from_path(ws_preflight, sandbox):
     assert '"ok": true' in result.stdout
 
 
-def test_falls_back_to_the_working_directory_when_git_is_not_installed(
-    ws_preflight, ws_sandbox, sandbox, monkeypatch
-):
-    """Not in the shell spec. `git rev-parse` is how the repo-local skill is
-    found; without git the check must still answer from the working directory
-    rather than failing."""
-    shutil.rmtree(ws_sandbox.home / ".claude" / "skills" / "gh-stack")
-    (ws_sandbox.path / ".claude" / "skills" / "gh-stack").mkdir(parents=True)
-    (ws_sandbox.path / ".claude" / "skills" / "gh-stack" / "SKILL.md").write_text(
-        "", encoding="utf-8"
-    )
-    monkeypatch.chdir(ws_sandbox.path)
-    path = sandbox.path_without("git")
-    result = ws_preflight(env={"PATH": f"{STUB_BIN}{os.pathsep}{path}"})
-    assert result.status == 0
-    assert '"ok": true' in result.stdout
-
-
 def test_prints_two_space_indented_json_with_one_trailing_newline(ws_preflight):
     """Not in the shell spec, where `jq` decided the shape. Both skills read
     this output, so the shape is the contract."""
@@ -291,3 +272,41 @@ def test_gh_authenticated_is_false_when_gh_cannot_be_run(monkeypatch):
         module.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("gone"))
     )
     assert module.gh_authenticated() is False
+
+
+def test_accepts_a_repo_local_gh_stack_skill_from_any_directory(ws_sandbox, monkeypatch):
+    """accepts a repo-local gh-stack skill from any directory in the repo"""
+    module = load_ws_preflight_module()
+    shutil.rmtree(ws_sandbox.home / ".claude" / "skills" / "gh-stack")
+    repo = ws_sandbox.path / "repo"
+    (repo / ".claude" / "skills" / "gh-stack").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "gh-stack" / "SKILL.md").write_text("", encoding="utf-8")
+    deep = repo / "deep" / "er"
+    deep.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.chdir(deep)
+    missing = []
+    module.check_gh_stack_skill(missing, None)
+    assert missing == []
+
+
+def test_repo_root_falls_back_to_the_working_directory_outside_a_repository(
+    ws_sandbox, monkeypatch
+):
+    """Not in the shell spec. Outside a checkout `git rev-parse` fails, and the
+    check has to answer from the working directory rather than from nothing."""
+    module = load_ws_preflight_module()
+    outside = ws_sandbox.path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    assert module.repo_root() == os.getcwd()
+
+
+def test_repo_root_falls_back_to_the_working_directory_when_git_is_not_installed(monkeypatch):
+    """Not in the shell spec. `git rev-parse` is how the repo-local skill is
+    found; without git at all the check must still answer, not raise."""
+    module = load_ws_preflight_module()
+    monkeypatch.setattr(
+        module.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("no git"))
+    )
+    assert module.repo_root() == os.getcwd()
