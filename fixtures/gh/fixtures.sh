@@ -231,7 +231,7 @@ EOF
 # fixture_js_project <work> [pnpm|yarn|npm] — a package.json and lock file with
 # no dependencies, so the install succeeds offline and the real install path runs.
 # pnpm is the default: it is the house package manager and the branch
-# gh-sync-repo.sh checks first. Yarn means Berry; yarn 1 and bun are out of scope
+# gh-sync-repo.py checks first. Yarn means Berry; yarn 1 and bun are out of scope
 # for /gh:sync and have no fixtures.
 #
 # The developer's own ~/.npmrc is kept out of it: it may reference registries or
