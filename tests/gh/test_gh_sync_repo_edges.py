@@ -2,6 +2,11 @@
 
 The paths a happy-path run never reaches: argument handling, the default-branch
 resolution fallbacks, a failing remote, and the real dependency install.
+
+The install examples are marked `slow`: each writes a lock file with the real
+package manager and then installs from it, which makes them the slowest here and
+the only ones that need a package manager installed. The pre-commit hook
+deselects them; CI runs them.
 """
 
 from __future__ import annotations
@@ -114,6 +119,7 @@ def test_prunes_anyway_but_does_not_try_to_advance(gh, sync_repo):
 # --- the real dependency install ----------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not has_working("pnpm"), reason="pnpm is unavailable or not working")
 def test_runs_pnpm(gh, sync_repo):
     """runs pnpm when the pull changed pnpm-lock.yaml"""
@@ -124,6 +130,7 @@ def test_runs_pnpm(gh, sync_repo):
     assert "dependencies installed" in result.stdout
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not has_working("npm"), reason="npm is unavailable")
 def test_runs_npm(gh, sync_repo):
     """runs npm when the project uses package-lock.json"""
@@ -134,6 +141,7 @@ def test_runs_npm(gh, sync_repo):
     assert "dependencies installed" in result.stdout
 
 
+@pytest.mark.slow
 def test_runs_yarn_berry(gh, sync_repo, tmp_path):
     """runs yarn when the project uses Yarn Berry"""
     if not has_yarn_berry(tmp_path):
@@ -145,6 +153,7 @@ def test_runs_yarn_berry(gh, sync_repo, tmp_path):
     assert "dependencies installed" in result.stdout
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not has_working("pnpm"), reason="pnpm is unavailable or not working")
 def test_says_so_when_the_lock_file_was_removed(gh, sync_repo):
     """says so when the lock file was removed by the pull, rather than claiming an install"""
@@ -155,6 +164,7 @@ def test_says_so_when_the_lock_file_was_removed(gh, sync_repo):
     assert "no recognised lock file remains" in result.stdout
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not has_working("pnpm"), reason="pnpm is unavailable or not working")
 def test_reports_the_reason_when_an_install_fails(gh, sync_repo):
     """reports the reason when an install fails

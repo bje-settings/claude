@@ -41,6 +41,16 @@ select = ["E", "F", "W", "I", "UP", "B", "FA"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  # The examples that shell out to a real package manager, twice each: once to
+  # write the lock file, once to install from it. They are the slowest in the
+  # suite and the only ones that need a package manager installed at all -- 5 to
+  # 8 seconds apiece against a warm corepack cache, closer to a minute against a
+  # cold one, where the shim downloads the manager first. The pre-commit hook
+  # deselects them with -m "not slow"; CI runs the whole suite, marker and all,
+  # so nothing is only ever checked locally.
+  "slow: runs a real package-manager install (deselected by the pre-commit hook)",
+]
 
 [tool.coverage.run]
 # tests/ is here for one file, tests/coverage_check.py: it is test infrastructure,
