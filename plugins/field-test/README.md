@@ -99,16 +99,20 @@ FT_STATE_DIR=/tmp/no-runs \
 
 ### The deny list
 
-The one place a field test intervenes. It covers force-pushing without a lease, deleting a remote
-branch, a mirror push, `filter-branch` and `filter-repo`, and a recursive delete of a rooted or
-upward path. A denied command is recorded as the highest-severity finding: the target reaching
-for it is the thing worth writing down.
+The one place a field test intervenes. It covers force-pushing without a lease, in both the
+`--force` and the `+refspec` spelling, deleting a remote branch, a mirror push, `filter-branch`
+and `filter-repo`, and a recursive delete of a rooted or upward path. A denied command is
+recorded as the highest-severity finding: the target reaching for it is the thing worth writing
+down.
 
 Every rule is scoped to the one command it is about, not the whole line: `git push origin main &&
 git branch -d feature` is a safe push followed by a local branch delete, and a rule that scanned
 past the `&&` would refuse it and file the refusal as the run's headline finding. The recursive
 delete rule finds the recursive flag and the force flag separately, so `rm -r -f /` and
-`rm --recursive --force /` are refused alongside `rm -rf /`.
+`rm --recursive --force /` are refused alongside `rm -rf /`. The git rules step over git's
+global options, so `git -C <worktree> push --force` is refused like the bare form; the options
+are enumerated rather than matched as any leading flag, or `git --no-pager log --grep
+filter-repo` would be refused for naming a command it only reads about.
 
 Every pattern has a denied sample in `fixtures/field-test/commands/deny.txt`, asserted one
 pattern at a time, and `allow.txt` holds the near misses no pattern may match. Both files are

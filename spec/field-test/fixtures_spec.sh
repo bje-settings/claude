@@ -222,7 +222,7 @@ PY
       allow_count() { grep -c . "$FT_FIXTURES_DIR/commands/allow.txt"; }
       When call allow_count
       The status should be success
-      The output should equal '17'
+      The output should equal '20'
     End
   End
 
