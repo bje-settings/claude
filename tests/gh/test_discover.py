@@ -134,9 +134,13 @@ def test_the_script_prints_under_a_single_byte_locale(gh, run_script):
     """A repository path can hold any byte, and a non-UTF-8 locale must not turn
     printing one into a UnicodeEncodeError that loses the whole listing.
 
-    The name is deliberately outside ASCII: an ASCII-only path encodes fine under
-    ISO-8859-1 and would pass with no reconfigure at all.
+    One name is deliberately outside ASCII: an ASCII-only path encodes fine under
+    ISO-8859-1 and would pass with no reconfigure at all. What the name comes
+    back as depends on the platform (macOS decodes file names as UTF-8 whatever
+    the locale, Linux follows the locale), so the assertion is that the listing
+    survives: the ASCII sibling is printed and nothing crashed.
     """
+    gh.create_at(gh.path / "fan", "visible")
     gh.create_at(gh.path / "fan", "caf\u00e9-\u4ed3\u5e93")
     result = run_script(
         DISCOVER,
@@ -144,7 +148,8 @@ def test_the_script_prints_under_a_single_byte_locale(gh, run_script):
         env={"LC_ALL": "en_US.ISO8859-1", "PYTHONIOENCODING": "ISO-8859-1", "PYTHONUTF8": "0"},
     )
     assert result.status == 0
-    assert "\u4ed3\u5e93" in result.stdout
+    assert "Traceback" not in result.stderr
+    assert "/visible" in result.stdout
 
 
 def test_a_missing_git_is_no_repositories_rather_than_a_crash(gh, sandbox, monkeypatch):
