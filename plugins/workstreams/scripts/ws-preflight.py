@@ -38,6 +38,9 @@ PROG = "ws-preflight.py"
 
 GH_STACK_REPO = "github/gh-stack"
 INSTALL_REVIEW_TOOLKIT = "/plugin install pr-review-toolkit@claude-plugins-official"
+# What gh says when the user simply has not logged in. Anything else it fails
+# with is a different problem and gets a different hint.
+NOT_LOGGED_IN = "not logged in"
 
 
 def skills_dir() -> str:
@@ -80,21 +83,29 @@ def read_installed_plugins():
     have. A missing file is neither: (None, None), since "not installed yet" is
     the ordinary case.
 
-    Wider than the jq test it replaces, deliberately: `jq -e .` called a file
-    holding the bare literal `null` valid and then failed the key lookup on it
-    with the install hint. Anything whose top level is not a JSON object cannot
-    be Claude's plugin registry, and saying so is the more useful answer.
+    Wider than the jq test it replaces, deliberately: `jq -e .` exits 1 on the
+    bare literals `null` and `false`, but called a file holding an array, a
+    number, a string or `true` valid and then failed the key lookup on it with
+    the install hint. Anything whose top level is not a JSON object cannot be
+    Claude's plugin registry, and saying so is the more useful answer.
+
+    Only a file that is not there is "not installed yet". Any other OSError --
+    a directory in its place, a mode that cannot be read -- is a file the user
+    has to go and look at, so the reason names itself rather than being read as
+    an absent registry.
     """
     path = installed_plugins_path()
     try:
         with open(path, encoding="utf-8") as handle:
             document = json.load(handle)
-    except OSError:
+    except FileNotFoundError:
         return None, None
+    except OSError as error:
+        return None, f"installed plugins file cannot be read: {path}: {error.strerror}"
     except ValueError:
         return None, f"installed plugins file is not valid JSON: {path}"
     if not isinstance(document, dict):
-        return None, f"installed plugins file is not valid JSON: {path}"
+        return None, f"installed plugins file is not a JSON object: {path}"
     return document, None
 
 
@@ -147,17 +158,32 @@ def lists_gh_stack(text: str) -> bool:
     return False
 
 
-def gh_authenticated() -> bool:
+def gh_auth_status():
+    """(authenticated, complaint) from `gh auth status`.
+
+    `complaint` is None when the answer was "not logged in", which is the case
+    the login hint is for. Anything else gh failed with -- offline, a request
+    that timed out, a broken config, gh gone from under us -- is kept and
+    reported instead: telling a user who is logged in to log in again sends
+    them after the wrong problem. gh writes both answers to stderr, so that is
+    the stream to read.
+    """
     try:
         finished = subprocess.run(
             ["gh", "auth", "status"],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             check=False,
         )
-    except OSError:
-        return False
-    return finished.returncode == 0
+    except OSError as error:
+        return False, str(error)
+    if finished.returncode == 0:
+        return True, None
+    text = finished.stderr.decode("utf-8", "replace")
+    if NOT_LOGGED_IN in text.lower():
+        return False, None
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return False, lines[-1] if lines else None
 
 
 def check_gh(missing) -> None:
@@ -169,8 +195,10 @@ def check_gh(missing) -> None:
     if shutil.which("gh") is None:
         missing.append(("gh", "brew install gh"))
         return
-    if not gh_authenticated():
-        missing.append(("gh-auth", "gh auth login"))
+    authenticated, complaint = gh_auth_status()
+    if not authenticated:
+        hint = "gh auth login" if complaint is None else f"gh auth status failed: {complaint}"
+        missing.append(("gh-auth", hint))
     text, error = gh_extension_list()
     if error is not None:
         # A failing `gh extension list` is a broken gh, not a missing extension,
