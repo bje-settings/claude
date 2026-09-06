@@ -24,9 +24,8 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 `gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.sh`.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
-`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is the `gh` and `field-test` plugins plus one hook helper;
-`workstreams` is entirely Python.
+`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
+under `plugins/` (`find plugins -name '*.sh'` lists them); `workstreams` is entirely Python.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
@@ -36,11 +35,11 @@ others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds
 that plugin's scripts does around its own work (the UTF-8 output streams, the flush, a reported
 failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py` and `pr_status.py`
 hold what used to be each script's jq filters and argument checks, as plain functions with a unit
-test per arm. Nothing under `lib/` imports another `lib/` module: only the script's own directory
-goes on `sys.path`, so a module that raises its own error class hands it to `cli.run` rather than
-importing one. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by
+test per arm. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by
 path under a plugin-unique module name, because two plugins' `lib` packages collide on
-`sys.modules["lib"]` in one pytest process.
+`sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/` imports another
+`lib/` module: a module loaded by path sits outside any package, where a sibling import would not
+resolve, so a module that raises its own error class hands it to `cli.run` rather than importing one.
 
 Stdlib only, always, so an end user never needs `uv` or a virtualenv to run a plugin. The floor is
 Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/python3`. ruff's
@@ -128,12 +127,9 @@ script exercised black-box in a child process is still measured. Branch coverage
 `jq` program moved into Python stops being one opaque line and becomes arms the report can name,
 which is the answer to the blind spot `.claude/rules/type-jq.md` describes.
 Stub tools under `tests/<plugin>/bin/` are omitted from the config, since the subprocess patch
-would otherwise measure a fixture standing in for a tool as code under test. Those omits are
-relative paths, and a Python child resolves them against its own working directory, so a test must
-never run a script from a directory outside the checkout: everything the run measures after that is
-mis-attributed and the report is quietly wrong rather than failing. Drive a working-directory case
-in-process instead (`git` is not a Python child, so calling it from a temporary repository is
-safe).
+would otherwise measure a fixture standing in for a tool as code under test. Every omit pattern is
+`**/`-prefixed because a relative one is anchored to the current directory of whichever process
+reads the config, and coverage.py re-reads it in every measured child.
 `plugins/field-test/hooks/hook-io.py` is omitted as well, and is measured by
 neither harness until issue #59 ports its examples: kcov does not follow the `python3` child the
 shell specs launch, so the file appears in no report at all. The omit only keeps that gap from
