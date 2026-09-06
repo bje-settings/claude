@@ -383,7 +383,7 @@ JSON
 # `gh pr view`, covering every arm of scripts/lib/checks.jq and every claim
 # ft-verify-report.sh can be handed.
 #
-#   50 open, every check green                          checks pass
+#   50 open, every check green, skipped, or neutral      checks pass
 #   51 open, a FAILURE beside a SUCCESS                 checks fail
 #   52 open, a run still in progress and a PENDING      checks pending
 #   53 open, no checks at all                           checks none
@@ -391,7 +391,10 @@ JSON
 #   55 closed unmerged                                  state CLOSED
 #   56 open, a COMPLETED run with no conclusion         checks pending
 #   57 open, CANCELLED beside SUCCESS                   checks fail
-#   58 open, pending on the first look then green       a sequence
+#   58 open, pending on the first look then green       a sequence; green stays
+#   59 open, a commit status in FAILURE beside a green  checks fail (StatusContext)
+#   60 open, a FAILURE beside a run still in progress   checks fail, not pending
+#   61 open, no checks on the first look, then a run    a sequence; none then pending
 ft_fixture_prs() {
   cat > "$1" <<'JSON'
 [
@@ -399,6 +402,7 @@ ft_fixture_prs() {
    "statusCheckRollup": [
      {"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"},
      {"__typename": "CheckRun", "name": "shellcheck", "status": "COMPLETED", "conclusion": "SKIPPED"},
+     {"__typename": "CheckRun", "name": "codeql", "status": "COMPLETED", "conclusion": "NEUTRAL"},
      {"__typename": "StatusContext", "context": "coverage", "state": "SUCCESS"}]},
   {"number": 51, "state": "OPEN", "isDraft": false,
    "statusCheckRollup": [
@@ -419,10 +423,21 @@ ft_fixture_prs() {
      {"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"},
      {"__typename": "CheckRun", "name": "coverage", "status": "COMPLETED", "conclusion": "CANCELLED"}]},
   {"number": 58, "state": "OPEN", "isDraft": true,
-   "statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "IN_PROGRESS", "conclusion": null}],
+   "statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"}],
    "sequence": [
      {"statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "IN_PROGRESS", "conclusion": null}]},
-     {"statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"}]}]}
+     {"statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"}]}]},
+  {"number": 59, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [
+     {"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"},
+     {"__typename": "StatusContext", "context": "coverage", "state": "FAILURE"}]},
+  {"number": 60, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [
+     {"__typename": "CheckRun", "name": "coverage", "status": "COMPLETED", "conclusion": "FAILURE"},
+     {"__typename": "CheckRun", "name": "bash-3.2", "status": "IN_PROGRESS", "conclusion": null}]},
+  {"number": 61, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "IN_PROGRESS", "conclusion": null}],
+   "sequence": [{"statusCheckRollup": []}]}
 ]
 JSON
 }

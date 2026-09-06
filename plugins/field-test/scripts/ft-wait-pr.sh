@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-usage() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'ft-wait-pr.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 case "${1:-}" in
@@ -62,7 +62,7 @@ while :; do
   answer="$("$GH" pr view "$pr" --repo "$repo" --json state,isDraft,statusCheckRollup 2>&1)" \
     || die "cannot read pull request $pr in $repo: $(printf '%s' "$answer" | tr '\n' ' ' | cut -c1-160)" 4
   folded="$(printf '%s' "$answer" | jq -c -f "$LIB/checks.jq" 2>/dev/null)" \
-    || die "gh answered with something this cannot read for pull request $pr" 4
+    || die "gh answered with something this cannot read for pull request $pr: $(printf '%s' "$answer" | tr '\n' ' ' | cut -c1-160)" 4
 
   state="$(printf '%s' "$folded" | jq -r '.state')"
   checks="$(printf '%s' "$folded" | jq -r '.checks')"

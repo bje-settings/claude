@@ -374,7 +374,7 @@ PY
     It 'covers every check verdict the wait script can reach'
       verdicts() {
         local n
-        for n in 50 51 52 53 56 57; do
+        for n in 50 51 52 53 56 57 59 60; do
           gh pr view "$n" --repo acme-org/plugins --json state,isDraft,statusCheckRollup \
             | jq -r -f "$FT_PLUGIN_DIR/scripts/lib/checks.jq" \
             | jq -r '.checks'
@@ -382,7 +382,7 @@ PY
       }
       When call verdicts
       The status should be success
-      The output should equal 'pass fail pending none pending fail '
+      The output should equal 'pass fail pending none pending fail fail fail '
     End
 
     It 'has one merged and one closed pull request for the state arms'
@@ -396,15 +396,28 @@ PY
 CLOSED'
     End
 
-    It 'moves a sequenced pull request from in progress to complete across calls'
+    It 'moves a sequenced pull request from in progress to complete across calls, and stays there'
       poll() {
+        gh pr view 58 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup[0].status'
         gh pr view 58 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup[0].status'
         gh pr view 58 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup[0].status'
       }
       When call poll
       The status should be success
       The output should equal 'IN_PROGRESS
+COMPLETED
 COMPLETED'
+    End
+
+    It 'has a pull request with no checks on the first look and a run on the next'
+      poll() {
+        gh pr view 61 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup | length'
+        gh pr view 61 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup | length'
+      }
+      When call poll
+      The status should be success
+      The output should equal '0
+1'
     End
 
     It 'refuses a pull request it does not have, the way gh does'

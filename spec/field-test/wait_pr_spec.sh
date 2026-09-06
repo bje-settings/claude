@@ -82,6 +82,18 @@ Describe 'ft-wait-pr.sh'
       The output should equal 'failed'
     End
 
+    It 'says failed on a commit status in FAILURE, the shape external CI reports in'
+      When run script "$FT_WAIT_PR" acme-org/plugins 59 --timeout 1 --interval 1
+      The status should equal 1
+      The output should equal 'failed'
+    End
+
+    It 'says failed at once when one check failed while another is still running'
+      When run script "$FT_WAIT_PR" acme-org/plugins 60 --timeout 1 --interval 1
+      The status should equal 1
+      The output should equal 'failed'
+    End
+
     It 'says failed on a cancelled run rather than waiting for it forever'
       When run script "$FT_WAIT_PR" acme-org/plugins 57 --timeout 1 --interval 1
       The status should equal 1
@@ -111,6 +123,12 @@ Describe 'ft-wait-pr.sh'
       The status should be success
       The output should equal 'passed'
     End
+
+    It 'does not call one look with no checks a pass when a run turns up on the next'
+      When run script "$FT_WAIT_PR" acme-org/plugins 61 --timeout 1 --interval 1
+      The status should equal 3
+      The output should equal 'pending'
+    End
   End
 
   Describe 'when gh cannot answer'
@@ -121,11 +139,21 @@ Describe 'ft-wait-pr.sh'
       The stderr should include 'Could not resolve to a PullRequest'
     End
 
-    It 'exits 4 when gh answers with something unreadable'
+    It 'exits 4 when gh itself fails, with its message'
       export FT_GH_FIXTURE_FAIL=1
       When run script "$FT_WAIT_PR" acme-org/plugins 50 --timeout 1 --interval 1
       The status should equal 4
       The stderr should include 'simulated failure'
+    End
+
+    It 'exits 4 when gh answers with something unreadable, showing what it said'
+      printf '#!/bin/sh\necho "warning: not json"\n' > "$FT_SANDBOX/gh-garbage"
+      chmod +x "$FT_SANDBOX/gh-garbage"
+      export FT_GH="$FT_SANDBOX/gh-garbage"
+      When run script "$FT_WAIT_PR" acme-org/plugins 50 --timeout 1 --interval 1
+      The status should equal 4
+      The stderr should include 'cannot read for pull request 50'
+      The stderr should include 'not json'
     End
   End
 End
