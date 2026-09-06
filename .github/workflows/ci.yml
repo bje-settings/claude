@@ -97,9 +97,11 @@ jobs:
           /bin/bash --version | head -1
 
       # The fixtures pass identity to every git command they run, so no global
-      # git config is needed here.
+      # git config is needed here. --jobs spreads spec files across the runner's
+      # cores; every example builds its fixtures in its own temp dir, so they do
+      # not share state.
       - name: Run specs
-        run: shellspec ${{ matrix.shellspec_args }}
+        run: shellspec --jobs "$(nproc 2>/dev/null || sysctl -n hw.ncpu)" ${{ matrix.shellspec_args }}
 
   coverage:
     name: coverage
@@ -148,6 +150,8 @@ jobs:
       # under plugins/. Specs and fixtures are test code: counting them would
       # inflate the number without saying anything about how well the plugins
       # are tested.
+      #
+      # No --jobs here: serial by construction under kcov; see CLAUDE.md, Tests.
       - name: Run specs under kcov
         run: |
           shellspec --kcov --covdir coverage \
