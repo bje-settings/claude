@@ -12,7 +12,6 @@ with its install command.
 | Requirement | Install |
 | --- | --- |
 | `gh`, logged in | `brew install gh && gh auth login` |
-| `jq` | `brew install jq` |
 | `gh-stack` extension | `gh extension install github/gh-stack` |
 | `gh-stack` skill | `gh skill install github/gh-stack --agent claude-code` |
 | `pr-review-toolkit` plugin | `/plugin install pr-review-toolkit@claude-plugins-official` |
@@ -67,15 +66,16 @@ it as one unit of work.
 
 ## Scripts
 
-All deterministic. `ws-state.py` is Python (stdlib only, 3.9 floor), tested under
-`tests/workstreams/`; the rest are bash 3.2, spec'd under `spec/workstreams/`.
+All deterministic, all Python (stdlib only, 3.9 floor), tested under `tests/workstreams/`.
+`scripts/lib/` holds what they share: `cli.py` for output encoding, exit statuses and the
+broken-pipe case, and one module per script for the decisions it makes.
 
 | Script | Purpose |
 | --- | --- |
-| `ws-preflight.sh` | Dependency check; JSON `{ok, missing[]}` with install hints |
-| `ws-issues.sh` | Selectors to a JSON array of issues, with `#N` references extracted |
+| `ws-preflight.py` | Dependency check; JSON `{ok, missing[]}` with install hints |
+| `ws-issues.py` | Selectors to a JSON array of issues, with `#N` references extracted |
 | `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range |
-| `ws-pr-status.sh` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision |
+| `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision |
 
 ## Out of scope for now
 

@@ -41,11 +41,6 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/gh/hooks/session-start.sh \
     fixtures/gh/fixtures.sh \
     fixtures/gh/bin/gh \
-    plugins/workstreams/scripts/ws-preflight.sh \
-    plugins/workstreams/scripts/ws-issues.sh \
-    plugins/workstreams/scripts/ws-pr-status.sh \
-    fixtures/workstreams/fixtures.sh \
-    fixtures/workstreams/bin/gh \
     plugins/field-test/scripts/ft-run.sh \
     plugins/field-test/scripts/ft-resolve.sh \
     plugins/field-test/scripts/ft-collect.sh \
