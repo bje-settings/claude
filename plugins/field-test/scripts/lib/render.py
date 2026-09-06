@@ -77,14 +77,35 @@ def actual_of(kind: str, evidence) -> str:
 
 
 def summary_of(signature: str) -> str:
-    """The signature without its kind prefix, which is what the title says."""
-    return ":".join((signature or "").split(":")[1:]).lstrip(" ")[:SUMMARY_CHARS]
+    """The signature without its kind prefix, which is what the title says.
+
+    One leading space removed, not every one: this was jq's `ltrimstr(" ")`, which
+    strips a single prefix. A signature written with two spaces after the colon
+    kept the second, and a title is compared against the ones already filed.
+    """
+    text = ":".join((signature or "").split(":")[1:])
+    if text.startswith(" "):
+        text = text[1:]
+    return text[:SUMMARY_CHARS]
 
 
 def preceding_of(preceding) -> str:
     if not preceding:
         return "Nothing was recorded before it."
     return "\n".join("1. `" + (command or "").split("\n")[0] + "`" for command in preceding)
+
+
+def default(value, fallback):
+    """jq's `//`: the fallback only for null, never for an empty string.
+
+    Not Python's `or`, which also fires on "". The difference is visible in an
+    issue: a finding recorded with `"command": ""` rendered as an empty Steps
+    section under the shell, and rendering "(no single command...)" there instead
+    would have the issue assert something about the run that is not true. Every
+    one of these fields was a `//` in render.jq, and each is a claim about what
+    was recorded.
+    """
+    return fallback if value is None else value
 
 
 def fields(record, run):
@@ -99,30 +120,40 @@ def fields(record, run):
     args = run.get("args") or []
     return [
         ("type", "test" if kind == "args_dropped" else "fix"),
-        ("target", run.get("target") or "unknown"),
+        ("target", default(run.get("target"), "unknown")),
         ("summary", summary_of(record.get("signature") or "")),
         (
             "reason",
-            evidence.get("reason") or ("A " + str(kind) + " finding recorded during the run."),
+            # "A " + null + " finding..." in jq is "A  finding...": adding null to
+            # a string yields the string, so an unnamed kind left two spaces, not
+            # the word "None".
+            default(
+                evidence.get("reason"),
+                "A " + ("" if kind is None else str(kind)) + " finding recorded during the run.",
+            ),
         ),
         ("expected", EXPECTED.get(kind, EXPECTED_DEFAULT)),
         ("actual", actual_of(kind, evidence)),
         (
             "command",
-            evidence.get("command")
-            or "(no single command; the finding is about the run as a whole)",
+            default(
+                evidence.get("command"),
+                "(no single command; the finding is about the run as a whole)",
+            ),
         ),
+        # stderr and claude_version were an explicit `== ""` test in render.jq,
+        # not a `//`, so an empty string does take the fallback for these two.
         ("stderr", stderr if stderr else "(no output recorded)"),
         ("exit_code", "not recorded" if exit_code is None else str(exit_code)),
         ("preceding", preceding_of(evidence.get("preceding") or [])),
         ("args", " ".join(args) if args else "(none)"),
-        ("repo", run.get("cwd") or "unknown"),
-        ("plugin", resolved.get("plugin") or run.get("target") or "unknown"),
-        ("version", resolved.get("version") or "version unknown"),
-        ("commit", resolved.get("commit") or "not a local checkout"),
+        ("repo", default(run.get("cwd"), "unknown")),
+        ("plugin", default(default(resolved.get("plugin"), run.get("target")), "unknown")),
+        ("version", default(resolved.get("version"), "version unknown")),
+        ("commit", default(resolved.get("commit"), "not a local checkout")),
         ("claude_version", run.get("claude_version") or "not recorded"),
         ("kind", kind),
-        ("severity", record.get("severity") or "medium"),
+        ("severity", default(record.get("severity"), "medium")),
         ("count", str(record.get("count") if record.get("count") is not None else 1)),
         ("signature", record.get("signature") or ""),
         ("fixture", FIXTURE.get(kind, FIXTURE_DEFAULT)),

@@ -25,7 +25,6 @@ import json
 import re
 
 SIGNATURE_CHARS = 80
-CLAIM_CHARS = 400
 PRECEDING = 3
 
 RANKS = {"high": 0, "medium": 1, "low": 2}

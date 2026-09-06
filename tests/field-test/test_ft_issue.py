@@ -673,3 +673,37 @@ def test_names_skips_a_recorded_event_that_is_not_an_object(ft_sandbox, target, 
     result = run_script(FT_ISSUE, "names", directory, "--run", str(ft_sandbox.run_dir))
     assert result.status == 0
     assert "#12" in values_of(result)
+
+
+def test_search_prints_nothing_for_a_match_carrying_no_number(ft_sandbox, run_script):
+    """prints nothing for a matching issue with no number, rather than the word None
+
+    `// empty` in the shell's jq. The caller tests for empty output and opens a
+    new issue when it gets it; the string "None" reads to it as issue None.
+    """
+    signature = "bash_nonzero:gh pr merge --auto --squash N"
+    stub = ft_sandbox.path / "bin" / "gh"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text("#!/bin/sh\nprintf '%s' '[{\"body\": \"holds " + signature + " inside\"}]'\n")
+    stub.chmod(0o755)
+    ft_sandbox.setenv("FT_GH", stub)
+    result = run_script(FT_ISSUE, "search", REPO, signature)
+    assert result.status == 0
+    assert result.stdout == ""
+
+
+def test_render_ends_the_body_the_way_the_shell_did(
+    ft_sandbox, target, names_file, record, run_script
+):
+    """gives the body exactly one newline before the note, whatever the template ends with
+
+    The shell got this from `$(...)`, which strips every trailing newline, and
+    `printf '%s\\n'`, which puts one back. Without it an issue's last two lines
+    depend on how the template file happens to end.
+    """
+    target()
+    ft_fixture_run(ft_sandbox.marker)
+    result = render(ft_sandbox, run_script, record(), names_file())
+    assert result.status == 0, result.stderr
+    assert result.stdout.endswith("The shape of the case is real; the names are not.\n\n")
+    assert "\n\n\n> This run was on a repository" not in result.stdout
