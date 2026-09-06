@@ -19,6 +19,11 @@
 #             open. Reports the head SHA before and after.
 #   recreate  comments `@dependabot recreate`, then waits for the head SHA to
 #             change. Refuses on a pull request Dependabot did not author.
+#             Also re-reads the pull request's state on every poll: if
+#             Dependabot closes or merges it instead of moving the head (the
+#             target was superseded by another pull request), returns early
+#             with `result: "closed"` or `result: "merged"` rather than
+#             waiting out the rest of the bound.
 #   wait      gh pr checks --watch --fail-fast, bounded (see below). Result is
 #             one of passed, failed, pending, merged; `failing` lists the
 #             failed checks and `log_tail` carries the failed steps' log.
@@ -188,6 +193,20 @@ action_recreate() {
     waited=$((waited + interval))
     pr="$(read_pr)"
     after="$(field "${pr:-null}" '.headRefOid // ""')"
+    state="$(field "${pr:-null}" '.state // "OPEN"')"
+    # Dependabot can also answer by closing the pull request outright: another
+    # PR already shipped the same bump (or a newer one), so this one is
+    # superseded rather than recreated. That is not the timeout path — the
+    # request worked, it just did not produce a new head — so return early
+    # with a terminal result instead of waiting out the rest of the bound.
+    if [[ "$state" != "OPEN" ]]; then
+      if [[ "$state" == "MERGED" ]]; then
+        emit true "merged by Dependabot after recreate: superseded" '.result = "merged"' ".pr = $pr"
+      else
+        emit true "closed by Dependabot after recreate: superseded" '.result = "closed"' ".pr = $pr"
+      fi
+      return
+    fi
     if [[ -n "$after" && "$after" != "$before" ]]; then
       emit true "recreated" ".before = \"$before\" | .after = \"$after\" | .pr = $pr"
       return

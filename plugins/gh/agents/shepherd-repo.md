@@ -51,9 +51,17 @@ in the order given:
    and continue.
 2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
    - `BEHIND` → `rebase`, then `wait`.
-   - `DIRTY` (conflicts) → if `pr.is_bot`, `recreate`, then `wait`. Otherwise this pull request
-     needs a human or a larger model: record it as `needs-escalation` with the reason
-     "conflicts on a non-Dependabot branch" and continue. Do not resolve conflicts yourself.
+   - `DIRTY` (conflicts) → if `pr.is_bot`, `recreate`. Otherwise this pull request needs a
+     human or a larger model: record it as `needs-escalation` with the reason "conflicts on a
+     non-Dependabot branch" and continue. Do not resolve conflicts yourself.
+     - `recreate` `ok:true` with `result: "closed"` or `result: "merged"` → Dependabot answered
+       by closing this pull request instead of moving the head: it was superseded by another
+       pull request (often already merged) that shipped the same or a newer version. This is
+       terminal; record it under `closed` with the detail and continue to the next target. Do
+       not `wait` afterwards — there is no new head to watch.
+     - `recreate` `ok:true` otherwise (the head moved) → `wait`.
+     - `recreate` `ok:false` with the pull request still `OPEN` → record it as `blocked` with
+       the detail (e.g. "head did not change within Ns") and continue. Do not retry.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait` (it returns at once when the checks
      are already terminal) and go to step 3.
    - `CLEAN`, `HAS_HOOKS`, or checks `pending` → `wait`.
@@ -103,7 +111,7 @@ Return one JSON object and nothing else:
   "skipped": [{"number": 2, "reason": "…", "comment_url": "…"}],
   "blocked": [{"number": 3, "mergeStateStatus": "BLOCKED", "reason": "…"}],
   "needs_escalation": [{"number": 4, "reason": "…"}],
-  "closed": [5],
+  "closed": [{"number": 5, "reason": "already closed"}],
   "skipped_no_automerge": [{"number": 6, "title": "…", "author": "…"}],
   "model": "sonnet"
 }
@@ -111,4 +119,13 @@ Return one JSON object and nothing else:
 
 `skipped_no_automerge` is copied from the status output. `model` is the model you ran as.
 Count `rebases` per pull request from your own `rebase` and `recreate` calls; the orchestrator
-uses it to confirm the serial argument (one per pull request is the expected number).
+uses it to confirm the serial argument (one per pull request is the expected number). `closed`
+entries carry a `reason`: "already closed" from step 1, or the `recreate` detail
+("closed by Dependabot after recreate: superseded") when Dependabot answered a `recreate` by
+closing the pull request instead of moving the head.
+
+`@dependabot recreate` re-resolves the version rather than reusing the original bump: a pull
+request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed in
+the meantime. This is expected Dependabot behaviour, not a defect in the fix — note it in the
+`merged` entry's detail (or leave it for the orchestrator to say in the collated report) whenever
+the merged version differs from the pull request's original title.

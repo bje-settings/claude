@@ -167,6 +167,29 @@ Describe 'gh-shepherd-pr.sh'
       The result of function comments should include '@dependabot recreate'
     End
 
+    It 'returns early when Dependabot closes the pull request instead of moving the head'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
+      # Dependabot's answer, arriving after the comment: superseded by another
+      # pull request, so it closes this one instead of recreating it.
+      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].state = "CLOSED"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"ok": true'
+      The output should include '"result": "closed"'
+      The output should include 'closed by Dependabot after recreate: superseded'
+      The result of function comments should include '@dependabot recreate'
+    End
+
+    It 'returns early when Dependabot merges the pull request instead of moving the head'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
+      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].state = "MERGED"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"ok": true'
+      The output should include '"result": "merged"'
+      The result of function comments should include '@dependabot recreate'
+    End
+
     It 'gives up after two CI cycles when the head never moves'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
       export SHEPHERD_CI_SECONDS=1 SHEPHERD_POLL_SECONDS=1
