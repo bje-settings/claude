@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart TD
-    P{gh, gh login, jq, workstreams,<br>pr-review-toolkit all present?}
+    P{gh, gh login, workstreams,<br>pr-review-toolkit all present?}
     P -->|no| P1([stop: print the install command for each missing piece])
     P -->|yes| E{a hardening run already<br>exists for this skill?}
     E -->|yes| E1[ask: resume it, or start over? never force on your own]
