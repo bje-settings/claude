@@ -22,8 +22,8 @@ Scope comes from the target, so no caller has to classify it:
 Subdirectories that are not git repos, and subdirectories that are merely
 inside a repo rather than its root, are skipped without comment. Nothing is
 ever cloned. Raises NotADirectoryError when the target is not a directory, and
-the script form exits 1 for it; a target with no repositories yields an empty
-list and exits 0.
+the script form reports it on stderr and exits 1; a target with no repositories
+yields an empty list and exits 0.
 """
 
 from __future__ import annotations
@@ -89,13 +89,51 @@ def discover_repos(target=None):
     return roots
 
 
-def main(argv):
+def use_utf8(stream):
+    """Make `stream` write UTF-8, replacing anything it cannot encode.
+
+    A repository path may hold any byte, so under a single-byte locale
+    (LC_ALL=en_US.ISO8859-1, PYTHONIOENCODING=ascii) printing one can raise
+    UnicodeEncodeError. A stream that has been replaced with something without
+    reconfigure, or that is already detached, is left alone rather than turned
+    into a different crash.
+    """
     try:
-        roots = discover_repos(argv[0] if argv else None)
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
+def main(argv):
+    use_utf8(sys.stdout)
+    use_utf8(sys.stderr)
+    target = argv[0] if argv else None
+    try:
+        roots = discover_repos(target)
     except NotADirectoryError:
+        # The exit status alone leaves the caller guessing which of its arguments
+        # was wrong; a skill running this over several targets has nothing else to
+        # go on.
+        print(f"not a directory: {target if target else os.getcwd()}", file=sys.stderr)
         return 1
-    for root in roots:
-        print(root)
+    try:
+        for root in roots:
+            print(root)
+        # Forces the write now, while BrokenPipeError still lands in the handler
+        # below. Left implicit, buffered output is flushed during interpreter
+        # shutdown instead, which prints its own "Exception ignored in" trace.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # `discover.py | head` closes the pipe early. That is the reader's
+        # business, not a failure here. Both descriptors go to devnull, not just
+        # stdout, so nothing the interpreter still tries to flush on the way out
+        # can resurface as a broken-pipe trace either.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+            os.dup2(devnull, sys.stderr.fileno())
+        finally:
+            os.close(devnull)
     return 0
 
 

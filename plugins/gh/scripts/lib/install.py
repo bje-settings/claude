@@ -55,6 +55,15 @@ def install_deps(root="."):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-    except OSError:
+    except FileNotFoundError:
+        # 127 and this wording are what a shell prints for a missing command, and
+        # what the shell version reported, so the caller's one-line reason reads
+        # the same as it always did.
         return 127, f"{command[0]}: command not found"
+    except OSError as exc:
+        # A lock file whose manager is present but unrunnable -- not executable,
+        # a bad interpreter line, a too-long argument list -- is a different
+        # failure, and saying "command not found" for it sends the reader looking
+        # for the wrong thing.
+        return 127, f"{command[0]}: {exc.strerror or exc}"
     return completed.returncode, completed.stdout.decode("utf-8", "replace")
