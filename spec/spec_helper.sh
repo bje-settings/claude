@@ -102,11 +102,16 @@ FT_COLLECT="$FT_PLUGIN_DIR/scripts/ft-collect.sh"
 FT_ENTERPRISE="$FT_PLUGIN_DIR/scripts/ft-enterprise.sh"
 FT_REDACT="$FT_PLUGIN_DIR/scripts/ft-redact.sh"
 FT_ISSUE="$FT_PLUGIN_DIR/scripts/ft-issue.sh"
+FT_PREFLIGHT="$FT_PLUGIN_DIR/scripts/ft-preflight.sh"
+FT_HARDEN_STATE="$FT_PLUGIN_DIR/scripts/ft-harden-state.sh"
+FT_VERIFY_REPORT="$FT_PLUGIN_DIR/scripts/ft-verify-report.sh"
+FT_WAIT_PR="$FT_PLUGIN_DIR/scripts/ft-wait-pr.sh"
 FT_HOOK="$FT_PLUGIN_DIR/hooks/ft-hook.sh"
 FT_HOOK_IO="$FT_PLUGIN_DIR/hooks/hook-io.py"
 FT_DENY_LIST_FILE="$FT_PLUGIN_DIR/hooks/deny-list.txt"
 export FT_PLUGIN_DIR FT_FIXTURES_DIR FT_RUN FT_RESOLVE FT_COLLECT FT_ENTERPRISE
 export FT_REDACT FT_ISSUE FT_HOOK FT_HOOK_IO FT_DENY_LIST_FILE
+export FT_PREFLIGHT FT_HARDEN_STATE FT_VERIFY_REPORT FT_WAIT_PR
 
 # shellcheck source=../fixtures/field-test/fixtures.sh
 . "$FT_FIXTURES_DIR/fixtures.sh"
@@ -132,6 +137,7 @@ setup_ft_sandbox() {
   mkdir -p "$FT_GH_FIXTURE_DIR" "$HOME/.claude/plugins" "$FT_RUN_DIR"
   ft_fixture_enterprise "$FT_GH_FIXTURE_DIR" both
   ft_fixture_issues "$FT_GH_FIXTURE_DIR/issues.json"
+  ft_fixture_prs "$FT_GH_FIXTURE_DIR/prs.json"
   ft_fixture_installed_plugins "$FT_INSTALLED_PLUGINS" "$FT_INSTALL_DIR"
   ft_fixture_marketplaces "$FT_MARKETPLACES" "$FT_PLUGIN_CHECKOUT"
   ft_fixture_run "$FT_RUN_DIR/run.json"
@@ -155,6 +161,9 @@ ft_path_without() {
     real="$(command -v "$t" 2>/dev/null)" || continue
     [ -e "$dir/$t" ] || ln -s "$real" "$dir/$t"
   done
-  [ -e "$dir/gh" ] || ln -s "$FT_FIXTURES_DIR/bin/gh" "$dir/gh"
+  case " $* " in
+    *" gh "*) : ;;
+    *) [ -e "$dir/gh" ] || ln -s "$FT_FIXTURES_DIR/bin/gh" "$dir/gh" ;;
+  esac
   printf '%s' "$dir"
 }

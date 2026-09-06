@@ -24,7 +24,12 @@ the jq in the scripts is exercised rather than assumed. An unknown flag exits 64
 `--json` field exits 1 the way gh's "Unknown JSON field" does, and an unemulated subcommand exits
 1, so a spec cannot pass against a query the real gh would answer differently.
 
-Supported: `api graphql` (the enterprise query, both pages), `issue list`, `label create`.
+Supported: `auth status`, `api graphql` (the enterprise query, both pages), `issue list`,
+`pr view`, `label create`.
+
+A pull request record may carry a `sequence` array. Each `pr view` call shifts the first entry off
+it and merges it over the record, so a spec can watch a pull request move from pending to green
+across polls the way a real one does.
 
 | Variable | Effect |
 | --- | --- |
@@ -44,12 +49,14 @@ fails), `empty` (a well-formed answer with no enterprises node).
 | `ft_fixture_events <path> <case>` | One `events.jsonl` per `collect.jq` branch: `clean`, `nonzero`, `failure`, `denied`, `deny-error`, `contradiction`, `retried`, `honest`, `status-ok`, `preceding`, `null-agent`, `hook-error`, `no-command`, `args-used`, `mixed` |
 | `ft_fixture_transcript <path> [with-report\|no-assistant\|tool-tail\|truncated]` | A session transcript, including one whose last turn is only tool calls and one cut off mid-write |
 | `ft_fixture_hook_input <path> <case> [session]` | One hook payload: `post-ok`, `post-bool-code`, `post-fail`, `post-failure`, `post-failure-no-code`, `pre-deny`, `pre-allow`, `pre-other`, `subagent-stop`, `stop`, `malformed` |
-| `ft_fixture_installed_plugins <path> <install-dir> [with-skill\|without-skill]` | The shape of `~/.claude/plugins/installed_plugins.json`, version 2 |
+| `ft_fixture_installed_plugins <path> <install-dir> [with-skill\|without-skill]` | The shape of `~/.claude/plugins/installed_plugins.json`, version 2, used by both the resolver and the harden preflight |
 | `ft_fixture_marketplaces <path> <local-dir> [directory\|github]` | The shape of `~/.claude/plugins/known_marketplaces.json` |
 | `ft_fixture_repo <dir> [owner/name] [ssh\|https\|alias\|none]` | A real repository: two commits, two branches, an origin remote (`alias` writes it through an ssh host alias) |
 | `ft_fixture_git <dir> <args...>` | git with identity passed per command, so no global config is needed |
 | `ft_fixture_enterprise <dir> [mode]` | The answer the gh stub gives to the enterprise query |
 | `ft_fixture_issues <path>` | Five issues: two open `field-test` issues carrying a signature the duplicate search must find, one of them holding quotes, and three near misses it must not |
+| `ft_fixture_prs <path>` | Nine pull requests, one per arm of `checks.jq` plus merged, closed, and one that goes green on the second poll |
+| `ft_fixture_report <path> <case>` | What a field-test report claimed: `accurate`, `wrong`, `unknown` (a word the verifier cannot check), `missing` (a pull request that does not exist) |
 
 ## `hook-inputs/no-run.json`
 

@@ -370,4 +370,61 @@ PY
       The output should include '| #11 | merged |'
     End
   End
+  Describe 'ft_fixture_prs and ft_fixture_report'
+    It 'covers every check verdict the wait script can reach'
+      verdicts() {
+        local n
+        for n in 50 51 52 53 56 57; do
+          gh pr view "$n" --repo acme-org/plugins --json state,isDraft,statusCheckRollup \
+            | jq -r -f "$FT_PLUGIN_DIR/scripts/lib/checks.jq" \
+            | jq -r '.checks'
+        done | tr '\n' ' '
+      }
+      When call verdicts
+      The status should be success
+      The output should equal 'pass fail pending none pending fail '
+    End
+
+    It 'has one merged and one closed pull request for the state arms'
+      states() {
+        gh pr view 54 --repo acme-org/plugins --json state --jq .state
+        gh pr view 55 --repo acme-org/plugins --json state --jq .state
+      }
+      When call states
+      The status should be success
+      The output should equal 'MERGED
+CLOSED'
+    End
+
+    It 'moves a sequenced pull request from in progress to complete across calls'
+      poll() {
+        gh pr view 58 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup[0].status'
+        gh pr view 58 --repo acme-org/plugins --json statusCheckRollup --jq '.statusCheckRollup[0].status'
+      }
+      When call poll
+      The status should be success
+      The output should equal 'IN_PROGRESS
+COMPLETED'
+    End
+
+    It 'refuses a pull request it does not have, the way gh does'
+      When run command gh pr view 999 --repo acme-org/plugins --json state
+      The status should equal 1
+      The stderr should include 'Could not resolve to a PullRequest'
+    End
+
+    It 'writes an accurate report whose every claim holds'
+      claims() { ft_fixture_report "$FT_SANDBOX/r.json" accurate; jq -r '[.prs[] | .claimed] | join(",")' "$FT_SANDBOX/r.json"; }
+      When call claims
+      The status should be success
+      The output should equal 'merged,skipped,closed'
+    End
+
+    It 'refuses a report case it does not have'
+      When call ft_fixture_report "$FT_SANDBOX/r.json" nosuchcase
+      The status should equal 1
+      The stderr should include 'unknown case'
+    End
+  End
+
 End

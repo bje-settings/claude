@@ -1,8 +1,9 @@
 # field-test
 
-Plugin quality assurance: run a skill under observation, and turn what went wrong into issues
-somebody who did not watch the run can reproduce. One skill so far, `/field-test:run`. The skill
-directory has a `FLOW.md` with the decision diagram.
+Plugin quality assurance: run a skill under observation, turn what went wrong into issues
+somebody who did not watch the run can reproduce, and keep going until they are fixed. Two
+skills: `/field-test:run` observes one run; `/field-test:harden` loops it over a list of target
+repositories. Each skill directory has a `FLOW.md` with the decision diagram.
 
 This is not a test runner. The specs in `spec/` cover the deterministic parts; a field test
 covers the part specs cannot, which is how a skill behaves against a real repository in a state
@@ -16,9 +17,15 @@ fixtures.
 | `gh`, logged in | `brew install gh && gh auth login` |
 | `jq` | `brew install jq` |
 | `python3` | ships with macOS |
+| `workstreams` plugin (harden only) | `/plugin install workstreams@bje` |
+| `pr-review-toolkit` plugin (harden only) | `/plugin install pr-review-toolkit@claude-plugins-official` |
 
 A `plugin:skill` target has to be installed, since it is resolved through Claude's own plugin
 registry rather than from a path. A project or user command or skill is found on disk.
+
+`/field-test:harden` reuses the `workstreams:stream-<effort>` and `workstreams:reviewer` agents
+and the review loop they already own rather than growing its own, so both plugins have to be
+there; `ft-preflight.sh` checks before a round starts rather than halfway through one.
 
 ## `/field-test:run <target> [args...]`
 
@@ -72,6 +79,39 @@ under four characters is replaced only where it stands as a word, because a repo
 called `cm` and replacing that inside every other word makes the issue unreadable. The
 redacted issue carries a line saying the run was outside the enterprise, so the shape reads as
 real and the names read as placeholders.
+
+## `/field-test:harden <plugin:skill> --targets <repo-path>...`
+
+The loop the first pass of `/gh:shepherd` was hardened by hand: field-test, verify, file, fix,
+review, merge, next. Targets are explicit and worked in the order given; discovering them per
+skill is not in this version.
+
+Per target, with every transition written to state before the next action is taken:
+
+1. **Field test.** `/field-test:run` in the target repository. It observes and files; `harden`
+   records the issue numbers.
+2. **Verify.** `ft-verify-report.sh` re-reads every pull request the target skill's own report
+   named and compares the claim against GitHub. A mismatch becomes a finding of its own, which
+   in the by-hand pass was twice the most valuable finding of the round.
+3. **Fix.** One `workstreams:stream-<effort>` worker, one worktree, one draft PR closing every
+   issue of the round. A worker that pauses pauses the loop.
+4. **Review.** `workstreams:reviewer`, which runs `/pr-review-toolkit:review-pr`, until a pass
+   applies nothing.
+5. **Merge.** Ready, auto-merge, then `ft-wait-pr.sh` blocking in the foreground. A mechanical CI
+   failure goes back to the fix step once; anything behavioural pauses with the question.
+6. **Summarise** in the same table every round, then the next target.
+
+The wait blocks rather than arming a wake on purpose. A worker that schedules a wake and ends its
+turn leaves the loop looking at "waiting" with nothing running, which is one of the two failures
+that prompted this skill; the other is a report nobody checked.
+
+### State and resuming
+
+`${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/<plugin>__<skill>.json`, written by
+`ft-harden-state.sh`. Target statuses: `pending`, `running`, `paused`, `done`, `failed`. Phases:
+`field-test`, `verify`, `fix`, `review`, `merge`, `summary`, `done`. `next` prints the first
+target that is neither done nor failed, including a paused one, so a question cannot be stepped
+over. `init` refuses to overwrite a run in progress without `--force`.
 
 ## Hooks
 
@@ -137,8 +177,13 @@ All deterministic, bash 3.2, spec'd under `spec/field-test/`.
 | `ft-enterprise.sh` | Whether the plugin and the repository under test share an enterprise |
 | `ft-redact.sh` | Text in, text out; identity inside the enterprise, placeholders outside |
 | `ft-issue.sh` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
+| `ft-preflight.sh` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
+| `ft-harden-state.sh` | Atomic read/write of one hardening run; validates fields, statuses, and phases |
+| `ft-verify-report.sh` | A report's claims against `gh pr view`, per pull request |
+| `ft-wait-pr.sh` | Blocking, bounded wait on one pull request: `merged`, `passed`, `failed`, `pending` |
 
 ## Out of scope for now
 
-Workflow targets, and any automatic fix. A field test observes and writes issues down; turning
-those issues into merged fixes is a separate loop.
+Workflow targets. Discovering field-test targets per skill rather than being handed them.
+Approving pull requests, bypassing a check or a ruleset, and deciding what counts as a mechanical
+fix beyond the definitions `/gh:shepherd` already carries.

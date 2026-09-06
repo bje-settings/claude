@@ -378,3 +378,91 @@ ft_fixture_issues() {
 ]
 JSON
 }
+
+# ft_fixture_prs <path>: the pull requests fixtures/field-test/bin/gh serves to
+# `gh pr view`, covering every arm of scripts/lib/checks.jq and every claim
+# ft-verify-report.sh can be handed.
+#
+#   50 open, every check green                          checks pass
+#   51 open, a FAILURE beside a SUCCESS                 checks fail
+#   52 open, a run still in progress and a PENDING      checks pending
+#   53 open, no checks at all                           checks none
+#   54 merged                                           state MERGED
+#   55 closed unmerged                                  state CLOSED
+#   56 open, a COMPLETED run with no conclusion         checks pending
+#   57 open, CANCELLED beside SUCCESS                   checks fail
+#   58 open, pending on the first look then green       a sequence
+ft_fixture_prs() {
+  cat > "$1" <<'JSON'
+[
+  {"number": 50, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [
+     {"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"},
+     {"__typename": "CheckRun", "name": "shellcheck", "status": "COMPLETED", "conclusion": "SKIPPED"},
+     {"__typename": "StatusContext", "context": "coverage", "state": "SUCCESS"}]},
+  {"number": 51, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [
+     {"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"},
+     {"__typename": "CheckRun", "name": "coverage", "status": "COMPLETED", "conclusion": "FAILURE"}]},
+  {"number": 52, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [
+     {"__typename": "CheckRun", "name": "bash-3.2", "status": "IN_PROGRESS", "conclusion": null},
+     {"__typename": "StatusContext", "context": "coverage", "state": "PENDING"}]},
+  {"number": 53, "state": "OPEN", "isDraft": false, "statusCheckRollup": []},
+  {"number": 54, "state": "MERGED", "isDraft": false,
+   "statusCheckRollup": [{"__typename": "StatusContext", "context": "ci", "state": "SUCCESS"}]},
+  {"number": 55, "state": "CLOSED", "isDraft": false, "statusCheckRollup": []},
+  {"number": 56, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": null}]},
+  {"number": 57, "state": "OPEN", "isDraft": false,
+   "statusCheckRollup": [
+     {"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"},
+     {"__typename": "CheckRun", "name": "coverage", "status": "COMPLETED", "conclusion": "CANCELLED"}]},
+  {"number": 58, "state": "OPEN", "isDraft": true,
+   "statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "IN_PROGRESS", "conclusion": null}],
+   "sequence": [
+     {"statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "IN_PROGRESS", "conclusion": null}]},
+     {"statusCheckRollup": [{"__typename": "CheckRun", "name": "bash-5", "status": "COMPLETED", "conclusion": "SUCCESS"}]}]}
+]
+JSON
+}
+
+# ft_fixture_report <path> <case>: what a field-test report claimed about the
+# pull requests of one round.
+#
+#   accurate   every claim holds against ft_fixture_prs
+#   wrong      claims a pull request merged that is still open
+#   unknown    uses a word the verifier cannot check
+#   missing    names a pull request that does not exist
+ft_fixture_report() {
+  local path="$1" name="${2:-accurate}"
+  case "$name" in
+    accurate)
+      cat > "$path" <<'JSON'
+{"repo": "acme-org/plugins",
+ "prs": [{"number": 54, "claimed": "merged"},
+         {"number": 50, "claimed": "skipped"},
+         {"number": 55, "claimed": "closed"}]}
+JSON
+      ;;
+    wrong)
+      cat > "$path" <<'JSON'
+{"repo": "acme-org/plugins", "prs": [{"number": 50, "claimed": "merged"}]}
+JSON
+      ;;
+    unknown)
+      cat > "$path" <<'JSON'
+{"repo": "acme-org/plugins", "prs": [{"number": 50, "claimed": "shepherded"}]}
+JSON
+      ;;
+    missing)
+      cat > "$path" <<'JSON'
+{"repo": "acme-org/plugins", "prs": [{"number": 999, "claimed": "merged"}]}
+JSON
+      ;;
+    *)
+      printf 'ft_fixture_report: unknown case: %s\n' "$name" >&2
+      return 1
+      ;;
+  esac
+}

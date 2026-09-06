@@ -69,9 +69,11 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 ### [`field-test`](plugins/field-test)
 
-> Plugin quality assurance: run a skill under observation, and turn what went wrong into issues
-> somebody who did not watch the run can reproduce. Names from a repository outside the plugin's
-> enterprise are redacted before anything is published.
+> Plugin quality assurance: run a skill under observation, turn what went wrong into issues
+> somebody who did not watch the run can reproduce, and keep going until they are fixed. Names
+> from a repository outside the plugin's enterprise are redacted before anything is published.
+> `/field-test:harden` requires `workstreams` and `pr-review-toolkit`; see
+> [Requirements](https://github.com/bje-settings/claude/tree/main/plugins/field-test#requirements).
 
 <table>
   <tr>
@@ -79,6 +81,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testrun-target-args"><code>/field-test:run</code></a>: run a skill or command as a field test, collect what its scripts and subagents actually did, and file one reproducible issue per problem on the repository that owns the plugin under test. Every issue is shown before it is created.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testharden-pluginskill---targets-repo-path"><code>/field-test:harden</code></a>: run that loop over an ordered list of target repositories, verify each round's report against GitHub, and drive the findings through fix, review, and merge until the skill is clean or a decision needs a person.</li>
       </ul>
     </td>
   </tr>

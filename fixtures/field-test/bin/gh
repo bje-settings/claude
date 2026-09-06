@@ -10,7 +10,7 @@
 # gh would answer differently.
 #
 # Controlled by:
-#   FT_GH_FIXTURE_DIR   directory holding issues.json and enterprise-mode
+#   FT_GH_FIXTURE_DIR   directory holding issues.json, prs.json and enterprise-mode
 #   FT_GH_FIXTURE_FAIL  if non-empty, every call exits non-zero
 #
 # enterprise-mode picks the answer to the enterprise query:
@@ -20,6 +20,10 @@
 #   second   two enterprises; only the second holds both owners
 #   error    the query fails
 #   empty    a well-formed response with no enterprises node
+#
+# `pr view` serves prs.json. A record may carry a `sequence` array: each call
+# shifts the first entry off it and merges it over the record, so a spec can watch
+# a pull request move from pending to passing across polls the way a real one does.
 
 set -uo pipefail
 
@@ -100,6 +104,9 @@ two_viewer_pages() {
 }
 
 case "$cmd $sub" in
+  "auth status")
+    echo "Logged in to github.com"; exit 0 ;;
+
   "api graphql")
     [[ -n "$query" ]] || { echo "gh stub: api graphql needs -f query=..." >&2; exit 1; }
     case "$mode" in
@@ -132,6 +139,25 @@ case "$cmd $sub" in
           ((.title + " " + (.body // "")) | ascii_downcase | contains($search | ascii_downcase))))')" \
       || { echo "gh stub: jq failed while filtering issues" >&2; exit 1; }
     project "$filtered" ;;
+
+  "pr view")
+    [[ -n "$repo" ]] || { echo "gh stub: pr view needs --repo" >&2; exit 1; }
+    n="${positional#\#}"; n="${n##*/}"
+    [[ "$n" =~ ^[0-9]+$ ]] || { echo "gh stub: pr view needs a number or url, got: $positional" >&2; exit 1; }
+    prs='[]'
+    [[ -n "$dir" && -f "$dir/prs.json" ]] && prs="$(cat "$dir/prs.json")"
+    rec="$(printf '%s' "$prs" | jq -c --argjson n "$n" 'map(select(.number == $n)) | .[0] // empty')" \
+      || { echo "gh stub: jq failed reading prs.json" >&2; exit 1; }
+    [[ -n "$rec" ]] || { echo "GraphQL: Could not resolve to a PullRequest with the number of $n." >&2; exit 1; }
+    if [[ "$(printf '%s' "$rec" | jq '(.sequence // []) | length')" -gt 0 ]]; then
+      printf '%s' "$prs" | jq -c --argjson n "$n" \
+        'map(if .number == $n then .sequence = ((.sequence // [])[1:]) else . end)' > "$dir/prs.json.tmp" \
+        && mv "$dir/prs.json.tmp" "$dir/prs.json"
+      rec="$(printf '%s' "$rec" | jq -c '. + .sequence[0] | del(.sequence)')"
+    else
+      rec="$(printf '%s' "$rec" | jq -c 'del(.sequence)')"
+    fi
+    project "$rec" ;;
 
   "label create")
     [[ -n "$repo" ]] || { echo "gh stub: label create needs --repo" >&2; exit 1; }
