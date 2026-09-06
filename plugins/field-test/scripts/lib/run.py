@@ -36,7 +36,7 @@ def run_dir(state: str, session: str) -> str:
 def load_marker(path: str):
     """The marker as a dict, or None when it is missing or not readable JSON."""
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             marker = json.load(handle)
     except (OSError, ValueError):
         return None
@@ -61,14 +61,27 @@ def live_run_dir(session_id: str, environ=None):
 
 
 def write_json(path: str, document) -> None:
-    """Write `document` to `path` atomically. Raises OSError if it cannot."""
+    """Write `document` to `path` atomically. Raises OSError or ValueError if it cannot.
+
+    Written the way the hook on `main` wrote it, with neither an indent nor
+    `ensure_ascii=False`: the marker is a file two programs exchange, not one a
+    person reads, and `ft-run.py show` pretty-prints it for the one caller that
+    does. `ensure_ascii=True` is also jq's own output, so these are the bytes the
+    shell wrote, and it is what keeps the write from failing on content: a lone
+    surrogate reaching a UTF-8 encoder raises, and escaped it is just six ASCII
+    characters.
+
+    ValueError is left to the caller alongside OSError because both mean the same
+    thing here -- the document did not reach the file, so a marker says the run is
+    in a state it is not -- and the temp file must not be left behind either way.
+    """
     tmp = f"{path}.tmp.{os.getpid()}"
     try:
-        with open(tmp, "w") as handle:
-            json.dump(document, handle, indent=2, ensure_ascii=False)
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(document, handle)
             handle.write("\n")
         os.replace(tmp, path)
-    except OSError:
+    except (OSError, ValueError):
         try:
             os.unlink(tmp)
         except OSError:
@@ -90,14 +103,29 @@ def note_transcript(path: str, transcript) -> None:
     marker["transcript_path"] = transcript
     try:
         write_json(marker_path, marker)
-    except OSError:
+    except (OSError, ValueError):
         return
 
 
-def append_event(path: str, record) -> None:
-    """Append one event record to the run's events file, or give up quietly."""
+def append_event(path: str, record) -> tuple[bool, str]:
+    """Append one event record to the run's events file. (False, why) if it could not.
+
+    `ensure_ascii=True`, as jq wrote it: the events file is read back by
+    ft-collect.py and ft-issue.py, so the bytes are a contract. It also keeps a
+    record holding a lone surrogate -- which a tool_response can -- from raising
+    on the way to a UTF-8 file, since escaped it is only ASCII. ValueError is
+    caught beside OSError for what escaping cannot help with, a record that does
+    not serialise at all.
+
+    Reported rather than raised, because the caller is a hook and a full disk
+    must not stop a session. Reported rather than swallowed, because an event
+    that was never recorded is a finding that never reaches an issue. The reason
+    comes back with the status so the caller can say which of the two happened
+    instead of only that something did.
+    """
     try:
-        with open(os.path.join(path, "events.jsonl"), "a") as handle:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except OSError:
-        return
+        with open(os.path.join(path, "events.jsonl"), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+    except (OSError, ValueError) as error:
+        return False, str(error)
+    return True, ""

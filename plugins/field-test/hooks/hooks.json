@@ -4,29 +4,29 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" PreToolUse", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" PreToolUse; exit 0", "timeout": 10 }]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" PostToolUse", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" PostToolUse; exit 0", "timeout": 10 }]
       }
     ],
     "PostToolUseFailure": [
       {
         "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" PostToolUseFailure", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" PostToolUseFailure; exit 0", "timeout": 10 }]
       }
     ],
     "SubagentStop": [
       {
-        "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" SubagentStop", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" SubagentStop; exit 0", "timeout": 10 }]
       }
     ],
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" Stop", "timeout": 10 }]
+        "hooks": [{ "type": "command", "command": "command -v python3 >/dev/null 2>&1 && python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.py\" Stop; exit 0", "timeout": 10 }]
       }
     ]
   }

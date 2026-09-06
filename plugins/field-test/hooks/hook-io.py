@@ -16,6 +16,10 @@ Usage:
                                 PreToolUse PostToolUse PostToolUseFailure
                                 SubagentStop Stop
 
+A missing or unrecognised event prints nothing and exits 0. There is no usage
+text: hooks.json is the only caller, and anything printed here would surface to
+the user as output from a hook they never ran.
+
 Nothing happens unless a field-test run marker exists for the payload's
 session_id and is unfinished. That check is the first thing done and the common
 case is a session that is not a field test, where this exits without touching
@@ -30,7 +34,10 @@ Environment:
 Always exits 0, whatever happens, including a plugin directory this cannot
 import its own library out of: a hook that fails must not take the session down
 with it. Short of that it records a `hook_error` event first, so a run whose
-guardrail crashed is not mistaken for a run that had nothing to block.
+guardrail crashed is not mistaken for a run that had nothing to block, and it
+prints the traceback to stderr, where Claude Code's debug log keeps it. The
+`; exit 0` in hooks.json holds the same guarantee for the cases this file is
+never reached in at all: no python3 on PATH, or an unreadable hooks directory.
 """
 
 import json
@@ -56,9 +63,10 @@ DENY_REASON = (
 def load_run_lib():
     """The plugin's own run-marker module, imported the first time it is needed.
 
-    Inside the try in `main`, so a plugin directory this cannot import out of
-    costs the recording and nothing else: the tool call still goes through and
-    the session does not stop.
+    Called only from inside the try in `main`, so a plugin directory this cannot
+    import out of costs the recording and nothing else: the tool call still goes
+    through and the session does not stop. The traceback still reaches stderr,
+    which is where the debug log picks it up.
     """
     scripts = os.path.join(os.path.dirname(HERE), "scripts")
     if scripts not in sys.path:
@@ -74,8 +82,21 @@ def now():
 
 
 def append(path, record):
-    """Append one event to the run's events file, or give up quietly."""
-    load_run_lib().append_event(path, record)
+    """Append one event to the run's events file, saying so on stderr if it cannot.
+
+    One line, to stderr, and then on: a hook cannot stop the session over a full
+    disk. But it must not go quiet either. Every finding this plugin produces is
+    computed from these records, so a write that failed is a finding that will
+    never reach an issue, and the debug log keeping this line is the only place
+    that is visible.
+    """
+    ok, error = load_run_lib().append_event(path, record)
+    if not ok:
+        sys.stderr.write(
+            "field-test: could not record {} in {}: {}\n".format(
+                record.get("event"), os.path.join(path, "events.jsonl"), error
+            )
+        )
 
 
 def read_payload():
@@ -102,15 +123,22 @@ def load_deny_list(path):
     Every exception, not only re.error: a repetition count too large for the engine
     raises OverflowError, and one rule written that way must cost that rule rather
     than the whole list.
+
+    A list that cannot be read at all is the same failure as a rule that will not
+    compile, only total, and it comes back the same way: one broken entry naming
+    the file and the error. Returning an empty list instead would switch the
+    guardrail off for the whole run and say nothing, and a run that blocked
+    nothing because it had no rules is indistinguishable from a run whose target
+    never reached for anything.
     """
     rules = []
     broken = []
     comment = []
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8", errors="replace") as handle:
             lines = handle.read().splitlines()
-    except OSError:
-        return rules, broken
+    except OSError as error:
+        return rules, [{"pattern": None, "line": 0, "error": f"{path}: {error}"}]
     for number, line in enumerate(lines, 1):
         stripped = line.strip()
         if not stripped:
@@ -198,10 +226,26 @@ def handle_pre_tool_use(payload, path):
         return
     tool_input = payload.get("tool_input") or {}
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    # Not `if not command`: a command that is not a string reaches re.search and
-    # raises, and an exception here is the deny list silently switched off for the
-    # rest of the run. There is nothing to match against, so there is nothing to deny.
-    if not isinstance(command, str) or not command:
+    # A Bash call with no command at all is nothing to match against and nothing
+    # to say: an empty command runs nothing either.
+    if command is None or command == "":
+        return
+    # A command that is some other type would reach re.search and raise, and an
+    # exception here is the deny list switched off for the rest of the call. It is
+    # not silently allowed, though: nothing was matched, so nothing can be said
+    # about whether the guardrail would have refused it, and that is the finding.
+    if not isinstance(command, str):
+        record = base_record("hook_error", payload)
+        record.update(
+            {
+                "hook": "PreToolUse",
+                "error": (
+                    f"tool_input.command is {type(command).__name__}, "
+                    "not a string; nothing was matched"
+                ),
+            }
+        )
+        append(path, record)
         return
     deny_list = os.environ.get("FT_DENY_LIST") or os.path.join(HERE, "deny-list.txt")
     rules, broken = load_deny_list(deny_list)
@@ -274,26 +318,69 @@ def dispatch(event, payload, path):
         handle_stop(payload, path)
 
 
+def reconfigure(stream):
+    """UTF-8 out, replacing what will not encode, on a stream that allows it.
+
+    A deny reason carries the target's own command, which can hold anything. Under
+    a non-UTF-8 locale writing it would raise UnicodeEncodeError, and a decision
+    this could not print is a command Claude Code allows. Inlined rather than
+    shared with the scripts under scripts/lib/: a hook runs on every tool call and
+    must not depend on an import to be able to speak at all.
+
+    Guarded because `reconfigure` needs a text stream that is still open: a caller
+    that replaced sys.stdout with something else has neither the method nor the
+    encoding problem.
+    """
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        return
+
+
 def main(argv):
+    reconfigure(sys.stdout)
+    reconfigure(sys.stderr)
+    # Silently, with no usage text: hooks.json is the only caller, and anything
+    # this wrote would reach the user as output from a hook they did not run.
     event = argv[1] if len(argv) > 1 else ""
     if event not in EVENTS:
-        sys.stderr.write("usage: hook-io.py {{{}}}\n".format("|".join(EVENTS)))
         return 0
     payload = read_payload()
     if payload is None:
         return 0
-    run_lib = load_run_lib()
-    path = run_lib.live_run_dir(payload.get("session_id"))
-    if path is None:
-        return 0
-    run_lib.note_transcript(path, payload.get("transcript_path"))
-    # A crash here is invisible from the outside: this exits 0, Claude Code allows
-    # the command, and a run that lost its deny list looks exactly like a run the
-    # target never reached for anything. Record it as an event so collection can
-    # say the guardrail was off, then still exit 0.
+    # A crash in here is invisible from the outside: this exits 0, Claude Code
+    # allows the command, and a run that lost its deny list looks exactly like a
+    # run the target never reached for anything. Record it as an event so
+    # collection can say the guardrail was off, then still exit 0.
+    #
+    # The import and the two marker calls are inside it too. They read files a
+    # crashed write can have left in any state, and a marker that raises on the
+    # way in is exactly the kind of failure worth a record.
+    path = None
     try:
+        run_lib = load_run_lib()
+        path = run_lib.live_run_dir(payload.get("session_id"))
+        if path is None:
+            return 0
+        run_lib.note_transcript(path, payload.get("transcript_path"))
         dispatch(event, payload, path)
+        # Forced now, while a closed pipe still lands in the arm below rather
+        # than in the interpreter's shutdown flush, which prints its own trace.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+            os.dup2(devnull, sys.stderr.fileno())
+        finally:
+            os.close(devnull)
+        return 0
     except Exception:
+        if path is None:
+            # Nothing was learned about where this run records anything, so there
+            # is nowhere to write the record. The outermost guard below prints the
+            # traceback, which is the only place this failure can still be seen.
+            raise
         record = base_record("hook_error", payload)
         record.update({"hook": event, "error": traceback.format_exc()[-STDERR_TAIL_CHARS:]})
         append(path, record)
@@ -301,12 +388,19 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    # The outermost guarantee, and the reason hooks.json needs no shell wrapper:
-    # nothing that happens in here, including failing to import this plugin's own
-    # library, may be the reason a session stops.
+    # The outermost guarantee: nothing that happens in here, including failing to
+    # import this plugin's own library, may be the reason a session stops. The
+    # `; exit 0` in hooks.json is the same guarantee one level out, for the cases
+    # this file never reaches at all -- no python3 on PATH, or a hooks/ directory
+    # it was not installed into.
     try:
         sys.exit(main(sys.argv))
     except SystemExit:
         raise
     except BaseException:  # noqa: BLE001 - a hook never fails the session
+        # To stderr before exiting 0. Claude Code's debug log keeps a hook's
+        # stderr, so this is the one place a failure that recorded nothing --
+        # a broken lib/run.py, most of all -- can still be diagnosed. Exiting
+        # 0 quietly would leave nothing anywhere.
+        traceback.print_exc()
         sys.exit(0)

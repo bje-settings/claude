@@ -354,7 +354,66 @@ def test_append_event_writes_one_line_per_record(tmp_path):
 
 def test_append_event_gives_up_quietly_when_it_cannot_write(tmp_path):
     """A hook that cannot record must still let the tool call through."""
-    run_lib.append_event(str(tmp_path / "nowhere"), {"event": "Stop"})
+    ok, error = run_lib.append_event(str(tmp_path / "nowhere"), {"event": "Stop"})
+    assert ok is False
+    # Reported rather than swallowed: an event that was never recorded is a
+    # finding that never reaches an issue, and only the caller can say so.
+    assert error
+
+
+def test_append_event_says_so_when_the_record_cannot_be_encoded(tmp_path):
+    """A record json.dumps refuses is a failure to report, not a traceback.
+
+    ValueError is caught beside OSError so that a record which does not serialise
+    is one unrecorded event rather than the reason a session stops.
+    """
+    record = {"event": "Stop"}
+    record["self"] = record
+    ok, error = run_lib.append_event(str(tmp_path), record)
+    assert ok is False
+    assert error
+
+
+def test_append_event_escapes_a_lone_surrogate_rather_than_failing(tmp_path):
+    """A tool_response can carry a lone surrogate; escaped, it is only ASCII.
+
+    With ensure_ascii=False this write would raise on the way to a UTF-8 file and
+    the event would be lost, which is the second reason the shell's spelling is
+    the right one here.
+    """
+    ok, error = run_lib.append_event(str(tmp_path), {"event": "Stop", "note": "a\ud800b"})
+    assert (ok, error) == (True, "")
+    assert b"\\ud800" in (tmp_path / "events.jsonl").read_bytes()
+
+
+def test_append_event_escapes_a_record_the_way_jq_did(tmp_path):
+    """Escaped, not written as raw UTF-8: jq's own output, and the bytes the shell wrote."""
+    ok, error = run_lib.append_event(str(tmp_path), {"event": "Stop", "note": "caf\u00e9"})
+    assert (ok, error) == (True, "")
+    written = (tmp_path / "events.jsonl").read_bytes()
+    assert b"caf\\u00e9" in written
+    assert "café".encode() not in written
+
+
+def test_write_json_escapes_a_marker_the_way_the_hook_did(tmp_path):
+    """The marker is written compact and ASCII-escaped, as the hook on main wrote it."""
+    path = tmp_path / "run.json"
+    run_lib.write_json(str(path), {"cwd": "/tmp/caf\u00e9"})
+    assert path.read_bytes() == b'{"cwd": "/tmp/caf\\u00e9"}\n'
+
+
+def test_write_json_cleans_up_after_a_document_it_cannot_encode(tmp_path):
+    """The temp file goes on a ValueError too, not only on an OSError.
+
+    Half a marker left behind under a .tmp name is not the failure; the failure is
+    the next run finding it and having to guess what it was.
+    """
+    path = tmp_path / "run.json"
+    document = {}
+    document["self"] = document
+    with pytest.raises(ValueError):
+        run_lib.write_json(str(path), document)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_now_is_the_marker_timestamp_format():
