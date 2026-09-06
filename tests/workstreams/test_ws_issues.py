@@ -98,6 +98,42 @@ def test_rejects_a_selector_that_starts_like_a_number_but_is_not_one(ws_issues):
     assert "not a number, range, label:, or milestone: selector: 1,3" in result.stderr
 
 
+def test_refuses_a_range_wider_than_the_limit_before_calling_gh(ws_issues):
+    """Not in the shell spec, where `1-9999999999` built a list of ten billion
+    numbers and died with an OverflowError before a single gh call went out.
+    The limit is what the run could fetch anyway, so it is the cap. gh is made
+    to fail here as well: exit 2 rather than 1 is the proof nothing called it."""
+    result = ws_issues("1-500", env={"WS_GH_FIXTURE_FAIL": "1"})
+    assert result.status == 2
+    assert "range wider than the 200-issue limit: 1-500" in result.stderr
+
+
+def test_measures_the_range_against_ws_issue_limit(ws_issues):
+    """The cap is the limit actually in force, not the default."""
+    assert ws_issues("1-2", env={"WS_ISSUE_LIMIT": "2"}).status == 0
+    result = ws_issues("1-3", env={"WS_ISSUE_LIMIT": "2"})
+    assert result.status == 2
+    assert "range wider than the 2-issue limit: 1-3" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["many", "0", "-5"])
+def test_falls_back_to_the_default_cap_when_the_limit_is_not_a_count(ws_issues, value):
+    """A WS_ISSUE_LIMIT gh would refuse is gh's to refuse; the range check
+    cannot read it, so it uses the default rather than capping at nothing."""
+    result = ws_issues("1-2", env={"WS_ISSUE_LIMIT": value})
+    assert result.status == 0
+    assert numbers(result) == [1, 2]
+
+
+def test_rejects_an_empty_selector_in_any_position(ws_issues):
+    """Not in the shell spec, where an empty later selector was joined into the
+    search query and dropped by the join, so `ws-issues.py 1 ""` searched for
+    nothing and the caller never learned its variable had expanded to nothing."""
+    result = ws_issues("1", "")
+    assert result.status == 2
+    assert "empty selector" in result.stderr
+
+
 def test_rejects_an_empty_label_value(ws_issues):
     """rejects an empty label value"""
     result = ws_issues("label:")
@@ -246,12 +282,34 @@ def test_says_so_when_gh_exits_0_with_something_that_is_not_json(monkeypatch):
     assert excinfo.value.status == 1
 
 
+def test_says_so_when_gh_answers_with_something_that_is_not_an_issue(monkeypatch):
+    """Not in the shell spec. A JSON answer that is not an object has no url to
+    test, so the pull-request check passed it through and the merge then read a
+    number off something that had none. No stub can produce it: the projection
+    `--json` asks for fails first, so this drives gh_view directly."""
+    module = load_ws_issues_module()
+
+    class Finished:
+        returncode = 0
+        stdout = b"[]"
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k: Finished())
+    with pytest.raises(module.cli.Failure) as excinfo:
+        module.gh_view(1)
+    assert excinfo.value.message == (
+        "gh issue view answered with something other than an issue for #1"
+    )
+    assert excinfo.value.status == 1
+
+
 def test_says_so_when_gh_is_not_installed(ws_issues, sandbox):
     """Not in the shell spec, where a missing gh reported only "gh issue view
-    failed"; naming the reason saves the reader working out why."""
+    failed"; naming the reason saves the reader working out why. The OSError's
+    own text is part of it: without it the message says only which call failed."""
     result = ws_issues("1", env={"PATH": sandbox.path_without("gh")})
     assert result.status == 1
     assert "gh issue view failed for #1" in result.stderr
+    assert "No such file or directory" in result.stderr
 
 
 def test_resolves_issues_with_jq_absent_from_path(ws_issues, sandbox):
@@ -282,6 +340,23 @@ def test_exits_quietly_when_the_reader_closes_the_pipe(ws_sandbox):
     a traceback on stderr and a non-zero exit for `ws-issues.py 1-6 | head`."""
     process = subprocess.Popen(
         [sys.executable, str(WS_ISSUES), "1-6"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=dict(os.environ),
+    )
+    process.stdout.close()
+    stderr = process.communicate()[1].decode("utf-8", "replace")
+    assert process.returncode == 0
+    assert stderr == ""
+
+
+def test_exits_quietly_when_the_reader_closes_the_pipe_on_the_nothing_matched_path(ws_sandbox):
+    """The `[]` is written before the exit-3 failure is raised, so that path has
+    output waiting when the reporting begins. Without the flush inside cli.run's
+    `finally`, the interpreter flushes it after run() has returned and prints
+    "Exception ignored in ... BrokenPipeError" over the top of exit 3."""
+    process = subprocess.Popen(
+        [sys.executable, str(WS_ISSUES), "label:nothing-here"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=dict(os.environ),
