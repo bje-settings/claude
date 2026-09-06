@@ -27,7 +27,6 @@ jobs:
         run: |
           shellcheck -S warning \
             plugins/gh/scripts/gh-sync.sh \
-            plugins/gh/scripts/gh-sync-repo.sh \
             plugins/gh/scripts/lib/discover.sh \
             plugins/gh/scripts/lib/shepherd.sh \
             plugins/gh/scripts/gh-shepherd-status.sh \
@@ -87,6 +86,18 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+      # The tests that exercise the dependency-install path need real package
+      # managers, the same three the shell suite needs. corepack is what makes a
+      # project's packageManager field authoritative, which is how the Yarn Berry
+      # fixture pins its version; the runner images ship yarn 1 globally, and
+      # yarn 1 ignores that field.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
       - name: Run the Python suite on the newest 3.x
         run: uv run --locked --python "${{ steps.python.outputs.python-path }}" pytest -n auto
 
@@ -98,6 +109,18 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+      # The tests that exercise the dependency-install path need real package
+      # managers, the same three the shell suite needs. corepack is what makes a
+      # project's packageManager field authoritative, which is how the Yarn Berry
+      # fixture pins its version; the runner images ship yarn 1 globally, and
+      # yarn 1 ignores that field.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
       # No --python here on purpose: .python-version pins 3.9, which is what
       # /usr/bin/python3 is on a Mac with the Command Line Tools, and therefore
       # what actually runs the plugin scripts for an end user.

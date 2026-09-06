@@ -11,9 +11,9 @@ that are bash, pytest covers the ones that are Python.
 
 Requires `uv`, `shellspec` and `jq`; `shellcheck` is used if present.
 
-Specs live in `spec/`, tests in `tests/`, fixtures in `fixtures/<plugin>/` for the shell specs and
-in `tests/<plugin>/` for the Python tests (its `conftest.py` and its stub `gh` under `bin/`). See
-`fixtures/gh/README.md`.
+Specs live in `spec/`, tests in `tests/`. Fixtures for a bash script live in
+`fixtures/<plugin>/`; fixtures for a Python one live beside its tests in `tests/<plugin>/` (its
+`conftest.py` and its stub `gh` under `bin/`). See `tests/gh/README.md`.
 
 To work on the Python side alone:
 
