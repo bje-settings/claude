@@ -22,9 +22,9 @@ import sys
 class Failure(Exception):
     """A failure a script reports as its own: the message and the exit status.
 
-    Not usage alone. Each script's docstring says what its statuses mean; the
-    default is 2, a usage error, because that is the commonest one raised while
-    reading arguments.
+    Not usage alone. Each script's docstring says what its statuses mean. Every
+    script passes one explicitly through its own `die`, so the default of 2, a
+    usage error, is what a direct `raise Failure(...)` gets and nothing else.
     """
 
     def __init__(self, message: str, status: int = 2) -> None:
@@ -69,19 +69,25 @@ def run(prog: str, body, reported=(Failure,)) -> int:
     `reported` names the exceptions the script raises deliberately, each
     carrying a `message` and a `status`. It is a parameter rather than one fixed
     class because a `lib/` module raises its own: nothing under `lib/` imports
-    another `lib/` module, since each script puts only its own `scripts/`
-    directory on the path. Everything else is unanticipated and reported as
-    such.
+    another `lib/` module, because the tests load each one by path under a
+    plugin-unique name, outside any package, where a sibling import would not
+    resolve. Everything else is unanticipated and reported as such.
     """
     utf8(sys.stdout)
     utf8(sys.stderr)
     try:
-        status = body()
-        # Forces the write now, while BrokenPipeError still lands in the handler
-        # below. Left implicit, small output stays buffered until the
-        # interpreter's own shutdown flush, which runs after this function
-        # returns and prints its own "Exception ignored in" trace instead.
-        sys.stdout.flush()
+        try:
+            status = body()
+        finally:
+            # Forces the write now, while BrokenPipeError still lands in the
+            # handler below. Left implicit, small output stays buffered until
+            # the interpreter's own shutdown flush, which runs after this
+            # function returns and prints its own "Exception ignored in" trace
+            # instead. In the `finally` rather than after the call because a
+            # script may print and then report a failure -- `ws-issues.py`
+            # writes `[]` before raising for "nothing matched" -- and that path
+            # has output waiting too.
+            sys.stdout.flush()
     except reported as error:
         sys.stderr.write(f"{prog}: {error.message}\n")
         return error.status
