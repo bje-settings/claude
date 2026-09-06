@@ -22,10 +22,7 @@ Environment:
   FT_STATE_DIR / CLAUDE_PLUGIN_DATA   where runs/<session>/ lives
   FT_DENY_LIST                        default: deny-list.txt beside this file
 
-`Stop` fires at every turn boundary in the main session, not only when the field
-test ends, so this hook never finishes the run: it only records the event, with
-the target's last message. Finishing is the run skill's own explicit step; see
-`handle_stop` below.
+`Stop` fires at every turn boundary in the main session; see `handle_stop` below.
 
 Always exits 0. A hook that fails must not take the session down with it, but it
 records a `hook_error` event first, so a run whose guardrail crashed is not
@@ -278,7 +275,9 @@ def handle_stop(payload, path):
     run done mid-test, so every later hook would see a finished marker and go
     silent for the rest of the run. Finishing is the run skill's own Step 4
     action; this hook only records that the turn ended, with the target's last
-    message, which `ft-collect.sh --report` can check against what was recorded.
+    message, so the events file carries the target's own claim beside the calls
+    it made. Nothing reads that field yet; `ft-collect.sh --report` reads the
+    transcript instead.
     """
     record = base_record("Stop", payload)
     record["last_assistant_message"] = payload.get("last_assistant_message") or ""

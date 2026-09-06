@@ -268,7 +268,8 @@ JSON
       ;;
     stop)
       cat > "$path" <<JSON
-{"session_id": "$session", "transcript_path": "/transcripts/main.jsonl"}
+{"session_id": "$session", "transcript_path": "/transcripts/main.jsonl",
+ "last_assistant_message": "Rebased and pushed; waiting on checks."}
 JSON
       ;;
     malformed)
