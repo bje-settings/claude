@@ -9,11 +9,38 @@ can be made to take from the outside.
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
+import textwrap
 
 import pytest
 from conftest import WS_LIB, load_lib_module
 
 cli = load_lib_module("ws_lib_cli", WS_LIB / "cli.py")
+
+
+def write_tiny(tmp_path, source: str):
+    """A one-off script that calls `cli.run`, for the arms that need a real process.
+
+    `sys.stdout` in this process is pytest's capture object, which reconfigures
+    nothing and never breaks a pipe. Only a child has the TextIOWrapper on a
+    real descriptor that these two arms are about.
+    """
+    script = tmp_path / "tiny.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import sys
+
+            sys.path.insert(0, {lib!r})
+            import cli
+            """
+        ).format(lib=str(WS_LIB))
+        + textwrap.dedent(source),
+        encoding="utf-8",
+    )
+    return script
 
 
 class OtherFailure(Exception):
@@ -92,3 +119,52 @@ def test_run_reports_an_unanticipated_failure_naming_its_class(capsys):
     captured = capsys.readouterr()
     assert captured.err == "prog.py: internal error: RuntimeError: \n"
     assert "Traceback" not in captured.err
+
+
+def test_run_exits_quietly_when_the_reader_closes_the_pipe_on_a_reported_failure(tmp_path):
+    """The arm the flush guards: a script that prints its JSON and then reports
+    a failure has output still buffered when the reporting begins. Without the
+    flush in the `finally`, the interpreter's own shutdown flush hits the closed
+    pipe after run() has returned and prints "Exception ignored in" on stderr."""
+    script = write_tiny(
+        tmp_path,
+        # Raw, so the escapes below reach the child as escapes rather than
+        # ending the line here and flattening the indentation dedent needs.
+        r"""
+
+        def body():
+            sys.stdout.write("[]\n")
+            raise cli.Failure("nothing matched", 3)
+
+
+        sys.exit(cli.run("tiny.py", body))
+        """,
+    )
+    process = subprocess.Popen(
+        [sys.executable, str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    process.stdout.close()
+    stderr = process.communicate()[1].decode("utf-8", "replace")
+    assert process.returncode == 0
+    assert stderr == ""
+
+
+def test_utf8_makes_a_real_stdout_write_utf8_under_an_ascii_locale(tmp_path):
+    """The arm the StringIO test above cannot reach: a genuine TextIOWrapper
+    whose encoding is ascii, where the write fails with UnicodeEncodeError
+    unless utf8() reconfigured it first."""
+    script = write_tiny(
+        tmp_path,
+        r"""
+
+        assert sys.stdout.encoding.lower() in ("ascii", "us-ascii"), sys.stdout.encoding
+        cli.utf8(sys.stdout)
+        sys.stdout.write("caf\u00e9\n")
+        """,
+    )
+    environment = dict(os.environ, PYTHONIOENCODING="ascii", PYTHONUTF8="0", LC_ALL="C")
+    finished = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, env=environment, check=False
+    )
+    assert finished.returncode == 0, finished.stderr.decode("utf-8", "replace")
+    assert finished.stdout.decode("utf-8") == "café\n"
