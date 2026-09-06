@@ -151,8 +151,7 @@ jobs:
       # inflate the number without saying anything about how well the plugins
       # are tested.
       #
-      # No --jobs here: shellspec's kcov executor runs the whole suite inside one
-      # kcov process and ignores it, so this job is serial by construction.
+      # No --jobs here: serial by construction under kcov; see CLAUDE.md, Tests.
       - name: Run specs under kcov
         run: |
           shellspec --kcov --covdir coverage \

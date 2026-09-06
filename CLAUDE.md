@@ -83,7 +83,11 @@ The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforc
 
 Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
 with `spec/run.sh`, which lints and then runs the suite under both bash 5 and bash 3.2. The two
-passes run concurrently, each with shellspec `--jobs` sized to the machine (`SPEC_JOBS` overrides).
+passes run concurrently, splitting shellspec `--jobs` sized to the machine between them
+(`SPEC_JOBS` overrides the total). Under `--jobs`, shellspec
+0.28.1 does not stop on Ctrl-C, only on a SIGTERM sent to its whole process group; `spec/run.sh`
+handles that for both passes, so use it rather than bare `shellspec --jobs` for a run you may
+need to interrupt.
 Parallelism is per spec file, not per example, so a spec file that grows much larger than the
 rest becomes the floor on wall time. Every example must keep building its state in its own
 temp dir (`setup_sandbox`, `setup_ws_sandbox`); nothing may write to the checkout or to a fixed
