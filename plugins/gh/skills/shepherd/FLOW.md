@@ -2,29 +2,46 @@
 
 ```mermaid
 flowchart TD
-  A{working directory} -->|not a repo, no repos one level down| Z0([stop: nothing to shepherd])
-  A -->|one repo, or several one level down| B[list dependencies PRs per repo]
-  B -->|PR has no auto-merge| N([report it; never enable auto-merge])
-  B -->|--dry-run| Z2([print each repo's plan, change nothing])
-  B -->|targets remain| C[one worker per repo, repos in parallel]
-  subgraph worker [inside one repo, one PR at a time]
-    direction TB
-    S[next PR, lowest merge risk then oldest] --> T{PR state}
-    T -->|already merged or closed| S
-    T -->|behind the base| R[rebase without a checkout] --> W[wait one CI cycle]
-    T -->|conflicts, Dependabot branch| RC[ask Dependabot to recreate] --> W
-    T -->|conflicts, human branch| E([needs escalation: never resolved here]) --> S
-    T -->|checks running or already decided| W
-    W -->|merged by auto-merge| S
-    W -->|checks green| P{auto-merge fired?}
-    P -->|yes| S
-    P -->|no, e.g. review required| BL([blocked: never merged by hand]) --> S
-    W -->|still running| W
-    W -->|checks failed| K{fix is mechanical?}
-    K -->|yes, first attempt| F[fix in a throwaway worktree, push] --> W
-    K -->|no: touches logic, tests, or config meaning| SK([skip, comment says why]) --> S
-    K -->|cannot tell| E
-  end
-  C --> D[collate worker reports]
-  D --> Z3([table per repo; offer escalation; suggest resolve-alerts])
+    subgraph discover [scope from the working directory]
+        direction TB
+        A{Inside a git repo?}
+        A -->|Yes| A1[That checkout only]
+        A -->|No| A2[Each immediate subdir that is a checkout root]
+        A2 -.->|Not a repo, or inside one but not its root| A3([Skipped silently]):::stop
+        A2 --> A4{Any found?}
+        A4 -->|No| A5([Stop: no git repositories directly inside cwd]):::stop
+    end
+
+    A1 --> B[List dependencies PRs per repo]
+    A4 -->|Yes| B
+    B -->|PR has no auto-merge| N([Report it; never enable auto-merge]):::stop
+    B -->|--dry-run| Z2([Print each repo's plan, change nothing]):::stop
+    B -->|Targets remain| C[One worker per repo, repos in parallel]
+
+    subgraph worker [inside one repo, one PR at a time]
+        direction TB
+        S[Next PR, lowest merge risk then oldest] --> T{PR state}
+        T -->|Already merged or closed| S
+        T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
+        T -->|Conflicts, Dependabot branch| RC[Ask Dependabot to recreate] --> W
+        T -->|Conflicts, human branch| E([Needs escalation: never resolved here]):::stop --> S
+        T -->|Checks running or already decided| W
+        W -->|Merged by auto-merge| S
+        W -->|Checks green| P{Auto-merge fired?}
+        P -->|Yes| S
+        P -->|No, e.g. review required| BL([Blocked: never merged by hand]):::stop --> S
+        W -->|Still running| W
+        W -->|Checks failed| K{Fix is mechanical?}
+        K -->|Yes, first attempt| F[Fix in a throwaway worktree, push] --> W
+        K -->|No: touches logic, tests, or config meaning| SK([Skip, comment says why]):::stop --> S
+        K -->|Cannot tell| E
+    end
+
+    C --> D[Collate worker reports]
+    D --> Z3([Table per repo; offer escalation; suggest resolve-alerts])
+
+    classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+The `discover` subgraph is shared with `/gh:sync`, byte for byte: both skills resolve their
+scope through the same library, so the two diagrams must describe it identically.
