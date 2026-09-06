@@ -211,3 +211,16 @@ def test_pre_commit_config_is_valid() -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_every_hook_key_is_one_pre_commit_knows() -> None:
+    # validate-config accepts unknown hook keys (cfgv's Map has no
+    # NoAdditionalKeys), so a typo such as `always_runs:` is ignored at run
+    # time rather than rejected. Check the keys against pre-commit's own schema.
+    from pre_commit.clientlib import CONFIG_HOOK_DICT
+
+    allowed = {item.key for item in CONFIG_HOOK_DICT.items if hasattr(item, "key")}
+    text = (REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    used = set(re.findall(r"^      (?:- |  )([a-z_]+):", text, flags=re.MULTILINE))
+    assert used, "no hook keys parsed"
+    assert used <= allowed, sorted(used - allowed)

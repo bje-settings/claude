@@ -167,8 +167,8 @@ or login, on a pinned Claude Code version. Its job name, `plugin-validate`, beco
 contract like the names above once it is added to the repo ruleset Require CI (22359720), which
 happens right after the pull request that introduced the workflow merges, per the rule above.
 
-In an opted-in clone, `claude plugin validate --strict`, ruff, the Python suite, and shellcheck all
-run before every commit through the `pre-commit` framework; `.pre-commit-config.yaml` holds the
+In an opted-in clone, `claude plugin validate --strict`, ruff, and the Python suite run before every
+commit through the `pre-commit` framework, and shellcheck runs when a shell file is staged; `.pre-commit-config.yaml` holds the
 hooks and `CONTRIBUTING.md` says how to opt in. Every hook is `repo: local`: each tool already has
 one source of truth, `uv.lock` for ruff and pytest and PATH for `claude` and `shellcheck`, and
 mirroring versions into `rev:` fields here would add a second. Opting in is once per clone, from the

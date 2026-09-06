@@ -4,8 +4,10 @@
 #
 #   uv sync --locked && uv run --locked pre-commit install --allow-missing-config
 #
-# If the checkout that ran the install is ever removed, every commit in the
-# clone breaks; re-run the install from a surviving checkout to fix it.
+# The hook records the .venv python of the checkout that ran the install. If
+# that checkout is removed, the hook falls back to a `pre-commit` on PATH and
+# commits fail outright if there is none; re-run the install from a surviving
+# checkout to fix it.
 #
 # Every hook is `repo: local` on purpose. Each tool already has one source of
 # truth: uv.lock for ruff and pytest, the contributor's PATH for claude and
