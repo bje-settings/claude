@@ -90,7 +90,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.py" <pr>
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status reviewing
 ```
 
-If `ws-pr-status.py` fails, the worker reported a PR that does not exist: set the stream
+If `ws-pr-status.py` fails (a PR that does not exist, or gh itself failing): set the stream
 `failed` with that message. Otherwise fill in `review-prompt.md` from this directory and start
 `workstreams:reviewer` with `model` set to the stream's model. When it returns:
 
