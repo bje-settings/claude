@@ -61,8 +61,9 @@ def parse_threshold(text):
         value = float(text)
     except (TypeError, ValueError):
         raise UsageError(f"threshold is not a number: {text}") from None
-    # NaN fails every comparison, so it would pass any coverage level.
-    if value != value or not 0 <= value <= 100:
+    # The range check also rejects NaN: every comparison with it is False, so
+    # a NaN threshold would otherwise let any coverage level through.
+    if not 0 <= value <= 100:
         raise UsageError(f"threshold must be between 0 and 100: {text}")
     return value
 
