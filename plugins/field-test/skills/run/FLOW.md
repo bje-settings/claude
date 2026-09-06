@@ -11,8 +11,11 @@ flowchart TD
     I --> T[invoke the target with its arguments unaltered<br>and observe without intervening]
     T --> D{target reached a command<br>on the deny list?}
     D -->|yes| D1[hook refuses it, records it as the highest-severity finding,<br>target carries on]
-    D -->|no| C
-    D1 --> C[finish the run and collect the recorded events]
+    D -->|no| C0
+    D1 --> C0[finish the run]
+    C0 --> C1{finish exited zero?}
+    C1 -->|no| C2([stop: print the script's stderr line; do not collect])
+    C1 -->|yes| C[collect the recorded events]
     C --> F{any candidate findings?}
     F -->|none| S([summarise: every finding, the decision,<br>and the issue number or the reason it was not filed])
     F -->|some| J{is the repository under test in the<br>same enterprise as the plugin?}

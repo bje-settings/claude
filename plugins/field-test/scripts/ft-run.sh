@@ -54,8 +54,8 @@ esac
 session=""
 state_dir="${FT_STATE_DIR:-${CLAUDE_PLUGIN_DATA:-}}"
 
-# The session flag is global: hooks pass the id from their payload, the skill
-# lets the environment supply it.
+# The session flag is global: the skill lets the environment supply the id.
+# --session exists for a caller with the id in hand, today only the specs.
 args=()
 while (($#)); do
   case "$1" in

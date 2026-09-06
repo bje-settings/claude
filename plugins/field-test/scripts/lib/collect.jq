@@ -23,8 +23,13 @@ def rank: {"high": 0, "medium": 1, "low": 2}[.] // 3;
 
 # The few Bash calls before index $i, which is what makes a failure reproducible:
 # an exit code on its own rarely says what put the repository into that state.
+#
+# Filter to command-bearing events first, then take the last three: a raw slice
+# of the last three events would let a command-less record, such as a Stop that
+# now lands at every turn boundary, occupy one of the three slots and displace a
+# real command from the trail.
 def preceding($i):
-  [ $events[([$i - 3, 0] | max):$i][] | select(.command != null and .command != "") | .command ];
+  [ $events[:$i][] | select(.command != null and .command != "") | .command ] | .[-3:];
 
 def failed_event:
   .event == "PostToolUseFailure"

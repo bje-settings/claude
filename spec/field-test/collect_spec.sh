@@ -120,14 +120,17 @@ Describe 'ft-collect.sh'
     End
 
     # The trail stops at three, and an event with no command of its own is not one of
-    # them: both are what makes the evidence block in an issue readable.
+    # them: both are what makes the evidence block in an issue readable. A `Stop`
+    # record sits right before the failure here, between real commands; a raw slice
+    # of the last three events would let it displace one, so this asserts all three
+    # real preceding commands still make it through.
     It 'carries the three commands before a failure, skipping one that ran none'
       events preceding
       ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
       When run script "$FT_COLLECT" "$FT_RUN_DIR"
       The status should be success
       The output should include '"kind"'
-      The value "$(first 'evidence.preceding | join(", ")')" should equal 'gh pr list --state open, gh pr checks 11'
+      The value "$(first 'evidence.preceding | join(", ")')" should equal 'git status --short, gh pr list --state open, gh pr checks 11'
     End
 
     # Without the agent_id guard a claim made with no subagent id would be matched

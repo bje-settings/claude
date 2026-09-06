@@ -338,6 +338,16 @@ PY
       The output should include 'null | Exit code 127'
     End
 
+    It 'gives the stop payload the target last message, the way a real Stop carries one'
+      shape() {
+        ft_fixture_hook_input "$FT_SANDBOX/p.json" stop
+        jq -r '.last_assistant_message' "$FT_SANDBOX/p.json"
+      }
+      When call shape
+      The status should be success
+      The output should include 'Rebased and pushed'
+    End
+
     It 'refuses a hook payload case it does not have'
       When call ft_fixture_hook_input "$FT_SANDBOX/p.json" nosuchcase
       The status should equal 1

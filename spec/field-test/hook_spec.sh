@@ -195,7 +195,7 @@ Describe 'the field-test hooks'
     End
   End
 
-  Describe 'subagents and the end of the run'
+  Describe 'subagents and turn boundaries'
     It 'records a subagent last message, which is the claim worth checking'
       input subagent-stop
       Data "$(cat "$FT_SANDBOX/payload.json")"
@@ -207,37 +207,23 @@ Describe 'the field-test hooks'
       The value "$(events | jq -r '.transcript_path')" should equal '/transcripts/agent-1.jsonl'
     End
 
-    It 'marks the run finished when the session stops'
+    # Two `Stop` payloads for the same session, with a `PostToolUse` between them:
+    # asserts the run is still live, both turn boundaries and the tool call were
+    # recorded, and the final `Stop` carries the target's own last message. See
+    # `handle_stop` in hook-io.py for why `Stop` does not finish the run.
+    It 'stays live across a Stop, so a target that pauses or schedules a wake keeps being recorded'
+      input stop
+      hook Stop
+      input post-ok
+      hook PostToolUse
       input stop
       Data "$(cat "$FT_SANDBOX/payload.json")"
       When run script "$FT_HOOK" Stop
       The status should be success
-      The value "$(events | jq -r '.event')" should equal 'Stop'
-      The value "$(jq -r '.finished_at | length > 0' "$FT_RUN_DIR/run.json")" should equal 'true'
-    End
-
-    # A marker that never gets its finished_at wedges the session: every later hook
-    # keeps recording, and the next start is refused as a run already running.
-    It 'records the finish it could not make, rather than leaving the run wedged'
-      printf 'nope' > "$FT_RUN_DIR/run.json.broken"
-      export FT_RUN_SH="$FT_SANDBOX/failing-run.sh"
-      printf '#!/bin/sh\necho "cannot write the marker" >&2\nexit 1\n' > "$FT_RUN_SH"
-      chmod +x "$FT_RUN_SH"
-      input stop
-      Data "$(cat "$FT_SANDBOX/payload.json")"
-      When run script "$FT_HOOK" Stop
-      The status should be success
-      The value "$(events | jq -r 'select(.event == "hook_error") | .hook')" should equal 'Stop'
-      The value "$(events | jq -r 'select(.event == "hook_error") | .error')" should include 'cannot write the marker'
-    End
-
-    It 'still exits 0 when the run script it calls is gone'
-      export FT_RUN_SH="$FT_SANDBOX/nowhere.sh"
-      input stop
-      Data "$(cat "$FT_SANDBOX/payload.json")"
-      When run script "$FT_HOOK" Stop
-      The status should be success
-      The value "$(events | jq -rs '[.[].event] | join(" ")')" should equal 'Stop hook_error'
+      The value "$(jq -r '.finished_at' "$FT_RUN_DIR/run.json")" should equal 'null'
+      The value "$(events | jq -rs '[.[].event] | join(" ")')" should equal 'Stop PostToolUse Stop'
+      The value "$(events | jq -rs '[.[] | select(.event == "PostToolUse")] | .[0].command')" should equal 'git fetch origin'
+      The value "$(events | jq -rs '[.[] | select(.event == "Stop")] | last.last_assistant_message')" should include 'Rebased and pushed'
     End
   End
 

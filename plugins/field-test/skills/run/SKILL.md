@@ -41,8 +41,8 @@ $S/ft-run.sh start <target> --resolved "$RUN/resolved.json" --cwd <the directory
 
 Exit 3 means a field test is already running in this session; finish or abandon that one first.
 
-From here the hooks are recording every Bash call, every subagent that stops, and any command
-the deny list refuses. Nothing else needs to be done to watch.
+From here the hooks are recording every Bash call, every subagent that stops, every turn
+boundary, and any command the deny list refuses. Nothing else needs to be done to watch.
 
 ## Step 3: Invoke the target
 
@@ -66,6 +66,9 @@ $S/ft-collect.sh "$RUN"
 $S/ft-enterprise.sh <plugin marketplace_path from step 1> <the directory the target ran in>
 $S/ft-issue.sh names <the directory the target ran in> --run "$RUN" > "$RUN/names.json"
 ```
+
+A non-zero exit from `ft-run.sh finish` means the run marker is gone or corrupt: print its
+stderr line and stop there, do not collect.
 
 `ft-collect.sh "$RUN" --report` prints the target's own final message when you need to check
 what it claimed against what it did.
