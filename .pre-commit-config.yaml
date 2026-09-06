@@ -21,7 +21,7 @@ repos:
         language: system
         pass_filenames: false
         args: ["."]
-        files: \.py$
+        always_run: true
 
       - id: ruff-format
         name: ruff format --check
@@ -29,7 +29,7 @@ repos:
         language: system
         pass_filenames: false
         args: ["."]
-        files: \.py$
+        always_run: true
 
       # The whole Python suite, not a scoped subset: it finishes in about two
       # seconds with -n auto, which is cheap enough to pay on every commit. -x
@@ -50,7 +50,7 @@ repos:
         entry: bash -c 'set -euo pipefail; claude plugin validate . --strict; for p in plugins/*/; do claude plugin validate "$p" --strict; done'
         language: system
         pass_filenames: false
-        files: ^(\.claude-plugin/|plugins/)
+        always_run: true
 
       # The same file list as the `shellcheck` job in ci.yml; keep the two in
       # step. Issue #61 removes this hook along with the last .sh file under
