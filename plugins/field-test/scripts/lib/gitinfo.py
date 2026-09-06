@@ -1,10 +1,11 @@
 """What a checkout says about itself: its origin remote, and the owner in it.
 
-Split on the last host separator rather than on the literal "github.com": an
-ssh host alias (git@github.com-work:acme/app.git, which is how one machine
-holds two GitHub accounts) otherwise parses as the owner "-work:acme", which
-matches no enterprise organization, reads as a repository outside the
-enterprise, and is an owner redaction never replaces.
+The host is dropped by splitting on the first ":" after the user, rather than by
+matching the literal "github.com": an ssh host alias
+(git@github.com-work:acme/app.git, which is how one machine holds two GitHub
+accounts) otherwise parses as the owner "-work:acme", which matches no
+enterprise organization, reads as a repository outside the enterprise, and is an
+owner redaction never replaces.
 """
 
 from __future__ import annotations

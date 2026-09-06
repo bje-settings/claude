@@ -25,16 +25,19 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but the two hook helpers and the run side of
-`field-test` (`ft-run`, `ft-collect`, `ft-redact`, `ft-enterprise`, `ft-issue`, `ft-resolve`).
+not yet ported to Python, which today is all of them but the `gh` plugin's hook helper and the
+whole run side of `field-test`: its hook and the six scripts `ft-run`, `ft-collect`, `ft-redact`,
+`ft-enterprise`, `ft-issue` and `ft-resolve`.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
-script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. `plugins/field-test/scripts/lib/` is the worked example: it holds what that plugin's jq
-programs decided, as plain functions with a unit test per arm, and `hooks/hook-io.py` imports
-`lib/run.py` out of it rather than keeping a second copy of where the run marker lives.
+script's own directory, and a hook, which sits one level across rather than one level up, inserts
+the sibling `scripts/` directory instead. Nothing imports across plugins: a user installs one
+plugin without the others. `plugins/field-test/scripts/lib/` is the worked example: it holds what
+that plugin's jq programs and shell parsing decided, as plain functions with a unit test per arm,
+plus `run.py`, which `hooks/hook-io.py` imports rather than keeping a second copy of where the run
+marker lives.
 
 Stdlib only, always, so an end user never needs `uv` or a virtualenv to run a plugin. The floor is
 Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/python3`. ruff's
@@ -121,6 +124,7 @@ Coverage for the Python side is coverage.py with `branch = true` and `patch = ["
 script exercised black-box in a child process is still measured. Branch coverage is the point: a
 `jq` program moved into Python stops being one opaque line and becomes arms the report can name,
 which is the answer to the blind spot `.claude/rules/type-jq.md` describes.
+
 `tests/coverage_check.py` is the gate for both reports, at 95%, and is itself in the Python
 denominator, because a gate nobody tests is a gate nobody can trust. 95% is the enterprise Code
 Coverage ruleset's threshold. The script is deliberately stdlib-only and 3.9-compatible: CI runs

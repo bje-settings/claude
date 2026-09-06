@@ -15,7 +15,7 @@ reconstructed from field tests of `/gh:shepherd` and `/workstreams:run`; the nam
 ## `bin/gh`
 
 A stand-in for the gh CLI. Put the directory on `PATH` ahead of the real one, or point `FT_GH`
-at it. Like the other two stubs in this repository it applies the filtering the real gh applies
+at it. Like the other gh stubs in this repository it applies the filtering the real gh applies
 server-side, projects the fields named by `--json`, and runs the caller's `--jq` with real jq, so
 the jq in the scripts is exercised rather than assumed. An unknown flag exits 64, an unknown
 `--json` field exits 1 the way gh's "Unknown JSON field" does, and an unemulated subcommand exits
