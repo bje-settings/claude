@@ -58,8 +58,8 @@ The PRs stay drafts. Marking ready and merging is the user's decision.
 ## State and resuming
 
 One state file per repository at `${CLAUDE_PLUGIN_DATA}/<owner>__<repo>.json`, written by
-`scripts/ws-state.sh`. `/workstreams:run` reads stream statuses from it, so a session that stops
-mid-run can re-run the skill and continue. `ws-state.sh show` prints it.
+`scripts/ws-state.py`. `/workstreams:run` reads stream statuses from it, so a session that stops
+mid-run can re-run the skill and continue. `ws-state.py show` prints it.
 
 Stream statuses: `planned`, `running`, `draft`, `reviewing`, `paused`, `done`, `failed`. A stack
 is several stream records sharing a `stack` name, ordered from the bottom; the run skill treats
@@ -67,13 +67,14 @@ it as one unit of work.
 
 ## Scripts
 
-All deterministic, bash 3.2, spec'd under `spec/workstreams/`.
+All deterministic. `ws-state.py` is Python (stdlib only, 3.9 floor), tested under
+`tests/workstreams/`; the rest are bash 3.2, spec'd under `spec/workstreams/`.
 
 | Script | Purpose |
 | --- | --- |
 | `ws-preflight.sh` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.sh` | Selectors to a JSON array of issues, with `#N` references extracted |
-| `ws-state.sh` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range |
+| `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range |
 | `ws-pr-status.sh` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision |
 
 ## Out of scope for now

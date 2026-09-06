@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""A stand-in for the gh CLI, for the workstreams tests. Put this directory on PATH.
+
+The Python counterpart of `fixtures/workstreams/bin/gh`, with the same
+environment contract. Like that stub, it does not fake the output of the script
+under test: it holds canned issues, pull requests, and extensions, applies the
+filtering the real gh applies server-side, projects the fields named by --json,
+and runs the caller's own --jq expression with real jq. Anything it does not
+emulate is an error, so a test cannot pass against a query the real gh would
+answer differently: an unknown flag exits 64, an unknown --json field exits 1
+like gh's "Unknown JSON field", a failing --jq exits 1, and a second positional
+argument is rejected.
+
+--search is a case-insensitive substring match over title and body. Real GitHub
+search is tokenised and takes qualifiers; the scripts only forward the string,
+so tests must not read anything into which issues a search matches.
+
+Controlled by:
+  WS_GH_FIXTURE_DIR    directory holding issues.json, prs.json, extensions.txt
+                       (each optional; a missing file means an empty set)
+  WS_GH_FIXTURE_REPO   nameWithOwner reported by `gh repo view` (default below)
+  WS_GH_FIXTURE_FAIL   if non-empty, every call exits non-zero
+  WS_GH_FIXTURE_NOAUTH if non-empty, `gh auth status` fails
+"""
+
+import json
+import os
+import subprocess
+import sys
+
+DEFAULT_REPO = "bje-settings/example"
+FLAGS_WITH_VALUES = ("--state", "--label", "--milestone", "--search", "--limit", "--json")
+JQ_FLAGS = ("--jq", "-q")
+
+
+def fail(message, status=1):
+    sys.stderr.write(f"gh stub: {message}\n")
+    sys.exit(status)
+
+
+def load(basename, empty):
+    """The fixture file's text, or the empty value when it is not there."""
+    directory = os.environ.get("WS_GH_FIXTURE_DIR", "")
+    path = os.path.join(directory, basename) if directory else ""
+    if path and os.path.isfile(path):
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    return empty
+
+
+def load_json(basename):
+    text = load(basename, "[]")
+    try:
+        return json.loads(text)
+    except ValueError as error:
+        fail(f"cannot read {basename}: {error}")
+
+
+def emit(document, fields, jq_expr):
+    """Apply the --json projection, then the caller's --jq, then print."""
+    if fields:
+        names = fields.split(",")
+        if isinstance(document, list):
+            document = [pick(record, names) for record in document]
+        else:
+            document = pick(document, names)
+    text = json.dumps(document, separators=(",", ":"))
+    if jq_expr is None:
+        sys.stdout.write(text + "\n")
+        return
+    # Real jq, exactly as the shell stub ran it: the expression is the caller's,
+    # and a stub that reimplemented it would prove nothing about the caller.
+    finished = subprocess.run(
+        ["jq", "-rc", jq_expr], input=text.encode("utf-8"), stdout=subprocess.PIPE, check=False
+    )
+    sys.stdout.write(finished.stdout.decode("utf-8", "replace"))
+    if finished.returncode != 0:
+        sys.exit(1)
+
+
+def pick(record, names):
+    """gh answers only for fields that exist, and says so when one does not."""
+    projected = {}
+    for name in names:
+        if not isinstance(record, dict) or name not in record:
+            fail(f'Unknown JSON field: "{name}"')
+        projected[name] = record[name]
+    return projected
+
+
+def one(basename, number, kind):
+    """The single record with that number, or a gh-style error."""
+    for record in load_json(basename):
+        if record.get("number") == number:
+            return record
+    sys.stderr.write(f"GraphQL: Could not resolve to {kind} with the number of {number}.\n")
+    sys.exit(1)
+
+
+def matches(issue, state, label, milestone, search):
+    """The server-side filtering `gh issue list` does before it answers."""
+    if state not in ("", "all") and issue.get("state", "OPEN") != state.upper():
+        return False
+    if label and not any(entry.get("name") == label for entry in issue.get("labels") or []):
+        return False
+    if milestone and ((issue.get("milestone") or {}).get("title") or "") != milestone:
+        return False
+    if search:
+        haystack = "{} {}".format(issue.get("title", ""), issue.get("body") or "")
+        if search.lower() not in haystack.lower():
+            return False
+    return True
+
+
+def parse(argv):
+    """The flags the stub emulates, plus at most one positional argument."""
+    options = {"state": "", "label": "", "milestone": "", "search": "", "limit": 1000}
+    fields = ""
+    jq_expr = None
+    positional = ""
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument in FLAGS_WITH_VALUES:
+            value = argv[index + 1] if index + 1 < len(argv) else ""
+            if argument == "--json":
+                fields = value
+            elif argument == "--limit":
+                options["limit"] = int(value)
+            else:
+                options[argument[2:]] = value
+            index += 1
+        elif argument in JQ_FLAGS:
+            jq_expr = argv[index + 1] if index + 1 < len(argv) else ""
+            index += 1
+        elif argument.startswith("-"):
+            fail(f"unhandled flag: {argument}", 64)
+        elif positional:
+            fail(f"unexpected second argument: {argument}")
+        else:
+            positional = argument
+        index += 1
+    return options, fields, jq_expr, positional
+
+
+def main(argv):
+    if os.environ.get("WS_GH_FIXTURE_FAIL"):
+        sys.stderr.write("gh: simulated failure\n")
+        return 1
+
+    command = " ".join(argv[:2])
+    options, fields, jq_expr, positional = parse(argv[2:])
+
+    if command == "auth status":
+        if os.environ.get("WS_GH_FIXTURE_NOAUTH"):
+            sys.stderr.write("You are not logged into any GitHub hosts.\n")
+            return 1
+        sys.stdout.write("Logged in to github.com\n")
+    elif command == "extension list":
+        sys.stdout.write(load("extensions.txt", ""))
+    elif command == "repo view":
+        emit(
+            {"nameWithOwner": os.environ.get("WS_GH_FIXTURE_REPO") or DEFAULT_REPO}, fields, jq_expr
+        )
+    elif command == "issue view":
+        number = positional.lstrip("#")
+        if not number.isdigit():
+            fail(f"issue view needs a number, got: {positional}")
+        emit(one("issues.json", int(number), "an Issue"), fields, jq_expr)
+    elif command == "issue list":
+        issues = [
+            issue
+            for issue in load_json("issues.json")
+            if matches(
+                issue, options["state"], options["label"], options["milestone"], options["search"]
+            )
+        ]
+        emit(issues[: options["limit"]], fields, jq_expr)
+    elif command == "pr view":
+        number = positional.lstrip("#").rsplit("/", 1)[-1]
+        if not number.isdigit():
+            fail(f"pr view needs a number or url, got: {positional}")
+        emit(one("prs.json", int(number), "a PullRequest"), fields, jq_expr)
+    else:
+        fail(f"unsupported: {command}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

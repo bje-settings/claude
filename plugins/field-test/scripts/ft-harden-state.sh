@@ -57,7 +57,7 @@ skill="${1:-}"; shift 2>/dev/null || true
 [[ -n "$skill" && "$skill" != -* ]] || die "$cmd needs a <plugin:skill> target" 2
 [[ "$skill" == *:* ]] || die "target must be plugin:skill, got: $skill" 2
 
-# gh:shepherd becomes gh__shepherd, the same shape ws-state.sh uses for owner/name.
+# gh:shepherd becomes gh__shepherd, the same shape ws-state.py uses for owner/name.
 safe="${skill//\//_}"
 path="$state_dir/harden/${safe//:/__}.json"
 

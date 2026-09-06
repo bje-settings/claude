@@ -13,7 +13,7 @@ disable-model-invocation: true
 
 Run the workstreams recorded for this repository. The state file is the source of truth; every
 transition below is written to it before the next action, so a stopped session can re-run this
-skill and continue. If any `ws-state.sh` write fails, stop the loop and report the error: the
+skill and continue. If any `ws-state.py` write fails, stop the loop and report the error: the
 state is what the next tick reads, so continuing past a failed write would start work twice.
 
 This skill runs in the main session. Only the main session schedules wakes; the workers and
@@ -23,7 +23,7 @@ the reviewer are subagents that return once and never schedule anything.
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 ```
 
 Stop with the install hints if preflight exits 1, or with its stderr line if it exits 4. Stop
@@ -49,8 +49,8 @@ this directory and start one worker with the `Agent` tool:
 Then record it, for every stream in the unit:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" set <id> status running
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" set <id> agent "<agent name or id>"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status running
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> agent "<agent name or id>"
 ```
 
 Do not create worktrees or branches yourself. The worker does that, following the target repo's
@@ -69,7 +69,7 @@ On each wake:
 1. **Workers that returned.** Parse the fenced JSON block at the end of each result. For a stack
    the worker reports `stream` as the bottom layer's id and `prs` bottom-up; write `prs[i]` to
    the `pr` of the layer with `order` i+1, and apply the status to every layer.
-   - `status: draft`: record `branch`, `worktree`, and `pr` (`ws-state.sh set <id> pr <n>`),
+   - `status: draft`: record `branch`, `worktree`, and `pr` (`ws-state.py set <id> pr <n>`),
      set status `draft`, and go to Step 4.
    - `status: paused`: record `question`, set status `paused`. Tell the user the question in the
      tick's message. Never block on it; the other streams continue.
@@ -87,7 +87,7 @@ For a stream that just reached `draft`, or whose last review applied changes:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.sh" <pr>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" set <id> status reviewing
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status reviewing
 ```
 
 If `ws-pr-status.sh` fails, the worker reported a PR that does not exist: set the stream

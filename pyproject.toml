@@ -29,6 +29,9 @@ dev = [
 [tool.ruff]
 target-version = "py39"
 line-length = 100
+# The test stub gh has no extension, because it is found on PATH by name the way
+# the real gh is. Without this, `ruff check .` walks straight past it.
+extend-include = ["tests/*/bin/gh"]
 
 [tool.ruff.lint]
 # FA is what actually holds the 3.9 floor for annotations: at py39 ruff accepts
@@ -66,6 +69,10 @@ omit = [
   # alone would leave every tests/<plugin>/ file measured.
   "tests/**/test_*.py",
   "tests/**/conftest.py",
+  # The stub gh a plugin's tests put on PATH. It is a Python program run as a
+  # child process, so the subprocess patch would measure it, but it is a fixture
+  # standing in for a tool, not code under test.
+  "tests/*/bin/*",
 ]
 
 [tool.coverage.report]

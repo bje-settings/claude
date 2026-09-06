@@ -1,8 +1,13 @@
 # workstreams fixtures
 
-Canned GitHub data for `spec/workstreams/`. Unlike `fixtures/gh/`, nothing here builds a git
-repository: the workstreams scripts only read from `gh` and write a JSON state file, so the
-fixtures are the data `gh` would return plus a fake `$HOME`.
+Canned GitHub data for the workstreams specs that are still bash: `ws-preflight.sh`,
+`ws-issues.sh` and `ws-pr-status.sh`. The ported scripts use the Python counterpart of all of
+this, in `tests/workstreams/` (`conftest.py` and `bin/gh`), which keeps the same environment
+contract; when the last of those three is ported, this directory goes with it.
+
+Unlike `fixtures/gh/`, nothing here builds a git repository: the workstreams scripts only read
+from `gh` and write a JSON state file, so the fixtures are the data `gh` would return plus a fake
+`$HOME`.
 
 ## `bin/gh`
 
@@ -34,6 +39,7 @@ Supported: `auth status`, `extension list`, `repo view`, `issue view`, `issue li
 
 `spec/workstreams/fixtures_spec.sh` asserts the shapes the other specs rely on (counts, states,
 references, which conclusions appear), so those specs cannot pass for the wrong reason.
+`tests/workstreams/test_fixtures.py` makes the same claims about the Python fixtures.
 
 `setup_ws_sandbox` in `spec/spec_helper.sh` wires all of this together for one example: a temp
 dir with the canned data, an empty `WS_STATE_DIR`, a fake `HOME`, and the stub on `PATH`. Specs

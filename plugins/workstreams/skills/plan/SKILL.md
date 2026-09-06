@@ -76,7 +76,7 @@ cross-repo dependency they may want handled elsewhere. Ask them together, once.
 Then check for an existing plan:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 ```
 
 If a plan exists, ask the user whether to replace it before going further; if they decline,
@@ -89,17 +89,17 @@ Only after the plan is approved, since plan mode blocks writes, persist it:
 
 ```bash
 # --force only when the user said to replace an existing plan
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" init
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" init
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" \
   add-stream <id> --issues <n,n> --kind independent \
   --model <alias> --effort <level> --reason "<why this size>"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" \
   add-stream <id> --issues <n> --kind stack --stack <name> --order <n> [--base <branch>] \
   --model <alias> --effort <level> --reason "<why this size>"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" defer <issue> "<reason>"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" defer <issue> "<reason>"
 # loop_delay is an integer from 60 to 3600; the script rejects anything else
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" meta loop_delay <seconds>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" meta plan_path <path to the plan file>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" meta loop_delay <seconds>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" meta plan_path <path to the plan file>
 ```
 
 Stream ids are short and stable: `s1`, `s2`, and so on, with stacked layers sharing a prefix

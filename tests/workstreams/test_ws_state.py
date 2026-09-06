@@ -1,0 +1,907 @@
+"""Black-box tests for ws-state.py.
+
+Ported from the 67 examples in `spec/workstreams/ws_state_spec.sh`, whose `It`
+description each test carries in its docstring. One example did not come across:
+"requires jq", which asserted the shell script's dependency check. The Python
+script parses and writes JSON itself, so there is no such dependency and nothing
+left to assert; the tests below run with jq absent from PATH instead.
+
+Every test drives the script as its own process through `ws_state`, the way
+Claude Code runs it, and reads the state file back with the helpers here.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import stat
+
+import pytest
+from conftest import STUB_BIN
+
+pytestmark = pytest.mark.usefixtures("ws_sandbox")
+
+ROOT_USER = os.geteuid() == 0
+not_as_root = pytest.mark.skipif(ROOT_USER, reason="running as root, permissions do not apply")
+
+INDEPENDENT_S1 = (
+    '{"id": "s1", "issues": [1, 3], "kind": "independent", "stack": null, "order": null, '
+    '"base": null, "model": "sonnet", "effort": "low", "reason": "mechanical", '
+    '"status": "planned", "branch": null, "worktree": null, "pr": null, "prs": null, '
+    '"agent": null, "question": null, "attempts": 0}'
+)
+
+
+def add_s1(ws_state, *extra):
+    """The stack layer every `set` test starts from."""
+    return ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1,3",
+        "--kind",
+        "stack",
+        "--stack",
+        "parser",
+        "--order",
+        "1",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--reason",
+        "mechanical",
+        *extra,
+    )
+
+
+def stream(ws_sandbox, index=0):
+    return ws_sandbox.read_state()["streams"][index]
+
+
+def field(ws_sandbox, name):
+    return stream(ws_sandbox)[name]
+
+
+def snapshot(ws_sandbox):
+    return ws_sandbox.state_file().read_text(encoding="utf-8")
+
+
+def temp_files(ws_sandbox):
+    return sorted(path.name for path in ws_sandbox.state_dir.glob("*.tmp.*"))
+
+
+# --- location -----------------------------------------------------------------
+
+
+def test_derives_the_path_from_gh_repo_view(ws_sandbox, ws_state):
+    """derives the path from gh repo view under the state dir"""
+    result = ws_state("path")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.state_file())
+
+
+def test_falls_back_to_claude_plugin_data(ws_sandbox, ws_state):
+    """falls back to CLAUDE_PLUGIN_DATA when WS_STATE_DIR is unset"""
+    ws_sandbox.delenv("WS_STATE_DIR")
+    ws_sandbox.setenv("CLAUDE_PLUGIN_DATA", str(ws_sandbox.path / "data"))
+    result = ws_state("path")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.path / "data" / "bje-settings__example.json")
+
+
+def test_refuses_to_guess_a_location(ws_sandbox, ws_state):
+    """refuses to guess a location when neither is set"""
+    ws_sandbox.delenv("WS_STATE_DIR")
+    result = ws_state("path")
+    assert result.status == 2
+    assert "CLAUDE_PLUGIN_DATA" in result.stderr
+
+
+def test_takes_the_repo_from_ws_repo_without_calling_gh(ws_sandbox, ws_state):
+    """takes the repo from WS_REPO without calling gh"""
+    ws_sandbox.setenv("WS_REPO", "acme/widgets")
+    ws_sandbox.setenv("WS_GH_FIXTURE_FAIL", "1")
+    result = ws_state("path")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.state_dir / "acme__widgets.json")
+
+
+def test_reports_the_gh_error_when_the_repository_cannot_be_resolved(ws_sandbox, ws_state):
+    """reports the gh error when the repository cannot be resolved"""
+    ws_sandbox.setenv("WS_GH_FIXTURE_FAIL", "1")
+    result = ws_state("path")
+    assert result.status == 1
+    assert "cannot resolve the repository (gh: simulated failure)" in result.stderr
+    assert "set WS_REPO" in result.stderr
+
+
+def test_reports_an_unreadable_gh_answer_the_same_way(ws_sandbox, ws_state):
+    """reports an answer from gh that is not the JSON it asked for
+
+    Not in the shell spec: there, jq turned any such answer into the same
+    failure. Here the parse is the script's own, so its failure needs its own
+    test.
+    """
+    stubs = ws_sandbox.path / "broken-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text("#!/bin/sh\necho 'not json at all'\n", encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    result = ws_state("path")
+    assert result.status == 1
+    assert "cannot resolve the repository (not json at all)" in result.stderr
+
+
+def test_rejects_a_repo_that_is_not_owner_name(ws_state):
+    """rejects a repo that is not owner/name"""
+    result = ws_state("init", "--repo", "widgets")
+    assert result.status == 2
+    assert "owner/name" in result.stderr
+
+
+def test_reports_gh_missing_from_path(ws_sandbox, ws_state):
+    """says the repository cannot be resolved when gh is not installed
+
+    Not in the shell spec, which covered the missing-tool branch for jq only.
+    """
+    bare = ws_sandbox.sandbox.path_without("gh")
+    result = ws_state("path", env={"PATH": bare})
+    assert result.status == 1
+    assert "cannot resolve the repository" in result.stderr
+
+
+# --- init ---------------------------------------------------------------------
+
+
+def test_creates_the_state_file_and_prints_its_path(ws_sandbox, ws_state):
+    """creates the state file and prints its path"""
+    result = ws_state("init")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.state_file())
+    assert ws_sandbox.state_file().is_file()
+    document = ws_sandbox.read_state()
+    assert [document["repo"], document["version"]] == ["bje-settings/example", 1]
+    assert document["streams"] == []
+    assert document["deferred"] == []
+
+
+def test_refuses_to_overwrite_an_existing_plan(ws_sandbox, ws_state):
+    """refuses to overwrite an existing plan and leaves it untouched"""
+    ws_state("init")
+    add_s1(ws_state)
+    before = snapshot(ws_sandbox)
+    result = ws_state("init")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == before
+
+
+def test_starts_over_with_force(ws_sandbox, ws_state):
+    """starts over with --force"""
+    ws_state("init")
+    add_s1(ws_state)
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert ws_sandbox.read_state()["streams"] == []
+
+
+def test_accepts_repo_explicitly(ws_sandbox, ws_state):
+    """accepts --repo explicitly"""
+    result = ws_state("init", "--repo", "acme/widgets")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.state_dir / "acme__widgets.json")
+
+
+def test_honours_ws_repo_like_every_other_command(ws_sandbox, ws_state):
+    """honours WS_REPO like every other command"""
+    ws_sandbox.setenv("WS_REPO", "acme/widgets")
+    result = ws_state("init")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.state_dir / "acme__widgets.json")
+
+
+def test_rejects_repo_without_a_value(ws_state):
+    """rejects --repo without a value"""
+    result = ws_state("init", "--repo")
+    assert result.status == 2
+    assert "--repo needs a value" in result.stderr
+
+
+def test_rejects_unknown_init_arguments(ws_state):
+    """rejects unknown arguments"""
+    result = ws_state("init", "--now")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_fails_when_the_state_dir_cannot_be_created(ws_sandbox, ws_state):
+    """fails, and says so, when the state dir cannot be created"""
+    blocker = ws_sandbox.path / "blocker"
+    blocker.write_text("", encoding="utf-8")
+    ws_sandbox.setenv("WS_STATE_DIR", str(blocker / "state"))
+    result = ws_state("init")
+    assert result.status == 1
+    assert "cannot create" in result.stderr
+    assert result.stdout == ""
+
+
+@not_as_root
+def test_fails_when_the_state_file_cannot_be_written(ws_sandbox, ws_state):
+    """fails, and says so, when the state file cannot be written"""
+    ws_sandbox.state_dir.mkdir(parents=True)
+    ws_sandbox.state_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+    try:
+        result = ws_state("init")
+        assert result.status == 1
+        assert "cannot write" in result.stderr
+        assert result.stdout == ""
+        assert not ws_sandbox.state_file().exists()
+    finally:
+        ws_sandbox.state_dir.chmod(0o755)
+
+
+def test_fails_and_cleans_up_when_the_state_file_cannot_be_moved_into_place(ws_sandbox, ws_state):
+    """fails, and leaves no temp file, when the finished file cannot be moved into place
+
+    Not in the shell spec, which only reached the write half of the atomic
+    update. A directory where the state file belongs fails the rename instead,
+    which is the arm that has to clean the temp file up.
+    """
+    ws_sandbox.state_file().mkdir(parents=True)
+    result = ws_state("init")
+    assert result.status == 1
+    assert f"cannot write {ws_sandbox.state_file()}" in result.stderr
+    assert temp_files(ws_sandbox) == []
+
+
+# --- without a usable state file ----------------------------------------------
+
+
+def test_show_fails_and_says_to_init(ws_state):
+    """show fails and says to init"""
+    result = ws_state("show")
+    assert result.status == 1
+    assert "run init first" in result.stderr
+
+
+def test_add_stream_fails_the_same_way(ws_state):
+    """add-stream fails the same way"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "independent",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+    )
+    assert result.status == 1
+    assert "run init first" in result.stderr
+
+
+def test_rejects_a_corrupt_state_file(ws_sandbox, ws_state):
+    """rejects a corrupt state file with its own message, not a jq trace"""
+    ws_sandbox.state_dir.mkdir(parents=True)
+    ws_sandbox.state_file().write_text('{"streams": [', encoding="utf-8")
+    result = ws_state("show")
+    assert result.status == 1
+    assert "not valid workstreams JSON" in result.stderr
+
+
+def test_rejects_json_that_is_not_a_workstreams_state(ws_sandbox, ws_state):
+    """rejects a JSON file that is not a workstreams state"""
+    ws_sandbox.state_dir.mkdir(parents=True)
+    ws_sandbox.state_file().write_text('{"plugins": {}}', encoding="utf-8")
+    result = ws_state("set", "s1", "status", "done")
+    assert result.status == 1
+    assert "not valid workstreams JSON" in result.stderr
+
+
+# --- streams ------------------------------------------------------------------
+
+
+@pytest.fixture
+def planned(ws_state):
+    """An initialised state file, as the streams describe block's BeforeEach did."""
+    assert ws_state("init").status == 0
+
+
+def test_adds_an_independent_stream_with_defaults_filled_in(planned, ws_sandbox, ws_state):
+    """adds an independent stream with defaults filled in"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1,3",
+        "--kind",
+        "independent",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--reason",
+        "mechanical",
+    )
+    assert result.status == 0
+    assert stream(ws_sandbox) == json.loads(INDEPENDENT_S1)
+
+
+def test_records_a_stack_layer_with_its_stack_order_and_base(planned, ws_sandbox, ws_state):
+    """records a stack layer with its stack, order, and base"""
+    result = ws_state(
+        "add-stream",
+        "s1b",
+        "--issues",
+        "3",
+        "--kind",
+        "stack",
+        "--stack",
+        "parser",
+        "--order",
+        "2",
+        "--base",
+        "wktr-1-parser",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+    )
+    assert result.status == 0
+    record = stream(ws_sandbox)
+    assert [record["stack"], record["order"], record["base"]] == ["parser", 2, "wktr-1-parser"]
+
+
+def test_requires_stack_and_order_for_a_stack_layer(planned, ws_state):
+    """requires --stack and --order for a stack layer"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "stack",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+    )
+    assert result.status == 2
+    assert "needs --stack and --order" in result.stderr
+
+
+def test_rejects_stack_flags_on_an_independent_stream(planned, ws_state):
+    """rejects stack flags on an independent stream"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "independent",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--order",
+        "1",
+    )
+    assert result.status == 2
+    assert "are for --kind stack" in result.stderr
+
+
+def test_rejects_an_effort_that_has_no_stream_agent(planned, ws_state):
+    """rejects an effort that has no stream agent"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "independent",
+        "--model",
+        "sonnet",
+        "--effort",
+        "max",
+    )
+    assert result.status == 2
+    assert "effort must be low, medium, or high" in result.stderr
+
+
+def test_rejects_an_unknown_model_alias(planned, ws_state):
+    """rejects an unknown model alias"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "independent",
+        "--model",
+        "gpt",
+        "--effort",
+        "low",
+    )
+    assert result.status == 2
+    assert "model must be one of" in result.stderr
+
+
+def test_rejects_a_flag_given_last_with_no_value(planned, ws_state):
+    """rejects a flag given last with no value"""
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "independent",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--reason",
+    )
+    assert result.status == 2
+    assert "--reason needs a value" in result.stderr
+
+
+def test_rejects_a_duplicate_id_and_keeps_the_first(planned, ws_sandbox, ws_state):
+    """rejects a duplicate id and keeps the first"""
+    add_s1(ws_state)
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "2",
+        "--kind",
+        "independent",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+    )
+    assert result.status == 1
+    assert "already exists: s1" in result.stderr
+    assert len(ws_sandbox.read_state()["streams"]) == 1
+    assert field(ws_sandbox, "issues") == [1, 3]
+
+
+def test_rejects_a_missing_required_flag(planned, ws_state):
+    """rejects a missing required flag"""
+    result = ws_state(
+        "add-stream", "s2", "--issues", "2", "--kind", "independent", "--model", "haiku"
+    )
+    assert result.status == 2
+    assert "needs --issues, --kind, --model, and --effort" in result.stderr
+
+
+def test_rejects_a_bad_kind(planned, ws_state):
+    """rejects a bad kind"""
+    result = ws_state(
+        "add-stream",
+        "s2",
+        "--issues",
+        "2",
+        "--kind",
+        "chain",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+    )
+    assert result.status == 2
+    assert "kind must be" in result.stderr
+
+
+def test_rejects_malformed_issue_lists(planned, ws_state):
+    """rejects malformed issue lists"""
+    result = ws_state(
+        "add-stream",
+        "s2",
+        "--issues",
+        "2, 3",
+        "--kind",
+        "independent",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+    )
+    assert result.status == 2
+    assert "comma-separated numbers" in result.stderr
+
+
+def test_rejects_a_non_numeric_or_zero_order(planned, ws_state):
+    """rejects a non-numeric or zero order"""
+    result = ws_state(
+        "add-stream",
+        "s2",
+        "--issues",
+        "2",
+        "--kind",
+        "stack",
+        "--stack",
+        "p",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--order",
+        "0",
+    )
+    assert result.status == 2
+    assert "--order must be a number from 1" in result.stderr
+
+
+def test_rejects_a_missing_id(planned, ws_state):
+    """rejects a missing id"""
+    result = ws_state("add-stream", "--issues", "2")
+    assert result.status == 2
+    assert "needs a stream id" in result.stderr
+
+
+def test_rejects_an_unknown_add_stream_flag(planned, ws_state):
+    """rejects an unknown add-stream flag"""
+    result = ws_state(
+        "add-stream",
+        "s2",
+        "--issues",
+        "2",
+        "--kind",
+        "independent",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+        "--colour",
+        "red",
+    )
+    assert result.status == 2
+    assert "unknown argument: --colour" in result.stderr
+
+
+# --- set ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def with_s1(planned, ws_state):
+    """A state file holding the stack layer s1, as the set block's BeforeEach did."""
+    assert add_s1(ws_state).status == 0
+
+
+def test_sets_a_string_field(with_s1, ws_sandbox, ws_state):
+    """sets a string field"""
+    result = ws_state("set", "s1", "branch", "wktr-1-parser")
+    assert result.status == 0
+    assert field(ws_sandbox, "branch") == "wktr-1-parser"
+
+
+def test_stores_pr_as_a_number_without_json(with_s1, ws_sandbox, ws_state):
+    """stores pr as a number without needing --json"""
+    result = ws_state("set", "s1", "pr", "10")
+    assert result.status == 0
+    assert field(ws_sandbox, "pr") == 10
+
+
+def test_clears_a_numeric_field_back_to_null(with_s1, ws_sandbox, ws_state):
+    """clears a numeric field back to null"""
+    ws_state("set", "s1", "pr", "10")
+    result = ws_state("set", "s1", "pr", "null")
+    assert result.status == 0
+    assert field(ws_sandbox, "pr") is None
+
+
+def test_rejects_a_non_numeric_pr(with_s1, ws_state):
+    """rejects a non-numeric pr"""
+    result = ws_state("set", "s1", "pr", "twelve")
+    assert result.status == 2
+    assert "pr takes a number or null" in result.stderr
+
+
+def test_stores_prs_as_a_json_array(with_s1, ws_sandbox, ws_state):
+    """stores prs as a JSON array"""
+    result = ws_state("set", "s1", "prs", "[10, 12]")
+    assert result.status == 0
+    assert field(ws_sandbox, "prs") == [10, 12]
+
+
+def test_accepts_null_through_json(with_s1, ws_sandbox, ws_state):
+    """accepts null and false through --json"""
+    result = ws_state("set", "s1", "question", "null", "--json")
+    assert result.status == 0
+    assert field(ws_sandbox, "question") is None
+    assert ws_state("set", "s1", "question", "false", "--json").status == 0
+    assert field(ws_sandbox, "question") is False
+
+
+def test_rejects_invalid_json_and_leaves_the_stream_unchanged(with_s1, ws_sandbox, ws_state):
+    """rejects invalid JSON with --json and leaves the stream unchanged"""
+    before = stream(ws_sandbox)
+    result = ws_state("set", "s1", "prs", "{oops")
+    assert result.status == 2
+    assert "not valid JSON" in result.stderr
+    assert stream(ws_sandbox) == before
+
+
+def test_rejects_an_empty_json_value(with_s1, ws_state):
+    """rejects an empty --json value"""
+    result = ws_state("set", "s1", "question", "", "--json")
+    assert result.status == 2
+    assert "not valid JSON" in result.stderr
+
+
+def test_validates_status_values_and_leaves_the_stream_unchanged(with_s1, ws_sandbox, ws_state):
+    """validates status values and leaves the stream unchanged"""
+    before = stream(ws_sandbox)
+    result = ws_state("set", "s1", "status", "shipped")
+    assert result.status == 2
+    assert "invalid status: shipped" in result.stderr
+    assert stream(ws_sandbox) == before
+
+
+def test_accepts_every_documented_status(with_s1, ws_sandbox, ws_state):
+    """accepts every documented status"""
+    for status in ("planned", "running", "draft", "reviewing", "paused", "done"):
+        assert ws_state("set", "s1", "status", status).status == 0
+    result = ws_state("set", "s1", "status", "failed")
+    assert result.status == 0
+    assert field(ws_sandbox, "status") == "failed"
+
+
+def test_rejects_a_field_outside_the_schema(with_s1, ws_sandbox, ws_state):
+    """rejects a field outside the schema, so a typo cannot create one"""
+    before = stream(ws_sandbox)
+    result = ws_state("set", "s1", "statu", "running")
+    assert result.status == 2
+    assert "unknown field: statu" in result.stderr
+    assert stream(ws_sandbox) == before
+
+
+def test_refuses_to_change_the_id(with_s1, ws_state):
+    """refuses to change the id"""
+    result = ws_state("set", "s1", "id", "s9")
+    assert result.status == 2
+    assert "unknown field: id" in result.stderr
+
+
+def test_fails_for_an_unknown_stream(with_s1, ws_state):
+    """fails for an unknown stream"""
+    result = ws_state("set", "nope", "status", "done")
+    assert result.status == 1
+    assert "unknown stream: nope" in result.stderr
+
+
+def test_rejects_a_fourth_argument_other_than_json(with_s1, ws_state):
+    """rejects a fourth argument other than --json"""
+    result = ws_state("set", "s1", "branch", "b", "--raw")
+    assert result.status == 2
+    assert "unknown argument: --raw" in result.stderr
+
+
+def test_set_needs_three_arguments(with_s1, ws_state):
+    """needs three arguments"""
+    result = ws_state("set", "s1", "status")
+    assert result.status == 2
+    assert "set needs" in result.stderr
+
+
+# --- list-streams -------------------------------------------------------------
+
+
+def add_s2(ws_state):
+    return ws_state(
+        "add-stream",
+        "s2",
+        "--issues",
+        "2",
+        "--kind",
+        "independent",
+        "--model",
+        "haiku",
+        "--effort",
+        "low",
+    )
+
+
+def test_lists_streams_by_status(planned, ws_state):
+    """lists streams by status"""
+    add_s1(ws_state)
+    add_s2(ws_state)
+    ws_state("set", "s2", "status", "draft")
+    result = ws_state("list-streams", "--status", "draft")
+    assert result.status == 0
+    assert [record["id"] for record in json.loads(result.stdout)] == ["s2"]
+
+
+def test_lists_every_stream_without_a_filter(planned, ws_state):
+    """lists every stream without a filter"""
+    add_s1(ws_state)
+    add_s2(ws_state)
+    result = ws_state("list-streams")
+    assert result.status == 0
+    assert len(json.loads(result.stdout)) == 2
+
+
+def test_rejects_a_misspelled_status_filter(planned, ws_state):
+    """rejects a misspelled status filter rather than returning nothing"""
+    result = ws_state("list-streams", "--status", "runing")
+    assert result.status == 2
+    assert "invalid status: runing" in result.stderr
+
+
+def test_rejects_unknown_list_streams_flags(planned, ws_state):
+    """rejects unknown list-streams flags"""
+    result = ws_state("list-streams", "--kind", "stack")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_rejects_status_with_no_value(planned, ws_state):
+    """rejects --status with no value"""
+    result = ws_state("list-streams", "--status")
+    assert result.status == 2
+    assert "--status needs a value" in result.stderr
+
+
+# --- deferred and meta --------------------------------------------------------
+
+
+def test_records_a_deferred_issue_replacing_an_earlier_entry(planned, ws_sandbox, ws_state):
+    """records a deferred issue with its reason, replacing an earlier entry"""
+    ws_state("defer", "4", "needs hardware")
+    result = ws_state("defer", "4", "needs a week of data")
+    assert result.status == 0
+    assert ws_sandbox.read_state()["deferred"] == [{"issue": 4, "reason": "needs a week of data"}]
+
+
+def test_keeps_other_deferred_issues_when_adding_one(planned, ws_sandbox, ws_state):
+    """keeps other deferred issues when adding one"""
+    ws_state("defer", "4", "needs hardware")
+    result = ws_state("defer", "5", "already closed")
+    assert result.status == 0
+    assert ws_sandbox.read_state()["deferred"] == [
+        {"issue": 4, "reason": "needs hardware"},
+        {"issue": 5, "reason": "already closed"},
+    ]
+
+
+def test_requires_a_numeric_issue_for_defer(planned, ws_state):
+    """requires a numeric issue for defer"""
+    result = ws_state("defer", "four", "reason")
+    assert result.status == 2
+    assert "defer needs" in result.stderr
+
+
+def test_stores_plan_level_metadata_as_strings(planned, ws_sandbox, ws_state):
+    """stores plan-level metadata as strings"""
+    result = ws_state("meta", "plan_path", "/tmp/plan.md")
+    assert result.status == 0
+    assert ws_sandbox.read_state()["meta"] == {"plan_path": "/tmp/plan.md"}
+
+
+def test_stores_loop_delay_as_a_json_number(planned, ws_sandbox, ws_state):
+    """stores loop_delay as a JSON number
+
+    The run skill passes loop_delay to ScheduleWakeup, which takes a number in
+    this range, so the script stores a number and refuses anything outside it.
+    """
+    result = ws_state("meta", "loop_delay", "1800")
+    assert result.status == 0
+    assert ws_sandbox.read_state()["meta"] == {"loop_delay": 1800}
+
+
+def test_drops_zero_padding_from_loop_delay(planned, ws_sandbox, ws_state):
+    """drops zero padding rather than emitting invalid JSON"""
+    result = ws_state("meta", "loop_delay", "0600")
+    assert result.status == 0
+    assert ws_sandbox.read_state()["meta"] == {"loop_delay": 600}
+
+
+@pytest.mark.parametrize(
+    ("value", "why"),
+    [
+        ("5m", "a duration suffix"),
+        ("thirty", "a word"),
+        ("59", "one below the range"),
+        ("3601", "one above the range"),
+        ("-1", "a negative number"),
+    ],
+)
+def test_rejects_a_loop_delay_that_is_not_in_range(planned, ws_sandbox, ws_state, value, why):
+    """rejects {why}"""
+    result = ws_state("meta", "loop_delay", value)
+    assert result.status == 2
+    assert "integer from 60 to 3600" in result.stderr
+    assert ws_sandbox.read_state()["meta"] == {}
+
+
+def test_requires_a_field_and_value_for_meta(planned, ws_state):
+    """requires a field and value for meta"""
+    result = ws_state("meta", "loop_delay")
+    assert result.status == 2
+    assert "meta needs" in result.stderr
+
+
+def test_pretty_prints_the_whole_file_with_show(planned, ws_state):
+    """pretty-prints the whole file with show"""
+    result = ws_state("show")
+    assert result.status == 0
+    assert '"repo": "bje-settings/example"' in result.stdout
+
+
+# --- atomic writes ------------------------------------------------------------
+
+
+def test_leaves_no_temp_file_behind_after_an_update(planned, ws_sandbox, ws_state):
+    """leaves no temp file behind after an update"""
+    result = ws_state("meta", "a", "b")
+    assert result.status == 0
+    assert temp_files(ws_sandbox) == []
+
+
+@not_as_root
+def test_keeps_the_old_state_when_the_update_cannot_be_written(planned, ws_sandbox, ws_state):
+    """keeps the old state when the update cannot be written"""
+    before = snapshot(ws_sandbox)
+    ws_sandbox.state_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+    try:
+        result = ws_state("meta", "a", "b")
+        assert result.status == 1
+        assert "cannot write" in result.stderr
+        assert snapshot(ws_sandbox) == before
+        assert temp_files(ws_sandbox) == []
+    finally:
+        ws_sandbox.state_dir.chmod(0o755)
+
+
+# --- usage --------------------------------------------------------------------
+
+
+def test_prints_usage_for_help(ws_state):
+    """prints usage for --help"""
+    result = ws_state("--help")
+    assert result.status == 0
+    assert "add-stream" in result.stdout
+    assert "Stream statuses" in result.stdout
+
+
+def test_prints_usage_with_no_command(ws_state):
+    """prints usage with no command"""
+    result = ws_state()
+    assert result.status == 2
+    assert "ws-state.py path" in result.stderr
+
+
+def test_rejects_an_unknown_command(ws_state):
+    """rejects an unknown command"""
+    result = ws_state("frobnicate")
+    assert result.status == 2
+    assert "unknown command" in result.stderr
+
+
+@pytest.mark.parametrize("command", ["path", "show"])
+def test_rejects_arguments_the_read_commands_do_not_take(ws_state, command):
+    """rejects a stray argument to path and show
+
+    Not in the shell spec, where both commands ignored anything after them.
+    """
+    result = ws_state(command, "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_runs_with_jq_absent_from_path(planned, ws_sandbox, ws_state):
+    """runs with jq absent from PATH
+
+    Replaces the shell spec's "requires jq": the Python script parses and writes
+    the state file itself, so jq is not a dependency at all. The stub gh is put
+    back on the front of the stripped PATH, since resolving the repository still
+    goes through gh.
+    """
+    bare = ws_sandbox.sandbox.path_without("jq")
+    result = ws_state("meta", "a", "b", env={"PATH": f"{STUB_BIN}{os.pathsep}{bare}"})
+    assert result.status == 0
+    assert ws_sandbox.read_state()["meta"] == {"a": "b"}
