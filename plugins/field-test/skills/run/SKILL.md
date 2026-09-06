@@ -15,13 +15,13 @@ Run `<target> [args...]` as a field test. You observe. You do not fix the target
 improve on what it did, and you never tell it that it is being tested: a target that knows it is
 under observation is not the thing you set out to measure.
 
-`S="bash ${CLAUDE_PLUGIN_ROOT}/scripts"` below.
+`S="python3 ${CLAUDE_PLUGIN_ROOT}/scripts"` below.
 
 ## Step 1: Resolve the target
 
 ```bash
-RUN="$($S/ft-run.sh dir)"; mkdir -p "$RUN"
-$S/ft-resolve.sh <target> > "$RUN/resolved.json"
+RUN="$($S/ft-run.py dir)"; mkdir -p "$RUN"
+$S/ft-resolve.py <target> > "$RUN/resolved.json"
 ```
 
 Everything this run writes goes under `$RUN`, the run directory this session owns. A fixed path
@@ -36,7 +36,7 @@ that decides whether a name outside the enterprise reaches a public issue.
 ## Step 2: Start the run
 
 ```bash
-$S/ft-run.sh start <target> --resolved "$RUN/resolved.json" --cwd <the directory to run in> -- <args...>
+$S/ft-run.py start <target> --resolved "$RUN/resolved.json" --cwd <the directory to run in> -- <args...>
 ```
 
 Exit 3 means a field test is already running in this session; finish or abandon that one first.
@@ -61,16 +61,16 @@ to solve.
 ## Step 4: Collect
 
 ```bash
-$S/ft-run.sh finish
-$S/ft-collect.sh "$RUN"
-$S/ft-enterprise.sh <plugin marketplace_path from step 1> <the directory the target ran in>
-$S/ft-issue.sh names <the directory the target ran in> --run "$RUN" > "$RUN/names.json"
+$S/ft-run.py finish
+$S/ft-collect.py "$RUN"
+$S/ft-enterprise.py <plugin marketplace_path from step 1> <the directory the target ran in>
+$S/ft-issue.py names <the directory the target ran in> --run "$RUN" > "$RUN/names.json"
 ```
 
-A non-zero exit from `ft-run.sh finish` means the run marker is gone or corrupt: print its
+A non-zero exit from `ft-run.py finish` means the run marker is gone or corrupt: print its
 stderr line and stop there, do not collect.
 
-`ft-collect.sh "$RUN" --report` prints the target's own final message when you need to check
+`ft-collect.py "$RUN" --report` prints the target's own final message when you need to check
 what it claimed against what it did.
 
 ## Step 5: Decide what is real
@@ -102,19 +102,19 @@ stated is a bug that was never filed.
 For each real finding, in severity order:
 
 ```bash
-$S/ft-issue.sh render <record.json> "$RUN/run.json" "$RUN/names.json" [--inside]
+$S/ft-issue.py render <record.json> "$RUN/run.json" "$RUN/names.json" [--inside]
 ```
 
-Pass `--inside` only when `ft-enterprise.sh` said `inside: true`. Its answer decides this; do not
+Pass `--inside` only when `ft-enterprise.py` said `inside: true`. Its answer decides this; do not
 override it, and if it could not tell, the answer is no.
 
 Then, before creating anything:
 
-1. `$S/ft-issue.sh search <plugin repo> "<signature>"`. A number means the finding is already
+1. `$S/ft-issue.py search <plugin repo> "<signature>"`. A number means the finding is already
    open: comment on that issue with what this run added, rather than opening a duplicate.
 2. Show the user the rendered title and body in full, and ask whether to file it. Filing is
    publishing; it happens on a yes, per issue.
-3. On a yes: `$S/ft-issue.sh ensure-label <plugin repo>` once, then create the issue with
+3. On a yes: `$S/ft-issue.py ensure-label <plugin repo>` once, then create the issue with
    `gh issue create --repo <plugin repo> --title "<first line>" --body "<the rest>"
    --label bug --label field-test`.
 

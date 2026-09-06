@@ -21,8 +21,9 @@ applier are subagents that return once and schedule nothing, and the review roun
 because `/pr-review-toolkit:review-pr` wakes whoever dispatched its analyzers, and a subagent gets
 no such wake (issue #62). Scripts are called by path, never through a variable holding a command
 string (a Bash tool running zsh does not split one):
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every
-`ft-harden-state.sh` command takes the `<plugin:skill>` being hardened as its first argument,
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.sh"`, and
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py"` for the run-side ones this skill borrows.
+Every `ft-harden-state.sh` command takes the `<plugin:skill>` being hardened as its first argument,
 after the command word.
 
 Write every transition to state **before** taking the next action. The state file is what a
@@ -91,7 +92,7 @@ exists for.
 
 The target skill's own final table is a claim. Write it to a report file
 (`{"repo": "...", "prs": [{"number": N, "claimed": "merged|closed|open|skipped"}]}`, numbers as
-JSON numbers; `ft-collect.sh <run-dir> --report` prints the table it ended with) and check it:
+JSON numbers; `ft-collect.py <run-dir> --report` prints the table it ended with) and check it:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.sh" <report.json>
@@ -99,7 +100,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.sh" <report.json>
 
 - Exit 0: every claim holds.
 - Exit 1: the report and GitHub disagree. Each mismatch is a finding like any other: render it
-  with `ft-issue.sh render`, show it to the user, file it, and add it to `issues`. A report that
+  with `ft-issue.py render`, show it to the user, file it, and add it to `issues`. A report that
   is wrong about what it merged is usually the most valuable finding of the round.
 - Exit 3: the report named no pull requests. For a skill that is supposed to touch pull requests
   that is itself a finding (the report was missing or unreadable); for one that legitimately had

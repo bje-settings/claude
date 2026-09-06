@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Input and output for the field-test hooks.
+"""The field-test hooks: hooks.json runs this file directly for every event.
 
-The hooks are a shell entry point, but everything they do is JSON: reading the
-payload Claude Code sends on stdin, appending one event record per tool call,
-and writing the PreToolUse decision. Doing that inline with `python3 -c` would
-bury it in quoted heredocs where it could not be linted, tested, or read, and
-`jq` is not used in a hook at all: a hook runs on every tool call, so it depends
-only on what a Mac already has.
+Everything a hook does is JSON: reading the payload Claude Code sends on stdin,
+appending one event record per tool call, and writing the PreToolUse decision.
+`jq` is not used in a hook at all, and nothing here is imported from outside
+this plugin: a hook runs on every tool call, so it depends only on what a Mac
+already has.
+
+Where the run marker lives, and whether this session has a live one, is
+`scripts/lib/run.py`: the hooks must look in exactly the directory ft-run.py
+wrote to, and two copies of that rule would be two chances for them to disagree.
 
 Usage:
   hook-io.py <event>            payload on stdin; event is one of
@@ -24,12 +27,12 @@ Environment:
 
 `Stop` fires at every turn boundary in the main session; see `handle_stop` below.
 
-Always exits 0. A hook that fails must not take the session down with it, but it
-records a `hook_error` event first, so a run whose guardrail crashed is not
-mistaken for a run that had nothing to block.
+Always exits 0, whatever happens, including a plugin directory this cannot
+import its own library out of: a hook that fails must not take the session down
+with it. Short of that it records a `hook_error` event first, so a run whose
+guardrail crashed is not mistaken for a run that had nothing to block.
 """
 
-import datetime
 import json
 import os
 import re
@@ -50,8 +53,29 @@ DENY_REASON = (
 )
 
 
+def load_run_lib():
+    """The plugin's own run-marker module, imported the first time it is needed.
+
+    Inside the try in `main`, so a plugin directory this cannot import out of
+    costs the recording and nothing else: the tool call still goes through and
+    the session does not stop.
+    """
+    scripts = os.path.join(os.path.dirname(HERE), "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from lib import run as run_lib
+
+    return run_lib
+
+
 def now():
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    """The timestamp every event record carries, in the marker's own format."""
+    return load_run_lib().now()
+
+
+def append(path, record):
+    """Append one event to the run's events file, or give up quietly."""
+    load_run_lib().append_event(path, record)
 
 
 def read_payload():
@@ -61,52 +85,6 @@ def read_payload():
     except (ValueError, AttributeError):
         return None
     return payload if isinstance(payload, dict) else None
-
-
-def run_dir_for(session_id):
-    """The run directory for this session, or None when there is no live run."""
-    state_dir = os.environ.get("FT_STATE_DIR") or os.environ.get("CLAUDE_PLUGIN_DATA")
-    if not state_dir or not session_id:
-        return None
-    path = os.path.join(state_dir, "runs", session_id)
-    try:
-        with open(os.path.join(path, "run.json")) as handle:
-            marker = json.load(handle)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(marker, dict) or marker.get("finished_at") is not None:
-        return None
-    return path
-
-
-def note_transcript(path, transcript):
-    """Record the transcript path on the marker the first time a hook reports one.
-
-    Collection needs the transcript and only the hooks are told where it is.
-    """
-    if not transcript:
-        return
-    marker_path = os.path.join(path, "run.json")
-    try:
-        with open(marker_path) as handle:
-            marker = json.load(handle)
-        if marker.get("transcript_path"):
-            return
-        marker["transcript_path"] = transcript
-        tmp = f"{marker_path}.tmp.{os.getpid()}"
-        with open(tmp, "w") as handle:
-            json.dump(marker, handle)
-        os.replace(tmp, marker_path)
-    except (OSError, ValueError):
-        return
-
-
-def append(path, record):
-    try:
-        with open(os.path.join(path, "events.jsonl"), "a") as handle:
-            handle.write(json.dumps(record) + "\n")
-    except OSError:
-        return
 
 
 def load_deny_list(path):
@@ -304,13 +282,14 @@ def main(argv):
     payload = read_payload()
     if payload is None:
         return 0
-    path = run_dir_for(payload.get("session_id"))
+    run_lib = load_run_lib()
+    path = run_lib.live_run_dir(payload.get("session_id"))
     if path is None:
         return 0
-    note_transcript(path, payload.get("transcript_path"))
-    # A crash here is invisible from the outside: the wrapper exits 0, Claude Code
-    # allows the command, and a run that lost its deny list looks exactly like a run
-    # the target never reached for anything. Record it as an event so collection can
+    run_lib.note_transcript(path, payload.get("transcript_path"))
+    # A crash here is invisible from the outside: this exits 0, Claude Code allows
+    # the command, and a run that lost its deny list looks exactly like a run the
+    # target never reached for anything. Record it as an event so collection can
     # say the guardrail was off, then still exit 0.
     try:
         dispatch(event, payload, path)
@@ -322,4 +301,12 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    # The outermost guarantee, and the reason hooks.json needs no shell wrapper:
+    # nothing that happens in here, including failing to import this plugin's own
+    # library, may be the reason a session stops.
+    try:
+        sys.exit(main(sys.argv))
+    except SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001 - a hook never fails the session
+        sys.exit(0)

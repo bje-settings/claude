@@ -25,7 +25,9 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
-under `plugins/` (`find plugins -name '*.sh'` lists them); `workstreams` is entirely Python.
+under `plugins/` (`find plugins -name '*.sh'` lists them); `workstreams` is entirely Python, as is
+the run side of `field-test` (`ft-run`, `ft-collect`, `ft-redact`, `ft-enterprise`, `ft-issue`,
+`ft-resolve`).
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
@@ -35,9 +37,11 @@ others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds
 that plugin's scripts does around its own work (the UTF-8 output streams, the flush, a reported
 failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py` and `pr_status.py`
 hold what used to be each script's jq filters and argument checks, as plain functions with a unit
-test per arm. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by
-path under a plugin-unique module name, because two plugins' `lib` packages collide on
-`sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/` imports another
+test per arm. `plugins/field-test/scripts/lib/` is the same shape, and its `run.py` is what
+`hooks/hook-io.py` imports rather than keeping a second copy of where the run marker lives.
+Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by path under a
+plugin-unique module name, because two plugins' `lib` packages collide on `sys.modules["lib"]` in
+one pytest process. That loader is why nothing under `lib/` imports another
 `lib/` module: a module loaded by path sits outside any package, where a sibling import would not
 resolve, so a module that raises its own error class hands it to `cli.run` rather than importing one.
 
@@ -141,10 +145,6 @@ Stub tools under `tests/<plugin>/bin/` are omitted from the config, since the su
 would otherwise measure a fixture standing in for a tool as code under test. Every omit pattern is
 `**/`-prefixed because a relative one is anchored to the current directory of whichever process
 reads the config, and coverage.py re-reads it in every measured child.
-`plugins/field-test/hooks/hook-io.py` is omitted as well, and is measured by
-neither harness until issue #59 ports its examples: kcov does not follow the `python3` child the
-shell specs launch, so the file appears in no report at all. The omit only keeps that gap from
-reading as a 0% file and sinking the Python gate; it does not stand in for coverage.
 
 `tests/coverage_check.py` is the gate for both reports, at 95%, and is itself in the Python
 denominator, because a gate nobody tests is a gate nobody can trust. 95% is the enterprise Code

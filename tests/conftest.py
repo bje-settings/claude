@@ -196,9 +196,16 @@ def run_script():
     `sys.executable`, not `python3`: it keeps a `pytest-floor` run genuinely on
     3.9, and it is the interpreter coverage.py's subprocess patch knows to
     measure, so a script exercised black-box still counts towards the threshold.
+
+    `cwd` runs the child from another directory, for a script that reads the
+    directory it was called in. It belongs here rather than in a test's own
+    `monkeypatch.chdir`, which moves the pytest process itself: coverage.py
+    resolves its omit patterns against the current directory, so a test that
+    chdirs drags every other file's path out from under them and the tests
+    themselves land in the coverage report.
     """
 
-    def run(path, *args, stdin=None, env=None) -> Result:
+    def run(path, *args, stdin=None, env=None, cwd=None) -> Result:
         child_env = dict(os.environ)
         if env:
             child_env.update({key: str(value) for key, value in env.items()})
@@ -207,6 +214,7 @@ def run_script():
             input=(stdin or "").encode("utf-8"),
             capture_output=True,
             env=child_env,
+            cwd=None if cwd is None else str(cwd),
             check=False,
         )
         return Result(completed)
