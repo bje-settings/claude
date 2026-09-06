@@ -113,6 +113,7 @@ def test_stream_record_fills_in_the_defaults_a_new_stream_starts_with():
     record = a_stream()
     assert record["status"] == "planned"
     assert record["attempts"] == 0
+    assert record["review_rounds"] == 0
     assert [record["branch"], record["worktree"], record["pr"], record["prs"]] == [None] * 4
     assert [record["agent"], record["question"]] == [None, None]
 
@@ -137,6 +138,7 @@ def test_stream_record_orders_its_keys_the_way_the_filter_did():
         "agent",
         "question",
         "attempts",
+        "review_rounds",
     ]
 
 

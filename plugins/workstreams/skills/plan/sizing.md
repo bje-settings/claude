@@ -22,5 +22,6 @@ Adjustments:
   with the explicit instruction to produce findings, not a code change.
 
 The effort selects the agent (`workstreams:stream-low`, `stream-medium`, or `stream-high`); the
-model is passed per call. The review pass runs `workstreams:reviewer` (effort `high`, fixed in
-its definition) on the stream's model.
+model is passed per call. The review itself runs in the main session, not on a sized agent; the
+apply pass that follows it runs `workstreams:applier` (effort `high`, fixed in its definition) on
+the stream's model.

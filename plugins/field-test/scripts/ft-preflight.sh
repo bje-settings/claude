@@ -9,8 +9,8 @@
 # the tool's own message when there is one, so a network error is not reported
 # as a missing login.
 #
-# `harden` reuses the workstreams worker and reviewer agents and the review loop
-# they already own rather than growing its own, so both plugins have to be
+# `harden` reuses the workstreams worker and applier agents and the review loop
+# /workstreams:run already owns rather than growing its own, so both plugins have to be
 # installed. That dependency is checked here instead of failing halfway through a
 # target, when a fix is already in flight.
 #

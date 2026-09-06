@@ -45,10 +45,15 @@ Nothing is started. An existing plan is only replaced when the user says so.
    bottom-up with `gh stack`.
 3. Check progress on a cadence matched to the work (`ScheduleWakeup`), not a fixed short
    interval. A stream that needs a decision pauses with its question; the others continue.
-4. Review every draft with `workstreams:reviewer`, which runs `/pr-review-toolkit:review-pr`,
-   verifies each finding against the code, applies the ones that hold, and refreshes the PR title
-   and body if they went stale. A PR is re-reviewed until a pass applies nothing, then its checks
-   decide: pass is done, pending waits, fail pauses the stream with a question.
+4. Review every draft in the main session: run `/pr-review-toolkit:review-pr`, read the PR's own
+   bot and human review comments, and verify every finding against the code before acting on it.
+   The ones that hold go to a `workstreams:applier` subagent as a list, which commits them, runs
+   the tests, pushes, and refreshes the PR title and body if they went stale. A substantial round
+   of changes earns one more review; then the checks decide: pass is done, pending waits, fail
+   pauses the stream with a question.
+
+   The review runs in the main session because `/pr-review-toolkit:review-pr` dispatches analyzer
+   agents that wake whoever invoked it, and a subagent gets no such wake.
 5. Report every PR (stacks in order), every deferred issue with its reason, every paused stream
    with its question, and every failure.
 
@@ -62,7 +67,8 @@ mid-run can re-run the skill and continue. `ws-state.py show` prints it.
 
 Stream statuses: `planned`, `running`, `draft`, `reviewing`, `paused`, `done`, `failed`. A stack
 is several stream records sharing a `stack` name, ordered from the bottom; the run skill treats
-it as one unit of work.
+it as one unit of work. `review_rounds` counts the review passes a stream's PR has had, so a
+resumed session knows whether the round it is starting is the repeat.
 
 ## Scripts
 
@@ -76,7 +82,7 @@ broken-pipe case, and one module each for the three scripts that used to run jq 
 | `ws-preflight.py` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.py` | Selectors to a JSON array of issues, with `#N` references extracted |
 | `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range |
-| `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision |
+| `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision. Exits 1 when the PR does not exist and 4 when gh itself failed, so the run loop can fail a stream permanently on the first and pause it on the second |
 
 ## Out of scope for now
 
