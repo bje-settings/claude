@@ -6,10 +6,10 @@ on in the same GitHub enterprise?
 
 Prints one JSON object:
   {inside, enterprise, plugin_owner, target_owner, reason}
-and always exits 0 with an answer, because "we could not tell" is an answer:
-it is `inside: false`, and the reason says why. Names are redacted whenever
-this says false, so failing closed costs detail in an issue and never leaks a
-repository name.
+Exit 2 on usage. Otherwise always 0, with an answer, because "we could not tell"
+is an answer: it is `inside: false`, and the reason says why. Names are redacted
+whenever this says false, so failing closed costs detail in an issue and never
+leaks a repository name.
 
 `inside` is true only when both owners appear under one enterprise slug in
   viewer { enterprises { nodes { slug organizations { nodes { login } } } } }
@@ -32,7 +32,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from lib import enterprise, gitinfo  # noqa: E402  (needs HERE on sys.path first)
+from lib import cli, enterprise, gitinfo  # noqa: E402  (needs HERE on sys.path first)
 
 PROG = "ft-enterprise.py"
 REASON_CHARS = 200
@@ -95,7 +95,7 @@ def logins_for(slug: str, first, more: bool, cursor: str):
     return logins
 
 
-def main(argv):
+def run(argv):
     if len(argv) > 1 and argv[1] in ("-h", "--help"):
         sys.stdout.write(__doc__)
         return 0
@@ -124,7 +124,7 @@ def main(argv):
 
     ok, output = gh("api", "graphql", "-f", f"query={enterprise.FIRST_PAGE}")
     if not ok:
-        excerpt = " ".join(output.split("\n"))[:REASON_CHARS]
+        excerpt = " ".join(output.rstrip("\n").split("\n"))[:REASON_CHARS]
         return answer(
             False,
             "",
@@ -166,6 +166,25 @@ def main(argv):
         plugin_owner,
         target_owner,
     )
+
+
+def main(argv):
+    cli.reconfigure_streams()
+    try:
+        status = run(argv)
+        # Forced now, while a closed pipe still lands in the arm below rather than
+        # in the interpreter's own shutdown flush, which prints its own trace.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        cli.silence_broken_pipe()
+        return 0
+    except Exception as error:
+        # The one status this script never returns on its own. The docstring
+        # promises an answer or a usage error, so an arm nobody anticipated says
+        # so in one line rather than printing a traceback and calling it an answer.
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
+        return 1
+    return status
 
 
 if __name__ == "__main__":

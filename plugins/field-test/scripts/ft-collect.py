@@ -26,7 +26,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from lib import collect  # noqa: E402  (needs HERE on sys.path first)
+from lib import cli, collect  # noqa: E402  (needs HERE on sys.path first)
 
 PROG = "ft-collect.py"
 
@@ -46,12 +46,17 @@ def load_marker(path: str):
     if not os.path.isfile(path):
         die(f"no run marker at {path}")
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             marker = json.load(handle)
-    except (OSError, ValueError):
+    except OSError as error:
+        die(f"could not read the run marker at {path}: {error}")
+    except ValueError:
         die(f"run marker is not valid JSON: {path}")
+    # Its own message, not the JSON one: a marker that parses and is an array or
+    # a string is a caller that named some other file, and "not valid JSON" sends
+    # them to look for a corrupt run.json that is not corrupt at all.
     if not isinstance(marker, dict):
-        die(f"run marker is not valid JSON: {path}")
+        die(f"not a run marker (the JSON in it is not an object): {path}")
     return marker
 
 
@@ -60,18 +65,25 @@ def load_events(path: str):
     if not os.path.isfile(path):
         return []
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             text = handle.read()
-    except OSError:
-        die(f"events file is not valid JSON lines: {path}")
+    except OSError as error:
+        die(f"could not read the events file at {path}: {error}")
     events = []
     for line in text.split("\n"):
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            event = json.loads(line)
         except ValueError:
             die(f"events file is not valid JSON lines: {path}")
+        # Every reader here indexes an event as an object. A line holding a bare
+        # array or number parses and then raises an AttributeError somewhere in
+        # the collectors, which reaches the user as a traceback rather than as
+        # the name of the file that is wrong.
+        if not isinstance(event, dict):
+            die(f"events file is not valid JSON lines: {path}")
+        events.append(event)
     return events
 
 
@@ -88,11 +100,15 @@ def report(marker):
     if not os.path.isfile(transcript):
         die(f"no transcript at {transcript}")
     try:
-        with open(transcript, errors="replace") as handle:
+        with open(transcript, encoding="utf-8", errors="replace") as handle:
             text = handle.read()
     except OSError:
         die(f"could not read the transcript at {transcript}")
-    sys.stdout.write(collect.last_assistant_text(text) + "\n")
+    # Exactly one trailing newline, whatever the message ends with: the shell
+    # read this through `$(...)`, which strips every trailing newline, and printed
+    # it with `printf '%s\n'`, which puts one back. The callers are skills that
+    # read the output into a variable, so the bytes are the contract.
+    sys.stdout.write(collect.last_assistant_text(text).rstrip("\n") + "\n")
 
 
 def run(argv):
@@ -122,11 +138,26 @@ def run(argv):
 
 
 def main(argv):
+    cli.reconfigure_streams()
     try:
-        return run(argv)
+        status = run(argv)
+        # Forced now, while a closed pipe still lands in the arm below rather than
+        # in the interpreter's own shutdown flush, which prints its own trace.
+        sys.stdout.flush()
     except Failure as error:
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
+    except BrokenPipeError:
+        cli.silence_broken_pipe()
+        return 0
+    except Exception as error:
+        # The docstring promises this script's own message, not a traceback. An
+        # arm nobody anticipated still reports one line and exit 1, the way every
+        # anticipated one does. The class name is there so an exception with an
+        # empty message still names what happened instead of printing a bare colon.
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
+        return 1
+    return status
 
 
 if __name__ == "__main__":
