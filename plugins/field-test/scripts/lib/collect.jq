@@ -14,7 +14,10 @@
 # replaced by N, truncated. Two runs of the same bug on different PR numbers must
 # produce the same signature.
 
-def norm: (. // "") | split("\n")[0] | gsub("\\s+"; " ") | gsub("[0-9]+"; "N") | .[0:80];
+# `split` on the empty string is the empty array, so the first line of a command that
+# was never recorded is null, and `gsub` on null is a hard error that would lose every
+# other finding in the run. A missing command normalises to the empty string instead.
+def norm: ((. // "") | split("\n") | (.[0] // "")) | gsub("\\s+"; " ") | gsub("[0-9]+"; "N") | .[0:80];
 
 def rank: {"high": 0, "medium": 1, "low": 2}[.] // 3;
 

@@ -38,6 +38,7 @@ JSON
 #   honest         subagent reports status failed                 -> no contradiction
 #   status-ok      subagent reports a status that is not failed   -> subagent_contradiction
 #   args-used      a call carrying --dry-run                      -> no args_dropped
+#   no-command     a failed call whose command was never recorded -> the rest survive
 #   mixed          one of each severity                           -> ordering and dedupe
 ft_fixture_events() {
   local path="$1" name="${2:-clean}"
@@ -96,6 +97,13 @@ JSON
       cat >> "$path" <<'JSON'
 {"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":"agent-1","agent_type":"shepherd-repo","tool_use_id":"t1","command":"bash spec/run.sh","exit_code":1,"stderr_tail":"1 example failed"}
 {"ts":"2026-01-02T03:04:08Z","event":"SubagentStop","agent_id":"agent-1","agent_type":"shepherd-repo","transcript_path":"/transcripts/agent-1.jsonl","last_assistant_message":"{\"status\": \"ok\", \"summary\": \"nothing worth reporting\"}"}
+JSON
+      ;;
+    no-command)
+      cat >> "$path" <<'JSON'
+{"ts":"2026-01-02T03:04:06Z","event":"PostToolUseFailure","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":null,"exit_code":null,"stderr_tail":""}
+{"ts":"2026-01-02T03:04:07Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t2","command":"","exit_code":2,"stderr_tail":"nothing to run"}
+{"ts":"2026-01-02T03:04:08Z","event":"denied","agent_id":null,"agent_type":null,"command":"git push --force origin main","reason":"Force-pushing rewrites history other people may already have.","pattern":"force"}
 JSON
       ;;
     args-used)

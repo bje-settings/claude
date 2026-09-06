@@ -9,6 +9,7 @@ Describe 'ft-collect.sh'
   events() { ft_fixture_events "$FT_RUN_DIR/events.jsonl" "$1"; }
   kinds() { "$FT_COLLECT" "$FT_RUN_DIR" | jq -r '[.[].kind] | join(" ")'; }
   first() { "$FT_COLLECT" "$FT_RUN_DIR" | jq -r ".[0].$1"; }
+  signatures() { "$FT_COLLECT" "$FT_RUN_DIR" | jq -r '[.[].signature] | join(" ")'; }
 
   Describe 'usage'
     It 'prints usage for --help'
@@ -104,6 +105,16 @@ Describe 'ft-collect.sh'
       The status should be success
       The output should include '"kind"'
       The value "$(kinds)" should equal 'tool_failure'
+    End
+
+    It 'keeps the other findings when a failed call has no command recorded'
+      events no-command
+      ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
+      When run script "$FT_COLLECT" "$FT_RUN_DIR"
+      The status should be success
+      The output should include '"kind"'
+      The value "$(kinds)" should equal 'denied bash_nonzero tool_failure'
+      The value "$(signatures)" should include 'tool_failure:'
     End
 
     It 'raises denied, at the highest severity, for a command the hook refused'

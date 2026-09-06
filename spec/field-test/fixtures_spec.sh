@@ -55,6 +55,16 @@ Describe 'field-test fixtures'
       The output should equal 'gh pr merge --auto --squash 11|gh pr merge --auto --squash 12'
     End
 
+    It 'gives the no-command case a null command and an empty one'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" no-command
+        jq -rs '[.[] | .command | tojson] | join(" ")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal 'null "" "git push --force origin main"'
+    End
+
     It 'gives the contradiction case a failure the subagent never resolved'
       shape() {
         ft_fixture_events "$FT_SANDBOX/e.jsonl" contradiction
