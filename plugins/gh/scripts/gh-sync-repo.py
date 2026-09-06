@@ -28,9 +28,15 @@ from lib import prs as prs_lib  # noqa: E402
 
 USAGE = "usage: gh-sync-repo.py [--dry-run] [--no-install] <repo-path>"
 
-# One API call covers every branch in the repo. A window this size that comes
-# back full is a window, not an answer: see PR_BRANCH_LIMIT below.
+# The bulk lookup: one API call covers every branch in the repo. A window this
+# size that comes back full is a window, not an answer, which is what
+# read_merge_proof records as pr_bulk_saturated.
 PR_LIMIT = 200
+
+# The per-branch fallback, asked only for a branch the saturated bulk window
+# could not settle. Smaller because it is scoped to one head ref, and saturated
+# here means the same thing: too many merged pull requests share the name to
+# conclude anything about this commit.
 PR_BRANCH_LIMIT = 100
 
 # The markers git leaves behind mid-operation. Checked for every worktree, not
@@ -57,13 +63,22 @@ def flag_is_set(name):
 
 
 def git(*args, **kwargs):
-    """Run git, capturing stdout and discarding stderr, as the shell did."""
-    return subprocess.run(
-        ["git", *args],
-        cwd=kwargs.get("cwd"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+    """Run git, capturing stdout and discarding stderr, as the shell did.
+
+    A git that is not on PATH is reported as a failed command rather than raised:
+    every caller already handles "git said no", and the preflight turns the first
+    such failure into the ordinary "not a git repository" skip. Letting the OSError
+    out would replace that one-line skip with a traceback.
+    """
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=kwargs.get("cwd"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return subprocess.CompletedProcess(["git", *args], 127, b"")
 
 
 def git_out(*args, **kwargs):
@@ -248,6 +263,12 @@ class SyncRepo:
         rows = self.gh_json(args)
         if not isinstance(rows, list):
             return None
+        # Every reader below calls .get on a row. A payload that is a list of
+        # something else is not an answer about merged pull requests, so it takes
+        # the same route a failed query does rather than crashing here or, worse,
+        # being read as an empty window.
+        if not all(isinstance(row, dict) for row in rows):
+            return None
         return rows
 
     # ------------------------------------------------------------ advance ---
@@ -260,13 +281,26 @@ class SyncRepo:
         return True
 
     def advance(self):
-        """Checkout and fast-forward. Returns the SHA advanced from, or None.
+        """Checkout and fast-forward. Returns (can_advance, target, advanced_from):
+
+          can_advance    False when the default branch could not be checked out,
+                         which is not fatal: the caller skips the install and
+                         prunes anyway
+          target         the short SHA of origin/<default>, the commit the branch
+                         is being moved to
+          advanced_from  the short SHA the branch actually moved off, or None when
+                         it did not move (already up to date, diverged, a failed
+                         merge, or a branch that does not exist yet). The caller
+                         reads it as "is there a range to diff for a lock file".
 
         The default branch may be checked out in another worktree, in which case
         the checkout cannot succeed. That is not fatal: pruning still has value,
         so the caller carries on with can_advance false.
         """
-        current = git_out("rev-parse", "--abbrev-ref", "HEAD")
+        # An unborn HEAD, or a probe that could not run at all, has no branch name
+        # to report. "HEAD" is what git itself echoes there and what the shell
+        # version printed, and it keeps a None out of the "switched from ..." line.
+        current = git_out("rev-parse", "--abbrev-ref", "HEAD") or "HEAD"
         can_advance = True
 
         if current != self.default:
@@ -281,7 +315,11 @@ class SyncRepo:
         if not can_advance:
             return False, None, None
 
-        target = git_out("rev-parse", "--short", "origin/" + self.default)
+        # self.tip is the same commit in full, already verified to exist, so it is
+        # the honest fallback if the abbreviation itself cannot be read: a shorter
+        # name for a commit is a convenience, and printing None instead would be a
+        # lie in every line that quotes it.
+        target = git_out("rev-parse", "--short", "origin/" + self.default) or self.tip
         if not git_ok("show-ref", "--verify", "--quiet", "refs/heads/" + self.default):
             # Only reachable in --dry-run, where the checkout above was not
             # performed.
@@ -291,7 +329,10 @@ class SyncRepo:
         # Always compare the default branch itself, never HEAD: in --dry-run we
         # have not switched, so HEAD is still whatever branch the user was
         # sitting on.
-        before = git_out("rev-parse", "--short", self.default)
+        # Same fallback as `target`: the branch was just verified to exist, so an
+        # unreadable abbreviation still has a full SHA behind it, and this value is
+        # both printed and used as the left end of the lock-file diff.
+        before = git_out("rev-parse", "--short", self.default) or git_out("rev-parse", self.default)
         if before == target:
             self.note(f"{self.default} already up to date ({before})")
         elif not git_ok("merge-base", "--is-ancestor", self.default, "origin/" + self.default):
@@ -317,6 +358,12 @@ class SyncRepo:
         changed = git_out(
             "diff", "--name-only", advanced_from, target, "--", *install_lib.LOCKFILES
         )
+        if changed is None:
+            # A failed diff is not "no lock file changed". Treating it as that
+            # would leave the checkout on new code with stale dependencies and no
+            # sign anything was missed, which is the silent half of this failure.
+            self.bad("could not diff the lock files over that range; install by hand if needed")
+            return
         if not changed:
             return
         if self.dry_run:
@@ -399,7 +446,11 @@ class SyncRepo:
     # ------------------------------------------------------------- prune ---
 
     def read_worktrees(self):
-        """branch -> worktree path, and a skip if another worktree is mid-operation."""
+        """Fill self.worktrees with branch -> worktree path. Returns nothing.
+
+        Raises Skip when the list cannot be read, or when a linked worktree is
+        mid-operation; both mean this run must not delete anything.
+        """
         out = git_out("worktree", "list", "--porcelain")
         if out is None:
             # Fails closed: an empty map would make every branch look free of a
@@ -511,7 +562,10 @@ class SyncRepo:
             self.note(f"kept {branch} (already at origin/{self.default}, nothing to prune)")
             return
 
-        short = git_out("rev-parse", "--short", branch)
+        # The full SHA is already in hand from the caller, so an unreadable
+        # abbreviation costs legibility rather than the recoverability the line
+        # exists for. Printing None here would take that away too.
+        short = git_out("rev-parse", "--short", branch) or sha
 
         if linked:
             if self.dry_run:
@@ -605,11 +659,46 @@ def parse_args(argv):
     return repo, dry_run, no_install, None
 
 
+def use_utf8(stream):
+    """Make `stream` write UTF-8, replacing anything it cannot encode.
+
+    Every report line is prefixed with ✓, ✗ or ·, and under a single-byte locale
+    (LC_ALL=en_US.ISO8859-1, PYTHONIOENCODING=ascii) writing one raises
+    UnicodeEncodeError and the whole sync dies on its first line. A stream that
+    has been replaced with something without reconfigure, or that is already
+    detached, is left alone rather than turned into a different crash.
+    """
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+
 def main(argv):
+    use_utf8(sys.stdout)
+    use_utf8(sys.stderr)
     repo, dry_run, no_install, status = parse_args(argv)
     if status is not None:
         return status
-    return SyncRepo(repo, dry_run=dry_run, no_install=no_install).run()
+    try:
+        result = SyncRepo(repo, dry_run=dry_run, no_install=no_install).run()
+        # Forces the write now, while BrokenPipeError still lands in the handler
+        # below. Left implicit, buffered output is flushed during interpreter
+        # shutdown instead, which prints its own "Exception ignored in" trace.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # `gh-sync-repo.py <repo> | head` closes the pipe early. That is the
+        # reader's business, not a failure here. Both descriptors go to devnull,
+        # not just stdout, so nothing the interpreter still tries to flush on the
+        # way out can resurface as a broken-pipe trace either.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+            os.dup2(devnull, sys.stderr.fileno())
+        finally:
+            os.close(devnull)
+        return 0
+    return result
 
 
 if __name__ == "__main__":

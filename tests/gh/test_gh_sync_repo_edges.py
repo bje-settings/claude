@@ -308,6 +308,42 @@ def test_still_requires_the_commit_to_match_in_the_fallback(gh, sync_repo):
     assert "moved" in gh.branches(gh.repo)
 
 
+def test_keeps_the_moved_verdict_when_the_per_branch_query_fails(gh, sync_repo):
+    """A "moved" established by the bulk list survives a failed per-branch query.
+
+    The state can be raised by the fallback, never reset: the bulk window already
+    proved merged pull requests used this name, and that fact is not undone by a
+    later call failing. Reporting it as "never checked" would throw away a real
+    answer and count the branch as unchecked.
+    """
+    gh.branch_with_work(gh.repo, "reused")
+    # 199 fillers plus this one saturates the 200-row window with `reused` inside
+    # it, so the bulk list names the branch and the fallback is still attempted.
+    gh.many_prs(199, gh.pr("reused", "othersha"))
+    result = sync_repo(gh.repo, env={"GH_FIXTURE_FAIL_HEAD": "1"})
+    assert result.status == 0
+    assert "kept reused (merged PRs used this name; none at this commit)" in result.stdout
+    assert "never checked" not in result.stdout
+    assert "reused" in gh.branches(gh.repo)
+
+
+def test_keeps_the_moved_verdict_once_the_fallback_is_switched_off(gh, sync_repo):
+    """The same, on the arm that has stopped calling gh altogether.
+
+    `aaa` sorts first, has no pull request naming it, and its query fails, which
+    turns the fallback off. `zzz-reused` then reaches the no-call arm with a
+    "moved" already in hand, and that verdict has to survive there too.
+    """
+    gh.branch_with_work(gh.repo, "aaa")
+    gh.branch_with_work(gh.repo, "zzz-reused")
+    gh.many_prs(199, gh.pr("zzz-reused", "othersha"))
+    result = sync_repo(gh.repo, env={"GH_FIXTURE_FAIL_HEAD": "1"})
+    assert result.status == 0
+    assert "kept aaa (could not ask about this branch" in result.stdout
+    assert "kept zzz-reused (merged PRs used this name; none at this commit)" in result.stdout
+    assert "1 branch(es) were never checked" in result.stdout
+
+
 def test_ignores_a_fork_pull_request_in_the_fallback(gh, sync_repo):
     """ignores a fork pull request found by the per-branch query too"""
     gh.branch_with_work(gh.repo, "patch-2")
@@ -430,3 +466,100 @@ def test_skips_pruning_when_neither_signal_can_be_read(gh, sync_repo):
     assert result.status == 0
     assert "no way to prove what has merged; skipped pruning entirely" in result.stdout
     assert "wip" in gh.branches(gh.repo)
+
+
+# --- a degraded environment ---------------------------------------------------
+
+
+def test_reports_a_lock_file_diff_it_could_not_read(gh, sync_repo):
+    """says so when the lock-file diff fails, rather than silently not installing
+
+    "no lock file changed" and "I could not tell" leave the checkout in very
+    different states: the second means new code with possibly stale dependencies.
+    """
+    gh.lockfile(gh.repo, "package-lock.json")
+    gh.remote_advance(gh.repo)
+    directory, failing = gh.git_shim("diff")
+    result = sync_repo(
+        gh.repo, env={"PATH": directory + ":" + scenarios._path(), "GIT_STUB_FAIL": failing}
+    )
+    assert result.status == 0
+    assert "could not diff the lock files over that range" in result.stdout
+    assert "dependencies installed" not in result.stdout
+
+
+def test_skips_when_git_is_not_installed(gh, sync_repo, sandbox):
+    """a git that is not on PATH is a skip, not a traceback"""
+    result = sync_repo(gh.repo, env={"PATH": sandbox.path_without("git")})
+    assert result.status == 0
+    assert "skipped: not a git repository" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_treats_a_pull_request_list_of_non_objects_as_unreadable(gh, sync_repo, sandbox):
+    """A JSON array whose entries are not objects says nothing about merges.
+
+    Every reader calls .get on a row, so this has to route to the same degraded
+    path a failed query takes rather than crash or read as an empty window.
+    """
+    gh.branch_with_work(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    bin_dir = gh.path / "bad-gh"
+    bin_dir.mkdir()
+    stub = bin_dir / "gh"
+    stub.write_text("#!/bin/sh\necho '[1, 2, 3]'\n")
+    stub.chmod(0o755)
+    result = sync_repo(gh.repo, env={"PATH": str(bin_dir) + ":" + scenarios._path()})
+    assert result.status == 0
+    assert "could not read merged pull requests; using ancestry alone" in result.stdout
+    assert "deleted landed" in result.stdout
+
+
+def test_prints_its_report_under_a_single_byte_locale(gh, sync_repo):
+    """The ✓/✗/· prefixes must not kill the run under a non-UTF-8 locale.
+
+    Found by review: without the reconfigure the very first report line raises
+    UnicodeEncodeError and the sync dies before it does anything.
+    """
+    argv, env = scenarios.fetch_failed(gh)
+    env = dict(env)
+    env.update({"LC_ALL": "en_US.ISO8859-1", "PYTHONIOENCODING": "ISO-8859-1", "PYTHONUTF8": "0"})
+    result = sync_repo(*argv, env=env)
+    assert result.status == 0
+    assert "✗ fetch failed; nothing changed" in result.stdout
+
+
+def test_names_head_rather_than_printing_none(gh, sync_repo):
+    """A HEAD whose branch name cannot be read still has a name to print.
+
+    "HEAD" is what git itself echoes for an unborn or unreadable HEAD, and what
+    the shell version printed; the port read the failed rev-parse as None and put
+    that in the line.
+    """
+    directory, failing = gh.git_shim("rev-parse --abbrev-ref")
+    result = sync_repo(
+        "--dry-run",
+        gh.repo,
+        env={"PATH": directory + ":" + scenarios._path(), "GIT_STUB_FAIL": failing},
+    )
+    assert result.status == 0
+    assert "would switch from HEAD to main" in result.stdout
+    assert "None" not in result.stdout
+
+
+def test_falls_back_to_the_full_sha_when_an_abbreviation_cannot_be_read(gh, sync_repo):
+    """An unreadable `rev-parse --short` costs legibility, not honesty.
+
+    The commit is the recoverable part of "deleted <branch> (<sha>)", and every
+    one of these lines had a None in it where the abbreviation should be.
+    """
+    gh.branch_with_work(gh.repo, "landed")
+    sha = gh.sha(gh.repo, "landed")
+    gh.merge_commit(gh.repo, "landed")
+    directory, failing = gh.git_shim("rev-parse --short")
+    result = sync_repo(
+        gh.repo, env={"PATH": directory + ":" + scenarios._path(), "GIT_STUB_FAIL": failing}
+    )
+    assert result.status == 0
+    assert f"deleted landed ({sha}, merged into main)" in result.stdout
+    assert "None" not in result.stdout
