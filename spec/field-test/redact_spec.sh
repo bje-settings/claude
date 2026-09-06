@@ -74,6 +74,18 @@ EOF
     The stderr should include 'not valid JSON'
   End
 
+  # Every file a run writes is a JSON object in the same directory, so the wrong one
+  # parses. Redacting nothing and appending the note anyway is how a real repository
+  # name reaches a public issue under a line saying it was removed.
+  It 'refuses JSON that is not a names table, rather than redacting nothing and saying it did'
+    printf '%s' '{"target":"gh:shepherd","args":[]}' > "$FT_SANDBOX/names.json"
+    Data 'acme-org/widgets is here'
+    When run script "$FT_REDACT" "$FT_SANDBOX/names.json"
+    The status should equal 1
+    The stderr should include 'not a names table'
+    The output should equal ''
+  End
+
   Describe 'outside the enterprise'
     It 'leaves not one name of the repository under test in the output'
       build_names

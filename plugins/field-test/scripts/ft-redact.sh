@@ -16,13 +16,14 @@
 # or commit subject can contain anything, and a pattern built from one would be a
 # way to leak the very name this exists to remove.
 #
-# Exit 0, 1 on a broken names file, 2 on usage.
+# Exit 0, 1 on a broken names file (not JSON, or JSON that is not a names table),
+# 2 on usage.
 #
 # Written for bash 3.2.
 
 set -uo pipefail
 
-usage() { sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'ft-redact.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 # The note says what was done, not which categories were present: a checkout with no
@@ -59,7 +60,15 @@ if [[ -n "$inside" ]]; then
   exit 0
 fi
 
-table="$(jq -c '.placeholders // []' "$names")" || die "names file is not valid JSON: $names"
+jq -e . "$names" >/dev/null 2>&1 || die "names file is not valid JSON: $names"
+# And it has to be a table, not merely JSON. Every other file a run writes is a
+# JSON object in the same run directory, and one of them handed here by mistake
+# indexes to nothing: the reduce below replaces nothing and the note is still
+# appended saying every name was replaced. That is the one failure that publishes a
+# real repository name under a line asserting it was removed.
+jq -e 'type == "object" and (.placeholders | type == "array")' "$names" >/dev/null 2>&1 \
+  || die "$names is not a names table (no placeholders array); refusing to claim a redaction that did not happen"
+table="$(jq -c '.placeholders' "$names")" || die "names file is not valid JSON: $names"
 
 # split/join with a plain string is a literal replacement in jq; gsub would treat
 # the value as a regular expression.
