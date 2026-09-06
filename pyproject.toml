@@ -29,8 +29,8 @@ dev = [
 [tool.ruff]
 target-version = "py39"
 line-length = 100
-# The test stub gh has no extension, because it is found on PATH by name the way
-# the real gh is. Without this, `ruff check .` walks straight past it.
+# Discovery only looks at *.py, and the stub gh has to be named "gh" to be found
+# on PATH. Without this it would be the one Python file in the repo nothing lints.
 extend-include = ["tests/*/bin/gh"]
 
 [tool.ruff.lint]
@@ -59,19 +59,22 @@ patch = ["subprocess"]
 # modules are the exception: their unit tests import them in the worker.)
 disable_warnings = ["no-data-collected"]
 omit = [
+  # Every pattern starts "**/", so that it is not anchored to the working
+  # directory. A relative pattern is made absolute against the *current* working
+  # directory, and coverage.py re-reads this config in each subprocess it
+  # measures: a script that chdirs into a fixture repository before spawning the
+  # stub gh would resolve "tests/..." against that repository and omit nothing.
+  #
   # The tests are not the thing under test. Only tests/coverage_check.py survives
   # this, which is the whole reason tests/ is in source above. ** and not *:
   # coverage's globs do not cross a directory separator, so "tests/test_*.py"
-  # alone would leave every tests/<plugin>/ file measured. The leading **/ is
-  # what makes these hold for a child process started in another directory: a
-  # relative pattern is anchored to the current directory, so without it a test
-  # that runs a script with its own cwd puts the whole tests/ tree in the report.
+  # alone would leave every tests/<plugin>/ file measured.
   "**/tests/**/test_*.py",
   "**/tests/**/conftest.py",
-  # The stub gh a plugin's tests put on PATH. It is a Python program run as a
-  # child process, so the subprocess patch would measure it, but it is a fixture
-  # standing in for a tool, not code under test.
-  "**/tests/*/bin/*",
+  # Test doubles and test data, the counterpart of the shell stubs under
+  # fixtures/, which never enter a report at all.
+  "**/tests/**/bin/*",
+  "**/tests/**/scenarios.py",
 ]
 
 [tool.coverage.report]
