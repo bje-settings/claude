@@ -54,10 +54,11 @@ Collate the agents' JSON into one table per repo:
 
 | PR | Outcome | Detail |
 | --- | --- | --- |
-| #n | merged `sha` | rebases: 1 |
+| #n | merged `sha` | rebases: 1; `merged_as` when the version differs from the title |
 | #n | skipped | reason, comment URL |
 | #n | blocked | `mergeStateStatus`, reason |
 | #n | needs escalation | reason |
+| #n | closed | reason |
 
 Then list `skipped_no_automerge` per repo, and the `ci_seconds` each agent measured.
 

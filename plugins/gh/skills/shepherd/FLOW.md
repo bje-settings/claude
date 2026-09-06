@@ -25,8 +25,9 @@ flowchart TD
         T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
         T -->|Conflicts, Dependabot branch| RC[Ask Dependabot to recreate]
         RC -->|Head moved| W
-        RC -->|Closed or merged instead: superseded by another PR| CS([Closed: superseded, terminal]):::stop --> S
-        RC -->|Still open, head never moved| BR([Blocked: recreate did not land]):::stop --> S
+        RC -->|Closed, head unmoved: usually superseded by another PR| CS([Closed, terminal]):::stop --> S
+        RC -->|Merged, head unmoved| S
+        RC -->|Head never moved, comment failed, or PR unreadable| BR([Blocked: recreate did not land]):::stop --> S
         T -->|Conflicts, human branch| E([Needs escalation: never resolved here]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
@@ -34,6 +35,7 @@ flowchart TD
         P -->|Yes| S
         P -->|No, e.g. review required| BL([Blocked: never merged by hand]):::stop --> S
         W -->|Still running| W
+        W -->|Still running after three waits, head unchanged| BP([Blocked: checks did not finish]):::stop --> S
         W -->|Checks failed| K{Fix is mechanical?}
         K -->|Yes, first attempt| F[Fix in a throwaway worktree, push] --> W
         K -->|No: touches logic, tests, or config meaning| SK([Skip, comment says why]):::stop --> S
