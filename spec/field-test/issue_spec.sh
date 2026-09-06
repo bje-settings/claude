@@ -128,6 +128,14 @@ JSON
       The output should not include '"placeholder": "<org>/<repo>"'
     End
 
+    It 'refuses a run directory with no events file, rather than dropping the #N references'
+      target
+      rm -f "$FT_RUN_DIR/events.jsonl"
+      When run script "$FT_ISSUE" names "$FT_SANDBOX/target" --run "$FT_RUN_DIR"
+      The status should equal 2
+      The stderr should include 'no events file'
+    End
+
     It 'refuses an events file it cannot read, rather than dropping the #N references'
       target
       printf '{"event":"PostToolUse","command":"gh pr view 12 # closes #12"\n' > "$FT_RUN_DIR/events.jsonl"

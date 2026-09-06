@@ -123,7 +123,13 @@ $abs"
     # #N references seen during the run: they are pull request and issue numbers on
     # the repository under test, which name it as surely as its branches do.
     refs=""
-    if [[ -n "$run_dir" && -f "$run_dir/events.jsonl" ]]; then
+    if [[ -n "$run_dir" ]]; then
+      # Once --run is given the events file is expected: ft-run.sh start creates it
+      # for every run, so its absence means the caller named the wrong directory.
+      # Collecting no <pr> entries from it looks identical to a run that mentioned
+      # none, and the numbers it would have named survive into a public issue.
+      [[ -f "$run_dir/events.jsonl" ]] \
+        || die "no events file at $run_dir/events.jsonl; the #N references it names would survive redaction" 2
       # Checked: a truncated last line makes jq exit non-zero after partial output,
       # and the missing <pr> entries would survive into a public issue unremarked.
       refs_text="$(jq -r "$REFS_JQ" "$run_dir/events.jsonl" 2>&1)" \
