@@ -18,17 +18,16 @@ recorded so `/workstreams:run` never has to re-derive them.
 ## Step 1: Preflight
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.py"
 ```
 
 Exit 0 means proceed. Exit 1 prints JSON: print each `hint` verbatim as a command the user
-can run, then stop. Exit 4 means jq is missing; print the stderr line and stop. Do not work
-around a missing dependency.
+can run, then stop. Do not work around a missing dependency.
 
 ## Step 2: Resolve the issues
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-issues.sh" <selectors>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-issues.py" <selectors>
 ```
 
 Pass each selector from `$ARGUMENTS` as its own quoted argument, so a milestone title with a

@@ -51,24 +51,20 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from lib import state as st  # noqa: E402  (needs HERE on sys.path first)
+from lib import cli  # noqa: E402  (needs HERE on sys.path first)
+from lib import state as st  # noqa: E402
 
 PROG = "ws-state.py"
 
+# Every failure the script reports as its own: the message and the status.
+# Not usage alone. Status 2 is a usage error, 3 is `init` declining to
+# overwrite, and 1 is everything else the script refuses or cannot do (an
+# unreadable state file, a repository it cannot name, a directory it cannot
+# write).
+Failure = cli.Failure
 
-class Failure(Exception):
-    """Every failure the script reports as its own: the message and the status.
-
-    Not usage alone. Status 2 is a usage error, 3 is `init` declining to
-    overwrite, and 1 is everything else the script refuses or cannot do (an
-    unreadable state file, a repository it cannot name, a directory it cannot
-    write).
-    """
-
-    def __init__(self, message: str, status: int = 2) -> None:
-        super().__init__(message)
-        self.message = message
-        self.status = status
+# The pretty JSON `jq .` printed; see lib/cli.py for why it is spelled that way.
+dumps = cli.dumps
 
 
 def die(message: str, status: int = 1):
@@ -147,18 +143,6 @@ def state_dir() -> str:
 
 def state_path(directory: str, repo: str) -> str:
     return os.path.join(directory, repo.replace("/", "__") + ".json")
-
-
-def dumps(document) -> str:
-    """The pretty JSON `jq .` printed: two-space indent, one trailing newline.
-
-    `ensure_ascii=False` because that is the parity: jq writes raw UTF-8, so an
-    accented reason stays readable in the file instead of becoming a run of
-    \\u escapes. `allow_nan=False` because Python would otherwise emit the
-    literals NaN and Infinity, which are not JSON and which no other reader of
-    this file would parse.
-    """
-    return json.dumps(document, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
 
 
 def write_state(path: str, document) -> None:
@@ -375,14 +359,7 @@ COMMANDS = {
 }
 
 
-def main(argv):
-    # dumps() writes with ensure_ascii=False, so a reason or a repo name with a
-    # non-ASCII character goes to stdout as raw UTF-8; without this a non-UTF-8
-    # locale (PYTHONIOENCODING=ascii and the like) would fail `show` with a
-    # UnicodeEncodeError the internal-error handler below would report as one
-    # more unanticipated failure, rather than the request just working.
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+def body(argv) -> int:
     command = argv[1] if len(argv) > 1 else ""
     if command in ("-h", "--help"):
         sys.stdout.write(__doc__)
@@ -390,41 +367,14 @@ def main(argv):
     if command == "":
         sys.stderr.write(__doc__)
         return 2
-    try:
-        if command not in COMMANDS:
-            die(f"unknown command: {command}", 2)
-        COMMANDS[command](argv[2:])
-        # Forces the write now, while BrokenPipeError still lands in the
-        # handler below. Left implicit, small output stays buffered until the
-        # interpreter's own shutdown flush, which runs after this function
-        # returns and prints its own "Exception ignored in" trace instead.
-        sys.stdout.flush()
-    except (Failure, st.Invalid) as error:
-        sys.stderr.write(f"{PROG}: {error.message}\n")
-        return error.status
-    except BrokenPipeError:
-        # `ws-state.py show | head` closes the pipe early. That is the reader's
-        # business, not a failure here, and the interpreter must not try to
-        # flush the closed stream on the way out and print its own trace.
-        # Both descriptors go to devnull -- not just stdout -- so nothing the
-        # interpreter still tries to flush during shutdown (stdout again, or a
-        # stray write to stderr) can resurface as a broken-pipe trace either.
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-            os.dup2(devnull, sys.stderr.fileno())
-        finally:
-            os.close(devnull)
-        return 0
-    except Exception as error:
-        # The docstring promises the script's own message rather than a
-        # traceback. Deliberate: an arm nobody anticipated still reports one
-        # line and exit 1, the way every anticipated one does. The class name
-        # is included so an exception with an empty message (str(error) == "")
-        # still names what happened instead of printing a bare colon.
-        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
-        return 1
+    if command not in COMMANDS:
+        die(f"unknown command: {command}", 2)
+    COMMANDS[command](argv[2:])
     return 0
+
+
+def main(argv) -> int:
+    return cli.run(PROG, lambda: body(argv), (cli.Failure, st.Invalid))
 
 
 if __name__ == "__main__":

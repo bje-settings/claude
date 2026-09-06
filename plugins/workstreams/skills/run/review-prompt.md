@@ -10,7 +10,7 @@ branch is `<branch>`, checked out in the worktree at `<absolute path>`. Work onl
 Current status from the run loop:
 
 ```json
-<output of ws-pr-status.sh>
+<output of ws-pr-status.py>
 ```
 
 ## Procedure

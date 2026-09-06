@@ -1,6 +1,6 @@
 """State-file transformations for ws-state.py.
 
-Two kinds of thing live here. The jq programs ws-state.sh ran -- the add-stream
+Two kinds of thing live here. The jq programs the shell ws-state ran -- the add-stream
 filter, both `set` filters, the list-streams selection, defer, meta, and the
 shape check that decides whether a file is workstreams state at all -- and the
 argument validation the shell did with regexes and substring tests against
