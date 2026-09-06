@@ -17,6 +17,8 @@ names   collects every string that identifies the repository under test: its
         issue: err towards collecting too much.
 search  looks for an open issue on the plugin's repo with the same signature, so
         a second run of the same bug comments instead of opening a duplicate.
+        Anything gh cannot answer is reported on stderr and then treated as no
+        match, so a run never attaches a finding to an issue it could not read.
 render  fills the issue template from one finding and redacts it. The first line
         of the output is the title; the rest is the body.
 ensure-label  creates the field-test label, or updates the colour and description
@@ -46,6 +48,8 @@ from lib import render as render_lib  # noqa: E402
 PROG = "ft-issue.py"
 TEMPLATE = os.path.join(HERE, "..", "skills", "run", "issue-template.md")
 SUBJECTS = 20
+# Enough of gh's own words to name the cause without pasting a page into a log.
+GH_ERROR_CHARS = 200
 # Said whenever the events file cannot be read in full: the point is not the read
 # but the `#N` references the unread part names, which redaction would then miss.
 UNREADABLE = "could not read {}; the #N references it names would survive redaction"
@@ -64,6 +68,17 @@ def die(message: str, status: int = 1):
 
 def gh_command():
     return os.environ.get("FT_GH") or "gh"
+
+
+def no_match(reason: str) -> None:
+    """Say on stderr why `search` could not find out, then answer "no match".
+
+    The status and the empty stdout are the contract: the caller opens a new issue
+    rather than attaching a finding to the wrong one. The line is so that a run
+    which filed a duplicate because gh was unreachable does not look identical to
+    one that filed the first report of a new bug.
+    """
+    sys.stderr.write(f"{PROG}: search: {reason}; treating as no existing issue\n")
 
 
 def refs_text(events_path: str) -> str:
@@ -175,6 +190,13 @@ def cmd_search(argv):
     # The signature is in the issue body verbatim, so a substring search on it is
     # exact enough; anything gh cannot answer means "no match", and the caller
     # opens a new issue rather than silently attaching to the wrong one.
+    #
+    # That contract stays -- exit 0, empty stdout -- because the caller reads the
+    # output and a failure that looked like a match would attach a finding to the
+    # wrong issue. But each way of reaching it says so on stderr first. "No
+    # existing issue" and "could not find out" lead to the same next step and to
+    # very different duplicates, and without a line here the second is invisible.
+    # See #74 for the argument about whether the status should change too.
     try:
         finished = subprocess.run(
             [
@@ -192,20 +214,20 @@ def cmd_search(argv):
                 "--json",
                 "number,body",
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
             check=False,
         )
-    except OSError:
-        return
+    except OSError as error:
+        return no_match(f"gh could not run ({error})")
     if finished.returncode != 0:
-        return
+        detail = finished.stderr.decode("utf-8", "replace").strip().replace("\n", " ")
+        return no_match(f"gh exited {finished.returncode} ({detail[:GH_ERROR_CHARS]})")
     try:
         issues = json.loads(finished.stdout.decode("utf-8", "replace"))
     except ValueError:
-        return
+        return no_match("gh's answer is not JSON")
     if not isinstance(issues, list):
-        return
+        return no_match("gh's answer is not a list of issues")
     for issue in issues:
         if isinstance(issue, dict) and signature in (issue.get("body") or ""):
             number = issue.get("number")

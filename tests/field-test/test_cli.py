@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
 import sys
 
 import pytest
@@ -85,6 +87,28 @@ def test_a_script_that_changes_something_prints_through_write_out(name):
 def test_write_out_writes_to_a_reader_that_is_there(capfd):
     cli.write_out("the answer\n")
     assert capfd.readouterr().out == "the answer\n"
+
+
+def test_stream_fileno_returns_the_descriptor_of_a_real_stream(tmp_path):
+    with open(tmp_path / "out", "w", encoding="utf-8") as handle:
+        assert cli.stream_fileno(handle) == handle.fileno()
+
+
+@pytest.mark.parametrize(
+    ("stream", "why"),
+    [
+        (io.StringIO(), "an in-memory stream has no descriptor"),
+        (None, "a stream Python left as None has no attribute at all"),
+    ],
+)
+def test_stream_fileno_is_none_for_a_stream_with_no_descriptor(stream, why):
+    """Nothing to redirect, and nothing that can break a pipe, so nothing to do."""
+    assert cli.stream_fileno(stream) is None, why
+
+
+def test_redirect_to_devnull_leaves_a_stream_with_no_descriptor_alone(tmp_path):
+    """A no-op rather than a raise: the caller is already handling a failure."""
+    assert cli.redirect_to_devnull(io.StringIO()) is None
 
 
 # --- reconfigure_streams -----------------------------------------------------
@@ -241,3 +265,38 @@ def test_an_exception_with_no_message_still_names_itself(name, capsys, monkeypat
     monkeypatch.setattr(module, "run", explode)
     assert module.main([name]) == 1
     assert capsys.readouterr().err == f"{module.PROG}: internal error: RuntimeError: \n"
+
+
+def test_a_descriptor_closed_outright_does_not_cost_the_work(ft_sandbox):
+    """writes the marker even when stdout was closed before the script started
+
+    Not the same as a reader that went away: Python leaves `sys.stdout` as None
+    when it starts with the descriptor closed, so the first write raises
+    AttributeError rather than BrokenPipeError, and the internal-error arm would
+    report it as a failure after the marker was already on disk. A caller who
+    closed the descriptor asked for the output to go nowhere, which is what it
+    gets.
+
+    `stdout=subprocess.DEVNULL` would not reach this: devnull is an open
+    descriptor and sys.stdout is a real stream. Closing fd 1 in a shell is.
+    """
+    ft_sandbox.marker.unlink(missing_ok=True)
+    ft_sandbox.events.unlink(missing_ok=True)
+    completed = subprocess.run(
+        [
+            "sh",
+            "-c",
+            'exec 1>&-; exec "$0" "$@"',
+            sys.executable,
+            str(FT_RUN),
+            "start",
+            "gh:shepherd",
+        ],
+        stderr=subprocess.PIPE,
+        env=dict(os.environ),
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == b""
+    assert ft_sandbox.marker.is_file()
+    assert ft_sandbox.events.is_file()

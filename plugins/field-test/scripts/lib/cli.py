@@ -36,21 +36,53 @@ def reconfigure_streams() -> None:
     Guarded because `reconfigure` needs a text stream that is still open: a
     caller that replaced sys.stdout with something of its own has neither the
     method nor the problem.
+
+    A stream that is None is the separate case, and the reason this binds one
+    rather than skipping it. Python sets sys.stdout to None when it starts with
+    the descriptor closed outright (`sh -c 'exec 1>&-; ft-run.py start'`), and
+    every later write would raise AttributeError -- reported as an internal error
+    and exit 1, after the marker had already been written. A caller who closed the
+    descriptor asked for the output to go nowhere, which is the same thing a
+    reader that walked away asks for, so it goes to devnull and the work stands.
     """
-    for stream in (sys.stdout, sys.stderr):
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            continue
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             continue
 
 
-def silence_stdout() -> None:
-    """Point stdout at devnull, leaving stderr alone."""
+def stream_fileno(stream):
+    """A stream's descriptor, or None when it has none to give.
+
+    A caller that put an in-memory stream in place of sys.stdout has no descriptor
+    to redirect and nothing that can break a pipe, so there is nothing to do.
+    """
+    try:
+        return stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def redirect_to_devnull(stream) -> None:
+    """Point one stream's descriptor at devnull, if it has one."""
+    fileno = stream_fileno(stream)
+    if fileno is None:
+        return
     devnull = os.open(os.devnull, os.O_WRONLY)
     try:
-        os.dup2(devnull, sys.stdout.fileno())
+        os.dup2(devnull, fileno)
     finally:
         os.close(devnull)
+
+
+def silence_stdout() -> None:
+    """Point stdout at devnull, leaving stderr alone."""
+    redirect_to_devnull(sys.stdout)
 
 
 def silence_broken_pipe() -> None:
@@ -65,12 +97,8 @@ def silence_broken_pipe() -> None:
     to do can afford to lose stderr too. A script that still has work in front of
     it wants `write_out` instead.
     """
-    silence_stdout()
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    try:
-        os.dup2(devnull, sys.stderr.fileno())
-    finally:
-        os.close(devnull)
+    redirect_to_devnull(sys.stdout)
+    redirect_to_devnull(sys.stderr)
 
 
 def write_out(text: str) -> None:

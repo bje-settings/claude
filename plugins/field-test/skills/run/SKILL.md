@@ -70,6 +70,10 @@ $S/ft-issue.py names <the directory the target ran in> --run "$RUN" > "$RUN/name
 A non-zero exit from `ft-run.py finish` means the run marker is gone or corrupt: print its
 stderr line and stop there, do not collect.
 
+A non-zero exit from `ft-enterprise.py` prints no answer. Read it as `inside: false` and redact,
+the same as the answer it gives when it cannot tell: the one thing that must never happen is a
+repository name reaching a public issue because a script failed.
+
 `ft-collect.py "$RUN" --report` prints the target's own final message when you need to check
 what it claimed against what it did.
 
