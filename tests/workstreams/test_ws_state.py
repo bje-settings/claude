@@ -34,7 +34,7 @@ INDEPENDENT_S1 = (
     '{"id": "s1", "issues": [1, 3], "kind": "independent", "stack": null, "order": null, '
     '"base": null, "model": "sonnet", "effort": "low", "reason": "mechanical", '
     '"status": "planned", "branch": null, "worktree": null, "pr": null, "prs": null, '
-    '"agent": null, "question": null, "attempts": 0}'
+    '"agent": null, "question": null, "attempts": 0, "review_rounds": 0}'
 )
 
 
@@ -791,6 +791,24 @@ def test_stores_pr_as_a_number_without_json(with_s1, ws_sandbox, ws_state):
     result = ws_state("set", "s1", "pr", "10")
     assert result.status == 0
     assert field(ws_sandbox, "pr") == 10
+
+
+def test_counts_review_rounds_as_a_number(with_s1, ws_sandbox, ws_state):
+    """Not in the shell spec: the field is new in #62. The run loop reads it to
+    tell a first review pass from the one repeat it allows, and reads it from
+    disk rather than from its own memory because the loop is resumable."""
+    assert field(ws_sandbox, "review_rounds") == 0
+    result = ws_state("set", "s1", "review_rounds", "1")
+    assert result.status == 0
+    assert field(ws_sandbox, "review_rounds") == 1
+
+
+def test_rejects_a_non_numeric_review_rounds(with_s1, ws_state):
+    """Not in the shell spec, for the same reason. A count stored as the string
+    "two" would compare wrong against the round limit rather than fail."""
+    result = ws_state("set", "s1", "review_rounds", "two")
+    assert result.status == 2
+    assert "review_rounds takes a number or null" in result.stderr
 
 
 def test_clears_a_numeric_field_back_to_null(with_s1, ws_sandbox, ws_state):

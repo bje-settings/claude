@@ -17,7 +17,7 @@ explicit: there is no discovery in this version, and a target list you did not w
 you cannot reason about.
 
 This skill runs in the main session. Only the main session schedules wakes; the worker and the
-reviewer are subagents that return once and schedule nothing. Scripts are called by path, never
+applier are subagents that return once and schedule nothing; the review itself runs here. Scripts are called by path, never
 through a variable holding a command string (a Bash tool running zsh does not split one):
 `bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every `ft-harden-state.sh` command takes the
 `<plugin:skill>` being hardened as its first argument, after the command word.
@@ -110,9 +110,18 @@ one PR, set the target `paused` with its question and stop the loop: that is a d
 person. If it returns `failed`, or no JSON block at all, set the target `failed` with the error
 as its `question` and go to Step 6: the findings stay filed as issues for a person to pick up.
 
-**Review** (`phase review`). Fill in `review-prompt.md` and start `workstreams:reviewer` on the
-PR. Repeat until a pass applies nothing. An `error` from the reviewer pauses the target with that
-error; the review did not run, so nothing has been checked.
+**Review** (`phase review`). Review the PR **in this session**, the way `/workstreams:run` does:
+invoke `/pr-review-toolkit:review-pr` on it, read the bot and human review comments already on it
+(`gh pr view <n> --repo <repo> --json reviews,comments` and
+`gh api "repos/<repo>/pulls/<n>/comments"`), and open the code behind every finding before acting
+on it. A finding is a claim, not a fact. Drop the ones that do not hold, keeping each reason for
+the summary. `review-pr` runs here rather than inside a subagent because its analyzer agents wake
+whoever invoked them, and a subagent gets no such wake (issue #62).
+
+Hand what survives to `workstreams:applier` as a filled-in `apply-prompt.md`. An `error` from the
+applier pauses the target with that error, naming the findings it had already applied. Repeat the
+review once if the applied changes were substantial; if a second round is also substantial, pause
+the target rather than starting a third.
 
 **Merge** (`phase merge`). Only once review applies nothing:
 
@@ -157,5 +166,5 @@ every issue filed that did not end up in a merged PR.
 
 Approving PRs; bypassing a check, a ruleset, or a required review; and deciding what counts as a
 mechanical fix beyond the definitions `/gh:shepherd` already carries. This skill also does not
-review PRs itself: `workstreams:reviewer` and `pr-review-toolkit` own that, and a second review
-loop here would drift from theirs.
+carry a review loop of its own: `/workstreams:run` and `pr-review-toolkit` own that shape, and it
+is reused here rather than restated.

@@ -32,6 +32,7 @@ FIELDS = (
     "agent",
     "question",
     "attempts",
+    "review_rounds",
     "model",
     "effort",
     "reason",
@@ -39,7 +40,7 @@ FIELDS = (
     "order",
     "stack",
 )
-NUMERIC_FIELDS = ("pr", "attempts", "order")
+NUMERIC_FIELDS = ("pr", "attempts", "order", "review_rounds")
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")
 # meta fields stored as JSON numbers rather than strings, with their accepted range
@@ -146,6 +147,11 @@ def stream_record(
         "agent": None,
         "question": None,
         "attempts": 0,
+        # How many review passes this stream's PR has had. On disk rather than
+        # in the loop's head because the loop is resumable: a session that stops
+        # between two ticks must still know that the round it is about to run is
+        # the repeat, not the first.
+        "review_rounds": 0,
     }
 
 

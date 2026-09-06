@@ -23,9 +23,9 @@ fixtures.
 A `plugin:skill` target has to be installed, since it is resolved through Claude's own plugin
 registry rather than from a path. A project or user command or skill is found on disk.
 
-`/field-test:harden` reuses the `workstreams:stream-<effort>` and `workstreams:reviewer` agents
-and the review loop they already own rather than growing its own, so both plugins have to be
-there; `ft-preflight.sh` checks before a round starts rather than halfway through one.
+`/field-test:harden` reuses the `workstreams:stream-<effort>` and `workstreams:applier` agents
+and the review loop `/workstreams:run` already owns rather than growing its own, so both plugins
+have to be there; `ft-preflight.sh` checks before a round starts rather than halfway through one.
 
 ## `/field-test:run <target> [args...]`
 
@@ -97,8 +97,9 @@ Per target, with every transition written to state before the next action is tak
 3. **Fix.** One `workstreams:stream-<effort>` worker, one worktree, one draft PR closing every
    issue of the round. A worker that pauses pauses the loop; one that fails marks the target
    `failed` and leaves its issues open for a person.
-4. **Review.** `workstreams:reviewer`, which runs `/pr-review-toolkit:review-pr`, until a pass
-   applies nothing.
+4. **Review.** `/pr-review-toolkit:review-pr` plus the PR's own bot and human comments, run in
+   the main session and verified against the code, with a `workstreams:applier` subagent applying
+   what holds. One repeat round if the changes were substantial.
 5. **Merge.** Ready, auto-merge, then `ft-wait-pr.sh` blocking in the foreground. A mechanical CI
    failure goes back to the fix step once; anything behavioural pauses with the question, and so
    does a green pull request that auto-merge has not landed after three looks.

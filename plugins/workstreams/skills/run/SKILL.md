@@ -7,7 +7,7 @@ description: >
   cadence matched to the work. A paused stream never blocks the others. Ends with a report of
   every PR, deferred issue, and open question. Resumable: re-running picks up where the state
   file says the streams are.
-allowed-tools: Bash, Read, Agent, ScheduleWakeup
+allowed-tools: Bash, Read, Skill, Agent, ScheduleWakeup
 disable-model-invocation: true
 ---
 
@@ -16,8 +16,11 @@ transition below is written to it before the next action, so a stopped session c
 skill and continue. If any `ws-state.py` write fails, stop the loop and report the error: the
 state is what the next tick reads, so continuing past a failed write would start work twice.
 
-This skill runs in the main session. Only the main session schedules wakes; the workers and
-the reviewer are subagents that return once and never schedule anything.
+This skill runs in the main session, and the review of every draft runs here too:
+`/pr-review-toolkit:review-pr` dispatches analyzer agents that wake the session that invoked it,
+and a subagent that invoked it would have no wake to receive and nothing bounded to block on.
+Only the main session schedules wakes; the workers and the appliers are subagents that return
+once and never schedule anything.
 
 ## Step 1: Preflight and load
 
@@ -83,29 +86,87 @@ On each wake:
 
 ## Step 4: Review pass
 
-For a stream that just reached `draft`, or whose last review applied changes:
+Run for a stream that just reached `draft`, and once more for one whose last apply pass changed
+the diff substantially. Start with the PR's current state:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.py" <pr>
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status reviewing
 ```
 
-If `ws-pr-status.py` fails (a PR that does not exist, or gh itself failing): set the stream
-`failed` with that message. Otherwise fill in `review-prompt.md` from this directory and start
-`workstreams:reviewer` with `model` set to the stream's model. When it returns:
+Its exit status decides whether there is anything to review at all:
 
-- `error` is set: set status `paused` with the error as the question. The review did not run.
-- `applied > 0`: the diff changed, so the PR needs one more pass. Set status `draft`; it is
-  reviewed again on the next tick.
-- `applied == 0`: run `ws-pr-status.py` again, since the checks may have moved, and decide on
-  that output:
-  - `checks: pass`: set status `done`.
-  - `checks: pending`: leave status `reviewing` and check again next tick without a new review.
-  - `checks: none`: the same as pending the first time, since workflows may not have queued yet;
-    `done` if it is still `none` on the following tick.
-  - `checks: fail`: set status `paused` with the question
-    `CI is failing on PR #N after review (<failing>); decide whether to fix, retry, or drop the stream`,
-    where `<failing>` is the `failing` list from the status output.
+- **0**: carry on below.
+- **1**: the pull request does not exist. Set the stream `failed` with the message. The worker
+  reported a PR nobody can resolve, and no later tick changes that.
+- **anything else** (4: gh itself failed, or answered with something the script could not read):
+  set the stream `paused` with the message and leave the PR alone. A rate limit, an expired
+  token, or a network blip reads exactly like this, and re-running the skill picks it up.
+
+Then record the pass and review the PR yourself. `review_rounds` is the count of passes this
+PR has had, kept on disk so a resumed session knows whether the round it is starting is the
+repeat:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status reviewing
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> review_rounds <its current value plus one>
+```
+
+1. **Review.** Invoke `/pr-review-toolkit:review-pr` on the PR. It runs in this session on
+   purpose (see the note at the top).
+2. **Read what is already on the PR.** A bot review or a human comment is a finding the toolkit
+   will not produce, and one nobody else is going to act on:
+
+   ```bash
+   gh pr view <pr> --repo <owner/repo> --json reviews,comments
+   gh api "repos/<owner>/<repo>/pulls/<pr>/comments"
+   ```
+
+   The first two give review bodies and issue comments, the third the inline review comments.
+   Fold what they raise into the same list as the toolkit's findings.
+3. **Verify every finding against the code.** A finding is a claim, not a fact, whoever made it.
+   Open the file it names in the stream's worktree and confirm it before it goes any further.
+   Drop a finding that is wrong, that is already handled elsewhere in the diff, that is out of
+   scope for the issue the PR closes, or that contradicts the target repository's `CLAUDE.md` or
+   rules. Keep the reason for each one dropped: it goes in the report.
+4. **Apply.** If nothing survived verification, skip to the checks decision below with
+   `applied` of 0. Otherwise fill in `apply-prompt.md` from this directory with the surviving
+   findings, one numbered entry each, and start `workstreams:applier` with `model` set to the
+   stream's model. The applier does not review; it applies the list and returns once.
+
+When it returns:
+
+- **`error` is set**: set status `paused` with the error as the question, and say in the tick's
+  message which findings it had already applied. Some of the list may be committed.
+- **`applied > 0`**: decide whether the change earns another round. Substantial means new or
+  moved logic, a changed contract, a new file, or a fix large enough that a reviewer reading the
+  PR fresh would reach different conclusions. Wording, a comment, a renamed test, or a one-line
+  guard is not.
+  - Substantial, and `review_rounds` is 1: set status `draft`, and the next tick reviews it
+    again from the top of this step. A review that changed the diff that much reviewed a
+    different PR than the one that now exists.
+  - Substantial, and `review_rounds` is already 2: set the stream `paused` with the question
+    `PR #<n> has applied substantial review changes twice; decide whether it needs a rethink or another pass`.
+    One repeat is the limit: a PR that keeps growing under review is a sign the work was
+    mis-scoped, not that a third pass will settle it.
+  - Not substantial: fall through to the checks decision now, without another review.
+- **`applied == 0`**: fall through to the checks decision.
+
+The checks decision. Read the PR again, since the checks may have moved while the review ran,
+and treat a non-zero exit exactly as above:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.py" <pr>
+```
+
+Then, on its output:
+
+- `checks: pass`: set status `done`.
+- `checks: pending`: leave status `reviewing` and look again next tick without a new review.
+- `checks: none`: the same as pending the first time, since workflows may not have queued yet;
+  `done` if it is still `none` on the following tick.
+- `checks: fail`: set status `paused` with the question
+  `CI is failing on PR #N after review (<failing>); decide whether to fix, retry, or drop the stream`,
+  where `<failing>` is the `failing` list from the status output.
 
 For a stack, review the layers bottom-up and do not start the review of a layer until the layer
 below it is `done`; a change applied below changes what the layer above rebases onto.
@@ -118,6 +179,7 @@ Print one report and stop the loop (`ScheduleWakeup` with `stop: true`):
   checks, review decision.
 - **Deferred issues** with their reasons, from `.deferred`.
 - **Paused streams** with the exact question each is waiting on.
+- **Findings rejected during review**, per PR, with the one-line reason each was dropped.
 - **Failed streams** with the last error.
 
 The PRs are drafts. Marking them ready and merging is the user's decision.
