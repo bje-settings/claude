@@ -29,6 +29,26 @@ only when you mean to update the lock, and commit the result.
 `uv sync` builds the environment on Python 3.9, the floor every plugin script targets, because
 that is what macOS ships at `/usr/bin/python3`.
 
+## Pre-commit hooks
+
+```bash
+uv sync --locked && uv run pre-commit install
+```
+
+Opt in once per clone and once per worktree: `pre-commit install` writes a hook into the shared
+`.git/hooks/`, but the config it needs is read from the working tree you commit from.
+
+The hooks are ruff (lint and format check), the Python suite (`pytest -n auto -x -q`, about two
+seconds), `claude plugin validate --strict` over the marketplace manifest and every plugin, and
+`shellcheck` over the `.sh` files that remain. They need `uv`, `claude` and `shellcheck` on PATH.
+Nothing here is the enforcement layer: CI runs the same checks whether or not you installed them.
+
+Run them without committing:
+
+```bash
+uv run pre-commit run --all-files
+```
+
 ## Local install
 
 Add the marketplace locally for testing:

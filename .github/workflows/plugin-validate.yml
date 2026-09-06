@@ -1,0 +1,55 @@
+name: Plugin validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned, not floating: a new Claude Code release can tighten manifest
+  # validation, and an unpinned install would turn that into a red build on a
+  # pull request that changed nothing. Bump it deliberately: run
+  # `claude --version` on a machine with the version you want, put that exact
+  # string here, and confirm `claude plugin validate . --strict` still passes
+  # locally before pushing. Keep it close to what contributors run, since the
+  # pre-commit hook uses whatever `claude` is on their PATH.
+  CLAUDE_CODE_VERSION: "2.1.263"
+
+jobs:
+  # THIS JOB NAME IS A CONTRACT. `plugin-validate` is matched by exact string by
+  # the repo ruleset Require CI (22359720). Renaming it does not fail the build:
+  # the required check simply never reports and every pull request waits forever.
+  # See the same note in ci.yml.
+  plugin-validate:
+    name: plugin-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # No API key and no login: `claude plugin validate` reads the manifests off
+      # disk and never talks to the API, which is why this job needs no secrets.
+      - name: Install Claude Code
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+
+      # The loop over plugins/*/ rather than a hard-coded list, so a new plugin
+      # is covered the day it lands without editing this workflow.
+      - name: Validate the marketplace manifest and every plugin
+        run: |
+          set -euo pipefail
+          claude plugin validate . --strict
+          for p in plugins/*/; do
+            claude plugin validate "$p" --strict
+          done
