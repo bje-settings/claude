@@ -34,9 +34,11 @@ Models: haiku sonnet opus fable inherit
 Exit 0 on success, 1 on any other failure (missing or corrupt state file, unknown
 stream, gh failure, unwritable directory), 2 on usage, 3 when init would
 overwrite without --force.
-
-Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
 """
+
+# Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
+# It lives here rather than in the docstring above, which is what `--help`
+# prints and is addressed to whoever is running the script, not editing it.
 
 from __future__ import annotations
 
@@ -54,8 +56,14 @@ from lib import state as st  # noqa: E402  (needs HERE on sys.path first)
 PROG = "ws-state.py"
 
 
-class Usage(Exception):
-    """Wrong arguments: the message, and the status to exit with."""
+class Failure(Exception):
+    """Every failure the script reports as its own: the message and the status.
+
+    Not usage alone. Status 2 is a usage error, 3 is `init` declining to
+    overwrite, and 1 is everything else the script refuses or cannot do (an
+    unreadable state file, a repository it cannot name, a directory it cannot
+    write).
+    """
 
     def __init__(self, message: str, status: int = 2) -> None:
         super().__init__(message)
@@ -64,7 +72,7 @@ class Usage(Exception):
 
 
 def die(message: str, status: int = 1):
-    raise Usage(message, status)
+    raise Failure(message, status)
 
 
 def need(flag: str, value):
@@ -88,26 +96,34 @@ def resolve_repo(given: str) -> str:
 def gh_repo() -> str:
     """The current repository's nameWithOwner, as gh reports it.
 
-    gh's stderr is folded into its stdout and quoted back in the failure
-    message, so the real cause (no remote, an expired token, offline) reaches
-    the user instead of a generic hint.
+    The two streams are captured apart, so only stdout is ever parsed: gh writes
+    progress and warnings to stderr, and folding those in would turn a perfectly
+    good answer into an unparseable one. On failure stderr is quoted back in the
+    message instead, so the real cause (no remote, an expired token, offline)
+    reaches the user rather than a generic hint.
     """
     try:
         finished = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
             check=False,
         )
     except OSError as error:
         unresolvable(f"gh: {error}")
-    output = finished.stdout.decode("utf-8", "replace").rstrip("\n")
+    output = finished.stdout.decode("utf-8", "replace").strip()
+    errors = finished.stderr.decode("utf-8", "replace").strip()
     if finished.returncode != 0:
-        unresolvable(output)
+        unresolvable(" ".join(part for part in (errors, output) if part))
     try:
-        return json.loads(output)["nameWithOwner"]
+        name = json.loads(output)["nameWithOwner"]
     except (ValueError, KeyError, TypeError):
         unresolvable(output)
+    # A null or non-string nameWithOwner is gh answering something other than
+    # the question, not a repository; it fails the same way, not with a
+    # TypeError from os.path.join further down.
+    if not isinstance(name, str) or not name:
+        unresolvable(output)
+    return name
 
 
 def unresolvable(detail: str):
@@ -128,30 +144,41 @@ def state_path(directory: str, repo: str) -> str:
 
 
 def dumps(document) -> str:
-    """The pretty JSON `jq .` printed: two-space indent, one trailing newline."""
-    return json.dumps(document, indent=2) + "\n"
+    """The pretty JSON `jq .` printed: two-space indent, one trailing newline.
+
+    `ensure_ascii=False` because that is the parity: jq writes raw UTF-8, so an
+    accented reason stays readable in the file instead of becoming a run of
+    \\u escapes. `allow_nan=False` because Python would otherwise emit the
+    literals NaN and Infinity, which are not JSON and which no other reader of
+    this file would parse.
+    """
+    return json.dumps(document, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
 
 
 def write_state(path: str, document) -> None:
     """Atomic in-place update: write a temp file beside it, then move it over.
 
     A crash or a full disk mid-write leaves the old state intact, and an
-    unwritable directory fails before anything is destroyed.
+    unwritable directory fails before anything is destroyed. Whichever step
+    fails -- the write, the close, or the rename -- the temp file goes with it,
+    so a run that changed nothing leaves nothing behind either.
     """
     tmp = f"{path}.tmp.{os.getpid()}"
+    trouble = ""
     try:
         with open(tmp, "w", encoding="utf-8") as handle:
             handle.write(dumps(document))
-    except OSError:
-        die(f"cannot write {tmp}")
-    try:
         os.replace(tmp, path)
     except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        die(f"cannot write {path}")
+        trouble = f"cannot write {path}"
+    finally:
+        if os.path.lexists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                trouble += f" (temp file left at {tmp})"
+    if trouble:
+        die(trouble)
 
 
 def require_state(path: str):
@@ -161,7 +188,11 @@ def require_state(path: str):
     try:
         with open(path, encoding="utf-8") as handle:
             document = json.load(handle)
-    except (OSError, ValueError):
+    except OSError as error:
+        # A file that is there but unreadable is a different problem from one
+        # holding the wrong bytes, and the fix is a different one too.
+        die(f"cannot read {path}: {error}")
+    except ValueError:
         die(f"state file is not valid workstreams JSON: {path}")
     if not st.is_state(document):
         die(f"state file is not valid workstreams JSON: {path}")
@@ -342,9 +373,21 @@ def main(argv):
         if command not in COMMANDS:
             die(f"unknown command: {command}", 2)
         COMMANDS[command](argv[2:])
-    except (Usage, st.Invalid) as error:
+    except (Failure, st.Invalid) as error:
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
+    except BrokenPipeError:
+        # `ws-state.py show | head` closes the pipe early. That is the reader's
+        # business, not a failure here, and the interpreter must not try to
+        # flush the closed stream on the way out and print its own trace.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
+    except Exception as error:
+        # The docstring promises the script's own message rather than a
+        # traceback. Deliberate: an arm nobody anticipated still reports one
+        # line and exit 1, the way every anticipated one does.
+        sys.stderr.write(f"{PROG}: internal error: {error}\n")
+        return 1
     return 0
 
 
