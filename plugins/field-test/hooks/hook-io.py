@@ -254,8 +254,8 @@ def handle_stop(payload, path):
     silent for the rest of the run. Finishing is the run skill's own Step 4
     action; this hook only records that the turn ended, with the target's last
     message, so the events file carries the target's own claim beside the calls
-    it made. No finding reads that field; `ft-collect.sh --report` reads the
-    transcript instead. `ft-issue.sh names` does scan it, with every other
+    it made. No finding reads that field; `ft-collect.py --report` reads the
+    transcript instead. `ft-issue.py names` does scan it, with every other
     event field, for the `#N` references redaction has to catch.
     """
     record = base_record("Stop", payload)
