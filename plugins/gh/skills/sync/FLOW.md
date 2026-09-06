@@ -4,10 +4,18 @@ What `/gh:sync` does, and every way it can decline to act.
 
 ```mermaid
 flowchart TD
-    A[Working directory] --> B{Is it a git repo?}
-    B -->|Yes| C[Sync this repo]
-    B -->|No| D[Sync each immediate subdir that is a repo]
-    D --> C
+    subgraph discover [scope from the working directory]
+        direction TB
+        A{Inside a git repo?}
+        A -->|Yes| A1[That checkout only]
+        A -->|No| A2[Each immediate subdir that is a checkout root]
+        A2 -.->|Not a repo, or inside one but not its root| A3([Skipped silently]):::stop
+        A2 --> A4{Any found?}
+        A4 -->|No| A5([Stop: no git repositories directly inside cwd]):::stop
+    end
+
+    A1 --> C[Sync each repo found]
+    A4 -->|Yes| C
 
     C --> E{Tree clean, origin present,<br/>no operation in progress?}
     E -->|No| F([Skip the repo, say why]):::stop
@@ -39,3 +47,6 @@ flowchart TD
 Every path that keeps a branch says which of the four reasons applied. The distinction matters:
 "never checked" is not "no proof", and reporting one as the other asserts something the command
 did not establish.
+
+The `discover` subgraph is shared with `/gh:shepherd`, byte for byte: both skills resolve their
+scope through the same library, so the two diagrams must describe it identically.
