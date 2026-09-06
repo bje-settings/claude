@@ -151,7 +151,7 @@ wall time. Every example must keep building its state in its own temp dir (`setu
 `setup_ws_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
 or to a fixed path.
 
-The CI job names `shellcheck`, `bash-5`, `bash-3.2`, `coverage`, `ruff`, `pytest` and
+The CI job names `shellcheck`, `bash-3.2`, `coverage`, `ruff`, `pytest` and
 `pytest-floor` are required checks on the default branch, matched by exact string. Renaming one
 does not fail the build: the required check never reports and pull requests wait forever. Put
 descriptive text in step names instead. A new job name becomes a required check only after it has

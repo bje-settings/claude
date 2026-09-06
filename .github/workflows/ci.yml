@@ -111,12 +111,12 @@ jobs:
         run: uv run --locked pytest -n auto
 
   test:
-    # The suite runs on both images on purpose. Linux gives us bash 5, which is
-    # what most contributors have on PATH. macOS gives us /bin/bash 3.2, which is
-    # what actually executes these scripts when the plugin runs, so a green Linux
-    # run on its own would not prove much.
+    # The suite runs on macOS on purpose: /bin/bash there is 3.2, which is what
+    # actually executes these scripts when the plugin runs. bash 5 is covered by
+    # the coverage job below, whose kcov pass runs the same suite on Linux, so a
+    # separate bash-5 job was dropped in #67.
     #
-    # THESE JOB NAMES ARE A CONTRACT: shellcheck, bash-5, bash-3.2, coverage,
+    # THESE JOB NAMES ARE A CONTRACT: shellcheck, bash-3.2, coverage,
     # ruff, pytest and pytest-floor are required, or about to be required, by the
     # branch ruleset, which matches them by exact string. Renaming one does not
     # fail the build: the required check simply never reports and every pull
@@ -133,9 +133,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: bash-5
-            os: ubuntu-latest
-            shellspec_args: ""
           - name: bash-3.2
             os: macos-latest
             shellspec_args: "--shell /bin/bash"
@@ -164,10 +161,8 @@ jobs:
           sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
           shellspec --version
 
-      - name: Report the shell actually under test (macOS runs /bin/bash 3.2)
-        run: |
-          bash --version | head -1
-          /bin/bash --version | head -1
+      - name: Report the shell actually under test (/bin/bash 3.2)
+        run: /bin/bash --version | head -1
 
       # The fixtures pass identity to every git command they run, so no global
       # git config is needed here. --jobs spreads spec files across the runner's
