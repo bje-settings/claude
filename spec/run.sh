@@ -30,7 +30,13 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/gh/scripts/gh-shepherd-pr.sh \
     plugins/gh/hooks/session-start.sh \
     fixtures/gh/fixtures.sh \
-    fixtures/gh/bin/gh
+    fixtures/gh/bin/gh \
+    plugins/workstreams/scripts/ws-preflight.sh \
+    plugins/workstreams/scripts/ws-issues.sh \
+    plugins/workstreams/scripts/ws-state.sh \
+    plugins/workstreams/scripts/ws-pr-status.sh \
+    fixtures/workstreams/fixtures.sh \
+    fixtures/workstreams/bin/gh
 else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
@@ -46,7 +52,7 @@ if [[ "${1:-}" == "--coverage" ]]; then
     exit 1
   }
   run "shellspec (kcov)" shellspec --kcov --covdir coverage \
-    --kcov-options "--include-path=./plugins/gh --path-strip-level=1"
+    --kcov-options "--include-path=./plugins --path-strip-level=1"
   run "coverage threshold" python3 spec/coverage-check.py coverage/cobertura.xml 95
 else
   run "shellspec (default shell)" shellspec "$@"

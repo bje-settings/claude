@@ -26,6 +26,9 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`. No associative
 arrays, no `wait -n` without a fallback.
 
+`workstreams` depends on `gh-stack` and `pr-review-toolkit` through its preflight script; do not
+vendor either.
+
 ### Plugin domains
 
 Plugins are the unit of installation, so each plugin is one domain of work (`gh` is GitHub and

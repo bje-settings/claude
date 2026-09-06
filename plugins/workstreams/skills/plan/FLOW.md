@@ -1,0 +1,29 @@
+# /workstreams:plan flow
+
+```mermaid
+flowchart TD
+    P{gh-stack, pr-review-toolkit,<br>gh login all present?}
+    P -->|no| P1([stop: print the install command for each missing piece])
+    P -->|yes| R{selectors match any issue?}
+    R -->|no| R1([stop: nothing matched])
+    R -->|a number is a pull request| R2([stop: not an issue])
+    R -->|yes| E[read each issue, the code it names,<br>linked logs and ADRs, the repo's own conventions]
+    E --> C{can it be implemented<br>without a user decision?}
+    C -->|already closed, needs hardware,<br>data, or a decision| C1[defer with a reason]
+    C -->|only after another issue lands| M1
+    C -->|yes| M{touches the same files or regions<br>as another work-now issue?}
+    M -->|yes| M1[one stack, foundational change at the bottom]
+    M -->|no| M2[independent stream]
+    M1 & M2 --> X{depends on a change in another repo?}
+    X -->|yes| X1[name the repo in the plan; never absorbed silently]
+    X -->|no| S
+    X1 --> S[size each stream: model and effort with a reason]
+    S --> Q[ask the user every open question, once]
+    Q --> T[propose in plan mode]
+    C1 --> T
+    T -->|user rejects| T1([stop: nothing recorded])
+    T -->|user approves| W{a plan already exists for this repo?}
+    W -->|yes, user declines to replace| W1([stop: existing plan kept])
+    W -->|no, or user says replace| Z[record streams, deferrals, and cadence in the state file]
+    Z --> Z1([done: nothing started; /workstreams:run executes])
+```
