@@ -463,4 +463,46 @@ git push origin --delete wktr-9-old'
     End
   End
 
+  # Every example above calls ft-hook.sh directly, so nothing here would notice a
+  # manifest that names the wrong event, points at a script that is not there, or
+  # drops an event entirely. Installed, that is a plugin that records nothing and
+  # never finishes a run, with a green suite.
+  Describe 'the hooks.json manifest'
+    manifest() { printf '%s' "$FT_PLUGIN_DIR/hooks/hooks.json"; }
+
+    It 'passes each hook the event name it is registered under'
+      mismatched() {
+        jq -r '.hooks | to_entries[] | . as $e | .value[].hooks[]
+               | select((.command | endswith(" " + $e.key)) | not) | $e.key' "$(manifest)"
+      }
+      When call mismatched
+      The status should be success
+      The output should equal ''
+    End
+
+    It 'points every hook at a script that is there'
+      missing() {
+        jq -r '.hooks[][].hooks[].command' "$(manifest)" \
+          | sed -e 's|.*${CLAUDE_PLUGIN_ROOT}/||' -e 's|" .*||' \
+          | while IFS= read -r rel; do
+              [ -f "$FT_PLUGIN_DIR/$rel" ] || printf '%s\n' "$rel"
+            done
+      }
+      When call missing
+      The status should be success
+      The output should equal ''
+    End
+
+    It 'registers exactly the events the JSON helper handles'
+      registered() { jq -r '.hooks | keys_unsorted | sort | join(" ")' "$(manifest)"; }
+      handled() {
+        grep '^EVENTS = ' "$FT_HOOK_IO" | grep -o '"[A-Za-z]*"' | tr -d '"' | sort | tr '\n' ' ' \
+          | sed 's/ $//'
+      }
+      When call registered
+      The status should be success
+      The output should equal "$(handled)"
+    End
+  End
+
 End
