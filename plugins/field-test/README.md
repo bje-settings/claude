@@ -5,8 +5,8 @@ somebody who did not watch the run can reproduce, and keep going until they are 
 skills: `/field-test:run` observes one run; `/field-test:harden` loops it over a list of target
 repositories. Each skill directory has a `FLOW.md` with the decision diagram.
 
-This is not a test runner. The specs in `spec/` cover the deterministic parts; a field test
-covers the part specs cannot, which is how a skill behaves against a real repository in a state
+This is not a test runner. The tests under `tests/` and the specs in `spec/` cover the
+deterministic parts; a field test covers the part they cannot, which is how a skill behaves against a real repository in a state
 nobody thought to write a fixture for. The point of the run is to come out of it with those
 fixtures.
 
@@ -163,15 +163,16 @@ global options, so `git -C <worktree> push --force` is refused like the bare for
 are enumerated rather than matched as any leading flag, or `git --no-pager log --grep
 filter-repo` would be refused for naming a command it only reads about.
 
-Every pattern has a denied sample in `fixtures/field-test/commands/deny.txt`, asserted one
-pattern at a time, and `allow.txt` holds the near misses no pattern may match. Both files are
-walked by the specs, so a pattern that stops matching, or starts matching too much, fails.
+Every pattern has a denied sample in `tests/field-test/commands/deny.txt`, asserted one
+pattern at a time, and `allow.txt` beside it holds the near misses no pattern may match. Both
+files are walked by `tests/field-test/test_ft_hooks.py`, so a pattern that stops matching, or
+starts matching too much, fails.
 
 ## State
 
 `${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/runs/<session-id>/` holds `run.json` and `events.jsonl`,
-the only two files the scripts and hooks own, beside whatever one run writes there for itself
-(`resolved.json`, `names.json`). Nothing is cached: enterprise membership decides what gets
+the whole of the run side's state, beside whatever one run writes there for itself
+(`resolved.json`, `names.json`). The harden side keeps state of its own. Nothing is cached: enterprise membership decides what gets
 published, and a stale answer would decide it wrongly.
 
 ## Scripts
