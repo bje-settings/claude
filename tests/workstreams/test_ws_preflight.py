@@ -329,6 +329,29 @@ def test_gh_auth_status_has_no_complaint_when_gh_said_nothing_at_all(monkeypatch
     assert module.gh_auth_status() == (False, None)
 
 
+def test_gh_auth_status_quotes_the_reason_not_the_last_remedy(monkeypatch):
+    """gh 2.98 reports an invalid token as five lines ending in the logout
+    suggestion; the hint carries the failure and the re-authenticate line."""
+    module = load_ws_preflight_module()
+
+    class Finished:
+        returncode = 1
+        stderr = (
+            b"github.com\n"
+            b"  X Failed to log in to github.com account someone (hosts.yml)\n"
+            b"  - Active account: true\n"
+            b"  - The token in hosts.yml is invalid.\n"
+            b"  - To re-authenticate, run: gh auth refresh -h github.com\n"
+            b"  - To forget about this account, run: gh auth logout -h github.com\n"
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k: Finished())
+    ok, complaint = module.gh_auth_status()
+    assert ok is False
+    assert complaint.startswith("github.com; X Failed to log in")
+    assert "logout" not in complaint
+
+
 def test_accepts_a_repo_local_gh_stack_skill(ws_preflight, ws_sandbox):
     """accepts a repo-local gh-stack skill from any directory in the repo
 
