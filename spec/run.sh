@@ -42,10 +42,26 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/workstreams/scripts/ws-state.sh \
     plugins/workstreams/scripts/ws-pr-status.sh \
     fixtures/workstreams/fixtures.sh \
-    fixtures/workstreams/bin/gh
+    fixtures/workstreams/bin/gh \
+    plugins/field-test/scripts/ft-run.sh \
+    plugins/field-test/scripts/ft-resolve.sh \
+    plugins/field-test/scripts/ft-collect.sh \
+    plugins/field-test/scripts/ft-enterprise.sh \
+    plugins/field-test/scripts/ft-redact.sh \
+    plugins/field-test/scripts/ft-issue.sh \
+    plugins/field-test/scripts/ft-preflight.sh \
+    plugins/field-test/scripts/ft-harden-state.sh \
+    plugins/field-test/scripts/ft-verify-report.sh \
+    plugins/field-test/scripts/ft-wait-pr.sh \
+    plugins/field-test/hooks/ft-hook.sh \
+    fixtures/field-test/fixtures.sh \
+    fixtures/field-test/bin/gh
 else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
+
+# The one file in a plugin that is not shell, so shellcheck says nothing about it.
+run "python" python3 -m compileall -q plugins/field-test/hooks/hook-io.py
 
 command -v shellspec >/dev/null 2>&1 || {
   printf 'shellspec is required: brew install shellspec\n' >&2

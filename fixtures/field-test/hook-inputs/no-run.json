@@ -1,0 +1,8 @@
+{
+  "session_id": "no-such-field-test-session",
+  "transcript_path": "/transcripts/main.jsonl",
+  "tool_name": "Bash",
+  "tool_use_id": "t1",
+  "tool_input": { "command": "git status --short" },
+  "tool_response": { "stdout": "", "stderr": "", "exit_code": 0 }
+}

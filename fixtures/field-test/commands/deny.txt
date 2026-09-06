@@ -1,0 +1,22 @@
+git push --force origin main
+git push -f origin wktr-9-fix
+cd /tmp/repo && git push --force origin main
+git push origin --delete wktr-9-old
+git push origin :wktr-9-old
+git push --mirror git@github.com:acme/copy.git
+git filter-branch --tree-filter 'rm -f secrets' HEAD
+git filter-repo --path secrets --invert-paths
+rm -rf ~/Code/scratch
+rm -rf /var/tmp/build
+cd repo && rm -fr ../scratch
+rm -rf "$HOME/Code/scratch"
+rm -rf '/var/tmp/build'
+git push --force-with-lease origin wktr-9-fix && git push --force origin main
+rm -r -f /var/tmp/build
+rm --recursive --force ~/Code/scratch
+git -C .claude/worktrees/wktr-9-fix push --force origin main
+git -c push.default=current push origin --delete wktr-9-old
+git --no-pager push --mirror git@github.com:acme/copy.git
+git -C .claude/worktrees/wktr-9-fix filter-branch --tree-filter 'rm -f secrets' HEAD
+git push origin +wktr-9-fix
+git push origin +refs/heads/main:refs/heads/main

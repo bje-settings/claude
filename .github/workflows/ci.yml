@@ -41,7 +41,25 @@ jobs:
             plugins/workstreams/scripts/ws-pr-status.sh \
             fixtures/workstreams/fixtures.sh \
             fixtures/workstreams/bin/gh \
+            plugins/field-test/scripts/ft-run.sh \
+            plugins/field-test/scripts/ft-resolve.sh \
+            plugins/field-test/scripts/ft-collect.sh \
+            plugins/field-test/scripts/ft-enterprise.sh \
+            plugins/field-test/scripts/ft-redact.sh \
+            plugins/field-test/scripts/ft-issue.sh \
+            plugins/field-test/scripts/ft-preflight.sh \
+            plugins/field-test/scripts/ft-harden-state.sh \
+            plugins/field-test/scripts/ft-verify-report.sh \
+            plugins/field-test/scripts/ft-wait-pr.sh \
+            plugins/field-test/hooks/ft-hook.sh \
+            fixtures/field-test/fixtures.sh \
+            fixtures/field-test/bin/gh \
             spec/run.sh
+
+      # The one file in a plugin that is not shell. It holds the deny-list
+      # enforcement, so it should not be the only thing here that is unchecked.
+      - name: Compile the Python hook helper
+        run: python3 -m compileall -q plugins/field-test/hooks/hook-io.py
 
   test:
     # The suite runs on both images on purpose. Linux gives us bash 5, which is

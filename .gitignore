@@ -2,3 +2,6 @@
 .shellspec-quick.log
 /report/
 /coverage/
+
+# python bytecode from the hook helpers
+__pycache__/

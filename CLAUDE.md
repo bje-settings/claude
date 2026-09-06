@@ -27,7 +27,9 @@ Plugin scripts must run under bash 3.2, which is what macOS ships at `/bin/bash`
 arrays, no `wait -n` without a fallback.
 
 `workstreams` depends on `gh-stack` and `pr-review-toolkit` through its preflight script; do not
-vendor either.
+vendor either. `field-test` depends on `workstreams` and `pr-review-toolkit` the same way, through
+the `harden` skill's preflight; do not vendor those either, and do not duplicate the review loop
+`workstreams` already owns.
 
 ### Plugin domains
 

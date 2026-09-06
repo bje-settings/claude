@@ -1,0 +1,10 @@
+{
+  "name": "field-test",
+  "description": "Plugin quality assurance. /field-test:run runs a skill or command under observation, records what its scripts and subagents actually did through hooks, and files one reproducible issue per problem, redacting the names of any repository outside the plugin's enterprise. /field-test:harden loops that over a list of target repositories and drives each round through fix, review, and merge until the skill is clean.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Brian Espinosa",
+    "email": "b@bje.co"
+  },
+  "keywords": ["quality-assurance", "field-test", "plugins", "skills", "hooks", "issues", "observability", "hardening"]
+}
