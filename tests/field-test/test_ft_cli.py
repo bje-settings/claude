@@ -30,13 +30,17 @@ SCRIPT_NAMES = (
     "ft-issue.py",
     "ft-resolve.py",
     "ft-enterprise.py",
+    "ft-preflight.py",
+    "ft-harden-state.py",
+    "ft-verify-report.py",
+    "ft-wait-pr.py",
 )
 
 # The scripts that change something before or while they print: a run marker, an
 # issue, a resolved target the caller records. A closed reader has to stop their
 # output without stopping the work, which is what cli.write_out does. The rest
 # only print, so the handler around `main` is the whole answer for them.
-STATEFUL_SCRIPTS = ("ft-run.py", "ft-issue.py", "ft-resolve.py")
+STATEFUL_SCRIPTS = ("ft-run.py", "ft-issue.py", "ft-resolve.py", "ft-harden-state.py")
 
 
 # --- every script has the wrapper --------------------------------------------
@@ -68,7 +72,7 @@ def test_a_script_that_changes_something_prints_through_write_out(name):
     """a script that changes something prints through write_out, not sys.stdout
 
     The handler around `main` unwinds the whole body, so a closed reader there
-    would skip whatever work came after the write. These three have work that
+    would skip whatever work came after the write. These have work that
     must not be skipped, so every answer they print goes through write_out and
     only the final flush is left to the outer handler.
     """

@@ -21,10 +21,8 @@ applier are subagents that return once and schedule nothing, and the review roun
 because `/pr-review-toolkit:review-pr` wakes whoever dispatched its analyzers, and a subagent gets
 no such wake (issue #62). Scripts are called by path, never through a variable holding a command
 string (a Bash tool running zsh does not split one):
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.sh"`, and
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py"` for the run-side ones this skill borrows.
-Every `ft-harden-state.sh` command takes the `<plugin:skill>` being hardened as its first argument,
-after the command word.
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py"`. Every `ft-harden-state.py` command takes
+the `<plugin:skill>` being hardened as its first argument, after the command word.
 
 Write every transition to state **before** taking the next action. The state file is what a
 resumed session reads; acting first and recording after is how the same fix gets made twice.
@@ -32,18 +30,17 @@ resumed session reads; acting first and recording after is how the same fix gets
 ## Step 1: Preflight and set up
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-preflight.sh"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" init <plugin:skill>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" add-target <plugin:skill> <path> --repo <owner/name>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-preflight.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" init <plugin:skill>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" add-target <plugin:skill> <path> --repo <owner/name>
 ```
 
 `add-target` once per target, in the order given; `--repo` is `gh repo view --json nameWithOwner`
 run in that directory. Stop with the install hints if preflight exits 1 (a `detail` field, when
-present, says why a check failed), or with its stderr line if it exits 4. If a run already exists
-(`init` exits 3), show it with `show <plugin:skill>` and ask whether to resume it or start over
-with `--force`; never `--force` on your own, since the targets already worked are what would be
-lost. Pass `--model` and `--effort` to `init` only when the user asked for a size; the defaults
-are `opus` and `high`.
+present, says why a check failed). If a run already exists (`init` exits 3), show it with
+`show <plugin:skill>` and ask whether to resume it or start over with `--force`; never `--force`
+on your own, since the targets already worked are what would be lost. Pass `--model` and
+`--effort` to `init` only when the user asked for a size; the defaults are `opus` and `high`.
 
 Read the repository conventions of each target once now: its `CLAUDE.md` and `.claude/rules/`
 decide branch names, worktree locations, install commands, and commit style. The briefs below
@@ -52,7 +49,7 @@ quote them rather than inventing any.
 ## Step 2: Take the next target
 
 ```bash
-TARGET="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" next <plugin:skill>)"
+TARGET="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" next <plugin:skill>)"
 ```
 
 Nothing printed means every target is finished: go to Step 7. A target whose status is already
@@ -69,7 +66,7 @@ A `pending` target starts at Step 3. Set it `running` first, and work the phases
 writing the phase before each. The command shape for every write is:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" set <plugin:skill> "$TARGET" <field> <value>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" set <plugin:skill> "$TARGET" <field> <value>
 ```
 
 written below as `set "$TARGET" <field> <value>`. A `set` that exits non-zero stops the loop with
@@ -95,7 +92,7 @@ The target skill's own final table is a claim. Write it to a report file
 JSON numbers; `ft-collect.py <run-dir> --report` prints the table it ended with) and check it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.sh" <report.json>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.py" <report.json>
 ```
 
 - Exit 0: every claim holds.
@@ -162,7 +159,7 @@ Keep every rejected finding with its reason for the summary.
 ```bash
 gh pr ready <n> --repo <repo>
 gh pr merge <n> --repo <repo> --auto --<the repo's merge method from gh repo view>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-wait-pr.sh" <repo> <n> --timeout 540
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-wait-pr.py" <repo> <n> --timeout 540
 ```
 
 Check the exit code of `gh pr ready` and `gh pr merge --auto` before waiting: if either fails

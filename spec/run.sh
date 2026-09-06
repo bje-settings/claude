@@ -40,13 +40,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/gh/scripts/gh-shepherd-pr.sh \
     plugins/gh/hooks/session-start.sh \
     fixtures/gh/fixtures.sh \
-    fixtures/gh/bin/gh \
-    plugins/field-test/scripts/ft-preflight.sh \
-    plugins/field-test/scripts/ft-harden-state.sh \
-    plugins/field-test/scripts/ft-verify-report.sh \
-    plugins/field-test/scripts/ft-wait-pr.sh \
-    fixtures/field-test/fixtures.sh \
-    fixtures/field-test/bin/gh
+    fixtures/gh/bin/gh
 else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
