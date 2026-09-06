@@ -40,7 +40,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from lib import gitinfo, registry  # noqa: E402  (needs HERE on sys.path first)
+from lib import cli, gitinfo, registry  # noqa: E402  (needs HERE on sys.path first)
 
 PROG = "ft-resolve.py"
 
@@ -79,7 +79,7 @@ def emit(kind, target, plugin, skill, marketplace, path, version, install, mpath
 
 
 def read_json(path: str):
-    with open(path) as handle:
+    with open(path, encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -195,11 +195,26 @@ def run(argv):
 
 
 def main(argv):
+    cli.reconfigure_streams()
     try:
-        return run(argv)
+        status = run(argv)
+        # Forced now, while a closed pipe still lands in the arm below rather than
+        # in the interpreter's own shutdown flush, which prints its own trace.
+        sys.stdout.flush()
     except Failure as error:
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
+    except BrokenPipeError:
+        cli.silence_broken_pipe()
+        return 0
+    except Exception as error:
+        # The docstring promises this script's own message, not a traceback. An
+        # arm nobody anticipated still reports one line and exit 1, the way every
+        # anticipated one does. The class name is there so an exception with an
+        # empty message still names what happened instead of printing a bare colon.
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
+        return 1
+    return status
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from lib import gitinfo, redact  # noqa: E402  (needs HERE on sys.path first)
+from lib import cli, gitinfo, redact  # noqa: E402  (needs HERE on sys.path first)
 from lib import names as names_lib  # noqa: E402
 from lib import render as render_lib  # noqa: E402
 
@@ -74,7 +74,7 @@ def refs_text(events_path: str) -> str:
     unremarked.
     """
     try:
-        with open(events_path, errors="replace") as handle:
+        with open(events_path, encoding="utf-8", errors="replace") as handle:
             lines = handle.read().split("\n")
     except OSError:
         die(UNREADABLE.format(events_path))
@@ -208,7 +208,12 @@ def cmd_search(argv):
         return
     for issue in issues:
         if isinstance(issue, dict) and signature in (issue.get("body") or ""):
-            sys.stdout.write(str(issue.get("number")) + "\n")
+            number = issue.get("number")
+            # `// empty` in the shell's jq: a match with no number printed
+            # nothing at all. The caller tests for empty output and opens a new
+            # issue, and the string "None" would read to it as issue None.
+            if number is not None:
+                sys.stdout.write(str(number) + "\n")
             return
 
 
@@ -223,12 +228,18 @@ def cmd_render(argv):
         die(f"no issue template at {TEMPLATE}")
     record = read_json(record_path, "record")
     run = read_json(run_path, "run marker")
-    with open(TEMPLATE, errors="replace") as handle:
+    with open(TEMPLATE, encoding="utf-8", errors="replace") as handle:
         template = handle.read()
     # Rendered whole before anything is written. Streaming it into redaction
     # publishes whatever was written before a failure, with redaction's note
     # appended to it, so a failed render still looks like an issue.
     body = render_lib.render(template, record, run)
+    # Exactly one trailing newline before redaction, whatever the template ends
+    # with. The shell got this from `$(...)`, which strips every trailing newline,
+    # and `printf '%s\n'`, which puts one back. It is not cosmetic: outside the
+    # enterprise the note is appended after this newline, so an issue's last two
+    # lines would otherwise depend on how the template file happens to end.
+    body = body.rstrip("\n") + "\n"
     try:
         redact.check_present(names_path)
         sys.stdout.write(redact.redact(body, names_path, mode == "--inside"))
@@ -238,7 +249,7 @@ def cmd_render(argv):
 
 def read_json(path: str, label: str):
     try:
-        with open(path) as handle:
+        with open(path, encoding="utf-8") as handle:
             return json.load(handle)
     except (OSError, ValueError):
         die(f"{label} is not valid JSON: {path}", 2)
@@ -279,7 +290,7 @@ COMMANDS = {
 }
 
 
-def main(argv):
+def run(argv):
     command = argv[1] if len(argv) > 1 else ""
     if command in ("-h", "--help"):
         sys.stdout.write(__doc__)
@@ -287,14 +298,33 @@ def main(argv):
     if command == "":
         sys.stderr.write(__doc__)
         return 2
+    if command not in COMMANDS:
+        die(f"unknown command: {command}", 2)
+    COMMANDS[command](argv[2:])
+    return 0
+
+
+def main(argv):
+    cli.reconfigure_streams()
     try:
-        if command not in COMMANDS:
-            die(f"unknown command: {command}", 2)
-        COMMANDS[command](argv[2:])
+        status = run(argv)
+        # Forced now, while a closed pipe still lands in the arm below rather than
+        # in the interpreter's own shutdown flush, which prints its own trace.
+        sys.stdout.flush()
     except Failure as error:
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
-    return 0
+    except BrokenPipeError:
+        cli.silence_broken_pipe()
+        return 0
+    except Exception as error:
+        # The docstring promises this script's own message, not a traceback. An
+        # arm nobody anticipated still reports one line and exit 1, the way every
+        # anticipated one does. The class name is there so an exception with an
+        # empty message still names what happened instead of printing a bare colon.
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
+        return 1
+    return status
 
 
 if __name__ == "__main__":

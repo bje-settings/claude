@@ -10,8 +10,9 @@ The marker is what tells this plugin's hooks that the session is a field test.
 It lives at
   ${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/runs/<session-id>/run.json
 beside the events.jsonl the hooks append to. Those two files are the whole of
-the plugin's own state; nothing is cached, and the only other files in the run
-directory are the ones a run writes there for itself (resolved.json, names.json).
+the run side's state -- the harden side keeps its own -- and nothing is cached;
+the only other files in the run directory are the ones a run writes there for
+itself (resolved.json, names.json).
 
 The session id comes from --session, then $CLAUDE_CODE_SESSION_ID, which the
 Bash tool exports and which matches the session_id hooks receive on stdin.
@@ -36,7 +37,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from lib import run as run_lib  # noqa: E402  (needs HERE on sys.path first)
+from lib import cli  # noqa: E402  (needs HERE on sys.path first)
+from lib import run as run_lib  # noqa: E402
 
 PROG = "ft-run.py"
 MARKER_VERSION = 1
@@ -84,22 +86,33 @@ def split_session(argv):
 
 
 def valid_marker(path: str):
-    """The marker, or a refusal naming it.
+    """Whatever the marker file parses to, or a refusal naming it.
 
     A marker that is not JSON is a crashed write, not a live run. Saying so is
     the difference between a user deleting one file and a session that can
     neither start nor finish a run.
+
+    Deliberately not `run_lib.load_marker`, which folds "not JSON" and "JSON, but
+    not an object" into the same None. Here they are different answers: the shell
+    checked the file parsed and then indexed it, so a marker holding `[]` passed
+    the first test and failed the second, and `start` refused it as a run already
+    in progress rather than as a corrupt file. That status is documented, and the
+    run skill branches on it.
     """
-    marker = run_lib.load_marker(path)
-    if marker is None:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
         die(f"the run marker at {path} is not valid JSON; delete it and start again")
-    return marker
 
 
 def require_marker(path: str, session: str):
     if not os.path.isfile(path):
         die(f"no field test is running for session {session}")
-    return valid_marker(path)
+    marker = valid_marker(path)
+    if not isinstance(marker, dict):
+        die(f"the run marker at {path} is not an object; delete it and start again")
+    return marker
 
 
 def claude_version() -> str:
@@ -117,8 +130,11 @@ def claude_version() -> str:
         )
     except OSError:
         return ""
-    if finished.returncode != 0:
-        return ""
+    # Whatever the exit status was. The shell ran `claude --version | head -1`,
+    # so the status was head's and never claude's, and a build that prints its
+    # version and exits non-zero still had its version recorded. Keeping that
+    # matters more than it looks: the field this fills is how an issue says which
+    # build produced the behaviour.
     output = finished.stdout.decode("utf-8", "replace").split("\n")
     return output[0] if output else ""
 
@@ -162,14 +178,19 @@ def cmd_start(argv, run_dir: str, marker_path: str, session: str):
     # recorded events when a start over it is refused.
     if os.path.isfile(marker_path):
         marker = valid_marker(marker_path)
-        if marker.get("finished_at") is None:
+        # A marker that is not an object counts as unfinished. It is not this
+        # command's job to decide the file is junk and overwrite it: the one
+        # destructive thing `start` does is truncate events.jsonl, and 3 is the
+        # status that tells the caller to run `finish` and look at the run
+        # directory rather than losing what is recorded in it.
+        if not isinstance(marker, dict) or marker.get("finished_at") is None:
             die(f"a field test is already running for session {session}; run finish first", 3)
     resolved_document = None
     if resolved:
         if not os.path.isfile(resolved):
             die(f"no such resolved file: {resolved}", 2)
         try:
-            with open(resolved) as handle:
+            with open(resolved, encoding="utf-8") as handle:
                 resolved_document = json.load(handle)
         except (OSError, ValueError):
             die(f"resolved file is not valid JSON: {resolved}")
@@ -180,7 +201,7 @@ def cmd_start(argv, run_dir: str, marker_path: str, session: str):
         die(f"cannot create {run_dir}")
     events = os.path.join(run_dir, "events.jsonl")
     try:
-        with open(events, "w"):
+        with open(events, "w", encoding="utf-8"):
             pass
     except OSError:
         die(f"cannot create {events}")
@@ -254,11 +275,26 @@ def run(argv):
 
 
 def main(argv):
+    cli.reconfigure_streams()
     try:
-        return run(argv)
+        status = run(argv)
+        # Forced now, while a closed pipe still lands in the arm below rather than
+        # in the interpreter's own shutdown flush, which prints its own trace.
+        sys.stdout.flush()
     except Failure as error:
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
+    except BrokenPipeError:
+        cli.silence_broken_pipe()
+        return 0
+    except Exception as error:
+        # The docstring promises this script's own message, not a traceback. An
+        # arm nobody anticipated still reports one line and exit 1, the way every
+        # anticipated one does. The class name is there so an exception with an
+        # empty message still names what happened instead of printing a bare colon.
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
+        return 1
+    return status
 
 
 if __name__ == "__main__":
