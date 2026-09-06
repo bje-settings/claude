@@ -25,7 +25,8 @@
 #
 # `set` accepts only the fields below. pr, attempts, and order take a number or
 # null; prs takes a JSON array (pass --json); every other field is stored as a
-# string unless --json is given. meta values are always strings.
+# string unless --json is given. meta values are stored as strings, except
+# loop_delay, which must be an integer from 60 to 3600 and is stored as a number.
 #   status branch worktree pr prs agent question attempts model effort reason base order stack
 # Stream statuses: planned running draft reviewing paused done failed
 # Models: haiku sonnet opus fable inherit
@@ -44,9 +45,13 @@ FIELDS=" status branch worktree pr prs agent question attempts model effort reas
 NUMERIC=" pr attempts order "
 EFFORTS=" low medium high "
 MODELS=" haiku sonnet opus fable inherit "
+# meta fields stored as JSON numbers rather than strings, with their accepted range
+META_NUMERIC=" loop_delay "
+LOOP_DELAY_MIN=60
+LOOP_DELAY_MAX=3600
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 
-usage() { sed -n '2,35p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die()   { printf 'ws-state.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 # need <flag> <value>: a flag given last with no value is an error, not an empty string
 need()  { [[ -n "${2:-}" && "${2:-}" != -* ]] || die "$1 needs a value" 2; }
@@ -136,9 +141,19 @@ case "$cmd" in
 
   meta)
     [[ $# -eq 2 ]] || die 'meta needs <field> <value>' 2
+    field="$1"; value="$2"; mode="--arg"
+    if [[ "$META_NUMERIC" == *" $field "* ]]; then
+      # The run skill hands loop_delay straight to ScheduleWakeup, which takes a number
+      # in this range. 10# forces base 10, so a padded 0600 is not read as octal, and
+      # re-printing it drops the padding that --argjson would reject as invalid JSON.
+      [[ "$value" =~ ^[0-9]+$ ]] \
+        && (( 10#$value >= LOOP_DELAY_MIN && 10#$value <= LOOP_DELAY_MAX )) \
+        || die "meta: $field takes an integer from $LOOP_DELAY_MIN to $LOOP_DELAY_MAX, got: $value" 2
+      value="$((10#$value))"; mode="--argjson"
+    fi
     repo="$(resolve_repo "${WS_REPO:-}")" || exit $?
     path="$(state_path "$repo")"; require_state "$path"
-    write_state "$path" '.meta[$k] = $v' --arg k "$1" --arg v "$2"
+    write_state "$path" '.meta[$k] = $v' --arg k "$field" "$mode" v "$value"
     ;;
 
   add-stream)

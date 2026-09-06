@@ -28,5 +28,19 @@ Keep it to one diagram per skill. Prefer `flowchart TD`. Node text should say wh
 the domain ("branch has merge proof?"), not what the code does ("call `pr_proof_for_branch`"),
 so the diagram survives refactoring.
 
+## Commands in SKILL.md
+
+Spell out every script a skill runs, at every call site:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" show
+```
+
+Do NOT hold the command in a variable and expand it (`S="bash ...sh"` then `$S show`). zsh does
+not word-split an unquoted expansion, so the whole string is looked up as one command name and
+the call exits 127. The Bash tool's shell is whatever the user's login shell is, and it discards
+shell state between calls, so a variable or function defined in one block is not there for the
+next. Enforced by `spec/skills_spec.sh`.
+
 Mermaid renders natively in GitHub and in Claude Code, so no build step or image is needed.
 Keep the source readable: a diagram that has to be rendered to be understood defeats the point.

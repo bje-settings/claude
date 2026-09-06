@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# Cross-plugin: every skill documents its flow in a sibling FLOW.md, and keeps it
-# out of SKILL.md. Globs rather than listing skills, so a new plugin's skills are
+# Cross-plugin: every skill documents its flow in a sibling FLOW.md, keeps it out
+# of SKILL.md, and spells out the scripts it runs rather than stashing a command
+# in a variable. Globs rather than listing skills, so a new plugin's skills are
 # checked without anyone editing this file.
 Describe 'skills'
   skill_files() {
@@ -43,6 +44,26 @@ EOF
     return 0
   }
 
+  # A SKILL.md that holds a command in a variable and expands it as one. zsh does
+  # not word-split an unquoted expansion, so `S="bash ...sh"; $S show` looks up the
+  # whole string as a command name and exits 127 under the Bash tool's shell.
+  # Spell the script out at every call site: bash "${CLAUDE_PLUGIN_ROOT}/scripts/x.sh" show
+  skills_hiding_a_command_in_a_variable() {
+    local file
+    while IFS= read -r file; do
+      [ -n "$file" ] || continue
+      grep -nE '^[A-Za-z_][A-Za-z0-9_]*="[a-z]+ ' "$file" \
+        | sed "s|^|${file#"$ROOT/"}:|"
+      # A bare expansion in command position. ${VAR} placeholders inside a path are
+      # fine; a lone $VAR starting the line is the idiom this rejects.
+      grep -nE '^\$[A-Za-z_][A-Za-z0-9_]* ' "$file" \
+        | sed "s|^|${file#"$ROOT/"}:|"
+    done <<EOF
+$(skill_files)
+EOF
+    return 0
+  }
+
   It 'finds skills to check'
     # Without this, a glob that matches nothing makes every check below pass
     # vacuously — the "green for the wrong reason" failure this suite exists to
@@ -68,6 +89,12 @@ EOF
     # Required by .claude/rules/file-skill-md.md: SKILL.md is context on every
     # run, FLOW.md is read on demand.
     When call skills_carrying_a_diagram
+    The status should be success
+    The output should equal ''
+  End
+
+  It 'spells out every script a skill runs'
+    When call skills_hiding_a_command_in_a_variable
     The status should be success
     The output should equal ''
   End

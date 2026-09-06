@@ -422,9 +422,40 @@ Describe 'ws-state.sh'
 
     meta() { jq -c '.meta' "$(STATE_FILE)"; }
     It 'stores plan-level metadata as strings'
+      When run script "$WS_STATE" meta plan_path /tmp/plan.md
+      The status should be success
+      The result of function meta should equal '{"plan_path":"/tmp/plan.md"}'
+    End
+
+    # The run skill passes loop_delay to ScheduleWakeup, which takes a number in
+    # this range, so the script stores a number and refuses anything outside it.
+    It 'stores loop_delay as a JSON number'
       When run script "$WS_STATE" meta loop_delay 1800
       The status should be success
-      The result of function meta should equal '{"loop_delay":"1800"}'
+      The result of function meta should equal '{"loop_delay":1800}'
+    End
+
+    It 'drops zero padding rather than emitting invalid JSON'
+      When run script "$WS_STATE" meta loop_delay 0600
+      The status should be success
+      The result of function meta should equal '{"loop_delay":600}'
+    End
+
+    Describe 'loop_delay rejections'
+      Parameters
+        5m      'a duration suffix'
+        thirty  'a word'
+        59      'one below the range'
+        3601    'one above the range'
+        -1      'a negative number'
+      End
+
+      It "rejects $2"
+        When run script "$WS_STATE" meta loop_delay "$1"
+        The status should equal 2
+        The stderr should include 'integer from 60 to 3600'
+        The result of function meta should equal '{}'
+      End
     End
 
     It 'requires a field and value for meta'
