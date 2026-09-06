@@ -57,7 +57,6 @@ def test_classifies_numbers_and_ranges(selector, numbers):
         "#abc",
         "##5",
         "-x",
-        "",
     ],
 )
 def test_classifies_everything_else_as_search(selector):
@@ -67,6 +66,7 @@ def test_classifies_everything_else_as_search(selector):
 @pytest.mark.parametrize(
     ("selector", "message"),
     [
+        ("", "empty selector"),
         ("label:", "empty value in selector: label:"),
         ("milestone:", "empty value in selector: milestone:"),
         ("3-1", "bad range: 3-1"),
@@ -82,6 +82,34 @@ def test_refuses_a_malformed_selector(selector, message):
         issues.classify(selector)
     assert excinfo.value.message == message
     assert excinfo.value.status == 2
+
+
+def test_refuses_a_range_wider_than_the_limit():
+    """The cap is the point: `1-9999999999` used to build the whole list first
+    and die with an OverflowError, having asked gh for nothing."""
+    with pytest.raises(issues.Invalid) as excinfo:
+        issues.classify("1-9999999999")
+    assert excinfo.value.message == "range wider than the 200-issue limit: 1-9999999999"
+    assert excinfo.value.status == 2
+
+
+@pytest.mark.parametrize(
+    ("selector", "limit", "widest"),
+    [
+        # The widest range each limit allows, and the first one past it.
+        ("1-3", 3, True),
+        ("1-4", 3, False),
+        ("10-12", 2, False),
+    ],
+)
+def test_measures_a_range_against_the_limit_it_is_given(selector, limit, widest):
+    if widest:
+        kind, numbers = issues.classify(selector, limit)
+        assert kind == "numbers"
+        assert len(numbers) == limit
+    else:
+        with pytest.raises(issues.Invalid):
+            issues.classify(selector, limit)
 
 
 def test_a_non_ascii_digit_is_search_text_not_a_number():
