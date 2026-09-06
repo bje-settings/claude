@@ -23,7 +23,7 @@ import subprocess
 import sys
 
 import pytest
-from conftest import STUB_BIN, WS_STATE
+from conftest import STUB_BIN, WS_STATE, load_lib_module
 
 pytestmark = pytest.mark.usefixtures("ws_sandbox")
 
@@ -75,6 +75,19 @@ def snapshot(ws_sandbox):
 
 def temp_files(ws_sandbox):
     return sorted(path.name for path in ws_sandbox.state_dir.glob("*.tmp.*"))
+
+
+def load_ws_state_module():
+    """ws-state.py loaded in-process, for the few tests that need `main` or
+    `write_state` directly rather than through a subprocess.
+
+    Loaded by path under its own name, as `load_lib_module` is (see its
+    docstring in conftest.py): the script's own `sys.path.insert` plus `from
+    lib import state` still runs, so this also imports the real `lib.state`
+    into `sys.modules`, harmless today since workstreams is the only plugin
+    with a `lib` package.
+    """
+    return load_lib_module("workstreams_ws_state_module", WS_STATE)
 
 
 # --- location -----------------------------------------------------------------
@@ -140,11 +153,16 @@ def test_reports_an_unreadable_gh_answer_the_same_way(ws_sandbox, ws_state):
 
 
 def test_keeps_a_gh_warning_on_stderr_out_of_the_answer(ws_sandbox, ws_state):
-    """resolves the repository when gh also writes to stderr
+    """resolves the repository when gh also writes to stderr, and passes the
+    warning on to our own stderr unchanged
 
     Not in the shell spec. gh writes progress and warnings to stderr, so folding
     the two streams together would turn a perfectly good answer into an
-    unparseable one; the streams are captured apart and only stdout is read.
+    unparseable one; the streams are captured apart and only stdout is read for
+    the answer. The warning itself is not dropped though: a skill reads our
+    stderr, and the shell version passed a gh warning through the same way, so
+    ws-state.py forwards it too rather than swallowing it just because gh still
+    answered.
     """
     stubs = ws_sandbox.path / "chatty-gh"
     stubs.mkdir()
@@ -157,6 +175,25 @@ def test_keeps_a_gh_warning_on_stderr_out_of_the_answer(ws_sandbox, ws_state):
     result = ws_state("path")
     assert result.status == 0
     assert result.stdout.strip() == str(ws_sandbox.state_dir / "acme__widgets.json")
+    assert result.stderr.strip() == "gh: upgrade available"
+
+
+def test_reports_the_exit_code_when_gh_fails_silently(ws_sandbox, ws_state):
+    """reports gh's exit code when it fails with no output at all
+
+    Not in the shell spec. gh failing with nothing on either stream is still a
+    failure to explain: without this the message would be
+    "cannot resolve the repository ()", empty parentheses and no clue what
+    happened.
+    """
+    stubs = ws_sandbox.path / "silent-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text("#!/bin/sh\nexit 7\n", encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    result = ws_state("path")
+    assert result.status == 1
+    assert "cannot resolve the repository (gh exited 7)" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -1060,13 +1097,18 @@ def test_keeps_the_old_state_when_the_update_cannot_be_written(planned, ws_sandb
         ws_sandbox.state_dir.chmod(0o755)
 
 
-def test_leaves_no_temp_file_when_the_write_itself_fails(planned, ws_sandbox, ws_state):
-    """leaves no temp file behind when the write fails after the file is opened
+def test_rejects_a_nan_state_file_as_invalid_json_rather_than_an_internal_error(
+    planned, ws_sandbox, ws_state
+):
+    """rejects a NaN in the state file as invalid workstreams JSON, not an
+    internal error
 
-    Not in the shell spec, and the port left one behind until review found it:
-    only the failed rename cleaned up. A state file holding NaN parses on the
-    way in and cannot be written back out, which fails inside the open file
-    rather than at the rename.
+    Not in the shell spec. json.load accepts the bare literals NaN, Infinity
+    and -Infinity by default, which are not JSON; require_state now parses with
+    the same parse_constant refusal `set --json` already used, so a state file
+    holding one reports the same "not valid workstreams JSON" message every
+    other corrupt file gets, rather than surviving the parse and failing later,
+    unrecognisably, when the file is written back out.
     """
     document = ws_sandbox.read_state()
     document["meta"] = {"seen": float("nan")}
@@ -1075,25 +1117,106 @@ def test_leaves_no_temp_file_when_the_write_itself_fails(planned, ws_sandbox, ws
     )
     result = ws_state("meta", "a", "b")
     assert result.status == 1
+    assert f"state file is not valid workstreams JSON: {ws_sandbox.state_file()}" in result.stderr
     assert temp_files(ws_sandbox) == []
 
 
-def test_reports_an_unanticipated_failure_as_one_line(planned, ws_sandbox, ws_state):
-    """reports an unanticipated failure with its own message, not a traceback
+def test_reports_a_value_error_writing_state_with_its_message(ws_sandbox):
+    """reports a ValueError from write_state as "cannot write <path>: <error>"
+
+    Not in the shell spec, and not reachable black-box any more: since
+    require_state now refuses a NaN on the way in (previous test), nothing a
+    command reads or is given can hand write_state a document dumps() cannot
+    serialise. write_state itself still has to handle it -- a circular
+    reference is one dumps() would still raise ValueError for -- so this drives
+    write_state directly, the way test_state.py drives lib/state.py.
+    """
+    module = load_ws_state_module()
+    circular = {}
+    circular["self"] = circular
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    path = str(ws_sandbox.state_dir / "target.json")
+    with pytest.raises(module.Failure) as excinfo:
+        module.write_state(path, circular)
+    assert excinfo.value.message.startswith(f"cannot write {path}: ")
+    assert "Circular reference detected" in excinfo.value.message
+    assert temp_files(ws_sandbox) == []
+
+
+def test_keeps_the_temp_file_left_at_note_after_a_value_error(ws_sandbox, monkeypatch):
+    """keeps the "temp file left at" note when unlink also fails after a
+    ValueError
+
+    Not in the shell spec. write_state's OSError branch already proves the note
+    survives an unlink failure; before this change a ValueError from dumps()
+    was not caught at all, so it propagated past the `finally` block's own note
+    and lost it. Monkeypatching dumps() and os.unlink() avoids needing root or
+    unwritable-directory tricks to provoke both failures together.
+    """
+    module = load_ws_state_module()
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    path = str(ws_sandbox.state_dir / "target.json")
+
+    def failing_dumps(document):
+        raise ValueError("boom")
+
+    def failing_unlink(target):
+        raise OSError("cannot remove")
+
+    monkeypatch.setattr(module, "dumps", failing_dumps)
+    monkeypatch.setattr(module.os, "unlink", failing_unlink)
+    with pytest.raises(module.Failure) as excinfo:
+        module.write_state(path, {})
+    assert f"cannot write {path}: boom" in excinfo.value.message
+    assert "temp file left at" in excinfo.value.message
+
+
+def test_reports_an_unanticipated_failure_naming_its_class(monkeypatch, capsys):
+    """reports an unanticipated failure with its own message, not a traceback,
+    naming the exception's class even when its own message is empty
 
     Not in the shell spec. The usage text promises the script's own message for
-    anything it refuses; a NaN in the state file is a failure nothing
-    anticipated, and it has to read the same way rather than as a stack trace.
+    anything it refuses; the NaN-in-the-state-file trigger this test used to
+    use is now caught earlier as invalid JSON (see the require_state test
+    above), so this drives main() directly with a command handler that raises,
+    the way test_state.py drives lib/state.py functions directly. A bare
+    exception with no message (str(error) == "") must still name its class
+    rather than printing a message that trails off after the colon.
     """
-    document = ws_sandbox.read_state()
-    document["meta"] = {"seen": float("nan")}
-    ws_sandbox.state_file().write_text(
-        json.dumps(document, indent=2, allow_nan=True) + "\n", encoding="utf-8"
+    module = load_ws_state_module()
+
+    def boom(args):
+        raise RuntimeError()
+
+    monkeypatch.setitem(module.COMMANDS, "show", boom)
+    status = module.main(["ws-state.py", "show"])
+    captured = capsys.readouterr()
+    assert status == 1
+    assert captured.err == "ws-state.py: internal error: RuntimeError: \n"
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize("args", [("path",), ("show",)])
+def test_exits_quietly_when_the_reader_closes_the_pipe_on_small_output(planned, ws_sandbox, args):
+    """exits 0 and says nothing when a reader closes the pipe on output small
+    enough to fit in one write
+
+    Not in the shell spec. Without an explicit flush before returning, output
+    that fits inside the pipe buffer is never actually written until the
+    interpreter's own shutdown flush, which runs after main()'s own handler and
+    prints "Exception ignored in..." rather than being caught quietly the way
+    the large-output case below already was.
+    """
+    process = subprocess.Popen(
+        [sys.executable, str(WS_STATE), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=dict(os.environ),
     )
-    result = ws_state("meta", "a", "b")
-    assert result.status == 1
-    assert result.stderr.startswith("ws-state.py: internal error: ")
-    assert "Traceback" not in result.stderr
+    process.stdout.close()
+    stderr = process.communicate()[1].decode("utf-8", "replace")
+    assert process.returncode == 0
+    assert stderr == ""
 
 
 def test_exits_quietly_when_the_reader_closes_the_pipe(planned, ws_sandbox, ws_state):
@@ -1120,6 +1243,24 @@ def test_exits_quietly_when_the_reader_closes_the_pipe(planned, ws_sandbox, ws_s
     stderr = process.communicate()[1].decode("utf-8", "replace")
     assert process.returncode == 0
     assert stderr == ""
+
+
+def test_shows_a_non_ascii_reason_under_a_non_utf8_locale(planned, ws_sandbox, ws_state):
+    """prints a non-ASCII reason correctly even under a non-UTF-8 locale
+
+    Not in the shell spec. dumps() writes with ensure_ascii=False, so an
+    accented reason goes to stdout as raw UTF-8 rather than a \\u escape; without
+    reconfiguring stdout, a non-UTF-8 locale (PYTHONIOENCODING=ascii here) makes
+    that raw write raise UnicodeEncodeError, which without this change `show`
+    would report as an internal error instead of just working.
+    """
+    assert add_s1(ws_state, "--reason", "café").status == 0
+    result = ws_state(
+        "show",
+        env={"LC_ALL": "C", "PYTHONIOENCODING": "ascii", "PYTHONUTF8": "0"},
+    )
+    assert result.status == 0
+    assert "café" in result.stdout
 
 
 # --- usage --------------------------------------------------------------------
