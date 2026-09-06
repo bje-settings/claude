@@ -20,7 +20,22 @@ import re
 
 STATUSES = ("pending", "running", "paused", "done", "failed")
 PHASES = ("field-test", "verify", "fix", "review", "merge", "summary", "done")
-FIELDS = ("status", "phase", "issues", "pr", "merge_sha", "question", "summary", "repo")
+FIELDS = (
+    "status",
+    "phase",
+    "issues",
+    "pr",
+    "review_rounds",
+    "merge_sha",
+    "question",
+    "summary",
+    "repo",
+)
+# Stored as a JSON number or null rather than a string. `review_rounds` is what
+# bounds the review phase at one repeat: a session resumed mid-review reads the
+# count from here, and a count written as the string "1" would compare against a
+# number and start the loop over.
+NUMERIC_FIELDS = ("pr", "review_rounds")
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")
 
@@ -112,6 +127,7 @@ def target_record(path: str, repo: str) -> dict:
         "phase": "field-test",
         "issues": [],
         "pr": None,
+        "review_rounds": None,
         "merge_sha": None,
         "question": None,
         "summary": None,
@@ -185,12 +201,12 @@ def json_value(raw: str):
         raise Invalid(f"set: --json value is not valid JSON: {raw}") from None
 
 
-def pr_value(raw: str):
-    """The pull request number, or None. --json is implied for the field."""
+def numeric_value(field: str, raw: str):
+    """A number field's value, or None. --json is implied for these fields."""
     if raw == "null":
         return None
     if not DIGITS.match(raw):
-        raise Invalid(f"set: pr takes a number or null, got: {raw}")
+        raise Invalid(f"set: {field} takes a number or null, got: {raw}")
     return int(raw)
 
 
@@ -219,8 +235,8 @@ def field_value(field: str, raw: str, mode: str):
         check_status(raw)
     if field == "phase":
         check_phase(raw)
-    if field == "pr":
-        return pr_value(raw)
+    if field in NUMERIC_FIELDS:
+        return numeric_value(field, raw)
     if field == "issues":
         return issues_value(raw)
     if mode == "--json":

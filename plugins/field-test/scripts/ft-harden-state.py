@@ -18,9 +18,11 @@ The loop writes every transition here before taking the next action, so a
 session that stopped can re-run the skill and continue. `next` prints the path
 of the first target still to do, and nothing when the list is exhausted.
 
-`set` accepts only the fields below. pr takes a number or null and issues a JSON
-array (--json is implied for both); everything else is stored as a string.
-  status phase issues pr merge_sha question summary repo
+`set` accepts only the fields below. pr and review_rounds take a number or null
+and issues a JSON array (--json is implied for all three); everything else is
+stored as a string. review_rounds is how many review rounds the target has had,
+which bounds the review phase at one repeat across a resumed session.
+  status phase issues pr review_rounds merge_sha question summary repo
 Target statuses: pending running paused done failed
 Phases: field-test verify fix review merge summary done
 
