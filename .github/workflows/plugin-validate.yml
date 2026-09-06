@@ -23,10 +23,12 @@ env:
   CLAUDE_CODE_VERSION: "2.1.263"
 
 jobs:
-  # THIS JOB NAME IS A CONTRACT. `plugin-validate` is matched by exact string by
-  # the repo ruleset Require CI (22359720). Renaming it does not fail the build:
-  # the required check simply never reports and every pull request waits forever.
-  # See the same note in ci.yml.
+  # THIS JOB NAME IS A CONTRACT. `plugin-validate` becomes a required check
+  # matched by exact string on the repo ruleset Require CI (22359720) once it is
+  # added there, right after the pull request that introduced this workflow
+  # merges. Renaming the job after that does not fail the build: the required
+  # check simply never reports and every pull request waits forever. See the
+  # same note in ci.yml.
   plugin-validate:
     name: plugin-validate
     runs-on: ubuntu-latest
@@ -44,8 +46,8 @@ jobs:
           npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
           claude --version
 
-      # The loop over plugins/*/ rather than a hard-coded list, so a new plugin
-      # is covered the day it lands without editing this workflow.
+      # Loop over plugins/*/ rather than a hard-coded list, so a new plugin is
+      # covered the day it lands without editing this workflow.
       - name: Validate the marketplace manifest and every plugin
         run: |
           set -euo pipefail

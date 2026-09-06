@@ -1,11 +1,17 @@
-# Pre-commit gates. Opt in per clone and per worktree:
+# Pre-commit gates. Opt in once per clone, from the root checkout, not per
+# worktree: this writes one hook into the clone's shared .git/hooks/, which
+# every worktree of the clone already shares.
 #
-#   uv sync --locked && uv run pre-commit install
+#   uv sync --locked && uv run --locked pre-commit install --allow-missing-config
 #
-# Every hook is `repo: local` on purpose. The tools are already pinned once, in
-# uv.lock (ruff, pytest) or on the contributor's PATH (claude, shellcheck);
-# mirroring those pins into `rev:` fields here would give the repo two sources of
-# truth and let the hook pass on a version CI never runs.
+# If the checkout that ran the install is ever removed, every commit in the
+# clone breaks; re-run the install from a surviving checkout to fix it.
+#
+# Every hook is `repo: local` on purpose. Each tool already has one source of
+# truth: uv.lock for ruff and pytest, the contributor's PATH for claude and
+# shellcheck. A PATH binary is not a pin; mirroring versions into `rev:` fields
+# here would add a second source of truth and let the hook pass on a version CI
+# never runs.
 #
 # These hooks are a convenience, not the enforcement layer: a clone that never
 # runs `pre-commit install` still has to get past CI, which runs the same checks.
@@ -53,8 +59,8 @@ repos:
         always_run: true
 
       # The same file list as the `shellcheck` job in ci.yml; keep the two in
-      # step. Issue #61 removes this hook along with the last .sh file under
-      # plugins/.
+      # step. Issue #61 deletes this hook together with the rest of the shell
+      # harness: the shellcheck CI job, spec/, and fixtures/.
       - id: shellcheck
         name: shellcheck
         entry: shellcheck -S warning

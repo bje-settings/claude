@@ -163,14 +163,17 @@ one wait on a check that never reports.
 Manifest validation is its own workflow, `.github/workflows/plugin-validate.yml`, so a bad manifest
 reads as its own check rather than as a failure inside `ci.yml`. It runs `claude plugin validate
 --strict` over the marketplace manifest and every directory under `plugins/`, which needs no API key
-or login, on a pinned Claude Code version. Its job name, `plugin-validate`, is a ruleset contract
-like the names above.
+or login, on a pinned Claude Code version. Its job name, `plugin-validate`, becomes a ruleset
+contract like the names above once it is added to the repo ruleset Require CI (22359720), which
+happens right after the pull request that introduced the workflow merges, per the rule above.
 
-The same validation, plus ruff and the Python suite, runs before every commit through the
-`pre-commit` framework; `.pre-commit-config.yaml` holds the hooks and `CONTRIBUTING.md` says how to
-opt in. Every hook is `repo: local`, so the versions are the ones already pinned in `uv.lock` or on
-PATH rather than a second set pinned in `rev:` fields. Opting in is per clone and per worktree, so
-CI, not the hooks, is the enforcement layer.
+In an opted-in clone, `claude plugin validate --strict`, ruff, the Python suite, and shellcheck all
+run before every commit through the `pre-commit` framework; `.pre-commit-config.yaml` holds the
+hooks and `CONTRIBUTING.md` says how to opt in. Every hook is `repo: local`: each tool already has
+one source of truth, `uv.lock` for ruff and pytest and PATH for `claude` and `shellcheck`, and
+mirroring versions into `rev:` fields here would add a second. Opting in is once per clone, from the
+root checkout, and covers every worktree of it, since worktrees share the clone's `.git/hooks/`; CI,
+not the hooks, is the enforcement layer.
 
 Any script that can delete or overwrite something needs a spec or a test proving both that it acts
 when it should and that it refuses when it should. Assert against real repositories built by the
