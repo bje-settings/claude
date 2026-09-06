@@ -113,8 +113,9 @@ jobs:
   test:
     # The suite runs on macOS on purpose: /bin/bash there is 3.2, which is what
     # actually executes these scripts when the plugin runs. bash 5 is covered by
-    # the coverage job below, whose kcov pass runs the same suite on Linux, so a
-    # separate bash-5 job was dropped in #67.
+    # the coverage job, whose kcov pass runs the same suite on ubuntu-22.04 with
+    # .shellspec's --shell bash, which is bash 5 there; so the separate bash-5
+    # job was dropped in #68 (issue #67).
     #
     # THESE JOB NAMES ARE A CONTRACT: shellcheck, bash-3.2, coverage,
     # ruff, pytest and pytest-floor are required, or about to be required, by the
@@ -182,6 +183,10 @@ jobs:
     # failures under it and none under kcov 38. So this pins the runner rather
     # than the container. When 22.04 is retired, re-test a newer kcov before
     # moving; do not silently switch images.
+    #
+    # Since #68 this is also the only job that runs the shellspec suite under
+    # bash 5 (the test job runs it under /bin/bash 3.2 on macOS). Moving it into
+    # a container or adding a --shell override would silently drop that run.
     runs-on: ubuntu-22.04
     permissions:
       contents: read

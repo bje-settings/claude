@@ -156,7 +156,9 @@ The CI job names `shellcheck`, `bash-3.2`, `coverage`, `ruff`, `pytest` and
 does not fail the build: the required check never reports and pull requests wait forever. Put
 descriptive text in step names instead. A new job name becomes a required check only after it has
 reported on main, because one that never has blocks every pull request; add it to the ruleset right
-after the pull request that introduces it merges.
+after the pull request that introduces it merges. Removing a job is the mirror image: delete its name
+from the ruleset before merging the pull request that removes it, or that pull request and every later
+one wait on a check that never reports.
 
 Any script that can delete or overwrite something needs a spec or a test proving both that it acts
 when it should and that it refuses when it should. Assert against real repositories built by the
