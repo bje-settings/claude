@@ -125,6 +125,7 @@ def test_a_target_starts_pending_in_its_first_phase():
             "phase": "field-test",
             "issues": [],
             "pr": None,
+            "review_rounds": None,
             "merge_sha": None,
             "question": None,
             "summary": None,
@@ -166,8 +167,8 @@ def test_a_field_outside_the_schema_is_refused_so_a_typo_cannot_create_one():
     with pytest.raises(harden.Invalid) as caught:
         harden.check_field("stauts")
     assert caught.value.message == (
-        "set: unknown field: stauts (one of: status phase issues pr merge_sha question summary"
-        " repo )"
+        "set: unknown field: stauts (one of: status phase issues pr review_rounds merge_sha"
+        " question summary repo )"
     )
 
 
@@ -197,16 +198,19 @@ def test_a_phase_outside_the_list_is_refused(value):
     assert f"set: invalid phase: {value}" in caught.value.message
 
 
-@pytest.mark.parametrize(("raw", "expected"), [("44", 44), ("null", None)])
-def test_a_pull_request_is_stored_as_a_number_or_cleared(raw, expected):
-    assert harden.pr_value(raw) == expected
+@pytest.mark.parametrize("field", harden.NUMERIC_FIELDS)
+@pytest.mark.parametrize(("raw", "expected"), [("44", 44), ("0", 0), ("null", None)])
+def test_a_number_field_is_stored_as_a_number_or_cleared(field, raw, expected):
+    assert harden.numeric_value(field, raw) == expected
 
 
+@pytest.mark.parametrize("field", harden.NUMERIC_FIELDS)
 @pytest.mark.parametrize("raw", ["forty-four", "44.0", "-1", ""])
-def test_anything_else_is_not_a_pull_request_number(raw):
+def test_anything_else_is_not_a_number(field, raw):
+    """A count written as a word compares against a number and starts the loop over."""
     with pytest.raises(harden.Invalid) as caught:
-        harden.pr_value(raw)
-    assert "pr takes a number or null" in caught.value.message
+        harden.numeric_value(field, raw)
+    assert f"{field} takes a number or null" in caught.value.message
 
 
 def test_the_issues_are_stored_as_the_array_they_are():
@@ -250,6 +254,8 @@ def test_a_json_value_that_parses_comes_back_parsed():
         ("status", "done", "", "done"),
         ("phase", "fix", "", "fix"),
         ("pr", "44", "", 44),
+        ("review_rounds", "1", "", 1),
+        ("review_rounds", "null", "", None),
         ("issues", "[25]", "", [25]),
         ("summary", "all clean", "", "all clean"),
         ("summary", '"quoted"', "--json", "quoted"),
