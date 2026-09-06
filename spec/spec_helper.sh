@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Shared setup for the gh plugin specs.
+# Shared setup for the plugin specs. One section per plugin: gh, workstreams,
+# field-test. Each brings its own fixtures and its own sandbox helpers.
 
 ROOT="${SHELLSPEC_PROJECT_ROOT:-$PWD}"
 PLUGIN_DIR="$ROOT/plugins/gh"

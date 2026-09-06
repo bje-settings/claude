@@ -14,7 +14,7 @@ flowchart TD
     D -->|no| C
     D1 --> C[finish the run and collect the recorded events]
     C --> F{any candidate findings?}
-    F -->|none| S([summarise: nothing to file])
+    F -->|none| S([summarise: every finding, the decision,<br>and the issue number or the reason it was not filed])
     F -->|some| J{is the repository under test in the<br>same enterprise as the plugin?}
     J -->|yes| J1[keep names, paths, branches, commits, PR numbers]
     J -->|no, or cannot tell| J2[replace every name with a placeholder<br>and say the run was outside the enterprise]

@@ -20,7 +20,8 @@
 # render  fills the issue template from one finding and pipes it through
 #         ft-redact.sh. The first line of the output is the title; the rest is the
 #         body.
-# ensure-label  creates the field-test label if it is not there.
+# ensure-label  creates the field-test label, or updates the colour and description
+#         of one already there. `bug` is expected to exist already.
 #
 # Exit 0 on success, 1 on failure, 2 on usage.
 #

@@ -7,7 +7,7 @@ description: >
   behaviour is its real behaviour, and nothing is fixed mid-run. Names from a repository outside
   the plugin's enterprise are redacted before anything is published. Every issue is shown before
   it is created.
-allowed-tools: Bash, Read, Skill, AskUserQuestion
+allowed-tools: Bash, Read, Skill, SlashCommand, AskUserQuestion
 disable-model-invocation: true
 ---
 
@@ -46,9 +46,12 @@ the deny list refuses. Nothing else needs to be done to watch.
 
 ## Step 3: Invoke the target
 
-Invoke it with the `Skill` tool, with the arguments passed through **unaltered**. Do not add a
-flag it was not given, do not remove one, and do not prefix the invocation with an explanation
-of what you are doing.
+Invoke it with the arguments passed through **unaltered**. Do not add a flag it was not given, do
+not remove one, and do not prefix the invocation with an explanation of what you are doing.
+
+Which tool depends on `kind` from step 1: a `plugin-skill` or `skill` target goes through the
+`Skill` tool, a `command` target through `SlashCommand`. A command is not a skill, and the wrong
+tool does not run it.
 
 While it runs: read what it reports, and do not intervene. If it asks you a question, answer as
 the user would want, briefly, without mentioning the field test. If it takes a destructive action

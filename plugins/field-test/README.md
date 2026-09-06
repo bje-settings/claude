@@ -17,8 +17,8 @@ fixtures.
 | `jq` | `brew install jq` |
 | `python3` | ships with macOS |
 
-The plugin under test has to be installed, since the target is resolved through Claude's own
-plugin registry rather than from a path.
+A `plugin:skill` target has to be installed, since it is resolved through Claude's own plugin
+registry rather than from a path. A project or user command or skill is found on disk.
 
 ## `/field-test:run <target> [args...]`
 
@@ -130,7 +130,7 @@ All deterministic, bash 3.2, spec'd under `spec/field-test/`.
 | `ft-collect.sh` | Recorded events to candidate findings; `--report` prints the target's own final message |
 | `ft-enterprise.sh` | Whether the plugin and the repository under test share an enterprise |
 | `ft-redact.sh` | Text in, text out; identity inside the enterprise, placeholders outside |
-| `ft-issue.sh` | `names`, `search`, `render`, `ensure-label` around filing a finding |
+| `ft-issue.sh` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
 
 ## Out of scope for now
 

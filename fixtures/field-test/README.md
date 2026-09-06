@@ -33,22 +33,23 @@ Supported: `api graphql` (the enterprise query, both pages), `issue list`, `labe
 
 `enterprise-mode` picks the answer to the enterprise query: `both` (one enterprise holding
 `acme-org` and `acme-tools`), `neither` (only `acme-org`), `paged` (`acme-tools` only on the
-second page), `error` (the query fails), `empty` (a well-formed answer with no enterprises node).
+second page), `second` (two enterprises, only the second holding both owners), `error` (the query
+fails), `empty` (a well-formed answer with no enterprises node).
 
 ## `fixtures.sh`
 
 | Function | Produces |
 | --- | --- |
 | `ft_fixture_run <path> [target] [args-json] [resolved-json]` | One run marker, unfinished |
-| `ft_fixture_events <path> <case>` | One `events.jsonl` per `collect.jq` branch: `clean`, `nonzero`, `failure`, `denied`, `contradiction`, `retried`, `honest`, `args-used`, `mixed` |
-| `ft_fixture_transcript <path> [with-report\|no-assistant\|truncated]` | A session transcript, including one cut off mid-write |
-| `ft_fixture_hook_input <path> <case> [session]` | One hook payload: `post-ok`, `post-fail`, `post-failure`, `pre-deny`, `pre-allow`, `pre-other`, `subagent-stop`, `stop`, `malformed` |
+| `ft_fixture_events <path> <case>` | One `events.jsonl` per `collect.jq` branch: `clean`, `nonzero`, `failure`, `denied`, `deny-error`, `contradiction`, `retried`, `honest`, `status-ok`, `preceding`, `null-agent`, `hook-error`, `no-command`, `args-used`, `mixed` |
+| `ft_fixture_transcript <path> [with-report\|no-assistant\|tool-tail\|truncated]` | A session transcript, including one whose last turn is only tool calls and one cut off mid-write |
+| `ft_fixture_hook_input <path> <case> [session]` | One hook payload: `post-ok`, `post-bool-code`, `post-fail`, `post-failure`, `post-failure-no-code`, `pre-deny`, `pre-allow`, `pre-other`, `subagent-stop`, `stop`, `malformed` |
 | `ft_fixture_installed_plugins <path> <install-dir> [with-skill\|without-skill]` | The shape of `~/.claude/plugins/installed_plugins.json`, version 2 |
 | `ft_fixture_marketplaces <path> <local-dir> [directory\|github]` | The shape of `~/.claude/plugins/known_marketplaces.json` |
 | `ft_fixture_repo <dir> [owner/name] [ssh\|https\|alias\|none]` | A real repository: two commits, two branches, an origin remote (`alias` writes it through an ssh host alias) |
 | `ft_fixture_git <dir> <args...>` | git with identity passed per command, so no global config is needed |
 | `ft_fixture_enterprise <dir> [mode]` | The answer the gh stub gives to the enterprise query |
-| `ft_fixture_issues <path>` | Four issues: one open `field-test` issue carrying a signature the duplicate search must find, and three near misses it must not |
+| `ft_fixture_issues <path>` | Five issues: two open `field-test` issues carrying a signature the duplicate search must find, one of them holding quotes, and three near misses it must not |
 
 ## `hook-inputs/no-run.json`
 
