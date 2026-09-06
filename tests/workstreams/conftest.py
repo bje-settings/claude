@@ -1,11 +1,13 @@
 """Canned GitHub data for the workstreams tests.
 
 The Python counterpart of `fixtures/workstreams/fixtures.sh` and of
-`setup_ws_sandbox` in `spec/spec_helper.sh`. Each writer produces one fixture
-file that `tests/workstreams/bin/gh` serves; `ws_sandbox` wires them together
-for one test: a temp dir with the canned data, an empty state dir, a fake HOME,
-and the stub ahead of any real gh on PATH. Tests remove or replace individual
-pieces to build the negative cases.
+`setup_ws_sandbox` in `spec/spec_helper.sh`. Most writers produce one fixture
+file that `tests/workstreams/bin/gh` serves; the installed-plugins and home
+writers do not go through the stub at all, but feed `ws-preflight` through
+`WS_INSTALLED_PLUGINS` and `HOME`. `ws_sandbox` wires them together for one
+test: a temp dir with the canned data, an empty state dir, a fake HOME, and the
+stub ahead of any real gh on PATH. Tests remove or replace individual pieces to
+build the negative cases.
 
 The shapes are reconstructed from the field test in issue #7 (a debugging
 session that produced two bugs, a chore, a refactor, and a spike) without
@@ -15,14 +17,35 @@ made here, so the other tests cannot pass for the wrong reason.
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-WS_STATE = ROOT / "plugins" / "workstreams" / "scripts" / "ws-state.py"
+WS_SCRIPTS = ROOT / "plugins" / "workstreams" / "scripts"
+WS_STATE = WS_SCRIPTS / "ws-state.py"
 STUB_BIN = Path(__file__).resolve().parent / "bin"
+
+
+def load_lib_module(name: str, path):
+    """Load one of this plugin's `scripts/lib/` modules by path, under `name`.
+
+    A script puts its own directory on `sys.path` and imports `lib`, which is
+    right for a process running one plugin. pytest runs every plugin's tests in
+    one process, where the next plugin's `scripts/lib/` would land on the same
+    `sys.modules["lib"]` and one of the two would silently win. A path and a
+    plugin-unique name cannot collide; registering the module keeps any import
+    from inside the package working.
+    """
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
 
 # Seven records:
 #   1 bug      open   refs #2 and #4 in its body                    (work now, touches src/parser)
@@ -352,7 +375,16 @@ def ws_sandbox(sandbox, monkeypatch) -> WsSandbox:
     monkeypatch.setenv("WS_GH_FIXTURE_DIR", str(gh_dir))
     monkeypatch.setenv("WS_STATE_DIR", str(state_dir))
     monkeypatch.setenv("HOME", str(home))
-    for name in ("WS_GH_FIXTURE_FAIL", "WS_GH_FIXTURE_NOAUTH", "WS_GH_FIXTURE_REPO", "WS_REPO"):
+    # WS_SKILLS_DIR is not read by ws-state.py, but `setup_ws_sandbox` unset it
+    # and ws-preflight reads it (#55): inherited from the developer's own
+    # environment it would point a test at a real skills directory.
+    for name in (
+        "WS_GH_FIXTURE_FAIL",
+        "WS_GH_FIXTURE_NOAUTH",
+        "WS_GH_FIXTURE_REPO",
+        "WS_REPO",
+        "WS_SKILLS_DIR",
+    ):
         monkeypatch.delenv(name, raising=False)
     ws_fixture_issues(gh_dir / "issues.json")
     ws_fixture_prs(gh_dir / "prs.json")

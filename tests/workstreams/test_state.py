@@ -1,9 +1,12 @@
 """Unit tests for plugins/workstreams/scripts/lib/state.py, one per arm.
 
-Every function here was a jq program in ws-state.sh, where a whole filter counted
-as a single covered line and a narrowed `select` or an inverted condition changed
-no number at all (`.claude/rules/type-jq.md`). These tests exist so each arm has
-an example that reaches it and a name that says which one went red.
+The module holds the jq programs ws-state.sh ran -- the add-stream filter, both
+`set` filters, the list-streams selection, defer, meta and the shape check --
+and the argument validation the shell did with regexes and substring tests. A
+whole jq filter counted as a single covered line, and a narrowed `select` or an
+inverted condition changed no number at all (`.claude/rules/type-jq.md`). These
+tests exist so each arm has an example that reaches it and a name that says
+which one went red.
 
 The black-box tests in `test_ws_state.py` drive the same code through the script;
 these reach the arms that are awkward to provoke from the outside, and pin the
@@ -12,15 +15,14 @@ messages the script's exit codes are attached to.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
+from conftest import WS_SCRIPTS, load_lib_module
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT / "plugins" / "workstreams" / "scripts"))
-
-from lib import state  # noqa: E402  (needs the scripts directory on sys.path first)
+# By path under a plugin-unique name, not `sys.path` plus `from lib import
+# state`: that is what the script does, and it is right there, but every
+# plugin's tests share one pytest process and the next `scripts/lib/` would take
+# the same `sys.modules["lib"]`.
+state = load_lib_module("workstreams_lib_state", WS_SCRIPTS / "lib" / "state.py")
 
 
 def a_state(**overrides):
@@ -54,6 +56,28 @@ def test_is_state_rejects_an_object_with_no_streams():
 
 def test_is_state_rejects_streams_that_are_not_an_array():
     assert state.is_state({"streams": {"s1": {}}}) is False
+
+
+def test_is_state_rejects_a_stream_that_is_not_an_object():
+    """Everything downstream reads a stream with .get; a string has none."""
+    assert state.is_state({"streams": ["s1"]}) is False
+
+
+@pytest.mark.parametrize("deferred", [{"a": 1}, "abc", [7], None])
+def test_is_state_rejects_a_deferred_that_is_not_a_list_of_objects(deferred):
+    """`defer` iterates it and reads .issue off every entry."""
+    assert state.is_state({"streams": [], "deferred": deferred}) is False
+
+
+def test_is_state_accepts_a_document_with_no_deferred_or_meta():
+    """A file written before either existed is still workstreams state."""
+    assert state.is_state({"streams": []}) is True
+
+
+@pytest.mark.parametrize("meta", [5, "abc", [], None])
+def test_is_state_rejects_a_meta_that_is_not_an_object(meta):
+    """`set_meta` assigns into it, which is a TypeError on anything else."""
+    assert state.is_state({"streams": [], "meta": meta}) is False
 
 
 def test_new_state_starts_empty():
@@ -128,11 +152,6 @@ def test_find_stream_returns_none_for_an_id_that_is_not_there():
     assert state.find_stream(a_state(streams=[a_stream("s1")]), "s9") is None
 
 
-def test_find_stream_ignores_entries_that_are_not_records():
-    """A hand-edited file can hold anything; a string in the array is not a stream."""
-    assert state.find_stream(a_state(streams=["s1"]), "s1") is None
-
-
 def test_add_stream_appends_to_the_end():
     document = state.add_stream(a_state(streams=[a_stream("s1")]), a_stream("s2"))
     assert [record["id"] for record in document["streams"]] == ["s1", "s2"]
@@ -177,11 +196,6 @@ def test_filter_streams_returns_nothing_when_no_stream_matches():
     assert state.filter_streams(a_state(streams=[a_stream("s1")]), "done") == []
 
 
-def test_filter_streams_ignores_entries_that_are_not_records():
-    document = a_state(streams=["junk", a_stream("s1", status="done")])
-    assert [record["id"] for record in state.filter_streams(document, "done")] == ["s1"]
-
-
 # --- meta and deferred --------------------------------------------------------
 
 
@@ -210,11 +224,6 @@ def test_defer_replaces_an_earlier_entry_for_the_same_issue():
 def test_defer_keeps_the_other_issues_in_place():
     document = state.defer(state.defer(a_state(), 4, "hardware"), 5, "closed")
     assert [entry["issue"] for entry in document["deferred"]] == [4, 5]
-
-
-def test_defer_leaves_entries_that_are_not_records_alone():
-    document = state.defer(a_state(deferred=["junk"]), 4, "hardware")
-    assert document["deferred"] == ["junk", {"issue": 4, "reason": "hardware"}]
 
 
 # --- validation ---------------------------------------------------------------
@@ -344,6 +353,14 @@ def test_json_value_parses_valid_json(text, expected):
 
 @pytest.mark.parametrize("text", ["", "{oops", "[10,", "'s'"])
 def test_json_value_refuses_invalid_json(text):
+    with pytest.raises(state.Invalid) as raised:
+        state.json_value(text)
+    assert "not valid JSON" in raised.value.message
+
+
+@pytest.mark.parametrize("text", ["NaN", "Infinity", "-Infinity", "[1, NaN]"])
+def test_json_value_refuses_the_constants_that_are_not_json(text):
+    """Python's parser accepts all three; no other reader of the file would."""
     with pytest.raises(state.Invalid) as raised:
         state.json_value(text)
     assert "not valid JSON" in raised.value.message

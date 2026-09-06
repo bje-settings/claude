@@ -1,10 +1,13 @@
 """Black-box tests for ws-state.py.
 
-Ported from the 67 examples in `spec/workstreams/ws_state_spec.sh`, whose `It`
-description each test carries in its docstring. One example did not come across:
-"requires jq", which asserted the shell script's dependency check. The Python
-script parses and writes JSON itself, so there is no such dependency and nothing
-left to assert; the tests below run with jq absent from PATH instead.
+Ported from the 68 `It` blocks in `spec/workstreams/ws_state_spec.sh` (72
+shellspec examples: the loop_delay `Parameters` block expands to five), whose
+`It` description each ported test carries in its docstring. One did not come
+across: "requires jq", which asserted the shell script's dependency check. The
+Python script parses and writes JSON itself, so there is no such dependency and
+nothing left to assert; the tests below run with jq absent from PATH instead.
+Every test with more to say than its `It` line says it, and a test with no `It`
+line at all is one the shell spec never had.
 
 Every test drives the script as its own process through `ws_state`, the way
 Claude Code runs it, and reads the state file back with the helpers here.
@@ -14,10 +17,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
+import subprocess
+import sys
 
 import pytest
-from conftest import STUB_BIN
+from conftest import STUB_BIN, WS_STATE
 
 pytestmark = pytest.mark.usefixtures("ws_sandbox")
 
@@ -133,6 +139,48 @@ def test_reports_an_unreadable_gh_answer_the_same_way(ws_sandbox, ws_state):
     assert "cannot resolve the repository (not json at all)" in result.stderr
 
 
+def test_keeps_a_gh_warning_on_stderr_out_of_the_answer(ws_sandbox, ws_state):
+    """resolves the repository when gh also writes to stderr
+
+    Not in the shell spec. gh writes progress and warnings to stderr, so folding
+    the two streams together would turn a perfectly good answer into an
+    unparseable one; the streams are captured apart and only stdout is read.
+    """
+    stubs = ws_sandbox.path / "chatty-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text(
+        '#!/bin/sh\necho "gh: upgrade available" >&2\necho \'{"nameWithOwner": "acme/widgets"}\'\n',
+        encoding="utf-8",
+    )
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    result = ws_state("path")
+    assert result.status == 0
+    assert result.stdout.strip() == str(ws_sandbox.state_dir / "acme__widgets.json")
+
+
+@pytest.mark.parametrize(
+    ("answer", "why"),
+    [('{"nameWithOwner": null}', "null"), ('{"nameWithOwner": 42}', "not a string")],
+)
+def test_rejects_a_name_with_owner_that_is_not_a_repository(ws_sandbox, ws_state, answer, why):
+    """rejects a nameWithOwner that is not a name
+
+    Not in the shell spec, where jq's own output was the value. gh answering the
+    field with null or a number is gh answering a different question, and it has
+    to fail the same way rather than as a TypeError further down.
+    """
+    stubs = ws_sandbox.path / "odd-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text(f"#!/bin/sh\necho '{answer}'\n", encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    result = ws_state("path")
+    assert result.status == 1
+    assert "cannot resolve the repository" in result.stderr
+    assert why  # names the arm in the test id
+
+
 def test_rejects_a_repo_that_is_not_owner_name(ws_state):
     """rejects a repo that is not owner/name"""
     result = ws_state("init", "--repo", "widgets")
@@ -148,7 +196,9 @@ def test_reports_gh_missing_from_path(ws_sandbox, ws_state):
     bare = ws_sandbox.sandbox.path_without("gh")
     result = ws_state("path", env={"PATH": bare})
     assert result.status == 1
-    assert "cannot resolve the repository" in result.stderr
+    # The `gh: ` prefix is what separates "gh could not answer" from "gh is not
+    # there at all"; without it the message reads as an empty failure.
+    assert "cannot resolve the repository (gh: " in result.stderr
 
 
 # --- init ---------------------------------------------------------------------
@@ -164,6 +214,18 @@ def test_creates_the_state_file_and_prints_its_path(ws_sandbox, ws_state):
     assert [document["repo"], document["version"]] == ["bje-settings/example", 1]
     assert document["streams"] == []
     assert document["deferred"] == []
+
+
+def test_stamps_created_as_a_utc_second(ws_sandbox, ws_state):
+    """stamps created with a whole UTC second, as `date -u` did
+
+    Not in the shell spec, which only asserted the field was there. The skills
+    read it back, and a microsecond tail or a local offset would be a different
+    format from the one the shell wrote.
+    """
+    assert ws_state("init").status == 0
+    created = ws_sandbox.read_state()["created"]
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", created)
 
 
 def test_refuses_to_overwrite_an_existing_plan(ws_sandbox, ws_state):
@@ -204,6 +266,17 @@ def test_honours_ws_repo_like_every_other_command(ws_sandbox, ws_state):
 def test_rejects_repo_without_a_value(ws_state):
     """rejects --repo without a value"""
     result = ws_state("init", "--repo")
+    assert result.status == 2
+    assert "--repo needs a value" in result.stderr
+
+
+def test_rejects_repo_swallowing_the_next_flag(ws_state):
+    """rejects --repo taking the flag after it as its value
+
+    The arm of `need` that refuses a value beginning with a dash: `--repo
+    --force` is a dropped argument, not a repository called --force.
+    """
+    result = ws_state("init", "--repo", "--force")
     assert result.status == 2
     assert "--repo needs a value" in result.stderr
 
@@ -299,6 +372,50 @@ def test_rejects_json_that_is_not_a_workstreams_state(ws_sandbox, ws_state):
     result = ws_state("set", "s1", "status", "done")
     assert result.status == 1
     assert "not valid workstreams JSON" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("document", "command"),
+    [
+        ('{"streams": [], "deferred": {"a": 1}}', ("defer", "9", "later")),
+        ('{"streams": [], "deferred": "abc"}', ("defer", "9", "later")),
+        ('{"streams": [], "meta": 5}', ("meta", "plan_path", "/tmp/plan.md")),
+        ('{"streams": ["s1"]}', ("list-streams",)),
+    ],
+)
+def test_rejects_a_state_file_whose_shape_is_wrong(ws_sandbox, ws_state, document, command):
+    """rejects a state file whose deferred, meta or streams have the wrong shape
+
+    Not in the shell spec, and not in the port until review found it: the check
+    asked only for a streams array, so a deferred object was rewritten as a list
+    and exited 0, a numeric meta raised a TypeError, and a stream that was not
+    an object was silently skipped. The file is refused and left alone instead.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True)
+    ws_sandbox.state_file().write_text(document, encoding="utf-8")
+    result = ws_state(*command)
+    assert result.status == 1
+    assert "not valid workstreams JSON" in result.stderr
+    assert ws_sandbox.state_file().read_text(encoding="utf-8") == document
+
+
+@not_as_root
+def test_reports_a_state_file_it_cannot_read(ws_sandbox, ws_state):
+    """reports a state file it cannot read as a read failure, not as bad JSON
+
+    Not in the shell spec. A file that is there but unreadable is a different
+    problem from one holding the wrong bytes, and the fix is a different one.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True)
+    ws_sandbox.state_file().write_text('{"streams": []}', encoding="utf-8")
+    ws_sandbox.state_file().chmod(0)
+    try:
+        result = ws_state("show")
+        assert result.status == 1
+        assert f"cannot read {ws_sandbox.state_file()}" in result.stderr
+        assert "not valid workstreams JSON" not in result.stderr
+    finally:
+        ws_sandbox.state_file().chmod(0o644)
 
 
 # --- streams ------------------------------------------------------------------
@@ -446,6 +563,59 @@ def test_rejects_a_flag_given_last_with_no_value(planned, ws_state):
     )
     assert result.status == 2
     assert "--reason needs a value" in result.stderr
+
+
+def test_rejects_a_flag_that_swallows_the_next_flag(planned, ws_state):
+    """rejects a flag whose value is the flag after it
+
+    The `need` arm for a value beginning with a dash: `--stack --order 1` names
+    no stack, and reading "--order" as one would write a stack layer nothing
+    could ever find.
+    """
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "stack",
+        "--stack",
+        "--order",
+        "1",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+    )
+    assert result.status == 2
+    assert "--stack needs a value" in result.stderr
+
+
+def test_keeps_a_non_ascii_reason_as_written(planned, ws_sandbox, ws_state):
+    """keeps a non-ascii reason as raw UTF-8, in the file and in show
+
+    jq wrote raw UTF-8, so `ensure_ascii=False` is what keeps the port at
+    parity. Without it the file holds \\u escapes: still JSON, but no longer the
+    bytes the shell wrote or a person can read.
+    """
+    result = ws_state(
+        "add-stream",
+        "s1",
+        "--issues",
+        "1",
+        "--kind",
+        "independent",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "--reason",
+        "caf\u00e9",
+    )
+    assert result.status == 0
+    assert "caf\u00e9" in ws_sandbox.state_file().read_text(encoding="utf-8")
+    assert "\\u00e9" not in ws_sandbox.state_file().read_text(encoding="utf-8")
+    assert "caf\u00e9" in ws_state("show").stdout
 
 
 def test_rejects_a_duplicate_id_and_keeps_the_first(planned, ws_sandbox, ws_state):
@@ -674,6 +844,32 @@ def test_fails_for_an_unknown_stream(with_s1, ws_state):
     assert "unknown stream: nope" in result.stderr
 
 
+def test_stores_pr_as_a_number_even_with_json(with_s1, ws_sandbox, ws_state):
+    """stores pr as a number whether or not --json is given
+
+    Not in the shell spec. pr, attempts and order are checked as numbers before
+    --json is looked at, so the flag changes nothing for them and cannot be used
+    to write a string or an object into a numeric field.
+    """
+    result = ws_state("set", "s1", "pr", "10", "--json")
+    assert result.status == 0
+    assert field(ws_sandbox, "pr") == 10
+
+
+def test_rejects_a_json_status_even_though_it_parses(with_s1, ws_sandbox, ws_state):
+    """rejects a status given as JSON
+
+    Not in the shell spec. `"running"` is valid JSON and would parse to the
+    right string, but status is checked against the vocabulary before --json is
+    read, so the quoted form is refused rather than half-working.
+    """
+    before = snapshot(ws_sandbox)
+    result = ws_state("set", "s1", "status", '"running"', "--json")
+    assert result.status == 2
+    assert "invalid status" in result.stderr
+    assert snapshot(ws_sandbox) == before
+
+
 def test_rejects_a_fourth_argument_other_than_json(with_s1, ws_state):
     """rejects a fourth argument other than --json"""
     result = ws_state("set", "s1", "branch", "b", "--raw")
@@ -825,11 +1021,18 @@ def test_requires_a_field_and_value_for_meta(planned, ws_state):
     assert "meta needs" in result.stderr
 
 
-def test_pretty_prints_the_whole_file_with_show(planned, ws_state):
-    """pretty-prints the whole file with show"""
+def test_pretty_prints_the_whole_file_with_show(planned, ws_sandbox, ws_state):
+    """pretty-prints the whole file with show
+
+    Byte for byte what `jq .` printed: a two-space indent, raw UTF-8, and one
+    trailing newline. The skills pipe this into other tools, so the shape of the
+    output is part of the contract, not just the values in it.
+    """
     result = ws_state("show")
     assert result.status == 0
     assert '"repo": "bje-settings/example"' in result.stdout
+    expected = json.dumps(ws_sandbox.read_state(), indent=2, ensure_ascii=False) + "\n"
+    assert result.stdout == expected
 
 
 # --- atomic writes ------------------------------------------------------------
@@ -855,6 +1058,68 @@ def test_keeps_the_old_state_when_the_update_cannot_be_written(planned, ws_sandb
         assert temp_files(ws_sandbox) == []
     finally:
         ws_sandbox.state_dir.chmod(0o755)
+
+
+def test_leaves_no_temp_file_when_the_write_itself_fails(planned, ws_sandbox, ws_state):
+    """leaves no temp file behind when the write fails after the file is opened
+
+    Not in the shell spec, and the port left one behind until review found it:
+    only the failed rename cleaned up. A state file holding NaN parses on the
+    way in and cannot be written back out, which fails inside the open file
+    rather than at the rename.
+    """
+    document = ws_sandbox.read_state()
+    document["meta"] = {"seen": float("nan")}
+    ws_sandbox.state_file().write_text(
+        json.dumps(document, indent=2, allow_nan=True) + "\n", encoding="utf-8"
+    )
+    result = ws_state("meta", "a", "b")
+    assert result.status == 1
+    assert temp_files(ws_sandbox) == []
+
+
+def test_reports_an_unanticipated_failure_as_one_line(planned, ws_sandbox, ws_state):
+    """reports an unanticipated failure with its own message, not a traceback
+
+    Not in the shell spec. The usage text promises the script's own message for
+    anything it refuses; a NaN in the state file is a failure nothing
+    anticipated, and it has to read the same way rather than as a stack trace.
+    """
+    document = ws_sandbox.read_state()
+    document["meta"] = {"seen": float("nan")}
+    ws_sandbox.state_file().write_text(
+        json.dumps(document, indent=2, allow_nan=True) + "\n", encoding="utf-8"
+    )
+    result = ws_state("meta", "a", "b")
+    assert result.status == 1
+    assert result.stderr.startswith("ws-state.py: internal error: ")
+    assert "Traceback" not in result.stderr
+
+
+def test_exits_quietly_when_the_reader_closes_the_pipe(planned, ws_sandbox, ws_state):
+    """exits 0 and says nothing when show is piped into a reader that stops
+
+    Not in the shell spec, where the shell was killed by SIGPIPE and nobody
+    noticed. Python turns it into a BrokenPipeError, which without a handler is
+    a traceback on stderr and a non-zero exit for `ws-state.py show | head`.
+    """
+    document = ws_sandbox.read_state()
+    # Enough output that the write cannot fit in the pipe buffer, so the failure
+    # is deterministic rather than a race with the reader closing.
+    document["streams"] = [
+        dict(json.loads(INDEPENDENT_S1), id=f"s{index}") for index in range(4000)
+    ]
+    ws_sandbox.state_file().write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    process = subprocess.Popen(
+        [sys.executable, str(WS_STATE), "show"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=dict(os.environ),
+    )
+    process.stdout.close()
+    stderr = process.communicate()[1].decode("utf-8", "replace")
+    assert process.returncode == 0
+    assert stderr == ""
 
 
 # --- usage --------------------------------------------------------------------

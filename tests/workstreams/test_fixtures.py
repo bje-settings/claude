@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 
+import pytest
 from conftest import (
     ws_fixture_extensions,
     ws_fixture_home,
@@ -247,6 +248,51 @@ def test_reports_a_corrupt_fixture_as_a_read_failure(ws_sandbox, run_gh):
     assert result.status == 1
     assert "cannot read issues.json" in result.stderr
     assert "Could not resolve" not in result.stderr
+
+
+def test_reports_an_issue_it_does_not_hold_the_way_gh_does(ws_sandbox, run_gh):
+    """answers for an issue it does not hold with gh's own not-found message
+
+    Not in the shell spec, which asserted this only through the scripts. A stub
+    that answered anything else here would let a script's not-found branch pass
+    against a query the real gh would refuse.
+    """
+    result = run_gh("issue", "view", "99", "--json", "number")
+    assert result.status == 1
+    assert "Could not resolve to an Issue with the number of 99" in result.stderr
+
+
+@pytest.mark.parametrize("command", [("issue", "view"), ("pr", "view")])
+def test_refuses_a_reference_that_is_not_a_number(ws_sandbox, run_gh, command):
+    """refuses an issue or pull request reference that is not a number"""
+    result = run_gh(*command, "not-a-number", "--json", "number")
+    assert result.status == 1
+    assert "needs a number" in result.stderr
+
+
+def test_refuses_a_limit_that_is_not_a_number(ws_sandbox, run_gh):
+    """refuses a --limit that is not a number, the way gh does
+
+    Not in the shell spec: the shell stub passed the value to head, which took
+    it as zero. Reading it in Python raised a traceback instead, which is a
+    fixture failing in a way no caller could diagnose.
+    """
+    result = run_gh("issue", "list", "--limit", "abc", "--json", "number")
+    assert result.status == 1
+    assert "Traceback" not in result.stderr
+    assert "--limit" in result.stderr
+
+
+@pytest.mark.parametrize("flag", ["--json", "--jq", "--limit", "--search"])
+def test_refuses_a_flag_given_last_with_no_value(ws_sandbox, run_gh, flag):
+    """refuses a flag given last with no value rather than reading it as empty
+
+    An empty --json means "no projection" and an empty --jq means "no filter",
+    so a caller that dropped its argument would get a passing test back.
+    """
+    result = run_gh("issue", "list", flag)
+    assert result.status == 1
+    assert f"flag needs an argument: {flag}" in result.stderr
 
 
 def test_accepts_a_pull_request_by_number_hash_or_url(ws_sandbox, run_gh):
