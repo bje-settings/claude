@@ -5,8 +5,8 @@
 # canned set of pull requests, applies the same filtering the real `gh pr list`
 # applies server-side (--state, --base, --limit), projects the fields named by
 # --json, and then runs the caller's own --jq expression with real jq. That way
-# the jq filter in gh-sync-repo.sh, including the fork exclusion, is exercised
-# rather than assumed.
+# the jq filters in the shepherd scripts, which do their projection and their
+# fork exclusion in jq, are exercised rather than assumed.
 #
 # Controlled by:
 #   GH_FIXTURE_PRS       path to a JSON array of PR objects (default: no PRs)
