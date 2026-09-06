@@ -133,7 +133,7 @@ setup_ft_sandbox() {
   export FT_RUN_DIR="$FT_STATE_DIR/runs/ft-session"
   export FT_PLUGIN_CHECKOUT="$FT_SANDBOX/plugin-repo"
   export FT_INSTALL_DIR="$FT_SANDBOX/installed/gh"
-  unset FT_GH_FIXTURE_FAIL CLAUDE_PLUGIN_DATA FT_GH FT_DENY_LIST FT_RUN_SH
+  unset FT_GH_FIXTURE_FAIL CLAUDE_PLUGIN_DATA FT_GH FT_DENY_LIST
   mkdir -p "$FT_GH_FIXTURE_DIR" "$HOME/.claude/plugins" "$FT_RUN_DIR"
   ft_fixture_enterprise "$FT_GH_FIXTURE_DIR" both
   ft_fixture_issues "$FT_GH_FIXTURE_DIR/issues.json"

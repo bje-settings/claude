@@ -21,7 +21,11 @@ anything.
 Environment:
   FT_STATE_DIR / CLAUDE_PLUGIN_DATA   where runs/<session>/ lives
   FT_DENY_LIST                        default: deny-list.txt beside this file
-  FT_RUN_SH                           default: ../scripts/ft-run.sh
+
+`Stop` fires at every turn boundary in the main session, not only when the field
+test ends, so this hook never finishes the run: it only records the event, with
+the target's last message. Finishing is the run skill's own explicit step; see
+`handle_stop` below.
 
 Always exits 0. A hook that fails must not take the session down with it, but it
 records a `hook_error` event first, so a run whose guardrail crashed is not
@@ -32,7 +36,6 @@ import datetime
 import json
 import os
 import re
-import subprocess
 import sys
 import traceback
 
@@ -267,31 +270,18 @@ def handle_subagent_stop(payload, path):
 
 
 def handle_stop(payload, path):
-    append(path, base_record("Stop", payload))
-    run_sh = os.environ.get("FT_RUN_SH") or os.path.join(HERE, "..", "scripts", "ft-run.sh")
-    try:
-        finished = subprocess.run(
-            ["bash", run_sh, "finish", "--session", payload.get("session_id") or ""],
-            capture_output=True,
-            check=False,
-        )
-    except OSError:
-        return
-    if finished.returncode == 0:
-        return
-    # A marker that never gets its finished_at keeps every later hook recording into
-    # a run nobody will collect, and the next start in this session is refused as one
-    # already running. Nothing else in the run would say why.
-    record = base_record("hook_error", payload)
-    record.update(
-        {
-            "hook": "Stop",
-            "error": "ft-run.sh finish exited {}: {}".format(
-                finished.returncode,
-                finished.stderr.decode("utf-8", "replace")[-STDERR_TAIL_CHARS:],
-            ),
-        }
-    )
+    """Record the turn boundary. This does not finish the run.
+
+    `Stop` fires at every turn boundary in the main session, not only at the end
+    of the field test: a target that pauses for the user or schedules a wake ends
+    its turn on purpose, and `Stop` fires anyway. Finishing here would mark the
+    run done mid-test, so every later hook would see a finished marker and go
+    silent for the rest of the run. Finishing is the run skill's own Step 4
+    action; this hook only records that the turn ended, with the target's last
+    message, which `ft-collect.sh --report` can check against what was recorded.
+    """
+    record = base_record("Stop", payload)
+    record["last_assistant_message"] = payload.get("last_assistant_message") or ""
     append(path, record)
 
 
