@@ -41,12 +41,6 @@ jobs:
             plugins/workstreams/scripts/ws-pr-status.sh \
             fixtures/workstreams/fixtures.sh \
             fixtures/workstreams/bin/gh \
-            plugins/field-test/scripts/ft-preflight.sh \
-            plugins/field-test/scripts/ft-harden-state.sh \
-            plugins/field-test/scripts/ft-verify-report.sh \
-            plugins/field-test/scripts/ft-wait-pr.sh \
-            fixtures/field-test/fixtures.sh \
-            fixtures/field-test/bin/gh \
             spec/run.sh
 
   # The Python counterpart of the shellcheck job. ruff's target-version is py39,

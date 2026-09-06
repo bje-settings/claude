@@ -46,13 +46,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/workstreams/scripts/ws-state.sh \
     plugins/workstreams/scripts/ws-pr-status.sh \
     fixtures/workstreams/fixtures.sh \
-    fixtures/workstreams/bin/gh \
-    plugins/field-test/scripts/ft-preflight.sh \
-    plugins/field-test/scripts/ft-harden-state.sh \
-    plugins/field-test/scripts/ft-verify-report.sh \
-    plugins/field-test/scripts/ft-wait-pr.sh \
-    fixtures/field-test/fixtures.sh \
-    fixtures/field-test/bin/gh
+    fixtures/workstreams/bin/gh
 else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi

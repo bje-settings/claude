@@ -25,9 +25,8 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but the `gh` plugin's hook helper and the
-whole run side of `field-test`: its hook and the six scripts `ft-run`, `ft-collect`, `ft-redact`,
-`ft-enterprise`, `ft-issue` and `ft-resolve`.
+not yet ported to Python, which today is the `gh` and `workstreams` scripts. `field-test` is
+Python throughout, hooks and scripts alike, and has no `.sh` and no shellspec spec left.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
