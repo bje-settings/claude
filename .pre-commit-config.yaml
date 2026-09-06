@@ -39,14 +39,15 @@ repos:
         args: ["."]
         always_run: true
 
-      # The whole Python suite, not a scoped subset: it finishes in about two
-      # seconds with -n auto, which is cheap enough to pay on every commit. -x
-      # stops at the first failure so the message you get is the failure itself.
-      # If it ever grows past a few seconds, scope it to tests/<plugin>/ for the
-      # plugins whose files changed and leave the full run to CI.
+      # The Python suite minus the examples marked `slow`, which are the ones
+      # that run a real package-manager install. They are the slowest in the
+      # suite and the only ones that need pnpm, yarn or npm installed, so a
+      # commit does not wait on them; CI runs the whole suite, and nothing is
+      # only ever checked here. -x stops at the first failure so the message you
+      # get is the failure itself.
       - id: pytest
         name: pytest
-        entry: uv run --locked pytest -n auto -x -q
+        entry: uv run --locked pytest -n auto -x -q -m "not slow"
         language: system
         pass_filenames: false
         always_run: true
