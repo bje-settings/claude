@@ -68,7 +68,8 @@ it as one unit of work.
 
 All deterministic, all Python (stdlib only, 3.9 floor), tested under `tests/workstreams/`.
 `scripts/lib/` holds what they share: `cli.py` for output encoding, exit statuses and the
-broken-pipe case, and one module per script for the decisions it makes.
+broken-pipe case, and one module each for the three scripts that used to run jq (`state.py`,
+`issues.py`, `pr_status.py`). `ws-preflight.py` keeps its checks inline.
 
 | Script | Purpose |
 | --- | --- |

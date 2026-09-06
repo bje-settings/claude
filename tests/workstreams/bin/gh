@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """A stand-in for the gh CLI, for the workstreams tests. Put this directory on PATH.
 
-The Python counterpart of `fixtures/workstreams/bin/gh`, with the same
-environment contract. Like that stub, it does not fake the output of the script
+Replaces the bash stub (deleted in #55) with the same environment contract.
+Like that stub, it does not fake the output of the script
 under test: it holds canned issues, pull requests, and extensions, applies the
 filtering the real gh applies server-side, projects the fields named by --json,
 and runs the caller's own --jq expression with real jq. Anything it does not

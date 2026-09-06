@@ -372,7 +372,8 @@ class WsSandbox:
 
 @pytest.fixture
 def ws_sandbox(sandbox, monkeypatch) -> WsSandbox:
-    """The pytest counterpart of `setup_ws_sandbox`."""
+    """One test's workstreams world, built the way `setup_ws_sandbox` built it
+    for the shell specs before #55."""
     gh_dir = sandbox.path / "gh"
     state_dir = sandbox.path / "state"
     home = sandbox.path / "ws-home"
