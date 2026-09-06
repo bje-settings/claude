@@ -145,8 +145,12 @@ case "$cmd" in
       [[ "$value" =~ ^[0-9]+$ || "$value" == "null" ]] || die "set: pr takes a number or null, got: $value" 2
       mode="--json"
     elif [[ "$field" == "issues" ]]; then
-      printf '%s' "$value" | jq -e 'type == "array"' >/dev/null 2>&1 \
-        || die "set: issues takes a JSON array, got: $value" 2
+      # Valid JSON that is not an array is refused here; invalid JSON falls
+      # through to the --json check below and is named as such.
+      if printf '%s' "$value" | jq -e . >/dev/null 2>&1 \
+        && ! printf '%s' "$value" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        die "set: issues takes a JSON array, got: $value" 2
+      fi
       mode="--json"
     fi
     if [[ "$mode" == "--json" ]]; then
