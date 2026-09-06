@@ -46,10 +46,23 @@ def test_coalesce_skips_only_null_and_false(values, expected):
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(None, None), ("", None), ("SUCCESS", "SUCCESS"), (False, False)],
+    [(None, None), ("", None), ("SUCCESS", "SUCCESS"), (False, None)],
 )
-def test_present_treats_the_empty_string_as_absent(value, expected):
-    assert pr_status.present(value) == expected
+def test_present_treats_the_empty_string_and_false_as_absent(value, expected):
+    """`false` is absent too, and the assertion is `is`, not `==`: `False ==
+    None` is false but `0 == False` is true, so a looser comparison would call
+    the wrong values equal."""
+    assert pr_status.present(value) is expected
+
+
+def test_a_false_conclusion_folds_to_pending_rather_than_the_outcome_false():
+    """Read as a value, `False` upper-cased into the state "FALSE", which is in
+    neither the failed nor the passed set: the rollup came out pending by
+    accident rather than by decision, and one row of it reported nothing at
+    all."""
+    assert pr_status.outcome(check_run(conclusion=False)) == "PENDING"
+    assert pr_status.outcome(status_context(state=False)) == "PENDING"
+    assert pr_status.outcome({"conclusion": False}) == "PENDING"
 
 
 # --- outcome ------------------------------------------------------------------
@@ -213,3 +226,26 @@ def test_reduce_keeps_the_key_order_the_jq_projection_produced():
         "failing",
         "reviewDecision",
     ]
+
+
+# --- a rollup that is not a rollup --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "rollup",
+    [
+        {"nodes": []},
+        "SUCCESS",
+        7,
+        [check_run(), "SUCCESS"],
+        [None],
+    ],
+)
+def test_reduce_refuses_a_rollup_that_is_not_a_list_of_objects(rollup):
+    """Read straight into the fold, each of these raised an AttributeError from
+    inside `outcome`, which the run loop recorded as an internal error with
+    nothing in it to act on. Named here instead, with gh's own exit status."""
+    with pytest.raises(pr_status.Malformed) as excinfo:
+        pr_status.reduce({"number": 12, "statusCheckRollup": rollup})
+    assert excinfo.value.message == "statusCheckRollup is not a list of objects for PR 12"
+    assert excinfo.value.status == 1
