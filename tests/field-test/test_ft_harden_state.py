@@ -320,6 +320,23 @@ def test_clears_the_pull_request_back_to_null(state):
     assert state.field("pr") is None
 
 
+def test_counts_the_review_rounds_as_a_number(state):
+    """the review phase bounds itself at one repeat, and a resumed session reads
+    the count from the state file rather than starting over"""
+    state.one_target()
+    assert state.field("review_rounds") is None
+    assert state.set("/repos/widgets", "review_rounds", "1").status == 0
+    assert state.field("review_rounds") == 1
+
+
+def test_rejects_a_review_round_count_that_is_not_a_number(state):
+    """rejects a count written as a word, which would compare against a number"""
+    state.one_target()
+    result = state.set("/repos/widgets", "review_rounds", "once")
+    assert result.status == 2
+    assert "review_rounds takes a number or null" in result.stderr
+
+
 def test_rejects_a_pull_request_that_is_not_a_number(state):
     """rejects a pull request that is not a number"""
     state.one_target()
