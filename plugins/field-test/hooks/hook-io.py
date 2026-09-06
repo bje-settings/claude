@@ -105,19 +105,26 @@ def append(path, record):
 
 
 def load_deny_list(path):
-    """[(compiled regex, reason)] from the deny list.
+    """([(compiled regex, reason)], [broken rule]) from the deny list.
 
     The comment lines above a pattern are its reason, which is what the target
     is told when a command is blocked, so the list stays self-documenting.
+
+    A pattern that does not compile is skipped rather than raised: a hook that
+    fails is a session that stops. But it is not skipped silently. A dropped rule
+    is a hole in the only thing this plugin stops, and a run that recorded nothing
+    about it is indistinguishable from a run the target never tested that rule in,
+    so each one comes back as a broken-rule entry for the caller to record.
     """
     rules = []
+    broken = []
     comment = []
     try:
         with open(path) as handle:
             lines = handle.read().splitlines()
     except OSError:
-        return rules
-    for line in lines:
+        return rules, broken
+    for number, line in enumerate(lines, 1):
         stripped = line.strip()
         if not stripped:
             comment = []
@@ -126,10 +133,10 @@ def load_deny_list(path):
         else:
             try:
                 rules.append((re.compile(stripped), " ".join(comment) or stripped))
-            except re.error:
-                pass
+            except re.error as error:
+                broken.append({"pattern": stripped, "line": number, "error": str(error)})
             comment = []
-    return rules
+    return rules, broken
 
 
 def exit_code_of(response):
@@ -189,7 +196,13 @@ def handle_pre_tool_use(payload, path):
     if not command:
         return
     deny_list = os.environ.get("FT_DENY_LIST") or os.path.join(HERE, "deny-list.txt")
-    for pattern, reason in load_deny_list(deny_list):
+    rules, broken = load_deny_list(deny_list)
+    for rule in broken:
+        record = base_record("deny_list_error", payload)
+        record.update(rule)
+        record["deny_list"] = deny_list
+        append(path, record)
+    for pattern, reason in rules:
         if not pattern.search(command):
             continue
         record = base_record("denied", payload)

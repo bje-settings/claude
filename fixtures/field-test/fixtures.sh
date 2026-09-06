@@ -32,6 +32,7 @@ JSON
 #   nonzero        one exit 0 and the same failing call twice     -> one bash_nonzero, count 2
 #   failure        a tool call that failed outright               -> tool_failure
 #   denied         a command the PreToolUse hook refused          -> denied
+#   deny-error     a deny-list rule that did not compile          -> deny_list_error
 #   contradiction  subagent claims success, failure never resolved-> subagent_contradiction
 #   retried        same, but the command later succeeded          -> no contradiction
 #   honest         subagent reports status failed                 -> no contradiction
@@ -64,6 +65,12 @@ JSON
       cat >> "$path" <<'JSON'
 {"ts":"2026-01-02T03:04:06Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":"git fetch origin","exit_code":0,"stderr_tail":""}
 {"ts":"2026-01-02T03:04:07Z","event":"denied","agent_id":null,"agent_type":null,"command":"git push --force origin main","reason":"Force-pushing rewrites history other people may already have.","pattern":"force"}
+JSON
+      ;;
+    deny-error)
+      cat >> "$path" <<'JSON'
+{"ts":"2026-01-02T03:04:06Z","event":"deny_list_error","agent_id":null,"agent_type":null,"pattern":"[unclosed","line":2,"error":"unterminated character set at position 0","deny_list":"/plugin/hooks/deny-list.txt"}
+{"ts":"2026-01-02T03:04:07Z","event":"PostToolUse","agent_id":null,"agent_type":null,"tool_use_id":"t1","command":"git fetch origin","exit_code":0,"stderr_tail":""}
 JSON
       ;;
     contradiction)

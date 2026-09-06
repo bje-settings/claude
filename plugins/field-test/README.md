@@ -45,6 +45,7 @@ that says no.
 | Kind | Raised when |
 | --- | --- |
 | `denied` | The `PreToolUse` hook refused a command on the deny list. Highest severity. |
+| `deny_list_error` | A deny-list rule did not compile, so it was skipped and blocked nothing for the whole run. High severity: it is a hole in the guardrail, not a finding about the target. |
 | `tool_failure` | A Bash tool call failed outright. |
 | `bash_nonzero` | A Bash call exited non-zero. |
 | `subagent_contradiction` | A subagent's last message claims success while its recorded events hold a failure that was never resolved by re-running the same command. |
@@ -78,7 +79,7 @@ on what the machine already has.
 
 | Hook | Records |
 | --- | --- |
-| `PreToolUse` (Bash) | Refuses a command matching `hooks/deny-list.txt` and records the attempt |
+| `PreToolUse` (Bash) | Refuses a command matching `hooks/deny-list.txt` and records the attempt, plus any rule in that file that did not compile |
 | `PostToolUse` (Bash) | Command, exit code, stderr tail, subagent id |
 | `PostToolUseFailure` (Bash) | The same, for a call that failed outright |
 | `SubagentStop` | The subagent's transcript path and last message |

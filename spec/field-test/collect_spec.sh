@@ -135,6 +135,17 @@ Describe 'ft-collect.sh'
       The output should not include 'subagent_contradiction'
     End
 
+    It 'raises a high finding for a deny-list rule that did not compile'
+      events deny-error
+      ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'
+      When run script "$FT_COLLECT" "$FT_RUN_DIR"
+      The status should be success
+      The output should include '"kind": "deny_list_error"'
+      The output should include '"severity": "high"'
+      The output should include '"pattern": "[unclosed"'
+      The output should include 'blocked nothing all run'
+    End
+
     It 'reads a structured status that is neither failed nor paused as a claim of success'
       events status-ok
       ft_fixture_run "$FT_RUN_DIR/run.json" gh:shepherd '[]'

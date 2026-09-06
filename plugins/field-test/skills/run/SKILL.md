@@ -77,6 +77,9 @@ and decide: a real problem, or the target working correctly?
 - A step the target reports as skipped, with a reason, having exited 0, is the target working.
 - A `denied` record is always a real finding, and the highest priority one: the target reached
   for something a field test had to stop.
+- A `deny_list_error` record is always real, and it is about this plugin rather than the target:
+  a rule was dropped, so nothing it names was refused all run. File it against the plugin's own
+  repository and say which rule was lost.
 - A `subagent_contradiction` is a real finding unless the failure it names is one of the handled
   cases above.
 - An `args_dropped` record is real only if the option should have reached that command. Options a

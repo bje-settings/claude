@@ -62,6 +62,22 @@ def denied_findings:
        evidence: {command: .value.command, reason: (.value.reason // null),
                   exit_code: null, stderr: "", preceding: preceding(.key)}} ];
 
+# A deny-list rule that did not compile. It is a finding about the field test
+# itself rather than about the target: the rule blocked nothing all run, so the
+# absence of a `denied` record for it proves nothing either way.
+def deny_list_error_findings:
+  [ $events | to_entries[]
+    | select(.value.event == "deny_list_error")
+    | {kind: "deny_list_error", severity: "high",
+       signature: ("deny_list_error:" + (.value.pattern | norm)),
+       agent_id: .value.agent_id, agent_type: .value.agent_type,
+       evidence: {command: null,
+                  reason: ("a deny-list rule did not compile and blocked nothing all run: "
+                           + (.value.error // "no reason recorded")),
+                  exit_code: null, stderr: "",
+                  pattern: (.value.pattern // ""), line: .value.line,
+                  deny_list: (.value.deny_list // ""), preceding: []}} ];
+
 def tool_failure_findings:
   [ $events | to_entries[]
     | select(.value.event == "PostToolUseFailure")
@@ -112,7 +128,7 @@ def args_dropped_findings:
        evidence: {command: null, reason: ("argument " + $a + " never appeared in any command the target ran"),
                   exit_code: null, stderr: "", argument: $a, preceding: []}} ];
 
-(denied_findings + tool_failure_findings + nonzero_findings
+(denied_findings + deny_list_error_findings + tool_failure_findings + nonzero_findings
  + contradiction_findings + args_dropped_findings)
 | group_by(.signature)
 | map(.[0] + {count: length})

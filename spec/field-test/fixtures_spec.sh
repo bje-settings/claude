@@ -75,6 +75,26 @@ Describe 'field-test fixtures'
       The output should equal '1,0'
     End
 
+    It 'gives the status-ok case a subagent reporting a status that is not failed'
+      claim() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" status-ok
+        jq -rs '.[] | select(.event == "SubagentStop") | .last_assistant_message' "$FT_SANDBOX/e.jsonl"
+      }
+      When call claim
+      The status should be success
+      The output should include '"status": "ok"'
+    End
+
+    It 'gives the deny-error case a rule that did not compile beside a normal call'
+      shape() {
+        ft_fixture_events "$FT_SANDBOX/e.jsonl" deny-error
+        jq -rs '[.[] | select(.event == "deny_list_error") | .pattern] | join(",")' "$FT_SANDBOX/e.jsonl"
+      }
+      When call shape
+      The status should be success
+      The output should equal '[unclosed'
+    End
+
     It 'gives the honest case a subagent that reports failed'
       claim() {
         ft_fixture_events "$FT_SANDBOX/e.jsonl" honest

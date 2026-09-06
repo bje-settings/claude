@@ -287,6 +287,19 @@ Describe 'the field-test hooks'
       The output should include 'real'
     End
 
+    It 'records the rule it had to drop, so a hole in the guardrail is not silent'
+      printf '# broken\n[unclosed\n\n# real\ngit push --force\n' > "$FT_SANDBOX/list.txt"
+      export FT_DENY_LIST="$FT_SANDBOX/list.txt"
+      input pre-deny
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PreToolUse
+      The status should be success
+      The output should include '"deny"'
+      The value "$(events | jq -r 'select(.event == "deny_list_error") | .pattern')" should equal '[unclosed'
+      The value "$(events | jq -r 'select(.event == "deny_list_error") | .line')" should equal '2'
+      The value "$(events | jq -r 'select(.event == "deny_list_error") | .error | length > 0')" should equal 'true'
+    End
+
     It 'falls back to the pattern itself when a rule has no comment'
       printf 'git push --force\n' > "$FT_SANDBOX/list.txt"
       export FT_DENY_LIST="$FT_SANDBOX/list.txt"

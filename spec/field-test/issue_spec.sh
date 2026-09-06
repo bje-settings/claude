@@ -241,6 +241,14 @@ JSON
       The output should include 'never resolved'
     End
 
+    It 'names the lost rule when the finding is a deny-list rule that did not compile'
+      target; names_file; record deny_list_error high
+      When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
+      The status should be success
+      The output should include 'every rule in the deny list to be in force'
+      The output should include 'blocked nothing'
+    End
+
     It 'describes what a tool_failure fixture would have to reproduce'
       target; names_file; record tool_failure
       When run script "$FT_ISSUE" render "$FT_SANDBOX/record.json" "$FT_RUN_DIR/run.json" "$FT_SANDBOX/names.json" --inside
