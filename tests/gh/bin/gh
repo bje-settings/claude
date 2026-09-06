@@ -19,7 +19,7 @@ Controlled by:
   GH_FIXTURE_CALL_LOG  if set, every invocation appends its arguments here
   GH_FIXTURE_DEFAULT   default branch reported by `gh repo view` (default: main)
 
-For the shepherd scripts the stub also answers `pr view`, `pr checks`,
+For the shepherd ports that follow the stub also answers `pr view`, `pr checks`,
 `pr update-branch`, `pr comment`, `run list`, and `run view`, all against the
 same canned set, so a pull request's checks are whatever its own
 statusCheckRollup says and there is one source of truth:
@@ -62,6 +62,10 @@ class Args:
         self.base = ""
         self.head = ""
         self.label = ""
+        # Deliberately not gh's own default of 30: an example that forgets to
+        # pass --limit would otherwise be silently truncated and pass for the
+        # wrong reason. A test that cares about the limit asserts the --limit
+        # in the call log rather than inferring it from the row count.
         self.limit = 1000
         self.fields = ""
         self.jq = ""

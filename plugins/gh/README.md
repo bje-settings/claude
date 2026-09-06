@@ -188,7 +188,9 @@ detail says so and carries gh's last error.
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`) are documented at the top of the script.
 
-Repository discovery is shared with `/gh:sync` through `scripts/lib/discover.py`.
+Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
+rule, `scripts/lib/discover.py`, and `/gh:sync` reaches it through the bash copy
+`scripts/lib/discover.sh` until issue #56 ports `gh-sync.sh`.
 
 ## Session start hook
 
