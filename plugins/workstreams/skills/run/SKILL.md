@@ -22,13 +22,13 @@ the reviewer are subagents that return once and never schedule anything.
 ## Step 1: Preflight and load
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.py"
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 ```
 
-Stop with the install hints if preflight exits 1, or with its stderr line if it exits 4. Stop
-and say to run `/workstreams:plan` if there is no state file. If no stream is `planned`,
-`running`, `draft`, or `reviewing`, skip to Step 5.
+Stop with the install hints if preflight exits 1. Stop and say to run `/workstreams:plan` if
+there is no state file. If no stream is `planned`, `running`, `draft`, or `reviewing`, skip to
+Step 5.
 
 Read `meta.plan_path` for the plan document, and the target repository's `CLAUDE.md` and
 `.claude/rules/` once now; the briefs below quote its conventions rather than inventing any.
@@ -86,18 +86,18 @@ On each wake:
 For a stream that just reached `draft`, or whose last review applied changes:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.sh" <pr>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.py" <pr>
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status reviewing
 ```
 
-If `ws-pr-status.sh` fails, the worker reported a PR that does not exist: set the stream
+If `ws-pr-status.py` fails, the worker reported a PR that does not exist: set the stream
 `failed` with that message. Otherwise fill in `review-prompt.md` from this directory and start
 `workstreams:reviewer` with `model` set to the stream's model. When it returns:
 
 - `error` is set: set status `paused` with the error as the question. The review did not run.
 - `applied > 0`: the diff changed, so the PR needs one more pass. Set status `draft`; it is
   reviewed again on the next tick.
-- `applied == 0`: run `ws-pr-status.sh` again, since the checks may have moved, and decide on
+- `applied == 0`: run `ws-pr-status.py` again, since the checks may have moved, and decide on
   that output:
   - `checks: pass`: set status `done`.
   - `checks: pending`: leave status `reviewing` and check again next tick without a new review.

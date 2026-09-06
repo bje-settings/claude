@@ -1,7 +1,7 @@
 """Shared setup for the Python side of the suite.
 
-The pieces here are the pytest counterparts of `setup_sandbox`, `ws_path_without`
-and shellspec's `When run script` in `spec/spec_helper.sh`, minus anything
+The pieces here are the pytest counterparts of `setup_sandbox`, the per-plugin
+`*_path_without`, and shellspec's `When run script`, minus anything
 plugin-specific: each port brings its own stub `gh` and its own canned data, and
 builds it on top of these. Every example gets its own temp directory, so the
 whole suite can run under `pytest -n auto` without examples sharing state.

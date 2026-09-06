@@ -25,18 +25,22 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but the two hook helpers and
-`plugins/workstreams/scripts/ws-state.py`.
+not yet ported to Python, which today is the `gh` and `field-test` plugins plus one hook helper;
+`workstreams` is entirely Python.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
 script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. `plugins/workstreams/scripts/lib/state.py` is the first of those shared modules: it holds
-what used to be ws-state's jq filters and argument checks, as plain functions with a unit test per
-arm. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by path under a
-plugin-unique module name, because two plugins' `lib` packages collide on `sys.modules["lib"]` in
-one pytest process.
+others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds what every one of
+that plugin's scripts does around its own work (the UTF-8 output streams, the flush, a reported
+failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py` and `pr_status.py`
+hold what used to be each script's jq filters and argument checks, as plain functions with a unit
+test per arm. Nothing under `lib/` imports another `lib/` module: only the script's own directory
+goes on `sys.path`, so a module that raises its own error class hands it to `cli.run` rather than
+importing one. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by
+path under a plugin-unique module name, because two plugins' `lib` packages collide on
+`sys.modules["lib"]` in one pytest process.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root
@@ -163,7 +167,7 @@ only on a SIGTERM sent to its whole process group; `spec/run.sh` handles that fo
 use it rather than bare `shellspec --jobs` for a run you may need to interrupt. Parallelism is per
 spec file, not per example, so a spec file that grows much larger than the rest becomes the floor on
 wall time. Every example must keep building its state in its own temp dir (`setup_sandbox`,
-`setup_ws_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
+`setup_ft_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
 or to a fixed path.
 
 The CI job names `shellcheck`, `bash-3.2`, `coverage`, `ruff`, `pytest` and

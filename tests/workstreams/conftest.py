@@ -1,7 +1,8 @@
 """Canned GitHub data for the workstreams tests.
 
-The Python counterpart of `fixtures/workstreams/fixtures.sh` and of
-`setup_ws_sandbox` in `spec/spec_helper.sh`. Most writers produce one fixture
+What `fixtures/workstreams/fixtures.sh` and `setup_ws_sandbox` in
+`spec/spec_helper.sh` were before the plugin's scripts became Python and both
+were deleted (#55). Most writers produce one fixture
 file that `tests/workstreams/bin/gh` serves; the installed-plugins and home
 writers do not go through the stub at all, but feed `ws-preflight` through
 `WS_INSTALLED_PLUGINS` and `HOME`. `ws_sandbox` wires them together for one
@@ -26,7 +27,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 WS_SCRIPTS = ROOT / "plugins" / "workstreams" / "scripts"
+WS_LIB = WS_SCRIPTS / "lib"
 WS_STATE = WS_SCRIPTS / "ws-state.py"
+WS_ISSUES = WS_SCRIPTS / "ws-issues.py"
+WS_PR_STATUS = WS_SCRIPTS / "ws-pr-status.py"
+WS_PREFLIGHT = WS_SCRIPTS / "ws-preflight.py"
 STUB_BIN = Path(__file__).resolve().parent / "bin"
 
 
@@ -375,13 +380,14 @@ def ws_sandbox(sandbox, monkeypatch) -> WsSandbox:
     monkeypatch.setenv("WS_GH_FIXTURE_DIR", str(gh_dir))
     monkeypatch.setenv("WS_STATE_DIR", str(state_dir))
     monkeypatch.setenv("HOME", str(home))
-    # WS_SKILLS_DIR is not read by ws-state.py, but `setup_ws_sandbox` unset it
-    # and ws-preflight reads it (#55): inherited from the developer's own
-    # environment it would point a test at a real skills directory.
+    # WS_SKILLS_DIR is not read by ws-state.py, but ws-preflight.py is: inherited
+    # from the developer's own environment it would point a test at a real
+    # skills directory. WS_ISSUE_LIMIT is ws-issues.py's, for the same reason.
     for name in (
         "WS_GH_FIXTURE_FAIL",
         "WS_GH_FIXTURE_NOAUTH",
         "WS_GH_FIXTURE_REPO",
+        "WS_ISSUE_LIMIT",
         "WS_REPO",
         "WS_SKILLS_DIR",
     ):
@@ -390,6 +396,10 @@ def ws_sandbox(sandbox, monkeypatch) -> WsSandbox:
     ws_fixture_prs(gh_dir / "prs.json")
     ws_fixture_extensions(gh_dir / "extensions.txt")
     ws_fixture_home(home)
+    # Inside the sandbox, not the checkout: ws-preflight.py asks git for the
+    # repository root and accepts a `.claude/skills/gh-stack` under it, so a test
+    # run from this repository would be answering about this repository.
+    monkeypatch.chdir(sandbox.path)
     ws_fixture_installed_plugins(home / ".claude" / "plugins" / "installed_plugins.json")
     monkeypatch.setenv(
         "WS_INSTALLED_PLUGINS", str(home / ".claude" / "plugins" / "installed_plugins.json")
@@ -408,11 +418,32 @@ def run_gh(run_script):
     return run
 
 
+def _runner(run_script, script):
+    def run(*args, env=None):
+        return run_script(script, *args, env=env)
+
+    return run
+
+
 @pytest.fixture
 def ws_state(run_script):
     """Run ws-state.py with the current environment."""
+    return _runner(run_script, WS_STATE)
 
-    def run(*args, env=None):
-        return run_script(WS_STATE, *args, env=env)
 
-    return run
+@pytest.fixture
+def ws_issues(run_script):
+    """Run ws-issues.py with the current environment."""
+    return _runner(run_script, WS_ISSUES)
+
+
+@pytest.fixture
+def ws_pr_status(run_script):
+    """Run ws-pr-status.py with the current environment."""
+    return _runner(run_script, WS_PR_STATUS)
+
+
+@pytest.fixture
+def ws_preflight(run_script):
+    """Run ws-preflight.py with the current environment."""
+    return _runner(run_script, WS_PREFLIGHT)
