@@ -31,7 +31,10 @@ jobs:
   # same note in ci.yml.
   plugin-validate:
     name: plugin-validate
-    runs-on: ubuntu-latest
+    # The 1 vCPU runner: this job is one npm install and a few manifest reads,
+    # about fifteen seconds, well inside that runner's 15 minute cap, and the
+    # repo is internal so its minutes are billed at a quarter of ubuntu-latest.
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v7
 
