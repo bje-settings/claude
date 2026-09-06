@@ -20,6 +20,7 @@ dev = [
   # through subprocess, so without the patch the coverage denominator is empty.
   "coverage>=7.10.7,<7.11",
   "ruff>=0.14",
+  # Installed ahead of its config: issue #14 lands .pre-commit-config.yaml.
   "pre-commit>=4.3",
 ]
 
@@ -28,25 +29,40 @@ target-version = "py39"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B"]
+# FA is what actually holds the 3.9 floor for annotations: at py39 ruff accepts
+# `X | None` in a signature without complaint, and it fails at runtime unless the
+# module carries `from __future__ import annotations`. FA102 is that check.
+select = ["E", "F", "W", "I", "UP", "B", "FA"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["plugins"]
+# tests/ is here for one file, tests/coverage_check.py: it is test infrastructure,
+# but it decides whether a build passes, so it is measured like anything else
+# rather than trusted. coverage's source takes directories, not single files, so
+# the tests themselves are omitted below.
+source = ["plugins", "tests"]
 branch = true
 # The tests run each script black-box, as its own process, the way Claude Code
 # runs it. Without this the child process is not measured at all.
 patch = ["subprocess"]
-# Most child processes a test starts touch nothing under source = plugins (the
-# coverage gate itself, a stub on PATH), and each one would otherwise warn.
+# Nothing here imports the code under test: every script is driven black-box, in
+# a child process, so the pytest process itself measures no source file and warns
+# once per xdist worker. (Shell stubs on PATH never enter coverage at all; the
+# subprocess patch is a .pth in the venv, so it reaches Python children only.)
 disable_warnings = ["no-data-collected"]
 omit = [
-  # Ported to pytest by issue #59, which removes this line when it brings the
-  # field-test hook's examples across. Until then its coverage lives in kcov's
-  # report via the shell specs that drive it.
+  # Not measured by either harness until issue #59 ports its examples: kcov does
+  # not follow the python3 child the shell specs launch, so this file appears in
+  # neither report. The omit keeps that gap from reading as a 0% file and sinking
+  # the Python gate; #59 removes the line along with the gap.
   "plugins/field-test/hooks/hook-io.py",
+  # The tests are not the thing under test. Only tests/coverage_check.py survives
+  # this, which is the whole reason tests/ is in source above.
+  "tests/conftest.py",
+  "tests/test_*.py",
+  "tests/*/test_*.py",
 ]
 
 [tool.coverage.report]

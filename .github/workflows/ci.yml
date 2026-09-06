@@ -69,12 +69,15 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+      # --locked here and on every uv run below: drift between pyproject.toml and
+      # uv.lock fails the build rather than being silently re-resolved into a set
+      # of versions nobody reviewed.
       - name: Install the dev toolchain
-        run: uv sync
+        run: uv sync --locked
       - name: Lint Python
-        run: uv run ruff check .
+        run: uv run --locked ruff check .
       - name: Check Python formatting
-        run: uv run ruff format --check .
+        run: uv run --locked ruff format --check .
 
   pytest:
     name: pytest
@@ -91,7 +94,7 @@ jobs:
         with:
           enable-cache: true
       - name: Run the Python suite on the newest 3.x
-        run: uv run --python "${{ steps.python.outputs.python-path }}" pytest -n auto
+        run: uv run --locked --python "${{ steps.python.outputs.python-path }}" pytest -n auto
 
   pytest-floor:
     name: pytest-floor
@@ -105,7 +108,7 @@ jobs:
       # /usr/bin/python3 is on a Mac with the Command Line Tools, and therefore
       # what actually runs the plugin scripts for an end user.
       - name: Run the Python suite on the 3.9 floor
-        run: uv run pytest -n auto
+        run: uv run --locked pytest -n auto
 
   test:
     # The suite runs on both images on purpose. Linux gives us bash 5, which is
@@ -114,11 +117,16 @@ jobs:
     # run on its own would not prove much.
     #
     # THESE JOB NAMES ARE A CONTRACT: shellcheck, bash-5, bash-3.2, coverage,
-    # ruff, pytest and pytest-floor. The branch ruleset requires them by exact
-    # string, so renaming one does not fail the build: the required check simply
-    # never reports and every pull request waits forever for something that will
-    # not arrive. Keep them short and stable, and put descriptive text in step
-    # names, where it helps in logs without becoming load-bearing.
+    # ruff, pytest and pytest-floor are required, or about to be required, by the
+    # branch ruleset, which matches them by exact string. Renaming one does not
+    # fail the build: the required check simply never reports and every pull
+    # request waits forever for something that will not arrive. Keep them short
+    # and stable, and put descriptive text in step names, where it helps in logs
+    # without becoming load-bearing.
+    #
+    # A new job name becomes a required check only after it has reported on main,
+    # for the same reason; add it to the ruleset right after the pull request that
+    # introduces it merges.
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -240,7 +248,7 @@ jobs:
           enable-cache: true
 
       - name: Run the Python suite under coverage.py
-        run: uv run pytest --cov --cov-report=xml
+        run: uv run --locked pytest --cov --cov-report=xml
 
       # The runner's own python3, not uv's: the gate is stdlib-only and
       # 3.9-compatible precisely so it does not need the dev environment.

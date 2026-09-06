@@ -13,11 +13,10 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
-
-ROOT = Path(__file__).resolve().parent.parent
 
 # The tools a plugin script may reach for. `path_without` links all of these into
 # a fresh bin directory except the ones it is asked to leave out, which is how the
@@ -48,6 +47,10 @@ COMMON_TOOLS = (
     "python3",
 )
 
+# Without these a returned PATH is not a usable shell environment at all, and a
+# script would fail for a reason the example never meant to test.
+ESSENTIAL_TOOLS = ("bash", "sh", "python3")
+
 
 class Sandbox:
     """One example's private world: a temp directory and a PATH it can rewrite."""
@@ -67,8 +70,7 @@ class Sandbox:
         """
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
-        new_path = f"{directory}{os.pathsep}{os.environ.get('PATH', '')}"
-        self._monkeypatch.setenv("PATH", new_path)
+        self._monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ.get('PATH', '')}")
         return str(directory)
 
     def path_without(self, *tools: str) -> str:
@@ -77,18 +79,30 @@ class Sandbox:
         Returns the directory rather than exporting it: a test usually wants to
         hand it to `run_script` as the child's whole PATH, not to lose the tools
         pytest itself needs.
+
+        A fresh directory per call, so a second call cannot silently inherit the
+        first one's links and hand back a PATH that still holds the tool the
+        example is trying to take away.
         """
-        directory = self.path / "bin-without"
-        directory.mkdir(parents=True, exist_ok=True)
+        unknown = [tool for tool in tools if tool not in COMMON_TOOLS]
+        if unknown:
+            # A typo here removes nothing and the example passes for the wrong
+            # reason, which is exactly the failure the suite must not have.
+            raise ValueError(
+                "not tools path_without knows about: {}; add them to COMMON_TOOLS".format(
+                    ", ".join(sorted(unknown))
+                )
+            )
+        directory = Path(tempfile.mkdtemp(dir=str(self.path), prefix="bin-without-"))
         for tool in COMMON_TOOLS:
             if tool in tools:
                 continue
             real = shutil.which(tool)
             if not real:
+                if tool in ESSENTIAL_TOOLS:
+                    raise RuntimeError(f"{tool} is not on PATH; cannot build a usable PATH")
                 continue
-            link = directory / tool
-            if not link.exists():
-                link.symlink_to(real)
+            (directory / tool).symlink_to(real)
         return str(directory)
 
 
@@ -107,12 +121,11 @@ class Result:
 
     def __init__(self, completed: subprocess.CompletedProcess) -> None:
         self.status = completed.returncode
-        self.stdout = completed.stdout
-        self.stderr = completed.stderr
-
-    @property
-    def output(self) -> str:
-        return self.stdout
+        # errors="replace", not strict: a script that emits a stray byte would
+        # otherwise raise here and lose the status and the rest of the output,
+        # turning a legible assertion failure into a decoding traceback.
+        self.stdout = completed.stdout.decode("utf-8", "replace")
+        self.stderr = completed.stderr.decode("utf-8", "replace")
 
 
 @pytest.fixture
@@ -130,9 +143,8 @@ def run_script():
             child_env.update({key: str(value) for key, value in env.items()})
         completed = subprocess.run(
             [sys.executable, str(path), *[str(arg) for arg in args]],
-            input=stdin if stdin is not None else "",
+            input=(stdin or "").encode("utf-8"),
             capture_output=True,
-            text=True,
             env=child_env,
             check=False,
         )

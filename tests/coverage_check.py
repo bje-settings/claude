@@ -10,18 +10,56 @@ It reads both cobertura reports the repo produces: kcov's, which carries lines
 only, and coverage.py's, which also marks partially covered branches. Where
 branch data is present the partly-taken lines are listed beside the uncovered
 ones; where it is absent nothing changes. The gate itself is the root line-rate
-in both cases.
+in both cases, so a partial branch is reported but never fails a build on its
+own.
 
 Stdlib only, and 3.9-compatible: the CI coverage job runs this with the runner's
-system python3, outside the uv environment.
+system python3, outside the uv environment, so that a broken dev environment
+cannot be what decides whether a build passes.
 
   coverage_check.py <cobertura.xml> [threshold]
+
+Exit codes: 0 pass, 1 below the threshold or nothing measured, 2 bad usage or an
+unreadable report.
 """
 
 import sys
 import xml.etree.ElementTree as ET
 
 DEFAULT_THRESHOLD = 95.0
+USAGE = "usage: coverage_check.py <cobertura.xml> [threshold]\n"
+
+
+class ReportError(Exception):
+    """The report parsed, but does not say what this script needs to know."""
+
+
+def parse_threshold(text):
+    """The threshold as a percentage, or a usage error.
+
+    A threshold that is not a number, or is outside 0-100, is a mistake in the
+    caller rather than a coverage failure, and must not be reported as one: a
+    typo that silently became 0.0 would turn the gate off and still exit 0.
+    """
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        raise ReportError(f"threshold is not a number: {text}") from None
+    # NaN fails every comparison, so it would pass any coverage level.
+    if value != value or not 0 <= value <= 100:
+        raise ReportError(f"threshold must be between 0 and 100: {text}")
+    return value
+
+
+def rate_of(element, attribute="line-rate"):
+    """A cobertura rate attribute as a percentage."""
+    raw = element.get(attribute)
+    if raw is None:
+        raise ReportError(f"report has no {attribute}")
+    try:
+        return float(raw) * 100
+    except ValueError:
+        raise ReportError(f"report has an unreadable {attribute}: {raw}") from None
 
 
 def partial_branches(cls):
@@ -29,14 +67,16 @@ def partial_branches(cls):
 
     coverage.py writes branch="true" with condition-coverage="50% (1/2)" on such
     a line; kcov writes no branch attributes at all, so this is empty for its
-    report and the caller prints nothing extra.
+    report and the caller prints nothing extra. A line that was never hit is left
+    to the uncovered list rather than counted twice, and a branch line carrying no
+    condition-coverage at all says nothing either way and is skipped.
     """
     numbers = []
     for line in cls.iter("line"):
         if line.get("branch") != "true" or line.get("hits") == "0":
             continue
-        condition = line.get("condition-coverage") or ""
-        if condition.startswith("100%"):
+        condition = line.get("condition-coverage")
+        if not condition or condition.startswith("100%"):
             continue
         numbers.append(line.get("number"))
     return numbers
@@ -45,8 +85,14 @@ def partial_branches(cls):
 def report(path, threshold):
     root = ET.parse(path).getroot()
     classes = sorted(root.iter("class"), key=lambda c: c.get("filename") or "")
+    # An empty report is the failure this script exists to catch: a run that
+    # measured nothing has a line-rate of 0 or 1 depending on the tool, and either
+    # way "no files" must not be mistaken for an answer about the files.
+    if not classes or root.get("lines-valid") == "0":
+        raise ReportError("report contains no measured files")
+
     for cls in classes:
-        rate = float(cls.get("line-rate", 0)) * 100
+        rate = rate_of(cls)
         uncovered = [line.get("number") for line in cls.iter("line") if line.get("hits") == "0"]
         suffix = "  uncovered: " + ",".join(uncovered) if uncovered else ""
         partial = partial_branches(cls)
@@ -54,17 +100,28 @@ def report(path, threshold):
             suffix += "  partial branches: " + ",".join(partial)
         print("  {:6.2f}%  {}{}".format(rate, cls.get("filename"), suffix))
 
-    overall = float(root.get("line-rate", 0)) * 100
+    overall = rate_of(root)
     print(f"\noverall: {overall:.2f}%   threshold: {threshold:.2f}%")
     return overall
 
 
 def main(argv):
     if len(argv) < 2:
-        sys.stderr.write("usage: coverage_check.py <cobertura.xml> [threshold]\n")
+        sys.stderr.write(USAGE)
         return 2
-    threshold = float(argv[2]) if len(argv) > 2 else DEFAULT_THRESHOLD
-    overall = report(argv[1], threshold)
+    try:
+        threshold = parse_threshold(argv[2]) if len(argv) > 2 else DEFAULT_THRESHOLD
+    except ReportError as error:
+        sys.stderr.write(f"{error}\n{USAGE}")
+        return 2
+    try:
+        overall = report(argv[1], threshold)
+    except (OSError, ET.ParseError) as error:
+        sys.stderr.write(f"FAIL: cannot read {argv[1]}: {error}\n")
+        return 2
+    except ReportError as error:
+        sys.stderr.write(f"FAIL: {error}\n")
+        return 1
     # A hair of tolerance, so a value that prints as exactly the threshold is not
     # rejected by binary floating point.
     if overall < threshold - 1e-9:

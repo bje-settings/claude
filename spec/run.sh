@@ -2,7 +2,7 @@
 # run.sh — lint and test the plugin scripts.
 #
 #   spec/run.sh             lint, then both harnesses (shellspec on both shells)
-#   spec/run.sh --quick     both harnesses once, under the default shell
+#   spec/run.sh --quick     pytest, then shellspec once under the default shell
 #   spec/run.sh --coverage  both harnesses with the CI thresholds applied
 #   SPEC_JOBS=N spec/run.sh shellspec --jobs to use (default: the core count,
 #                           split between the two passes when both run)
@@ -64,16 +64,22 @@ else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
 
-# uv drives everything Python here: the lint, the suite, and the coverage gate.
-# It is not optional the way shellcheck is, because half the suite lives behind it.
+# uv runs the Python lint and the Python suite. Unlike shellcheck it is not
+# optional, because part of the suite lives behind it. The coverage gate below is
+# deliberately not run through uv: it is stdlib-only so that a broken dev
+# environment cannot be what decides whether a build passes.
 command -v uv >/dev/null 2>&1 || {
   printf 'uv is required: brew install uv\n' >&2
   exit 1
 }
 
-# The files in a plugin that are not shell, so shellcheck says nothing about them.
-run "ruff" uv run ruff check .
-run "ruff format" uv run ruff format --check .
+# --locked everywhere: drift between pyproject.toml and uv.lock fails here rather
+# than being silently re-resolved into a set of versions CI never saw.
+#
+# ruff covers every .py in the repo, which is the plugin files shellcheck says
+# nothing about plus the tests themselves.
+run "ruff" uv run --locked ruff check .
+run "ruff format" uv run --locked ruff format --check .
 
 command -v shellspec >/dev/null 2>&1 || {
   printf 'shellspec is required: brew install shellspec\n' >&2
@@ -95,14 +101,14 @@ if [[ "${1:-}" == "--coverage" ]]; then
   run "shellspec (kcov)" shellspec --kcov --covdir coverage \
     --kcov-options "--include-path=./plugins --path-strip-level=1"
   run "shell coverage threshold" python3 tests/coverage_check.py coverage/cobertura.xml 95
-  run "pytest (coverage)" uv run pytest --cov --cov-report=xml
+  run "pytest (coverage)" uv run --locked pytest --cov --cov-report=xml
   run "python coverage threshold" python3 tests/coverage_check.py coverage/python.xml 95
 elif [[ "${1:-}" == "--quick" ]]; then
   # --quick is this script's flag, not shellspec's: forwarded, it would switch
   # shellspec into its own quick mode and leave .shellspec-quick.log in the
   # checkout, which every later run (both passes at once) would then share.
   shift
-  run "pytest" uv run pytest -n auto
+  run "pytest" uv run --locked pytest -n auto
   run "shellspec (default shell, --jobs $jobs)" shellspec --jobs "$jobs" "$@"
 else
   # Both passes run as background jobs and the script waits on them, because
@@ -118,7 +124,7 @@ else
   # machine is oversubscribed, and measured wall time is the same either way.
   # pytest first, and on its own: it is seconds, and it is the harness a Python
   # change is most likely to have broken.
-  run "pytest" uv run pytest -n auto
+  run "pytest" uv run --locked pytest -n auto
   jobs=$(( (jobs + 1) / 2 ))
   legacy_out="$(mktemp)" || { printf 'could not create a temp file for the /bin/bash pass\n' >&2; exit 1; }
   set -m

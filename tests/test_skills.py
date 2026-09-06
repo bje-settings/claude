@@ -26,7 +26,13 @@ BARE_EXPANSION = re.compile(r"^\$[A-Za-z_][A-Za-z0-9_]* ")
 
 
 def skill_files():
-    return sorted(ROOT.glob("plugins/*/skills/*/SKILL.md"))
+    # rglob, not a fixed-depth glob: the shell spec this replaced used
+    # `find -path '*/skills/*' -name SKILL.md`, which matches a skill nested any
+    # number of directories below skills/, and a narrower glob here would quietly
+    # stop checking one the day someone groups skills into subdirectories.
+    return sorted(
+        path for path in ROOT.rglob("SKILL.md") if "skills" in path.relative_to(ROOT).parts[:-1]
+    )
 
 
 def rel(path: Path) -> str:
@@ -56,7 +62,7 @@ def test_every_flow_md_has_a_diagram():
         flow = skill.parent / "FLOW.md"
         if not flow.is_file():
             continue
-        if not MERMAID_FENCE.search(flow.read_text()):
+        if not MERMAID_FENCE.search(flow.read_text(encoding="utf-8")):
             without.append(rel(flow))
     assert without == []
 
@@ -67,7 +73,11 @@ def test_the_diagram_stays_out_of_skill_md():
     Required by .claude/rules/file-skill-md.md: SKILL.md is context on every run,
     FLOW.md is read on demand.
     """
-    carrying = [rel(skill) for skill in skill_files() if MERMAID_FENCE.search(skill.read_text())]
+    carrying = [
+        rel(skill)
+        for skill in skill_files()
+        if MERMAID_FENCE.search(skill.read_text(encoding="utf-8"))
+    ]
     assert carrying == []
 
 
@@ -75,7 +85,7 @@ def test_every_script_a_skill_runs_is_spelled_out():
     """spells out every script a skill runs"""
     hits = []
     for skill in skill_files():
-        for number, line in enumerate(skill.read_text().splitlines(), 1):
+        for number, line in enumerate(skill.read_text(encoding="utf-8").splitlines(), 1):
             if COMMAND_IN_A_VARIABLE.match(line) or BARE_EXPANSION.match(line):
                 hits.append(f"{rel(skill)}:{number}:{line}")
     assert hits == []

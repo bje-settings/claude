@@ -1,7 +1,8 @@
 """Black-box tests for the gh plugin's SessionStart hook helper.
 
-Ported from spec/gh/hook_io_spec.sh; each test's docstring is the `It`
-description it came from. Every run goes through `run_script`, so the helper is
+The eight ported tests carry the `It` description they came from in their
+docstring; the two under "no dependency on anything outside the stdlib" were
+added with the port. Every run goes through `run_script`, so the helper is
 exercised as its own process exactly as the shell hook runs it.
 """
 
