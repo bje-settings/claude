@@ -87,3 +87,25 @@ def test_install_deps_returns_the_managers_own_status(tmp_path, monkeypatch):
     status, log = install.install_deps(str(project))
     assert status == 9
     assert "nope" in log
+
+
+def test_install_deps_reports_a_manager_that_cannot_be_run(tmp_path, monkeypatch):
+    """Present but unrunnable is not "command not found".
+
+    A lock file whose manager is on PATH without the execute bit fails with a
+    different errno, and reporting it as missing sends the reader looking for an
+    install that is already there.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "npm"
+    stub.write_text("#!/bin/sh\necho installed\n")
+    stub.chmod(0o644)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    project = tmp_path / "project"
+    project.mkdir()
+    touch(project, "package-lock.json")
+    status, log = install.install_deps(str(project))
+    assert status == 127
+    assert log.startswith("npm: ")
+    assert "command not found" not in log

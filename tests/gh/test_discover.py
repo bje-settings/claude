@@ -104,6 +104,9 @@ def test_the_script_exits_1_for_a_target_that_is_not_a_directory(gh, run_script)
     result = run_script(DISCOVER, gh.path / "nope")
     assert result.status == 1
     assert result.stdout == ""
+    # The status alone leaves a caller running this over several targets with
+    # nothing to report about which one was wrong.
+    assert f"not a directory: {gh.path / 'nope'}" in result.stderr
 
 
 def test_the_script_defaults_to_the_current_directory(gh, run_script, monkeypatch):
@@ -111,6 +114,37 @@ def test_the_script_defaults_to_the_current_directory(gh, run_script, monkeypatc
     result = run_script(DISCOVER)
     assert result.status == 0
     assert result.stdout.strip() == real(gh.repo)
+
+
+def test_skips_a_hidden_directory(gh):
+    """A dotfile is not a repository the fan-out should find.
+
+    The shell glob this replaces was "$target"/*/, which never matched one, and
+    the fan-out fixtures park their bare origins in a hidden directory precisely
+    because of that: finding them would make every fan-out scan report the
+    origins too.
+    """
+    gh.create_at(gh.path / "fan", "visible")
+    gh.create_at(gh.path / "fan", ".hidden")
+    found = discover.discover_repos(gh.path / "fan")
+    assert [os.path.basename(path) for path in found] == ["visible"]
+
+
+def test_the_script_prints_under_a_single_byte_locale(gh, run_script):
+    """A repository path can hold any byte, and a non-UTF-8 locale must not turn
+    printing one into a UnicodeEncodeError that loses the whole listing.
+
+    The name is deliberately outside ASCII: an ASCII-only path encodes fine under
+    ISO-8859-1 and would pass with no reconfigure at all.
+    """
+    gh.create_at(gh.path / "fan", "caf\u00e9-\u4ed3\u5e93")
+    result = run_script(
+        DISCOVER,
+        gh.path / "fan",
+        env={"LC_ALL": "en_US.ISO8859-1", "PYTHONIOENCODING": "ISO-8859-1", "PYTHONUTF8": "0"},
+    )
+    assert result.status == 0
+    assert "\u4ed3\u5e93" in result.stdout
 
 
 def test_a_missing_git_is_no_repositories_rather_than_a_crash(gh, sandbox, monkeypatch):
