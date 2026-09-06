@@ -21,7 +21,8 @@ Plugins are listed in `README.md`; each has its own README.
 New `gh` skills belong in the `gh` plugin, which is the intended home for the commands still in
 `~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
 `tidy-user-notifications`). The no-checkout rebase `rebase-prs` performs already lives here as
-`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
+`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`, and,
+until issue #56 ports `gh-sync.sh`, its bash copy `scripts/lib/discover.sh` as well.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
@@ -38,12 +39,13 @@ plugin without the others. `plugins/workstreams/scripts/lib/` is the worked exam
 what every one of that plugin's scripts does around its own work (the UTF-8 output streams, the
 flush, a reported failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py`
 and `pr_status.py` hold what used to be each script's jq filters and argument checks, as plain
-functions with a unit test per arm. `plugins/field-test/scripts/lib/` is the same shape: it holds
-what that plugin's jq programs and shell parsing decided, plus `run.py`, which `hooks/hook-io.py`
-imports rather than keeping a second copy of where the run marker lives.
-Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by path under a
-plugin-unique module name, because two plugins' `lib` packages collide on `sys.modules["lib"]` in
-one pytest process. That loader is why nothing under `lib/` imports another
+functions with a unit test per arm; `plugins/gh/scripts/lib/` is laid out the same way.
+`plugins/field-test/scripts/lib/` is the same shape: it holds what that plugin's jq programs and
+shell parsing decided, plus `run.py`, which `hooks/hook-io.py` imports rather than keeping a second
+copy of where the run marker lives. Scripts import `lib` through `sys.path`, but tests load a
+plugin's lib modules by path under a plugin-unique module name, because two plugins' `lib` packages
+collide on `sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/`
+imports another
 `lib/` module: a module loaded by path sits outside any package, where a sibling import would not
 resolve, so a module that raises its own error class hands it to `cli.run` rather than importing one.
 
