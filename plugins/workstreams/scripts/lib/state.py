@@ -1,12 +1,14 @@
 """State-file transformations for ws-state.py.
 
-Every function here was a jq program in ws-state.sh: the add-stream filter, the
-two `set` filters, the list-streams selection, defer, meta, and the shape check
-that decides whether a file is workstreams state at all. They are plain functions
-so each arm can be tested directly. Under kcov a jq program counted as one line
-however many decisions it held, which is the blind spot
-`.claude/rules/type-jq.md` describes; here every branch is its own arm of the
-coverage report and its own unit test in `tests/workstreams/test_state.py`.
+Two kinds of thing live here. The jq programs ws-state.sh ran -- the add-stream
+filter, both `set` filters, the list-streams selection, defer, meta, and the
+shape check that decides whether a file is workstreams state at all -- and the
+argument validation the shell did with regexes and substring tests against
+space-padded vocabularies. Both are plain functions so each arm can be tested
+directly. Under kcov a jq program counted as one line however many decisions it
+held, which is the blind spot `.claude/rules/type-jq.md` describes; here every
+branch is its own arm of the coverage report and its own unit test in
+`tests/workstreams/test_state.py`.
 
 Nothing here touches the filesystem or the environment: the functions take a
 state document (the parsed JSON) and return a new value or raise `Invalid`. The
@@ -18,8 +20,7 @@ from __future__ import annotations
 import json
 import re
 
-# The vocabularies the script validates against. Tuples, not the space-padded
-# strings the shell used for its substring tests.
+# The vocabularies the script validates against.
 STATUSES = ("planned", "running", "draft", "reviewing", "paused", "done", "failed")
 KINDS = ("independent", "stack")
 FIELDS = (
@@ -71,13 +72,28 @@ class Invalid(Exception):
 
 
 def is_state(document) -> bool:
-    """Was: `type == "object" and (.streams | type) == "array"`.
+    """Whether a parsed JSON document is a workstreams state file.
 
-    Both halves matter. A JSON file that is not an object at all, and one that is
-    an object with no streams array (any other tool's JSON that happens to sit at
-    the same path), are equally not workstreams state.
+    The shell asked only whether the top level was an object holding a `streams`
+    array, which let a file through that every later step then had to guard
+    against or crash on. This checks the whole shape the rest of the module
+    assumes: `streams` is a list of objects, and `deferred` and `meta`, where the
+    file has them at all, are a list of objects and an object. Anything else is
+    another tool's JSON that happens to sit at the same path, and is refused
+    before a single field is written.
     """
-    return isinstance(document, dict) and isinstance(document.get("streams"), list)
+    if not isinstance(document, dict):
+        return False
+    streams = document.get("streams")
+    if not isinstance(streams, list) or not all(isinstance(entry, dict) for entry in streams):
+        return False
+    if "deferred" in document:
+        deferred = document["deferred"]
+        if not isinstance(deferred, list) or not all(isinstance(entry, dict) for entry in deferred):
+            return False
+    if "meta" in document and not isinstance(document["meta"], dict):
+        return False
+    return True
 
 
 def new_state(repo: str, created: str) -> dict:
@@ -106,11 +122,11 @@ def stream_record(
     effort: str,
     reason: str,
 ) -> dict:
-    """Was: add-stream.jq. One stream record, with the defaults filled in.
+    """One stream record, with the defaults filled in.
 
-    The arguments arrive as the strings the command line carried, since that is
-    what the jq filter received: an empty `stack`, `order` or `base` becomes
-    null rather than an empty string, and `issues` is split into numbers.
+    The arguments arrive as the strings the command line carried: an empty
+    `stack`, `order` or `base` becomes null rather than an empty string, and
+    `issues` is split into numbers.
     """
     return {
         "id": stream_id,
@@ -134,15 +150,20 @@ def stream_record(
 
 
 def find_stream(state: dict, stream_id: str):
-    """Was: `.streams[] | select(.id == $id)`. The record, or None."""
+    """The stream with that id, or None.
+
+    The first match is the only one: `add_stream` refuses an id the plan already
+    holds, so no state file this module wrote can carry two. Every entry is a
+    dict because `is_state` refused the document otherwise.
+    """
     for stream in state["streams"]:
-        if isinstance(stream, dict) and stream.get("id") == stream_id:
+        if stream.get("id") == stream_id:
             return stream
     return None
 
 
 def add_stream(state: dict, record: dict) -> dict:
-    """Was: `.streams += [ ... ]`, with the duplicate check that guarded it."""
+    """Append a stream, with the duplicate check that guarded it."""
     if find_stream(state, record["id"]) is not None:
         raise Invalid("add-stream: stream already exists: {}".format(record["id"]), 1)
     state["streams"].append(record)
@@ -150,7 +171,13 @@ def add_stream(state: dict, record: dict) -> dict:
 
 
 def set_stream_field(state: dict, stream_id: str, field: str, value) -> dict:
-    """Was: `(.streams[] | select(.id == $id))[$f] = $v`."""
+    """Write one field of one stream, refusing an id no stream carries.
+
+    The assignment on its own would match nothing and write the file back
+    unchanged, so the refusal is what makes a mistyped id visible rather than a
+    silent no-op. The named field is written as given; `check_field` is what
+    keeps a typo from creating one.
+    """
     stream = find_stream(state, stream_id)
     if stream is None:
         raise Invalid(f"set: unknown stream: {stream_id}", 1)
@@ -159,38 +186,35 @@ def set_stream_field(state: dict, stream_id: str, field: str, value) -> dict:
 
 
 def filter_streams(state: dict, status: str) -> list:
-    """Was: `[.streams[] | select($s == "" or .status == $s)]`.
+    """The streams with that status, in order.
 
     An empty status is no filter at all, which is what `list-streams` with no
     `--status` passes.
     """
-    return [
-        stream
-        for stream in state["streams"]
-        if status == "" or (isinstance(stream, dict) and stream.get("status") == status)
-    ]
+    return [stream for stream in state["streams"] if status == "" or stream.get("status") == status]
 
 
 # --- meta and deferred -------------------------------------------------------
 
 
 def set_meta(state: dict, field: str, value) -> dict:
-    """Was: `.meta[$k] = $v`."""
+    """Write one plan-level meta field.
+
+    A state file written before `meta` existed has no such object; it gets one
+    rather than being refused, and every other field of the document is left
+    exactly as it was.
+    """
     state.setdefault("meta", {})[field] = value
     return state
 
 
 def defer(state: dict, issue: int, reason: str) -> dict:
-    """Was: `.deferred = ([.deferred[] | select(.issue != $n)] + [{...}])`.
+    """Record an issue as deferred, with the reason.
 
     Deferring the same issue twice replaces the first reason rather than
     recording the issue twice; every other entry keeps its place.
     """
-    kept = [
-        entry
-        for entry in state.get("deferred", [])
-        if not (isinstance(entry, dict) and entry.get("issue") == issue)
-    ]
+    kept = [entry for entry in state.get("deferred", []) if entry.get("issue") != issue]
     state["deferred"] = kept + [{"issue": issue, "reason": reason}]
     return state
 
@@ -199,7 +223,7 @@ def defer(state: dict, issue: int, reason: str) -> dict:
 
 
 def parse_issues(issues: str) -> list:
-    """Comma-separated issue numbers, as the jq `split(",") | map(tonumber)` did."""
+    """Comma-separated issue numbers, split into a list of numbers."""
     if not ISSUE_LIST.match(issues):
         raise Invalid(f"add-stream: --issues must be comma-separated numbers, got: {issues}")
     return [int(part) for part in issues.split(",")]
@@ -254,13 +278,24 @@ def numeric_field_value(field: str, value: str):
 
 
 def json_value(value: str):
-    """The `--json` value, parsed. An empty string is not JSON, and neither is `{oops`."""
+    """The `--json` value, parsed. An empty string is not JSON, and neither is `{oops`.
+
+    NaN, Infinity and -Infinity are refused as well. Python's parser accepts all
+    three, but they are not JSON: written back out they would produce a state
+    file no other reader could parse, and the script writes with allow_nan off,
+    so the file could not be written at all.
+    """
     if value == "":
         raise Invalid(f"set: --json value is not valid JSON: {value}")
     try:
-        return json.loads(value)
+        return json.loads(value, parse_constant=_no_constants)
     except ValueError:
         raise Invalid(f"set: --json value is not valid JSON: {value}") from None
+
+
+def _no_constants(name: str):
+    """The `parse_constant` hook: refuse NaN and both infinities by name."""
+    raise ValueError(f"not JSON: {name}")
 
 
 def meta_value(field: str, value: str):
