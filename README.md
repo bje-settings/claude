@@ -12,11 +12,33 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 > Git and GitHub workflow.
 
-| | |
-| --- | --- |
-| **Skills** | <ul><li>[`/gh:sync`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghsync): move a checkout to its default branch, fast-forward it, and prune branches and worktrees whose work has landed. _Scope: `cwd` can be a single repo or a directory of repo subdirs._</li><li>[`/gh:shepherd`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd): merge auto-merge-enabled `dependencies` PRs one at a time, rebasing and waiting on CI between merges. _Scope: `cwd` can be a single repo or a directory of repo subdirs._</li></ul> |
-| **Agents** | <ul><li>[`shepherd-repo`](https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd): shepherds one repository serially; dispatched by `/gh:shepherd`, one per repo in parallel.</li></ul> |
-| **Hooks** | <ul><li>[Session start](https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook): report-only check on startup that offers `/gh:sync` when there is something to act on. Never changes a branch, worktree, or working tree.</li></ul> |
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghsync"><code>/gh:sync</code></a>: move a checkout to its default branch, fast-forward it, and prune branches and worktrees whose work has landed. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd"><code>/gh:shepherd</code></a>: merge auto-merge-enabled <code>dependencies</code> PRs one at a time, rebasing and waiting on CI between merges. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Agents</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd"><code>shepherd-repo</code></a>: shepherds one repository serially; dispatched by <code>/gh:shepherd</code>, one per repo in parallel.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Hooks</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: report-only check on startup that offers <code>/gh:sync</code> when there is something to act on. Never changes a branch, worktree, or working tree.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ### [`workstreams`](plugins/workstreams)
 
@@ -24,10 +46,26 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 > ending in a reviewed draft PR. Requires `gh-stack` and `pr-review-toolkit`; see
 > [Requirements](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#requirements).
 
-| | |
-| --- | --- |
-| **Skills** | <ul><li>[`/workstreams:plan`](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsplan-selectors): resolve issue selectors, classify each issue as work now, defer, or blocked, group overlapping files into stacks, size each stream, and record the approved plan. Starts nothing.</li><li>[`/workstreams:run`](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun): start one subagent per planned stream, check progress on a self-timed cadence, review every draft until a pass applies nothing, and report. PRs stay drafts.</li></ul> |
-| **Agents** | <ul><li>[`stream-low`, `stream-medium`, `stream-high`](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun): work one stream through to a draft PR at the effort the plan sized it; dispatched by `/workstreams:run`.</li><li>[`reviewer`](https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun): reviews one draft PR with `pr-review-toolkit`, applies the findings that hold, and refreshes a stale title or body.</li></ul> |
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsplan-selectors"><code>/workstreams:plan</code></a>: resolve issue selectors, classify each issue as work now, defer, or blocked, group overlapping files into stacks, size each stream, and record the approved plan. Starts nothing.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>/workstreams:run</code></a>: start one subagent per planned stream, check progress on a self-timed cadence, review every draft until a pass applies nothing, and report. PRs stay drafts.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Agents</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>stream-low</code>, <code>stream-medium</code>, <code>stream-high</code></a>: work one stream through to a draft PR at the effort the plan sized it; dispatched by <code>/workstreams:run</code>.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>reviewer</code></a>: reviews one draft PR with <code>pr-review-toolkit</code>, applies the findings that hold, and refreshes a stale title or body.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ## Contributing
 
