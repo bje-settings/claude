@@ -1,0 +1,73 @@
+[project]
+name = "bje-claude-plugins"
+version = "0.1.0"
+description = "Claude Code plugin marketplace for the bje enterprise"
+# 3.9 is the floor for the dev toolchain and for every plugin script, because
+# 3.9.6 is what macOS ships at /usr/bin/python3 with the Command Line Tools. End
+# users run the plugins with that interpreter and never install uv, so nothing
+# here may resolve to a version that would not run there.
+requires-python = ">=3.9"
+# The plugins are stdlib-only by design; there is nothing to install to run them.
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-cov>=7,<8",
+  "pytest-xdist>=3.8,<4",
+  # 7.10 is where patch = ["subprocess"] arrived, and 7.10.7 is the last release
+  # that still supports 3.9. Both matter: the tests run the scripts black-box
+  # through subprocess, so without the patch the coverage denominator is empty.
+  "coverage>=7.10.7,<7.11",
+  "ruff>=0.14",
+  # Installed ahead of its config: issue #14 lands .pre-commit-config.yaml.
+  "pre-commit>=4.3",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+# FA is what actually holds the 3.9 floor for annotations: at py39 ruff accepts
+# `X | None` in a signature without complaint, and it fails at runtime unless the
+# module carries `from __future__ import annotations`. FA102 is that check.
+select = ["E", "F", "W", "I", "UP", "B", "FA"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+# tests/ is here for one file, tests/coverage_check.py: it is test infrastructure,
+# but it decides whether a build passes, so it is measured like anything else
+# rather than trusted. coverage's source takes directories, not single files, so
+# the tests themselves are omitted below.
+source = ["plugins", "tests"]
+branch = true
+# The tests run each script black-box, as its own process, the way Claude Code
+# runs it. Without this the child process is not measured at all.
+patch = ["subprocess"]
+# Nothing here imports the code under test: every script is driven black-box, in
+# a child process, so the pytest process itself measures no source file and warns
+# once per xdist worker. (Shell stubs on PATH never enter coverage at all; the
+# subprocess patch is a .pth in the venv, so it reaches Python children only.)
+disable_warnings = ["no-data-collected"]
+omit = [
+  # Not measured by either harness until issue #59 ports its examples: kcov does
+  # not follow the python3 child the shell specs launch, so this file appears in
+  # neither report. The omit keeps that gap from reading as a 0% file and sinking
+  # the Python gate; #59 removes the line along with the gap.
+  "plugins/field-test/hooks/hook-io.py",
+  # The tests are not the thing under test. Only tests/coverage_check.py survives
+  # this, which is the whole reason tests/ is in source above. ** and not *:
+  # coverage's globs do not cross a directory separator, so "tests/test_*.py"
+  # alone would leave every tests/<plugin>/ file measured.
+  "tests/**/test_*.py",
+  "tests/**/conftest.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.coverage.xml]
+output = "coverage/python.xml"

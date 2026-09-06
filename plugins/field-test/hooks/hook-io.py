@@ -93,7 +93,7 @@ def note_transcript(path, transcript):
         if marker.get("transcript_path"):
             return
         marker["transcript_path"] = transcript
-        tmp = marker_path + ".tmp.%d" % os.getpid()
+        tmp = f"{marker_path}.tmp.{os.getpid()}"
         with open(tmp, "w") as handle:
             json.dump(marker, handle)
         os.replace(tmp, marker_path)
@@ -272,8 +272,7 @@ def handle_stop(payload, path):
     try:
         finished = subprocess.run(
             ["bash", run_sh, "finish", "--session", payload.get("session_id") or ""],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
         )
     except OSError:
@@ -287,8 +286,7 @@ def handle_stop(payload, path):
     record.update(
         {
             "hook": "Stop",
-            "error": "ft-run.sh finish exited %d: %s"
-            % (
+            "error": "ft-run.sh finish exited {}: {}".format(
                 finished.returncode,
                 finished.stderr.decode("utf-8", "replace")[-STDERR_TAIL_CHARS:],
             ),
@@ -311,7 +309,7 @@ def dispatch(event, payload, path):
 def main(argv):
     event = argv[1] if len(argv) > 1 else ""
     if event not in EVENTS:
-        sys.stderr.write("usage: hook-io.py {%s}\n" % "|".join(EVENTS))
+        sys.stderr.write("usage: hook-io.py {{{}}}\n".format("|".join(EVENTS)))
         return 0
     payload = read_payload()
     if payload is None:

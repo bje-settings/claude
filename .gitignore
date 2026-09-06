@@ -5,3 +5,11 @@
 
 # python bytecode from the hook helpers
 __pycache__/
+
+# python harness artifacts
+.venv/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/

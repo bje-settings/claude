@@ -56,10 +56,59 @@ jobs:
             fixtures/field-test/bin/gh \
             spec/run.sh
 
-      # The one file in a plugin that is not shell. It holds the deny-list
-      # enforcement, so it should not be the only thing here that is unchecked.
-      - name: Compile the Python hook helper
-        run: python3 -m compileall -q plugins/field-test/hooks/hook-io.py
+  # The Python counterpart of the shellcheck job. ruff's target-version is py39,
+  # so syntax newer than the floor is a lint failure rather than something a user
+  # on the Python macOS ships discovers at runtime.
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Pinned to a patch tag, not a major one: setup-uv stopped publishing the
+      # moving vN tag after v7, so `@v10` does not resolve.
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      # --locked here and on every uv run below: drift between pyproject.toml and
+      # uv.lock fails the build rather than being silently re-resolved into a set
+      # of versions nobody reviewed.
+      - name: Install the dev toolchain
+        run: uv sync --locked
+      - name: Lint Python
+        run: uv run --locked ruff check .
+      - name: Check Python formatting
+        run: uv run --locked ruff format --check .
+
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # 3.x is whatever the newest stable release is, so the suite is exercised
+      # above the floor as well as on it. pytest-floor is the run that proves 3.9.
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: "3.x"
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run the Python suite on the newest 3.x
+        run: uv run --locked --python "${{ steps.python.outputs.python-path }}" pytest -n auto
+
+  pytest-floor:
+    name: pytest-floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      # No --python here on purpose: .python-version pins 3.9, which is what
+      # /usr/bin/python3 is on a Mac with the Command Line Tools, and therefore
+      # what actually runs the plugin scripts for an end user.
+      - name: Run the Python suite on the 3.9 floor
+        run: uv run --locked pytest -n auto
 
   test:
     # The suite runs on both images on purpose. Linux gives us bash 5, which is
@@ -67,11 +116,17 @@ jobs:
     # what actually executes these scripts when the plugin runs, so a green Linux
     # run on its own would not prove much.
     #
-    # THESE JOB NAMES ARE A CONTRACT. The branch ruleset requires them by exact
-    # string, so renaming one does not fail the build: the required check simply
-    # never reports and every pull request waits forever for something that will
-    # not arrive. Keep them short and stable, and put descriptive text in step
-    # names, where it helps in logs without becoming load-bearing.
+    # THESE JOB NAMES ARE A CONTRACT: shellcheck, bash-5, bash-3.2, coverage,
+    # ruff, pytest and pytest-floor are required, or about to be required, by the
+    # branch ruleset, which matches them by exact string. Renaming one does not
+    # fail the build: the required check simply never reports and every pull
+    # request waits forever for something that will not arrive. Keep them short
+    # and stable, and put descriptive text in step names, where it helps in logs
+    # without becoming load-bearing.
+    #
+    # A new job name becomes a required check only after it has reported on main,
+    # for the same reason; add it to the ruleset right after the pull request that
+    # introduces it merges.
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -181,11 +236,33 @@ jobs:
       # for the same run without the flag. This step fails the job before the
       # upload, with the per-file numbers and the uncovered lines in the log, so
       # a drop says which file moved.
-      - name: Enforce the coverage threshold
-        run: python3 spec/coverage-check.py coverage/cobertura.xml 95
+      - name: Enforce the coverage threshold for the shell scripts
+        run: python3 tests/coverage_check.py coverage/cobertura.xml 95
+
+      # coverage.py measures the Python scripts. It runs after kcov, which owns
+      # the whole covdir; this only adds a file to it. The threshold is the same
+      # 95, applied to each report separately, so neither harness can be carried
+      # by the other.
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Run the Python suite under coverage.py
+        run: uv run --locked pytest --cov --cov-report=xml
+
+      # The runner's own python3, not uv's: the gate is stdlib-only and
+      # 3.9-compatible precisely so it does not need the dev environment.
+      - name: Enforce the coverage threshold for the Python scripts
+        run: python3 tests/coverage_check.py coverage/python.xml 95
 
       - uses: actions/upload-code-coverage@v1
         with:
           file: coverage/cobertura.xml
           language: Shell
           label: code-coverage/kcov
+
+      - uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage/python.xml
+          language: Python
+          label: code-coverage/pytest

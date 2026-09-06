@@ -243,8 +243,9 @@ spec/run.sh --quick      # the suite once, under the default shell
 The suite runs under both shells deliberately: bash 5 is what most contributors have on `PATH`,
 but `/bin/bash` is 3.2 on macOS and is what actually executes these scripts.
 
-CI adds a coverage job (`kcov`, measured over `plugins/gh` only) which fails below 95%, enforced
-by `spec/coverage-check.py`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
+CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py` over both
+reports: `kcov` for the shell scripts and `coverage.py` for `hooks/hook-io.py`, which is Python and
+has its tests in `tests/gh/`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
 All three supported package managers have an install spec. The uncovered remainder is defensive branches
 guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
 immediately after.
