@@ -22,9 +22,8 @@ the reviewer are subagents that return once and never schedule anything.
 ## Step 1: Preflight and load
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh
-S="bash ${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh"
-$S show
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" show
 ```
 
 Stop with the install hints if preflight exits 1, or with its stderr line if it exits 4. Stop
@@ -50,8 +49,8 @@ this directory and start one worker with the `Agent` tool:
 Then record it, for every stream in the unit:
 
 ```bash
-$S set <id> status running
-$S set <id> agent "<agent name or id>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" set <id> status running
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" set <id> agent "<agent name or id>"
 ```
 
 Do not create worktrees or branches yourself. The worker does that, following the target repo's
@@ -70,8 +69,8 @@ On each wake:
 1. **Workers that returned.** Parse the fenced JSON block at the end of each result. For a stack
    the worker reports `stream` as the bottom layer's id and `prs` bottom-up; write `prs[i]` to
    the `pr` of the layer with `order` i+1, and apply the status to every layer.
-   - `status: draft`: record `branch`, `worktree`, `pr` (`$S set <id> pr <n>`), set status `draft`,
-     and go to Step 4.
+   - `status: draft`: record `branch`, `worktree`, and `pr` (`ws-state.sh set <id> pr <n>`),
+     set status `draft`, and go to Step 4.
    - `status: paused`: record `question`, set status `paused`. Tell the user the question in the
      tick's message. Never block on it; the other streams continue.
    - `status: failed`: record the error in `question`, set `attempts` to its current value plus
@@ -87,8 +86,8 @@ On each wake:
 For a stream that just reached `draft`, or whose last review applied changes:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.sh <pr>
-$S set <id> status reviewing
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.sh" <pr>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" set <id> status reviewing
 ```
 
 If `ws-pr-status.sh` fails, the worker reported a PR that does not exist: set the stream

@@ -18,7 +18,7 @@ recorded so `/workstreams:run` never has to re-derive them.
 ## Step 1: Preflight
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.sh"
 ```
 
 Exit 0 means proceed. Exit 1 prints JSON: print each `hint` verbatim as a command the user
@@ -28,7 +28,7 @@ around a missing dependency.
 ## Step 2: Resolve the issues
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/ws-issues.sh <selectors>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-issues.sh" <selectors>
 ```
 
 Pass each selector from `$ARGUMENTS` as its own quoted argument, so a milestone title with a
@@ -76,8 +76,7 @@ cross-repo dependency they may want handled elsewhere. Ask them together, once.
 Then check for an existing plan:
 
 ```bash
-S="bash ${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh"
-$S show
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" show
 ```
 
 If a plan exists, ask the user whether to replace it before going further; if they decline,
@@ -89,14 +88,18 @@ stop. Then `EnterPlanMode`, write the plan using `plan-template.md` in this dire
 Only after the plan is approved, since plan mode blocks writes, persist it:
 
 ```bash
-$S init                        # --force only when the user said to replace an existing plan
-$S add-stream <id> --issues <n,n> --kind independent --model <alias> --effort <level> \
-   --reason "<why this size>"
-$S add-stream <id> --issues <n> --kind stack --stack <name> --order <n> [--base <branch>] \
-   --model <alias> --effort <level> --reason "<why this size>"
-$S defer <issue> "<reason>"
-$S meta loop_delay <seconds>
-$S meta plan_path <path to the plan file>
+# --force only when the user said to replace an existing plan
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" init
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" \
+  add-stream <id> --issues <n,n> --kind independent \
+  --model <alias> --effort <level> --reason "<why this size>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" \
+  add-stream <id> --issues <n> --kind stack --stack <name> --order <n> [--base <branch>] \
+  --model <alias> --effort <level> --reason "<why this size>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" defer <issue> "<reason>"
+# loop_delay is an integer from 60 to 3600; the script rejects anything else
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" meta loop_delay <seconds>
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" meta plan_path <path to the plan file>
 ```
 
 Stream ids are short and stable: `s1`, `s2`, and so on, with stacked layers sharing a prefix

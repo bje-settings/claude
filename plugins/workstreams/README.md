@@ -73,7 +73,7 @@ All deterministic, bash 3.2, spec'd under `spec/workstreams/`.
 | --- | --- |
 | `ws-preflight.sh` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.sh` | Selectors to a JSON array of issues, with `#N` references extracted |
-| `ws-state.sh` | Atomic read/write of the state file; validates fields, statuses, efforts, and models |
+| `ws-state.sh` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range |
 | `ws-pr-status.sh` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision |
 
 ## Out of scope for now
