@@ -1,6 +1,6 @@
 """The claims this plugin's fixtures make, asserted.
 
-Ported from the run-side half of `spec/field-test/fixtures_spec.sh`. The other
+Ported from `spec/field-test/fixtures_spec.sh`, both halves. The other
 tests here read claims off these fixtures: that a repository has this branch,
 that an events file holds an unresolved failure, that the stub serves one open
 issue carrying the signature the duplicate search looks for. Asserting those
@@ -15,15 +15,20 @@ import json
 
 import pytest
 from conftest import (
+    SCRIPTS,
     ft_fixture_enterprise,
     ft_fixture_events,
     ft_fixture_git,
     ft_fixture_hook_input,
     ft_fixture_installed_plugins,
     ft_fixture_repo,
+    ft_fixture_report,
     ft_fixture_run,
     ft_fixture_transcript,
+    load_lib_module,
 )
+
+checks = load_lib_module("field_test_fixtures_checks", SCRIPTS / "lib" / "checks.py")
 
 pytestmark = pytest.mark.usefixtures("ft_sandbox")
 
@@ -384,3 +389,99 @@ def test_the_with_report_transcript_ends_on_the_report(ft_sandbox):
     records = [json.loads(line) for line in path.read_text().split("\n") if line.strip()]
     last = [record for record in records if record["type"] == "assistant"][-1]
     assert "| #11 | merged |" in last["message"]["content"][0]["text"]
+
+
+# --- the pull requests and the reports the harden side reads -----------------
+
+
+def test_the_registry_names_the_plugin_the_preflight_requires_and_one_it_does_not(ft_sandbox):
+    """names the plugin the preflight requires and one it does not"""
+    document = json.loads(ft_sandbox.installed_plugins.read_text())
+    assert sorted(document["plugins"]) == ["gh@bje", "pr-review-toolkit@official"]
+
+
+def test_the_stub_answers_gh_auth_status(run_gh):
+    """answers gh auth status, which the preflight reads"""
+    result = run_gh("auth", "status")
+    assert result.status == 0
+    assert "Logged in" in result.stdout
+
+
+def test_the_pull_requests_cover_every_check_verdict(run_gh):
+    """covers every check verdict the wait script can reach"""
+    verdicts = []
+    for number in (50, 51, 52, 53, 56, 57, 59, 60):
+        result = run_gh(
+            "pr",
+            "view",
+            str(number),
+            "--repo",
+            "acme-org/plugins",
+            "--json",
+            "state,isDraft,statusCheckRollup",
+        )
+        assert result.status == 0, result.stderr
+        verdicts.append(checks.fold(json.loads(result.stdout))["checks"])
+    assert verdicts == ["pass", "fail", "pending", "none", "pending", "fail", "fail", "fail"]
+
+
+def test_the_pull_requests_have_one_merged_and_one_closed(run_gh):
+    """has one merged and one closed pull request for the state arms"""
+    states = []
+    for number in (54, 55):
+        result = run_gh("pr", "view", str(number), "--repo", "acme-org/plugins", "--json", "state")
+        assert result.status == 0, result.stderr
+        states.append(json.loads(result.stdout)["state"])
+    assert states == ["MERGED", "CLOSED"]
+
+
+def test_a_sequenced_pull_request_moves_across_calls_and_stays(run_gh):
+    """moves a sequenced pull request from in progress to complete across calls, and stays there"""
+    seen = []
+    for _ in range(3):
+        result = run_gh(
+            "pr", "view", "58", "--repo", "acme-org/plugins", "--json", "statusCheckRollup"
+        )
+        assert result.status == 0, result.stderr
+        seen.append(json.loads(result.stdout)["statusCheckRollup"][0]["status"])
+    assert seen == ["IN_PROGRESS", "COMPLETED", "COMPLETED"]
+
+
+def test_a_pull_request_has_no_checks_on_the_first_look_and_a_run_on_the_next(run_gh):
+    """has a pull request with no checks on the first look and a run on the next"""
+    seen = []
+    for _ in range(2):
+        result = run_gh(
+            "pr", "view", "61", "--repo", "acme-org/plugins", "--json", "statusCheckRollup"
+        )
+        assert result.status == 0, result.stderr
+        seen.append(len(json.loads(result.stdout)["statusCheckRollup"]))
+    assert seen == [0, 1]
+
+
+def test_the_stub_refuses_a_pull_request_it_does_not_have(run_gh):
+    """refuses a pull request it does not have, the way gh does"""
+    result = run_gh("pr", "view", "999", "--repo", "acme-org/plugins", "--json", "state")
+    assert result.status == 1
+    assert "Could not resolve to a PullRequest" in result.stderr
+
+
+def test_the_stub_refuses_a_pull_request_view_with_no_repo(run_gh):
+    """refuses `pr view` without --repo, which the real gh answers for another repo"""
+    result = run_gh("pr", "view", "50")
+    assert result.status == 1
+    assert "needs --repo" in result.stderr
+
+
+def test_the_accurate_report_claims_hold(ft_sandbox):
+    """writes an accurate report whose every claim holds"""
+    ft_fixture_report(ft_sandbox.report, "accurate")
+    document = json.loads(ft_sandbox.report.read_text())
+    assert [claim["claimed"] for claim in document["prs"]] == ["merged", "skipped", "closed"]
+    assert [claim["number"] for claim in document["prs"]] == [54, 50, 55]
+
+
+def test_the_report_writer_refuses_a_case_it_does_not_have(ft_sandbox):
+    """refuses a report case it does not have"""
+    with pytest.raises(KeyError):
+        ft_fixture_report(ft_sandbox.report, "nosuchcase")

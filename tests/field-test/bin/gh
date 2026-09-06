@@ -2,9 +2,9 @@
 """A stand-in for the gh CLI, for the field-test tests. Put this directory on PATH,
 or point FT_GH at it.
 
-The Python counterpart of `fixtures/field-test/bin/gh`, covering the run side:
-the enterprise query, the duplicate-issue search, and the label. Like that stub
-it does not fake the output of the script under test: it holds canned answers,
+The stand-in for every gh query this plugin makes: the enterprise query, the
+duplicate-issue search, the label, the login check, and `pr view`. It does not
+fake the output of the script under test: it holds canned answers,
 applies the filtering the real gh applies server-side, and projects the fields
 named by --json. Anything it does not emulate is an error, so a test cannot pass
 against a query the real gh would answer differently: an unknown flag exits 64,
@@ -12,8 +12,13 @@ an unknown --json field exits 1 like gh's "Unknown JSON field", and an unemulate
 subcommand exits 1.
 
 Controlled by:
-  FT_GH_FIXTURE_DIR   directory holding issues.json and enterprise-mode
+  FT_GH_FIXTURE_DIR   directory holding issues.json, prs.json and enterprise-mode
   FT_GH_FIXTURE_FAIL  if non-empty, every call exits non-zero
+
+`pr view` serves prs.json. A record may carry a `sequence` array: each call
+shifts the first entry off it and merges it over the record, so a test can watch
+a pull request move from pending to passing across polls the way a real one
+does.
 
 enterprise-mode picks the answer to the enterprise query:
   both     one enterprise, acme-org and acme-tools both in it
@@ -217,6 +222,58 @@ def api_graphql(options):
     sys.stdout.write(json.dumps(enterprise_page(["acme-tools"], False, None)))
 
 
+def auth_status():
+    sys.stdout.write("Logged in to github.com\n")
+
+
+def read_prs():
+    return read_fixture("prs.json", [])
+
+
+def write_prs(document):
+    path = os.path.join(fixture_dir(), "prs.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(document, handle)
+    os.replace(tmp, path)
+
+
+def pr_view(options, positional):
+    """One pull request, after any sequence entry due on this call.
+
+    A sequenced record is rewritten in place before it is answered, so the next
+    call sees the next entry and the one after that stays at the final state.
+    """
+    if not options.get("--repo"):
+        fail("pr view needs --repo")
+    if not positional:
+        fail("pr view needs a number")
+    raw = positional[0].lstrip("#").rsplit("/", 1)[-1]
+    if not raw.isdigit():
+        fail(f"pr view needs a number or url, got: {positional[0]}")
+    number = int(raw)
+    prs = read_prs()
+    record = next((entry for entry in prs if entry.get("number") == number), None)
+    if record is None:
+        sys.stderr.write(
+            f"GraphQL: Could not resolve to a PullRequest with the number of {number}.\n"
+        )
+        sys.exit(1)
+    record = dict(record)
+    sequence = record.pop("sequence", None) or []
+    if sequence:
+        record.update(sequence[0])
+        write_prs(
+            [
+                dict(entry, sequence=(entry.get("sequence") or [])[1:])
+                if entry.get("number") == number
+                else entry
+                for entry in prs
+            ]
+        )
+    sys.stdout.write(json.dumps(project(record, options.get("--json", ""))))
+
+
 def issue_list(options):
     if not options.get("--repo"):
         fail("issue list needs --repo")
@@ -261,7 +318,11 @@ def main(argv):
         return 1
     command = " ".join(argv[:2])
     options, positional = parse(argv[2:])
-    if command == "api graphql":
+    if command == "auth status":
+        auth_status()
+    elif command == "pr view":
+        pr_view(options, positional)
+    elif command == "api graphql":
         api_graphql(options)
     elif command == "issue list":
         issue_list(options)
