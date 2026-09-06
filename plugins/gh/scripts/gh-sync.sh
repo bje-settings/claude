@@ -15,7 +15,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_SCRIPT="$HERE/gh-sync-repo.sh"
+REPO_SCRIPT="$HERE/gh-sync-repo.py"
 DISCOVER_LIB="$HERE/lib/discover.sh"
 
 DRY_RUN=0
@@ -69,7 +69,7 @@ while IFS= read -r repo; do
 done < <(discover_repos "$TARGET")
 
 if ((${#repos[@]} == 1)) && git -C "$TARGET" rev-parse --show-toplevel >/dev/null 2>&1; then
-  bash "$REPO_SCRIPT" "${repos[0]}"
+  python3 "$REPO_SCRIPT" "${repos[0]}"
   exit 0
 fi
 
@@ -99,7 +99,7 @@ for repo in "${repos[@]}"; do
   # rather than with `wait <pid>` keeps it correct on bash 5, where the throttle
   # above has already reaped some children.
   {
-    bash "$REPO_SCRIPT" "$repo" 2>&1
+    python3 "$REPO_SCRIPT" "$repo" 2>&1
     rc=$?
     ((rc == 0)) || printf '  ✗ sync script exited with status %d\n' "$rc"
   } > "$TMP/$(printf '%04d' "$i")" &

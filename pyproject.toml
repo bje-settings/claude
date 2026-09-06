@@ -29,6 +29,9 @@ dev = [
 [tool.ruff]
 target-version = "py39"
 line-length = 100
+# Discovery only looks at *.py, and the stub gh has to be named "gh" to be found
+# on PATH. Without this it would be the one Python file in the repo nothing lints.
+extend-include = ["tests/*/bin/gh"]
 
 [tool.ruff.lint]
 # FA is what actually holds the 3.9 floor for annotations: at py39 ruff accepts
@@ -55,17 +58,27 @@ patch = ["subprocess"]
 # subprocess patch is a .pth in the venv, so it reaches Python children only.)
 disable_warnings = ["no-data-collected"]
 omit = [
+  # Every pattern starts "**/", so it is anchored to nothing. A relative pattern
+  # is made absolute against the *current* working directory, and coverage.py
+  # re-reads this config in each subprocess it measures: a script that chdirs
+  # into a fixture repository before spawning the stub gh would resolve
+  # "tests/..." against that repository and omit nothing.
+  #
   # Not measured by either harness until issue #59 ports its examples: kcov does
   # not follow the python3 child the shell specs launch, so this file appears in
   # neither report. The omit keeps that gap from reading as a 0% file and sinking
   # the Python gate; #59 removes the line along with the gap.
-  "plugins/field-test/hooks/hook-io.py",
+  "**/plugins/field-test/hooks/hook-io.py",
   # The tests are not the thing under test. Only tests/coverage_check.py survives
   # this, which is the whole reason tests/ is in source above. ** and not *:
   # coverage's globs do not cross a directory separator, so "tests/test_*.py"
   # alone would leave every tests/<plugin>/ file measured.
-  "tests/**/test_*.py",
-  "tests/**/conftest.py",
+  "**/tests/**/test_*.py",
+  "**/tests/**/conftest.py",
+  # Test doubles and test data, the counterpart of the shell stubs under
+  # fixtures/, which never enter a report at all.
+  "**/tests/**/bin/*",
+  "**/tests/**/scenarios.py",
 ]
 
 [tool.coverage.report]
