@@ -1,6 +1,6 @@
 """Unit tests for plugins/workstreams/scripts/lib/state.py, one per arm.
 
-The module holds the jq programs ws-state.sh ran -- the add-stream filter, both
+The module holds the jq programs the shell ws-state ran -- the add-stream filter, both
 `set` filters, the list-streams selection, defer, meta and the shape check --
 and the argument validation the shell did with regexes and substring tests. A
 whole jq filter counted as a single covered line, and a narrowed `select` or an

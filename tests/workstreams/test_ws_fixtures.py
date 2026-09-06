@@ -3,7 +3,7 @@
 The other workstreams tests rely on these shapes, so they are asserted here
 rather than assumed there. Ported one for one from the 27 examples in
 `spec/workstreams/fixtures_spec.sh`, whose `It` description each test carries in
-its docstring; that spec stays until nothing bash reads the shell fixtures.
+its docstring; that spec and the shell fixtures it covered are deleted in #55.
 
 The tests that pass `--jq` run real jq through the stub, exactly as the shell
 stub did, which is the point of that flag: the expression is the caller's.
@@ -218,8 +218,8 @@ def test_fails_every_call_when_the_fail_variable_is_set(ws_sandbox, run_gh):
 def test_auth_status_reports_a_login_and_can_be_made_to_fail(ws_sandbox, run_gh):
     """serves auth status, and fails it under WS_GH_FIXTURE_NOAUTH
 
-    Not in the shell spec, which asserted the NOAUTH switch only through
-    ws-preflight.sh; the stub owns the behaviour, so the claim belongs here.
+    Not in the shell spec, which asserted the NOAUTH switch only through the
+    shell ws-preflight; the stub owns the behaviour, so the claim belongs here.
     """
     assert "Logged in" in run_gh("auth", "status").stdout
     ws_sandbox.setenv("WS_GH_FIXTURE_NOAUTH", "1")
