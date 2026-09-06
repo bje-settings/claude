@@ -182,8 +182,11 @@ def gh_auth_status():
     text = finished.stderr.decode("utf-8", "replace")
     if NOT_LOGGED_IN in text.lower():
         return False, None
+    # gh puts the reason first and its remedies after; for an invalid token the
+    # last line is "To forget about this account, run: gh auth logout", which is
+    # the one remedy not to suggest. Keep the reason and the first remedy.
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return False, lines[-1] if lines else None
+    return False, "; ".join(lines[:2]) if lines else None
 
 
 def check_gh(missing) -> None:
