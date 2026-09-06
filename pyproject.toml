@@ -20,7 +20,9 @@ dev = [
   # through subprocess, so without the patch the coverage denominator is empty.
   "coverage>=7.10.7,<7.11",
   "ruff>=0.14",
-  # Installed ahead of its config: issue #14 lands .pre-commit-config.yaml.
+  # Runs the hooks in .pre-commit-config.yaml. Not pinned below 4.4 on purpose:
+  # uv.lock forks on requires-python, so 3.9 resolves 4.3.0 (the last release
+  # that runs there) while 3.10+ takes the newest.
   "pre-commit>=4.3",
 ]
 

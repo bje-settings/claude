@@ -160,6 +160,21 @@ after the pull request that introduces it merges. Removing a job is the mirror i
 from the ruleset before merging the pull request that removes it, or that pull request and every later
 one wait on a check that never reports.
 
+Manifest validation is its own workflow, `.github/workflows/plugin-validate.yml`, so a bad manifest
+reads as its own check rather than as a failure inside `ci.yml`. It runs `claude plugin validate
+--strict` over the marketplace manifest and every directory under `plugins/`, which needs no API key
+or login, on a pinned Claude Code version. Its job name, `plugin-validate`, becomes a ruleset
+contract like the names above once it is added to the repo ruleset Require CI (22359720), which
+happens right after the pull request that introduced the workflow merges, per the rule above.
+
+In an opted-in clone, `claude plugin validate --strict`, ruff, and the Python suite run before every
+commit through the `pre-commit` framework, and shellcheck runs when a shell file is staged; `.pre-commit-config.yaml` holds the
+hooks and `CONTRIBUTING.md` says how to opt in. Every hook is `repo: local`: each tool already has
+one source of truth, `uv.lock` for ruff and pytest and PATH for `claude` and `shellcheck`, and
+mirroring versions into `rev:` fields here would add a second. Opting in is once per clone, from the
+root checkout, and covers every worktree of it, since worktrees share the clone's `.git/hooks/`; CI,
+not the hooks, is the enforcement layer.
+
 Any script that can delete or overwrite something needs a spec or a test proving both that it acts
 when it should and that it refuses when it should. Assert against real repositories built by the
 fixtures rather than mocking git; see `fixtures/gh/README.md`. When a fixture makes a claim about
@@ -169,9 +184,8 @@ cannot pass for the wrong reason.
 Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
 repos outside the `bje` enterprise into this repo; reconstruct the shape of the case instead.
 
-Test the non-deterministic parts too. Run `claude plugin validate --strict` in CI. For a skill or
-agent, run realistic prompts in fresh sessions with and without it and compare, or use the
-official `skill-creator` plugin for evals.
+Test the non-deterministic parts too. For a skill or agent, run realistic prompts in fresh
+sessions with and without it and compare, or use the official `skill-creator` plugin for evals.
 
 ## Rules and settings syncing (future)
 
