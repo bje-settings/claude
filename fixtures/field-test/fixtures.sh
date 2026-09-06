@@ -168,8 +168,8 @@ JSON
 
 # ft_fixture_hook_input <path> <case> [session]: one hook payload.
 #
-#   post-ok post-bool-code post-fail post-failure pre-deny pre-allow pre-other
-#   subagent-stop stop malformed
+#   post-ok post-bool-code post-fail post-failure post-failure-no-code pre-deny
+#   pre-allow pre-other subagent-stop stop malformed
 ft_fixture_hook_input() {
   local path="$1" name="${2:-post-ok}" session="${3:-ft-session}"
   case "$name" in
@@ -196,10 +196,22 @@ JSON
 JSON
       ;;
     post-failure)
+      # The real shape: a PostToolUseFailure payload carries no tool_response at all.
+      # The failure arrives as a top-level error string whose first line is the exit
+      # code and whose remainder is the command's output.
       cat > "$path" <<JSON
 {"session_id": "$session", "tool_name": "Bash", "tool_use_id": "t3",
  "tool_input": {"command": "bash scripts/does-not-exist.sh"},
- "tool_response": {"stderr": "No such file or directory", "exit_code": 127}}
+ "error": "Exit code 127\nbash: scripts/does-not-exist.sh: No such file or directory",
+ "is_interrupt": false, "duration_ms": 12}
+JSON
+      ;;
+    post-failure-no-code)
+      # The same event for a tool whose error text does not open with an exit code.
+      cat > "$path" <<JSON
+{"session_id": "$session", "tool_name": "Bash", "tool_use_id": "t4",
+ "tool_input": {"command": "sleep 30"},
+ "error": "The user interrupted the command", "is_interrupt": true, "duration_ms": 900}
 JSON
       ;;
     pre-deny)
@@ -220,9 +232,12 @@ JSON
 JSON
       ;;
     subagent-stop)
+      # transcript_path on a SubagentStop is the main session's; the subagent's own
+      # is agent_transcript_path.
       cat > "$path" <<JSON
 {"session_id": "$session", "agent_id": "agent-1", "agent_type": "shepherd-repo",
- "transcript_path": "/transcripts/agent-1.jsonl",
+ "transcript_path": "/transcripts/main.jsonl",
+ "agent_transcript_path": "/transcripts/agent-1.jsonl",
  "last_assistant_message": "All four pull requests were merged."}
 JSON
       ;;

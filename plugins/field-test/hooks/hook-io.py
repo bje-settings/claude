@@ -252,7 +252,10 @@ def handle_subagent_stop(payload, path):
     record = base_record("SubagentStop", payload)
     record.update(
         {
-            "transcript_path": payload.get("transcript_path"),
+            # The subagent's own transcript, not the main session's, which is what
+            # the common transcript_path holds on this event.
+            "transcript_path": payload.get("agent_transcript_path")
+            or payload.get("transcript_path"),
             "last_assistant_message": payload.get("last_assistant_message") or "",
         }
     )

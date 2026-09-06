@@ -81,8 +81,8 @@ on what the machine already has.
 | --- | --- |
 | `PreToolUse` (Bash) | Refuses a command matching `hooks/deny-list.txt` and records the attempt, plus any rule in that file that did not compile |
 | `PostToolUse` (Bash) | Command, exit code, stderr tail, subagent id |
-| `PostToolUseFailure` (Bash) | The same, for a call that failed outright |
-| `SubagentStop` | The subagent's transcript path and last message |
+| `PostToolUseFailure` (Bash) | The same, for a call that failed outright. This payload carries no `tool_response`: the exit code is read from the first line of its `error` string and the rest of that string is the output |
+| `SubagentStop` | The subagent's own transcript path and last message |
 | `Stop` | Marks the run finished |
 
 The cost in a session that is not a field test is one `bash` and one `python3` start, which

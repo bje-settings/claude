@@ -268,6 +268,16 @@ PY
   End
 
   Describe 'ft_fixture_hook_input and ft_fixture_transcript'
+    It 'gives the failure payload no tool_response, the way the real event has none'
+      shape() {
+        ft_fixture_hook_input "$FT_SANDBOX/p.json" post-failure
+        jq -r '[(.tool_response | tojson), .error] | join(" | ")' "$FT_SANDBOX/p.json"
+      }
+      When call shape
+      The status should be success
+      The output should include 'null | Exit code 127'
+    End
+
     It 'refuses a hook payload case it does not have'
       When call ft_fixture_hook_input "$FT_SANDBOX/p.json" nosuchcase
       The status should equal 1

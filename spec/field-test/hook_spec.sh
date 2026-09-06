@@ -130,7 +130,42 @@ Describe 'the field-test hooks'
       When run script "$FT_HOOK" PostToolUseFailure
       The status should be success
       The value "$(events | jq -r '.event')" should equal 'PostToolUseFailure'
+      The value "$(events | jq -r '.command')" should equal 'bash scripts/does-not-exist.sh'
+    End
+
+    # A PostToolUseFailure payload has no tool_response: the exit code is the first
+    # line of a top-level error string, and the output is the rest of it. Read only
+    # tool_response and every tool_failure issue says the exit code was not recorded
+    # and shows an empty output block.
+    It 'reads the exit code and the output out of a failure error string'
+      input post-failure
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PostToolUseFailure
+      The status should be success
       The value "$(events | jq -r '.exit_code')" should equal '127'
+      The value "$(events | jq -r '.stderr_tail')" should include 'No such file or directory'
+    End
+
+    It 'records a failure whose error text names no exit code'
+      input post-failure-no-code
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PostToolUseFailure
+      The status should be success
+      The value "$(events | jq -r '.exit_code')" should equal 'null'
+      The value "$(events | jq -r '.stderr_tail')" should include 'interrupted'
+    End
+
+    It 'keeps the tail of a long error, which is where the reason is'
+      long="$(python3 -c 'print("HEAD" + "x" * 4000 + "TAIL")')"
+      jq -nc --arg s ft-session --arg e "$long" \
+        '{session_id: $s, tool_name: "Bash", tool_input: {command: "bash spec/run.sh"}, error: $e}' \
+        > "$FT_SANDBOX/payload.json"
+      Data "$(cat "$FT_SANDBOX/payload.json")"
+      When run script "$FT_HOOK" PostToolUseFailure
+      The status should be success
+      The value "$(events | jq -r '.stderr_tail | length')" should equal '2000'
+      The value "$(events | jq -r '.stderr_tail')" should include 'TAIL'
+      The value "$(events | jq -r '.stderr_tail')" should not include 'HEAD'
     End
 
     It 'ignores a tool that is not Bash'
@@ -167,6 +202,8 @@ Describe 'the field-test hooks'
       When run script "$FT_HOOK" SubagentStop
       The status should be success
       The value "$(events | jq -r '.last_assistant_message')" should include 'were merged'
+      # The subagent's own transcript, not the main session's, which the payload also
+      # carries and which every SubagentStop would otherwise point at.
       The value "$(events | jq -r '.transcript_path')" should equal '/transcripts/agent-1.jsonl'
     End
 
