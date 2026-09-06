@@ -29,6 +29,11 @@ LIST_SELECTORS = ("label", "milestone")
 
 DIGITS = "0123456789"
 
+# The --limit ws-issues.py gives gh when the environment names none, and so the
+# widest range a single selector may name. The script passes the limit actually
+# in force; this is what `classify` falls back to when called without one.
+DEFAULT_LIMIT = 200
+
 
 class Invalid(Exception):
     """A selector the script must refuse, with the message and exit status to use.
@@ -54,7 +59,7 @@ def _starts_with_digit(text: str) -> bool:
     return bool(text) and text[0] in DIGITS
 
 
-def classify(selector: str):
+def classify(selector: str, limit: int = DEFAULT_LIMIT):
     """What one selector is, as a (kind, payload) pair.
 
     ("list", (flag, value))   label: or milestone:, one `gh issue list` call
@@ -65,7 +70,14 @@ def classify(selector: str):
     decides the ambiguous inputs: `label:` wins over everything, and a selector
     that starts like a number but is not one (`1,3`, `1O`) is refused as a typo
     rather than quietly becoming search text.
+
+    `limit` is the issue limit the run is working under. A range wider than it
+    is refused here, before a single gh call goes out: `1-9999999999` asked for
+    ten billion `gh issue view` calls, and the list it built to hold them was
+    what raised an OverflowError before any of them ran.
     """
+    if not selector:
+        raise Invalid("empty selector")
     for prefix in LIST_SELECTORS:
         if selector.startswith(prefix + ":"):
             value = selector[len(prefix) + 1 :]
@@ -85,6 +97,8 @@ def classify(selector: str):
         low, high = int(span.group(1)), int(span.group(2))
         if low > high:
             raise Invalid(f"bad range: {selector}")
+        if high - low + 1 > limit:
+            raise Invalid(f"range wider than the {limit}-issue limit: {selector}")
         return ("numbers", list(range(low, high + 1)))
     if NUMBER.match(body):
         return ("numbers", [int(body)])
@@ -92,7 +106,7 @@ def classify(selector: str):
 
 
 def refs(body: str, number) -> list:
-    """The other issue numbers a body mentions as #N, once each, in order.
+    """The other issue numbers a body mentions as #N, once each, in numeric order.
 
     The issue's own number is dropped: an issue that refers to itself for the
     reader's benefit ("tracked here as #3") is not blocked on itself.
