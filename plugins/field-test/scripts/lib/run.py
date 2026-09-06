@@ -85,26 +85,40 @@ def write_json(path: str, document) -> None:
         try:
             os.unlink(tmp)
         except OSError:
+            # Best effort, and deliberately silent: the caller is about to be
+            # handed the original failure, which is the one worth reporting. A
+            # temp file that cannot be removed is usually the same unwritable
+            # directory that caused it, and raising here would replace the real
+            # error with the cleanup's.
             pass
         raise
 
 
-def note_transcript(path: str, transcript) -> None:
+def note_transcript(path: str, transcript) -> tuple[bool, str]:
     """Record the transcript path on the marker the first time a hook reports one.
 
-    Collection needs the transcript and only the hooks are told where it is.
+    (False, why) when there was one to record and it could not be written.
+    Collection needs the transcript and only the hooks are ever told where it is,
+    so a write that failed here is the reason `ft-collect.py --report` later says
+    no hook event carried a transcript_path. Left silent, that message is simply
+    untrue, and it is the one output whose whole job is telling "the target said
+    nothing" apart from "this could not find out".
+
+    Nothing to record, and a marker already carrying one, are both successes:
+    only the first hook to see a transcript writes it.
     """
     if not transcript:
-        return
+        return True, ""
     marker_path = os.path.join(path, "run.json")
     marker = load_marker(marker_path)
     if marker is None or marker.get("transcript_path"):
-        return
+        return True, ""
     marker["transcript_path"] = transcript
     try:
         write_json(marker_path, marker)
-    except (OSError, ValueError):
-        return
+    except (OSError, ValueError) as error:
+        return False, str(error)
+    return True, ""
 
 
 def append_event(path: str, record) -> tuple[bool, str]:

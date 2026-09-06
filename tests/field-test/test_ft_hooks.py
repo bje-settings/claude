@@ -745,11 +745,53 @@ def test_a_failure_before_the_run_directory_is_known_reaches_the_outer_guard(mon
         module.main(["hook-io.py", "PostToolUse"])
 
 
-def test_reconfigure_leaves_a_stream_that_cannot_be_reconfigured():
+def test_reconfigure_leaves_a_stream_that_cannot_be_reconfigured(monkeypatch):
     """leaves a stream with no reconfigure alone, rather than raising on it
 
     The hook keeps its own copy of this rather than importing the one in
     scripts/lib/cli.py: it runs on every tool call in every session, and must not
     need an import to succeed before it can speak.
     """
-    assert load_hook_io().reconfigure(io.StringIO()) is None
+    replacement = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", replacement)
+    assert load_hook_io().reconfigure_streams() is None
+    assert sys.stdout is replacement
+
+
+def test_reconfigure_gives_a_closed_stream_somewhere_to_write(monkeypatch):
+    """binds a stream Python left as None, rather than raising on the first write
+
+    Python sets sys.stdout to None when it starts with the descriptor closed. A
+    hook that raised AttributeError on its first write would record nothing at
+    all for that tool call, and the deny decision would never be printed.
+    """
+    monkeypatch.setattr(sys, "stdout", None)
+    load_hook_io().reconfigure_streams()
+    assert sys.stdout is not None
+    sys.stdout.write("goes nowhere, raises nothing\n")
+
+
+def test_says_so_on_stderr_when_the_transcript_cannot_be_recorded(ft_sandbox, ft_hook):
+    """says so on stderr when the transcript path cannot be recorded
+
+    This is the only place the transcript's location is ever learned. A marker
+    that did not take it is why `ft-collect.py --report` says later that no hook
+    event carried one -- and left silent, that message is simply untrue.
+    """
+    ft_sandbox.run_dir.chmod(0o555)
+    try:
+        result = ft_hook(
+            "Stop",
+            json.dumps(
+                {
+                    "session_id": "ft-session",
+                    "transcript_path": "/transcripts/main.jsonl",
+                    "last_assistant_message": "done",
+                }
+            ),
+        )
+    finally:
+        ft_sandbox.run_dir.chmod(0o755)
+    assert result.status == 0
+    assert "field-test: could not record transcript_path in " in result.stderr
+    assert str(ft_sandbox.marker) in result.stderr
