@@ -25,14 +25,15 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but the two hook helpers.
+not yet ported to Python, which today is all of them but the two hook helpers and
+`plugins/workstreams/scripts/ws-state.py`.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
 script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. (Today only the two hook helpers are Python and neither has a `lib/` yet, so the layout is
-the rule for the next script rather than a description of the tree.)
+others. `plugins/workstreams/scripts/lib/state.py` is the first of those shared modules: it holds
+what used to be ws-state's jq filters, as plain functions with a unit test per arm.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root

@@ -43,7 +43,6 @@ if command -v shellcheck >/dev/null 2>&1; then
     fixtures/gh/bin/gh \
     plugins/workstreams/scripts/ws-preflight.sh \
     plugins/workstreams/scripts/ws-issues.sh \
-    plugins/workstreams/scripts/ws-state.sh \
     plugins/workstreams/scripts/ws-pr-status.sh \
     fixtures/workstreams/fixtures.sh \
     fixtures/workstreams/bin/gh \

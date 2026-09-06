@@ -45,9 +45,8 @@ WS_PLUGIN_DIR="$ROOT/plugins/workstreams"
 WS_FIXTURES_DIR="$ROOT/fixtures/workstreams"
 WS_PREFLIGHT="$WS_PLUGIN_DIR/scripts/ws-preflight.sh"
 WS_ISSUES="$WS_PLUGIN_DIR/scripts/ws-issues.sh"
-WS_STATE="$WS_PLUGIN_DIR/scripts/ws-state.sh"
 WS_PR_STATUS="$WS_PLUGIN_DIR/scripts/ws-pr-status.sh"
-export WS_PLUGIN_DIR WS_FIXTURES_DIR WS_PREFLIGHT WS_ISSUES WS_STATE WS_PR_STATUS
+export WS_PLUGIN_DIR WS_FIXTURES_DIR WS_PREFLIGHT WS_ISSUES WS_PR_STATUS
 
 # shellcheck source=../fixtures/workstreams/fixtures.sh
 . "$WS_FIXTURES_DIR/fixtures.sh"
