@@ -29,6 +29,9 @@ dev = [
 [tool.ruff]
 target-version = "py39"
 line-length = 100
+# The test stub gh has no extension, because it is found on PATH by name the way
+# the real gh is. Without this, `ruff check .` walks straight past it.
+extend-include = ["tests/*/bin/gh"]
 
 [tool.ruff.lint]
 # FA is what actually holds the 3.9 floor for annotations: at py39 ruff accepts
@@ -49,23 +52,26 @@ branch = true
 # The tests run each script black-box, as its own process, the way Claude Code
 # runs it. Without this the child process is not measured at all.
 patch = ["subprocess"]
-# Nothing here imports the code under test: every script is driven black-box, in
-# a child process, so the pytest process itself measures no source file and warns
-# once per xdist worker. (Shell stubs on PATH never enter coverage at all; the
-# subprocess patch is a .pth in the venv, so it reaches Python children only.)
+# Most of the code under test is driven black-box, in a child process, so an
+# xdist worker that only ran those measures no source file itself and warns.
+# (Shell stubs on PATH never enter coverage at all; the subprocess patch is a
+# .pth in the venv, so it reaches Python children only. A plugin's scripts/lib/
+# modules are the exception: their unit tests import them in the worker.)
 disable_warnings = ["no-data-collected"]
 omit = [
-  # Not measured by either harness until issue #59 ports its examples: kcov does
-  # not follow the python3 child the shell specs launch, so this file appears in
-  # neither report. The omit keeps that gap from reading as a 0% file and sinking
-  # the Python gate; #59 removes the line along with the gap.
-  "plugins/field-test/hooks/hook-io.py",
   # The tests are not the thing under test. Only tests/coverage_check.py survives
   # this, which is the whole reason tests/ is in source above. ** and not *:
   # coverage's globs do not cross a directory separator, so "tests/test_*.py"
-  # alone would leave every tests/<plugin>/ file measured.
-  "tests/**/test_*.py",
-  "tests/**/conftest.py",
+  # alone would leave every tests/<plugin>/ file measured. The leading **/ is
+  # what makes these hold for a child process started in another directory: a
+  # relative pattern is anchored to the current directory, so without it a test
+  # that runs a script with its own cwd puts the whole tests/ tree in the report.
+  "**/tests/**/test_*.py",
+  "**/tests/**/conftest.py",
+  # The stub gh a plugin's tests put on PATH. It is a Python program run as a
+  # child process, so the subprocess patch would measure it, but it is a fixture
+  # standing in for a tool, not code under test.
+  "**/tests/*/bin/*",
 ]
 
 [tool.coverage.report]

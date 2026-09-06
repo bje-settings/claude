@@ -66,7 +66,7 @@ same bug on a different PR number is one finding, and matches an issue already o
 
 A field test is often run against a repository that has nothing to do with the plugin's
 enterprise. Findings from those runs are still worth having; the repository's name is not ours to
-publish. `ft-enterprise.sh` asks GitHub once, per run, whether the plugin's owner and the target
+publish. `ft-enterprise.py` asks GitHub once, per run, whether the plugin's owner and the target
 repository's owner are organizations in one enterprise. Only a clear yes keeps the names: an
 error, a token without the scope, an owner that is a user rather than an organization, and an
 empty result all mean redact.
@@ -129,15 +129,14 @@ on what the machine already has.
 | `PostToolUse` (Bash) | Command, exit code, stderr tail, subagent id |
 | `PostToolUseFailure` (Bash) | The same, for a call that failed outright. This payload carries no `tool_response`: the exit code is read from the first line of its `error` string and the rest of that string is the output |
 | `SubagentStop` | The subagent's own transcript path and last message |
-| `Stop` | The turn's last message. Fires at every turn boundary, not only the end of the field test, so it never finishes the run; the run skill's own Step 4 does that. No finding reads this field: `ft-collect.sh --report` reads the transcript instead, and `ft-issue.sh names` scans it, like every event field, for the `#N` references redaction has to catch. A run that never finishes stays live, so resuming that session keeps recording and keeps the deny list armed until `ft-run.sh finish` runs; the next `start` in the same session exits 3 |
+| `Stop` | The turn's last message. Fires at every turn boundary, not only the end of the field test, so it never finishes the run; the run skill's own Step 4 does that. No finding reads this field: `ft-collect.py --report` reads the transcript instead, and `ft-issue.py names` scans it, like every event field, for the `#N` references redaction has to catch. A run that never finishes stays live, so resuming that session keeps recording and keeps the deny list armed until `ft-run.py finish` runs; the next `start` in the same session exits 3 |
 
-The cost in a session that is not a field test is one `bash` and one `python3` start, which
-measures around 45 ms per Bash call on an M-series Mac and is all process startup: the hook reads
-the payload, looks for a run marker, finds none, and returns. Reproduce it with
+The cost in a session that is not a field test is one `python3` start: the hook reads the
+payload, looks for a run marker, finds none, and returns. Reproduce it with
 
 ```bash
 FT_STATE_DIR=/tmp/no-runs \
-  bash plugins/field-test/hooks/ft-hook.sh PostToolUse < fixtures/field-test/hook-inputs/no-run.json
+  python3 plugins/field-test/hooks/hook-io.py PostToolUse < tests/field-test/hook-inputs/no-run.json
 ```
 
 ### The deny list
@@ -170,16 +169,17 @@ published, and a stale answer would decide it wrongly.
 
 ## Scripts
 
-All deterministic, bash 3.2, spec'd under `spec/field-test/`.
+All deterministic. The run side is Python (stdlib only, 3.9), tested under `tests/field-test/`;
+the harden side is still bash 3.2, spec'd under `spec/field-test/`, and issue #60 ports it.
 
 | Script | Purpose |
 | --- | --- |
-| `ft-run.sh` | The run marker: `start`, `finish`, `show`, `dir` |
-| `ft-resolve.sh` | Target to `{kind, plugin, skill, path, version, commit, repo}`; refuses Workflow targets |
-| `ft-collect.sh` | Recorded events to candidate findings; `--report` prints the target's own final message |
-| `ft-enterprise.sh` | Whether the plugin and the repository under test share an enterprise |
-| `ft-redact.sh` | Text in, text out; identity inside the enterprise, placeholders outside |
-| `ft-issue.sh` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
+| `ft-run.py` | The run marker: `start`, `finish`, `show`, `dir` |
+| `ft-resolve.py` | Target to `{kind, plugin, skill, path, version, commit, repo}`; refuses Workflow targets |
+| `ft-collect.py` | Recorded events to candidate findings; `--report` prints the target's own final message |
+| `ft-enterprise.py` | Whether the plugin and the repository under test share an enterprise |
+| `ft-redact.py` | Text in, text out; identity inside the enterprise, placeholders outside |
+| `ft-issue.py` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
 | `ft-preflight.sh` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
 | `ft-harden-state.sh` | Atomic read/write of one hardening run; validates fields, statuses, and phases |
 | `ft-verify-report.sh` | A report's claims against `gh pr view`, per pull request |
