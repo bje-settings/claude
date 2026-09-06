@@ -137,7 +137,12 @@ script exercised black-box in a child process is still measured. Branch coverage
 `jq` program moved into Python stops being one opaque line and becomes arms the report can name,
 which is the answer to the blind spot `.claude/rules/type-jq.md` describes.
 Stub tools under `tests/<plugin>/bin/` are omitted from the config, since the subprocess patch
-would otherwise measure a fixture standing in for a tool as code under test.
+would otherwise measure a fixture standing in for a tool as code under test. Those omits are
+relative paths, and a Python child resolves them against its own working directory, so a test must
+never run a script from a directory outside the checkout: everything the run measures after that is
+mis-attributed and the report is quietly wrong rather than failing. Drive a working-directory case
+in-process instead (`git` is not a Python child, so calling it from a temporary repository is
+safe).
 `plugins/field-test/hooks/hook-io.py` is omitted as well, and is measured by
 neither harness until issue #59 ports its examples: kcov does not follow the `python3` child the
 shell specs launch, so the file appears in no report at all. The omit only keeps that gap from
