@@ -8,8 +8,9 @@ filtering the real gh applies server-side, projects the fields named by --json,
 and runs the caller's own --jq expression with real jq. Anything it does not
 emulate is an error, so a test cannot pass against a query the real gh would
 answer differently: an unknown flag exits 64, an unknown --json field exits 1
-like gh's "Unknown JSON field", a failing --jq exits 1, and a second positional
-argument is rejected.
+like gh's "Unknown JSON field", a failing --jq exits 1, a flag given last with
+no value and a non-numeric --limit are refused rather than read as an empty
+string, and a second positional argument is rejected.
 
 --search is a case-insensitive substring match over title and body. Real GitHub
 search is tokenised and takes qualifiers; the scripts only forward the string,
@@ -112,6 +113,18 @@ def matches(issue, state, label, milestone, search):
     return True
 
 
+def value_of(argv, index):
+    """The value after a flag. Real gh refuses a flag given last with nothing.
+
+    Silently reading it as an empty string would make `--json` with no value
+    mean "no projection at all" and `--jq` with no value mean "no filter", so a
+    caller that dropped its argument would get a passing test back.
+    """
+    if index + 1 >= len(argv):
+        fail(f"flag needs an argument: {argv[index]}")
+    return argv[index + 1]
+
+
 def parse(argv):
     """The flags the stub emulates, plus at most one positional argument."""
     options = {"state": "", "label": "", "milestone": "", "search": "", "limit": 1000}
@@ -122,16 +135,18 @@ def parse(argv):
     while index < len(argv):
         argument = argv[index]
         if argument in FLAGS_WITH_VALUES:
-            value = argv[index + 1] if index + 1 < len(argv) else ""
+            value = value_of(argv, index)
             if argument == "--json":
                 fields = value
             elif argument == "--limit":
+                if not value.isdigit():
+                    fail(f'invalid argument "{value}" for "--limit" flag')
                 options["limit"] = int(value)
             else:
                 options[argument[2:]] = value
             index += 1
         elif argument in JQ_FLAGS:
-            jq_expr = argv[index + 1] if index + 1 < len(argv) else ""
+            jq_expr = value_of(argv, index)
             index += 1
         elif argument.startswith("-"):
             fail(f"unhandled flag: {argument}", 64)
