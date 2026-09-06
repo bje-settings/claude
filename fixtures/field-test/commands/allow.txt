@@ -8,3 +8,5 @@ rm -rf node_modules
 rm -f /tmp/one-file
 gh pr merge --squash --auto 12
 ./scripts/filter-branch.sh --check
+git push origin HEAD:main
+rm -rf "node_modules"

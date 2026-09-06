@@ -9,3 +9,6 @@ git filter-repo --path secrets --invert-paths
 rm -rf ~/Code/scratch
 rm -rf /var/tmp/build
 cd repo && rm -fr ../scratch
+rm -rf "$HOME/Code/scratch"
+rm -rf '/var/tmp/build'
+git push --force-with-lease origin wktr-9-fix && git push --force origin main
