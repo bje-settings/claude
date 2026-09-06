@@ -55,12 +55,26 @@ Describe 'ft-verify-report.sh'
       The stderr should include '--repo needs a value'
     End
 
-    It 'requires jq'
+    It 'requires jq, and says so with the tool-failure exit rather than the mismatch one'
       report
       export PATH="$(ft_path_without jq)"
       When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
-      The status should equal 1
+      The status should equal 4
       The stderr should include 'jq is required'
+    End
+
+    It 'refuses a report that is not JSON, naming that rather than a missing prs array'
+      printf 'not json' > "$FT_SANDBOX/report.json"
+      When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
+      The status should equal 2
+      The stderr should include 'not valid JSON'
+    End
+
+    It 'refuses a pull request number that is not a number'
+      printf '{"repo": "acme-org/plugins", "prs": [{"number": "fifty", "claimed": "merged"}]}' > "$FT_SANDBOX/report.json"
+      When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
+      The status should equal 2
+      The stderr should include 'must be numbers, got: fifty'
     End
   End
 
@@ -128,11 +142,47 @@ Describe 'ft-verify-report.sh'
       The output should include 'the report said skipped; GitHub says merged'
     End
 
-    It 'treats a report with no claims as nothing to disprove'
+    It 'does not pass a report with no claims: nothing to check is not evidence'
       printf '{"repo": "acme-org/plugins", "prs": []}' > "$FT_SANDBOX/report.json"
       When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
-      The status should be success
+      The status should equal 3
+      The output should include '"ok": false'
       The output should include '"checked": 0'
+      The output should include 'nothing to check'
+    End
+
+    It 'reads a number written as a string, so a hand-assembled report is not a false mismatch'
+      printf '{"repo": "acme-org/plugins", "prs": [{"number": "50", "claimed": "skipped"}]}' > "$FT_SANDBOX/report.json"
+      When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
+      The status should be success
+      The output should include '"ok": true'
+      The output should include '"number": 50'
+    End
+
+    It 'catches a closed claim for a pull request that is still open'
+      printf '{"repo": "acme-org/plugins", "prs": [{"number": 50, "claimed": "closed"}]}' > "$FT_SANDBOX/report.json"
+      When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
+      The status should equal 1
+      The output should include 'the report said closed; GitHub says open'
+    End
+
+    It 'counts the claims that held separately from the ones that did not'
+      printf '{"repo": "acme-org/plugins", "prs": [{"number": 54, "claimed": "merged"}, {"number": 50, "claimed": "merged"}]}' > "$FT_SANDBOX/report.json"
+      When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
+      The status should equal 1
+      The output should include '"checked": 2'
+      The output should include '"matched": 1'
+    End
+
+    It 'exits 4 when gh answers with something that is not JSON, rather than calling it a mismatch'
+      report accurate
+      printf '#!/bin/sh\necho "warning: not json"\n' > "$FT_SANDBOX/gh-garbage"
+      chmod +x "$FT_SANDBOX/gh-garbage"
+      export FT_GH="$FT_SANDBOX/gh-garbage"
+      When run script "$FT_VERIFY_REPORT" "$FT_SANDBOX/report.json"
+      The status should equal 4
+      The stderr should include 'cannot read for pull request 54'
+      The stderr should include 'not json'
     End
 
     It 'reports every claim, not only the ones that failed'
