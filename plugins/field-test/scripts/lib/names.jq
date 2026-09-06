@@ -7,9 +7,10 @@
 # building it here rather than in the shell: `owner/name` has to be replaced before
 # `owner`, or the result reads `<org>/name` and the repository is still named.
 #
-# Empty and one-character values are dropped. A one-character branch name would
-# match inside every other word in the issue and produce unreadable output, and a
-# value that is empty would match everywhere.
+# Empty and one-character values are dropped: a value that is empty would match
+# everywhere, and a single character matches inside every other word. Values of two
+# and three characters are kept, because a repository really can be called `cm`;
+# ft-redact.sh replaces those only where they stand as a word.
 
 def entries($values; $placeholder):
   [ $values[]? | select(type == "string") | select(length > 1) | {value: ., placeholder: $placeholder} ];

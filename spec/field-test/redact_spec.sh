@@ -112,6 +112,31 @@ EOF
       The output should include 'The shape of the case is real; the names are not.'
     End
 
+  # A short repository or branch name is a word that also appears inside other
+  # words. Replacing it everywhere rewrites the prose until the issue is unreadable,
+  # so a value under four characters is replaced only where it stands as a word.
+  Describe 'a short name'
+    short() {
+      ft_fixture_repo "$FT_SANDBOX/target" "acme-org/run" >/dev/null
+      "$FT_ISSUE" names "$FT_SANDBOX/target" > "$FT_SANDBOX/names.json"
+      printf '%s\n' 'A runner is running in the run directory of acme-org/run.' \
+        | "$FT_REDACT" "$FT_SANDBOX/names.json"
+    }
+
+    It 'still replaces the name where it stands on its own'
+      When call short
+      The status should be success
+      The output should include 'the <repo> directory'
+      The output should include '<org>/<repo>'
+    End
+
+    It 'leaves the words it is only a part of alone'
+      When call short
+      The status should be success
+      The output should include 'A runner is running'
+    End
+  End
+
     It 'keeps everything that is not a name'
       build_names
       Data "$(sample)"

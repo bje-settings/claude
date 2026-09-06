@@ -67,7 +67,9 @@ empty result all mean redact.
 Redaction is literal string replacement, longest value first, over the remote URL, `owner/name`,
 owner, name, checkout path, branch names, recent commit subjects, and the `#N` references seen
 during the run. It is not regular expressions: a branch name or commit subject can contain
-anything, and a pattern built out of one is a way to leak the name it exists to remove. The
+anything, and a pattern built out of one is a way to leak the name it exists to remove. A value
+under four characters is replaced only where it stands as a word, because a repository can be
+called `cm` and replacing that inside every other word makes the issue unreadable. The
 redacted issue carries a line saying the run was outside the enterprise, so the shape reads as
 real and the names read as placeholders.
 

@@ -63,8 +63,24 @@ table="$(jq -c '.placeholders // []' "$names")" || die "names file is not valid 
 
 # split/join with a plain string is a literal replacement in jq; gsub would treat
 # the value as a regular expression.
+#
+# A short value is replaced only where it stands as a word. A repository called
+# `run` or `cm` is a real name that has to go, but replacing it everywhere rewrites
+# the prose around it ("running" becomes "<repo>ning") until the issue is unreadable.
+# The word test is on the characters either side, never on the value itself, so no
+# pattern is ever built out of a name.
 read -r -d '' REDACT_JQ <<'JQ' || true
-reduce $table[] as $n (.; split($n.value) | join($n.placeholder))
+def bounded($v; $ph):
+  (split($v)) as $parts
+  | if ($parts | length) < 2 then .
+    else reduce range(1; $parts | length) as $i
+      ($parts[0];
+       . + (if (($parts[$i - 1] | test("[A-Za-z0-9_]$")) or ($parts[$i] | test("^[A-Za-z0-9_]")))
+            then $v else $ph end) + $parts[$i])
+    end;
+reduce $table[] as $n
+  (.; if ($n.value | length) < 4 then bounded($n.value; $n.placeholder)
+      else split($n.value) | join($n.placeholder) end)
 | . + "\n> " + $note + "\n"
 JQ
 jq -Rrs --argjson table "$table" --arg note "$NOTE" "$REDACT_JQ"
