@@ -61,7 +61,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>stream-low</code>, <code>stream-medium</code>, <code>stream-high</code></a>: work one stream through to a draft PR at the effort the plan sized it; dispatched by <code>/workstreams:run</code>.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>reviewer</code></a>: reviews one draft PR with <code>pr-review-toolkit</code>, applies the findings that hold, and refreshes a stale title or body.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>applier</code></a>: applies a list of already-verified review findings to one draft PR, runs the tests, pushes, and refreshes a stale title or body.</li>
       </ul>
     </td>
   </tr>

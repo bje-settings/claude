@@ -20,8 +20,14 @@ pending if none failed but any is still running or has no conclusion; pass if
 every check succeeded, was neutral, or skipped; none if there are none. failing
 names the checks that failed (a CheckRun's name or a StatusContext's context).
 
-Exit 0 on success, 1 when gh fails, the PR does not exist, or gh answers with a
-rollup this cannot fold, 2 on usage.
+Exit 0 on success, 1 when the pull request does not exist, 2 on usage, 4 when
+gh itself failed or answered with something this cannot read.
+
+1 and 4 are separated because the run loop decides differently on them: a pull
+request that does not exist is a permanent failure of the stream that reported
+it, while a rate limit, an expired token, or a network blip is worth another
+tick. gh's own stderr is what tells them apart, and it is forwarded unchanged
+either way.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -50,28 +56,54 @@ def die(message: str, status: int = 1):
     raise cli.Failure(message, status)
 
 
+# What gh says when the reference names no pull request, rather than when gh
+# could not do its job. "could not resolve to a pullrequest" is the GraphQL
+# error for a number or url that is not one; "no pull requests found" is what
+# `gh pr view` answers when it was given a branch with no open PR. Anything
+# else -- a rate limit, an expired token, a DNS failure, a 5xx -- is gh
+# failing, and matching it as "does not exist" is the mistake this list exists
+# to avoid. Matched case-insensitively against gh's stderr.
+MISSING = ("could not resolve to a pullrequest", "no pull requests found")
+
+
+def missing(stderr: str) -> bool:
+    """Whether gh's message says the pull request could not be resolved."""
+    lowered = stderr.lower()
+    return any(phrase in lowered for phrase in MISSING)
+
+
 def gh_view(reference: str):
     """`gh pr view` for one pull request, parsed.
 
-    Only stdout is captured: gh's own error ("could not resolve to a
-    PullRequest") is worth more to whoever is reading than this script's
-    summary of it, so that stream is left alone.
+    stderr is captured only to tell "no such pull request" (exit 1) from "gh
+    failed" (exit 4), and is forwarded unchanged before this script adds its own
+    line: gh's own error is worth more to whoever is reading than any summary of
+    it, and capturing it must not be how it goes missing.
     """
     try:
         finished = subprocess.run(
             ["gh", "pr", "view", reference.lstrip("#"), "--json", FIELDS],
-            stdout=subprocess.PIPE,
+            capture_output=True,
             check=False,
         )
     except OSError as error:
-        die(f"gh pr view failed for {reference}: {error}")
+        # gh is not on PATH, or is not executable. Not a pull request that does
+        # not exist: nothing was asked of GitHub at all.
+        die(f"gh pr view failed for {reference}: {error}", 4)
+    stderr = finished.stderr.decode("utf-8", "replace")
+    if stderr:
+        sys.stderr.write(stderr)
     if finished.returncode != 0:
-        die(f"gh pr view failed for {reference}")
+        if missing(stderr):
+            die(f"gh pr view failed for {reference}: no such pull request", 1)
+        die(f"gh pr view failed for {reference}", 4)
     text = finished.stdout.decode("utf-8", "replace")
     try:
         return json.loads(text)
     except ValueError as error:
-        die(f"gh pr view failed for {reference}: it did not answer with JSON ({error})")
+        # gh exited 0 with something that is not JSON. The pull request may well
+        # exist; what failed is gh, or a proxy in front of it.
+        die(f"gh pr view failed for {reference}: it did not answer with JSON ({error})", 4)
 
 
 def body(argv) -> int:

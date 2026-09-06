@@ -104,10 +104,55 @@ def test_accepts_a_url(ws_pr_status):
 
 
 def test_fails_when_the_pull_request_does_not_exist(ws_pr_status):
-    """fails when the pull request does not exist"""
+    """fails when the pull request does not exist
+
+    Exit 1 is reserved for this arm: the run loop fails a stream permanently on
+    it, so anything else reaching 1 would strand work the next tick could have
+    finished."""
     result = ws_pr_status("99")
     assert result.status == 1
-    assert "gh pr view failed for 99" in result.stderr
+    assert "gh pr view failed for 99: no such pull request" in result.stderr
+
+
+def test_forwards_ghs_own_message_when_the_pull_request_does_not_exist(ws_pr_status):
+    """Not in the shell spec, where stderr was never captured and so reached the
+    terminal untouched. Capturing it to decide between exit 1 and exit 4 must not
+    be how gh's own explanation goes missing."""
+    result = ws_pr_status("99")
+    assert "Could not resolve to a PullRequest with the number of 99" in result.stderr
+
+
+def test_reports_gh_failing_separately_from_a_pull_request_that_does_not_exist(
+    ws_pr_status, ws_sandbox
+):
+    """Not in the shell spec. A rate limit, an expired token, or a network blip
+    exits gh non-zero with a message that says nothing about resolving a pull
+    request; reading that as "the PR does not exist" is what made the run loop
+    fail a stream permanently on a blip (issue #62)."""
+    ws_sandbox.setenv("WS_GH_FIXTURE_FAIL", "1")
+    result = ws_pr_status("10")
+    assert result.status == 4
+    assert "gh: simulated failure" in result.stderr
+    assert result.stderr.endswith("ws-pr-status.py: gh pr view failed for 10\n")
+
+
+@pytest.mark.parametrize(
+    ("stderr", "expected"),
+    [
+        ("GraphQL: Could not resolve to a PullRequest with the number of 99.\n", True),
+        ("could not resolve to a pullrequest\n", True),
+        ('no pull requests found for branch "wktr-1-parser-fix"\n', True),
+        ("HTTP 403: API rate limit exceeded\n", False),
+        ("error connecting to api.github.com\n", False),
+        ("", False),
+    ],
+)
+def test_reads_ghs_message_for_whether_the_pull_request_exists(stderr, expected):
+    """The arm the exit status turns on, tested directly: a stub can only
+    produce the messages it was written to produce, and the ones that matter
+    here come from real gh."""
+    module = load_lib_module("workstreams_ws_pr_status_missing", WS_PR_STATUS)
+    assert module.missing(stderr) is expected
 
 
 def test_requires_exactly_one_argument(ws_pr_status):
@@ -171,7 +216,7 @@ def test_says_so_when_gh_is_not_installed(ws_pr_status, sandbox):
     failed"; naming the reason saves the reader working out why. The OSError's
     own text is the naming: without it the message says only which call it was."""
     result = ws_pr_status("10", env={"PATH": sandbox.path_without("gh")})
-    assert result.status == 1
+    assert result.status == 4
     assert "gh pr view failed for 10: " in result.stderr
     assert "No such file or directory" in result.stderr
 
@@ -191,7 +236,7 @@ def test_reports_a_rollup_it_cannot_fold_as_a_failure_rather_than_an_internal_er
             pull_request["statusCheckRollup"] = rollup
     path.write_text(json.dumps(prs), encoding="utf-8")
     result = ws_pr_status("10")
-    assert result.status == 1
+    assert result.status == 4
     assert result.stderr == (
         "ws-pr-status.py: statusCheckRollup is not a list of objects for PR 10\n"
     )
@@ -242,9 +287,10 @@ def test_says_so_when_gh_exits_0_with_something_that_is_not_json(monkeypatch):
     class Finished:
         returncode = 0
         stdout = b"<!DOCTYPE html>"
+        stderr = b""
 
     monkeypatch.setattr(module.subprocess, "run", lambda *a, **k: Finished())
     with pytest.raises(module.cli.Failure) as excinfo:
         module.gh_view("10")
     assert excinfo.value.message.startswith("gh pr view failed for 10: it did not answer with JSON")
-    assert excinfo.value.status == 1
+    assert excinfo.value.status == 4

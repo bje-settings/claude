@@ -24,11 +24,14 @@ flowchart TD
     WQ -->|paused, or the work needs more than one PR| Z1
     WQ -->|failed, or no report| X[mark the target failed; its issues stay open]
     X --> S
-    WQ -->|draft PR| R[review with workstreams:reviewer]
-    R --> RQ{reviewer returned}
+    WQ -->|draft PR| R[review here: pr-review-toolkit plus the PR's own<br>bot and human comments, every finding verified]
+    R -->|nothing held| M0
+    R -->|findings held| RA[hand the verified list to workstreams:applier]
+    RA --> RQ{applier returned}
     RQ -->|error| Z1
-    RQ -->|applied changes| R
-    RQ -->|applied nothing| M0[mark ready and enable auto-merge]
+    RQ -->|applied a substantial change, first round| R
+    RQ -->|applied a substantial change, second round| Z1
+    RQ -->|applied only cosmetic changes, or nothing| M0[mark ready and enable auto-merge]
     M0 -->|either command failed| Z1
     M0 -->|both accepted| M[block in the foreground on the checks]
     M --> MQ{what did the wait say?}

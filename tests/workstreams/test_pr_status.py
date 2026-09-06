@@ -244,8 +244,10 @@ def test_reduce_keeps_the_key_order_the_jq_projection_produced():
 def test_reduce_refuses_a_rollup_that_is_not_a_list_of_objects(rollup):
     """Read straight into the fold, each of these raised an AttributeError from
     inside `outcome`, which the run loop recorded as an internal error with
-    nothing in it to act on. Named here instead, with gh's own exit status."""
+    nothing in it to act on. Named here instead, with the script's "gh answered
+    with something it cannot read" status rather than its "no such pull
+    request" one."""
     with pytest.raises(pr_status.Malformed) as excinfo:
         pr_status.reduce({"number": 12, "statusCheckRollup": rollup})
     assert excinfo.value.message == "statusCheckRollup is not a list of objects for PR 12"
-    assert excinfo.value.status == 1
+    assert excinfo.value.status == 4

@@ -36,17 +36,20 @@ PENDING = "PENDING"
 class Malformed(Exception):
     """An answer from gh this fold cannot read, with the message to report.
 
-    The status is 1, gh's own: a rollup that is not a list of objects is gh (or
-    a GitHub schema change) answering with something else, not the caller
-    mistyping an argument. It carries the pair `cli.run` reports, and the script
-    names the class when it calls `run`, the way `issues.Invalid` is handled:
-    nothing under `lib/` imports another `lib/` module.
+    The status is 4, ws-pr-status.py's "gh itself failed or answered with
+    something this cannot read": a rollup that is not a list of objects is gh
+    (or a GitHub schema change) answering with something else, not the caller
+    mistyping an argument and not a pull request that does not exist. Status 1
+    is reserved for the latter, because the run loop fails a stream permanently
+    on it. It carries the pair `cli.run` reports, and the script names the class
+    when it calls `run`, the way `issues.Invalid` is handled: nothing under
+    `lib/` imports another `lib/` module.
     """
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
-        self.status = 1
+        self.status = 4
 
 
 def coalesce(*values):
