@@ -33,7 +33,10 @@ hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
 script's own directory. Nothing imports across plugins: a user installs one plugin without the
 others. `plugins/workstreams/scripts/lib/state.py` is the first of those shared modules: it holds
-what used to be ws-state's jq filters, as plain functions with a unit test per arm.
+what used to be ws-state's jq filters and argument checks, as plain functions with a unit test per
+arm. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by path under a
+plugin-unique module name, because two plugins' `lib` packages collide on `sys.modules["lib"]` in
+one pytest process.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root
@@ -129,7 +132,9 @@ Coverage for the Python side is coverage.py with `branch = true` and `patch = ["
 script exercised black-box in a child process is still measured. Branch coverage is the point: a
 `jq` program moved into Python stops being one opaque line and becomes arms the report can name,
 which is the answer to the blind spot `.claude/rules/type-jq.md` describes.
-`plugins/field-test/hooks/hook-io.py` is omitted from the coverage.py config, and is measured by
+Stub tools under `tests/<plugin>/bin/` are omitted from the config, since the subprocess patch
+would otherwise measure a fixture standing in for a tool as code under test.
+`plugins/field-test/hooks/hook-io.py` is omitted as well, and is measured by
 neither harness until issue #59 ports its examples: kcov does not follow the `python3` child the
 shell specs launch, so the file appears in no report at all. The omit only keeps that gap from
 reading as a 0% file and sinking the Python gate; it does not stand in for coverage.

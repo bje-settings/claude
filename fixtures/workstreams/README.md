@@ -3,7 +3,7 @@
 Canned GitHub data for the workstreams specs that are still bash: `ws-preflight.sh`,
 `ws-issues.sh` and `ws-pr-status.sh`. The ported scripts use the Python counterpart of all of
 this, in `tests/workstreams/` (`conftest.py` and `bin/gh`), which keeps the same environment
-contract; when the last of those three is ported, this directory goes with it.
+contract; when the last of those three is ported, in #55, this directory goes with it.
 
 Unlike `fixtures/gh/`, nothing here builds a git repository: the workstreams scripts only read
 from `gh` and write a JSON state file, so the fixtures are the data `gh` would return plus a fake
