@@ -141,6 +141,21 @@ Describe 'gh-shepherd-pr.sh'
   End
 
   Describe 'recreate'
+    # Dependabot's answer arrives after the recreate comment. Timing it with a
+    # bare sleep raced the script's own reads: under a loaded machine (parallel
+    # spec runs) the mutation could land before the comment posted, or the
+    # comment's read could find the file already gone. The stub writes
+    # "$GH_FIXTURE_PRS.comments" the moment the comment posts, so wait for that.
+    after_comment() {
+      local n=0
+      until [ -e "$GH_FIXTURE_PRS.comments" ]; do
+        [ "$n" -lt 200 ] || return 1   # 10s: the example has failed by then
+        sleep 0.05; n=$((n + 1))
+      done
+      "$@"
+    }
+    set_pr() { local f="$GH_FIXTURE_PRS"; jq "$1" "$f" > "$f.tmp" && mv "$f.tmp" "$f"; }
+
     It 'refuses on a pull request Dependabot did not author, and posts nothing'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY bot=false)"
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
@@ -160,7 +175,7 @@ Describe 'gh-shepherd-pr.sh'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
       export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
       # Dependabot's answer, arriving after the comment: a new head.
-      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].headRefOid = "recreated"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      ( after_comment set_pr '.[0].headRefOid = "recreated"' ) &
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": true'
       The output should include '"after": "recreated"'
@@ -173,7 +188,7 @@ Describe 'gh-shepherd-pr.sh'
       # is the success path. The moved head must win over the state change.
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
       export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
-      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].headRefOid = "recreated" | .[0].state = "MERGED"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      ( after_comment set_pr '.[0].headRefOid = "recreated" | .[0].state = "MERGED"' ) &
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"detail": "recreated"'
       The output should not include '"result"'
@@ -184,7 +199,7 @@ Describe 'gh-shepherd-pr.sh'
       export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
       # Dependabot's usual answer when another pull request already shipped the
       # bump: close this one instead of recreating it.
-      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].state = "CLOSED"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      ( after_comment set_pr '.[0].state = "CLOSED"' ) &
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": true'
       The output should include '"result": "closed"'
@@ -197,7 +212,7 @@ Describe 'gh-shepherd-pr.sh'
     It 'returns early when the pull request is merged with the head unmoved'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
       export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
-      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].state = "MERGED" | .[0].mergeCommit = {oid: "m1"}' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      ( after_comment set_pr '.[0].state = "MERGED" | .[0].mergeCommit = {oid: "m1"}' ) &
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": true'
       The output should include '"result": "merged"'
@@ -209,8 +224,8 @@ Describe 'gh-shepherd-pr.sh'
     It 'keeps polling when gh cannot read the pull request for one poll'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
       export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
-      # One poll sees no pull request at all (gh errored), the next sees it closed.
-      ( f="$GH_FIXTURE_PRS"; cp "$f" "$f.keep"; sleep 1; rm "$f"; sleep 2; jq '.[0].state = "CLOSED"' "$f.keep" > "$f" ) &
+      # One poll sees no pull request at all (gh errored), a later one sees it closed.
+      ( f="$GH_FIXTURE_PRS"; cp "$f" "$f.keep"; after_comment rm "$f"; sleep 2; jq '.[0].state = "CLOSED"' "$f.keep" > "$f" ) &
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": true'
       The output should include '"result": "closed"'
@@ -221,7 +236,7 @@ Describe 'gh-shepherd-pr.sh'
       fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
       export SHEPHERD_CI_SECONDS=1 SHEPHERD_POLL_SECONDS=1
       # The comment posts against a readable pull request; then every poll fails.
-      ( sleep 0.3; rm "$GH_FIXTURE_PRS" ) &
+      ( after_comment rm "$GH_FIXTURE_PRS" ) &
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": false'
       The output should include 'could not be re-read in 2s (2 attempts)'

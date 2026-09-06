@@ -82,14 +82,21 @@ The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforc
 ### Tests
 
 Specs are shellspec, under `spec/<plugin>/`; fixtures under `fixtures/<plugin>/`. Run everything
-with `spec/run.sh`, which lints and then runs the suite under both bash 5 and bash 3.2.
+with `spec/run.sh`, which lints and then runs the suite under both bash 5 and bash 3.2. The two
+passes run concurrently, each with shellspec `--jobs` sized to the machine (`SPEC_JOBS` overrides).
+Parallelism is per spec file, not per example, so a spec file that grows much larger than the
+rest becomes the floor on wall time. Every example must keep building its state in its own
+temp dir (`setup_sandbox`, `setup_ws_sandbox`); nothing may write to the checkout or to a fixed
+path.
 
 CI runs shellcheck, the suite on both shells, and a coverage job that fails below 95%, which is
 the enterprise Code Coverage ruleset's threshold. That number does not mean "tested" where the
 logic lives inside a `jq` program; see `.claude/rules/type-jq.md`.
 
 Coverage uses `kcov`, pinned to `ubuntu-22.04`: newer kcov builds break shellspec, and the
-alternative, bashcov, prevents shellspec running at all. Re-test before changing either.
+alternative, bashcov, prevents shellspec running at all. Re-test before changing either. The
+coverage run is serial: shellspec's kcov executor wraps the whole suite in one kcov process and
+ignores `--jobs`, so neither `spec/run.sh --coverage` nor the CI coverage job can parallelise.
 
 The CI job names `shellcheck`, `bash-5`, `bash-3.2` and `coverage` are required checks on the
 default branch, matched by exact string. Renaming one does not fail the build: the required check
