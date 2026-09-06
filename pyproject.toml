@@ -1,0 +1,56 @@
+[project]
+name = "bje-claude-plugins"
+version = "0.1.0"
+description = "Claude Code plugin marketplace for the bje enterprise"
+# 3.9 is the floor for the dev toolchain and for every plugin script, because
+# 3.9.6 is what macOS ships at /usr/bin/python3 with the Command Line Tools. End
+# users run the plugins with that interpreter and never install uv, so nothing
+# here may resolve to a version that would not run there.
+requires-python = ">=3.9"
+# The plugins are stdlib-only by design; there is nothing to install to run them.
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-cov>=7,<8",
+  "pytest-xdist>=3.8,<4",
+  # 7.10 is where patch = ["subprocess"] arrived, and 7.10.7 is the last release
+  # that still supports 3.9. Both matter: the tests run the scripts black-box
+  # through subprocess, so without the patch the coverage denominator is empty.
+  "coverage>=7.10.7,<7.11",
+  "ruff>=0.14",
+  "pre-commit>=4.3",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["plugins"]
+branch = true
+# The tests run each script black-box, as its own process, the way Claude Code
+# runs it. Without this the child process is not measured at all.
+patch = ["subprocess"]
+# Most child processes a test starts touch nothing under source = plugins (the
+# coverage gate itself, a stub on PATH), and each one would otherwise warn.
+disable_warnings = ["no-data-collected"]
+omit = [
+  # Ported to pytest by issue #59, which removes this line when it brings the
+  # field-test hook's examples across. Until then its coverage lives in kcov's
+  # report via the shell specs that drive it.
+  "plugins/field-test/hooks/hook-io.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.coverage.xml]
+output = "coverage/python.xml"

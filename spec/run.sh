@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # run.sh — lint and test the plugin scripts.
 #
-#   spec/run.sh             lint, then the suite under both shells
-#   spec/run.sh --quick     the suite under the default shell only
-#   spec/run.sh --coverage  the suite under kcov, with the CI threshold applied
+#   spec/run.sh             lint, then both harnesses (shellspec on both shells)
+#   spec/run.sh --quick     both harnesses once, under the default shell
+#   spec/run.sh --coverage  both harnesses with the CI thresholds applied
 #   SPEC_JOBS=N spec/run.sh shellspec --jobs to use (default: the core count,
 #                           split between the two passes when both run)
 #
-# The suite runs twice by design. bash 5 is what most contributors have on PATH;
-# /bin/bash is 3.2 on macOS and is what actually executes these scripts when the
-# plugin runs, so a passing 5.x run alone proves little.
+# There are two harnesses. shellspec covers the scripts that are still bash;
+# pytest covers the ones that are Python. This runs both, so one command still
+# covers the repo.
 #
-# Both passes run in parallel: shellspec --jobs spreads spec files across the
-# cores, and the two shell passes run at the same time. Coverage is the
+# The shellspec suite runs twice by design. bash 5 is what most contributors have
+# on PATH; /bin/bash is 3.2 on macOS and is what actually executes these scripts
+# when the plugin runs, so a passing 5.x run alone proves little.
+#
+# Both shell passes run in parallel: shellspec --jobs spreads spec files across
+# the cores, and the two shell passes run at the same time. Coverage is the
 # exception, and serial; see CLAUDE.md, Tests.
 
 set -uo pipefail
@@ -60,8 +64,16 @@ else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
 
-# The one file in a plugin that is not shell, so shellcheck says nothing about it.
-run "python" python3 -m compileall -q plugins/field-test/hooks/hook-io.py
+# uv drives everything Python here: the lint, the suite, and the coverage gate.
+# It is not optional the way shellcheck is, because half the suite lives behind it.
+command -v uv >/dev/null 2>&1 || {
+  printf 'uv is required: brew install uv\n' >&2
+  exit 1
+}
+
+# The files in a plugin that are not shell, so shellcheck says nothing about them.
+run "ruff" uv run ruff check .
+run "ruff format" uv run ruff format --check .
 
 command -v shellspec >/dev/null 2>&1 || {
   printf 'shellspec is required: brew install shellspec\n' >&2
@@ -79,14 +91,18 @@ if [[ "${1:-}" == "--coverage" ]]; then
     printf 'kcov is required for --coverage: brew install kcov\n' >&2
     exit 1
   }
+  # kcov first: it owns the whole covdir, and coverage.py only adds a file to it.
   run "shellspec (kcov)" shellspec --kcov --covdir coverage \
     --kcov-options "--include-path=./plugins --path-strip-level=1"
-  run "coverage threshold" python3 spec/coverage-check.py coverage/cobertura.xml 95
+  run "shell coverage threshold" python3 tests/coverage_check.py coverage/cobertura.xml 95
+  run "pytest (coverage)" uv run pytest --cov --cov-report=xml
+  run "python coverage threshold" python3 tests/coverage_check.py coverage/python.xml 95
 elif [[ "${1:-}" == "--quick" ]]; then
   # --quick is this script's flag, not shellspec's: forwarded, it would switch
   # shellspec into its own quick mode and leave .shellspec-quick.log in the
   # checkout, which every later run (both passes at once) would then share.
   shift
+  run "pytest" uv run pytest -n auto
   run "shellspec (default shell, --jobs $jobs)" shellspec --jobs "$jobs" "$@"
 else
   # Both passes run as background jobs and the script waits on them, because
@@ -100,6 +116,9 @@ else
   # Half the jobs each, so the two passes together hold one worker per core:
   # the examples that poll on real seconds start missing their bounds when the
   # machine is oversubscribed, and measured wall time is the same either way.
+  # pytest first, and on its own: it is seconds, and it is the harness a Python
+  # change is most likely to have broken.
+  run "pytest" uv run pytest -n auto
   jobs=$(( (jobs + 1) / 2 ))
   legacy_out="$(mktemp)" || { printf 'could not create a temp file for the /bin/bash pass\n' >&2; exit 1; }
   set -m
