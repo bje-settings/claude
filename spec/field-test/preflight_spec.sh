@@ -60,13 +60,31 @@ Describe 'ft-preflight.sh'
     The output should not include '"id": "workstreams"'
   End
 
-  It 'reports a missing gh login with the login command'
+  It 'reports a failed gh login check with the login command and what gh said'
     with_plugins
     export FT_GH_FIXTURE_FAIL=1
     When run script "$FT_PREFLIGHT"
     The status should equal 1
     The output should include '"id": "gh-auth"'
     The output should include '"hint": "gh auth login"'
+    The output should include '"detail": "gh: simulated failure"'
+  End
+
+  It 'reports a registry whose plugins is not an object as unreadable, not as two missing plugins'
+    printf '{"version": 2, "plugins": []}' > "$FT_INSTALLED_PLUGINS"
+    When run script "$FT_PREFLIGHT"
+    The status should equal 1
+    The output should include '"id": "registry-unreadable"'
+    The output should include 'no plugins object'
+    The output should not include '"id": "workstreams"'
+  End
+
+  It 'accepts workstreams installed from another marketplace'
+    jq --arg p "$FT_INSTALL_DIR" '.plugins["workstreams@fork"] = [{scope: "user", installPath: $p, version: "0.1.0"}]' \
+      "$FT_INSTALLED_PLUGINS" > "$FT_SANDBOX/x" && mv "$FT_SANDBOX/x" "$FT_INSTALLED_PLUGINS"
+    When run script "$FT_PREFLIGHT"
+    The status should be success
+    The output should include '"ok": true'
   End
 
   It 'reports gh itself when it is not installed'

@@ -37,14 +37,19 @@ installed="${FT_INSTALLED_PLUGINS:-$HOME/.claude/plugins/installed_plugins.json}
 command -v jq >/dev/null 2>&1 || { printf 'ft-preflight.sh: jq is required: brew install jq\n' >&2; exit 4; }
 
 missing='[]'
+# miss <id> <hint> [detail]: detail is the tool's own message, when there is one.
 miss() {
-  missing="$(printf '%s' "$missing" | jq -c --arg id "$1" --arg hint "$2" '. + [{id: $id, hint: $hint}]')"
+  missing="$(printf '%s' "$missing" | jq -c --arg id "$1" --arg hint "$2" --arg detail "${3:-}" \
+    '. + [{id: $id, hint: $hint} + (if $detail != "" then {detail: $detail} else {} end)]')"
 }
 
 if ! command -v gh >/dev/null 2>&1; then
   miss gh 'brew install gh'
 else
-  gh auth status >/dev/null 2>&1 || miss gh-auth 'gh auth login'
+  # gh auth status fails for a missing login and also for a network error or a
+  # broken config dir; the message says which, so it travels with the hint.
+  authmsg="$(gh auth status 2>&1)" \
+    || miss gh-auth 'gh auth login' "$(printf '%s' "$authmsg" | tr '\n' ' ' | cut -c1-160)"
 fi
 
 # A plugin is present when the registry names it under any marketplace. Which
@@ -55,6 +60,8 @@ if [[ ! -f "$installed" ]]; then
   miss pr-review-toolkit '/plugin install pr-review-toolkit@claude-plugins-official'
 elif ! jq -e . "$installed" >/dev/null 2>&1; then
   miss registry-unreadable "installed plugins file is not valid JSON: $installed"
+elif ! jq -e '(.plugins | type) == "object"' "$installed" >/dev/null 2>&1; then
+  miss registry-unreadable "installed plugins file has no plugins object: $installed"
 else
   jq -e '.plugins | keys[] | select(startswith("workstreams@"))' "$installed" >/dev/null 2>&1 \
     || miss workstreams '/plugin install workstreams@bje'

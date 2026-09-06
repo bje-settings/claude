@@ -269,6 +269,24 @@ Describe 'ft-harden-state.sh'
       The stderr should include 'set needs'
     End
 
+    It 'rejects two statuses in one value, which would match the list and be skipped by next'
+      When run script "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets status 'pending done'
+      The status should equal 2
+      The stderr should include 'invalid status'
+    End
+
+    It 'rejects a phase with a space in it'
+      When run script "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets phase 'fix review'
+      The status should equal 2
+      The stderr should include 'invalid phase'
+    End
+
+    It 'rejects issues that are valid JSON but not an array'
+      When run script "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets issues '{"a": 1}'
+      The status should equal 2
+      The stderr should include 'issues takes a JSON array'
+    End
+
     It 'fails for a target that was never added'
       When run script "$FT_HARDEN_STATE" set gh:shepherd /repos/gadgets status done
       The status should equal 1
@@ -313,6 +331,13 @@ Describe 'ft-harden-state.sh'
       When run script "$FT_HARDEN_STATE" next gh:shepherd
       The status should be success
       The output should equal '/repos/gadgets'
+    End
+
+    It 'returns a target still running, so a session that stopped mid-target resumes it'
+      "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets status running
+      When run script "$FT_HARDEN_STATE" next gh:shepherd
+      The status should be success
+      The output should equal '/repos/widgets'
     End
 
     It 'still returns a paused target, so its question is not stepped over'

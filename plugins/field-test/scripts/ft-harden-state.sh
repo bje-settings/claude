@@ -130,17 +130,23 @@ case "$cmd" in
     target="${1:-}"; field="${2:-}"; value="${3:-}"; mode="${4:-}"
     [[ -n "$target" && -n "$field" && $# -ge 3 ]] || die 'set needs <path> <field> <value> [--json]' 2
     [[ -z "$mode" || "$mode" == "--json" ]] || die "set: unknown argument: $mode" 2
-    [[ "$FIELDS" == *" $field "* ]] || die "set: unknown field: $field (one of:$FIELDS)" 2
-    if [[ "$field" == "status" && "$STATUSES" != *" $value "* ]]; then
+    # Whole words only: a value holding a space could match two valid words at
+    # once against the padded list, and a target whose status is "pending done"
+    # is one `next` would skip without a word.
+    [[ "$field" != *[[:space:]]* && "$FIELDS" == *" $field "* ]] \
+      || die "set: unknown field: $field (one of:$FIELDS)" 2
+    if [[ "$field" == "status" ]] && [[ "$value" == *[[:space:]]* || "$STATUSES" != *" $value "* ]]; then
       die "set: invalid status: $value (one of:$STATUSES)" 2
     fi
-    if [[ "$field" == "phase" && "$PHASES" != *" $value "* ]]; then
+    if [[ "$field" == "phase" ]] && [[ "$value" == *[[:space:]]* || "$PHASES" != *" $value "* ]]; then
       die "set: invalid phase: $value (one of:$PHASES)" 2
     fi
     if [[ "$field" == "pr" ]]; then
       [[ "$value" =~ ^[0-9]+$ || "$value" == "null" ]] || die "set: pr takes a number or null, got: $value" 2
       mode="--json"
     elif [[ "$field" == "issues" ]]; then
+      printf '%s' "$value" | jq -e 'type == "array"' >/dev/null 2>&1 \
+        || die "set: issues takes a JSON array, got: $value" 2
       mode="--json"
     fi
     if [[ "$mode" == "--json" ]]; then
