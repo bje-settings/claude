@@ -20,8 +20,13 @@ under observation is not the thing you set out to measure.
 ## Step 1: Resolve the target
 
 ```bash
-$S/ft-resolve.sh <target> > /tmp/ft-resolved.json
+RUN="$($S/ft-run.sh dir)"; mkdir -p "$RUN"
+$S/ft-resolve.sh <target> > "$RUN/resolved.json"
 ```
+
+Everything this run writes goes under `$RUN`, the run directory this session owns. A fixed path
+in `/tmp` would let two runs hand each other the wrong redaction table, which is the one file
+that decides whether a name outside the enterprise reaches a public issue.
 
 - exit 3 or 5: stop and print the script's stderr line as it stands. An unresolved target is not
   a target to guess at, and a Workflow target is refused because the hooks may never see it.
@@ -31,7 +36,7 @@ $S/ft-resolve.sh <target> > /tmp/ft-resolved.json
 ## Step 2: Start the run
 
 ```bash
-$S/ft-run.sh start <target> --resolved /tmp/ft-resolved.json --cwd <the directory to run in> -- <args...>
+$S/ft-run.sh start <target> --resolved "$RUN/resolved.json" --cwd <the directory to run in> -- <args...>
 ```
 
 Exit 3 means a field test is already running in this session; finish or abandon that one first.
@@ -54,10 +59,9 @@ to solve.
 
 ```bash
 $S/ft-run.sh finish
-RUN="$($S/ft-run.sh dir)"
 $S/ft-collect.sh "$RUN"
 $S/ft-enterprise.sh <plugin marketplace_path from step 1> <the directory the target ran in>
-$S/ft-issue.sh names <the directory the target ran in> --run "$RUN" > /tmp/ft-names.json
+$S/ft-issue.sh names <the directory the target ran in> --run "$RUN" > "$RUN/names.json"
 ```
 
 `ft-collect.sh "$RUN" --report` prints the target's own final message when you need to check
@@ -86,7 +90,7 @@ stated is a bug that was never filed.
 For each real finding, in severity order:
 
 ```bash
-$S/ft-issue.sh render <record.json> "$RUN/run.json" /tmp/ft-names.json [--inside]
+$S/ft-issue.sh render <record.json> "$RUN/run.json" "$RUN/names.json" [--inside]
 ```
 
 Pass `--inside` only when `ft-enterprise.sh` said `inside: true`. Its answer decides this; do not

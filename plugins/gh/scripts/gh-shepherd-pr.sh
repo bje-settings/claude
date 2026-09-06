@@ -108,7 +108,8 @@ read_pr() {
   gh pr view "$NUMBER" --repo "$REPO" --json "$SHEPHERD_PR_FIELDS" 2>"$READ_ERR" \
     | shepherd_jq -c 'include "shepherd"; summary' 2>/dev/null
 }
-last_read_error() { tr '\n' ' ' <"$READ_ERR" 2>/dev/null | sed 's/"/\\"/g'; }
+# No quote escaping: emit passes this through --arg, which encodes it already.
+last_read_error() { tr '\n' ' ' <"$READ_ERR" 2>/dev/null; }
 
 field() { printf '%s' "$1" | jq -r "$2"; }
 
