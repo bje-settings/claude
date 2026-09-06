@@ -23,7 +23,10 @@ flowchart TD
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
         T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
-        T -->|Conflicts, Dependabot branch| RC[Ask Dependabot to recreate] --> W
+        T -->|Conflicts, Dependabot branch| RC[Ask Dependabot to recreate]
+        RC -->|Head moved| W
+        RC -->|Closed or merged instead: superseded by another PR| CS([Closed: superseded, terminal]):::stop --> S
+        RC -->|Still open, head never moved| BR([Blocked: recreate did not land]):::stop --> S
         T -->|Conflicts, human branch| E([Needs escalation: never resolved here]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
