@@ -64,7 +64,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      # Pinned to a patch tag, not a major one: setup-uv stopped publishing the
+      # moving vN tag after v7, so `@v10` does not resolve.
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - name: Install the dev toolchain
@@ -85,7 +87,7 @@ jobs:
         id: python
         with:
           python-version: "3.x"
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       - name: Run the Python suite on the newest 3.x
@@ -96,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
       # No --python here on purpose: .python-version pins 3.9, which is what
@@ -233,7 +235,7 @@ jobs:
       # the whole covdir; this only adds a file to it. The threshold is the same
       # 95, applied to each report separately, so neither harness can be carried
       # by the other.
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
