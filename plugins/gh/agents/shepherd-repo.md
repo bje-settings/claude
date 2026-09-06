@@ -79,6 +79,9 @@ in the order given:
        one). Do not retry.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait` (it returns at once when the checks
      are already terminal) and go to step 3.
+   - Right after a `rebase` or a `recreate` that moved the head, do not re-enter this list: go
+     straight to `wait`. The `BLOCKED` or `UNKNOWN` state with pending checks you see then is
+     GitHub recomputing mergeability for the new head, not a new decision.
    - `CLEAN`, `HAS_HOOKS`, or checks `pending` → `wait`.
    - `UNKNOWN` → GitHub has not computed it yet; `wait` once, then re-read `state`.
 3. Act on the `wait` result:
