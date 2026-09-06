@@ -395,7 +395,11 @@ def test_prints_a_non_ascii_hint_under_a_non_utf8_locale(ws_preflight, ws_sandbo
     """Not in the shell spec. A hint carries the path it is complaining about,
     which is the user's and may hold anything; the output is written with
     ensure_ascii=False, so without reconfiguring stdout a non-UTF-8 locale would
-    fail the write with a UnicodeEncodeError."""
+    fail the write with a UnicodeEncodeError.
+
+    What the accented byte comes back as is the platform's business (macOS
+    decodes paths as UTF-8 whatever the locale, Linux follows the locale), so
+    the assertion is that the hint was printed and nothing crashed."""
     accented = ws_sandbox.path / "caf\u00e9.json"
     accented.write_text("[]", encoding="utf-8")
     result = ws_preflight(
@@ -407,7 +411,9 @@ def test_prints_a_non_ascii_hint_under_a_non_utf8_locale(ws_preflight, ws_sandbo
         }
     )
     assert result.status == 1
-    assert "caf\u00e9.json" in result.stdout
+    assert "is not a JSON object" in result.stdout
+    assert ".json" in result.stdout
+    assert "Traceback" not in result.stderr
 
 
 def test_exits_quietly_when_the_reader_closes_the_pipe(ws_sandbox):
