@@ -56,6 +56,9 @@ else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi
 
+# The one file in a plugin that is not shell, so shellcheck says nothing about it.
+run "python" python3 -m compileall -q plugins/field-test/hooks/hook-io.py
+
 command -v shellspec >/dev/null 2>&1 || {
   printf 'shellspec is required: brew install shellspec\n' >&2
   exit 1
