@@ -223,7 +223,10 @@ def cmd_start(argv, run_dir: str, marker_path: str, session: str):
         )
     except OSError:
         die(f"cannot write {marker_path}")
-    sys.stdout.write(marker_path + "\n")
+    # write_out, not sys.stdout.write: the marker and events.jsonl are already on
+    # disk by this point, and a reader that went away must not be the reason the
+    # rest of this command is skipped.
+    cli.write_out(marker_path + "\n")
 
 
 def cmd_finish(marker_path: str, session: str):
@@ -238,7 +241,7 @@ def cmd_finish(marker_path: str, session: str):
 
 def cmd_show(marker_path: str, session: str):
     marker = require_marker(marker_path, session)
-    sys.stdout.write(json.dumps(marker, indent=2, ensure_ascii=False) + "\n")
+    cli.write_out(json.dumps(marker, indent=2, ensure_ascii=False) + "\n")
 
 
 def run(argv):
@@ -262,7 +265,7 @@ def run(argv):
     marker_path = os.path.join(run_dir, "run.json")
 
     if command == "dir":
-        sys.stdout.write(run_dir + "\n")
+        cli.write_out(run_dir + "\n")
     elif command == "start":
         cmd_start(rest, run_dir, marker_path, session)
     elif command == "finish":
@@ -285,6 +288,10 @@ def main(argv):
         sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
     except BrokenPipeError:
+        # Only the flush above and the usage text can reach this: every line this
+        # script prints as an answer goes through cli.write_out, which stops the
+        # output and lets the work finish. By here there is no work left, so
+        # losing stderr with it costs nothing.
         cli.silence_broken_pipe()
         return 0
     except Exception as error:

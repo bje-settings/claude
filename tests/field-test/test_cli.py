@@ -10,6 +10,7 @@ by SIGPIPE on a closed reader, and one message instead of a traceback.
 from __future__ import annotations
 
 import io
+import json
 import sys
 
 import pytest
@@ -28,6 +29,12 @@ SCRIPT_NAMES = (
     "ft-resolve.py",
     "ft-enterprise.py",
 )
+
+# The scripts that change something before or while they print: a run marker, an
+# issue, a resolved target the caller records. A closed reader has to stop their
+# output without stopping the work, which is what cli.write_out does. The rest
+# only print, so the handler around `main` is the whole answer for them.
+STATEFUL_SCRIPTS = ("ft-run.py", "ft-issue.py", "ft-resolve.py")
 
 
 # --- every script has the wrapper --------------------------------------------
@@ -52,6 +59,32 @@ def test_every_script_handles_a_reader_that_closed_early(name):
 @pytest.mark.parametrize("name", SCRIPT_NAMES)
 def test_every_script_reports_an_unanticipated_failure_as_one_line(name):
     assert "internal error: " in (SCRIPTS / name).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("name", STATEFUL_SCRIPTS)
+def test_a_script_that_changes_something_prints_through_write_out(name):
+    """a script that changes something prints through write_out, not sys.stdout
+
+    The handler around `main` unwinds the whole body, so a closed reader there
+    would skip whatever work came after the write. These three have work that
+    must not be skipped, so every answer they print goes through write_out and
+    only the final flush is left to the outer handler.
+    """
+    source = (SCRIPTS / name).read_text(encoding="utf-8")
+    body = source[: source.index("def main(argv):")]
+    assert "cli.write_out(" in body
+    # `--help` is the exception, and the only one: nothing follows it, so the
+    # handler around `main` is the right place for a reader that went away.
+    remaining = body.replace("sys.stdout.write(__doc__)", "")
+    assert "sys.stdout.write(" not in remaining
+
+
+# --- silence_stdout and write_out --------------------------------------------
+
+
+def test_write_out_writes_to_a_reader_that_is_there(capfd):
+    cli.write_out("the answer\n")
+    assert capfd.readouterr().out == "the answer\n"
 
 
 # --- reconfigure_streams -----------------------------------------------------
@@ -91,7 +124,7 @@ def test_a_script_answers_under_a_locale_that_cannot_encode_its_answer(ft_sandbo
     ft_fixture_run(ft_sandbox.marker)
     marker = ft_sandbox.read_marker()
     marker["cwd"] = "/checkout/café"
-    ft_sandbox.marker.write_text(__import__("json").dumps(marker), encoding="utf-8")
+    ft_sandbox.marker.write_text(json.dumps(marker), encoding="utf-8")
     result = run_script(FT_RUN, "show", env={"PYTHONIOENCODING": "ascii"})
     assert result.status == 0, result.stderr
     assert "café" in result.stdout
@@ -117,6 +150,44 @@ def test_a_reader_that_closed_early_is_not_a_failure_for_a_json_answer(
     completed = run_with_no_reader(FT_ENTERPRISE, "/no/such/plugin", "/no/such/target")
     assert completed.returncode == 0
     assert completed.stderr == b""
+
+
+def test_a_closed_reader_stops_the_output_of_start_and_not_its_work(ft_sandbox, run_with_no_reader):
+    """writes the marker and the events file even when nobody is reading the path
+
+    `ft-run.py start ... | head` is the case, and this is the guarantee stated end
+    to end: exit 0, both files there. It does not by itself catch a reversion to
+    `sys.stdout.write`, because the path is the last thing this command prints, so
+    the files are already on disk when the handler around `main` unwinds. The test
+    above it is what catches that; this one pins the promise the moment anything
+    is printed before the work finishes, which is the ordering write_out exists to
+    make safe.
+    """
+    ft_sandbox.marker.unlink(missing_ok=True)
+    ft_sandbox.events.unlink(missing_ok=True)
+    completed = run_with_no_reader(FT_RUN, "start", "gh:shepherd", "--cwd", "/checkout")
+    assert completed.returncode == 0
+    assert completed.stderr == b""
+    assert ft_sandbox.marker.is_file()
+    assert ft_sandbox.events.is_file()
+    marker = json.loads(ft_sandbox.marker.read_text(encoding="utf-8"))
+    assert marker["target"] == "gh:shepherd"
+    assert marker["finished_at"] is None
+
+
+def test_a_closed_reader_leaves_stderr_alone_for_the_refusal_after_it(
+    ft_sandbox, run_with_no_reader
+):
+    """keeps stderr for a refusal that comes after the output the reader dropped
+
+    write_out silences stdout only. A script that has already printed and then
+    fails still has something to say, and the reader that went away was reading
+    stdout.
+    """
+    ft_sandbox.marker.unlink(missing_ok=True)
+    completed = run_with_no_reader(FT_RUN, "start")
+    assert completed.returncode == 2
+    assert b"start needs a target" in completed.stderr
 
 
 def load_script(name):
