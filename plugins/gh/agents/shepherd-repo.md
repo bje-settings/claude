@@ -29,11 +29,12 @@ S="${CLAUDE_PLUGIN_ROOT}/scripts"
 
 - **Never merge, never enable or disable auto-merge, never bypass a check, never edit labels.**
   Auto-merge fires on its own once checks pass. Your job ends at "checks green".
-- **Never run a `wait` through a Monitor, a scheduled wake, or by ending your turn.** You are a
-  worker; ending your turn idles you and the orchestrator sees only "waiting". Waiting is the
-  blocking `wait` action, run in the foreground with a Bash timeout of at least 600000 ms. It
-  returns `pending` when its own bound is hit; call it again. One `wait` per CI cycle, no
-  shorter polling.
+- **Every `recreate` and `wait` call MUST pass `timeout: 600000` on the Bash tool call itself.**
+  The harness backgrounds a Bash call at its default 120 s timeout otherwise, and a backgrounded
+  `recreate` or `wait` looks to you like nothing is happening, so do not end your turn while one
+  is outstanding: that idles you and the orchestrator sees only "waiting". A `wait` returns
+  `pending` when its own bound is hit; call it again, still with `timeout: 600000`. One `wait`
+  per CI cycle, no shorter polling.
 - The user's standing rule against watching CI does not apply here: invoking `/gh:shepherd` is
   the explicit request to wait on these checks.
 - **Touch a branch only for a mechanical fix** (defined below), only in a worktree you create,
