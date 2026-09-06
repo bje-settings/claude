@@ -29,11 +29,12 @@ S="${CLAUDE_PLUGIN_ROOT}/scripts"
 
 - **Never merge, never enable or disable auto-merge, never bypass a check, never edit labels.**
   Auto-merge fires on its own once checks pass. Your job ends at "checks green".
-- **Never run a `wait` through a Monitor, a scheduled wake, or by ending your turn.** You are a
-  worker; ending your turn idles you and the orchestrator sees only "waiting". Waiting is the
-  blocking `wait` action, run in the foreground with a Bash timeout of at least 600000 ms. It
-  returns `pending` when its own bound is hit; call it again. One `wait` per CI cycle, no
-  shorter polling.
+- **Every `recreate` and `wait` call MUST pass `timeout: 600000` on the Bash tool call itself.**
+  Without it the call is cut off at the tool's 120 s default and you see no result. Never run
+  either through a Monitor or a scheduled wake, and never end your turn while one is
+  outstanding: that idles you and the orchestrator sees only "waiting". A `wait` returns
+  `pending` when its own bound is hit; call it again, still with `timeout: 600000`. One `wait`
+  per CI cycle, no shorter polling.
 - The user's standing rule against watching CI does not apply here: invoking `/gh:shepherd` is
   the explicit request to wait on these checks.
 - **Touch a branch only for a mechanical fix** (defined below), only in a worktree you create,
@@ -50,9 +51,21 @@ in the order given:
    and continue.
 2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
    - `BEHIND` → `rebase`, then `wait`.
-   - `DIRTY` (conflicts) → if `pr.is_bot`, `recreate`, then `wait`. Otherwise this pull request
-     needs a human or a larger model: record it as `needs-escalation` with the reason
-     "conflicts on a non-Dependabot branch" and continue. Do not resolve conflicts yourself.
+   - `DIRTY` (conflicts) → if `pr.is_bot`, `recreate`. Otherwise this pull request needs a
+     human or a larger model: record it as `needs-escalation` with the reason "conflicts on a
+     non-Dependabot branch" and continue. Do not resolve conflicts yourself.
+     - `recreate` `ok:true` with `result: "closed"` → the pull request was closed with its head
+       unmoved. Dependabot does this when another pull request already shipped the same or a
+       newer version; a human can close it too. Terminal: record it under `closed` with the
+       detail and continue. Do not `wait` afterwards, there is no new head to watch.
+     - `recreate` `ok:true` with `result: "merged"` → the pull request merged with its head
+       unmoved (a human merged it, or its conflict state was stale). Record it under `merged`
+       with `mergeCommit` from `pr.mergeCommit` and `rebases: 1`, and continue.
+     - `recreate` `ok:true` otherwise (the head moved) → `wait`.
+     - `recreate` `ok:false` → record it as `blocked` with the detail and continue. The detail
+       says which it was: the comment could not be posted, the head did not change within the
+       bound, or the pull request could not be re-read at all (a gh failure, not a Dependabot
+       one). Do not retry.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait` (it returns at once when the checks
      are already terminal) and go to step 3.
    - `CLEAN`, `HAS_HOOKS`, or checks `pending` → `wait`.
@@ -98,11 +111,11 @@ Return one JSON object and nothing else:
 {
   "repo": "owner/name",
   "ci_seconds": 86,
-  "merged": [{"number": 1, "mergeCommit": "sha", "rebases": 1, "fixed": false}],
+  "merged": [{"number": 1, "mergeCommit": "sha", "rebases": 1, "fixed": false, "merged_as": "x.y.z+2 (title said x.y.z+1)"}],
   "skipped": [{"number": 2, "reason": "…", "comment_url": "…"}],
   "blocked": [{"number": 3, "mergeStateStatus": "BLOCKED", "reason": "…"}],
   "needs_escalation": [{"number": 4, "reason": "…"}],
-  "closed": [5],
+  "closed": [{"number": 5, "reason": "already closed"}],
   "skipped_no_automerge": [{"number": 6, "title": "…", "author": "…"}],
   "model": "sonnet"
 }
@@ -110,4 +123,12 @@ Return one JSON object and nothing else:
 
 `skipped_no_automerge` is copied from the status output. `model` is the model you ran as.
 Count `rebases` per pull request from your own `rebase` and `recreate` calls; the orchestrator
-uses it to confirm the serial argument (one per pull request is the expected number).
+uses it to confirm the serial argument (one per pull request is the expected number). `closed`
+entries carry a `reason`: "already closed" from step 1, or the `recreate` detail when the pull
+request was closed while `recreate` waited.
+
+`@dependabot recreate` re-resolves the version rather than reusing the original bump: a pull
+request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed in
+the meantime. This is expected Dependabot behaviour, not a defect in the fix. When the merged
+version differs from the pull request's original title, set `merged_as` on the `merged` entry;
+omit the field otherwise.

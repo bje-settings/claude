@@ -164,7 +164,70 @@ Describe 'gh-shepherd-pr.sh'
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": true'
       The output should include '"after": "recreated"'
+      The output should satisfy json_field '.pr.headRefOid' 'recreated'
       The result of function comments should include '@dependabot recreate'
+    End
+
+    It 'reports recreated, not merged, when the head moved and the merge landed in the same poll'
+      # A recreated branch that went green and auto-merged before the next poll
+      # is the success path. The moved head must win over the state change.
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
+      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].headRefOid = "recreated" | .[0].state = "MERGED"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"detail": "recreated"'
+      The output should not include '"result"'
+    End
+
+    It 'returns early when the pull request is closed with the head unmoved'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
+      # Dependabot's usual answer when another pull request already shipped the
+      # bump: close this one instead of recreating it.
+      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].state = "CLOSED"' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"ok": true'
+      The output should include '"result": "closed"'
+      The output should include 'closed while waiting for recreate'
+      The output should include '"before": "sha1"'
+      The output should satisfy json_field '.pr.state' 'CLOSED'
+      The result of function comments should include '@dependabot recreate'
+    End
+
+    It 'returns early when the pull request is merged with the head unmoved'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
+      ( sleep 1; f="$GH_FIXTURE_PRS"; jq '.[0].state = "MERGED" | .[0].mergeCommit = {oid: "m1"}' "$f" > "$f.tmp" && mv "$f.tmp" "$f" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"ok": true'
+      The output should include '"result": "merged"'
+      The output should include 'merged while waiting for recreate'
+      The output should satisfy json_field '.pr.mergeCommit' 'm1'
+      The result of function comments should include '@dependabot recreate'
+    End
+
+    It 'keeps polling when gh cannot read the pull request for one poll'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=4 SHEPHERD_POLL_SECONDS=1
+      # One poll sees no pull request at all (gh errored), the next sees it closed.
+      ( f="$GH_FIXTURE_PRS"; cp "$f" "$f.keep"; sleep 1; rm "$f"; sleep 2; jq '.[0].state = "CLOSED"' "$f.keep" > "$f" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"ok": true'
+      The output should include '"result": "closed"'
+      The output should satisfy json_field '.pr.state' 'CLOSED'
+    End
+
+    It 'says the pull request could not be re-read when no poll succeeded, rather than that the head did not move'
+      fixture_prs "$GH_FIXTURE_PRS" "$(fixture_dep_pr 1 merge=DIRTY)"
+      export SHEPHERD_CI_SECONDS=1 SHEPHERD_POLL_SECONDS=1
+      # The comment posts against a readable pull request; then every poll fails.
+      ( sleep 0.3; rm "$GH_FIXTURE_PRS" ) &
+      When run script "$SHEPHERD_PR" "$REPO" 1 recreate
+      The output should include '"ok": false'
+      The output should include 'could not be re-read in 2s (2 attempts)'
+      The output should include 'Could not resolve to a PullRequest'
+      The output should satisfy json_field '.read_failures' '2'
+      The output should not include 'head did not change'
     End
 
     It 'gives up after two CI cycles when the head never moves'
@@ -173,6 +236,8 @@ Describe 'gh-shepherd-pr.sh'
       When run script "$SHEPHERD_PR" "$REPO" 1 recreate
       The output should include '"ok": false'
       The output should include 'head did not change within 2s'
+      The output should satisfy json_field '.read_failures' '0'
+      The output should satisfy json_field '.pr.state' 'OPEN'
       The result of function comments should include '@dependabot recreate'
     End
   End

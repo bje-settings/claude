@@ -132,7 +132,7 @@ high), oldest first within a band.
 | State | Action |
 | --- | --- |
 | Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. |
-| Conflicts, Dependabot branch | Comment `@dependabot recreate`, wait for the head to move, then wait for CI. |
+| Conflicts, Dependabot branch | Comment `@dependabot recreate`, wait for the head to move, then wait for CI. If the pull request is closed while waiting, which is what Dependabot does when another pull request already shipped the same or a newer version, `recreate` returns early and it is reported as closed, not blocked. |
 | Conflicts, human branch | Reported as needing escalation. Never resolved by the skill. |
 | Checks running | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
 | Checks green, auto-merge fired | Recorded with the merge commit. Next. |
@@ -140,6 +140,11 @@ high), oldest first within a band.
 | Checks failed, mechanical | Fixed once in a throwaway worktree and pushed: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
 | Checks failed, not mechanical | Skipped with a comment saying why: anything touching program logic, tests' expectations of behaviour, configuration semantics, or a CI workflow. |
 | Checks failed, unclear | Reported as needing escalation. |
+
+`@dependabot recreate` re-resolves the version instead of reusing the original bump, so a pull
+request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed
+while it waited; expected Dependabot behaviour, and the report's `merged_as` column says so
+when it happens.
 
 The report ends with an offer to rerun the escalated pull requests with a larger model. The
 default worker is Sonnet at medium effort, since rebasing, reading a check, and classifying a
@@ -174,6 +179,11 @@ plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> skip <reason-file>
 not hold: a pull request that is not open, a `recreate` on a branch Dependabot did not author, a
 `skip` with an empty reason. Every action prints one JSON object with `ok` and `detail`, and
 exits 0 whether or not it acted, so a refusal is data for the agent rather than a crash.
+`recreate` also re-reads the pull request on every poll: a moved head is `recreated`; a pull
+request closed or merged with its head unmoved returns early with `ok: true` and
+`result: "closed"` or `"merged"` rather than waiting out the bound; and a poll that cannot read
+the pull request is counted, not mistaken for "the head did not move". If no poll succeeded the
+detail says so and carries gh's last error.
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`) are documented at the top of the script.
 

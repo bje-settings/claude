@@ -17,8 +17,11 @@
 #   state     the pull request as `summary` shapes it (see lib/shepherd.sh)
 #   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
 #             open. Reports the head SHA before and after.
-#   recreate  comments `@dependabot recreate`, then waits for the head SHA to
-#             change. Refuses on a pull request Dependabot did not author.
+#   recreate  comments `@dependabot recreate`, then polls until the head SHA
+#             changes (`recreated`). If the pull request leaves OPEN with the
+#             head unmoved, returns `result: closed` or `merged` at once; a
+#             closed one was usually superseded by another pull request.
+#             Refuses on a pull request Dependabot did not author.
 #   wait      gh pr checks --watch --fail-fast, bounded (see below). Result is
 #             one of passed, failed, pending, merged; `failing` lists the
 #             failed checks and `log_tail` carries the failed steps' log.
@@ -53,7 +56,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/shepherd.sh
 . "$HERE/lib/shepherd.sh"
 
-usage() { sed -n '2,45p' "$0"; }
+# The header comment, up to the first blank line before `set -uo pipefail`, so
+# it cannot fall out of date when the header grows.
+usage() { sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d' | sed '${/^$/d;}'; }
 
 [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && { usage; exit 0; }
 (($# >= 3)) || { usage >&2; exit 2; }
@@ -94,11 +99,16 @@ emit() {
     | jq "$expr"
 }
 
-# The pull request as `summary` shapes it, or nothing if gh cannot answer.
+# The pull request as `summary` shapes it, or nothing if gh cannot answer. The
+# last gh error is kept in READ_ERR so a caller that polls can say why a read
+# failed instead of reporting the silence as a fact about the pull request.
+READ_ERR="$(mktemp)" || READ_ERR=/dev/null
+trap 'rm -f "$READ_ERR"' EXIT
 read_pr() {
-  gh pr view "$NUMBER" --repo "$REPO" --json "$SHEPHERD_PR_FIELDS" 2>/dev/null \
+  gh pr view "$NUMBER" --repo "$REPO" --json "$SHEPHERD_PR_FIELDS" 2>"$READ_ERR" \
     | shepherd_jq -c 'include "shepherd"; summary' 2>/dev/null
 }
+last_read_error() { tr '\n' ' ' <"$READ_ERR" 2>/dev/null | sed 's/"/\\"/g'; }
 
 field() { printf '%s' "$1" | jq -r "$2"; }
 
@@ -159,7 +169,7 @@ action_rebase() {
 }
 
 action_recreate() {
-  local pr before after interval bound waited out
+  local pr before after state interval bound waited out reads_ok reads_failed
   pr="$(read_pr)"
   [[ -n "$pr" ]] || { emit false "could not read pull request #$NUMBER"; return; }
   if [[ "$(field "$pr" .is_bot)" != "true" ]]; then
@@ -182,18 +192,51 @@ action_recreate() {
   interval="${SHEPHERD_POLL_SECONDS:-$((CI_SECONDS / 4))}"
   [[ "$interval" =~ ^[0-9]+$ ]] || interval=15
   ((interval < 15)) && [[ -z "${SHEPHERD_POLL_SECONDS:-}" ]] && interval=15
-  waited=0
+  waited=0; reads_ok=0; reads_failed=0
   while ((waited < bound)); do
     sleep "$interval"
     waited=$((waited + interval))
     pr="$(read_pr)"
-    after="$(field "${pr:-null}" '.headRefOid // ""')"
+    # A poll that cannot read the pull request says nothing about it. Count it
+    # and keep going; it is reported below if no read ever succeeded.
+    [[ -n "$pr" ]] || { reads_failed=$((reads_failed + 1)); continue; }
+    reads_ok=$((reads_ok + 1))
+    after="$(field "$pr" '.headRefOid // ""')"
+    state="$(field "$pr" '.state // ""')"
+    # A moved head is the answer this action exists for, so it wins over any
+    # state change seen in the same poll: a recreated branch that already went
+    # green and auto-merged is a success, not a supersession.
     if [[ -n "$after" && "$after" != "$before" ]]; then
       emit true "recreated" ".before = \"$before\" | .after = \"$after\" | .pr = $pr"
       return
     fi
+    # The head never moved but the pull request is no longer open. Dependabot
+    # closes a pull request instead of recreating it when another one already
+    # shipped the same or a newer bump; a human can close or merge it too. The
+    # script reports what it saw and leaves the attribution to the caller.
+    case "$state" in
+      OPEN) ;;
+      MERGED)
+        emit true "pull request merged while waiting for recreate; the head did not move" \
+          '.result = "merged"' ".before = \"$before\" | .after = \"$after\" | .pr = $pr"
+        return ;;
+      CLOSED)
+        emit true "pull request closed while waiting for recreate; superseded by another pull request is the usual cause" \
+          '.result = "closed"' ".before = \"$before\" | .after = \"$after\" | .pr = $pr"
+        return ;;
+      *)
+        emit false "unexpected pull request state after recreate: '$state'" \
+          ".before = \"$before\" | .pr = $pr"
+        return ;;
+    esac
   done
-  emit false "recreate requested but the head did not change within ${bound}s" ".before = \"$before\""
+  if ((reads_ok == 0)); then
+    emit false "recreate requested but the pull request could not be re-read in ${bound}s ($reads_failed attempts): $(last_read_error)" \
+      ".before = \"$before\" | .read_failures = $reads_failed"
+  else
+    emit false "recreate requested but the head did not change within ${bound}s" \
+      ".before = \"$before\" | .read_failures = $reads_failed | .pr = $pr"
+  fi
 }
 
 action_wait() {
