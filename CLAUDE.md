@@ -21,7 +21,8 @@ Plugins are listed in `README.md`; each has its own README.
 New `gh` skills belong in the `gh` plugin, which is the intended home for the commands still in
 `~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
 `tidy-user-notifications`). The no-checkout rebase `rebase-prs` performs already lives here as
-`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
+`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`, and,
+until issue #56 ports `gh-sync.sh`, its bash copy `scripts/lib/discover.sh` as well.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
@@ -32,8 +33,7 @@ New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scri
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
 script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. (Today only the two hook helpers are Python and neither has a `lib/` yet, so the layout is
-the rule for the next script rather than a description of the tree.)
+others. (`plugins/gh/scripts/` is the first plugin laid out this way.)
 
 Stdlib only, always, so an end user never needs `uv` or a virtualenv to run a plugin. The floor is
 Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/python3`. ruff's

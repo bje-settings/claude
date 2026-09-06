@@ -1,9 +1,9 @@
 """lib/prs.py — reading merge proof out of a `gh pr list` result.
 
-This is the jq program `gh-sync-repo.sh` used to run, as plain functions. Three
-things are required of a pull request before it counts as proof that a local
-branch has landed, because a bare branch-name match is not evidence about your
-commits:
+This is the jq program the shell version of gh-sync-repo used to run, as plain
+functions. Three things are required of a pull request before it counts as proof
+that a local branch has landed, because a bare branch-name match is not evidence
+about your commits:
 
   - it merged into the default branch, not into some other branch
   - it came from this repository, not from a fork (a fork's PR head ref is just

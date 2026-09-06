@@ -6,11 +6,13 @@ they build their state from.
 `/gh:sync` deletes branches and removes worktrees, so its behaviour is asserted against real
 repositories rather than mocks. Every fixture builds an actual git repository with an actual
 (local, bare) origin, so `git fetch`, `git merge --ff-only`, ancestry checks, and worktree
-operations all behave exactly as they do in production. Nothing here touches the network.
+operations all behave exactly as they do in production. Nothing here reaches the network for the
+code under test; the examples marked `slow` do run a real package manager, which is given the
+developer's own corepack cache (`COREPACK_HOME`) so its shim has nothing left to download.
 
 The bash half of the plugin still has its shellspec specs in `spec/gh/` and its own fixtures in
-`fixtures/gh/`. Those are a port behind; the two sets are deliberately independent, so deleting a
-shell script never means editing a Python test.
+`fixtures/gh/`, documented in `fixtures/gh/README.md`. Those are a port behind; the two sets are
+deliberately independent, so deleting a shell script never means editing a Python test.
 
 ## Layout
 
@@ -20,7 +22,7 @@ shell script never means editing a Python test.
 | `bin/gh` | A stand-in for the `gh` CLI, put on `PATH` for every test. |
 | `scenarios.py` | The repository states whose whole report is compared against the shell version. |
 | `golden/bash-output.json` | What `gh-sync-repo.sh` printed for each of those, captured before it was deleted. |
-| `test_*.py` | One test per example of the spec it was ported from, named in the module docstring. |
+| `test_*.py` | The ported spec examples (the source spec is named in each module docstring), the direct tests for `lib/`, and the parity check. |
 
 ## The fixtures
 
@@ -55,6 +57,9 @@ Everything else composes on top:
 | `js_project` | A `package.json` plus lock file with no dependencies, so a real install succeeds offline. Takes `pnpm` (the default), `yarn`, or `npm`. Yarn means Berry, pinned per project through the `packageManager` field so the fixture does not depend on which yarn is on `PATH`. |
 | `remote_update_lock` | Origin regenerates the lock file legitimately, by adding a dependency on a directory inside the repo. Appending to a lock file would corrupt it instead. A `file:` path resolves without the network and every manager records a real dependency, so one mechanism covers all three. |
 | `remote_break_lock` | Origin pushes an unparseable lock file, so the install fails for a real reason. |
+| `remote_drop_lockfile` | Origin deletes the lock file: a lock-file change with nothing left to install. |
+| `remove_origin` | Drops the `origin` remote, so the preflight refuses before anything is written. |
+| `drop_remote_branches` | Removes every remote-tracking branch, so no default branch resolves at all. |
 | `break_origin` | The remote exists but is unreachable, so fetch fails while the preflight still passes. |
 | `forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
 | `lock_index` | An index lock, which `git status` tolerates but ref-updating commands refuse, so a mid-run git failure can be provoked without corrupting anything. |
@@ -141,3 +146,8 @@ spec/run.sh                                # lint, then both harnesses
 `jq` is needed only for the one test that exercises the stub's `--jq` passthrough, which is
 skipped without it. The install tests are skipped wherever their package manager is missing or
 cannot run.
+
+Those install tests are marked `slow`: each writes a lock file with the real package manager and
+then installs from it, which makes them the slowest examples here and the only ones that need a
+package manager installed at all. The pre-commit `pytest` hook deselects them with
+`-m "not slow"`; CI and `spec/run.sh` run the whole suite.
