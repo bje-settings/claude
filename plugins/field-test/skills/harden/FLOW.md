@@ -24,14 +24,12 @@ flowchart TD
     WQ -->|paused, or the work needs more than one PR| Z1
     WQ -->|failed, or no report| X[mark the target failed; its issues stay open]
     X --> S
-    WQ -->|draft PR| R[review here: pr-review-toolkit plus the PR's own<br>bot and human comments, every finding verified]
-    R -->|nothing held| M0
-    R -->|findings held| RA[hand the verified list to workstreams:applier]
-    RA --> RQ{applier returned}
+    WQ -->|draft PR| R[count the round, then /workstreams:review:<br>one round here, in this session]
+    R --> RQ{what did the round return?}
     RQ -->|error| Z1
-    RQ -->|applied a substantial change, first round| R
-    RQ -->|applied a substantial change, second round| Z1
-    RQ -->|applied only cosmetic changes, or nothing| M0[mark ready and enable auto-merge]
+    RQ -->|a substantial diffstat, first round| R
+    RQ -->|a substantial diffstat, second round| Z1
+    RQ -->|nothing pushed, or a cosmetic diffstat| M0[mark ready and enable auto-merge]
     M0 -->|either command failed| Z1
     M0 -->|both accepted| M[block in the foreground on the checks]
     M --> MQ{what did the wait say?}
@@ -46,3 +44,11 @@ flowchart TD
     S --> N
     Z([stop the loop; print every target's summary,<br>then every question still open])
 ```
+
+The review round is `/workstreams:review`, invoked here rather than restated: it reviews, reads
+the PR's own bot and human threads, verifies every finding against the code, applies what holds
+through `workstreams:applier`, and replies on the threads. Substantial or cosmetic is read off
+`git diff --stat` of the range the round pushed, by the rule `/workstreams:run` Step 4 states.
+
+The round runs in the main session because `/pr-review-toolkit:review-pr` dispatches analyzer
+agents that wake whoever invoked them, and a subagent gets no such wake (issue #62).
