@@ -178,10 +178,16 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Sandbox:
 
 
 class Result:
-    """status, stdout and stderr of one script run, as shellspec reports them."""
+    """status, stdout and stderr of one script run, as shellspec reports them.
+
+    The raw bytes are kept beside the decoded text for the assertions that are
+    about bytes rather than about text; `stdout` is what almost every test wants.
+    """
 
     def __init__(self, completed: subprocess.CompletedProcess) -> None:
         self.status = completed.returncode
+        self.stdout_bytes = completed.stdout
+        self.stderr_bytes = completed.stderr
         # errors="replace", not strict: a script that emits a stray byte would
         # otherwise raise here and lose the status and the rest of the output,
         # turning a legible assertion failure into a decoding traceback.
@@ -196,17 +202,35 @@ def run_script():
     `sys.executable`, not `python3`: it keeps a `pytest-floor` run genuinely on
     3.9, and it is the interpreter coverage.py's subprocess patch knows to
     measure, so a script exercised black-box still counts towards the threshold.
+
+    `cwd` runs the child from another directory, for a script that reads the
+    directory it was called in -- `ft-resolve.py`'s bare-name lookup is the one
+    that does. An argument rather than the test's own `monkeypatch.chdir` so the
+    pytest process stays where it started: coverage.py makes its omit patterns
+    absolute once, in this process, at startup, so moving it later changes
+    nothing about them, but the child starts coverage of its own in `cwd` and
+    resolves them there. That is what the leading `**/` on every omit pattern in
+    pyproject.toml is for.
+
+    `stdin` takes bytes as well as str, for the scripts whose contract is bytes:
+    `ft-redact.py --inside` is documented as the identity function, and only a
+    byte that is not valid UTF-8 can show that it is.
     """
 
-    def run(path, *args, stdin=None, env=None) -> Result:
+    def run(path, *args, stdin=None, env=None, cwd=None) -> Result:
         child_env = dict(os.environ)
         if env:
             child_env.update({key: str(value) for key, value in env.items()})
+        if stdin is None:
+            stdin = b""
+        elif isinstance(stdin, str):
+            stdin = stdin.encode("utf-8")
         completed = subprocess.run(
             [sys.executable, str(path), *[str(arg) for arg in args]],
-            input=(stdin or "").encode("utf-8"),
+            input=stdin,
             capture_output=True,
             env=child_env,
+            cwd=None if cwd is None else str(cwd),
             check=False,
         )
         return Result(completed)

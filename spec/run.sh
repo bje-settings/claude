@@ -41,17 +41,10 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/gh/hooks/session-start.sh \
     fixtures/gh/fixtures.sh \
     fixtures/gh/bin/gh \
-    plugins/field-test/scripts/ft-run.sh \
-    plugins/field-test/scripts/ft-resolve.sh \
-    plugins/field-test/scripts/ft-collect.sh \
-    plugins/field-test/scripts/ft-enterprise.sh \
-    plugins/field-test/scripts/ft-redact.sh \
-    plugins/field-test/scripts/ft-issue.sh \
     plugins/field-test/scripts/ft-preflight.sh \
     plugins/field-test/scripts/ft-harden-state.sh \
     plugins/field-test/scripts/ft-verify-report.sh \
     plugins/field-test/scripts/ft-wait-pr.sh \
-    plugins/field-test/hooks/ft-hook.sh \
     fixtures/field-test/fixtures.sh \
     fixtures/field-test/bin/gh
 else

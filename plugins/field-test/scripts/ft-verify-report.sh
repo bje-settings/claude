@@ -12,7 +12,7 @@
 # Prints {ok, checked, matched, mismatches, results} and exits:
 #   0  every claim holds
 #   1  at least one claim does not; each mismatch is a finding the loop takes
-#      back through ft-issue.sh like any other
+#      back through ft-issue.py like any other
 #   2  usage, or a report this cannot read (no prs array, a number written as
 #      a word, no repository)
 #   3  the report names no pull requests: nothing to check is not a pass
