@@ -19,8 +19,12 @@ hook would speak and the example would be asserting the wrong thing.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
+import os
+import runpy
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -106,6 +110,52 @@ def test_falls_back_to_a_local_main_without_a_cached_origin_head(hook, gh):
     context = context_of(result.stdout)
     assert "side" in context
     assert "main" in context
+
+
+def test_falls_back_to_a_local_master_without_a_cached_origin_head(hook, gh):
+    """Added with the port: the `master` half of the local fallback.
+
+    Only `main` had an example, so the fallback could have been a single hard-
+    coded name and the suite would not have noticed. A clone of a repository
+    that never renamed its default branch still needs an answer.
+    """
+    gh.forget_origin_head(gh.repo)
+    gh.git(gh.repo, "branch", "-m", "main", "master")
+    gh.git(gh.repo, "checkout", "-q", "-b", "side")
+    result = hook(gh.repo)
+    assert result.status == 0
+    assert "master" in context_of(result.stdout)
+
+
+def test_prefers_a_local_main_over_a_local_master(hook, gh):
+    """Added with the port: both fallback names present, and the order matters.
+
+    A repository that renamed `master` to `main` and kept the old branch around
+    has both, and the proposal has to be the one it actually uses now.
+    """
+    gh.forget_origin_head(gh.repo)
+    gh.git(gh.repo, "branch", "master", "main")
+    gh.git(gh.repo, "checkout", "-q", "-b", "side")
+    result = hook(gh.repo)
+    assert result.status == 0
+    context = context_of(result.stdout)
+    assert "'main'" in context
+    assert "master" not in context
+
+
+def test_prefers_a_cached_origin_head_over_a_local_main(hook, gh):
+    """Added with the port: origin/HEAD wins, even where `main` exists locally.
+
+    The fallback is for a clone that never fetched one, not a second opinion: a
+    repository whose default branch on the remote is something else must be
+    reported as that, or the hook proposes moving to the wrong branch.
+    """
+    gh.git(gh.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+    result = hook(gh.repo)
+    assert result.status == 0
+    context = context_of(result.stdout)
+    assert "'trunk'" in context
+    assert "'main'" in context
 
 
 def test_does_not_reach_the_network_for_the_in_repo_check(hook, gh):
@@ -213,7 +263,9 @@ def test_stays_silent_when_gh_sync_is_missing(run_script, gh, tmp_path):
     """Added with the port: an install whose scripts directory is not there.
 
     The hook is copied out on its own, so `../scripts/gh-sync.py` does not
-    resolve. A broken install must cost the check and nothing else.
+    resolve. A broken install must cost the check and nothing else -- and leave
+    one line where `claude --debug` will show it, because the alternative is a
+    check that has silently not run since the day it was installed.
     """
     lonely = tmp_path / "lonely-hooks"
     lonely.mkdir()
@@ -224,6 +276,56 @@ def test_stays_silent_when_gh_sync_is_missing(run_script, gh, tmp_path):
     result = run_script(copy, "session-start", stdin=payload(empty))
     assert result.status == 0
     assert result.stdout == ""
+    assert result.stderr.strip() == "missing " + str(lonely.parent / "scripts" / "gh-sync.py")
+
+
+def test_reports_a_fan_out_that_failed(hook, gh):
+    """Added with the port: a `gh-sync.py` that ran and exited non-zero.
+
+    The old shell discarded the child's stderr and stayed silent, so a fan-out
+    that had stopped working looked exactly like one with nothing to say. A
+    directory the user cannot open is the real case: `gh-sync.py` refuses it
+    with `could not read <dir>` and exit 2 rather than reporting no
+    repositories. The whole of stderr goes where the debug log will have it; the
+    session gets its last line, because that is the one a person reads.
+    """
+    fan = gh.path / "fan"
+    gh.create_at(fan, "a")
+    fan.chmod(0o000)
+    try:
+        result = hook(fan)
+    finally:
+        # Restored before anything else can trip over it, including pytest's own
+        # tidying of temp directories from earlier runs.
+        fan.chmod(0o755)
+    assert result.status == 0
+    assert f"could not run the sync check: could not read {fan}" in context_of(result.stdout)
+    assert str(fan) in result.stderr
+
+
+def test_reports_a_fan_out_that_ran_out_of_time(hook, gh, sandbox):
+    """Added with the port: the 50 second bound on the fan-out.
+
+    One `gh` lookup per repository against a remote that is answering slowly is
+    what runs over, and the hook's own budget is 60 seconds: without a bound of
+    its own the check is killed with nothing said at all. A `gh` that never
+    answers is that remote; the bound is overridden so the example does not
+    spend the real one waiting for it.
+    """
+    fan = gh.path / "fan"
+    work = gh.create_at(fan, "a")
+    gh.branch_with_work(work, "wip")
+    slow = gh.path / "slow-bin"
+    slow.mkdir()
+    stub = slow / "gh"
+    stub.write_text("#!/bin/sh\nsleep 120\n")
+    stub.chmod(0o755)
+    sandbox.stub_path(slow)
+    result = hook(fan, env={"GH_HOOK_SYNC_TIMEOUT": "0.5"})
+    assert result.status == 0
+    context = context_of(result.stdout)
+    assert "could not finish the sync check within 0.5 s" in context
+    assert f"(1 repositories under {fan})" in context
 
 
 def test_stays_silent_when_git_is_not_on_path(hook, gh, sandbox):
@@ -237,6 +339,7 @@ def test_stays_silent_when_git_is_not_on_path(hook, gh, sandbox):
     result = hook(gh.path / "fan", env={"PATH": sandbox.path_without("git")})
     assert result.status == 0
     assert result.stdout == ""
+    assert result.stderr.strip() == "git is not on PATH"
 
 
 # --- robustness, because a hook must never block a session --------------------
@@ -246,9 +349,9 @@ def test_stays_silent_when_git_is_not_on_path(hook, gh, sandbox):
 def outside_a_repo(gh, monkeypatch):
     """Put the process's own working directory somewhere with nothing to report.
 
-    The three payload examples below all fall back to it, and the fallback has to
-    be a directory the hook has nothing to say about, or they would pass or fail
-    on the state of the checkout the suite happens to be running in.
+    The payload examples below fall back to it, and the fallback has to be a
+    directory the hook has nothing to say about, or they would pass or fail on
+    the state of the checkout the suite happens to be running in.
     """
     elsewhere = gh.path / "elsewhere"
     elsewhere.mkdir()
@@ -275,6 +378,21 @@ def test_exits_cleanly_when_cwd_does_not_exist(run_script, gh, outside_a_repo):
     result = run_script(HOOK_IO, "session-start", stdin=payload(gh.path / "gone"))
     assert result.status == 0
     assert result.stdout == ""
+
+
+def test_falls_back_to_the_process_cwd_and_still_speaks(run_script, gh, monkeypatch):
+    """Added with the port: the fallback answering, not just staying quiet.
+
+    Every other fallback example lands somewhere with nothing to say, so the
+    fallback could have been "give up" and they would all still pass. Here the
+    process is inside a repository on a branch worth mentioning and the payload
+    carries no cwd at all, so only the fallback can produce the message.
+    """
+    gh.git(gh.repo, "checkout", "-q", "-b", "side")
+    monkeypatch.chdir(gh.repo)
+    result = run_script(HOOK_IO, "session-start", stdin='{"session_id":"s1"}')
+    assert result.status == 0
+    assert "side" in context_of(result.stdout)
 
 
 def test_exits_cleanly_when_cwd_is_not_a_string(run_script, outside_a_repo):
@@ -324,13 +442,35 @@ def test_survives_a_reader_that_closed_the_pipe(run_with_closed_reader, gh):
     assert "BrokenPipeError" not in stderr
 
 
+def test_leaves_a_traceback_and_exits_0_when_nothing_else_caught_it(run_script, gh, monkeypatch):
+    """Added with the port: the outermost never-fail wrapper, reached for real.
+
+    A process whose own working directory has been deleted cannot answer
+    `os.getcwd()`, and the payload carries no cwd to use instead, so the
+    fallback raises before any of the hook's own guards are in play. That is the
+    shape the wrapper exists for: unforeseen, so nothing below it can be asked to
+    handle it, and still not a reason a session stops. The traceback goes to
+    stderr, where the debug log keeps it, and the status is 0 all the same.
+    """
+    doomed = gh.path / "doomed"
+    doomed.mkdir()
+    monkeypatch.chdir(doomed)
+    doomed.rmdir()
+    result = run_script(HOOK_IO, "session-start", stdin='{"session_id":"s1"}')
+    assert result.status == 0
+    assert result.stdout == ""
+    assert "Traceback" in result.stderr
+
+
 def test_runs_under_a_single_byte_locale(hook, gh):
     """Added with the port: the report carries ✗, ✓ and ·.
 
     Under LC_ALL=en_US.ISO8859-1 an unreconfigured stdout raises
-    UnicodeEncodeError on the first line that holds one. The characters come
-    from `gh-sync-repo.py`'s own source, so asserting them here is safe on both
-    macOS and Linux.
+    UnicodeEncodeError on the first line that holds one. What this run proves is
+    the child's handling of them, not the hook's stdout: the hook answers in
+    `ensure_ascii` JSON, which no single-byte locale can trip over. The
+    characters come from `gh-sync-repo.py`'s own source, so asserting them here
+    is safe on both macOS and Linux.
     """
     work = gh.create_at(gh.path / "fan", "a")
     gh.break_origin(work)
@@ -399,11 +539,100 @@ def test_report_message_is_none_when_gh_sync_cannot_be_launched(hook_io, monkeyp
 
     `os.access` said the file is readable and the exec still failed: a partial
     install, or a machine out of processes. There is nothing to tell the user at
-    session start, and certainly not a traceback.
+    session start, and certainly not a traceback. The two degraded runs that do
+    speak -- a non-zero exit and a timeout -- are black-box examples above,
+    because both can be produced by a real child.
     """
 
     def refuse(*args, **kwargs):
         raise OSError("cannot exec")
 
-    monkeypatch.setattr(hook_io.subprocess, "run", refuse)
+    monkeypatch.setattr(hook_io.subprocess, "Popen", refuse)
     assert hook_io.report_message("/anywhere") is None
+
+
+def test_sync_timeout_ignores_an_unusable_override(hook_io, monkeypatch):
+    """A stray value in the environment falls back to the real bound.
+
+    The override exists for the tests; it is read from the environment of
+    whatever session started, so "50" has to be the answer to anything that is
+    not a positive number rather than a crash or an instant timeout.
+    """
+    monkeypatch.delenv(hook_io.SYNC_TIMEOUT_ENV, raising=False)
+    assert hook_io.sync_timeout() == hook_io.SYNC_TIMEOUT
+    for value in ("", "soon", "0", "-3"):
+        monkeypatch.setenv(hook_io.SYNC_TIMEOUT_ENV, value)
+        assert hook_io.sync_timeout() == hook_io.SYNC_TIMEOUT
+    monkeypatch.setenv(hook_io.SYNC_TIMEOUT_ENV, "1.5")
+    assert hook_io.sync_timeout() == 1.5
+
+
+def test_kill_group_falls_back_to_the_child_alone(hook_io, monkeypatch):
+    """A group that cannot be signalled still costs the child its life.
+
+    The group is the point -- `gh-sync.py` spawns one child per repository, and
+    those are what would carry on fetching -- but a child that has already died
+    between the timeout and the signal has no group left, and that must not
+    become an exception inside the handler for a timeout.
+    """
+
+    class Child:
+        pid = -1
+
+        def __init__(self):
+            self.killed = False
+
+        def kill(self):
+            self.killed = True
+
+    def gone(pid):
+        raise ProcessLookupError("no such process")
+
+    monkeypatch.setattr(hook_io.os, "getpgid", gone)
+    child = Child()
+    hook_io.kill_group(child)
+    assert child.killed
+
+
+def test_last_line_of_a_child_that_said_nothing(hook_io):
+    """A child that failed without a word still has to produce a message.
+
+    `run_sync` falls back to the exit status there; this is the half of that
+    which decides there is nothing to quote.
+    """
+    assert hook_io.last_line("") == ""
+    assert hook_io.last_line("\n   \n") == ""
+    assert hook_io.last_line("first\nlast\n\n") == "last"
+
+
+def test_main_module_exits_0_when_something_unforeseen_escapes(hook_io, monkeypatch, capsys):
+    """The outermost wrapper, run in-process so the coverage report can see it.
+
+    `test_leaves_a_traceback_and_exits_0_when_nothing_else_caught_it` is the
+    real shape of this, black-box, with a working directory that has genuinely
+    been deleted; a child in that state cannot write a coverage data file, so
+    the arm it proves is measured by nothing. This runs the file as `__main__`
+    with the same failure injected, and asserts the same two things.
+    """
+
+    def gone():
+        raise RuntimeError("the working directory is gone")
+
+    monkeypatch.setattr(os, "getcwd", gone)
+    monkeypatch.setattr(sys, "argv", [str(HOOK_IO), "session-start"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_path(str(HOOK_IO), run_name="__main__")
+    assert exit_info.value.code == 0
+    assert "Traceback" in capsys.readouterr().err
+
+
+def test_repo_count_is_zero_when_discovery_cannot_answer(hook_io, monkeypatch):
+    """The count in the timeout message never becomes a second failure.
+
+    It is one detail inside a message about a fan-out that already ran out of
+    time; a discovery that raises there would lose the message itself.
+    """
+    assert hook_io.repo_count("/does/not/exist") == 0
+    monkeypatch.setattr(hook_io, "discover", None)
+    assert hook_io.repo_count("/anywhere") == 0
