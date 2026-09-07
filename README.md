@@ -99,6 +99,6 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 ## Contributing
 
-Run `spec/run.sh` for the whole suite: it lints, then runs shellspec over the scripts that are
-bash and pytest over the ones that are Python. See
+Run `uv run --locked pytest -n auto --cov` for the whole suite. Every plugin script is Python, so
+pytest is the only harness and `uv` the only requirement. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for installing the marketplace locally.

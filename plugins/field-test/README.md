@@ -179,8 +179,7 @@ enterprise membership decides what gets published, and a stale answer would deci
 
 ## Scripts
 
-All deterministic, and all Python (stdlib only, 3.9), tested under `tests/field-test/`. Nothing
-here is bash any more, and the plugin has no shellspec spec left.
+All deterministic, and all Python (stdlib only, 3.9), tested under `tests/field-test/`.
 
 | Script | Purpose |
 | --- | --- |

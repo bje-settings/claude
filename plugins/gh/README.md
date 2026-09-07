@@ -258,8 +258,8 @@ real git repositories rather than mocks. The tests are pytest, in `tests/gh/`, f
 included; `tests/gh/README.md` documents them.
 
 ```bash
-uv run --locked pytest tests/gh -q   # this plugin's tests alone
-spec/run.sh                          # lint, then every harness in the repo
+uv run --locked pytest tests/gh -q          # this plugin's tests alone
+uv run --locked pytest -n auto --cov        # the whole suite, with coverage
 ```
 
 `gh-sync-repo.py` and `gh-sync.py` are each asserted against the report their shell version
@@ -268,7 +268,8 @@ printed, captured scenario by scenario in `tests/gh/golden/bash-output.json` and
 
 CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py`. This
 plugin's half of that is the `coverage.py` report over `tests/gh/`. Run it locally with
-`spec/run.sh --coverage`.
+`uv run --locked pytest -n auto --cov --cov-report=xml` followed by
+`python3 tests/coverage_check.py coverage/python.xml 95`.
 All three supported package managers have an install test. The uncovered remainder is defensive branches
 guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
 immediately after.

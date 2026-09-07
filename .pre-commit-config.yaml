@@ -10,10 +10,9 @@
 # checkout to fix it.
 #
 # Every hook is `repo: local` on purpose. Each tool already has one source of
-# truth: uv.lock for ruff and pytest, the contributor's PATH for claude and
-# shellcheck. A PATH binary is not a pin; mirroring versions into `rev:` fields
-# here would add a second source of truth and let the hook pass on a version CI
-# never runs.
+# truth: uv.lock for ruff and pytest, the contributor's PATH for claude. A PATH
+# binary is not a pin; mirroring versions into `rev:` fields here would add a
+# second source of truth and let the hook pass on a version CI never runs.
 #
 # These hooks are a convenience, not the enforcement layer: a clone that never
 # runs `pre-commit install` still has to get past CI, which runs the same checks.
@@ -64,16 +63,3 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-
-      # The same file list as the `shellcheck` job in ci.yml; keep the two in
-      # step. Issue #61 deletes this hook together with the rest of the shell
-      # harness: the shellcheck CI job, spec/, and fixtures/.
-      - id: shellcheck
-        name: shellcheck
-        entry: shellcheck -S warning
-        language: system
-        pass_filenames: false
-        files: (\.sh$|/bin/gh$)
-        args:
-          - spec/spec_helper.sh
-          - spec/run.sh

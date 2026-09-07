@@ -83,8 +83,8 @@ omit = [
   # alone would leave every tests/<plugin>/ file measured.
   "**/tests/**/test_*.py",
   "**/tests/**/conftest.py",
-  # Test doubles and test data, the counterpart of the shell stubs under
-  # fixtures/, which never enter a report at all.
+  # Test doubles and test data: a stub tool standing in for gh is a fixture, not
+  # code under test, and the subprocess patch would otherwise measure it as one.
   "**/tests/**/bin/*",
   "**/tests/**/scenarios.py",
 ]

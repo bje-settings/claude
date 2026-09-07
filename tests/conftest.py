@@ -117,7 +117,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Sandbox:
 
 
 class Result:
-    """status, stdout and stderr of one script run, as shellspec reports them.
+    """status, stdout and stderr of one script run.
 
     The raw bytes are kept beside the decoded text for the assertions that are
     about bytes rather than about text; `stdout` is what almost every test wants.

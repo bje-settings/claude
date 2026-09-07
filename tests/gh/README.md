@@ -12,8 +12,7 @@ alone are given the developer's own corepack cache (`COREPACK_HOME`), so a corep
 nothing left to download. Every other example runs against the sandbox `HOME` and never touches
 that cache.
 
-Every script in the plugin is Python now, so this is the whole of its test suite: the shellspec
-specs in `spec/gh/` and the fixtures in `fixtures/gh/` are gone with the last shell script.
+Every script in the plugin is Python, so this is the whole of its test suite.
 
 ## Layout
 
@@ -163,7 +162,6 @@ ones rather than being provoked through a copy.
 ```bash
 uv run --locked pytest -n auto --cov       # the Python suite, with coverage
 uv run --locked pytest tests/gh -q         # this directory alone
-spec/run.sh                                # lint, then both harnesses
 ```
 
 `jq` is needed only for the one test that exercises the stub's `--jq` passthrough, which is
@@ -174,5 +172,4 @@ Those install tests are marked `slow`: each writes a lock file with the real pac
 then installs from it, which makes them the only ones that need a package manager installed at
 all. That dependency is what the marker is for, not speed -- against a warm corepack cache they
 cost about three seconds apiece, beside the ordinary sync examples rather than ahead of them. The
-pre-commit `pytest` hook deselects them with `-m "not slow"`; CI and `spec/run.sh` run the whole
-suite.
+pre-commit `pytest` hook deselects them with `-m "not slow"`; CI runs the whole suite.

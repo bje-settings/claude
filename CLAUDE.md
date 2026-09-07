@@ -23,12 +23,8 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 `tidy-user-notifications`). The no-checkout rebase `rebase-prs` performs already lives here as
 `gh-shepherd-pr.py rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
 
-Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
-`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
-still under `plugins/*/scripts` and `plugins/*/hooks`, whichever those are today; the Python side
-is not enumerated here, because a list of ported files rots with every port.
-
-New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
+Plugin scripts are Python. Nothing under `plugins/` is bash any more, and nothing new should be:
+the harness, the coverage tooling, and the rules all assume Python. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
 script's own directory, and a hook, which sits one level across rather than one level up, inserts
@@ -50,8 +46,9 @@ Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/pyt
 `target-version = "py39"` plus the `FA` rules catch the syntax: `match`, and a PEP 604 `X | None`
 annotation in a module with no `from __future__ import annotations`. It cannot catch library
 surface, such as `datetime.UTC` or a keyword argument added in a later release; only running on 3.9
-does, which is what the `pytest-floor` job is for. A port keeps the script's exit codes and its
-stdout contract exactly as they were; the callers are skills and shell scripts that read both.
+does, which is what the `pytest-floor` job is for. A script's exit codes and its stdout are a
+contract: the callers are skills and agents that read both, so a change to either is a change to
+every call site.
 
 `workstreams` depends on `gh-stack` and `pr-review-toolkit` through its preflight script; do not
 vendor either. `field-test` depends on `workstreams` and `pr-review-toolkit` the same way, through
@@ -112,88 +109,71 @@ The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforc
 
 ### Tests
 
-Two harnesses, one command. `spec/run.sh` lints and then runs both: shellspec for the scripts that
-are still bash, pytest for the ones that are Python. It runs the shellspec suite under both bash 5
-and bash 3.2, and fails if either does.
+One harness, one command: `uv run --locked pytest -n auto --cov`. `--locked` everywhere, as in CI,
+so a stale `uv.lock` fails instead of being rewritten under you.
 
-Python tests are pytest. A plugin's tests live in `tests/<plugin>/`; tests that span plugins or
-cover the harness itself sit at the root of `tests/`. Run them alone with
-`uv run --locked pytest -n auto --cov`; `--locked` everywhere, as in CI, so a stale `uv.lock`
-fails instead of being rewritten under you. A script is driven black-box through the `run_script`
-fixture, which runs it as its own process under `sys.executable` the way Claude Code runs it;
-decision logic that is awkward to provoke from the outside gets direct unit tests beside that. The
-other fixture is `sandbox`, a private temp dir with `HOME` inside it and `CLAUDE_PLUGIN_DATA`
-unset; it returns an object whose `stub_path` method puts a directory ahead of everything on
-`PATH` (for stubs) and whose `path_without` method builds a `PATH` holding the real tools minus
-the named ones (for the "tool is not installed" branches). Each port brings its own stub `gh` and
-its own canned data on top of those.
+A plugin's tests live in `tests/<plugin>/`; tests that span plugins or cover the harness itself sit
+at the root of `tests/`. A test module's basename is unique across the whole suite, because pytest
+imports them into one namespace: hence `test_gh_fixtures.py` and `test_ws_fixtures.py` rather than
+two `test_fixtures.py`. A script is driven black-box through the `run_script` fixture, which runs
+it as its own process under `sys.executable` the way Claude Code runs it; decision logic that is
+awkward to provoke from the outside gets direct unit tests beside that. The other fixture is
+`sandbox`, a private temp dir with `HOME` inside it and `CLAUDE_PLUGIN_DATA` unset; it returns an
+object whose `stub_path` method puts a directory ahead of everything on `PATH` (for stubs) and
+whose `path_without` method builds a `PATH` holding the real tools minus the named ones (for the
+"tool is not installed" branches). Each plugin brings its own stub `gh` and its own canned data on
+top of those.
 
-Coverage for the Python side is coverage.py with `branch = true` and `patch = ["subprocess"]`, so a
-script exercised black-box in a child process is still measured. Branch coverage is the point: a
-`jq` program moved into Python stops being one opaque line and becomes arms the report can name,
-which is the answer to the blind spot `.claude/rules/type-jq.md` describes.
-Stub tools under `tests/<plugin>/bin/` are omitted from the config, since the subprocess patch
-would otherwise measure a fixture standing in for a tool as code under test. Every omit pattern is
-`**/`-prefixed because a relative one is anchored to the current directory of whichever process
-reads the config, and coverage.py re-reads it in every measured child.
+Coverage is coverage.py with `branch = true` and `patch = ["subprocess"]`, so a script exercised
+black-box in a child process is still measured. Branch coverage is the point: a former `jq`
+program moved into Python stops being one opaque line and becomes arms the report can name, which
+is why the port was worth doing at all. Stub tools under `tests/<plugin>/bin/` are omitted from the
+config, since the subprocess patch would otherwise measure a fixture standing in for a tool as code
+under test. Every omit pattern is `**/`-prefixed because a relative one is anchored to the current
+directory of whichever process reads the config, and coverage.py re-reads it in every measured
+child. See `.claude/rules/type-py.md`.
 
-`tests/coverage_check.py` is the gate for both reports, at 95%, and is itself in the Python
-denominator, because a gate nobody tests is a gate nobody can trust. 95% is the enterprise Code
-Coverage ruleset's threshold. The script is deliberately stdlib-only and 3.9-compatible: CI runs
-it with the runner's system `python3`, outside the uv environment, so a broken dev environment is
-never what decides whether a build passes. It prints per-file numbers with the uncovered lines,
-and, where the report carries branch data, the partly-taken branches beside them, so a drop says
-which file moved. The gate itself is the root line-rate in both reports: a partial branch is
-reported for a human to act on, never enforced. The threshold lives there rather than in
-shellspec's `--fail-low-coverage`, which reports a failure at any coverage level once enabled.
-Reproduce a CI coverage run with `spec/run.sh --coverage`.
+`tests/coverage_check.py` is the gate, at 95%, and is itself in the denominator, because a gate
+nobody tests is a gate nobody can trust. 95% is the enterprise Code Coverage ruleset's threshold.
+The script is deliberately stdlib-only and 3.9-compatible: CI runs it with the runner's system
+`python3`, outside the uv environment, so a broken dev environment is never what decides whether a
+build passes. It prints per-file numbers with the uncovered lines, and the partly-taken branches
+beside them, so a drop says which file moved. The gate itself is the report's root line-rate: a
+partial branch is reported for a human to act on, never enforced. Reproduce a CI coverage run with
+`uv run --locked pytest -n auto --cov --cov-report=xml` followed by
+`python3 tests/coverage_check.py coverage/python.xml 95`.
 
-Coverage for the shell scripts stays kcov, pinned to `ubuntu-22.04`: newer kcov builds break
-shellspec, and the alternative, bashcov, prevents shellspec running at all. Re-test before changing
-either. It is line coverage only, so the number does not mean "tested" where the logic lives inside
-a `jq` program; see `.claude/rules/type-jq.md`. The kcov run is serial: shellspec's kcov executor
-wraps the whole suite in one kcov process and ignores `--jobs`, so neither `spec/run.sh --coverage`
-nor the CI coverage job can parallelise it.
+The suite runs in parallel under `pytest-xdist` (`-n auto`), so every test must build its state in
+its own temp dir (the `sandbox` fixture); nothing may write to the checkout or to a fixed path.
 
-The two shellspec passes run concurrently, splitting shellspec `--jobs` sized to the machine between
-them (`SPEC_JOBS` overrides the total). Under `--jobs`, shellspec 0.28.1 does not stop on Ctrl-C,
-only on a SIGTERM sent to its whole process group; `spec/run.sh` handles that for both passes, so
-use it rather than bare `shellspec --jobs` for a run you may need to interrupt. Parallelism is per
-spec file, not per example, so a spec file that grows much larger than the rest becomes the floor on
-wall time. Every example must keep building its state in its own temp dir (`setup_sandbox`,
-`setup_ft_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
-or to a fixed path.
-
-The CI job names `shellcheck`, `bash-3.2`, `coverage`, `ruff`, `pytest` and
-`pytest-floor` are required checks on the default branch, matched by exact string. Renaming one
-does not fail the build: the required check never reports and pull requests wait forever. Put
+The CI job names `ruff`, `pytest`, `pytest-floor` and `coverage` in `ci.yml`, plus `plugin-validate`
+in its own workflow, are required checks on the default branch, matched by exact string. Renaming
+one does not fail the build: the required check never reports and pull requests wait forever. Put
 descriptive text in step names instead. A new job name becomes a required check only after it has
 reported on main, because one that never has blocks every pull request; add it to the ruleset right
-after the pull request that introduces it merges. Removing a job is the mirror image: delete its name
-from the ruleset before merging the pull request that removes it, or that pull request and every later
-one wait on a check that never reports.
+after the pull request that introduces it merges. Removing a job is the mirror image: delete its
+name from the ruleset before merging the pull request that removes it, or that pull request and
+every later one wait on a check that never reports.
 
 Manifest validation is its own workflow, `.github/workflows/plugin-validate.yml`, so a bad manifest
 reads as its own check rather than as a failure inside `ci.yml`. It runs `claude plugin validate
 --strict` over the marketplace manifest and every directory under `plugins/`, which needs no API key
-or login, on a pinned Claude Code version. Its job name, `plugin-validate`, becomes a ruleset
-contract like the names above once it is added to the repo ruleset Require CI (22359720), which
-happens right after the pull request that introduced the workflow merges, per the rule above.
+or login, on a pinned Claude Code version.
 
 In an opted-in clone, `claude plugin validate --strict`, ruff, and the Python suite run before every
-commit through the `pre-commit` framework, and shellcheck runs when a shell file is staged; `.pre-commit-config.yaml` holds the
-hooks and `CONTRIBUTING.md` says how to opt in. Every hook is `repo: local`: each tool already has
-one source of truth, `uv.lock` for ruff and pytest and PATH for `claude` and `shellcheck`, and
-mirroring versions into `rev:` fields here would add a second. Opting in is once per clone, from the
-root checkout, and covers every worktree of it, since worktrees share the clone's `.git/hooks/`; CI,
-not the hooks, is the enforcement layer.
+commit through the `pre-commit` framework; `.pre-commit-config.yaml` holds the hooks and
+`CONTRIBUTING.md` says how to opt in. Every hook is `repo: local`: each tool already has one source
+of truth, `uv.lock` for ruff and pytest and PATH for `claude`, and mirroring versions into `rev:`
+fields here would add a second. Opting in is once per clone, from the root checkout, and covers
+every worktree of it, since worktrees share the clone's `.git/hooks/`; CI, not the hooks, is the
+enforcement layer.
 
-Any script that can delete or overwrite something needs a spec or a test proving both that it acts
-when it should and that it refuses when it should. Assert against real repositories built by the
-fixtures rather than mocking git; see `tests/gh/README.md`. When a fixture makes a claim about
-the state it produces, assert that claim in its harness's own fixture tests too
-(`tests/gh/test_gh_fixtures.py` for the Python fixtures, `spec/*/fixtures_spec.sh` for the bash
-ones), so the other tests cannot pass for the wrong reason.
+Any script that can delete or overwrite something needs a test proving both that it acts when it
+should and that it refuses when it should. Assert against real repositories built by the fixtures
+rather than mocking git; see `tests/gh/README.md`. When a fixture makes a claim about the state it
+produces, assert that claim in the plugin's own fixture test too (`tests/gh/test_gh_fixtures.py`,
+`tests/workstreams/test_ws_fixtures.py`, `tests/field-test/test_ft_fixtures.py`), so the other
+tests cannot pass for the wrong reason.
 
 Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
 repos outside the `bje` enterprise into this repo; reconstruct the shape of the case instead.
