@@ -12,7 +12,14 @@ flowchart TD
     I --> N{next target still to do?}
     N -->|none| Z
     N -->|one, already paused| Z1([stop: report the question it is waiting on])
-    N -->|one| F[field test it with /field-test:run and record the issues filed]
+    N -->|one, still running from a session that stopped| RS{which phase did it reach?}
+    N -->|one, pending| F[field test it with /field-test:run and record the issues filed]
+    RS -->|field-test| F
+    RS -->|verify| V
+    RS -->|fix| W
+    RS -->|review| R
+    RS -->|merge| M0
+    RS -->|summary| S
     F --> V{does the target's own report<br>match what GitHub says?}
     V -->|no| V1[file the mismatch as a finding of its own]
     V -->|yes| C
@@ -24,11 +31,16 @@ flowchart TD
     WQ -->|paused, or the work needs more than one PR| Z1
     WQ -->|failed, or no report| X[mark the target failed; its issues stay open]
     X --> S
-    WQ -->|draft PR| R[review with workstreams:reviewer]
-    R --> RQ{reviewer returned}
+    WQ -->|draft PR| RC{review_rounds is 0?}
+    RC -->|yes| RB[count this round]
+    RC -->|no: already counted| R
+    RB --> R[/workstreams:review:<br>one round here, in this session]
+    R --> RQ{what did the round return?}
+    RQ -->|error, and gh itself was what failed| RC
     RQ -->|error| Z1
-    RQ -->|applied changes| R
-    RQ -->|applied nothing| M0[mark ready and enable auto-merge]
+    RQ -->|a substantial diffstat, first round| RC
+    RQ -->|a substantial diffstat, second round| Z1
+    RQ -->|nothing pushed, or a cosmetic diffstat| M0[mark ready and enable auto-merge]
     M0 -->|either command failed| Z1
     M0 -->|both accepted| M[block in the foreground on the checks]
     M --> MQ{what did the wait say?}
@@ -43,3 +55,17 @@ flowchart TD
     S --> N
     Z([stop the loop; print every target's summary,<br>then every question still open])
 ```
+
+The review round is `/workstreams:review`, invoked here rather than restated: it reviews, reads
+the PR's own bot and human threads, verifies every finding against the code, applies what holds
+through `workstreams:applier`, and replies on the threads. Substantial or cosmetic is defined in
+`/workstreams:review`'s Return section, read off the `diffstat` the round prints there.
+
+A target left `running` resumes at the phase recorded on it rather than at the top: its issues are
+already filed and its pull request already open, and starting over would file and open them twice.
+
+The round is counted only when `review_rounds` is 0. At any other value the round about to run was
+counted already, by the repeat branch or by the session that stopped mid-round.
+
+The round runs in the main session because `/pr-review-toolkit:review-pr` dispatches analyzer
+agents that wake whoever invoked them, and a subagent gets no such wake (issue #62).

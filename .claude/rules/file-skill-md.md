@@ -33,7 +33,7 @@ so the diagram survives refactoring.
 Spell out every script a skill runs, at every call site:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.sh" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 ```
 
 Do NOT hold the command in a variable and expand it (`S="bash ...sh"` then `$S show`). zsh does

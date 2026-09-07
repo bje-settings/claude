@@ -24,15 +24,22 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 `gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.sh`.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
-`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but the two hook helpers.
+`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
+under `plugins/` (`find plugins -name '*.sh'` lists them); `workstreams` is entirely Python.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
 script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. (Today only the two hook helpers are Python and neither has a `lib/` yet, so the layout is
-the rule for the next script rather than a description of the tree.)
+others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds what every one of
+that plugin's scripts does around its own work (the UTF-8 output streams, the flush, a reported
+failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py` and `pr_status.py`
+hold what used to be each script's jq filters and argument checks, as plain functions with a unit
+test per arm. Scripts import `lib` through `sys.path`, but tests load a plugin's lib modules by
+path under a plugin-unique module name, because two plugins' `lib` packages collide on
+`sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/` imports another
+`lib/` module: a module loaded by path sits outside any package, where a sibling import would not
+resolve, so a module that raises its own error class hands it to `cli.run` rather than importing one.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root
@@ -94,7 +101,9 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - Anything deterministic runs in a script, not an agent. Split work so the script emits
   structured output and the agent decides from it. Where an agent is still needed, set `model`
   and `effort` in its frontmatter to the smallest that passes the specs.
-- Skills with side effects set `disable-model-invocation: true`. Keep `SKILL.md` under 500 lines;
+- Skills with side effects set `disable-model-invocation: true`, unless the skill exists to be
+  invoked by another skill: the flag hides it from the `Skill` tool, so its callers cannot reach
+  it at all. Keep `SKILL.md` under 500 lines;
   reference material goes in supporting files. Put the key use case first in `description`,
   since the listing truncates at 1,536 characters.
 - New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
@@ -128,7 +137,11 @@ Coverage for the Python side is coverage.py with `branch = true` and `patch = ["
 script exercised black-box in a child process is still measured. Branch coverage is the point: a
 `jq` program moved into Python stops being one opaque line and becomes arms the report can name,
 which is the answer to the blind spot `.claude/rules/type-jq.md` describes.
-`plugins/field-test/hooks/hook-io.py` is omitted from the coverage.py config, and is measured by
+Stub tools under `tests/<plugin>/bin/` are omitted from the config, since the subprocess patch
+would otherwise measure a fixture standing in for a tool as code under test. Every omit pattern is
+`**/`-prefixed because a relative one is anchored to the current directory of whichever process
+reads the config, and coverage.py re-reads it in every measured child.
+`plugins/field-test/hooks/hook-io.py` is omitted as well, and is measured by
 neither harness until issue #59 ports its examples: kcov does not follow the `python3` child the
 shell specs launch, so the file appears in no report at all. The omit only keeps that gap from
 reading as a 0% file and sinking the Python gate; it does not stand in for coverage.
@@ -157,7 +170,7 @@ only on a SIGTERM sent to its whole process group; `spec/run.sh` handles that fo
 use it rather than bare `shellspec --jobs` for a run you may need to interrupt. Parallelism is per
 spec file, not per example, so a spec file that grows much larger than the rest becomes the floor on
 wall time. Every example must keep building its state in its own temp dir (`setup_sandbox`,
-`setup_ws_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
+`setup_ft_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
 or to a fixed path.
 
 The CI job names `shellcheck`, `bash-3.2`, `coverage`, `ruff`, `pytest` and

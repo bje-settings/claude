@@ -17,10 +17,13 @@ explicit: there is no discovery in this version, and a target list you did not w
 you cannot reason about.
 
 This skill runs in the main session. Only the main session schedules wakes; the worker and the
-reviewer are subagents that return once and schedule nothing. Scripts are called by path, never
-through a variable holding a command string (a Bash tool running zsh does not split one):
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every `ft-harden-state.sh` command takes the
-`<plugin:skill>` being hardened as its first argument, after the command word.
+applier are subagents that return once and schedule nothing, and the review round runs here
+because `/pr-review-toolkit:review-pr` wakes whoever dispatched its analyzers, and a subagent gets
+no such wake (issue #62). Scripts are called by path, never through a variable holding a command
+string (a Bash tool running zsh does not split one):
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every
+`ft-harden-state.sh` command takes the `<plugin:skill>` being hardened as its first argument,
+after the command word.
 
 Write every transition to state **before** taking the next action. The state file is what a
 resumed session reads; acting first and recording after is how the same fix gets made twice.
@@ -54,8 +57,15 @@ TARGET="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" next <plugin:s
 Nothing printed means every target is finished: go to Step 7. A target whose status is already
 `paused` comes back from `next` on purpose. Do not step over it: report its question and stop.
 
-Otherwise set the target `running`, and work the phases below in order, writing the phase before
-each. The command shape for every write is:
+A target that comes back `running` was started by a session that stopped. Read the run with
+`show <plugin:skill>` and resume it at the `phase` recorded on that target, with its `pr` and
+`review_rounds` as they stand. Only phase `field-test` starts at Step 3; `verify` starts at Step
+4, `fix`, `review`, and `merge` at their part of Step 5, and `summary` at Step 6. Starting a
+`running` target over would field-test a repository whose issues are already filed and open a
+second pull request for them.
+
+A `pending` target starts at Step 3. Set it `running` first, and work the phases below in order,
+writing the phase before each. The command shape for every write is:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" set <plugin:skill> "$TARGET" <field> <value>
@@ -110,11 +120,43 @@ one PR, set the target `paused` with its question and stop the loop: that is a d
 person. If it returns `failed`, or no JSON block at all, set the target `failed` with the error
 as its `question` and go to Step 6: the findings stay filed as issues for a person to pick up.
 
-**Review** (`phase review`). Fill in `review-prompt.md` and start `workstreams:reviewer` on the
-PR. Repeat until a pass applies nothing. An `error` from the reviewer pauses the target with that
-error; the review did not run, so nothing has been checked.
+**Review** (`phase review`). Count the round before running it, and only when it has not been
+counted: `review_rounds` counts rounds *scheduled*, so a session that stopped mid-round knows the
+round it is picking up was already counted. Read it from `show <plugin:skill>`; when it is `0`,
+count this one, and at any other value the round about to run was counted already and nothing is
+written:
 
-**Merge** (`phase merge`). Only once review applies nothing:
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" bump <plugin:skill> "$TARGET" review_rounds
+```
+
+Then run it with the `Skill` tool:
+
+`/workstreams:review <n> --worktree <the worker's worktree> --base <the PR's base branch> --model <the run's model>`
+
+`<n>` is the pull request number. The round is `/workstreams:review`'s, invoked here rather than
+restated: it reviews, reads the PR's own bot and human threads, verifies every finding against the
+code, applies the ones that hold through `workstreams:applier`, replies on the threads, and
+returns one JSON block.
+
+Decide on what it returned by the definition of substantial and cosmetic in `/workstreams:review`'s
+Return section, read off the `diffstat` in its block:
+
+- **Substantial, and `review_rounds` is 1**: `bump` it to 2 and run the round again from the top of
+  this phase. One repeat, because a round that changed the diff that much reviewed a different PR
+  than the one that now exists.
+- **Substantial, and `review_rounds` is 2 or more**: `set "$TARGET" status paused` with the
+  question `PR #<n> has applied substantial review changes twice; decide whether it needs a rethink or another pass`.
+- **Cosmetic, or nothing pushed**: fall through to the merge step below.
+- **`error` with `error_status` 4**: gh itself failed inside the round. Report it, leave the target
+  where it is, and try the round again rather than pausing: a rate limit is not a decision for a
+  person.
+- **`error` for any other reason**: pause the target with that error, naming the findings it had
+  already applied.
+
+Keep every rejected finding with its reason for the summary.
+
+**Merge** (`phase merge`). Only once a review round applied nothing, or only cosmetic changes:
 
 ```bash
 gh pr ready <n> --repo <repo>
@@ -156,6 +198,6 @@ every issue filed that did not end up in a merged PR.
 ## Out of scope
 
 Approving PRs; bypassing a check, a ruleset, or a required review; and deciding what counts as a
-mechanical fix beyond the definitions `/gh:shepherd` already carries. This skill also does not
-review PRs itself: `workstreams:reviewer` and `pr-review-toolkit` own that, and a second review
-loop here would drift from theirs.
+mechanical fix beyond the definitions `/gh:shepherd` already carries. This skill also carries no
+review round of its own: `/workstreams:review` is the round, and it is invoked here rather than
+restated.

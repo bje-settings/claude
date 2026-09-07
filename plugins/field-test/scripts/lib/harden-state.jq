@@ -17,6 +17,7 @@
     phase: "field-test",
     issues: [],
     pr: null,
+    review_rounds: 0,
     merge_sha: null,
     question: null,
     summary: null
