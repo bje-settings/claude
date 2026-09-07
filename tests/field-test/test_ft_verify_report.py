@@ -122,6 +122,39 @@ def test_refuses_a_pull_request_number_that_is_not_a_number(report, run_script):
     assert "must be numbers, got: fifty" in result.stderr
 
 
+def test_names_a_number_that_is_not_a_number_in_the_words_the_report_used(report, run_script):
+    """names a JSON true as `true`, not as Python's True
+
+    `str` renders JSON's words as Python's, and `got: True` sends whoever reads
+    the message looking through the report for a word it does not contain.
+    """
+    document = {"repo": "acme-org/plugins", "prs": [{"number": True, "claimed": "merged"}]}
+    result = run_script(FT_VERIFY_REPORT, report.write(document))
+    assert result.status == 2
+    assert "must be numbers, got: true" in result.stderr
+
+
+def test_names_a_null_number_as_null(report, run_script):
+    document = {"repo": "acme-org/plugins", "prs": [{"number": None, "claimed": "merged"}]}
+    result = run_script(FT_VERIFY_REPORT, report.write(document))
+    assert result.status == 2
+    assert "must be numbers, got: null" in result.stderr
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="running as root, permissions do not apply")
+def test_names_a_report_it_cannot_open_as_unreadable(report, run_script):
+    """a report that is there but unreadable is not a report that is missing"""
+    path = report.case()
+    os.chmod(path, 0o000)
+    try:
+        result = run_script(FT_VERIFY_REPORT, path)
+    finally:
+        os.chmod(path, 0o600)
+    assert result.status == 2
+    assert f"cannot read {path}" in result.stderr
+    assert "no report at" not in result.stderr
+
+
 def test_refuses_a_claim_that_is_not_an_object(report, run_script):
     """a prs array holding bare numbers is a report this cannot read"""
     result = run_script(FT_VERIFY_REPORT, report.write({"repo": "a/b", "prs": [50]}))
@@ -252,9 +285,34 @@ def test_reports_every_claim_not_only_the_ones_that_failed(report, run_script):
     assert len(answer(result)["results"]) == 3
 
 
-def test_a_gh_that_cannot_be_run_at_all_is_a_mismatch(report, ft_sandbox, run_script):
-    """a gh that is not there answers for nothing, which the report has to own"""
+def test_a_gh_that_cannot_be_run_at_all_exits_4(report, ft_sandbox, run_script):
+    """a gh that is not there checked nothing, which is not the report's fault
+
+    Exit 1 would put one mismatch per claim in front of the harden skill, which
+    files each one as an issue against the target: a broken tool blamed on the
+    thing under test.
+    """
     ft_sandbox.setenv("FT_GH", ft_sandbox.path / "no-such-gh")
-    result = run_script(FT_VERIFY_REPORT, report.case("wrong"))
+    result = run_script(FT_VERIFY_REPORT, report.case("accurate"))
+    assert result.status == 4
+    assert "gh could not answer, so no claim was checked" in result.stderr
+    assert result.stdout == ""
+
+
+def test_a_gh_that_fails_the_same_way_for_every_claim_exits_4(report, ft_sandbox, run_script):
+    """a gh that failed the same way for every claim answered nothing"""
+    ft_sandbox.setenv("FT_GH_FIXTURE_FAIL", "1")
+    result = run_script(FT_VERIFY_REPORT, report.case("accurate"))
+    assert result.status == 4
+    assert "simulated failure" in result.stderr
+
+
+def test_one_pull_request_gh_could_not_read_among_answers_is_a_mismatch(report, run_script):
+    """gh answered for the rest, so the one it could not read is the report's to own"""
+    document = {
+        "repo": "acme-org/plugins",
+        "prs": [{"number": 54, "claimed": "merged"}, {"number": 999, "claimed": "merged"}],
+    }
+    result = run_script(FT_VERIFY_REPORT, report.write(document))
     assert result.status == 1
-    assert "could not be read on GitHub" in result.stdout
+    assert (answer(result)["checked"], answer(result)["matched"]) == (2, 1)
