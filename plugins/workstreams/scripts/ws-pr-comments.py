@@ -3,8 +3,10 @@
 
   ws-pr-comments.py <number | #number | url> [--repo <owner/name>]
 
-Prints one flat JSON list, reviews first, then issue comments, then the comments
-of every review thread:
+Prints one flat JSON list. Within a page the order is reviews, then issue
+comments, then the comments of every review thread; a pull request long enough to
+page arrives page by page, so the three interleave across pages and `kind` is
+what to group by rather than position:
   [
     {
       "id": 123456, "kind": "review|comment|thread",
@@ -114,15 +116,20 @@ def gh_graphql(owner: str, name: str, number: int, cursors: dict):
     rate limit, an expired token, or a pull request that is not there, gh's own
     message is what says which, and capturing it must not be how it goes missing.
     """
+    # -f sends a String, -F types the value: gh reads true, false, null, and an
+    # all-digit value as their JSON types. Only `number` is an Int here. An owner
+    # or repository named in digits (bje-co/2048) or a cursor that happens to be
+    # all digits would be sent as an Int against a String! variable and the query
+    # would be rejected before it ran, so every String goes through -f.
     command = [
         "gh",
         "api",
         "graphql",
         "-f",
         "query=" + pr_comments.QUERY,
-        "-F",
+        "-f",
         f"owner={owner}",
-        "-F",
+        "-f",
         f"name={name}",
         "-F",
         f"number={number}",
@@ -132,7 +139,7 @@ def gh_graphql(owner: str, name: str, number: int, cursors: dict):
         # A null cursor is the first page. Omitted rather than sent empty: gh
         # would send "" and GraphQL would look for a cursor of that name.
         if value is not None:
-            command += ["-F", f"{cursor_name}={value}"]
+            command += ["-f", f"{cursor_name}={value}"]
     try:
         finished = subprocess.run(command, capture_output=True, check=False)
     except OSError as error:
