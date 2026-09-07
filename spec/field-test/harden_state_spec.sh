@@ -323,6 +323,57 @@ Describe 'ft-harden-state.sh'
     End
   End
 
+  Describe 'bump'
+    BeforeEach 'one_target'
+
+    # The review phase counts a round with bump rather than writing a number it
+    # worked out itself: a session that stopped mid-round and one starting the
+    # repeat would otherwise both have to agree on what the count already was.
+    It 'adds one to the review round and prints the new value'
+      When run script "$FT_HARDEN_STATE" bump gh:shepherd /repos/widgets review_rounds
+      The status should be success
+      The output should equal '1'
+      The value "$(field review_rounds)" should equal '1'
+    End
+
+    It 'counts on from the round already recorded'
+      "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets review_rounds 1
+      When run script "$FT_HARDEN_STATE" bump gh:shepherd /repos/widgets review_rounds
+      The status should be success
+      The output should equal '2'
+    End
+
+    # Its own message, not set's: a caller sent to set's field list goes looking
+    # through nine fields, seven of which bump would refuse anyway.
+    It 'names itself when the field is not one it can count'
+      When run script "$FT_HARDEN_STATE" bump gh:shepherd /repos/widgets status
+      The status should equal 2
+      The stderr should include 'bump: unknown field: status'
+      The stderr should include 'pr review_rounds'
+    End
+
+    It 'refuses a value it cannot count from and leaves it alone'
+      jq '.targets[0].review_rounds = "two"' "$(STATE_FILE)" > "$FT_SANDBOX/edited.json"
+      mv "$FT_SANDBOX/edited.json" "$(STATE_FILE)"
+      When run script "$FT_HARDEN_STATE" bump gh:shepherd /repos/widgets review_rounds
+      The status should equal 1
+      The stderr should include 'bump: review_rounds is not a number: two'
+      The value "$(field review_rounds)" should equal 'two'
+    End
+
+    It 'refuses a target that is not in the run'
+      When run script "$FT_HARDEN_STATE" bump gh:shepherd /repos/nothing review_rounds
+      The status should equal 1
+      The stderr should include 'bump: unknown target: /repos/nothing'
+    End
+
+    It 'needs a path and a field'
+      When run script "$FT_HARDEN_STATE" bump gh:shepherd /repos/widgets
+      The status should equal 2
+      The stderr should include 'bump needs <path> <numeric-field>'
+    End
+  End
+
   Describe 'next and show'
     BeforeEach 'two_targets'
 
