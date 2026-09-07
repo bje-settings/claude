@@ -34,6 +34,15 @@ script's own directory. Nothing imports across plugins: a user installs one plug
 others. (Today only the two hook helpers are Python and neither has a `lib/` yet, so the layout is
 the rule for the next script rather than a description of the tree.)
 
+Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
+tests in one process while each script resolves `lib` from its own `sys.path`. The root
+`tests/conftest.py` handles it: an autouse fixture drops every `lib` and `lib.*` module and every
+leftover `plugins/<plugin>/scripts` or `.../hooks` entry from `sys.path` before each test and again
+after it, so each in-process load re-resolves `lib` from its own script's directory. Do not change
+how a plugin script imports; end users run them as processes. An in-process loader must not cache a
+script module across tests, or it hands the next test another plugin's `lib`; load it inside the
+test that uses it.
+
 Stdlib only, always, so an end user never needs `uv` or a virtualenv to run a plugin. The floor is
 Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/python3`. ruff's
 `target-version = "py39"` plus the `FA` rules catch the syntax: `match`, and a PEP 604 `X | None`
