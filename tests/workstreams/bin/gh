@@ -22,6 +22,10 @@ Controlled by:
                        empty set). `gh api graphql` is answered from
                        comments.json, one of its `pages` per call, and the count
                        of pages already served is kept in .graphql-page there.
+                       Every graphql call's variables are appended to
+                       .graphql-calls, one JSON object per line and without
+                       the query itself, so a test can assert which cursors a
+                       later page was asked for.
   WS_GH_FIXTURE_REPO   nameWithOwner reported by `gh repo view` (default below)
   WS_GH_FIXTURE_FAIL   if non-empty, every call exits non-zero
   WS_GH_FIXTURE_NOAUTH if non-empty, `gh auth status` fails
@@ -165,11 +169,30 @@ def parse(argv):
     return options, fields, jq_expr, positional
 
 
+def typed(value):
+    """What gh makes of a -F value: true, false, null and digits stop being text.
+
+    Copied from gh's own rule rather than approximated, because the difference is
+    the whole point of the stub reading the two flags apart: a caller that sends
+    a String! variable with -F ships an Int the moment the value is all digits,
+    and GitHub rejects the query before it runs.
+    """
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    if value == "null":
+        return None
+    if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
+        return int(value)
+    return value
+
+
 def graphql_variables(argv):
     """The -f and -F pairs of a `gh api graphql` call, as a dict.
 
-    Both flags are read the same way here: the stub cares which variables were
-    sent, not how gh would have typed each one.
+    -f is a string always; -F is typed the way gh types it. Reading them the same
+    way would hide the one mistake this stub exists to catch.
     """
     variables = {}
     index = 0
@@ -181,7 +204,7 @@ def graphql_variables(argv):
         if "=" not in pair:
             fail(f'expected "key=value", got: {pair}')
         key, _, value = pair.partition("=")
-        variables[key] = value
+        variables[key] = value if argument == "-f" else typed(value)
         index += 2
     return variables
 
@@ -198,13 +221,23 @@ def graphql(argv):
     """
     variables = graphql_variables(argv)
     for required in ("query", "owner", "name", "number"):
-        if not variables.get(required):
+        if variables.get(required) in (None, "", False):
             fail(f"graphql needs a {required} variable")
+    # The query declares owner, name and the three cursors as String! or String,
+    # and number as Int!. GitHub checks that; so does this.
+    for name in ("query", "owner", "name") + CURSOR_VARIABLES:
+        if name in variables and not isinstance(variables[name], str):
+            fail(f"graphql: ${name} is a String, got {json.dumps(variables[name])}")
+    if not isinstance(variables["number"], int) or isinstance(variables["number"], bool):
+        fail(f"graphql: $number is an Int, got {json.dumps(variables['number'])}")
     directory = os.environ.get("WS_GH_FIXTURE_DIR", "")
     if not directory:
         fail("set WS_GH_FIXTURE_DIR to answer a graphql query")
     document = json.loads(load("comments.json", '{"pages": []}'))
     pages = document.get("pages") or []
+    with open(os.path.join(directory, ".graphql-calls"), "a", encoding="utf-8") as handle:
+        recorded = {key: value for key, value in variables.items() if key != "query"}
+        handle.write(json.dumps(recorded, sort_keys=True) + "\n")
     counter = os.path.join(directory, ".graphql-page")
     served = 0
     if os.path.isfile(counter):
