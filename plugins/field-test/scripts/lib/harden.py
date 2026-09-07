@@ -31,10 +31,11 @@ FIELDS = (
     "summary",
     "repo",
 )
-# Stored as a JSON number or null rather than a string. `review_rounds` is what
-# bounds the review phase at one repeat: a session resumed mid-review reads the
-# count from here, and a count written as the string "1" would compare against a
-# number and start the loop over.
+# Stored as a JSON number or null rather than a string. `review_rounds` is the
+# count of review rounds the target has had, recorded here so that the harden
+# skill (PR #77) can bound the review phase at one repeat across a resumed
+# session: a count written as the string "1" would compare against a number and
+# start the loop over. Nothing on this branch reads it back.
 NUMERIC_FIELDS = ("pr", "review_rounds")
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")
@@ -52,9 +53,9 @@ DIGITS = re.compile(r"^[0-9]+$")
 def listed(names) -> str:
     """A vocabulary the way the shell printed it: space-padded, both ends.
 
-    Kept because the messages are a contract the specs and the skill quote. The
-    padding was load-bearing in bash, where membership was a substring test;
-    here it is only how the message reads.
+    Kept because the messages are a contract the tests quote. The padding was
+    load-bearing in bash, where membership was a substring test; here it is only
+    how the message reads.
     """
     return " " + " ".join(names) + " "
 
@@ -62,9 +63,12 @@ def listed(names) -> str:
 class Invalid(Exception):
     """A value the script must refuse, with the message and exit code to use.
 
-    Usage errors exit 2, the way the shell script's `die "..." 2` did. The two
-    that are not usage errors -- a state file that is not a hardening run, and a
-    target that was never added -- carry status 1.
+    Usage errors exit 2, the way the shell script's `die "..." 2` did. The ones
+    that are not usage errors carry status 1: `set` naming a target that was
+    never added, and `next` naming a target the state file describes in a way no
+    command could act on. A state file that is not a hardening run at all raises
+    nothing here -- it is `is_state` returning False, and the script owns that
+    exit.
     """
 
     def __init__(self, message: str, status: int = 2) -> None:
@@ -256,9 +260,48 @@ def set_field(document, path: str, field: str, value):
 # --- next --------------------------------------------------------------------
 
 
+def target_name(target, index: int) -> str:
+    """What to call one target in a refusal: its path, or where it sits."""
+    path = target.get("path")
+    return path if isinstance(path, str) and path else f"target {index + 1}"
+
+
+def check_target(target, index: int) -> None:
+    """Refuse a target `next` cannot read, naming it and the field.
+
+    A status outside the vocabulary is neither finished nor unfinished, so `next`
+    stepped over it and printed nothing once it was the last one left -- and the
+    skill reads no output as "every target is done" and goes to the summary with
+    the work not started. A path that is not a string is the same silence one
+    step later: `next` printed an empty line, or the loop asked `set` about a
+    target it could not name. Either way the state file is corrupt, and saying so
+    is the only safe answer.
+    """
+    status = target.get("status")
+    if status not in STATUSES:
+        raise Invalid(
+            f"next: {target_name(target, index)}: status is not one of{listed(STATUSES)}"
+            f"got: {json.dumps(status)}",
+            1,
+        )
+    if not isinstance(target.get("path"), str) or not target.get("path"):
+        raise Invalid(
+            f"next: {target_name(target, index)}: path is not a string, "
+            f"got: {json.dumps(target.get('path'))}",
+            1,
+        )
+
+
 def next_target(document) -> str:
-    """The path of the first target still to do, or "" when the list is exhausted."""
+    """The path of the first target still to do, or "" when the list is exhausted.
+
+    Every target is checked, not only the ones reached before the answer: a
+    corrupt target later in the list is a target the loop would step over on the
+    round after this one, and by then the run has already acted on this answer.
+    """
+    for index, target in enumerate(document["targets"]):
+        check_target(target, index)
     for target in document["targets"]:
         if target.get("status") in UNFINISHED:
-            return target.get("path") or ""
+            return target["path"]
     return ""
