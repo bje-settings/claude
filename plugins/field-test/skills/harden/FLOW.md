@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart TD
-    P{gh, gh login, jq, workstreams,<br>pr-review-toolkit all present?}
+    P{gh, gh login, workstreams,<br>pr-review-toolkit all present?}
     P -->|no| P1([stop: print the install command for each missing piece])
     P -->|yes| E{a hardening run already<br>exists for this skill?}
     E -->|yes| E1[ask: resume it, or start over? never force on your own]
@@ -11,6 +11,7 @@ flowchart TD
     E1 -->|start over| I
     I --> N{next target still to do?}
     N -->|none| Z
+    N -->|the state file describes<br>a target no command could act on| Z2([stop: report what next said;<br>the file needs a person])
     N -->|one, already paused| Z1([stop: report the question it is waiting on])
     N -->|one, still running from a session that stopped| RS{which phase did it reach?}
     N -->|one, pending| F[field test it with /field-test:run and record the issues filed]
@@ -23,7 +24,10 @@ flowchart TD
     F --> V{does the target's own report<br>match what GitHub says?}
     V -->|no| V1[file the mismatch as a finding of its own]
     V -->|yes| C
-    V -->|gh could not read it| Z1
+    V -->|a claim gh could not read,<br>or gh failing the same way twice| V2[verify once more]
+    V2 --> V3{same answer again?}
+    V3 -->|no| V
+    V3 -->|yes| Z1
     V1 --> C{any findings this round?}
     C -->|none| S[summarise the target as clean]
     C -->|some| W[one workstreams worker: one worktree,<br>one draft PR closing every issue of the round]
@@ -49,6 +53,7 @@ flowchart TD
     M2 --> M
     MQ -->|passed a fourth time: green but not merging| Z1
     MQ -->|gh could not answer, twice| Z1
+    MQ -->|there is no such pull request<br>(at once, no second look)| Z1
     MQ -->|failed, mechanically, first time| W
     MQ -->|failed, mechanically, again| Z1
     MQ -->|failed, behaviourally| Z1

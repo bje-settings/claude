@@ -5,7 +5,7 @@ somebody who did not watch the run can reproduce, and keep going until they are 
 skills: `/field-test:run` observes one run; `/field-test:harden` loops it over a list of target
 repositories. Each skill directory has a `FLOW.md` with the decision diagram.
 
-This is not a test runner. The tests under `tests/` and the specs in `spec/` cover the
+This is not a test runner. The tests under `tests/` cover the
 deterministic parts; a field test covers the part they cannot, which is how a skill behaves
 against a real repository in a state nobody thought to write a fixture for. The point of the run
 is to come out of it with those fixtures.
@@ -15,7 +15,6 @@ is to come out of it with those fixtures.
 | Requirement | Install |
 | --- | --- |
 | `gh`, logged in | `brew install gh && gh auth login` |
-| `jq` | `brew install jq` |
 | `python3` | ships with macOS |
 | `workstreams` plugin (harden only) | `/plugin install workstreams@bje` |
 | `pr-review-toolkit` plugin (harden only) | `/plugin install pr-review-toolkit@claude-plugins-official` |
@@ -26,7 +25,7 @@ registry rather than from a path. A project or user command or skill is found on
 `/field-test:harden` reuses the `workstreams:stream-<effort>` agents for its fix phase and
 invokes `/workstreams:review` for its review round rather than growing one of its own, so both
 plugins have to be there: `workstreams` for the agents and the skill, `pr-review-toolkit` because
-that round runs `review-pr`. `ft-preflight.sh` checks before a round starts rather than halfway
+that round runs `review-pr`. `ft-preflight.py` checks before a round starts rather than halfway
 through one.
 
 ## `/field-test:run <target> [args...]`
@@ -92,7 +91,7 @@ Per target, with every transition written to state before the next action is tak
 
 1. **Field test.** `/field-test:run` in the target repository. It observes and files; `harden`
    records the issue numbers.
-2. **Verify**, always, even when the field test saw nothing. `ft-verify-report.sh` re-reads
+2. **Verify**, always, even when the field test saw nothing. `ft-verify-report.py` re-reads
    every pull request the target skill's own report named and compares the claim against
    GitHub. A mismatch becomes a finding of its own, which in the by-hand pass was twice the most
    valuable finding of the round.
@@ -102,8 +101,8 @@ Per target, with every transition written to state before the next action is tak
 4. **Review.** `/workstreams:review`, run in the main session: `/pr-review-toolkit:review-pr` plus
    the PR's own bot and human comments, verified against the code, with a `workstreams:applier`
    subagent applying what holds. One repeat round if the changes were substantial, which that
-   skill defines and this one cites. Each round is counted with `ft-harden-state.sh bump`.
-5. **Merge.** Ready, auto-merge, then `ft-wait-pr.sh` blocking in the foreground. A mechanical CI
+   skill defines and this one cites. Each round is counted with `ft-harden-state.py bump`.
+5. **Merge.** Ready, auto-merge, then `ft-wait-pr.py` blocking in the foreground. A mechanical CI
    failure goes back to the fix step once; anything behavioural pauses with the question, and so
    does a green pull request that auto-merge has not landed after three looks.
 6. **Summarise** in the same table every round, then the next target.
@@ -115,20 +114,23 @@ that prompted this skill; the other is a report nobody checked.
 ### State and resuming
 
 `${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/<plugin>__<skill>.json`, written by
-`ft-harden-state.sh`. Target statuses: `pending`, `running`, `paused`, `done`, `failed`. Phases:
+`ft-harden-state.py`. Target statuses: `pending`, `running`, `paused`, `done`, `failed`. Phases:
 `field-test`, `verify`, `fix`, `review`, `merge`, `summary`, `done`. A target is `failed` when its
 fix worker failed or returned no report; its issues stay open. `next` prints the first target
-that is neither done nor failed, including a paused one, so a question cannot be stepped over.
-A target that comes back `running` is resumed at its recorded phase, with its `pr` and
-`review_rounds` as they stand, rather than started over. `init` refuses to overwrite a run in
-progress without `--force`.
+that is neither done nor failed, including a paused one, so a question cannot be stepped over, and
+refuses a target whose status or path it cannot read rather than reporting a run as finished. A
+target that comes back `running` is resumed at its recorded phase, with its `pr` and
+`review_rounds` as they stand, rather than started over. `bump` adds one to a numeric field (`pr`,
+`review_rounds`) and prints the new value, so counting a review round is one call rather than a
+read, an addition, and a write a stopped session can land between. `init` refuses to overwrite a
+run in progress without `--force`.
 
 ## Hooks
 
 Registered for the whole session, and doing nothing at all in a session that is not a field test:
 the first thing each does is look for a run marker for the payload's session id, and there is
-none. They are `python3`, not `jq`, because a hook runs on every tool call and should depend only
-on what the machine already has.
+none. They are `python3`, as is every script in this plugin; a hook in particular runs on every tool
+call and should depend only on what the machine already has.
 
 | Hook | Records |
 | --- | --- |
@@ -177,8 +179,8 @@ enterprise membership decides what gets published, and a stale answer would deci
 
 ## Scripts
 
-All deterministic. The run side is Python (stdlib only, 3.9), tested under `tests/field-test/`;
-the harden side is still bash 3.2, spec'd under `spec/field-test/`, and issue #60 ports it.
+All deterministic, and all Python (stdlib only, 3.9), tested under `tests/field-test/`. Nothing
+here is bash any more, and the plugin has no shellspec spec left.
 
 | Script | Purpose |
 | --- | --- |
@@ -188,10 +190,10 @@ the harden side is still bash 3.2, spec'd under `spec/field-test/`, and issue #6
 | `ft-enterprise.py` | Whether the plugin and the repository under test share an enterprise |
 | `ft-redact.py` | Text in, text out; identity inside the enterprise, placeholders outside |
 | `ft-issue.py` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
-| `ft-preflight.sh` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
-| `ft-harden-state.sh` | Atomic read/write of one hardening run; validates fields, statuses, and phases. `bump` adds one to a numeric field, so no caller counts a round by hand |
-| `ft-verify-report.sh` | A report's claims against `gh pr view`, per pull request |
-| `ft-wait-pr.sh` | Blocking, bounded wait on one pull request: `merged`, `passed`, `failed`, `pending` |
+| `ft-preflight.py` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
+| `ft-harden-state.py` | Atomic read/write of one hardening run; validates fields, statuses, and phases; `bump` counts a numeric field |
+| `ft-verify-report.py` | A report's claims against `gh pr view`, per pull request |
+| `ft-wait-pr.py` | Blocking, bounded wait on one pull request: `merged`, `passed`, `failed`, `pending` |
 
 ## Out of scope for now
 

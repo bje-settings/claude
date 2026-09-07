@@ -1,12 +1,11 @@
 """Canned input for the field-test tests.
 
-The Python counterpart of what `fixtures/field-test/fixtures.sh` held for the run
-side of the plugin, and of `setup_ft_sandbox` in `spec/spec_helper.sh`. Each
-writer produces one fixture; `ft_sandbox` wires them together for one test: a
-temp state directory holding a live run marker for session `ft-session`, a fake
-HOME with Claude's plugin registry, the canned enterprise answer, and
-`tests/field-test/bin/gh` ahead of any real gh on PATH. Tests replace individual
-pieces to build the negative cases.
+Every fixture this plugin's tests read lives here, beside them. Each writer
+produces one fixture; `ft_sandbox` wires them together for one test: a temp
+state directory holding a live run marker for session `ft-session`, a fake HOME
+with Claude's plugin registry, the canned enterprise answer, the pull requests
+and reports the harden side checks, and `tests/field-test/bin/gh` ahead of any
+real gh on PATH. Tests replace individual pieces to build the negative cases.
 
 Two kinds of fixture live here. `ft_fixture_events` produces one events file per
 branch of `plugins/field-test/scripts/lib/collect.py`, so every finding has an
@@ -45,6 +44,10 @@ FT_COLLECT = SCRIPTS / "ft-collect.py"
 FT_ENTERPRISE = SCRIPTS / "ft-enterprise.py"
 FT_REDACT = SCRIPTS / "ft-redact.py"
 FT_ISSUE = SCRIPTS / "ft-issue.py"
+FT_PREFLIGHT = SCRIPTS / "ft-preflight.py"
+FT_HARDEN_STATE = SCRIPTS / "ft-harden-state.py"
+FT_VERIFY_REPORT = SCRIPTS / "ft-verify-report.py"
+FT_WAIT_PR = SCRIPTS / "ft-wait-pr.py"
 HOOK_IO = HOOKS / "hook-io.py"
 DENY_LIST = HOOKS / "deny-list.txt"
 
@@ -428,6 +431,149 @@ ISSUES = [
 ]
 
 
+# Thirteen pull requests, one per arm of `lib/checks.py` plus the states and the
+# two that change across polls:
+#
+#   50 open, every check green, skipped, or neutral      checks pass
+#   51 open, a FAILURE beside a SUCCESS                  checks fail
+#   52 open, a run still in progress and a PENDING       checks pending
+#   53 open, no checks at all                            checks none
+#   54 merged                                            state MERGED
+#   55 closed unmerged                                   state CLOSED
+#   56 open, a COMPLETED run with no conclusion          checks pending
+#   57 open, CANCELLED beside SUCCESS                    checks fail
+#   58 open, pending on the first look then green        a sequence; green stays
+#   59 open, a commit status in FAILURE beside a green   checks fail (StatusContext)
+#   60 open, a FAILURE beside a run still in progress    checks fail, not pending
+#   61 open, no checks on the first look, then a run     a sequence; none then pending
+#   62 locked                                            state LOCKED (exit-4 state arm)
+def _check(name, status, conclusion):
+    return {
+        "__typename": "CheckRun",
+        "name": name,
+        "status": status,
+        "conclusion": conclusion,
+    }
+
+
+def _context(context, state):
+    return {"__typename": "StatusContext", "context": context, "state": state}
+
+
+PRS = [
+    {
+        "number": 50,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [
+            _check("bash-5", "COMPLETED", "SUCCESS"),
+            _check("shellcheck", "COMPLETED", "SKIPPED"),
+            _check("codeql", "COMPLETED", "NEUTRAL"),
+            _context("coverage", "SUCCESS"),
+        ],
+    },
+    {
+        "number": 51,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [
+            _check("bash-5", "COMPLETED", "SUCCESS"),
+            _check("coverage", "COMPLETED", "FAILURE"),
+        ],
+    },
+    {
+        "number": 52,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [
+            _check("bash-3.2", "IN_PROGRESS", None),
+            _context("coverage", "PENDING"),
+        ],
+    },
+    {"number": 53, "state": "OPEN", "isDraft": False, "statusCheckRollup": []},
+    {
+        "number": 54,
+        "state": "MERGED",
+        "isDraft": False,
+        "statusCheckRollup": [_context("ci", "SUCCESS")],
+    },
+    {"number": 55, "state": "CLOSED", "isDraft": False, "statusCheckRollup": []},
+    {
+        "number": 56,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [_check("bash-5", "COMPLETED", None)],
+    },
+    {
+        "number": 57,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [
+            _check("bash-5", "COMPLETED", "SUCCESS"),
+            _check("coverage", "COMPLETED", "CANCELLED"),
+        ],
+    },
+    {
+        "number": 58,
+        "state": "OPEN",
+        "isDraft": True,
+        "statusCheckRollup": [_check("bash-5", "COMPLETED", "SUCCESS")],
+        "sequence": [
+            {"statusCheckRollup": [_check("bash-5", "IN_PROGRESS", None)]},
+            {"statusCheckRollup": [_check("bash-5", "COMPLETED", "SUCCESS")]},
+        ],
+    },
+    {
+        "number": 59,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [
+            _check("bash-5", "COMPLETED", "SUCCESS"),
+            _context("coverage", "FAILURE"),
+        ],
+    },
+    {
+        "number": 60,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [
+            _check("coverage", "COMPLETED", "FAILURE"),
+            _check("bash-3.2", "IN_PROGRESS", None),
+        ],
+    },
+    {
+        "number": 61,
+        "state": "OPEN",
+        "isDraft": False,
+        "statusCheckRollup": [_check("bash-5", "IN_PROGRESS", None)],
+        "sequence": [{"statusCheckRollup": []}],
+    },
+    # A state no reader here knows, with nothing in the rollup: the shape that
+    # used to fall through the state arms and be reported as a pass.
+    {"number": 62, "state": "LOCKED", "isDraft": False, "statusCheckRollup": []},
+]
+
+# What a field-test report claimed about the pull requests of one round.
+#
+#   accurate   every claim holds against PRS
+#   wrong      claims a pull request merged that is still open
+#   unknown    uses a word the verifier cannot check
+#   missing    names a pull request that does not exist
+REPORTS = {
+    "accurate": {
+        "repo": "acme-org/plugins",
+        "prs": [
+            {"number": 54, "claimed": "merged"},
+            {"number": 50, "claimed": "skipped"},
+            {"number": 55, "claimed": "closed"},
+        ],
+    },
+    "wrong": {"repo": "acme-org/plugins", "prs": [{"number": 50, "claimed": "merged"}]},
+    "unknown": {"repo": "acme-org/plugins", "prs": [{"number": 50, "claimed": "shepherded"}]},
+    "missing": {"repo": "acme-org/plugins", "prs": [{"number": 999, "claimed": "merged"}]},
+}
+
+
 def write_json(path, document) -> None:
     Path(path).write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
@@ -576,6 +722,18 @@ def ft_fixture_issues(path) -> None:
     write_json(path, ISSUES)
 
 
+def ft_fixture_prs(path, prs=None) -> None:
+    """The pull requests tests/field-test/bin/gh serves to `gh pr view`."""
+    write_json(path, PRS if prs is None else prs)
+
+
+def ft_fixture_report(path, case="accurate") -> None:
+    """One round's report, as the harden loop writes it before verifying it."""
+    if case not in REPORTS:
+        raise KeyError(f"ft_fixture_report: unknown case: {case}")
+    write_json(path, REPORTS[case])
+
+
 class FtSandbox:
     """One test's field-test world: a live run, a fake HOME, canned gh answers."""
 
@@ -591,6 +749,9 @@ class FtSandbox:
         self.marketplaces = home / ".claude" / "plugins" / "known_marketplaces.json"
         self.user_dir = home / ".claude"
         self.install_dir = sandbox.path / "installed" / "gh"
+        self.prs = gh_dir / "prs.json"
+        self.report = sandbox.path / "report.json"
+        self.harden_state = state_dir / "harden" / "gh__shepherd.json"
         self.plugin_checkout = sandbox.path / "plugin-repo"
 
     @property
@@ -620,7 +781,7 @@ class FtSandbox:
 
 @pytest.fixture
 def ft_sandbox(sandbox, monkeypatch) -> FtSandbox:
-    """The pytest counterpart of `setup_ft_sandbox` for the run side."""
+    """One wired-up sandbox: state directory, HOME, and the stub gh on PATH."""
     state_dir = sandbox.path / "state"
     home = sandbox.path / "ft-home"
     gh_dir = sandbox.path / "gh"
@@ -640,6 +801,7 @@ def ft_sandbox(sandbox, monkeypatch) -> FtSandbox:
     ft.run_dir.mkdir(parents=True)
     ft_fixture_enterprise(gh_dir, "both")
     ft_fixture_issues(gh_dir / "issues.json")
+    ft_fixture_prs(ft.prs)
     ft_fixture_installed_plugins(ft.installed_plugins, ft.install_dir)
     ft_fixture_marketplaces(ft.marketplaces, ft.plugin_checkout)
     ft_fixture_run(ft.marker)

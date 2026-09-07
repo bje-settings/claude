@@ -30,13 +30,23 @@ SCRIPT_NAMES = (
     "ft-issue.py",
     "ft-resolve.py",
     "ft-enterprise.py",
+    "ft-preflight.py",
+    "ft-harden-state.py",
+    "ft-verify-report.py",
+    "ft-wait-pr.py",
 )
 
 # The scripts that change something before or while they print: a run marker, an
 # issue, a resolved target the caller records. A closed reader has to stop their
 # output without stopping the work, which is what cli.write_out does. The rest
 # only print, so the handler around `main` is the whole answer for them.
-STATEFUL_SCRIPTS = ("ft-run.py", "ft-issue.py", "ft-resolve.py")
+STATEFUL_SCRIPTS = ("ft-run.py", "ft-issue.py", "ft-resolve.py", "ft-harden-state.py")
+
+# Exit 1 is a verdict of its own in the two harden-side waiters -- `failed` for
+# ft-wait-pr, "the report and GitHub disagree" for ft-verify-report -- and the
+# harden skill branches on it. An internal error there reports 4 instead, the
+# status the skill retries once and then pauses on. Everywhere else 1 is free.
+INTERNAL_ERROR = {"ft-wait-pr.py": 4, "ft-verify-report.py": 4}
 
 
 # --- every script has the wrapper --------------------------------------------
@@ -68,7 +78,7 @@ def test_a_script_that_changes_something_prints_through_write_out(name):
     """a script that changes something prints through write_out, not sys.stdout
 
     The handler around `main` unwinds the whole body, so a closed reader there
-    would skip whatever work came after the write. These three have work that
+    would skip whatever work came after the write. These have work that
     must not be skipped, so every answer they print goes through write_out and
     only the final flush is left to the outer handler.
     """
@@ -232,8 +242,8 @@ def load_script(name):
 
 
 @pytest.mark.parametrize("name", SCRIPT_NAMES)
-def test_an_unanticipated_failure_is_one_line_and_status_1(name, capsys, monkeypatch):
-    """reports an arm nobody anticipated as one line and exit 1, not as a traceback
+def test_an_unanticipated_failure_is_one_line_and_its_own_status(name, capsys, monkeypatch):
+    """reports an arm nobody anticipated as one line and its own status, not as a traceback
 
     In process, because every failure an argument can provoke is one the script
     already answers for by name; the arm under test is the one for the failure
@@ -246,7 +256,7 @@ def test_an_unanticipated_failure_is_one_line_and_status_1(name, capsys, monkeyp
         raise RuntimeError("nobody wrote a message for this")
 
     monkeypatch.setattr(module, "run", explode)
-    assert module.main([name]) == 1
+    assert module.main([name]) == INTERNAL_ERROR.get(name, 1)
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == (
@@ -263,7 +273,7 @@ def test_an_exception_with_no_message_still_names_itself(name, capsys, monkeypat
         raise RuntimeError()
 
     monkeypatch.setattr(module, "run", explode)
-    assert module.main([name]) == 1
+    assert module.main([name]) == INTERNAL_ERROR.get(name, 1)
     assert capsys.readouterr().err == f"{module.PROG}: internal error: RuntimeError: \n"
 
 
