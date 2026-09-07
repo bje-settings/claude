@@ -191,6 +191,42 @@ def set_stream_field(state: dict, stream_id: str, field: str, value) -> dict:
     return state
 
 
+def bump_stream_field(state: dict, stream_id: str, field: str) -> int:
+    """Add one to a numeric field of one stream, and return what it now holds.
+
+    The run skill counts review rounds and attempts, and every count it keeps is
+    one a resumed session has to agree with. Reading the value, adding one, and
+    writing it back would put that arithmetic in the skill, where a tick that
+    stopped between the read and the write leaves the count behind by one and
+    the next round repeats work already done. Here it is one call.
+
+    A field that is null or absent counts as 0, which is what a stream planned
+    before the field existed carries. A field holding something that is not a
+    number is refused rather than replaced: it means the state file was written
+    by something else, and overwriting it would lose whatever that was.
+    """
+    stream = find_stream(state, stream_id)
+    if stream is None:
+        raise Invalid(f"bump: unknown stream: {stream_id}", 1)
+    current = stream.get(field)
+    if current is None:
+        current = 0
+    # bool before int: True is an int in Python, and a field holding one is not a
+    # count somebody meant to increment.
+    if isinstance(current, bool) or not isinstance(current, int):
+        raise Invalid(f"bump: {field} is not a number on stream {stream_id}: {current}", 1)
+    stream[field] = current + 1
+    return stream[field]
+
+
+def check_numeric_field(field: str) -> None:
+    """`bump` is arithmetic, so it takes only the fields that hold a number."""
+    if field not in NUMERIC_FIELDS:
+        raise Invalid(
+            "bump: {} is not a numeric field (one of: {})".format(field, " ".join(NUMERIC_FIELDS))
+        )
+
+
 def filter_streams(state: dict, status: str) -> list:
     """The streams with that status, in order.
 
@@ -275,7 +311,12 @@ def check_status(status: str, command: str) -> None:
 
 
 def numeric_field_value(field: str, value: str):
-    """pr, attempts and order take a number or null, and are stored as JSON."""
+    """A NUMERIC_FIELDS field takes a number or null, and is stored as JSON.
+
+    Those fields are pr, attempts, order, and review_rounds. `bump` adds one to
+    the same set; every other field is stored as the string it was given unless
+    --json says otherwise.
+    """
     if value == "null":
         return None
     if not DIGITS.match(value):
