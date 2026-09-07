@@ -17,8 +17,11 @@ search is tokenised and takes qualifiers; the scripts only forward the string,
 so tests must not read anything into which issues a search matches.
 
 Controlled by:
-  WS_GH_FIXTURE_DIR    directory holding issues.json, prs.json, extensions.txt
-                       (each optional; a missing file means an empty set)
+  WS_GH_FIXTURE_DIR    directory holding issues.json, prs.json, comments.json,
+                       extensions.txt (each optional; a missing file means an
+                       empty set). `gh api graphql` is answered from
+                       comments.json, one of its `pages` per call, and the count
+                       of pages already served is kept in .graphql-page there.
   WS_GH_FIXTURE_REPO   nameWithOwner reported by `gh repo view` (default below)
   WS_GH_FIXTURE_FAIL   if non-empty, every call exits non-zero
   WS_GH_FIXTURE_NOAUTH if non-empty, `gh auth status` fails
@@ -32,6 +35,10 @@ import sys
 DEFAULT_REPO = "bje-settings/example"
 FLAGS_WITH_VALUES = ("--state", "--label", "--milestone", "--search", "--limit", "--json")
 JQ_FLAGS = ("--jq", "-q")
+# The GraphQL variables ws-pr-comments.py sends for its three cursors. Named
+# here so the stub can tell a caller that asked for a later page from one that
+# forgot its cursors and would otherwise be served page two for free.
+CURSOR_VARIABLES = ("reviewsAfter", "commentsAfter", "threadsAfter")
 
 
 def fail(message, status=1):
@@ -158,12 +165,69 @@ def parse(argv):
     return options, fields, jq_expr, positional
 
 
+def graphql_variables(argv):
+    """The -f and -F pairs of a `gh api graphql` call, as a dict.
+
+    Both flags are read the same way here: the stub cares which variables were
+    sent, not how gh would have typed each one.
+    """
+    variables = {}
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument not in ("-f", "-F"):
+            fail(f"unhandled flag: {argument}", 64)
+        pair = value_of(argv, index)
+        if "=" not in pair:
+            fail(f'expected "key=value", got: {pair}')
+        key, _, value = pair.partition("=")
+        variables[key] = value
+        index += 2
+    return variables
+
+
+def graphql(argv):
+    """Answer one page of the pull request comments query from the fixture.
+
+    `comments.json` holds `{"pages": [...]}`, each page a whole GraphQL answer,
+    and successive calls are served successive pages: the page a caller gets is
+    decided by how many it has already asked for, not by decoding its cursors,
+    because a stub that reimplemented GitHub's cursors would be proving itself
+    rather than the script. What the stub does check is that a caller asking for
+    a second page sent a cursor at all.
+    """
+    variables = graphql_variables(argv)
+    for required in ("query", "owner", "name", "number"):
+        if not variables.get(required):
+            fail(f"graphql needs a {required} variable")
+    directory = os.environ.get("WS_GH_FIXTURE_DIR", "")
+    if not directory:
+        fail("set WS_GH_FIXTURE_DIR to answer a graphql query")
+    document = json.loads(load("comments.json", '{"pages": []}'))
+    pages = document.get("pages") or []
+    counter = os.path.join(directory, ".graphql-page")
+    served = 0
+    if os.path.isfile(counter):
+        with open(counter, encoding="utf-8") as handle:
+            served = int(handle.read().strip() or "0")
+    if served and not any(variables.get(name) for name in CURSOR_VARIABLES):
+        fail("asked for another page without sending a cursor")
+    if served >= len(pages):
+        fail(f"no page {served + 1} in comments.json")
+    with open(counter, "w", encoding="utf-8") as handle:
+        handle.write(str(served + 1))
+    sys.stdout.write(json.dumps(pages[served], separators=(",", ":")) + "\n")
+    return 0
+
+
 def main(argv):
     if os.environ.get("WS_GH_FIXTURE_FAIL"):
         sys.stderr.write("gh: simulated failure\n")
         return 1
 
     command = " ".join(argv[:2])
+    if command == "api graphql":
+        return graphql(argv[2:])
     options, fields, jq_expr, positional = parse(argv[2:])
 
     if command == "auth status":

@@ -16,6 +16,8 @@ import re
 
 import pytest
 from conftest import (
+    comments_page,
+    ws_fixture_comments,
     ws_fixture_extensions,
     ws_fixture_home,
     ws_fixture_installed_plugins,
@@ -201,10 +203,33 @@ def test_rejects_a_second_positional_argument(ws_sandbox, run_gh):
 
 
 def test_rejects_a_subcommand_it_does_not_emulate(ws_sandbox, run_gh):
-    """rejects a subcommand it does not emulate"""
-    result = run_gh("api", "graphql")
+    """rejects a subcommand it does not emulate
+
+    `gh api graphql` used to be the example here; the stub answers it now, so
+    the claim moved to a subcommand it still does not."""
+    result = run_gh("pr", "list")
     assert result.status == 1
-    assert "unsupported: api graphql" in result.stderr
+    assert "unsupported: pr list" in result.stderr
+
+
+def test_refuses_a_graphql_call_that_dropped_one_of_its_variables(ws_sandbox, run_gh):
+    """A caller that forgot to say which pull request must fail, not be served
+    the fixture anyway."""
+    result = run_gh("api", "graphql", "-f", "query=whatever", "-F", "owner=acme-org")
+    assert result.status == 1
+    assert "graphql needs a name variable" in result.stderr
+
+
+def test_refuses_a_second_graphql_page_to_a_caller_that_sent_no_cursor(ws_sandbox, run_gh):
+    """The paging test would otherwise pass on a script that never paged."""
+    ws_fixture_comments(
+        ws_sandbox.gh_dir / "comments.json", [comments_page(has_next=True), comments_page()]
+    )
+    ask = ("api", "graphql", "-f", "query=q", "-F", "owner=o", "-F", "name=n", "-F", "number=10")
+    assert run_gh(*ask).status == 0
+    result = run_gh(*ask)
+    assert result.status == 1
+    assert "without sending a cursor" in result.stderr
 
 
 def test_fails_every_call_when_the_fail_variable_is_set(ws_sandbox, run_gh):
@@ -300,6 +325,44 @@ def test_accepts_a_pull_request_by_number_hash_or_url(ws_sandbox, run_gh):
     for reference in ("13", "#13", "https://example.invalid/p/13"):
         result = run_gh("pr", "view", reference, "--json", "number")
         assert output_json(result)["number"] == 13
+
+
+# --- comments.json ------------------------------------------------------------
+
+
+def pull_request_comments(ws_sandbox):
+    document = json.loads((ws_sandbox.gh_dir / "comments.json").read_text(encoding="utf-8"))
+    assert len(document["pages"]) == 1, "the default fixture answers in one page"
+    return document["pages"][0]["data"]["repository"]["pullRequest"]
+
+
+def test_comments_hold_a_bot_review_a_human_review_and_an_empty_one(ws_sandbox):
+    nodes = pull_request_comments(ws_sandbox)["reviews"]["nodes"]
+    assert [node["author"]["__typename"] for node in nodes] == ["Bot", "User", "User"]
+    assert [bool(node["body"]) for node in nodes] == [True, True, False]
+
+
+def test_comments_hold_a_machine_user_and_an_author_github_no_longer_has(ws_sandbox):
+    nodes = pull_request_comments(ws_sandbox)["comments"]["nodes"]
+    assert nodes[0]["author"] == {"login": "codecov[bot]", "__typename": "User"}
+    assert nodes[1]["author"] is None
+
+
+def test_comments_hold_an_unresolved_thread_beside_a_resolved_one(ws_sandbox):
+    nodes = pull_request_comments(ws_sandbox)["reviewThreads"]["nodes"]
+    assert [node["isResolved"] for node in nodes] == [False, True]
+    assert [len(node["comments"]["nodes"]) for node in nodes] == [2, 1]
+
+
+def test_the_second_comment_of_the_open_thread_is_outdated(ws_sandbox):
+    """A comment GitHub has marked outdated keeps its path and loses its line."""
+    comment = pull_request_comments(ws_sandbox)["reviewThreads"]["nodes"][0]["comments"]["nodes"][1]
+    assert [comment["path"], comment["line"]] == ["src/parser.py", None]
+
+
+def test_no_connection_of_the_default_page_claims_another_page(ws_sandbox):
+    pull = pull_request_comments(ws_sandbox)
+    assert [pull[name]["pageInfo"]["hasNextPage"] for name in pull] == [False, False, False]
 
 
 # --- home and plugin fixtures -------------------------------------------------

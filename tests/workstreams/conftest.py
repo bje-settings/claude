@@ -31,6 +31,7 @@ WS_LIB = WS_SCRIPTS / "lib"
 WS_STATE = WS_SCRIPTS / "ws-state.py"
 WS_ISSUES = WS_SCRIPTS / "ws-issues.py"
 WS_PR_STATUS = WS_SCRIPTS / "ws-pr-status.py"
+WS_PR_COMMENTS = WS_SCRIPTS / "ws-pr-comments.py"
 WS_PREFLIGHT = WS_SCRIPTS / "ws-preflight.py"
 STUB_BIN = Path(__file__).resolve().parent / "bin"
 
@@ -287,6 +288,141 @@ PRS = [
     },
 ]
 
+
+# One pull request's reviews, issue comments, and review threads, as gh answers
+# the query in lib/pr_comments.py. Every arm the fold decides between is here:
+#   a bot review typed Bot, and a human review beside it
+#   a review whose body is empty (the record GitHub keeps for a batch of inline
+#     comments), which the fold drops
+#   an issue comment from a machine user, a bot only by its [bot] login suffix
+#   an issue comment whose author deleted their account (author: null)
+#   an unresolved thread with two comments, the second of them outdated (line
+#     null), and a resolved thread beside it
+def _author(login, typename="User"):
+    return {"login": login, "__typename": typename}
+
+
+def _page_info(has_next=False, cursor=None):
+    return {"hasNextPage": has_next, "endCursor": cursor}
+
+
+COMMENTS_PAGE = {
+    "data": {
+        "repository": {
+            "pullRequest": {
+                "reviews": {
+                    "pageInfo": _page_info(cursor="r1"),
+                    "nodes": [
+                        {
+                            "databaseId": 5001,
+                            "body": "Two blocking issues, both in the parser.",
+                            "state": "CHANGES_REQUESTED",
+                            "author": _author("coderabbitai", "Bot"),
+                        },
+                        {
+                            "databaseId": 5002,
+                            "body": "Reads well otherwise.",
+                            "state": "COMMENTED",
+                            "author": _author("aoife"),
+                        },
+                        {
+                            "databaseId": 5003,
+                            "body": "",
+                            "state": "COMMENTED",
+                            "author": _author("aoife"),
+                        },
+                    ],
+                },
+                "comments": {
+                    "pageInfo": _page_info(cursor="c1"),
+                    "nodes": [
+                        {
+                            "databaseId": 6001,
+                            "body": "Coverage fell to 94.2% on this branch.",
+                            "author": _author("codecov[bot]"),
+                        },
+                        {
+                            "databaseId": 6002,
+                            "body": "Filed as #31 so it does not get lost.",
+                            "author": None,
+                        },
+                    ],
+                },
+                "reviewThreads": {
+                    "pageInfo": _page_info(cursor="t1"),
+                    "nodes": [
+                        {
+                            "isResolved": False,
+                            "comments": {
+                                "nodes": [
+                                    {
+                                        "databaseId": 7001,
+                                        "body": "This drops the trailing field.",
+                                        "path": "src/parser.py",
+                                        "line": 42,
+                                        "author": _author("coderabbitai", "Bot"),
+                                    },
+                                    {
+                                        "databaseId": 7002,
+                                        "body": "Agreed, and the test above misses it.",
+                                        "path": "src/parser.py",
+                                        "line": None,
+                                        "author": _author("aoife"),
+                                    },
+                                ]
+                            },
+                        },
+                        {
+                            "isResolved": True,
+                            "comments": {
+                                "nodes": [
+                                    {
+                                        "databaseId": 7003,
+                                        "body": "Nit: spelling.",
+                                        "path": "README.md",
+                                        "line": 8,
+                                        "author": _author("aoife"),
+                                    }
+                                ]
+                            },
+                        },
+                    ],
+                },
+            }
+        }
+    }
+}
+
+
+def comments_page(reviews=(), comments=(), threads=(), has_next=False):
+    """A page of the query's answer, for the tests that build their own.
+
+    `has_next` is set on all three connections at once, which is what a caller
+    that has to ask for a second page sees; the tests that care about one
+    connection alone assert on the entries rather than on the paging.
+    """
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviews": {
+                        "pageInfo": _page_info(has_next, "r-next"),
+                        "nodes": list(reviews),
+                    },
+                    "comments": {
+                        "pageInfo": _page_info(has_next, "c-next"),
+                        "nodes": list(comments),
+                    },
+                    "reviewThreads": {
+                        "pageInfo": _page_info(has_next, "t-next"),
+                        "nodes": list(threads),
+                    },
+                }
+            }
+        }
+    }
+
+
 EXTENSIONS_WITH_STACK = "gh stack\tgithub/gh-stack\tv0.1.0\ngh dash\tdlvhdr/gh-dash\tv4.0.0\n"
 EXTENSIONS_WITHOUT_STACK = (
     "gh dash\tdlvhdr/gh-dash\tv4.0.0\ngh stacker\tgithub/gh-stack-anything\tv1.0.0\n"
@@ -315,6 +451,11 @@ def ws_fixture_issues(path) -> None:
 
 def ws_fixture_prs(path) -> None:
     write_json(path, PRS)
+
+
+def ws_fixture_comments(path, pages=None) -> None:
+    """The pages `gh api graphql` serves, one per call, in order."""
+    write_json(path, {"pages": list(pages) if pages else [COMMENTS_PAGE]})
 
 
 def ws_fixture_extensions(path, variant: str = "with-stack") -> None:
@@ -395,6 +536,7 @@ def ws_sandbox(sandbox, monkeypatch) -> WsSandbox:
         monkeypatch.delenv(name, raising=False)
     ws_fixture_issues(gh_dir / "issues.json")
     ws_fixture_prs(gh_dir / "prs.json")
+    ws_fixture_comments(gh_dir / "comments.json")
     ws_fixture_extensions(gh_dir / "extensions.txt")
     ws_fixture_home(home)
     ws_fixture_installed_plugins(home / ".claude" / "plugins" / "installed_plugins.json")
@@ -438,6 +580,12 @@ def ws_issues(run_script):
 def ws_pr_status(run_script):
     """Run ws-pr-status.py with the current environment."""
     return _runner(run_script, WS_PR_STATUS)
+
+
+@pytest.fixture
+def ws_pr_comments(run_script):
+    """Run ws-pr-comments.py with the current environment."""
+    return _runner(run_script, WS_PR_COMMENTS)
 
 
 @pytest.fixture
