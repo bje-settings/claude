@@ -1,6 +1,6 @@
 # workstreams fixtures
 
-Canned GitHub data for `spec/workstreams/`. Unlike `fixtures/gh/`, nothing here builds a git
+Canned GitHub data for `spec/workstreams/`. Nothing here builds a git
 repository: the workstreams scripts only read from `gh` and write a JSON state file, so the
 fixtures are the data `gh` would return plus a fake `$HOME`.
 

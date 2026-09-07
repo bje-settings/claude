@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 GH_SCRIPTS = ROOT / "plugins" / "gh" / "scripts"
 SYNC = GH_SCRIPTS / "gh-sync.py"
 SYNC_REPO = GH_SCRIPTS / "gh-sync-repo.py"
+SHEPHERD_STATUS = GH_SCRIPTS / "gh-shepherd-status.py"
+SHEPHERD_PR = GH_SCRIPTS / "gh-shepherd-pr.py"
 DISCOVER = GH_SCRIPTS / "lib" / "discover.py"
 STUB_BIN = Path(__file__).resolve().parent / "bin"
 
@@ -624,6 +626,11 @@ def gh(sandbox, monkeypatch):
     monkeypatch.setenv("GH_FIXTURE_PRS", str(fixtures.prs_file))
     monkeypatch.delenv("GH_FIXTURE_FAIL", raising=False)
     monkeypatch.delenv("GH_FIXTURE_FAIL_HEAD", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_FAIL_REBASE", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_FAIL_COMMENT", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_WATCH_HANG", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_RUNS", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_RUN_LOG", raising=False)
     monkeypatch.delenv("GH_FIXTURE_CALL_LOG", raising=False)
     monkeypatch.delenv("GH_SYNC_DRY_RUN", raising=False)
     monkeypatch.delenv("GH_SYNC_NO_INSTALL", raising=False)
@@ -666,6 +673,26 @@ def sync(run_script, gh):
 
     def run(*args, **kwargs):
         return run_script(SYNC, *args, **kwargs)
+
+    return run
+
+
+@pytest.fixture
+def shepherd_status(run_script, gh):
+    """Run gh-shepherd-status.py against a fixture repository."""
+
+    def run(*args, **kwargs):
+        return run_script(SHEPHERD_STATUS, *args, **kwargs)
+
+    return run
+
+
+@pytest.fixture
+def shepherd_pr(run_script, gh):
+    """Run gh-shepherd-pr.py against a fixture repository."""
+
+    def run(*args, **kwargs):
+        return run_script(SHEPHERD_PR, *args, **kwargs)
 
     return run
 

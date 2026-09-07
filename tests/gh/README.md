@@ -12,15 +12,14 @@ alone are given the developer's own corepack cache (`COREPACK_HOME`), so a corep
 nothing left to download. Every other example runs against the sandbox `HOME` and never touches
 that cache.
 
-The bash half of the plugin still has its shellspec specs in `spec/gh/` and its own fixtures in
-`fixtures/gh/`, documented in `fixtures/gh/README.md`. Those are a port behind; the two sets are
-deliberately independent, so deleting a shell script never means editing a Python test.
+Every script in the plugin is Python now, so this is the whole of its test suite: the shellspec
+specs in `spec/gh/` and the fixtures in `fixtures/gh/` are gone with the last shell script.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `conftest.py` | The repository, package-manager, and pull-request builders, plus the `gh` and `sync_repo` fixtures. |
+| `conftest.py` | The repository, package-manager, and pull-request builders, plus the `gh`, `sync_repo`, `sync`, `shepherd_status` and `shepherd_pr` fixtures. |
 | `bin/gh` | A stand-in for the `gh` CLI, put on `PATH` for every test. |
 | `scenarios.py` | The repository states whose whole report is compared against the shell version. |
 | `golden/bash-output.json` | What `gh-sync-repo.sh` printed for each of those, captured before it was deleted. |
@@ -114,6 +113,7 @@ Controlled by:
 | `GH_FIXTURE_RUNS` | JSON array for `gh run list`. |
 | `GH_FIXTURE_RUN_LOG` | File whose content `gh run view --log-failed` prints. |
 | `GH_FIXTURE_FAIL_REBASE` | Non-empty makes `pr update-branch` fail. |
+| `GH_FIXTURE_FAIL_COMMENT` | Non-empty makes `pr comment` fail, so the "could not post the comment" arms of `recreate` and `skip` are reachable. |
 | `GH_FIXTURE_WATCH_HANG` | Non-empty makes `pr checks --watch` never return, so a caller's own bound can be exercised. |
 
 Build the pull-request set with the helpers, which take the head ref name, the head commit, and
