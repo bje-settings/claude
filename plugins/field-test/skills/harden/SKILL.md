@@ -137,7 +137,7 @@ count this one, and at any other value the round about to run was counted alread
 written:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" bump <plugin:skill> "$TARGET" review_rounds
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" bump <plugin:skill> "$TARGET" review_rounds
 ```
 
 Then run it with the `Skill` tool:

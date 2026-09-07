@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import json
 
-# The plugins `harden` dispatches work to. It reuses the workstreams worker and
-# reviewer agents and the review loop they already own rather than growing its
-# own, so both have to be installed before a round starts rather than halfway
-# through a target with a fix already in flight.
+# The plugins `harden` dispatches work to. It reuses the workstreams worker agents
+# and invokes /workstreams:review for its review round rather than growing one of
+# its own, so both have to be installed: workstreams for stream-low,
+# stream-medium, stream-high, applier and the review skill, and pr-review-toolkit
+# because that round runs review-pr. Both are checked before a round starts rather
+# than halfway through a target with a fix already in flight.
 REQUIRED = (
     ("workstreams", "/plugin install workstreams@bje"),
     ("pr-review-toolkit", "/plugin install pr-review-toolkit@claude-plugins-official"),
