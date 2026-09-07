@@ -3,8 +3,8 @@
 Each ported test carries the `It` description it came from in its docstring.
 `gh-sync.py` is the orchestrator: it decides the scope, runs `gh-sync-repo.py`
 once per repository at most `-j N` at a time, and assembles the reports in
-directory order. The report is a contract — the session-start hook greps it for
-`would `, `✗` and `could not` — so `SCENARIOS` below is compared line for line
+directory order. The report is a contract (the session-start hook greps it for
+`would `, `✗` and `could not`), so `SCENARIOS` below is compared byte for byte
 against what the shell version printed, captured in
 `golden/bash-sync-output.json` before it was deleted.
 
@@ -102,6 +102,23 @@ with open(log, "w") as handle:
 print(os.path.basename(sys.argv[1]))
 """
 
+
+# A per-repo stand-in that writes its section in two halves around a sleep, so
+# that at -j 2 the halves of two repositories are in flight at the same time.
+# Anything but a captured-per-repo report interleaves them.
+SPLIT_JOB = """#!/usr/bin/env python3
+import os, sys, time
+
+name = os.path.basename(sys.argv[1])
+log = os.path.join(os.environ["JOB_LOG"], name)
+start = time.time()
+sys.stdout.write("%s\\n  first half of %s\\n" % (name, name))
+sys.stdout.flush()
+time.sleep(0.3)
+sys.stdout.write("  second half of %s\\n" % name)
+with open(log, "w") as handle:
+    handle.write("%f %f\\n" % (start, time.time()))
+"""
 
 # A job that dies of a signal rather than exiting, which subprocess reports as a
 # negative status and the report has to name.
@@ -236,6 +253,19 @@ def test_syncs_the_current_repository(gh, sync):
     assert "repos)" not in result.stdout
 
 
+def test_the_single_repository_path_drops_the_jobs_status(gh, run_script):
+    """Documented parity, pinned: the single-repo branch returns 0 whatever ran.
+
+    `gh-sync.sh` dropped the status at its lines 72-73, so a skipped repo and a
+    broken script are the same answer there. Changing it is a behaviour change
+    rather than a port; this test is what makes the change visible when it comes.
+    """
+    orchestrator = orchestrator_copy(gh, job="import sys\nsys.exit(9)\n")
+    result = run_script(orchestrator, str(gh.repo))
+    assert result.status == 0
+    assert "✗" not in result.stdout
+
+
 def test_fans_out_over_immediate_subdirectories(gh, sync):
     """fans out over immediate subdirectories that are git repos"""
     gh.create_at(gh.path / "fan", "a")
@@ -285,33 +315,32 @@ def test_reports_in_directory_order(gh, sync):
     assert positions == sorted(positions)
 
 
-def test_reports_do_not_interleave_when_jobs_run_concurrently(gh, sync):
+def test_reports_do_not_interleave_when_jobs_run_concurrently(gh, run_script):
     """Four repositories, two at a time: every repository's lines stay together.
 
-    Each repository is given a branch named after itself, so a line can be traced
-    back to the job that wrote it. Two jobs run at once, so an orchestrator that
-    let their output through as it arrived would split a report in half.
+    The stand-in job writes its section in two halves either side of a sleep, so
+    with two jobs in flight the halves of two repositories are being written at
+    the same time: an orchestrator that passed a job's output through as it
+    arrived would split a section in half, every run. The timestamps the jobs
+    record prove that two really were in flight, so a serialised run cannot pass
+    this by never overlapping in the first place.
     """
+    orchestrator = orchestrator_copy(gh, job=SPLIT_JOB)
+    log = gh.path / "jobs"
+    log.mkdir()
     names = ("aaa", "bbb", "ccc", "ddd")
     for name in names:
-        work = gh.create_at(gh.path / "fan", name)
-        gh.branch_with_work(work, "gone-" + name)
-        gh.merge_commit(work, "gone-" + name)
+        gh.create_at(gh.path / "fan", name)
 
-    result = sync("--dry-run", "-j", "2", str(gh.path / "fan"))
+    result = run_script(orchestrator, "-j", "2", str(gh.path / "fan"), env={"JOB_LOG": str(log)})
     assert result.status == 0
-    assert "(4 repos)" in result.stdout
+    assert overlapping(intervals(log).values())
 
-    lines = result.stdout.splitlines()
-    # The header of each repository's section, and the line only that repository
-    # can have produced. Every one of the latter must sit inside its own section.
-    for index, name in enumerate(names):
-        start = lines.index(name)
-        end = lines.index(names[index + 1]) if index + 1 < len(names) else len(lines)
-        section = lines[start:end]
-        assert any("would delete gone-" + name in line for line in section)
-        others = [other for other in names if other != name]
-        assert not any("gone-" + other in line for other in others for line in section)
+    sections = "".join(
+        f"{name}\n  first half of {name}\n  second half of {name}\n" for name in names
+    )
+    header = f"{os.path.realpath(str(gh.path / 'fan'))} (4 repos)\n\n"
+    assert result.stdout == header + sections
 
 
 def test_surfaces_a_job_that_exited_abnormally(gh, sync, run_script):
