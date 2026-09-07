@@ -431,7 +431,7 @@ ISSUES = [
 ]
 
 
-# Twelve pull requests, one per arm of `lib/checks.py` plus the states and the
+# Thirteen pull requests, one per arm of `lib/checks.py` plus the states and the
 # two that change across polls:
 #
 #   50 open, every check green, skipped, or neutral      checks pass
@@ -446,6 +446,7 @@ ISSUES = [
 #   59 open, a commit status in FAILURE beside a green   checks fail (StatusContext)
 #   60 open, a FAILURE beside a run still in progress    checks fail, not pending
 #   61 open, no checks on the first look, then a run     a sequence; none then pending
+#   62 locked                                            state LOCKED (exit-4 state arm)
 def _check(name, status, conclusion):
     return {
         "__typename": "CheckRun",
