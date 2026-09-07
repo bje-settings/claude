@@ -102,6 +102,7 @@ def discover_repos(target=None):
 
 
 def main(argv):
+    streams.bind_closed_streams()
     streams.use_utf8(sys.stdout)
     streams.use_utf8(sys.stderr)
     target = argv[0] if argv else None
