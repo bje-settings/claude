@@ -36,6 +36,14 @@ import os
 import subprocess
 import sys
 
+# The parent of this directory, not this directory: `gh-sync.py` imports this
+# file as `lib.discover`, so importing the sibling as `lib.streams` too leaves one
+# module object rather than a second copy under another name. Run as a script the
+# parent is not on sys.path at all, which is what this puts back.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from lib import streams  # noqa: E402
+
 
 def toplevel(path):
     """The checkout root containing `path`, or None when there is none.
@@ -93,27 +101,9 @@ def discover_repos(target=None):
     return roots
 
 
-def use_utf8(stream):
-    """Make `stream` write UTF-8, replacing anything it cannot encode.
-
-    A repository path may hold any byte, so under a single-byte locale
-    (LC_ALL=en_US.ISO8859-1, PYTHONIOENCODING=ascii) printing one can raise
-    UnicodeEncodeError. A stream that has been replaced with something without
-    reconfigure, or that is already detached, is left alone rather than turned
-    into a different crash.
-    """
-    try:
-        stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        # A stream with no reconfigure (a replaced sys.stdout, or one closed
-        # outright) is left as it is: the fallback is the original, loud
-        # UnicodeEncodeError rather than a silent one, and this must not raise.
-        pass
-
-
 def main(argv):
-    use_utf8(sys.stdout)
-    use_utf8(sys.stderr)
+    streams.use_utf8(sys.stdout)
+    streams.use_utf8(sys.stderr)
     target = argv[0] if argv else None
     try:
         roots = discover_repos(target)
@@ -135,12 +125,7 @@ def main(argv):
         # business, not a failure here. Both descriptors go to devnull, not just
         # stdout, so nothing the interpreter still tries to flush on the way out
         # can resurface as a broken-pipe trace either.
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-            os.dup2(devnull, sys.stderr.fileno())
-        finally:
-            os.close(devnull)
+        streams.silence_output()
     return 0
 
 

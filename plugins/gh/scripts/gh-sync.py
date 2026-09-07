@@ -32,11 +32,15 @@ REPO_SCRIPT = os.path.join(HERE, "gh-sync-repo.py")
 DISCOVER_LIB = os.path.join(HERE, "lib", "discover.py")
 
 try:
-    from lib import discover  # noqa: E402
-except ImportError:  # pragma: no cover - only reachable in a broken checkout
+    from lib import discover, streams  # noqa: E402
+except ImportError:
     # A checkout missing its own library is reported as the wiring mistake it is,
-    # rather than as a traceback naming an import the reader did not write.
+    # rather than as a traceback naming an import the reader did not write. Both
+    # names go together because they come from the same directory: if `lib/` is
+    # gone, neither resolves. The stream helpers are wrapped below so that the
+    # refusal itself is still printable on that path.
     discover = None
+    streams = None
 
 DEFAULT_JOBS = "4"
 
@@ -135,33 +139,18 @@ def report(target, repos, results):
             write(f"  ✗ sync script exited with status {status}\n")
 
 
+# The stream handling lives in lib/streams.py, shared with gh-sync-repo.py and
+# lib/discover.py. These two wrappers exist for the one path that has no lib at
+# all: a checkout missing it still has to reach the refusal in main that says so,
+# and nothing is written before that refusal but the refusal itself.
 def use_utf8(stream):
-    """Make `stream` write UTF-8, replacing anything it cannot encode.
-
-    The report carries ✓, ✗ and · from the per-repo jobs, and a repository path
-    may hold any byte, so under a single-byte locale (LC_ALL=en_US.ISO8859-1,
-    PYTHONIOENCODING=ascii) printing one raises UnicodeEncodeError. A stream that
-    has been replaced with something without reconfigure, or that is already
-    detached, is left alone rather than turned into a different crash.
-    """
-    try:
-        stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        pass
+    if streams is not None:
+        streams.use_utf8(stream)
 
 
-def silence_output():
-    """Send both descriptors to devnull, for a reader that has gone away.
-
-    Both, not just stdout, so nothing the interpreter still tries to flush on the
-    way out can resurface as a broken-pipe trace either.
-    """
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    try:
-        os.dup2(devnull, sys.stdout.fileno())
-        os.dup2(devnull, sys.stderr.fileno())
-    finally:
-        os.close(devnull)
+def silence_output(include_stderr=True):
+    if streams is not None:  # pragma: no branch - only a broken checkout has none
+        streams.silence_output(include_stderr=include_stderr)
 
 
 def main(argv):
