@@ -30,8 +30,9 @@ under `plugins/` (`find plugins -name '*.sh'` lists them); `workstreams` is enti
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
-script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds what every one of
+script's own directory, and a hook, which sits one level across rather than one level up,
+inserts the sibling `scripts/` directory instead. Nothing imports across plugins: a user
+installs one plugin without the others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds what every one of
 that plugin's scripts does around its own work (the UTF-8 output streams, the flush, a reported
 failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py` and `pr_status.py`
 hold what used to be each script's jq filters and argument checks, as plain functions with a unit
