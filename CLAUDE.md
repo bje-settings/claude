@@ -172,9 +172,9 @@ them (`SPEC_JOBS` overrides the total). Under `--jobs`, shellspec 0.28.1 does no
 only on a SIGTERM sent to its whole process group; `spec/run.sh` handles that for both passes, so
 use it rather than bare `shellspec --jobs` for a run you may need to interrupt. Parallelism is per
 spec file, not per example, so a spec file that grows much larger than the rest becomes the floor on
-wall time. Every example must keep building its state in its own temp dir (`setup_sandbox`,
-`setup_ft_sandbox`, and the `sandbox` fixture on the Python side); nothing may write to the checkout
-or to a fixed path.
+wall time. Every example must keep building its state in its own temp dir (`setup_ft_sandbox`,
+and the `sandbox` fixture on the Python side); nothing may write to the checkout or to a fixed
+path.
 
 The CI job names `shellcheck`, `bash-3.2`, `coverage`, `ruff`, `pytest` and
 `pytest-floor` are required checks on the default branch, matched by exact string. Renaming one
