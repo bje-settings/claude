@@ -6,6 +6,7 @@
 #   ft-harden-state.sh show <plugin:skill>
 #   ft-harden-state.sh add-target <plugin:skill> <path> [--repo <owner/name>]
 #   ft-harden-state.sh set <plugin:skill> <path> <field> <value> [--json]
+#   ft-harden-state.sh bump <plugin:skill> <path> <numeric-field>
 #   ft-harden-state.sh next <plugin:skill>
 #
 # One state file per skill being hardened, at
@@ -25,6 +26,10 @@
 # Target statuses: pending running paused done failed
 # Phases: field-test verify fix review merge summary done
 #
+# `bump` adds one to pr or review_rounds and prints the new value, so no caller
+# counts a round by hand. A field that is null counts as 0; one holding anything
+# else is refused rather than overwritten.
+#
 # Exit 0 on success, 1 on any other failure, 2 on usage, 3 when init would
 # overwrite without --force.
 #
@@ -35,11 +40,12 @@ set -uo pipefail
 STATUSES=" pending running paused done failed "
 PHASES=" field-test verify fix review merge summary done "
 FIELDS=" status phase issues pr review_rounds merge_sha question summary repo "
+NUMERIC_FIELDS=" pr review_rounds "
 EFFORTS=" low medium high "
 MODELS=" haiku sonnet opus fable inherit "
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 
-usage() { sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'ft-harden-state.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 need() { [[ -n "${2:-}" && "${2:-}" != -* ]] || die "$1 needs a value" 2; }
 
@@ -168,6 +174,26 @@ case "$cmd" in
       write_state '(.targets[] | select(.path == $p))[$f] = $v' \
         --arg p "$target" --arg f "$field" --arg v "$value"
     fi
+    ;;
+
+  bump)
+    target="${1:-}"; field="${2:-}"
+    [[ -n "$target" && "$target" != -* && -n "$field" && $# -eq 2 ]] \
+      || die 'bump needs <path> <numeric-field>' 2
+    # Its own message, not `set`'s: a caller told the field is unknown to `set`
+    # goes looking in the wrong list, which is longer and mostly not numeric.
+    [[ "$field" != *[[:space:]]* && "$NUMERIC_FIELDS" == *" $field "* ]] \
+      || die "bump: unknown field: $field (one of:$NUMERIC_FIELDS)" 2
+    require_state
+    jq -e --arg p "$target" '.targets[] | select(.path == $p)' "$path" >/dev/null \
+      || die "bump: unknown target: $target"
+    current="$(jq -r --arg p "$target" --arg f "$field" \
+      'first(.targets[] | select(.path == $p)) | .[$f] // 0 | tostring' "$path")"
+    [[ "$current" =~ ^[0-9]+$ ]] || die "bump: $field is not a number: $current"
+    bumped=$((current + 1))
+    write_state '(.targets[] | select(.path == $p))[$f] = $v' \
+      --arg p "$target" --arg f "$field" --argjson v "$bumped"
+    printf '%s\n' "$bumped"
     ;;
 
   next)
