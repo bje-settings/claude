@@ -128,42 +128,40 @@ would spend the one repeat on the first round.
 
 **Run the round.** Invoke it with the `Skill` tool:
 
-`/workstreams:review <pr> --worktree <the stream's worktree> --base <the stream's base branch>`
+`/workstreams:review <pr> --worktree <the stream's worktree> --base <the stream's base branch> --model <the stream's model>`
 
-`--base` is `main` for an independent stream and the branch of the layer below for a stack layer.
+`--base` is `main` for an independent stream and the branch of the layer below for a stack layer;
+`--model` is the model this stream ran on, so the applier matches the worker.
 The round runs in this session on purpose (see the note at the top). It reviews, verifies every
 finding against the code, applies the ones that hold through a `workstreams:applier`, replies on
 the threads, and returns one JSON block.
 
 **Decide on what it returned.**
 
-- **`error` is set**: set status `paused` with the error as the question, and say in the tick's
-  message which findings it had already applied. Some of the list may be committed.
+- **`error` is set, and `error_status` is 4**: gh itself failed inside the round. Leave the
+  stream's status alone, report it in this tick, and look again next tick, the same as an exit 4
+  from the status script above. Pausing here would strand the stream over a rate limit, which is
+  the hazard the pre-check below exists to avoid.
+- **`error` is set for any other reason**: set status `paused` with the error as the question, and
+  say in the tick's message which findings it had already applied. Some of the list may be
+  committed.
 - **`pushed` is null**: nothing landed. Set status `reviewing` and fall through to the checks
   decision.
-- **`pushed` is a range**: measure what the round gained, and let the size decide.
+- **`pushed` is a range**: read `diffstat` from the round's block and let the size decide.
 
-**The round rule.** Substantial or cosmetic is read off the diff, not off anybody's description of
-it:
-
-```bash
-git -C <worktree> diff --stat <pushed>
-```
-
-Substantial is a delta a reviewer reading the PR fresh would reach different conclusions from: a
-file added or removed, a changed contract, or logic moved or introduced. Wording, a comment, a
-renamed test, a reflowed line, or a one-line guard is cosmetic, however many files it touches.
+**The round rule.** Substantial or cosmetic is defined in `/workstreams:review`'s Return section,
+next to the `diffstat` it is read off. It is not restated here: two copies of a judgement call
+drift, and the round is the thing that produces the evidence.
 
 - **Substantial, and `review_rounds` is 1**: schedule the repeat and stop here.
 
   ```bash
   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" bump <id> review_rounds
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" set <id> status draft
   ```
 
-  The stream is `draft` with `review_rounds` 2, so the next tick brings it back to the top of this
-  step and runs the second round without counting it again. A round that changed the diff that
-  much reviewed a different PR than the one that now exists.
+  The stream is already `draft` and stays `draft`, now with `review_rounds` 2, so the next tick
+  brings it back to the top of this step and runs the second round without counting it again. A
+  round that changed the diff that much reviewed a different PR than the one that now exists.
 - **Substantial, and `review_rounds` is 2 or more**: set the stream `paused` with the question
   `PR #<n> has applied substantial review changes twice; decide whether it needs a rethink or another pass`.
   One repeat is the limit: a PR that keeps growing under review is a sign the work was mis-scoped,

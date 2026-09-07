@@ -54,7 +54,7 @@ Nothing is started. An existing plan is only replaced when the user says so.
 5. Report every PR (stacks in order), every deferred issue with its reason, every paused stream
    with its question, and every failure.
 
-## `/workstreams:review <pr> --worktree <path> --base <branch>`
+## `/workstreams:review <pr> --worktree <path> --base <branch> [--model <alias>]`
 
 One review round over one draft PR, and nothing else: no loop, no state file, no wake.
 
@@ -68,10 +68,14 @@ One review round over one draft PR, and nothing else: no loop, no state file, no
 4. Verify every finding against the code. A finding is a claim, not a fact, whoever made it.
 5. Hand what holds to a `workstreams:applier` subagent, which commits, runs the tests, pushes, and
    refreshes a stale title or body.
-6. Reply on every bot or human thread a finding came from, saying applied or rejected and why.
-   Threads are never resolved: that judgement is the reviewer's.
+6. Reply on every bot or human thread a finding came from, saying applied, already addressed at
+   the path where the diff satisfies it, or rejected and why. Threads are never resolved: that
+   judgement is the reviewer's.
 
-It returns which findings it applied, which it rejected and why, and the range it pushed. It runs
+It returns which findings it applied, which the diff already satisfied, which it rejected and why,
+the range it pushed and the `git diff --stat` of it, and the exit code behind any error it hit.
+What counts as a substantial round rather than a cosmetic one is defined here, next to that
+diffstat, and both callers cite it rather than restating it. It runs
 in the session that invoked it, never in a subagent, because `/pr-review-toolkit:review-pr`
 dispatches analyzer agents that wake whoever invoked them, and a subagent gets no such wake
 (issue #62).
@@ -102,7 +106,7 @@ broken-pipe case, and one module each for the scripts whose decisions are worth 
 | `ws-preflight.py` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.py` | Selectors to a JSON array of issues, with `#N` references extracted |
 | `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range. `bump` adds one to a numeric field, so no caller counts by hand |
-| `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision. Exits 1 when the PR does not exist and 4 when gh itself failed, so the run loop can fail a stream permanently on the first and pause it on the second |
+| `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision. Exits 1 when the PR does not exist and 4 when gh itself failed, so the run loop can fail a stream permanently on the first and, on the second, leave its status alone and look again next tick rather than strand it over a rate limit |
 | `ws-pr-comments.py` | One PR's reviews, issue comments, and review threads as one flat list, each entry saying whether its author is a bot and whether its thread is resolved |
 
 ## Out of scope for now
