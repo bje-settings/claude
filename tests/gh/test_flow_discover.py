@@ -1,10 +1,8 @@
 """Ported from `spec/gh/flow_discover_spec.sh`.
 
-/gh:sync and /gh:shepherd resolve their scope by the same rule, `lib/discover.py`
-(/gh:sync through the bash copy `lib/discover.sh` until issue #56 ports
-`gh-sync.sh`), so their flow diagrams describe it with one shared `discover`
-subgraph. Drift between the two copies would mean one diagram is lying about how
-scope is decided.
+/gh:sync and /gh:shepherd resolve their scope by the same rule, `lib/discover.py`,
+so their flow diagrams describe it with one shared `discover` subgraph. Drift
+between the two would mean one diagram is lying about how scope is decided.
 """
 
 from __future__ import annotations

@@ -7,14 +7,10 @@
 ROOT="${SHELLSPEC_PROJECT_ROOT:-$PWD}"
 PLUGIN_DIR="$ROOT/plugins/gh"
 FIXTURES_DIR="$ROOT/fixtures/gh"
-SYNC_REPO="$PLUGIN_DIR/scripts/gh-sync-repo.py"
-SYNC="$PLUGIN_DIR/scripts/gh-sync.sh"
 HOOK="$PLUGIN_DIR/hooks/session-start.sh"
-# The bash copy of discovery, still used by gh-sync.sh until issue #56 ports it.
-DISCOVER="$PLUGIN_DIR/scripts/lib/discover.sh"
 SHEPHERD_STATUS="$PLUGIN_DIR/scripts/gh-shepherd-status.sh"
 SHEPHERD_PR="$PLUGIN_DIR/scripts/gh-shepherd-pr.sh"
-export ROOT PLUGIN_DIR FIXTURES_DIR SYNC_REPO SYNC HOOK DISCOVER SHEPHERD_STATUS SHEPHERD_PR
+export ROOT PLUGIN_DIR FIXTURES_DIR HOOK SHEPHERD_STATUS SHEPHERD_PR
 
 # shellcheck source=../fixtures/gh/fixtures.sh
 . "$FIXTURES_DIR/fixtures.sh"

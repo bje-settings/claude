@@ -2,7 +2,7 @@
 # session-start.sh — report-only sync check at session start.
 #
 # Never changes a branch, worktree, or working tree: the fan-out branch runs
-# gh-sync.sh in --dry-run, and the in-repo branch does not touch the network at
+# gh-sync.py in --dry-run, and the in-repo branch does not touch the network at
 # all. The fan-out branch does fetch, which updates remote-tracking refs.
 # Always exits 0, so nothing here can stop a session from starting. Stays silent
 # unless there is something worth acting on, because a hook that speaks every
@@ -13,7 +13,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SYNC="$HERE/../scripts/gh-sync.sh"
+SYNC="$HERE/../scripts/gh-sync.py"
 HOOK_IO="$HERE/hook-io.py"
 
 command -v python3 >/dev/null 2>&1 || exit 0
@@ -44,7 +44,7 @@ if git -C "$CWD" rev-parse --show-toplevel >/dev/null 2>&1; then
 fi
 
 # ---- not a repo: dry-run report across the immediate subdirectories -------
-report="$(bash "$SYNC" --dry-run --no-install "$CWD" 2>/dev/null)" || exit 0
+report="$(python3 "$SYNC" --dry-run --no-install "$CWD" 2>/dev/null)" || exit 0
 
 # Only speak when the report contains something actionable: a proposed change
 # ("would ..."), a problem ("✗"), or a degraded run ("could not ..."). A run
