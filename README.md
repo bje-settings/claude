@@ -52,7 +52,8 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsplan-selectors"><code>/workstreams:plan</code></a>: resolve issue selectors, classify each issue as work now, defer, or blocked, group overlapping files into stacks, size each stream, and record the approved plan. Starts nothing.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>/workstreams:run</code></a>: start one subagent per planned stream, check progress on a self-timed cadence, review every draft until a pass applies nothing, and report. PRs stay drafts.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>/workstreams:run</code></a>: start one subagent per planned stream, check progress on a self-timed cadence, run a review round on every draft, and decide from the diffstat of what that round pushed whether one repeat is due. Then the checks decide. PRs stay drafts.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsreview-pr---worktree-path---base-branch---model-alias"><code>/workstreams:review</code></a>: one review round over one draft PR: <code>review-pr</code> plus the PR's own bot and human threads, every finding verified, the ones that hold applied and replied to. No loop, no state, no wake.</li>
       </ul>
     </td>
   </tr>
@@ -61,7 +62,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>stream-low</code>, <code>stream-medium</code>, <code>stream-high</code></a>: work one stream through to a draft PR at the effort the plan sized it; dispatched by <code>/workstreams:run</code>.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsrun"><code>reviewer</code></a>: reviews one draft PR with <code>pr-review-toolkit</code>, applies the findings that hold, and refreshes a stale title or body.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsreview-pr---worktree-path---base-branch---model-alias"><code>applier</code></a>: applies a list of already-verified review findings to one draft PR, runs the tests, pushes, and refreshes a stale title or body; dispatched by <code>/workstreams:review</code>.</li>
       </ul>
     </td>
   </tr>

@@ -9,9 +9,9 @@ and what landing them changes.>
 
 | Stream | Kind | Issues | Touches | Model / effort | Why this size |
 | --- | --- | --- | --- | --- | --- |
-| s1 | independent | #N | `path/one.sh` | sonnet / medium | known cause, single module |
-| s2a | stack `parser`, layer 1 | #N | `path/two.sh` (read side) | opus / high | foundational; s2b builds on it |
-| s2b | stack `parser`, layer 2 | #N | `path/two.sh` (emit side) | opus / high | sized with the stack |
+| s1 | independent | #N | `path/one.py` | sonnet / medium | known cause, single module |
+| s2a | stack `parser`, layer 1 | #N | `path/two.py` (read side) | opus / high | foundational; s2b builds on it |
+| s2b | stack `parser`, layer 2 | #N | `path/two.py` (emit side) | opus / high | sized with the stack |
 
 Stacks are listed bottom-up and named. Each layer is its own draft PR based on the layer below;
 the bottom layer is based on the default branch. A stack is one unit of work for one worker.
