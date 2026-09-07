@@ -26,9 +26,9 @@ it held.
 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/scripts"
-"$S/gh-shepherd-status.sh" <path>                       # the work list
-"$S/gh-shepherd-pr.sh" <path> <n> state|rebase|recreate|wait|merged
-"$S/gh-shepherd-pr.sh" <path> <n> skip <reason-file>
+python3 "$S/gh-shepherd-status.py" <path>               # the work list
+python3 "$S/gh-shepherd-pr.py" <path> <n> state|rebase|recreate|wait|merged
+python3 "$S/gh-shepherd-pr.py" <path> <n> skip <reason-file>
 ```
 
 ## Hard rules

@@ -21,7 +21,7 @@ Plugins are listed in `README.md`; each has its own README.
 New `gh` skills belong in the `gh` plugin, which is the intended home for the commands still in
 `~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
 `tidy-user-notifications`). The no-checkout rebase `rebase-prs` performs already lives here as
-`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
+`gh-shepherd-pr.py rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
@@ -180,7 +180,7 @@ Any script that can delete or overwrite something needs a spec or a test proving
 when it should and that it refuses when it should. Assert against real repositories built by the
 fixtures rather than mocking git; see `tests/gh/README.md`. When a fixture makes a claim about
 the state it produces, assert that claim in its harness's own fixture tests too
-(`tests/gh/test_gh_fixtures.py` for the Python fixtures, `spec/gh/fixtures_spec.sh` for the bash
+(`tests/gh/test_gh_fixtures.py` for the Python fixtures, `spec/*/fixtures_spec.sh` for the bash
 ones), so the other tests cannot pass for the wrong reason.
 
 Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
