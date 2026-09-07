@@ -9,8 +9,8 @@ output depending on which script in the chain was reached.
 The one place they differ is what a closed reader costs. A script that only
 prints can stop where it stands, and `silence_broken_pipe` in its `main` is the
 whole answer. A script that changes something -- ft-run writing the marker,
-ft-issue filing an issue -- must stop printing and keep working, which is what
-`write_out` is for.
+ft-issue filing an issue, ft-harden-state writing the state file -- must stop
+printing and keep working, which is what `write_out` is for.
 
 Not used by `hooks/hook-io.py`, which keeps its own copy: a hook runs on every
 tool call in every session, and must not need an import to succeed before it can
