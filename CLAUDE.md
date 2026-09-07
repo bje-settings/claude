@@ -92,7 +92,9 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - Anything deterministic runs in a script, not an agent. Split work so the script emits
   structured output and the agent decides from it. Where an agent is still needed, set `model`
   and `effort` in its frontmatter to the smallest that passes the specs.
-- Skills with side effects set `disable-model-invocation: true`. Keep `SKILL.md` under 500 lines;
+- Skills with side effects set `disable-model-invocation: true`, unless the skill exists to be
+  invoked by another skill: the flag hides it from the `Skill` tool, so its callers cannot reach
+  it at all. Keep `SKILL.md` under 500 lines;
   reference material goes in supporting files. Put the key use case first in `description`,
   since the listing truncates at 1,536 characters.
 - New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
