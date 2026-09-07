@@ -206,12 +206,16 @@ picks the branch the payload's directory calls for, and writes the response. Its
 and `report` subcommands are the pieces that decision is built from, kept as seams for the tests
 and for debugging the hook by hand.
 
-The hook never changes a branch, worktree, or working tree, and always exits 0, so it cannot
-block a session from starting or surprise you with a change you did not ask for. `hooks.json`
-wraps it in `command -v python3 ... ; exit 0`, which holds that guarantee even for the cases the
-file is never reached in at all: no python3 on PATH, or a hooks directory it was not installed
-into. In fan-out mode it does fetch, which updates remote-tracking refs, and that is one network
-round trip per repository against the hook's 60 second budget.
+The hook never changes a branch, worktree, or working tree, and every path through
+`session-start` exits 0, so it cannot block a session from starting or surprise you with a change
+you did not ask for. `hooks.json` wraps it in `command -v python3 ... ; exit 0`, which holds that
+guarantee even for the cases the file is never reached in at all: no python3 on PATH, or a hooks
+directory this file was never installed into. In fan-out mode it does fetch, which updates
+remote-tracking refs, and that is one network round trip per repository against the hook's 60
+second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
+out. A degraded run -- a missing `gh-sync.py`, no git on PATH, a fan-out that failed or timed out
+-- leaves a line on stderr for `claude --debug`, and says so in the session only when there is
+something to act on.
 
 ## Credentials
 
