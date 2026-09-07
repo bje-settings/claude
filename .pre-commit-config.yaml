@@ -75,11 +75,6 @@ repos:
         pass_filenames: false
         files: (\.sh$|/bin/gh$)
         args:
-          - plugins/gh/scripts/lib/shepherd.sh
-          - plugins/gh/scripts/gh-shepherd-status.sh
-          - plugins/gh/scripts/gh-shepherd-pr.sh
-          - fixtures/gh/fixtures.sh
-          - fixtures/gh/bin/gh
           - plugins/field-test/scripts/ft-run.sh
           - plugins/field-test/scripts/ft-resolve.sh
           - plugins/field-test/scripts/ft-collect.sh

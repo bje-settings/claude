@@ -32,11 +32,6 @@ run() { printf '\n\033[1m== %s\033[0m\n' "$1"; shift; "$@" || fail=1; }
 
 if command -v shellcheck >/dev/null 2>&1; then
   run "shellcheck" shellcheck -S warning \
-    plugins/gh/scripts/lib/shepherd.sh \
-    plugins/gh/scripts/gh-shepherd-status.sh \
-    plugins/gh/scripts/gh-shepherd-pr.sh \
-    fixtures/gh/fixtures.sh \
-    fixtures/gh/bin/gh \
     plugins/field-test/scripts/ft-run.sh \
     plugins/field-test/scripts/ft-resolve.sh \
     plugins/field-test/scripts/ft-collect.sh \

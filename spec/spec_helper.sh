@@ -1,42 +1,11 @@
 # shellcheck shell=bash
-# Shared setup for the plugin specs. One section per plugin: gh, field-test.
-# Each brings its own fixtures and its own sandbox helpers. workstreams has no
-# section any more: its scripts are Python and its whole suite is pytest, under
+# Shared setup for the plugin specs. One section remains, field-test: it brings its
+# own fixtures and its own sandbox helpers. gh and workstreams have no section any
+# more; their scripts are Python and their suites are pytest, under tests/gh/ and
 # tests/workstreams/.
 
 ROOT="${SHELLSPEC_PROJECT_ROOT:-$PWD}"
-PLUGIN_DIR="$ROOT/plugins/gh"
-FIXTURES_DIR="$ROOT/fixtures/gh"
-SHEPHERD_STATUS="$PLUGIN_DIR/scripts/gh-shepherd-status.sh"
-SHEPHERD_PR="$PLUGIN_DIR/scripts/gh-shepherd-pr.sh"
-export ROOT PLUGIN_DIR FIXTURES_DIR SHEPHERD_STATUS SHEPHERD_PR
-
-# shellcheck source=../fixtures/gh/fixtures.sh
-. "$FIXTURES_DIR/fixtures.sh"
-
-# Every example gets its own sandbox, its own canned pull-request set, and the
-# stub gh ahead of any real one on PATH.
-setup_sandbox() {
-  SANDBOX="$(mktemp -d)"
-  export SANDBOX
-  export GH_FIXTURE_PRS="$SANDBOX/prs.json"
-  unset GH_FIXTURE_FAIL
-  fixture_no_prs "$GH_FIXTURE_PRS"
-  export PATH="$FIXTURES_DIR/bin:$PATH"
-  REPO="$(fixture_create "$SANDBOX/r")"
-  export REPO
-}
-
-cleanup_sandbox() {
-  [ -n "${SANDBOX:-}" ] && rm -rf "$SANDBOX"
-  return 0
-}
-
-# Convenience assertions used across specs.
-branches() { fixture_git "$1" for-each-ref --format='%(refname:short)' refs/heads/ | tr '\n' ' '; }
-head_sha()  { fixture_git "$1" rev-parse HEAD; }
-current_branch() { fixture_git "$1" rev-parse --abbrev-ref HEAD; }
-
+export ROOT
 
 # --- field-test plugin --------------------------------------------------------
 FT_PLUGIN_DIR="$ROOT/plugins/field-test"
