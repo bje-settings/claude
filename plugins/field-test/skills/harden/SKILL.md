@@ -21,9 +21,8 @@ applier are subagents that return once and schedule nothing, and the review roun
 because `/pr-review-toolkit:review-pr` wakes whoever dispatched its analyzers, and a subagent gets
 no such wake (issue #62). Scripts are called by path, never through a variable holding a command
 string (a Bash tool running zsh does not split one):
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every
-`ft-harden-state.sh` command takes the `<plugin:skill>` being hardened as its first argument,
-after the command word.
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.py"`. Every `ft-harden-state.py` command takes
+the `<plugin:skill>` being hardened as its first argument, after the command word.
 
 Write every transition to state **before** taking the next action. The state file is what a
 resumed session reads; acting first and recording after is how the same fix gets made twice.
@@ -31,18 +30,17 @@ resumed session reads; acting first and recording after is how the same fix gets
 ## Step 1: Preflight and set up
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-preflight.sh"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" init <plugin:skill>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" add-target <plugin:skill> <path> --repo <owner/name>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-preflight.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" init <plugin:skill>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" add-target <plugin:skill> <path> --repo <owner/name>
 ```
 
 `add-target` once per target, in the order given; `--repo` is `gh repo view --json nameWithOwner`
 run in that directory. Stop with the install hints if preflight exits 1 (a `detail` field, when
-present, says why a check failed), or with its stderr line if it exits 4. If a run already exists
-(`init` exits 3), show it with `show <plugin:skill>` and ask whether to resume it or start over
-with `--force`; never `--force` on your own, since the targets already worked are what would be
-lost. Pass `--model` and `--effort` to `init` only when the user asked for a size; the defaults
-are `opus` and `high`.
+present, says why a check failed). If a run already exists (`init` exits 3), show it with
+`show <plugin:skill>` and ask whether to resume it or start over with `--force`; never `--force`
+on your own, since the targets already worked are what would be lost. Pass `--model` and
+`--effort` to `init` only when the user asked for a size; the defaults are `opus` and `high`.
 
 Read the repository conventions of each target once now: its `CLAUDE.md` and `.claude/rules/`
 decide branch names, worktree locations, install commands, and commit style. The briefs below
@@ -51,11 +49,16 @@ quote them rather than inventing any.
 ## Step 2: Take the next target
 
 ```bash
-TARGET="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" next <plugin:skill>)"
+TARGET="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" next <plugin:skill>)"
 ```
 
-Nothing printed means every target is finished: go to Step 7. A target whose status is already
-`paused` comes back from `next` on purpose. Do not step over it: report its question and stop.
+`next` exiting non-zero is not an empty list: the state file describes a target no command could
+act on (a status outside the vocabulary, a path that is not a string). Stop the loop and report
+its stderr; the file needs a person, and continuing would work the wrong target or none.
+
+Otherwise, nothing printed means every target is finished: go to Step 7. A target whose status is
+already `paused` comes back from `next` on purpose. Do not step over it: report its question and
+stop.
 
 A target that comes back `running` was started by a session that stopped. Read the run with
 `show <plugin:skill>` and resume it at the `phase` recorded on that target, with its `pr` and
@@ -68,7 +71,7 @@ A `pending` target starts at Step 3. Set it `running` first, and work the phases
 writing the phase before each. The command shape for every write is:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" set <plugin:skill> "$TARGET" <field> <value>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" set <plugin:skill> "$TARGET" <field> <value>
 ```
 
 written below as `set "$TARGET" <field> <value>`. A `set` that exits non-zero stops the loop with
@@ -91,21 +94,28 @@ exists for.
 
 The target skill's own final table is a claim. Write it to a report file
 (`{"repo": "...", "prs": [{"number": N, "claimed": "merged|closed|open|skipped"}]}`, numbers as
-JSON numbers; `ft-collect.sh <run-dir> --report` prints the table it ended with) and check it:
+JSON numbers; `ft-collect.py <run-dir> --report` prints the table it ended with) and check it:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.sh" <report.json>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.py" <report.json>
 ```
 
 - Exit 0: every claim holds.
 - Exit 1: the report and GitHub disagree. Each mismatch is a finding like any other: render it
-  with `ft-issue.sh render`, show it to the user, file it, and add it to `issues`. A report that
-  is wrong about what it merged is usually the most valuable finding of the round.
+  with `ft-issue.py render`, show it to the user, file it, and add it to `issues`. A report that
+  is wrong about what it merged is usually the most valuable finding of the round. The exception
+  is a mismatch whose `reason` begins `could not be read on GitHub`: that is gh, not the target,
+  and filing it blames the report for a call that never landed. Run the whole verification once
+  more, and pause the target with that reason if the same claim comes back unreadable.
 - Exit 3: the report named no pull requests. For a skill that is supposed to touch pull requests
   that is itself a finding (the report was missing or unreadable); for one that legitimately had
   nothing to do, note it in the summary and carry on.
-- Exit 2 or 4: the report or gh could not be read. Fix the report (a missing `repo`, a number
-  written as a string) and run it again; a gh failure pauses the target with the message.
+- Exit 2: the report could not be read. Fix it (a missing `repo`, a pull request number that is
+  not a number) and run it again.
+- Exit 4: gh answered for nothing, or failed the same way more than once part-way through, so the
+  claims were not checked; or the script hit an arm of its own. Nothing here is a finding about
+  the target: run it once more, and pause the target with the stderr text if it says the same
+  thing again.
 
 No findings from the field test and no mismatches: skip to Step 6 and summarise the target as
 clean.
@@ -127,7 +137,7 @@ count this one, and at any other value the round about to run was counted alread
 written:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.sh" bump <plugin:skill> "$TARGET" review_rounds
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" bump <plugin:skill> "$TARGET" review_rounds
 ```
 
 Then run it with the `Skill` tool:
@@ -161,7 +171,7 @@ Keep every rejected finding with its reason for the summary.
 ```bash
 gh pr ready <n> --repo <repo>
 gh pr merge <n> --repo <repo> --auto --<the repo's merge method from gh repo view>
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/ft-wait-pr.sh" <repo> <n> --timeout 540
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-wait-pr.py" <repo> <n> --timeout 540
 ```
 
 Check the exit code of `gh pr ready` and `gh pr merge --auto` before waiting: if either fails
@@ -177,8 +187,11 @@ purpose. Never arm a `Monitor` or a wake in place of it.
   seconds out and wait again on return. After three `passed` results in a row, pause the target
   with the question `PR #<n> is green but auto-merge has not merged it; check its rulesets`.
 - `pending`: schedule a wake at least 1200 seconds out and continue from here on return.
-- Exit 4 (gh could not answer): schedule one wake at least 600 seconds out and try the wait once
-  more on return; a second exit 4 pauses the target with the stderr text.
+- Exit 4 (gh could not answer, or the wait hit an arm of its own): schedule one wake at least 600
+  seconds out and try the wait once more on return; a second exit 4 pauses the target with the
+  stderr text.
+- Exit 5 (there is no such pull request): pause the target with the stderr text at once. The
+  number or the repository is wrong, and no amount of waiting turns that into a merge.
 - `failed`: read the failure. A **mechanical** one (a lint rule, a spec the fix broke, a
   formatting check) goes back to the fix step **once**, with the failure quoted in the brief.
   Anything that would change behaviour pauses the target with the question. One retry, not a

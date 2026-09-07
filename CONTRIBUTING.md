@@ -11,9 +11,10 @@ that are bash, pytest covers the ones that are Python.
 
 Requires `uv`, `shellspec` and `jq`; `shellcheck` is used if present.
 
-Specs live in `spec/`, tests in `tests/`, fixtures in `fixtures/<plugin>/` for the shell specs and
-in `tests/<plugin>/` for the Python tests (its `conftest.py` and its stub `gh` under `bin/`). See
-`fixtures/gh/README.md`.
+Specs live in `spec/`, with their fixtures in `fixtures/<plugin>/`; pytest tests live in
+`tests/<plugin>/`, with their fixtures beside them. See the `fixtures/*/README.md` files. A plugin
+that is Python throughout, as `field-test` is, has neither a `spec/` nor a `fixtures/` directory:
+its fixtures are in `tests/<plugin>/conftest.py` beside the tests that read them.
 
 To work on the Python side alone:
 
