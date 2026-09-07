@@ -22,6 +22,8 @@ from __future__ import annotations
 import concurrent.futures
 import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
 
@@ -44,10 +46,12 @@ except ImportError:
 
 DEFAULT_JOBS = "4"
 
-# A -j that is not a positive integer is refused rather than clamped: the shell
-# version this replaces read it in arithmetic context, where a non-numeric word
-# is 0 and the throttle never lets a job start, so the run hung instead of
-# failing. Nothing may quietly reinterpret it here either.
+# A -j that is not a positive integer is refused rather than clamped, which is
+# what the shell version did too: it validated with this same pattern and exited
+# 2. The reason it validated is that the value reached an arithmetic context,
+# where a non-numeric word is 0 and the throttle would never let a job start, so
+# an unchecked value hung the run rather than failing it. Nothing may quietly
+# reinterpret it here either.
 JOBS_RE = re.compile(r"^[1-9][0-9]*$")
 
 # Set once the reader closes the pipe: the report stops, the sync does not.
@@ -63,7 +67,9 @@ def write(text):
     BrokenPipeError silences the report and the run finishes normally.
 
     Raw, not `print`: a job's output is passed through exactly as it arrived,
-    down to its trailing newlines, because the session-start hook greps it.
+    down to its trailing newlines. That pass-through is pinned by the byte-for-byte
+    golden the port is compared against, and the session-start hook greps the
+    result.
     """
     global _quiet
     if _quiet:
@@ -72,7 +78,9 @@ def write(text):
         sys.stdout.write(text)
     except BrokenPipeError:
         _quiet = True
-        silence_output()
+        # stdout only: the jobs are still running, and a real failure after this
+        # point still has to be able to reach the terminal.
+        silence_output(include_stderr=False)
 
 
 def parse_args(argv):
@@ -112,11 +120,19 @@ def run_one(repo):
     Captured rather than inherited so the reports cannot interleave: several of
     these run at once, and a repository's lines belong together.
     """
-    completed = subprocess.run(
-        [sys.executable, REPO_SCRIPT, repo],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, REPO_SCRIPT, repo],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    except OSError as error:
+        # A child that cannot even be spawned (no interpreter left on PATH, fork
+        # refused, the script unreadable) would otherwise raise out of the pool
+        # and take every other repository's report with it. It is this repo's
+        # answer, not the run's: 127 is what a shell reports for a command it
+        # could not start.
+        return 127, f"{os.path.basename(repo)}\n  ✗ could not start the sync script: {error}\n"
     return completed.returncode, completed.stdout.decode("utf-8", "replace")
 
 
@@ -128,6 +144,21 @@ def run_all(repos, jobs):
         return list(pool.map(run_one, repos))
 
 
+def died_of(status):
+    """How a job ended, for the report: a signal by name, or an exit status.
+
+    subprocess reports a signal death as a negative status. Left as the number it
+    is, the report says "exited with status -9", which is not an exit status at
+    all and names nothing a reader can act on.
+    """
+    if status >= 0:
+        return f"exited with status {status}"
+    try:
+        return f"was killed by {signal.Signals(-status).name}"
+    except ValueError:  # pragma: no cover - a signal number this platform lacks
+        return f"was killed by signal {-status}"
+
+
 def report(target, repos, results):
     """Print the collected reports in directory order, under one header."""
     write(f"{target} ({len(repos)} repos)\n\n")
@@ -136,7 +167,11 @@ def report(target, repos, results):
         # The job's own exit status goes into its own section of the report, so a
         # crashed or killed repo cannot pass for one that simply had nothing to say.
         if status != 0:
-            write(f"  ✗ sync script exited with status {status}\n")
+            # A job killed mid-line leaves its output without a trailing newline,
+            # and the status would then be appended to the end of that line.
+            if output and not output.endswith("\n"):
+                write("\n")
+            write(f"  ✗ sync script {died_of(status)}\n")
 
 
 # The stream handling lives in lib/streams.py, shared with gh-sync-repo.py and
@@ -154,6 +189,8 @@ def silence_output(include_stderr=True):
 
 
 def main(argv):
+    if streams is not None:
+        streams.bind_closed_streams()
     use_utf8(sys.stdout)
     use_utf8(sys.stderr)
     target, jobs, dry_run, no_install, status = parse_args(argv)
@@ -177,19 +214,41 @@ def main(argv):
     if discover is None or not os.path.exists(DISCOVER_LIB):
         print(f"missing {DISCOVER_LIB}", file=sys.stderr)
         return 2
+    # Discovery asks git whether a directory is a checkout, and answers "no" when
+    # git cannot be run at all. Without this check a machine with no git on PATH
+    # is told it has "No git repositories", which is a wiring mistake wearing the
+    # answer to a different question.
+    if shutil.which("git") is None:
+        print("missing git: not on PATH", file=sys.stderr)
+        return 2
 
     os.environ["GH_SYNC_DRY_RUN"] = "1" if dry_run else "0"
     os.environ["GH_SYNC_NO_INSTALL"] = "1" if no_install else "0"
 
-    repos = discover.discover_repos(target)
+    try:
+        repos = discover.discover_repos(target)
+    except OSError as error:
+        # An unreadable target used to come back as an empty list, so a directory
+        # the user cannot open reported "No git repositories directly inside" and
+        # exit 0. That is the wrong answer to a question that could not be asked.
+        print(f"could not read {target}: {error}", file=sys.stderr)
+        return 2
 
     # A target inside a repo yields exactly that repo, and it runs in the
     # foreground with the report going straight out: no header, no collecting.
     # A directory that merely holds one repo is still a fan-out, and says so.
     if len(repos) == 1 and discover.toplevel(target):
-        # The status is deliberately dropped, as the shell version dropped it: a
-        # skipped repo and a broken script both exit 0 here today.
-        subprocess.run([sys.executable, REPO_SCRIPT, repos[0]])
+        # The status is deliberately dropped, as the shell version dropped it at
+        # its lines 72-73: a skipped repo and a broken script both exit 0 here
+        # today. Tracked as issue #81.
+        try:
+            subprocess.run([sys.executable, REPO_SCRIPT, repos[0]])
+        except OSError as error:
+            # The fan-out folds an unlaunchable child into that repo's section;
+            # here there is no report to fold it into, so it goes to stderr. The
+            # exit status stays 0 for parity with the line above, which is the
+            # same reason this is not a `return 2`.
+            print(f"could not start {REPO_SCRIPT}: {error}", file=sys.stderr)
         return 0
 
     if not repos:
