@@ -15,10 +15,14 @@ exit status something the test states rather than something it hopes for.
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import io
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -96,6 +100,15 @@ time.sleep(0.3)
 with open(log, "w") as handle:
     handle.write("%f %f\\n" % (start, time.time()))
 print(os.path.basename(sys.argv[1]))
+"""
+
+
+# A job that dies of a signal rather than exiting, which subprocess reports as a
+# negative status and the report has to name.
+SUICIDE_JOB = """#!/usr/bin/env python3
+import os, signal
+
+os.kill(os.getpid(), signal.SIGKILL)
 """
 
 
@@ -319,6 +332,82 @@ def test_a_job_that_wrote_nothing_still_gets_its_status_reported(gh, sync, run_s
     assert "exited with status" not in result.stdout
 
 
+def test_a_job_killed_by_a_signal_is_named_by_signal(gh, run_script):
+    """A signal death is a negative status, which is not an exit status at all.
+
+    Reported as the number subprocess hands back, the line reads "exited with
+    status -9", which names nothing a reader can act on.
+    """
+    orchestrator = orchestrator_copy(gh, job=SUICIDE_JOB)
+    gh.create_at(gh.path / "fan", "a")
+    result = run_script(orchestrator, str(gh.path / "fan"))
+    assert result.status == 0
+    assert "✗ sync script was killed by SIGKILL" in result.stdout
+
+
+def test_a_section_without_a_trailing_newline_still_gets_its_own_status_line(capsys):
+    """A job killed mid-line leaves its output unterminated.
+
+    The status would then be appended to the end of whatever half-written line the
+    job managed, where nothing greps for it. Driven in-process: arranging a job
+    that dies exactly mid-line from the outside is a race, and this is the whole
+    of the decision.
+    """
+    module = load_orchestrator()
+    module.report("/somewhere", ["a"], [(-9, "a\n  half a li")])
+    assert capsys.readouterr().out.endswith(
+        "a\n  half a li\n  ✗ sync script was killed by SIGKILL\n"
+    )
+
+
+def test_a_child_that_cannot_be_started_loses_only_its_own_section(gh, monkeypatch, capsys):
+    """One unlaunchable child must not take the other repositories' reports with it.
+
+    The OSError comes out of the pool's thread, so unhandled it aborts the whole
+    run after the other jobs have already synced: the work is done and the account
+    of it is lost. Provoked in-process because a spawn failure is not something a
+    fixture on disk can arrange for one repository and not the others.
+    """
+    module = load_orchestrator()
+    for name in ("aaa", "bbb", "ccc"):
+        gh.create_at(gh.path / "fan", name)
+    real_run = module.subprocess.run
+
+    def refuse_one(argv, **kwargs):
+        if os.path.basename(str(argv[-1])) == "bbb":
+            raise OSError(errno.ENOEXEC, "Exec format error")
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "run", refuse_one)
+    assert module.main(["--dry-run", str(gh.path / "fan")]) == 0
+
+    out = capsys.readouterr().out
+    assert "bbb\n  ✗ could not start the sync script: " in out
+    assert "✗ sync script exited with status 127" in out
+    assert out.count("already up to date") == 2
+
+
+def test_the_single_repository_path_reports_a_child_it_cannot_start(gh, monkeypatch, capsys):
+    """The same failure where there is no report to fold it into.
+
+    It goes to stderr instead, and the exit status stays 0, which is the parity
+    the branch above it keeps deliberately.
+    """
+    module = load_orchestrator()
+    real_run = module.subprocess.run
+
+    def refuse_the_job(argv, **kwargs):
+        # Only the per-repo job: discovery runs git through the same function, and
+        # a repository nobody can find never reaches the branch under test.
+        if module.REPO_SCRIPT in [str(arg) for arg in argv]:
+            raise OSError(errno.ENOENT, "No such file or directory")
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "run", refuse_the_job)
+    assert module.main(["--dry-run", str(gh.repo)]) == 0
+    assert "could not start " in capsys.readouterr().err
+
+
 # --- wiring -------------------------------------------------------------------
 
 
@@ -338,6 +427,37 @@ def test_refuses_when_the_discovery_library_is_missing(gh, run_script):
     assert result.status == 2
     assert "missing" in result.stderr
     assert "discover.py" in result.stderr
+
+
+def test_refuses_when_git_is_not_installed(gh, sandbox, run_script):
+    """Discovery asks git the question, and answers "no" when it cannot ask.
+
+    Without this check a machine with no git is told it has no repositories, which
+    is a wiring mistake wearing the answer to a different question.
+    """
+    gh.create_at(gh.path / "fan", "a")
+    result = run_script(SYNC, str(gh.path / "fan"), env={"PATH": sandbox.path_without("git")})
+    assert result.status == 2
+    assert "missing git" in result.stderr
+    assert "No git repositories" not in result.stdout
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root reads a directory whatever its mode says",
+)
+def test_refuses_a_target_it_cannot_read(gh, sync):
+    """A directory that cannot be listed is not one with no repositories in it."""
+    blocked = gh.path / "blocked"
+    blocked.mkdir()
+    blocked.chmod(0o000)
+    try:
+        result = sync("--dry-run", str(blocked))
+    finally:
+        blocked.chmod(0o700)
+    assert result.status == 2
+    assert "could not read" in result.stderr
+    assert "No git repositories" not in result.stdout
 
 
 def test_throttles_to_one_job_at_a_time(gh, run_script):
@@ -454,12 +574,36 @@ def test_a_block_buffered_report_fails_at_the_final_flush(gh, run_with_closed_re
 
     A pipe is block buffered, so a report this size reaches the descriptor only at
     the final flush. That is the handler around the flush, not the one in `write`,
-    and both have to leave the run exit 0 with nothing on stderr.
+    and both have to leave the run exit 0, with nothing on stderr and the jobs'
+    own work finished, which here is the pending deletion.
     """
-    gh.create_at(gh.path / "fan", "a")
+    work = gh.create_at(gh.path / "fan", "a")
+    gh.branch_with_work(work, "gone")
+    gh.merge_commit(work, "gone")
     status, stderr = run_with_closed_reader(SYNC, str(gh.path / "fan"))
     assert status == 0
     assert "Traceback" not in stderr
+    assert "gone" not in gh.branches(work)
+
+
+def test_a_closed_stdout_is_not_a_crash(gh):
+    """Started with fd 1 closed outright, not with a reader that went away.
+
+    Python leaves `sys.stdout` as None there, so the first write is an
+    AttributeError raised after every job has run: the branches are gone and the
+    caller gets a traceback instead of an exit status.
+    """
+    work = gh.create_at(gh.path / "fan", "a")
+    gh.branch_with_work(work, "gone")
+    gh.merge_commit(work, "gone")
+    completed = subprocess.run(
+        ["sh", "-c", 'exec 1>&-; exec "$@"', "sh", sys.executable, str(SYNC), str(gh.path / "fan")],
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert b"Traceback" not in completed.stderr
+    assert "gone" not in gh.branches(work)
 
 
 def test_use_utf8_leaves_a_stream_it_cannot_reconfigure_alone():
