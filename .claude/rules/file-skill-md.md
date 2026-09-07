@@ -36,7 +36,7 @@ Spell out every script a skill runs, at every call site:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 ```
 
-Do NOT hold the command in a variable and expand it (`S="bash ...sh"` then `$S show`). zsh does
+Do NOT hold the command in a variable and expand it (`S="python3 ...py"` then `$S show`). zsh does
 not word-split an unquoted expansion, so the whole string is looked up as one command name and
 the call exits 127. The Bash tool's shell is whatever the user's login shell is, and it discards
 shell state between calls, so a variable or function defined in one block is not there for the

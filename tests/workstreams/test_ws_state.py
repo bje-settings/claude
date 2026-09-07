@@ -84,8 +84,8 @@ def load_ws_state_module():
     Loaded by path under its own name, as `load_lib_module` is (see its
     docstring in conftest.py): the script's own `sys.path.insert` plus `from
     lib import state` still runs, so this also imports the real `lib.state`
-    into `sys.modules`, harmless today since workstreams is the only plugin
-    with a `lib` package.
+    into `sys.modules` under the shared `lib` name, which the root conftest
+    resets before every test.
     """
     return load_lib_module("workstreams_ws_state_module", WS_STATE)
 

@@ -1,7 +1,6 @@
 # tests/gh
 
-The pytest side of the `gh` plugin: the tests for the scripts that are Python, and the fixtures
-they build their state from.
+The `gh` plugin's tests, and the fixtures they build their state from.
 
 `/gh:sync` deletes branches and removes worktrees, so its behaviour is asserted against real
 repositories rather than mocks. Every fixture builds an actual git repository with an actual
