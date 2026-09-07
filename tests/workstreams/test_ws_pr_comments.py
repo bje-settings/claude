@@ -193,6 +193,43 @@ def test_says_so_when_gh_is_not_installed(ws_pr_comments, sandbox):
     assert "No such file or directory" in result.stderr
 
 
+def test_says_so_when_gh_is_not_installed_and_the_repository_has_to_be_resolved(
+    ws_pr_comments, sandbox
+):
+    """The other arm of a missing gh: with no --repo and no WS_REPO there is not
+    even a repository to name, and the message has to say which of the two ways
+    left would fix it."""
+    result = ws_pr_comments("10", env={"PATH": sandbox.path_without("gh")})
+    assert result.status == 1
+    assert "cannot resolve the repository (gh: " in result.stderr
+    assert "pass --repo owner/name" in result.stderr
+
+
+def test_reads_a_connection_that_names_no_cursor_at_all(ws_pr_comments, ws_sandbox):
+    """GitHub answers an empty connection with a null endCursor. There is no
+    next page to ask for, so nothing is remembered and the round ends."""
+    empty = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+    ws_fixture_comments(
+        ws_sandbox.gh_dir / "comments.json",
+        [
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviews": empty,
+                            "comments": empty,
+                            "reviewThreads": empty,
+                        }
+                    }
+                }
+            }
+        ],
+    )
+    result = ws_pr_comments("10")
+    assert result.status == 0
+    assert result.stdout == "[]\n"
+
+
 def test_reports_a_graphql_error_github_answered_with(ws_pr_comments, ws_sandbox):
     """gh exits 0 on a partial answer, so a pull request that is not there
     arrives as a page of errors rather than as a failure."""
