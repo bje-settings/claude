@@ -17,7 +17,7 @@ it.
 The shapes are reconstructed from field tests of /gh:shepherd and
 /workstreams:run, not copied from them: no repo name, PR number, or commit
 subject here came from a repository outside the bje enterprise, per CLAUDE.md.
-`test_fixtures.py` asserts the claims made here, so the other tests cannot pass
+`test_ft_fixtures.py` asserts the claims made here, so the other tests cannot pass
 for the wrong reason.
 """
 

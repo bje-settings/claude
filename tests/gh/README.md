@@ -74,7 +74,7 @@ because in a linked worktree it is a file.
 
 The distinction between the three merge builders is load-bearing. A fast-forward merge leaves the
 branch pointing at the same commit as the default branch, so the tip guard keeps it and the
-ancestry path is never reached. `test_fixtures.py` asserts each of these claims directly, so a
+ancestry path is never reached. `test_gh_fixtures.py` asserts each of these claims directly, so a
 fixture that quietly stopped producing its state cannot make the other tests pass for the wrong
 reason.
 
@@ -93,7 +93,7 @@ passed locally and failed in CI. A real dependency is recorded by every version 
 requests, applies the same filtering the real `gh pr list` applies server-side (`--state`,
 `--base`, `--head`, `--limit`), and projects the fields named by `--json`. The scripts do their
 own projection and their own fork exclusion in Python now, so answering with the projected JSON
-is what exercises them; `test_fixtures.py` asserts the split, checking that `prs.own_rows` over
+is what exercises them; `test_gh_fixtures.py` asserts the split, checking that `prs.own_rows` over
 what the stub returns is what drops a fork.
 
 `--jq` is still accepted and is applied by piping the projected JSON through real jq, so a caller
