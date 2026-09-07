@@ -47,8 +47,6 @@ DEFAULT_CI_SECONDS = 300
 # cannot be read, and `summary` would turn it into a plausible-looking document
 # whose `checks.state` is `none` and whose `state` is null -- which the wait
 # action reads as "passed".
-REQUIRED_FIELDS = ("state", "headRefOid", "statusCheckRollup", "labels")
-
 # The logins Dependabot appears under. `gh pr view --json author` prefixes an
 # app with `app/`; the GraphQL and REST answers use the `[bot]` suffix.
 DEPENDABOT_LOGINS = (
@@ -160,6 +158,8 @@ def missing_field(pull):
     """
     if not isinstance(pull, dict):
         return "a pull request object"
+    # The four fields the loop decides on; the checks differ per field, so the
+    # list lives here rather than in a constant nothing else reads.
     for field in ("state", "headRefOid"):
         if not pull.get(field):
             return field

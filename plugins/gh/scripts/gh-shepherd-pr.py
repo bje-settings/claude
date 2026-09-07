@@ -369,7 +369,7 @@ class Shepherd:
         A caller that polls -- and a human reading the transcript afterwards --
         cannot tell a deleted pull request from an expired token without this.
         """
-        self.emit(
+        return self.emit(
             False,
             "could not read pull request #{}: {}".format(
                 self.number, self.last_read_error() or "gh returned no JSON object"
@@ -377,7 +377,7 @@ class Shepherd:
         )
 
     def refuse_not_open(self, pull):
-        self.emit(
+        return self.emit(
             False,
             "refused: pull request is {}, not OPEN".format(pull.get("state")),
             pr=pull,
@@ -389,7 +389,7 @@ class Shepherd:
         pull = self.read_pr()
         if pull is None:
             return self.unreadable()
-        self.emit(True, "read", pr=pull)
+        return self.emit(True, "read", pr=pull)
 
     def rebase(self):
         pull = self.read_pr()
@@ -430,7 +430,7 @@ class Shepherd:
             )
         else:
             detail = "rebased"
-        self.emit(True, detail, before=before, after=after, pr=pull, output=out)
+        return self.emit(True, detail, before=before, after=after, pr=pull, output=out)
 
     def recreate(self):
         pull = self.read_pr()
@@ -531,7 +531,7 @@ class Shepherd:
                 before=before,
                 read_failures=reads_failed,
             )
-        self.emit(
+        return self.emit(
             False,
             f"recreate requested but the head did not change within {bound}s",
             before=before,
@@ -580,7 +580,7 @@ class Shepherd:
                 # time, so it is a refusal carrying what gh printed.
                 return self.emit(
                     False,
-                    f"watcher failed after {waited}s: {watcher_err}",
+                    f"watcher failed after {waited}s: {watcher_err or f'gh exited {watcher_rc}'}",
                     bound=bound,
                     watcher_rc=watcher_rc,
                     pr=pull,
@@ -626,7 +626,7 @@ class Shepherd:
             # over" call for different next steps, and a field that is always
             # there and almost always empty stops being read.
             extra["log_error"] = log_error
-        self.emit(True, "checks failed", result="failed", pr=pull, **extra)
+        return self.emit(True, "checks failed", result="failed", pr=pull, **extra)
 
     def failed_log(self, failing):
         """(the failed steps' log for the first Actions job among `failing`, why not).
@@ -680,16 +680,16 @@ class Shepherd:
         if not ok:
             return self.emit(False, f"could not post the skip comment: {out}")
         urls = URL_RE.findall(out)
-        self.emit(True, "skip comment posted", comment_url=urls[-1] if urls else "")
+        return self.emit(True, "skip comment posted", comment_url=urls[-1] if urls else "")
 
     def merged(self):
         pull = self.read_pr()
         if pull is None:
             return self.unreadable()
         if pull.get("state") == "MERGED":
-            self.emit(True, "merged", merged=True, mergeCommit=pull.get("mergeCommit"))
+            return self.emit(True, "merged", merged=True, mergeCommit=pull.get("mergeCommit"))
         else:
-            self.emit(True, "not merged: {}".format(pull.get("state")), merged=False)
+            return self.emit(True, "not merged: {}".format(pull.get("state")), merged=False)
 
 
 def usage(stream=sys.stdout):
