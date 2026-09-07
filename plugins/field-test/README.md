@@ -99,9 +99,10 @@ Per target, with every transition written to state before the next action is tak
 3. **Fix.** One `workstreams:stream-<effort>` worker, one worktree, one draft PR closing every
    issue of the round. A worker that pauses pauses the loop; one that fails marks the target
    `failed` and leaves its issues open for a person.
-4. **Review.** `/pr-review-toolkit:review-pr` plus the PR's own bot and human comments, run in
-   the main session and verified against the code, with a `workstreams:applier` subagent applying
-   what holds. One repeat round if the changes were substantial.
+4. **Review.** `/workstreams:review`, run in the main session: `/pr-review-toolkit:review-pr` plus
+   the PR's own bot and human comments, verified against the code, with a `workstreams:applier`
+   subagent applying what holds. One repeat round if the changes were substantial, which that
+   skill defines and this one cites. Each round is counted with `ft-harden-state.sh bump`.
 5. **Merge.** Ready, auto-merge, then `ft-wait-pr.sh` blocking in the foreground. A mechanical CI
    failure goes back to the fix step once; anything behavioural pauses with the question, and so
    does a green pull request that auto-merge has not landed after three looks.
@@ -117,7 +118,10 @@ that prompted this skill; the other is a report nobody checked.
 `ft-harden-state.sh`. Target statuses: `pending`, `running`, `paused`, `done`, `failed`. Phases:
 `field-test`, `verify`, `fix`, `review`, `merge`, `summary`, `done`. A target is `failed` when its
 fix worker failed or returned no report; its issues stay open. `next` prints the first target
-that is neither done nor failed, including a paused one, so a question cannot be stepped over. `init` refuses to overwrite a run in progress without `--force`.
+that is neither done nor failed, including a paused one, so a question cannot be stepped over.
+A target that comes back `running` is resumed at its recorded phase, with its `pr` and
+`review_rounds` as they stand, rather than started over. `init` refuses to overwrite a run in
+progress without `--force`.
 
 ## Hooks
 
@@ -184,7 +188,7 @@ All deterministic, bash 3.2, spec'd under `spec/field-test/`.
 | `ft-redact.sh` | Text in, text out; identity inside the enterprise, placeholders outside |
 | `ft-issue.sh` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
 | `ft-preflight.sh` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
-| `ft-harden-state.sh` | Atomic read/write of one hardening run; validates fields, statuses, and phases |
+| `ft-harden-state.sh` | Atomic read/write of one hardening run; validates fields, statuses, and phases. `bump` adds one to a numeric field, so no caller counts a round by hand |
 | `ft-verify-report.sh` | A report's claims against `gh pr view`, per pull request |
 | `ft-wait-pr.sh` | Blocking, bounded wait on one pull request: `merged`, `passed`, `failed`, `pending` |
 
