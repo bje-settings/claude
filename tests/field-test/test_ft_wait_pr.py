@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 
 import pytest
-from conftest import FT_WAIT_PR
+from conftest import FT_WAIT_PR, STUB_BIN
 
 pytestmark = pytest.mark.usefixtures("ft_sandbox")
 
@@ -207,14 +207,45 @@ def test_exits_4_for_a_state_it_cannot_read_rather_than_calling_it_passed(wait):
 
 
 def test_exits_4_when_gh_never_answers(ft_sandbox, wait):
-    """a gh that hangs is bounded by the wait's own budget, not left to the caller"""
+    """a gh that hangs is bounded by the wait's own budget, not left to the caller
+
+    The per-call floor is lowered here so the example does not sit through it:
+    what is being checked is that a call that never returns is killed and
+    reported, not how long a real one is allowed.
+    """
     slow = ft_sandbox.path / "gh-slow"
     slow.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
     os.chmod(slow, 0o755)
     ft_sandbox.setenv("FT_GH", slow)
+    ft_sandbox.setenv("FT_WAIT_CALL_FLOOR", "1")
     result = wait(50)
     assert result.status == 4
     assert "did not answer within" in result.stderr
+
+
+def test_says_pending_rather_than_timing_out_a_call_the_sleep_left_no_room_for(
+    ft_sandbox, run_script
+):
+    """the last look is not given a budget the sleep already spent
+
+    The loop used to look, test the deadline, and sleep, so the sleep was what
+    crossed the deadline and the next look got the leftovers -- nothing -- as
+    its budget. A gh slower than that floor was killed and reported as exit 4,
+    which the harden skill pauses the target on after a repeat, where the honest
+    answer is `pending`. Here gh takes two seconds and the wait is four: the old
+    order gave the second call one second and failed.
+    """
+    slow = ft_sandbox.path / "gh-slow-but-real"
+    slow.write_text(
+        '#!/bin/sh\nsleep 2\nexec "$FT_GH_REAL" "$@"\n',
+        encoding="utf-8",
+    )
+    os.chmod(slow, 0o755)
+    ft_sandbox.setenv("FT_GH_REAL", STUB_BIN / "gh")
+    ft_sandbox.setenv("FT_GH", slow)
+    result = run_script(FT_WAIT_PR, REPO, 52, "--timeout", 4, "--interval", 2)
+    assert result.status == 3
+    assert result.stdout == "pending\n"
 
 
 def test_exits_4_when_gh_itself_fails_with_its_message(ft_sandbox, wait):

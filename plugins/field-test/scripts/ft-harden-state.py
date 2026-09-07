@@ -6,6 +6,7 @@
   ft-harden-state.py show <plugin:skill>
   ft-harden-state.py add-target <plugin:skill> <path> [--repo <owner/name>]
   ft-harden-state.py set <plugin:skill> <path> <field> <value> [--json]
+  ft-harden-state.py bump <plugin:skill> <path> <numeric-field>
   ft-harden-state.py next <plugin:skill>
 
 One state file per skill being hardened, at
@@ -22,10 +23,17 @@ of the first target still to do, and nothing when the list is exhausted.
 and issues a JSON array (--json is implied for all three); everything else is
 stored as a string. review_rounds is how many review rounds the target has had,
 recorded so the harden skill can bound the review phase at one repeat across a
-resumed session; nothing here reads it back.
+resumed session; `bump` below is how it is counted.
   status phase issues pr review_rounds merge_sha question summary repo
+Numeric fields: pr review_rounds
 Target statuses: pending running paused done failed
 Phases: field-test verify fix review merge summary done
+
+`bump` adds one to a numeric field and prints what it now holds, so a caller
+counting review rounds never reads a value, adds one, and writes it back: a
+session that stopped between the read and the write would leave the count behind
+by one and repeat a round already run. A field that is null or absent counts
+as 0.
 
 Exit 0 on success, 1 on any other failure, 2 on usage, 3 when init would
 overwrite without --force.
@@ -212,6 +220,20 @@ def cmd_set(args, path: str, skill: str) -> None:
     write_state(path, harden.set_field(document, target, field, value))
 
 
+def cmd_bump(args, path: str, skill: str) -> None:
+    if len(args) != 2 or not args[0] or not args[1]:
+        die("bump needs <path> <numeric-field>", 2)
+    target, field = args
+    harden.check_field(field)
+    harden.check_numeric_field(field)
+    document = require_state(path, skill)
+    value = harden.bump_field(document, target, field)
+    # The value is printed only once the file holds it: a caller that read a
+    # count this failed to write would count a round nobody recorded.
+    write_state(path, document)
+    cli.write_out(f"{value}\n")
+
+
 def cmd_next(args, path: str, skill: str) -> None:
     if args:
         die(f"next: unknown argument: {args[0]}", 2)
@@ -238,7 +260,7 @@ def run(argv):
     # The skill is checked before the command word, the order the shell used: a
     # mistyped command with no target reports the missing target first.
     skill = harden.check_skill(command, argv[2] if len(argv) > 2 else "")
-    if command not in ("path", "init", "show", "add-target", "set", "next"):
+    if command not in ("path", "init", "show", "add-target", "set", "bump", "next"):
         die(f"unknown command: {command}", 2)
     harden_dir = os.path.join(directory, "harden")
     path = os.path.join(harden_dir, harden.file_name(skill))
@@ -254,6 +276,8 @@ def run(argv):
         cmd_add_target(args, path, skill)
     elif command == "set":
         cmd_set(args, path, skill)
+    elif command == "bump":
+        cmd_bump(args, path, skill)
     else:
         cmd_next(args, path, skill)
     return 0
