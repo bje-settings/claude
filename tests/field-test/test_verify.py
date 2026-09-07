@@ -44,14 +44,53 @@ def test_a_claim_that_holds(claimed, actual):
     ("claimed", "actual"),
     [
         ("merged", "open"),
+        ("merged", "closed"),
         ("closed", "open"),
+        ("closed", "merged"),
         ("open", "merged"),
+        ("open", "closed"),
         ("skipped", "merged"),
+        ("skipped", "closed"),
         ("shepherded", "open"),
     ],
 )
 def test_a_claim_that_does_not(claimed, actual):
+    """Both sides of every arm. One `actual` per claim leaves each arm's test
+    passing if it answered for the other outcome too, which is what a merged
+    pull request reported as closed looks like."""
     assert verify.satisfies(claimed, actual) is False
+
+
+# --- answered ----------------------------------------------------------------
+
+
+def test_gh_answered_when_every_claim_came_back():
+    assert verify.answered([{"number": 50, "state": "OPEN"}]) is True
+
+
+def test_gh_answered_when_one_claim_failed_among_answers():
+    """The one it could not read is a mismatch the report owns; the rest were checked."""
+    assert verify.answered([{"number": 50, "state": "OPEN"}, {"number": 999, "error": "boom"}])
+
+
+def test_gh_did_not_answer_when_every_claim_failed_the_same_way():
+    """A token that expired, a gh that is not there: nothing was checked."""
+    assert verify.answered([{"number": 50, "error": "gh: not logged in"}]) is False
+
+
+def test_a_pull_request_that_is_not_there_is_gh_answering():
+    """ "Could not resolve" is an answer: the pull request the report named is gone."""
+    answers = [{"number": 999, "error": "GraphQL: Could not resolve to a PullRequest"}]
+    assert verify.answered(answers) is True
+
+
+def test_one_failure_that_is_not_a_missing_pull_request_is_not_an_answer():
+    """Mixed and all failing: the run checked nothing it can report on."""
+    answers = [
+        {"number": 999, "error": "GraphQL: Could not resolve to a PullRequest"},
+        {"number": 50, "error": "gh: not logged in"},
+    ]
+    assert verify.answered(answers) is False
 
 
 # --- reason ------------------------------------------------------------------

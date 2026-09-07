@@ -102,8 +102,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.py" <report.json>
 - Exit 3: the report named no pull requests. For a skill that is supposed to touch pull requests
   that is itself a finding (the report was missing or unreadable); for one that legitimately had
   nothing to do, note it in the summary and carry on.
-- Exit 2 or 4: the report or gh could not be read. Fix the report (a missing `repo`, a number
-  written as a string) and run it again; a gh failure pauses the target with the message.
+- Exit 2: the report could not be read. Fix it (a missing `repo`, a pull request number that is
+  not a number) and run it again.
+- Exit 4: gh answered for nothing, so no claim was checked, or the script hit an arm of its own.
+  Nothing here is a finding about the target: run it once more, and pause the target with the
+  stderr text if it says the same thing again.
 
 No findings from the field test and no mismatches: skip to Step 6 and summarise the target as
 clean.
@@ -175,8 +178,11 @@ purpose. Never arm a `Monitor` or a wake in place of it.
   seconds out and wait again on return. After three `passed` results in a row, pause the target
   with the question `PR #<n> is green but auto-merge has not merged it; check its rulesets`.
 - `pending`: schedule a wake at least 1200 seconds out and continue from here on return.
-- Exit 4 (gh could not answer): schedule one wake at least 600 seconds out and try the wait once
-  more on return; a second exit 4 pauses the target with the stderr text.
+- Exit 4 (gh could not answer, or the wait hit an arm of its own): schedule one wake at least 600
+  seconds out and try the wait once more on return; a second exit 4 pauses the target with the
+  stderr text.
+- Exit 5 (there is no such pull request): pause the target with the stderr text at once. The
+  number or the repository is wrong, and no amount of waiting turns that into a merge.
 - `failed`: read the failure. A **mechanical** one (a lint rule, a spec the fix broke, a
   formatting check) goes back to the fix step **once**, with the failure quoted in the brief.
   Anything that would change behaviour pauses the target with the question. One retry, not a

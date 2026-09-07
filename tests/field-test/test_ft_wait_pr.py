@@ -180,12 +180,41 @@ def test_does_not_call_one_empty_look_a_pass_when_a_run_turns_up(wait):
 # --- when gh cannot answer ---------------------------------------------------
 
 
-def test_exits_4_with_the_error_rather_than_a_state_it_does_not_have(wait):
-    """exits 4 with the error rather than reporting a state it does not have"""
+def test_exits_5_for_a_pull_request_that_does_not_exist(wait):
+    """exits 5 for a pull request GitHub says is not there, not the retryable 4
+
+    Its own status because it is the one failure waiting cannot cure: the caller
+    has the wrong number or the wrong repository, and the skill's exit-4 branch
+    would spend a wake and a second look finding that out again.
+    """
     result = wait(999)
-    assert result.status == 4
-    assert "cannot read pull request 999" in result.stderr
+    assert result.status == 5
+    assert "no pull request 999" in result.stderr
     assert "Could not resolve to a PullRequest" in result.stderr
+
+
+def test_exits_4_for_a_state_it_cannot_read_rather_than_calling_it_passed(wait):
+    """a state outside OPEN, MERGED and CLOSED is an answer nobody here can read
+
+    With no checks in the rollup it would otherwise fall past the state arms and
+    be reported `passed`, which the skill merges on.
+    """
+    result = wait(62, timeout=5)
+    assert result.status == 4
+    assert "state this cannot read for pull request 62" in result.stderr
+    assert "LOCKED" in result.stderr
+    assert result.stdout == ""
+
+
+def test_exits_4_when_gh_never_answers(ft_sandbox, wait):
+    """a gh that hangs is bounded by the wait's own budget, not left to the caller"""
+    slow = ft_sandbox.path / "gh-slow"
+    slow.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    os.chmod(slow, 0o755)
+    ft_sandbox.setenv("FT_GH", slow)
+    result = wait(50)
+    assert result.status == 4
+    assert "did not answer within" in result.stderr
 
 
 def test_exits_4_when_gh_itself_fails_with_its_message(ft_sandbox, wait):
