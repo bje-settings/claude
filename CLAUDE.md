@@ -31,8 +31,9 @@ is not enumerated here, because a list of ported files rots with every port.
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
 `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE` is the
-script's own directory. Nothing imports across plugins: a user installs one plugin without the
-others. (`plugins/gh/scripts/` is the first plugin laid out this way.)
+script's own directory, and a hook, which sits one level across rather than one level up, inserts
+the sibling `scripts/` directory instead. Nothing imports across plugins: a user installs one
+plugin without the others. (`plugins/gh/scripts/` is the first plugin laid out this way.)
 
 Stdlib only, always, so an end user never needs `uv` or a virtualenv to run a plugin. The floor is
 Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/python3`. ruff's
