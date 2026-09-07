@@ -80,11 +80,11 @@ def discover_repos(target=None):
         return [top]
 
     roots = []
-    try:
-        entries = sorted(os.listdir(real_target))
-    except OSError:
-        return roots
-    for name in entries:
+    # os.listdir is deliberately unguarded. A target that cannot be read is not a
+    # target with no repositories in it, and answering the second question when
+    # the first one was asked is how an unreadable directory came back as "No git
+    # repositories directly inside" and exit 0. The callers report the OSError.
+    for name in sorted(os.listdir(real_target)):
         # The shell glob this replaces was "$target"/*/, which never matches a
         # dotfile: the fan-out fixtures park their bare origins in a hidden
         # directory precisely because of that.
@@ -112,6 +112,12 @@ def main(argv):
         # was wrong; a skill running this over several targets has nothing else to
         # go on.
         print(f"not a directory: {target if target else os.getcwd()}", file=sys.stderr)
+        return 1
+    except OSError as error:
+        # A target that exists and is a directory but cannot be listed. Reported
+        # rather than swallowed, for the same reason: an empty answer here would
+        # be indistinguishable from a directory holding no checkouts.
+        print(f"could not read {target if target else os.getcwd()}: {error}", file=sys.stderr)
         return 1
     try:
         for root in roots:
