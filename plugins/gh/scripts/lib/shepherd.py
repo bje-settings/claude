@@ -42,6 +42,22 @@ PENDING_STATES = ("PENDING", "EXPECTED")
 # history: a repo without Actions, or one whose runs all measured non-positive.
 DEFAULT_CI_SECONDS = 300
 
+# The fields every decision in the loop is made from. gh answering without one
+# of them is not a pull request in a state worth acting on, it is an answer that
+# cannot be read, and `summary` would turn it into a plausible-looking document
+# whose `checks.state` is `none` and whose `state` is null -- which the wait
+# action reads as "passed".
+REQUIRED_FIELDS = ("state", "headRefOid", "statusCheckRollup", "labels")
+
+# The logins Dependabot appears under. `gh pr view --json author` prefixes an
+# app with `app/`; the GraphQL and REST answers use the `[bot]` suffix.
+DEPENDABOT_LOGINS = (
+    "dependabot",
+    "app/dependabot",
+    "dependabot[bot]",
+    "app/dependabot[bot]",
+)
+
 # gh-security's bands, in the order the loop should take them. An unlabelled
 # pull request sits between low and medium: it has not been assessed, which is
 # not a reason to go last and not a reason to go first.
@@ -62,7 +78,14 @@ def check_state(row):
     So the dispatch is on `__typename`, never on a field falling through: a
     `conclusion or state` chain reads the wrong row shape silently, calling a
     pending StatusContext a failure because it has no conclusion.
+
+    A row that is not an object at all -- a null element in the rollup, which
+    GraphQL can answer with -- is pending, which is what the jq did: `null !=
+    "COMPLETED"` took the unfinished arm. Reading it as failed would report a
+    green pull request as broken.
     """
+    if not isinstance(row, dict):
+        return "pending"
     if row.get("__typename") == "StatusContext":
         state = row.get("state")
         if state == "SUCCESS":
@@ -122,18 +145,55 @@ def checks(pull):
     }
 
 
-def is_bot(pull):
-    """Whether Dependabot authored this pull request.
+def missing_field(pull):
+    """The first required field gh did not answer with, or "" when all are there.
 
-    `author.is_bot` is what gh reports, but the login is checked too: a
-    GraphQL answer that omits the flag still names the actor, and both
-    `dependabot` and `app/dependabot` appear depending on the query.
+    `summary` shapes whatever it is given, so an empty object comes back as a
+    pull request whose state is null and whose rollup is empty -- and `wait`
+    reads an empty rollup as "nothing to watch, passed". The caller checks this
+    first and fails closed instead.
+
+    `statusCheckRollup` is checked for presence rather than for content: an
+    empty rollup is a real answer about a pull request whose workflows have not
+    queued yet. `labels` is checked for being a list, which is what gh answers
+    with when a pull request carries none.
+    """
+    if not isinstance(pull, dict):
+        return "a pull request object"
+    for field in ("state", "headRefOid"):
+        if not pull.get(field):
+            return field
+    if "statusCheckRollup" not in pull:
+        return "statusCheckRollup"
+    if not isinstance(pull.get("labels"), list):
+        return "labels"
+    return ""
+
+
+def is_dependabot(pull):
+    """Whether Dependabot itself authored this pull request.
+
+    `@dependabot recreate` is answered by one bot and ignored by every other, so
+    this is deliberately a login match and not the general bot flag: renovate
+    and github-actions are bots whose pull requests a recreate comment would
+    only litter.
+    """
+    return ((pull.get("author") or {}).get("login") or "") in DEPENDABOT_LOGINS
+
+
+def is_bot(pull):
+    """Whether any bot authored this pull request.
+
+    `author.is_bot` is what gh reports, but the login is checked too: a GraphQL
+    answer that omits the flag still names the actor, and an app appears as
+    `app/<name>` from `gh pr view` and as `<name>[bot]` elsewhere. This is the
+    flag the report carries; what `recreate` acts on is `is_dependabot`.
     """
     author = pull.get("author") or {}
     if author.get("is_bot") is True:
         return True
     login = author.get("login") or ""
-    return login.startswith("dependabot") or login.startswith("app/dependabot")
+    return login.endswith("[bot]") or login.startswith("app/") or is_dependabot(pull)
 
 
 def summary(pull):
@@ -141,7 +201,11 @@ def summary(pull):
 
     Key order is the contract: the agent reads fields by name, but the JSON is
     also read by a human in a transcript, and the shell version printed them in
-    this order.
+    this order. A field added since goes on the end, so the order of the ones
+    that were already there still holds.
+
+    Nothing here validates: `missing_field` does that, and the callers run it
+    before they get here.
     """
     author = pull.get("author") or {}
     merge_commit = pull.get("mergeCommit") or {}
@@ -159,6 +223,7 @@ def summary(pull):
         "labels": [label.get("name") for label in (pull.get("labels") or [])],
         "createdAt": pull.get("createdAt"),
         "checks": checks(pull),
+        "is_dependabot": is_dependabot(pull),
     }
 
 

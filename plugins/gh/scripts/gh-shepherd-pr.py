@@ -24,7 +24,10 @@ confused caller cannot make it act on the wrong pull request.
             Refuses on a pull request Dependabot did not author.
   wait      gh pr checks --watch --fail-fast, bounded (see below). Result is
             one of passed, failed, pending, merged; `failing` lists the
-            failed checks and `log_tail` carries the failed steps' log.
+            failed checks and `log_tail` carries the failed steps' log, with
+            `log_error` beside it when gh would not hand the log over. A
+            watcher that failed for a reason of its own (a 502, an expired
+            token) is `ok: false`, never `pending`.
   skip      posts the comment in <reason-file> and reports its URL. Refuses
             an empty file: a skip without a reason is not a skip.
   merged    whether the pull request is MERGED, and its merge commit.
@@ -38,14 +41,16 @@ Environment:
                          (default 300). The wait bound is twice this, clamped
                          to [120, 540] so it fits inside a ten-minute tool
                          call; the caller re-invokes `wait` on `pending`.
-  SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default
-                         derived from SHEPHERD_CI_SECONDS, minimum 15).
+  SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default: a
+                         quarter of SHEPHERD_CI_SECONDS, no lower than 15; an
+                         explicit value is honoured down to 1).
   SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
 
 Exits 0 when the action ran and reported (including ok:false refusals), 2 on
-a usage error, 1 when gh could not answer at all.
+a usage error, 1 when gh could not answer at all, and 3 on an internal error,
+which is outside the documented set so a caller cannot mistake it for an answer.
 """
 
 from __future__ import annotations
@@ -99,10 +104,45 @@ WAIT_BOUND_MAX = 540
 # The floor on the recreate poll interval when it was derived rather than given.
 POLL_FLOOR = 15
 
+# The exit codes `gh pr checks` uses to say something about the checks: 0 all
+# passed, 1 one failed, 8 still pending. 124 is this script's own bound. Any
+# other code is gh failing to answer at all -- a 502, a rate limit, an expired
+# token -- and reporting that as `pending` would have the caller wait it out one
+# CI cycle at a time forever.
+WATCHER_CODES = (0, 1, 8, 124)
+
+# How much of a failed watcher's stderr travels in the detail. Enough for the
+# HTTP status and the message under it, not the whole of gh's help text.
+WATCHER_ERR_LINES = 5
+
 
 def use_utf8(stream):
     if streams is not None:
         streams.use_utf8(stream)
+
+
+def one_line(text):
+    """gh's output on one line, so it can sit in a JSON detail.
+
+    Bytes or text; the whitespace is collapsed rather than only the newlines
+    replaced, so a message does not arrive with a trailing space where gh's own
+    final newline was.
+    """
+    if not text:
+        return ""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    return " ".join(text.split())
+
+
+def ignored(name, raw, default):
+    """Say once that an override was not used, and hand back the default.
+
+    A value someone set to change the run and that changed nothing is worth a
+    line: stderr, so the JSON on stdout that the caller parses is untouched.
+    """
+    print(f"{name}={raw} ignored; using {default}", file=sys.stderr)
+    return default
 
 
 def env_int(name, default, pattern=DIGITS_RE):
@@ -110,11 +150,15 @@ def env_int(name, default, pattern=DIGITS_RE):
 
     A stray value must not be the thing that decides a run, which is why an
     unparseable one falls back rather than failing: the shell version validated
-    with these same patterns for the same reason.
+    with these same patterns for the same reason. Unlike the shell version it
+    says so, because a silent fallback is how a bound nobody meant to use gets
+    used for a whole run.
     """
     raw = os.environ.get(name, "")
-    if not pattern.match(raw):
+    if raw == "":
         return default
+    if not pattern.match(raw):
+        return ignored(name, raw, default)
     return int(raw)
 
 
@@ -137,36 +181,50 @@ def kill_group(child):
 
 
 def run_bounded(bound, args):
-    """Run the command, kill it after `bound` seconds; 124 says the bound was hit.
+    """(exit code, the tail of stderr, seconds spent) for a command with a deadline.
 
-    124 mirrors coreutils `timeout`, which is what the shell version's hand-built
-    background timer reported. The command's output is discarded: the pull
-    request is re-read afterwards and that is the source of truth, not the
-    watcher's screen.
+    124 says the bound was hit, mirroring coreutils `timeout`, which is what the
+    shell version's hand-built background timer reported. Stdout is discarded:
+    the pull request is re-read afterwards and that is the source of truth, not
+    the watcher's screen. Stderr is not, because it is the only place a watcher
+    that could not reach GitHub says so, and without it a 502 is
+    indistinguishable from checks that are still running.
+
+    The elapsed time is measured rather than assumed: a watcher that returned
+    early did not wait the bound, and saying it did misleads a caller deciding
+    whether to wait again.
 
     Popen rather than `subprocess.run(timeout=...)`: on a timeout the whole
     process group has to go, and `TimeoutExpired` does not carry the pid to
     signal it by.
     """
+    started = time.monotonic()
+
+    def spent():
+        return int(time.monotonic() - started)
+
     try:
         child = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             start_new_session=True,
         )
-    except OSError:
+    except OSError as error:
         # gh was on PATH at the preflight and cannot be executed now: a partial
-        # install, or a machine out of processes. The rollup is re-read either
-        # way, so this is a watcher that told us nothing, not a failure.
-        return 127
+        # install, or a machine out of processes. 127 is the shell's own "could
+        # not execute", and it is outside WATCHER_CODES, so the caller reports
+        # it rather than reading the rollup as if a watcher had run.
+        return 127, f"cannot run gh: {error}", spent()
     try:
-        child.communicate(timeout=bound)
+        _, err = child.communicate(timeout=bound)
+        code = child.returncode
     except subprocess.TimeoutExpired:
         kill_group(child)
-        child.communicate()
-        return 124
-    return child.returncode
+        _, err = child.communicate()
+        code = 124
+    text = (err or b"").decode("utf-8", "replace")
+    return code, one_line(tail_lines(text, WATCHER_ERR_LINES)), spent()
 
 
 def poll_interval(ci_seconds):
@@ -187,7 +245,7 @@ def poll_interval(ci_seconds):
     elif DIGITS_RE.match(raw):
         interval = int(raw)
     else:
-        interval = POLL_FLOOR
+        interval = ignored("SHEPHERD_POLL_SECONDS", raw, POLL_FLOOR)
     return max(interval, 1)
 
 
@@ -248,7 +306,14 @@ class Shepherd:
     # ---------------------------------------------------------------- gh ---
 
     def read_pr(self):
-        """The pull request as `summary` shapes it, or None if gh cannot answer."""
+        """The pull request as `summary` shapes it, or None if gh cannot answer.
+
+        `read_err` is left saying why, so a caller reports the reason rather
+        than the silence. An answer missing a field the loop decides from is one
+        of those reasons: `summary` shapes whatever it is given, and an empty
+        object comes back out of it as a pull request whose checks are `none`,
+        which `wait` reads as passed.
+        """
         try:
             completed = subprocess.run(
                 [
@@ -266,20 +331,25 @@ class Shepherd:
         except OSError as error:
             self.read_err = f"cannot run gh: {error}"
             return None
-        self.read_err = completed.stderr.decode("utf-8", "replace")
+        self.read_err = one_line(completed.stderr)
         if completed.returncode != 0:
+            if not self.read_err:
+                self.read_err = f"gh exited {completed.returncode}"
             return None
         try:
             pull = json.loads(completed.stdout.decode("utf-8", "replace") or "null")
         except ValueError:
+            self.read_err = "gh answered with something that is not JSON"
             return None
-        if not isinstance(pull, dict):
+        missing = shepherd.missing_field(pull)
+        if missing:
+            self.read_err = f"gh answered without {missing}"
             return None
         return shepherd.summary(pull)
 
     def last_read_error(self):
-        """gh's last error on one line. No quote escaping: json.dumps encodes it."""
-        return self.read_err.replace("\n", " ")
+        """Why the last read did not answer. No quote escaping: json.dumps encodes it."""
+        return self.read_err
 
     def gh_text(self, args):
         """(succeeded, gh's combined output on one line) for a mutating call."""
@@ -291,11 +361,20 @@ class Shepherd:
             )
         except OSError as error:
             return False, f"cannot run gh: {error}"
-        text = completed.stdout.decode("utf-8", "replace")
-        return completed.returncode == 0, text.replace("\n", " ")
+        return completed.returncode == 0, one_line(completed.stdout)
 
     def unreadable(self):
-        self.emit(False, f"could not read pull request #{self.number}")
+        """Refuse, saying what gh said, rather than reporting the silence.
+
+        A caller that polls -- and a human reading the transcript afterwards --
+        cannot tell a deleted pull request from an expired token without this.
+        """
+        self.emit(
+            False,
+            "could not read pull request #{}: {}".format(
+                self.number, self.last_read_error() or "gh returned no JSON object"
+            ),
+        )
 
     def refuse_not_open(self, pull):
         self.emit(
@@ -325,14 +404,42 @@ class Shepherd:
         if not ok:
             return self.emit(False, f"rebase failed: {out}", before=before)
         pull = self.read_pr()
-        after = (pull or {}).get("headRefOid") or ""
-        self.emit(True, "rebased", before=before, after=after, pr=pull)
+        if pull is None:
+            # The branch update happened; only the confirmation did not. Told
+            # `ok: false` the caller would decide again and rebase a second
+            # time, which costs another CI run for a read that failed.
+            return self.emit(
+                True,
+                "update-branch succeeded but the pull request could not be re-read: "
+                + (self.last_read_error() or "gh returned no JSON object"),
+                before=before,
+                after="",
+                pr=None,
+                output=out,
+            )
+        after = pull.get("headRefOid") or ""
+        if after == before:
+            # `gh pr update-branch` is asynchronous: it returns as soon as
+            # GitHub accepts the request, and prints the same success line when
+            # the branch was already current. Either way the head has not moved,
+            # and calling that "rebased" tells the caller a new CI run is coming
+            # when none may be.
+            detail = (
+                "update-branch reported success and the head has not moved: the update is "
+                "still queued, or the branch was already up to date"
+            )
+        else:
+            detail = "rebased"
+        self.emit(True, detail, before=before, after=after, pr=pull, output=out)
 
     def recreate(self):
         pull = self.read_pr()
         if pull is None:
             return self.unreadable()
-        if not pull.get("is_bot"):
+        if not pull.get("is_dependabot"):
+            # Deliberately not `is_bot`: renovate and github-actions are bots
+            # too, and `@dependabot recreate` on one of their pull requests is
+            # a comment nothing will ever answer.
             return self.emit(
                 False,
                 f"refused: #{self.number} was not authored by Dependabot; recreate only works "
@@ -357,9 +464,11 @@ class Shepherd:
             return self.emit(False, f"could not post the recreate comment: {out}")
 
         # Dependabot answers asynchronously and leaves no signal but a new head
-        # SHA. Poll a few times per typical CI cycle, bounded by two cycles.
-        bound = self.ci_seconds * 2
+        # SHA. Poll a few times per typical CI cycle, bounded by two cycles --
+        # but never by less than one interval, or a small SHEPHERD_CI_SECONDS
+        # would post the comment and then report a read that never happened.
         interval = poll_interval(self.ci_seconds)
+        bound = max(self.ci_seconds * 2, interval)
         waited = 0
         reads_ok = 0
         reads_failed = 0
@@ -449,9 +558,9 @@ class Shepherd:
             clamp(self.ci_seconds * 2, WAIT_BOUND_MIN, WAIT_BOUND_MAX),
             POSITIVE_RE,
         )
-        watcher_rc = 0
+        watcher_rc, watcher_err, waited = 0, "", 0
         if pull["checks"]["state"] == "pending":
-            watcher_rc = run_bounded(
+            watcher_rc, watcher_err, waited = run_bounded(
                 bound,
                 [
                     "gh",
@@ -464,41 +573,70 @@ class Shepherd:
                     "--fail-fast",
                 ],
             )
+            if watcher_rc not in WATCHER_CODES:
+                # gh said nothing about the checks: it could not reach GitHub,
+                # or could not start at all. Reported as `pending` this would
+                # have the caller wait out a broken token one CI cycle at a
+                # time, so it is a refusal carrying what gh printed.
+                return self.emit(
+                    False,
+                    f"watcher failed after {waited}s: {watcher_err}",
+                    bound=bound,
+                    watcher_rc=watcher_rc,
+                    pr=pull,
+                    waited=waited,
+                )
         # gh pr checks exit codes: 0 all passed, 1 a check failed, 8 still
         # pending. 124 is our bound. Re-read the pull request afterwards in
         # every case, since a passing rollup may already have let auto-merge
         # fire, and decide from the rollup rather than the watcher's exit code.
         pull = self.read_pr()
         if pull is None:
-            return self.emit(False, "checks finished but the pull request could not be re-read")
+            return self.emit(
+                False,
+                "checks finished but the pull request could not be re-read: "
+                + (self.last_read_error() or "gh returned no JSON object"),
+            )
         if pull.get("state") == "MERGED":
             return self.emit(True, "merged", result="merged", pr=pull)
         checks_state = pull["checks"]["state"]
         if checks_state in ("passed", "none"):
             return self.emit(True, "checks passed", result="passed", pr=pull)
         if checks_state == "pending":
+            # The time actually spent, not the bound: a watcher that returned
+            # early did not wait it, and a caller sizing its next call reads
+            # this number.
             return self.emit(
                 True,
-                f"checks still running after {bound}s",
+                f"checks still running after {waited}s",
                 result="pending",
                 bound=bound,
                 watcher_rc=watcher_rc,
                 pr=pull,
+                waited=waited,
             )
 
         # Something failed. Name the checks and pull the failed steps' log for
         # the first Actions job among them, so the agent can classify without
         # another round trip.
-        self.emit(
-            True,
-            "checks failed",
-            result="failed",
-            pr=pull,
-            log_tail=self.failed_log(pull["checks"]["failing"]),
-        )
+        log_tail, log_error = self.failed_log(pull["checks"]["failing"])
+        extra = {"log_tail": log_tail}
+        if log_error:
+            # Only when there is one: "no log" and "gh would not hand the log
+            # over" call for different next steps, and a field that is always
+            # there and almost always empty stops being read.
+            extra["log_error"] = log_error
+        self.emit(True, "checks failed", result="failed", pr=pull, **extra)
 
     def failed_log(self, failing):
-        """The failed steps' log for the first Actions job among `failing`, or ""."""
+        """(the failed steps' log for the first Actions job among `failing`, why not).
+
+        Both empty when nothing failing was an Actions job, which is a fact
+        about the checks rather than a problem. A log gh would not hand over is
+        the other case, and it says so: the agent classifies a failure from this
+        text, so an empty tail it cannot tell apart from "the job printed
+        nothing" is the difference between a skip and a fix.
+        """
         for check in failing:
             match = JOB_LINK_RE.search(check.get("link") or "")
             if not match:
@@ -516,16 +654,17 @@ class Shepherd:
                         match.group(2),
                         "--log-failed",
                     ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+                    capture_output=True,
                 )
-            except OSError:
-                return ""
+            except OSError as error:
+                return "", f"cannot run gh: {error}"
             if completed.returncode != 0:
-                return ""
+                return "", "could not read the failed job's log: " + (
+                    one_line(completed.stderr) or f"gh exited {completed.returncode}"
+                )
             text = ANSI_RE.sub("", completed.stdout.decode("utf-8", "replace"))
-            return tail_lines(text, self.log_lines)
-        return ""
+            return tail_lines(text, self.log_lines), ""
+        return "", ""
 
     def skip(self, reason_file):
         if not os.path.isfile(reason_file) or os.path.getsize(reason_file) == 0:
@@ -558,31 +697,36 @@ def usage(stream=sys.stdout):
 
 
 def resolve_repo():
-    """nameWithOwner from gh, or None when it cannot say.
+    """(nameWithOwner, why not), the second empty when the first resolved.
 
     Parsed here rather than with `gh --jq`, so nothing in this script needs jq
-    on PATH any more.
+    on PATH any more. gh's own words travel with the failure: a caller cannot
+    tell an expired token from a directory that is not a GitHub repository
+    without them.
     """
     try:
         completed = subprocess.run(
             ["gh", "repo", "view", "--json", "nameWithOwner"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
         )
-    except OSError:
-        return None
+    except OSError as error:
+        return None, f"cannot run gh: {error}"
+    problem = one_line(completed.stderr)
     if completed.returncode != 0:
-        return None
+        return None, problem or f"gh exited {completed.returncode}"
     try:
         view = json.loads(completed.stdout.decode("utf-8", "replace") or "null")
     except ValueError:
-        return None
+        return None, problem or "gh answered with something that is not JSON"
     if not isinstance(view, dict):
-        return None
-    return view.get("nameWithOwner") or None
+        return None, "gh answered with no repository object"
+    name = view.get("nameWithOwner") or None
+    if not name:
+        return None, "gh answered without nameWithOwner"
+    return name, ""
 
 
-def main(argv):
+def run(argv):
     if streams is not None:
         streams.bind_closed_streams()
     use_utf8(sys.stdout)
@@ -611,7 +755,10 @@ def main(argv):
         return 2
     try:
         os.chdir(target)
-    except OSError:
+    except OSError as error:
+        # Named, because "exit 2" against a path the caller believes in reads as
+        # a bug in the caller rather than as a directory it may not enter.
+        print(f"cannot enter {target}: {error}", file=sys.stderr)
         return 2
     if (
         subprocess.run(
@@ -627,9 +774,9 @@ def main(argv):
         print("gh is required", file=sys.stderr)
         return 1
 
-    repo = resolve_repo()
+    repo, problem = resolve_repo()
     if repo is None:
-        print("could not resolve the repository with gh", file=sys.stderr)
+        print(f"could not resolve the repository with gh: {problem}", file=sys.stderr)
         return 1
 
     ci_seconds = env_int("SHEPHERD_CI_SECONDS", DEFAULT_CI_SECONDS)
@@ -639,7 +786,10 @@ def main(argv):
         print(f"unknown action: {action}", file=sys.stderr)
         usage(sys.stderr)
         return 2
-    if action == "skip" and not rest:
+    if action == "skip" and not (rest and rest[0]):
+        # An empty argument is the same usage error as no argument, which is
+        # what the shell version's `[ -z "$4" ]` said: `skip ""` is a caller
+        # that lost its variable, not a skip whose reason file is missing.
         print("skip needs a reason file", file=sys.stderr)
         return 2
 
@@ -659,6 +809,24 @@ def main(argv):
         if streams is not None:  # pragma: no branch - a broken checkout has none
             streams.silence_output()
     return 0
+
+
+def main(argv):
+    """`run`, with anything it did not expect reported rather than raised.
+
+    Exit 3 is outside the documented set on purpose: a caller parsing the JSON
+    on stdout must not read a crash as an answer, and the agent gets a line
+    naming what broke instead of a traceback it cannot act on. A null element in
+    a `statusCheckRollup` used to arrive here as an exit-1 AttributeError.
+    """
+    try:
+        return run(argv)
+    except Exception as error:
+        print(
+            f"{os.path.basename(__file__)}: internal error: {type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
+        return 3
 
 
 if __name__ == "__main__":

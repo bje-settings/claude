@@ -1,8 +1,9 @@
 """Black-box tests for `gh-shepherd-status.py`.
 
 The port of `spec/gh/shepherd_status_spec.sh`: one named test per example that
-spec held, plus the stream cases the shell version had no way to reach. The
-per-arm tests for the fold these assertions read through are in
+spec held, plus the cases the shell version had no way to reach -- the
+single-byte locale, the reader that closed the pipe, and the `gh is required`
+preflight. The per-arm tests for the fold these assertions read through are in
 `test_shepherd_lib.py`.
 """
 
@@ -86,7 +87,7 @@ def test_fails_closed_when_gh_cannot_answer_for_the_repository(gh, shepherd_stat
     monkeypatch.setenv("GH_FIXTURE_FAIL", "1")
     result = shepherd_status(gh.repo)
     assert result.status == 1
-    assert "could not resolve the repository" in result.stderr
+    assert "could not resolve the repository with gh: gh: simulated failure" in result.stderr
     assert result.stdout == ""
 
 
