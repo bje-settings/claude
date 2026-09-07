@@ -10,11 +10,13 @@ description: >
 allowed-tools: Bash, Read, Skill, Agent
 ---
 
-Invocation: `/workstreams:review <pr> --worktree <absolute path> --base <branch>`
+Invocation: `/workstreams:review <pr> --worktree <absolute path> --base <branch> [--model <alias>]`
 
 `<pr>` is the pull request number or url, `--worktree` the checkout its branch is in, and
 `--base` the branch it is stacked on (`main` for an independent stream, the layer below for a
-stack). All three are required: a review that guesses any of them reviews something else.
+stack). Those three are required: a review that guesses any of them reviews something else.
+`--model` is optional and names the model the applier runs on; without it the applier takes the
+session's default.
 
 This skill runs in the session that invoked it, and that is the whole point of it existing.
 `/pr-review-toolkit:review-pr` dispatches analyzer agents whose completion wakes the session that
@@ -34,9 +36,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-pr-status.py" <pr>
 
 Keep the output: `url`, `head`, and `title` fill in the apply brief, and `url` names the
 `<owner>/<repo>` every command below needs. A non-zero exit ends the round now, with `error` set
-to the script's message and everything else empty. The caller has already decided what a failure
-to read this pull request means for the stream; repeating that decision here would put it in two
-places.
+to the script's message and `error_status` set to the exit code, everything else empty. The exit
+code travels because the caller decides on it: 1 is a pull request that does not exist and 4 is
+gh itself failing, and those are not the same answer. Which of them means what for the stream is
+the caller's decision, not this round's.
 
 Record where the branch is before anything changes it:
 
@@ -73,19 +76,22 @@ unless the code says otherwise. Keep each finding's `id`: Step 6 replies to it.
 ## Step 4: Verify every finding against the code
 
 A finding is a claim, not a fact, whoever made it. Open the file it names, in the worktree, and
-confirm it before it goes any further. Drop a finding that is wrong, that is already handled
-elsewhere in the diff, that is out of scope for the issue the PR closes, or that contradicts the
-target repository's `CLAUDE.md` or rules. Keep the reason for each one dropped: it goes in the
-return block and in the reply on its thread.
+confirm it before it goes any further. Drop a finding that is wrong, that is out of scope for the
+issue the PR closes, or that contradicts the target repository's `CLAUDE.md` or rules. Keep the
+reason for each one dropped: it goes in the return block and in the reply on its thread.
+
+A finding the diff already satisfies is not one of those. A round that crashed after applying a
+change and before replying leaves exactly that shape, and telling its author the finding was
+rejected is wrong twice over. Report it as `already addressed at <path>`, naming where in the
+diff, and reply on its thread the same way. It is neither applied by this round nor rejected.
 
 ## Step 5: Apply what held
 
 If nothing survived, skip to Step 6 with nothing applied and nothing pushed.
 
 Otherwise fill in `apply-prompt.md` from this directory with the surviving findings, one numbered
-entry each, and start one `workstreams:applier` with the `Agent` tool. Give it the caller's model
-for this pull request when the caller named one. It does not review; it applies the list and
-returns once.
+entry each, and start one `workstreams:applier` with the `Agent` tool, passing `model` when the
+invocation named one. It does not review; it applies the list and returns once.
 
 When it returns, take `applied`, `rejected`, `title_or_body_updated`, and `error` from its JSON
 block. If `error` is set, carry it out of this round unchanged, along with whatever it did apply
@@ -95,12 +101,25 @@ first: some of the list may be committed. Then read where the branch ended up:
 git -C <worktree> rev-parse HEAD
 ```
 
-`pushed` is `<the sha from Step 1>..<this sha>`, or null if they are the same.
+`pushed` is `<the sha from Step 1>..<this sha>`, computed here rather than taken on trust, or null
+if the two shas are the same. The applier reports a range of its own; use it only as a cross-check,
+and if the two disagree, report this one and say so in `error`: the applier may have pushed and
+then committed again, and the range the caller measures has to be the one the branch actually
+moved through.
+
+Then measure the round for the caller:
+
+```bash
+git -C <worktree> diff --stat <pushed>
+```
+
+That output is `diffstat` in the return block, and null when `pushed` is null.
 
 ## Step 6: Reply on every thread that produced a finding
 
 Every bot and human thread that contributed a finding gets one reply saying what happened to it:
-applied, or rejected with the reason. This is the only place the round writes to the pull request,
+applied, already addressed at the path where the diff satisfies it, or rejected with the reason.
+This is the only place the round writes to the pull request,
 and it happens after the apply pass so the reply says what did happen rather than what was
 planned.
 
@@ -122,16 +141,28 @@ End the round with exactly one fenced JSON block, and nothing decided beyond it:
 {
   "applied": [1, 3],
   "rejected": [{"finding": "<one line>", "reason": "<one line>"}],
+  "already_addressed": [{"finding": "<one line>", "where": "<path>"}],
   "pushed": "<sha before>..<sha after>",
+  "diffstat": "<the git diff --stat output, or null>",
   "title_or_body_updated": true,
-  "error": null
+  "error": null,
+  "error_status": null
 }
 ```
 
 `applied` is the numbers of the findings in the brief that landed, so the caller can name them.
 `rejected` carries every finding dropped in Step 4 and every one the applier could not apply,
-each with its reason. `pushed` is the range the caller measures the round by; null when the branch
-did not move. `error` is what stopped the round, and null when nothing did.
+each with its reason. `already_addressed` carries the findings the diff already satisfied, which
+are neither. `error` is what stopped the round, and null when nothing did; `error_status` is the
+exit code of the script that failed, and null when the error came from somewhere without one.
+
+`pushed` is the range the caller measures the round by, null when the branch did not move, and
+`diffstat` is `git diff --stat` over it. **Substantial or cosmetic is read off that diffstat, not
+off anybody's description of the round.** Substantial is a delta a reviewer reading the PR fresh
+would reach different conclusions from: a file added or removed, a changed contract, or logic
+moved or introduced. Wording, a comment, a renamed test, a reflowed line, or a one-line guard is
+cosmetic, however many files it touches. The round does not decide which of the two it was; it
+prints the evidence and the caller decides.
 
 ## Out of scope
 
