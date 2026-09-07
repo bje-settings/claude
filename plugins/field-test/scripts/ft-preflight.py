@@ -6,7 +6,8 @@
 Prints one JSON object: {"ok": true|false, "missing": [{"id": ..., "hint": ...}]}
 and exits 0 when everything is present, 1 when anything is missing, 2 on usage.
 The skill prints each hint verbatim and stops, so hints are commands to run,
-except registry-unreadable, whose hint names the file. A `detail` field carries
+except registry-unreadable, whose hint names the file it could not read (or
+says HOME is unset, when there is no file to name). A `detail` field carries
 the tool's own message when there is one, so a network error is not reported
 as a missing login.
 
@@ -47,12 +48,19 @@ USAGE = (
 
 
 def installed_path() -> str:
+    """Where Claude's registry is, or "" when there is nowhere to look.
+
+    HOME unset would otherwise build a relative path, miss, and report both
+    plugins as missing: an answer about the session that ran this rather than
+    about what is installed.
+    """
     override = os.environ.get("FT_INSTALLED_PLUGINS")
     if override:
         return override
-    return os.path.join(
-        os.environ.get("HOME") or "", ".claude", "plugins", "installed_plugins.json"
-    )
+    home = os.environ.get("HOME")
+    if not home:
+        return ""
+    return os.path.join(home, ".claude", "plugins", "installed_plugins.json")
 
 
 def gh_findings():
@@ -83,20 +91,23 @@ def gh_findings():
 
 
 def read_registry(path: str):
-    """The registry file's text, or None when there is no file to read.
+    """The registry's text, None when there is no file, or the OSError instead.
 
-    An unreadable file that is there is reported as unreadable JSON rather than
-    as absent: the shell tested `-f` and then handed the path to jq, so a file it
-    could not open reached the "not valid JSON" arm too. Empty text is that arm,
-    since no JSON document is empty.
+    Opened rather than tested first: `isfile` said no for a directory sitting at
+    the path and for a file the user cannot stat, and both then read as "no
+    registry", which reports the two plugins as missing. The error itself comes
+    back so the finding can carry what the operating system said, since a
+    permission and a directory need different fixes and neither is JSON.
     """
-    if not os.path.isfile(path):
+    if not path:
         return None
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             return handle.read()
-    except OSError:
-        return ""
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        return error
 
 
 def run(argv):

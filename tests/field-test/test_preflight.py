@@ -59,7 +59,27 @@ def test_an_unreadable_registry_is_reported_as_itself():
 
 def test_a_registry_holding_the_json_null_is_unreadable_too():
     """`jq -e .` reported false for it, and the shell named it invalid on that."""
-    assert ids(preflight.registry_findings(PATH, "null")) == ["registry-unreadable"]
+    entries = preflight.registry_findings(PATH, "null")
+    assert ids(entries) == ["registry-unreadable"]
+    # The hint says which arm it came from, and null parsed: it is a document
+    # with no plugins object as much as it is invalid JSON, so the assertion
+    # names the one this arm actually prints.
+    assert entries[0]["hint"] == f"installed plugins file is not valid JSON: {PATH}"
+
+
+def test_a_registry_that_could_not_be_opened_carries_the_reason():
+    """The id the skill branches on, with the operating system's own words on it."""
+    entries = preflight.registry_findings(PATH, PermissionError(13, "Permission denied"))
+    assert ids(entries) == ["registry-unreadable"]
+    assert entries[0]["hint"] == f"installed plugins file: {PATH}"
+    assert "Permission denied" in entries[0]["detail"]
+
+
+def test_no_path_to_read_at_all_is_unreadable_not_two_missing_plugins():
+    """HOME unset says nothing about what is installed, so it must not answer for it."""
+    entries = preflight.registry_findings("", None)
+    assert ids(entries) == ["registry-unreadable"]
+    assert "HOME is not set" in entries[0]["hint"]
 
 
 def test_a_registry_whose_plugins_is_not_an_object_is_unreadable():
