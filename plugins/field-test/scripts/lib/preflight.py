@@ -39,14 +39,35 @@ def missing(identifier: str, hint: str, detail: str = "") -> dict:
     return entry
 
 
+def unreadable(path: str, detail: str = "") -> list:
+    """The one finding for a registry this cannot read, whatever stopped it.
+
+    Always `registry-unreadable`, because the id is what the skill branches on;
+    the hint names the file, and `detail` carries the tool's own message so a
+    permission is not reported as JSON nobody could parse.
+    """
+    return [missing("registry-unreadable", f"installed plugins file: {path}", excerpt(detail))]
+
+
 def registry_findings(path: str, text):
     """What the installed-plugins registry says is missing.
 
-    `text` is the file's contents, or None when there is no file. A registry
-    that cannot be read is reported as itself rather than as two missing
-    plugins: the fix is a different one, and telling someone to install two
-    plugins they already have sends them the wrong way.
+    `text` is the file's contents, None when there is no file, or the OSError
+    that stopped it being read. A registry that cannot be read is reported as
+    itself rather than as two missing plugins: the fix is a different one, and
+    telling someone to install two plugins they already have sends them the
+    wrong way. So is a registry with no path to look at: HOME unset is a session
+    this cannot answer for, not a session with nothing installed.
     """
+    if not path:
+        return [
+            missing(
+                "registry-unreadable",
+                "cannot locate the installed plugins file: HOME is not set",
+            )
+        ]
+    if isinstance(text, OSError):
+        return unreadable(path, str(text))
     if text is None:
         return [missing(identifier, hint) for identifier, hint in REQUIRED]
     try:

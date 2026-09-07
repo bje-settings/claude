@@ -5,9 +5,10 @@ harden skill stops on, so every arm that can produce a hint keeps its own test:
 gh absent, a login that failed, a registry that is not there, one that cannot be
 read, and each plugin missing on its own.
 
-Two examples did not come across. "exits 4 in plain text when jq is missing" is
-gone with the check itself: nothing in this plugin shells out to jq any more.
-The registry arms are covered here once each and per-arm in `test_preflight.py`.
+One example did not come across: "exits 4 in plain text when jq is missing",
+gone with the check itself, since nothing in this plugin shells out to jq any
+more. The registry arms are covered here once each and per-arm in
+`test_preflight.py`.
 """
 
 from __future__ import annotations
@@ -177,6 +178,35 @@ def test_a_registry_it_cannot_open_reads_as_unreadable(registry, run_script):
         os.chmod(registry.path, 0o600)
     assert result.status == 1
     assert ids(result) == ["registry-unreadable"]
+    # The reason travels with it: a permission and JSON nobody could parse are
+    # different fixes, and the hint alone cannot say which one this was.
+    assert "Permission denied" in answer(result)["missing"][0]["detail"]
+
+
+def test_a_directory_where_the_registry_should_be_reads_as_unreadable(
+    registry, ft_sandbox, run_script
+):
+    """a directory at the registry path is unreadable, not a registry that is absent
+
+    `isfile` said no for it, and the two install hints that followed send someone
+    to install plugins they already have.
+    """
+    registry.path.unlink()
+    registry.path.mkdir()
+    result = run_script(FT_PREFLIGHT)
+    assert result.status == 1
+    assert ids(result) == ["registry-unreadable"]
+    assert answer(result)["missing"][0]["detail"]
+
+
+def test_no_home_to_look_under_reads_as_unreadable(ft_sandbox, run_script):
+    """HOME unset says nothing about what is installed, so it must not answer for it"""
+    ft_sandbox.delenv("FT_INSTALLED_PLUGINS")
+    ft_sandbox.delenv("HOME")
+    result = run_script(FT_PREFLIGHT)
+    assert result.status == 1
+    assert ids(result) == ["registry-unreadable"]
+    assert "HOME is not set" in answer(result)["missing"][0]["hint"]
 
 
 def test_a_reader_that_closed_early_is_not_a_failure(run_with_no_reader):
