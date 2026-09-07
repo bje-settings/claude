@@ -52,8 +52,13 @@ quote them rather than inventing any.
 TARGET="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" next <plugin:skill>)"
 ```
 
-Nothing printed means every target is finished: go to Step 7. A target whose status is already
-`paused` comes back from `next` on purpose. Do not step over it: report its question and stop.
+`next` exiting non-zero is not an empty list: the state file describes a target no command could
+act on (a status outside the vocabulary, a path that is not a string). Stop the loop and report
+its stderr; the file needs a person, and continuing would work the wrong target or none.
+
+Otherwise, nothing printed means every target is finished: go to Step 7. A target whose status is
+already `paused` comes back from `next` on purpose. Do not step over it: report its question and
+stop.
 
 A target that comes back `running` was started by a session that stopped. Read the run with
 `show <plugin:skill>` and resume it at the `phase` recorded on that target, with its `pr` and
@@ -98,15 +103,19 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-verify-report.py" <report.json>
 - Exit 0: every claim holds.
 - Exit 1: the report and GitHub disagree. Each mismatch is a finding like any other: render it
   with `ft-issue.py render`, show it to the user, file it, and add it to `issues`. A report that
-  is wrong about what it merged is usually the most valuable finding of the round.
+  is wrong about what it merged is usually the most valuable finding of the round. The exception
+  is a mismatch whose `reason` begins `could not be read on GitHub`: that is gh, not the target,
+  and filing it blames the report for a call that never landed. Run the whole verification once
+  more, and pause the target with that reason if the same claim comes back unreadable.
 - Exit 3: the report named no pull requests. For a skill that is supposed to touch pull requests
   that is itself a finding (the report was missing or unreadable); for one that legitimately had
   nothing to do, note it in the summary and carry on.
 - Exit 2: the report could not be read. Fix it (a missing `repo`, a pull request number that is
   not a number) and run it again.
-- Exit 4: gh answered for nothing, so no claim was checked, or the script hit an arm of its own.
-  Nothing here is a finding about the target: run it once more, and pause the target with the
-  stderr text if it says the same thing again.
+- Exit 4: gh answered for nothing, or failed the same way more than once part-way through, so the
+  claims were not checked; or the script hit an arm of its own. Nothing here is a finding about
+  the target: run it once more, and pause the target with the stderr text if it says the same
+  thing again.
 
 No findings from the field test and no mismatches: skip to Step 6 and summarise the target as
 clean.

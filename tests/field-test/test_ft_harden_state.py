@@ -479,6 +479,94 @@ def test_stores_a_summary_holding_a_non_ascii_character(state):
     assert state.field("summary") == "the café target is clean"
 
 
+# --- bump --------------------------------------------------------------------
+
+
+def test_bump_adds_one_and_prints_the_new_value(state):
+    """The harden skill counts review rounds through this rather than by hand.
+
+    Reading the count, adding one, and writing it back puts the arithmetic in
+    the skill, where a tick that stopped between the read and the write leaves
+    the count behind by one and the next round repeats a review already run.
+    """
+    state.one_target()
+    result = state.run("bump", "gh:shepherd", "/repos/widgets", "review_rounds")
+    assert result.status == 0
+    assert result.stdout == "1\n"
+    assert state.field("review_rounds") == 1
+    assert state.run("bump", "gh:shepherd", "/repos/widgets", "review_rounds").stdout == "2\n"
+    assert state.field("review_rounds") == 2
+
+
+def test_bump_counts_from_zero_when_the_field_is_null(state):
+    """add-target writes review_rounds as null, and null is not one round."""
+    state.one_target()
+    assert state.field("review_rounds") is None
+    assert state.run("bump", "gh:shepherd", "/repos/widgets", "review_rounds").stdout == "1\n"
+
+
+def test_bump_touches_only_the_target_it_was_given(state):
+    state.two_targets()
+    assert state.run("bump", "gh:shepherd", "/repos/gadgets", "pr").status == 0
+    assert state.field("pr", 0) is None
+    assert state.field("pr", 1) == 1
+
+
+def test_bump_refuses_a_field_that_does_not_hold_a_number(state):
+    state.one_target()
+    result = state.run("bump", "gh:shepherd", "/repos/widgets", "status")
+    assert result.status == 2
+    assert "not a numeric field" in result.stderr
+    assert state.field("status") == "pending"
+
+
+def test_bump_refuses_a_field_outside_the_schema(state):
+    """The same guard `set` has: a typo must not invent a field."""
+    state.one_target()
+    result = state.run("bump", "gh:shepherd", "/repos/widgets", "rounds")
+    assert result.status == 2
+    assert "unknown field: rounds" in result.stderr
+    assert "rounds" not in state.targets()[0]
+
+
+def test_bump_refuses_a_target_that_was_never_added(state):
+    state.one_target()
+    result = state.run("bump", "gh:shepherd", "/repos/gadgets", "review_rounds")
+    assert result.status == 1
+    assert "bump: unknown target: /repos/gadgets" in result.stderr
+
+
+def test_bump_needs_a_target_and_a_field(state):
+    state.one_target()
+    for arguments in (
+        ("bump", "gh:shepherd"),
+        ("bump", "gh:shepherd", "/repos/widgets"),
+        ("bump", "gh:shepherd", "/repos/widgets", "review_rounds", "2"),
+    ):
+        result = state.run(*arguments)
+        assert result.status == 2, arguments
+        assert "bump needs <path> <numeric-field>" in result.stderr
+
+
+def test_bump_leaves_the_state_alone_when_the_field_holds_something_else(state):
+    """A state file written by something else is not this script's to overwrite."""
+    state.one_target()
+    document = state.document()
+    document["targets"][0]["review_rounds"] = "two"
+    state.path.write_text(json.dumps(document), encoding="utf-8")
+    result = state.run("bump", "gh:shepherd", "/repos/widgets", "review_rounds")
+    assert result.status == 1
+    assert "review_rounds is not a number on /repos/widgets" in result.stderr
+    assert state.field("review_rounds") == "two"
+
+
+def test_bump_refuses_a_run_that_does_not_exist(state):
+    state.one_target()
+    result = state.run("bump", "workstreams:run", "/repos/widgets", "review_rounds")
+    assert result.status == 1
+    assert "run init first" in result.stderr
+
+
 # --- next and show -----------------------------------------------------------
 
 

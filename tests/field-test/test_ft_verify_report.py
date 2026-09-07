@@ -307,6 +307,49 @@ def test_a_gh_that_fails_the_same_way_for_every_claim_exits_4(report, ft_sandbox
     assert "simulated failure" in result.stderr
 
 
+def test_a_gh_that_stopped_answering_part_way_through_exits_4(report, ft_sandbox, run_script):
+    """an outage that began after the first claim is still an outage
+
+    The rule used to be that one answer made gh healthy, so a round where the
+    token expired or the rate limit hit after the first call reported a mismatch
+    for every remaining claim -- nine issues filed against the target for a tool
+    that had stopped working.
+    """
+    partial = ft_sandbox.path / "gh-partial"
+    partial.write_text(
+        "#!/bin/sh\n"
+        'case " $* " in\n'
+        '  *" 54 "*) echo \'{"number":54,"state":"MERGED","isDraft":false}\'; exit 0 ;;\n'
+        "esac\n"
+        'echo "gh: API rate limit exceeded" >&2\n'
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    os.chmod(partial, 0o755)
+    ft_sandbox.setenv("FT_GH", partial)
+    result = run_script(FT_VERIFY_REPORT, report.case("accurate"))
+    assert result.status == 4
+    assert "gh could not answer, so no claim was checked" in result.stderr
+    assert "API rate limit exceeded" in result.stderr
+    assert result.stdout == ""
+
+
+def test_a_gh_that_fails_with_nothing_to_say_is_not_a_mismatch(report, ft_sandbox, run_script):
+    """a non-zero exit with an empty stderr is a call that failed, not an answer
+
+    Read from the message alone it looked like an answer carrying no state, and
+    every claim came back as a mismatch the target was blamed for.
+    """
+    silent = ft_sandbox.path / "gh-silent"
+    silent.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    os.chmod(silent, 0o755)
+    ft_sandbox.setenv("FT_GH", silent)
+    result = run_script(FT_VERIFY_REPORT, report.case("accurate"))
+    assert result.status == 4
+    assert "gh failed without a message" in result.stderr
+    assert result.stdout == ""
+
+
 def test_one_pull_request_gh_could_not_read_among_answers_is_a_mismatch(report, run_script):
     """gh answered for the rest, so the one it could not read is the report's to own"""
     document = {
