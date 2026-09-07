@@ -283,6 +283,71 @@ def test_a_target_that_was_never_added_fails_rather_than_being_created():
     assert caught.value.status == 1
 
 
+# --- bump --------------------------------------------------------------------
+
+
+def test_bump_adds_one_and_reports_what_the_field_now_holds():
+    document = run_state("/repos/widgets")
+    assert harden.bump_field(document, "/repos/widgets", "review_rounds") == 1
+    assert harden.bump_field(document, "/repos/widgets", "review_rounds") == 2
+    assert document["targets"][0]["review_rounds"] == 2
+
+
+def test_bump_treats_a_null_count_as_zero():
+    """Every target is added with review_rounds null; the first bump is 1."""
+    document = run_state("/repos/widgets")
+    assert document["targets"][0]["review_rounds"] is None
+    assert harden.bump_field(document, "/repos/widgets", "review_rounds") == 1
+
+
+def test_bump_treats_an_absent_count_as_zero():
+    """A target added before the field existed carries no count at all."""
+    document = run_state("/repos/widgets")
+    del document["targets"][0]["review_rounds"]
+    assert harden.bump_field(document, "/repos/widgets", "review_rounds") == 1
+
+
+def test_bump_writes_only_the_named_target():
+    document = run_state("/repos/widgets", "/repos/gadgets")
+    harden.bump_field(document, "/repos/gadgets", "review_rounds")
+    assert [target["review_rounds"] for target in document["targets"]] == [None, 1]
+
+
+def test_bump_refuses_a_target_that_was_never_added():
+    with pytest.raises(harden.Invalid) as caught:
+        harden.bump_field(run_state("/repos/widgets"), "/repos/gadgets", "review_rounds")
+    assert caught.value.message == "bump: unknown target: /repos/gadgets"
+    assert caught.value.status == 1
+
+
+@pytest.mark.parametrize("value", ["two", True, 1.5, [1]])
+def test_bump_refuses_a_count_that_is_not_a_whole_number(value):
+    """Refused rather than replaced: a field holding something else means the
+    file was written by something other than this script, and overwriting it
+    would lose whatever that was. `True` is an int in Python and is not a count."""
+    document = run_state("/repos/widgets")
+    document["targets"][0]["review_rounds"] = value
+    with pytest.raises(harden.Invalid) as caught:
+        harden.bump_field(document, "/repos/widgets", "review_rounds")
+    assert caught.value.status == 1
+    assert "review_rounds is not a number on /repos/widgets" in caught.value.message
+
+
+def test_every_field_that_holds_a_number_can_be_bumped():
+    for field in harden.NUMERIC_FIELDS:
+        assert harden.check_numeric_field(field) is None
+
+
+@pytest.mark.parametrize("field", ["status", "summary", "issues"])
+def test_bump_refuses_a_field_that_does_not_hold_a_number(field):
+    with pytest.raises(harden.Invalid) as caught:
+        harden.check_numeric_field(field)
+    assert caught.value.message == (
+        f"bump: {field} is not a numeric field (one of: pr review_rounds )"
+    )
+    assert caught.value.status == 2
+
+
 @pytest.mark.parametrize("status", ["pending", "running", "paused"])
 def test_next_returns_a_target_that_is_not_finished(status):
     """A paused target comes back on purpose: it is waiting on a decision, and

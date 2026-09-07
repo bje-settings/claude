@@ -25,6 +25,26 @@ NO_SUCH_PR = "Could not resolve"
 
 STATES = {"MERGED": "merged", "CLOSED": "closed", "OPEN": "open"}
 
+# What a failure record says when gh failed without saying anything. A gh that
+# exits non-zero with nothing on stderr is still a failure, and it must not read
+# as an answer with no state, which the report would then be blamed for.
+NO_REASON = "gh failed without a message"
+
+# The reason text the harden skill keys on: a mismatch that says this is not a
+# finding about the target, and the skill retries the run rather than filing it.
+UNREADABLE = "could not be read on GitHub"
+
+
+def failed(record) -> bool:
+    """Whether one gh call failed, as the record itself says.
+
+    An explicit flag rather than a non-empty error string: gh can exit non-zero
+    with nothing on stderr, and inferring failure from the message read that as
+    an answer carrying no state -- a mismatch filed against the target for a
+    call that never happened.
+    """
+    return bool(record.get("failed"))
+
 
 def actual_of(state) -> str:
     """GitHub's state in the report's own vocabulary, or "unknown"."""
@@ -46,10 +66,14 @@ def satisfies(claimed: str, actual: str) -> bool:
     return False
 
 
-def reason(claimed: str, actual: str, error: str) -> str:
-    """Why one claim did not hold, in the words the loop puts in an issue."""
-    if error:
-        return "could not be read on GitHub: " + error
+def reason(claimed: str, actual: str, error: str, broke: bool = False) -> str:
+    """Why one claim did not hold, in the words the loop puts in an issue.
+
+    `broke` is the record's own failure flag, not a guess from `error`: gh can
+    fail with nothing to say, and that is still a claim nobody checked.
+    """
+    if broke:
+        return UNREADABLE + ": " + (error or NO_REASON)
     if claimed not in CLAIMS:
         return "the report used a word this cannot check: " + str(claimed)
     return "the report said " + claimed + "; GitHub says " + actual
@@ -66,11 +90,11 @@ def answer_for(actual, number):
     for record in actual:
         if record.get("number") == number:
             return record
-    return {"error": "no answer from gh pr view"}
+    return {"failed": True, "error": "no answer from gh pr view"}
 
 
 def answered(actual) -> bool:
-    """Whether gh answered at all, as opposed to failing the same way every time.
+    """Whether gh answered at all, as opposed to failing the same way repeatedly.
 
     A pull request gh could not answer for is a mismatch the report has to own,
     but only while gh was answering. A gh that is not on PATH, one whose token
@@ -78,13 +102,33 @@ def answered(actual) -> bool:
     nothing, and reporting one mismatch per claim would file an issue against
     the target for each pull request in the report, blaming it for a broken
     tool. "Could not resolve" is the exception, and the reason this is not just
-    a count of errors: gh answered, and the answer is that the pull request the
-    report named does not exist.
+    a count of failures: gh answered, and the answer is that the pull request
+    the report named does not exist.
+
+    An outage does not have to be total to be an outage. A round where the first
+    claim came back and the other nine failed with one identical message -- a
+    rate limit, a token that expired mid-run, a network that went away -- filed
+    nine issues against the target, because one answer was enough to call gh
+    healthy. The same failure twice is that tool, not that report; two different
+    failures among answers stay the report's to own, since a one-off per pull
+    request is what a genuinely missing or moved pull request looks like.
     """
-    errors = [record.get("error") or "" for record in actual]
-    if not all(errors):
+    failures = [record for record in actual if failed(record)]
+    if not failures:
         return True
-    return all(NO_SUCH_PR in error for error in errors)
+    errors = [
+        record.get("error") or ""
+        for record in failures
+        if NO_SUCH_PR not in (record.get("error") or "")
+    ]
+    if not errors:
+        # Every failure is a pull request GitHub says is not there, which is an
+        # answer: each one is a mismatch the report owns.
+        return True
+    if len(failures) == len(actual):
+        # Nothing came back at all, so nothing was checked.
+        return False
+    return not (len(errors) > 1 and len(set(errors)) == 1)
 
 
 def compare(claims, actual):
@@ -95,15 +139,16 @@ def compare(claims, actual):
         claimed = claim.get("claimed") or ""
         answer = answer_for(actual, number)
         error = answer.get("error") or ""
-        state = "unknown" if error else actual_of(answer.get("state") or "")
-        match = not error and satisfies(claimed, state)
+        broke = failed(answer)
+        state = "unknown" if broke else actual_of(answer.get("state") or "")
+        match = not broke and satisfies(claimed, state)
         results.append(
             {
                 "number": number,
                 "claimed": claimed,
                 "actual": state,
                 "match": match,
-                "reason": None if match else reason(claimed, state, error),
+                "reason": None if match else reason(claimed, state, error, broke),
             }
         )
     mismatches = [result for result in results if not result["match"]]

@@ -21,9 +21,11 @@ Prints {ok, checked, matched, mismatches, results} and exits:
 
 The comparison is in lib/verify.py. Nothing here trusts the report: a pull
 request gh cannot answer for is a mismatch, not a pass. A gh that answered for
-none of them is the exit-4 arm instead, since nothing was checked. Pull request numbers
-written as strings ("50") are read as numbers, since the report is assembled
-from a markdown table.
+none of them is the exit-4 arm instead, since nothing was checked, and so is one
+that failed the same way more than once part-way through a round: an outage that
+started mid-run is still an outage, not ten findings about the report. Pull
+request numbers written as strings ("50") are read as numbers, since the report
+is assembled from a markdown table.
 
 Overridable for tests: FT_GH (the gh command, default `gh`).
 """
@@ -153,6 +155,11 @@ def ask_gh(command: str, number, repo: str):
     once every claim has been asked. An answer that is not a JSON object is the
     other case, and that one stops the run where it stands: nothing was checked,
     and reporting a mismatch for it would blame the report for gh.
+
+    A failure record carries `failed` as well as the message. gh can exit
+    non-zero with nothing on stderr, and a record holding only an empty error
+    read downstream as an answer with no state: a mismatch filed against the
+    target for a call that never landed.
     """
     try:
         finished = subprocess.run(
@@ -161,10 +168,14 @@ def ask_gh(command: str, number, repo: str):
             check=False,
         )
     except OSError as error:
-        return {"number": number, "error": excerpt(str(error))}
+        return {"number": number, "failed": True, "error": excerpt(str(error))}
     output = finished.stdout.decode("utf-8", "replace")
     if finished.returncode != 0:
-        return {"number": number, "error": excerpt(finished.stderr.decode("utf-8", "replace"))}
+        return {
+            "number": number,
+            "failed": True,
+            "error": excerpt(finished.stderr.decode("utf-8", "replace")),
+        }
     try:
         answer = json.loads(output)
     except ValueError:
@@ -176,6 +187,18 @@ def ask_gh(command: str, number, repo: str):
             4,
         )
     return answer
+
+
+def first_failure(actual) -> str:
+    """What the first failing call said, for the message the skill pauses on.
+
+    The first record is not it: in a partial outage the run that answered is the
+    one at the front, and quoting it would report an outage with no error in it.
+    """
+    for record in actual:
+        if verify.failed(record):
+            return record.get("error") or verify.NO_REASON
+    return verify.NO_REASON
 
 
 NOTHING_TO_CHECK = (
@@ -207,13 +230,11 @@ def run(argv):
     command = os.environ.get("FT_GH") or "gh"
     actual = [ask_gh(command, claim["number"], repo) for claim in claims]
     if not verify.answered(actual):
-        # Nothing was checked, so there is nothing to report against the target.
-        # Exit 1 here would file one issue per claim for a gh that never ran.
-        die(
-            "gh could not answer, so no claim was checked: "
-            + excerpt(actual[0].get("error") or ""),
-            4,
-        )
+        # Nothing this can report against the target: either gh answered for
+        # none of the claims, or it failed the same way over and over, which is
+        # an outage part-way through a round. Exit 1 here would file one issue
+        # per claim for a gh that was never working.
+        die("gh could not answer, so no claim was checked: " + first_failure(actual), 4)
     result = verify.compare(claims, actual)
     sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
     # Exit 1 when anything did not match, so a caller can branch on the status
