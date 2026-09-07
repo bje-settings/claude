@@ -9,6 +9,7 @@
                          --model <alias> --effort low|medium|high [--reason <text>]
                          [--stack <name> --order <n> [--base <branch>]]
   ws-state.py set <stream-id> <field> <value> [--json]
+  ws-state.py bump <stream-id> <numeric-field>
   ws-state.py list-streams [--status <status>]
   ws-state.py defer <issue> <reason>
 
@@ -23,13 +24,20 @@ A stacked stream is one layer of a stack: --stack names the stack (shared by its
 layers), --order is the position from the bottom starting at 1, and --base is the
 branch of the layer below. The run skill starts one worker per stack.
 
-`set` accepts only the fields below. pr, attempts, and order take a number or
-null; prs takes a JSON array (pass --json); every other field is stored as a
-string unless --json is given. meta values are stored as strings, except
-loop_delay, which must be an integer from 60 to 3600 and is stored as a number.
-  status branch worktree pr prs agent question attempts model effort reason base order stack
+`set` accepts only the fields below. The numeric ones take a number or null;
+prs takes a JSON array (pass --json); every other field is stored as a string
+unless --json is given. meta values are stored as strings, except loop_delay,
+which must be an integer from 60 to 3600 and is stored as a number.
+  status branch worktree pr prs agent question attempts review_rounds model
+  effort reason base order stack
+Numeric fields: pr attempts order review_rounds
 Stream statuses: planned running draft reviewing paused done failed
 Models: haiku sonnet opus fable inherit
+
+`bump` adds one to a numeric field and prints what it now holds, so a caller
+counting rounds or attempts never reads a value, adds one, and writes it back:
+a session that stopped between the read and the write would leave the count
+behind by one. A field that is null or absent counts as 0.
 
 Exit 0 on success, 1 on any other failure (missing or corrupt state file, unknown
 stream, gh failure, unwritable directory), 2 on usage, 3 when init would
@@ -323,6 +331,18 @@ def cmd_set(args):
     write_state(path, st.set_stream_field(document, stream_id, field, value))
 
 
+def cmd_bump(args):
+    if len(args) != 2 or not args[0] or not args[1]:
+        die("bump needs <stream-id> <numeric-field>", 2)
+    stream_id, field = args
+    st.check_field(field)
+    st.check_numeric_field(field)
+    path, document = open_state()
+    value = st.bump_stream_field(document, stream_id, field)
+    write_state(path, document)
+    print(value)
+
+
 def cmd_list_streams(args):
     status = ""
     index = 0
@@ -354,6 +374,7 @@ COMMANDS = {
     "meta": cmd_meta,
     "add-stream": cmd_add_stream,
     "set": cmd_set,
+    "bump": cmd_bump,
     "list-streams": cmd_list_streams,
     "defer": cmd_defer,
 }

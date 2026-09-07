@@ -81,7 +81,7 @@ broken-pipe case, and one module each for the scripts whose decisions are worth 
 | --- | --- |
 | `ws-preflight.py` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.py` | Selectors to a JSON array of issues, with `#N` references extracted |
-| `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range |
+| `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range. `bump` adds one to a numeric field, so no caller counts by hand |
 | `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision. Exits 1 when the PR does not exist and 4 when gh itself failed, so the run loop can fail a stream permanently on the first and pause it on the second |
 | `ws-pr-comments.py` | One PR's reviews, issue comments, and review threads as one flat list, each entry saying whether its author is a bot and whether its thread is resolved |
 

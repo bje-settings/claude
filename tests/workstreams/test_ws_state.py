@@ -811,6 +811,68 @@ def test_rejects_a_non_numeric_review_rounds(with_s1, ws_state):
     assert "review_rounds takes a number or null" in result.stderr
 
 
+# --- bump ---------------------------------------------------------------------
+
+
+def test_bump_adds_one_and_prints_the_new_value(with_s1, ws_sandbox, ws_state):
+    """Not in the shell spec: the command is new in #62. The run loop counts
+    review rounds through it so a skill never reads a value, adds one, and
+    writes it back; a tick that stopped between the two would leave the count
+    behind by one and repeat a round already run."""
+    result = ws_state("bump", "s1", "review_rounds")
+    assert result.status == 0
+    assert result.stdout == "1\n"
+    assert field(ws_sandbox, "review_rounds") == 1
+    assert ws_state("bump", "s1", "review_rounds").stdout == "2\n"
+    assert field(ws_sandbox, "review_rounds") == 2
+
+
+def test_bump_counts_attempts_too(with_s1, ws_sandbox, ws_state):
+    result = ws_state("bump", "s1", "attempts")
+    assert result.status == 0
+    assert field(ws_sandbox, "attempts") == 1
+
+
+def test_bump_refuses_a_field_that_does_not_hold_a_number(with_s1, ws_state):
+    result = ws_state("bump", "s1", "status")
+    assert result.status == 2
+    assert "not a numeric field" in result.stderr
+
+
+def test_bump_refuses_a_field_outside_the_schema(with_s1, ws_state):
+    """The same guard `set` has: a typo must not create a field."""
+    result = ws_state("bump", "s1", "rounds")
+    assert result.status == 2
+    assert "unknown field: rounds" in result.stderr
+
+
+def test_bump_refuses_an_unknown_stream(with_s1, ws_state):
+    result = ws_state("bump", "s9", "review_rounds")
+    assert result.status == 1
+    assert "unknown stream: s9" in result.stderr
+
+
+def test_bump_needs_a_stream_and_a_field(with_s1, ws_state):
+    for arguments in (("bump",), ("bump", "s1"), ("bump", "s1", "attempts", "2")):
+        result = ws_state(*arguments)
+        assert result.status == 2, arguments
+        assert "bump needs <stream-id> <numeric-field>" in result.stderr
+
+
+def test_bump_leaves_the_state_alone_when_the_field_holds_something_else(
+    with_s1, ws_sandbox, ws_state
+):
+    """A state file written by something else is not this script's to overwrite."""
+    path = ws_sandbox.state_file()
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["streams"][0]["review_rounds"] = "two"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    result = ws_state("bump", "s1", "review_rounds")
+    assert result.status == 1
+    assert "is not a number on stream s1" in result.stderr
+    assert field(ws_sandbox, "review_rounds") == "two"
+
+
 def test_clears_a_numeric_field_back_to_null(with_s1, ws_sandbox, ws_state):
     """clears a numeric field back to null"""
     ws_state("set", "s1", "pr", "10")
