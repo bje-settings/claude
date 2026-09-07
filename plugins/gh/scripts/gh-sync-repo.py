@@ -25,6 +25,7 @@ sys.path.insert(0, HERE)
 
 from lib import install as install_lib  # noqa: E402
 from lib import prs as prs_lib  # noqa: E402
+from lib import streams  # noqa: E402
 
 USAGE = "usage: gh-sync-repo.py [--dry-run] [--no-install] <repo-path>"
 
@@ -169,7 +170,7 @@ class SyncRepo:
             print(text)
         except BrokenPipeError:
             self.quiet = True
-            silence_output()
+            streams.silence_output()
 
     # ---------------------------------------------------------- preflight ---
 
@@ -721,41 +722,9 @@ def parse_args(argv):
     return repo, dry_run, no_install, None
 
 
-def use_utf8(stream):
-    """Make `stream` write UTF-8, replacing anything it cannot encode.
-
-    Every report line is prefixed with ✓, ✗ or ·, and under a single-byte locale
-    (LC_ALL=en_US.ISO8859-1, PYTHONIOENCODING=ascii) writing one raises
-    UnicodeEncodeError and the whole sync dies on its first line. A stream that
-    has been replaced with something without reconfigure, or that is already
-    detached, is left alone rather than turned into a different crash.
-    """
-    try:
-        stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        # A stream with no reconfigure (a replaced sys.stdout, or one closed
-        # outright) is left as it is: the fallback is the original, loud
-        # UnicodeEncodeError rather than a silent one, and this must not raise.
-        pass
-
-
-def silence_output():
-    """Send both descriptors to devnull, for a reader that has gone away.
-
-    Both, not just stdout, so nothing the interpreter still tries to flush on the
-    way out can resurface as a broken-pipe trace either.
-    """
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    try:
-        os.dup2(devnull, sys.stdout.fileno())
-        os.dup2(devnull, sys.stderr.fileno())
-    finally:
-        os.close(devnull)
-
-
 def main(argv):
-    use_utf8(sys.stdout)
-    use_utf8(sys.stderr)
+    streams.use_utf8(sys.stdout)
+    streams.use_utf8(sys.stderr)
     repo, dry_run, no_install, status = parse_args(argv)
     if status is not None:
         return status
@@ -768,7 +737,7 @@ def main(argv):
         # wrapping it too is what let a closed pipe abandon a half-done prune.
         sys.stdout.flush()
     except BrokenPipeError:
-        silence_output()
+        streams.silence_output()
     return result
 
 
