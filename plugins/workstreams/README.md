@@ -1,8 +1,9 @@
 # workstreams
 
 Turn a set of GitHub issues into parallel workstreams run by subagents, each ending in a
-reviewed draft PR. Two skills: `/workstreams:plan` proposes the streams; `/workstreams:run`
-executes them. Each skill directory has a `FLOW.md` with the decision diagram.
+reviewed draft PR. Three skills: `/workstreams:plan` proposes the streams, `/workstreams:run`
+executes them, and `/workstreams:review` runs one review round over a draft PR. Each skill
+directory has a `FLOW.md` with the decision diagram.
 
 ## Requirements
 
@@ -45,17 +46,35 @@ Nothing is started. An existing plan is only replaced when the user says so.
    bottom-up with `gh stack`.
 3. Check progress on a cadence matched to the work (`ScheduleWakeup`), not a fixed short
    interval. A stream that needs a decision pauses with its question; the others continue.
-4. Review every draft in the main session: run `/pr-review-toolkit:review-pr`, read the PR's own
-   bot and human review comments, and verify every finding against the code before acting on it.
-   The ones that hold go to a `workstreams:applier` subagent as a list, which commits them, runs
-   the tests, pushes, and refreshes the PR title and body if they went stale. A substantial round
-   of changes earns one more review; then the checks decide: pass is done, pending waits, fail
-   pauses the stream with a question.
-
-   The review runs in the main session because `/pr-review-toolkit:review-pr` dispatches analyzer
-   agents that wake whoever invoked it, and a subagent gets no such wake.
+4. Review every draft with `/workstreams:review`, in this session. It reviews, verifies, applies
+   and replies; the run loop counts the round in `review_rounds`, reads the diffstat of what the
+   round pushed, and decides what is next. A substantial delta earns exactly one repeat; a second
+   substantial round pauses the stream; a cosmetic one falls through to the checks, where pass is
+   done, pending waits, and fail pauses the stream with a question.
 5. Report every PR (stacks in order), every deferred issue with its reason, every paused stream
    with its question, and every failure.
+
+## `/workstreams:review <pr> --worktree <path> --base <branch>`
+
+One review round over one draft PR, and nothing else: no loop, no state file, no wake.
+
+1. Read the PR with `ws-pr-status.py`.
+2. Run `/pr-review-toolkit:review-pr` on the PR, in its worktree, over `<base>...HEAD`. Naming the
+   range matters: left to itself the toolkit reviews the working tree's `git diff`, which in the
+   calling session is very likely another repository's, or nothing at all.
+3. Read the reviews, comments, and review threads already on the PR with `ws-pr-comments.py`. A
+   bot review or a human comment is a finding the toolkit will not produce and nobody else will
+   act on.
+4. Verify every finding against the code. A finding is a claim, not a fact, whoever made it.
+5. Hand what holds to a `workstreams:applier` subagent, which commits, runs the tests, pushes, and
+   refreshes a stale title or body.
+6. Reply on every bot or human thread a finding came from, saying applied or rejected and why.
+   Threads are never resolved: that judgement is the reviewer's.
+
+It returns which findings it applied, which it rejected and why, and the range it pushed. It runs
+in the session that invoked it, never in a subagent, because `/pr-review-toolkit:review-pr`
+dispatches analyzer agents that wake whoever invoked them, and a subagent gets no such wake
+(issue #62).
 
 The PRs stay drafts. Marking ready and merging is the user's decision.
 
@@ -67,8 +86,9 @@ mid-run can re-run the skill and continue. `ws-state.py show` prints it.
 
 Stream statuses: `planned`, `running`, `draft`, `reviewing`, `paused`, `done`, `failed`. A stack
 is several stream records sharing a `stack` name, ordered from the bottom; the run skill treats
-it as one unit of work. `review_rounds` counts the review passes a stream's PR has had, so a
-resumed session knows whether the round it is starting is the repeat.
+it as one unit of work. `review_rounds` counts the review rounds *scheduled* on a stream's PR, so
+a session that stops mid-round knows the round it is picking up was already counted; `draft` means
+a round is due and `reviewing` means the round is done and only the checks are left.
 
 ## Scripts
 
