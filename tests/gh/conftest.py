@@ -22,6 +22,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 GH_SCRIPTS = ROOT / "plugins" / "gh" / "scripts"
+SYNC = GH_SCRIPTS / "gh-sync.py"
 SYNC_REPO = GH_SCRIPTS / "gh-sync-repo.py"
 DISCOVER = GH_SCRIPTS / "lib" / "discover.py"
 STUB_BIN = Path(__file__).resolve().parent / "bin"
@@ -655,6 +656,16 @@ def sync_repo(run_script, gh):
 
     def run(*args, **kwargs):
         return run_script(SYNC_REPO, *args, **kwargs)
+
+    return run
+
+
+@pytest.fixture
+def sync(run_script, gh):
+    """Run gh-sync.py, the orchestrator, against a fixture directory."""
+
+    def run(*args, **kwargs):
+        return run_script(SYNC, *args, **kwargs)
 
     return run
 

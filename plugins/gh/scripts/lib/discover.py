@@ -10,6 +10,10 @@ or run it as a script, which prints the same list one path per line:
 
     python3 lib/discover.py [target]
 
+`toplevel(path)` answers the narrower question on its own: the checkout root
+containing `path`, or None. `gh-sync.py` asks it to tell a target that is itself
+inside a repository from a directory that merely holds one.
+
 Paths are symlink-resolved, because git reports resolved paths and callers
 compare against them. On macOS /tmp and /var are symlinks, so a logical path
 would never match.
@@ -33,7 +37,7 @@ import subprocess
 import sys
 
 
-def _toplevel(path):
+def toplevel(path):
     """The checkout root containing `path`, or None when there is none.
 
     A missing git is the same answer as a directory outside any checkout: no
@@ -63,7 +67,7 @@ def discover_repos(target=None):
         raise NotADirectoryError(target)
     real_target = os.path.realpath(target)
 
-    top = _toplevel(real_target)
+    top = toplevel(real_target)
     if top:
         return [top]
 
@@ -82,7 +86,7 @@ def discover_repos(target=None):
         if not os.path.isdir(entry):
             continue
         real = os.path.realpath(entry)
-        top = _toplevel(entry)
+        top = toplevel(entry)
         # Only the checkout root counts, never a subdirectory of one.
         if top and top == real:
             roots.append(real)

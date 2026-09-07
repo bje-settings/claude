@@ -276,7 +276,7 @@ def test_honours_no_install_even_when_a_lock_file_changed(gh, sync_repo):
 
 
 def test_honours_the_no_install_environment_flag(gh, sync_repo):
-    """GH_SYNC_NO_INSTALL is how gh-sync.sh passes --no-install to its jobs."""
+    """GH_SYNC_NO_INSTALL is how gh-sync.py passes --no-install to its jobs."""
     gh.lockfile(gh.repo, "package-lock.json")
     gh.remote_advance(gh.repo, "package-lock.json")
     result = sync_repo("--dry-run", gh.repo, env={"GH_SYNC_NO_INSTALL": "1"})

@@ -38,7 +38,6 @@ Everything else composes on top:
 | --- | --- |
 | `fixture_branch_with_work` | A branch carrying one real commit. |
 | `fixture_merge_commit` | Merged with a merge commit, leaving the branch strictly **behind** the default branch, which is where ancestry is the interesting signal. A fast-forward would leave it **at** the tip, where the tip guard takes over instead. |
-| `fixture_dirty` | An uncommitted change to a tracked file, which blocks a sync. |
 | `fixture_forget_origin_head` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it must be deleted as one; `update-ref -d` leaves it resolvable. |
 | `fixture_commit` / `fixture_push` | The primitives the builders above compose; usable directly. |
 | `fixture_prs` / `fixture_no_prs` | Writes the canned pull-request set the `gh` stub answers from. |
