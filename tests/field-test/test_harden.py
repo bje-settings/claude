@@ -308,3 +308,42 @@ def test_next_has_nothing_to_say_once_every_target_is_finished():
 
 def test_next_has_nothing_to_say_for_a_run_with_no_targets():
     assert harden.next_target(run_state()) == ""
+
+
+@pytest.mark.parametrize(
+    ("status", "why"),
+    [
+        ("pending done", "two statuses in one value, which `set` refuses and a hand edit does not"),
+        (None, "a target written without a status at all"),
+        ("skipped", "a word from another vocabulary"),
+    ],
+)
+def test_next_refuses_a_status_it_cannot_read_rather_than_stepping_over_it(status, why):
+    """A status outside the vocabulary is neither finished nor unfinished, and
+    `next` printing nothing is what the skill reads as "every target is done"."""
+    document = {"targets": [{"path": "/repos/widgets", "status": status}]}
+    with pytest.raises(harden.Invalid) as caught:
+        harden.next_target(document)
+    assert "/repos/widgets: status is not one of" in caught.value.message, why
+    assert caught.value.status == 1
+
+
+def test_next_refuses_a_path_that_is_not_a_string():
+    document = {"targets": [{"path": None, "status": "pending"}]}
+    with pytest.raises(harden.Invalid) as caught:
+        harden.next_target(document)
+    assert caught.value.message == "next: target 1: path is not a string, got: null"
+    assert caught.value.status == 1
+
+
+def test_next_refuses_a_corrupt_target_it_has_not_reached_yet():
+    """A target later in the list is one the loop would step over next round."""
+    document = {
+        "targets": [
+            {"path": "/repos/widgets", "status": "pending"},
+            {"path": "/repos/gadgets", "status": "nope"},
+        ]
+    }
+    with pytest.raises(harden.Invalid) as caught:
+        harden.next_target(document)
+    assert "/repos/gadgets: status is not one of" in caught.value.message

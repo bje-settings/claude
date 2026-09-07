@@ -286,6 +286,24 @@ def test_add_target_refuses_a_state_file_that_is_not_field_test_json(state):
     assert "not valid field-test JSON" in result.stderr
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="running as root, permissions do not apply")
+def test_refuses_a_state_file_it_cannot_open_by_naming_that(state):
+    """names a file it could not open as unreadable, not as JSON it disagreed with
+
+    "not valid field-test JSON" sends the reader to the contents of a file they
+    were never able to open; the fix here is a permission.
+    """
+    state.one_target()
+    state.path.chmod(0o000)
+    try:
+        result = state.run("next", "gh:shepherd")
+    finally:
+        state.path.chmod(0o600)
+    assert result.status == 1
+    assert f"cannot read {state.path}" in result.stderr
+    assert "not valid field-test JSON" not in result.stderr
+
+
 def test_add_target_refuses_a_state_file_that_is_not_json_at_all(state):
     """a half-written file reports as unreadable rather than as a traceback"""
     state.init()
@@ -508,6 +526,35 @@ def test_prints_nothing_when_every_target_is_finished(state):
     result = state.run("next", "gh:shepherd")
     assert result.status == 0
     assert result.stdout == ""
+
+
+def test_next_refuses_a_target_whose_status_it_cannot_read(state):
+    """refuses a hand-edited status rather than reading as "everything finished"
+
+    `set` will not write this, but a hand edit or a half-applied patch does, and
+    a status outside the vocabulary is neither finished nor unfinished: `next`
+    stepped over it and printed nothing, which the skill reads as a run that is
+    done and summarises with the work not started.
+    """
+    state.one_target()
+    document = state.document()
+    document["targets"][0]["status"] = "pending done"
+    state.path.write_text(json.dumps(document), encoding="utf-8")
+    result = state.run("next", "gh:shepherd")
+    assert result.status == 1
+    assert "/repos/widgets: status is not one of" in result.stderr
+    assert result.stdout == ""
+
+
+def test_next_refuses_a_target_whose_path_is_not_a_string(state):
+    """a path that is not a string is a target no later command could name"""
+    state.one_target()
+    document = state.document()
+    document["targets"][0]["path"] = None
+    state.path.write_text(json.dumps(document), encoding="utf-8")
+    result = state.run("next", "gh:shepherd")
+    assert result.status == 1
+    assert "path is not a string, got: null" in result.stderr
 
 
 def test_rejects_an_argument_after_next(state):

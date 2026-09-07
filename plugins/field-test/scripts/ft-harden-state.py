@@ -21,7 +21,8 @@ of the first target still to do, and nothing when the list is exhausted.
 `set` accepts only the fields below. pr and review_rounds take a number or null
 and issues a JSON array (--json is implied for all three); everything else is
 stored as a string. review_rounds is how many review rounds the target has had,
-which bounds the review phase at one repeat across a resumed session.
+recorded so the harden skill can bound the review phase at one repeat across a
+resumed session; nothing here reads it back.
   status phase issues pr review_rounds merge_sha question summary repo
 Target statuses: pending running paused done failed
 Phases: field-test verify fix review merge summary done
@@ -120,7 +121,12 @@ def require_state(path: str, skill: str):
     try:
         with open(path, encoding="utf-8") as handle:
             document = json.load(handle)
-    except (OSError, ValueError):
+    except OSError as error:
+        # Separate from the JSON arm: a file this cannot open is a permission or
+        # a device to fix, and "not valid field-test JSON" sends the reader to
+        # the contents of a file they were never able to read.
+        die(f"cannot read {path}: {error}")
+    except ValueError:
         die(f"state file is not valid field-test JSON: {path}")
     if not harden.is_state(document):
         die(f"state file is not valid field-test JSON: {path}")
