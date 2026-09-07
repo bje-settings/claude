@@ -52,6 +52,8 @@ def use_utf8(stream):
     try:
         stream.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
+        # Left as it is on purpose: no reconfigure, or a detached stream. The
+        # fallback is the original, loud UnicodeEncodeError, never a silent one.
         pass
 
 

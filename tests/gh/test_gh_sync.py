@@ -632,6 +632,41 @@ def test_a_closed_stdout_is_not_a_crash(gh):
     )
     assert completed.returncode == 0
     assert b"Traceback" not in completed.stderr
+
+
+@pytest.mark.parametrize(
+    "script",
+    [SYNC.parent / "gh-sync-repo.py", SYNC.parent / "lib" / "discover.py"],
+    ids=["gh-sync-repo", "discover"],
+)
+def test_the_other_scripts_survive_a_closed_stdout_too(gh, script):
+    """`bind_closed_streams` has to run in every script that writes, not only in
+    the orchestrator: the single-repo branch hands its child the same closed
+    descriptor, and the shepherd skill runs discover.py directly."""
+    work = gh.create_at(gh.path / "fan", "a")
+    target = work if script.name == "gh-sync-repo.py" else gh.path / "fan"
+    args = ["--dry-run", str(target)] if script.name == "gh-sync-repo.py" else [str(target)]
+    completed = subprocess.run(
+        ["sh", "-c", 'exec 1>&-; exec "$@"', "sh", sys.executable, str(script), *args],
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert b"Traceback" not in completed.stderr
+
+
+def test_a_single_repo_run_survives_a_closed_stdout(gh):
+    """The single-repo branch inherits fd 1; with it closed, the child must not
+    print a traceback that the parent then passes through as exit 0."""
+    work = gh.create_at(gh.path / "fan", "a")
+    completed = subprocess.run(
+        ["sh", "-c", 'exec 1>&-; exec "$@"', "sh", sys.executable, str(SYNC)]
+        + ["--dry-run", str(work)],
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert completed.returncode == 0
+    assert b"Traceback" not in completed.stderr
     assert "gone" not in gh.branches(work)
 
 
