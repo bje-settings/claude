@@ -92,15 +92,6 @@ fixture_merge_commit() {
   fixture_push "$w"
 }
 
-# fixture_forget_origin_head <work> — drop the cached origin/HEAD, forcing the
-# default-branch resolution to fall through to its later strategies
-# origin/HEAD is a SYMBOLIC ref, so update-ref -d leaves it resolvable. It has to
-# be deleted as a symref or the resolution never falls through.
-fixture_forget_origin_head() {
-  fixture_git "$1" symbolic-ref --delete refs/remotes/origin/HEAD 2>/dev/null
-  return 0
-}
-
 # ---------------------------------------------------------------------------
 # Pull-request fixtures, consumed by the gh stub in fixtures/gh/bin/gh.
 #

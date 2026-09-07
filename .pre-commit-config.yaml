@@ -78,7 +78,6 @@ repos:
           - plugins/gh/scripts/lib/shepherd.sh
           - plugins/gh/scripts/gh-shepherd-status.sh
           - plugins/gh/scripts/gh-shepherd-pr.sh
-          - plugins/gh/hooks/session-start.sh
           - fixtures/gh/fixtures.sh
           - fixtures/gh/bin/gh
           - plugins/field-test/scripts/ft-run.sh
