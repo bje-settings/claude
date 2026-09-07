@@ -6,7 +6,7 @@ shape check that decides whether a file is workstreams state at all -- and the
 argument validation the shell did with regexes and substring tests against
 space-padded vocabularies. Both are plain functions so each arm can be tested
 directly. Under kcov a jq program counted as one line however many decisions it
-held, which is the blind spot `.claude/rules/type-jq.md` describes; here every
+held, which is the blind spot `.claude/rules/type-py.md` describes; here every
 branch is its own arm of the coverage report and its own unit test in
 `tests/workstreams/test_state.py`.
 

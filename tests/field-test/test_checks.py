@@ -5,7 +5,7 @@ look: a cancelled run reported as pending is a loop that waits forever for a run
 that already ended, and a completed run with no conclusion reported as passed is
 a merge on an answer that never arrived. Under kcov the whole program was one
 covered line however many decisions it held; here each arm is its own branch in
-the report and its own test, which is what `.claude/rules/type-jq.md` asks for.
+the report and its own test, which is what `.claude/rules/type-py.md` asks for.
 
 `test_ft_wait_pr.py` reaches the same arms end to end through the fixture pull
 requests; these are what name them.

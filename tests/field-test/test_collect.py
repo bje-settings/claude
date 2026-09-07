@@ -4,7 +4,7 @@ The module holds what `lib/collect.jq` decided: which recorded events are
 candidate problems, what makes two of them the same problem, and which claim
 contradicts which failure. A whole jq filter counted as a single covered line,
 and a narrowed `select` or an inverted condition changed no number at all
-(`.claude/rules/type-jq.md`). These tests exist so each arm has an example that
+(`.claude/rules/type-py.md`). These tests exist so each arm has an example that
 reaches it and a name that says which one went red.
 
 `test_ft_collect.py` drives the same code through the script; these reach the

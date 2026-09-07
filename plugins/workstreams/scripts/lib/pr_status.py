@@ -5,7 +5,7 @@ outcomes that count as failure, the name a row is reported under, the fold to
 one word, and the projection the run loop reads. Each is a plain function with a
 unit test per arm in `tests/workstreams/test_pr_status.py`, because under kcov
 the whole fold was one line however many outcomes it decided between -- the
-blind spot `.claude/rules/type-jq.md` describes.
+blind spot `.claude/rules/type-py.md` describes.
 
 Nothing here runs gh or touches the filesystem: `reduce` takes the parsed answer
 and returns the object to print.

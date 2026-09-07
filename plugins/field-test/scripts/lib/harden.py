@@ -6,7 +6,7 @@ file is a hardening run at all -- and the validation the shell did with regexes
 and substring tests against space-padded vocabularies. Both are plain functions,
 so each arm is its own branch in the coverage report and its own unit test in
 `tests/field-test/test_harden.py`, which a jq program counted as one line could
-not be; see `.claude/rules/type-jq.md`.
+not be; see `.claude/rules/type-py.md`.
 
 Nothing here touches the filesystem or the environment: the functions take a
 state document (the parsed JSON) and return a new value or raise `Invalid`. The

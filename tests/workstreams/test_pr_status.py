@@ -1,6 +1,6 @@
 """Unit tests for `plugins/workstreams/scripts/lib/pr_status.py`.
 
-One test per arm of the check-state fold. `.claude/rules/type-jq.md` records
+One test per arm of the check-state fold. `.claude/rules/type-py.md` records
 three mutations of exactly this fold -- narrowing the fail set, dropping NEUTRAL
 from the pass set, inverting the completed arm -- that each left the whole shell
 suite green with coverage unmoved, because the jq was one line to kcov. Every

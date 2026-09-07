@@ -5,7 +5,7 @@ flatten, the de-duplication, the sort, the projection, and the `#N` reference
 scan -- and the selector classification the shell did with `case` globs and
 `[[ =~ ]]` regexes. Both are plain functions so each arm can be tested directly.
 Under kcov a jq program counted as one line however many decisions it held,
-which is the blind spot `.claude/rules/type-jq.md` describes; here every branch
+which is the blind spot `.claude/rules/type-py.md` describes; here every branch
 is its own arm of the coverage report and its own unit test in
 `tests/workstreams/test_issues.py`.
 

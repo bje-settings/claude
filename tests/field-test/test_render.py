@@ -3,7 +3,7 @@
 The module holds what `lib/render.jq` decided: the words an issue uses for each
 kind of finding, and what it says about everything the run did not record. Every
 `if kind ==` arm gets a name here; the whole program was one covered line before
-(`.claude/rules/type-jq.md`).
+(`.claude/rules/type-py.md`).
 """
 
 from __future__ import annotations
