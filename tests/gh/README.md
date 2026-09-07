@@ -136,7 +136,7 @@ before it was deleted, with commit hashes and the sandbox path normalised out.
 
 The orchestrator is held to the same standard by its own table: the scenarios at the top of
 `test_gh_sync.py` and `golden/bash-sync-output.json`, captured from `gh-sync.sh` the same way.
-That report is what the session-start hook greps for `would `, `✗` and `could not`, so the header,
+That report is what the session-start hook scans for `would `, `✗` and `could not`, so the header,
 the blank line under it, and the order of the sections are all contract.
 
 Both goldens are records of what the port had to match, not a place to add cases to. The shell
