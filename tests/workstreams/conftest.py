@@ -11,7 +11,7 @@ build the negative cases.
 
 The shapes are reconstructed from the field test in issue #7 (a debugging
 session that produced two bugs, a chore, a refactor, and a spike) without
-copying anything from that repository. `test_fixtures.py` asserts the claims
+copying anything from that repository. `test_ws_fixtures.py` asserts the claims
 made here, so the other tests cannot pass for the wrong reason.
 """
 

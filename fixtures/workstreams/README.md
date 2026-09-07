@@ -39,7 +39,7 @@ Supported: `auth status`, `extension list`, `repo view`, `issue view`, `issue li
 
 `spec/workstreams/fixtures_spec.sh` asserts the shapes the other specs rely on (counts, states,
 references, which conclusions appear), so those specs cannot pass for the wrong reason.
-`tests/workstreams/test_fixtures.py` makes the same claims about the Python fixtures.
+`tests/workstreams/test_ws_fixtures.py` makes the same claims about the Python fixtures.
 
 `setup_ws_sandbox` in `spec/spec_helper.sh` wires all of this together for one example: a temp
 dir with the canned data, an empty `WS_STATE_DIR`, a fake `HOME`, and the stub on `PATH`. Specs
