@@ -19,6 +19,10 @@ from __future__ import annotations
 
 CLAIMS = ("merged", "closed", "open", "skipped")
 
+# The one gh failure that is an answer: the pull request is not there. Every
+# other failure is gh not answering, which is a different thing entirely.
+NO_SUCH_PR = "Could not resolve"
+
 STATES = {"MERGED": "merged", "CLOSED": "closed", "OPEN": "open"}
 
 
@@ -55,12 +59,32 @@ def answer_for(actual, number):
     """The gh answer for one pull request, or a stand-in saying there was none.
 
     A pull request gh could not answer for is a mismatch, not a pass: a claim
-    nobody checked is exactly what this script exists to catch.
+    nobody checked is exactly what this script exists to catch. That holds one
+    pull request at a time; a gh that answered for none of them is `answered`
+    above, and the script exits 4 before it gets here.
     """
     for record in actual:
         if record.get("number") == number:
             return record
     return {"error": "no answer from gh pr view"}
+
+
+def answered(actual) -> bool:
+    """Whether gh answered at all, as opposed to failing the same way every time.
+
+    A pull request gh could not answer for is a mismatch the report has to own,
+    but only while gh was answering. A gh that is not on PATH, one whose token
+    expired, one whose every call failed with the same message: those check
+    nothing, and reporting one mismatch per claim would file an issue against
+    the target for each pull request in the report, blaming it for a broken
+    tool. "Could not resolve" is the exception, and the reason this is not just
+    a count of errors: gh answered, and the answer is that the pull request the
+    report named does not exist.
+    """
+    errors = [record.get("error") or "" for record in actual]
+    if not all(errors):
+        return True
+    return all(NO_SUCH_PR in error for error in errors)
 
 
 def compare(claims, actual):
