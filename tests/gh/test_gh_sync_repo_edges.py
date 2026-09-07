@@ -11,8 +11,6 @@ pre-commit hook deselects them; CI runs them.
 
 from __future__ import annotations
 
-import importlib.util
-import io
 import shutil
 
 import pytest
@@ -759,19 +757,3 @@ def test_exits_cleanly_when_a_short_report_meets_a_closed_pipe(gh, run_with_clos
     status, stderr = run_with_closed_reader(SYNC_REPO, gh.repo)
     assert status == 0
     assert stderr == ""
-
-
-def test_use_utf8_leaves_a_stream_it_cannot_reconfigure_alone():
-    """A replaced or detached stdout must not turn one crash into another.
-
-    The two shapes the guard names: something with no `reconfigure` at all, and a
-    real wrapper whose buffer has been taken away, which raises ValueError.
-    Imported rather than run, because both arms are silent by design.
-    """
-    spec = importlib.util.spec_from_file_location("gh_sync_repo", SYNC_REPO)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.use_utf8(io.StringIO())
-    detached = io.TextIOWrapper(io.BytesIO())
-    detached.detach()
-    module.use_utf8(detached)

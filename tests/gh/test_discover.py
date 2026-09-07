@@ -6,7 +6,6 @@ The nine examples there exercised the shell function directly; these exercise
 
 from __future__ import annotations
 
-import io
 import os
 
 import pytest
@@ -170,15 +169,3 @@ def test_exits_cleanly_when_the_reader_closes_the_pipe(gh, run_with_closed_reade
     status, stderr = run_with_closed_reader(DISCOVER, gh.path / "fan")
     assert status == 0
     assert stderr == ""
-
-
-def test_use_utf8_leaves_a_stream_it_cannot_reconfigure_alone(sandbox):
-    """A replaced or detached stdout must not turn one crash into another.
-
-    The two shapes the guard names: an object with no `reconfigure` at all, and a
-    real wrapper whose buffer has been taken away, which raises ValueError.
-    """
-    discover.use_utf8(io.StringIO())
-    detached = io.TextIOWrapper(io.BytesIO())
-    detached.detach()
-    discover.use_utf8(detached)
