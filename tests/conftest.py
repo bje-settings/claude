@@ -18,6 +18,67 @@ from pathlib import Path
 
 import pytest
 
+# sys.path as it was before any test ran. A script loaded in-process pushes its
+# own directory onto sys.path and never takes it off; anything not in here that
+# looks like a plugin's scripts/ or hooks/ directory is one of those leftovers.
+SYS_PATH_AT_START = tuple(sys.path)
+
+
+def _is_leftover_plugin_entry(entry: str) -> bool:
+    """True for a `plugins/<plugin>/scripts` or `.../hooks` entry a load left behind."""
+    path = Path(entry)
+    return path.name in {"scripts", "hooks"} and "plugins" in path.parent.parts
+
+
+def reset_plugin_lib_namespace() -> None:
+    """Forget every `lib` a previous in-process script load resolved.
+
+    Each plugin's scripts share code through `plugins/<plugin>/scripts/lib/`,
+    reached by `sys.path.insert(0, HERE)` and `from lib import cli`. That is right
+    for a process running one plugin and wrong for pytest, which runs every
+    plugin's tests in one process: the first plugin whose script is loaded
+    in-process owns `sys.modules["lib"]`, and the next plugin's script imports
+    that one instead of its own -- `module 'lib.cli' has no attribute 'Failure'`,
+    on whichever plugin happened to load second.
+
+    Dropping the `lib` modules alone is not enough: the losing plugin's `scripts`
+    directory is still on `sys.path` from its own load, so the re-import could
+    resolve to it rather than to the script's own. Both go, and each in-process
+    load starts from nothing again.
+    """
+    for name in [n for n in sys.modules if n == "lib" or n.startswith("lib.")]:
+        del sys.modules[name]
+    sys.path[:] = [
+        entry
+        for entry in sys.path
+        if entry in SYS_PATH_AT_START or not _is_leftover_plugin_entry(entry)
+    ]
+
+
+@pytest.fixture
+def reset_lib_namespace():
+    """`reset_plugin_lib_namespace` itself, for the tests that cover it.
+
+    A fixture rather than an import: three directories hold a `conftest.py`, they
+    all import under the name `conftest`, and a test module that imported one by
+    name would get whichever pytest loaded last.
+    """
+    return reset_plugin_lib_namespace
+
+
+@pytest.fixture(autouse=True)
+def isolated_plugin_lib():
+    """Give every test a clean `lib` namespace, before it runs and after it ends.
+
+    Autouse and unconditional: a test that never loads a script in-process pays
+    two list comprehensions, and a test that does cannot be made to pass, or to
+    fail, by what an unrelated plugin's test did first.
+    """
+    reset_plugin_lib_namespace()
+    yield
+    reset_plugin_lib_namespace()
+
+
 # The tools a plugin script may reach for. `path_without` links all of these into
 # a fresh bin directory except the ones it is asked to leave out, which is how the
 # "tool is not installed" branches get provoked without touching the real PATH.
