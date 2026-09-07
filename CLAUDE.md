@@ -36,12 +36,12 @@ others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py` holds
 that plugin's scripts does around its own work (the UTF-8 output streams, the flush, a reported
 failure, a closed pipe, an unanticipated exception), and `state.py`, `issues.py` and `pr_status.py`
 hold what used to be each script's jq filters and argument checks, as plain functions with a unit
-test per arm; `plugins/gh/scripts/lib/` is laid out the same way. Scripts import `lib`
-through `sys.path`, but tests load a plugin's lib modules by
-path under a plugin-unique module name, because two plugins' `lib` packages collide on
-`sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/` imports another
-`lib/` module: a module loaded by path sits outside any package, where a sibling import would not
-resolve, so a module that raises its own error class hands it to `cli.run` rather than importing one.
+test per arm; `plugins/gh/scripts/lib/` is laid out the same way. Scripts import `lib` through
+`sys.path`, but tests load a plugin's lib modules by path under a plugin-unique module name,
+because two plugins' `lib` packages collide on `sys.modules["lib"]` in one pytest process. That
+loader is why nothing under `lib/` imports another `lib/` module: a module loaded by path sits
+outside any package, where a sibling import would not resolve, so a module that raises its own
+error class hands it to `cli.run` rather than importing one.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root
