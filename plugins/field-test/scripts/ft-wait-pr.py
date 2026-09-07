@@ -22,7 +22,8 @@ A pull request with no checks at all is not a pull request to wait on: it is
 reported `passed` once seen twice, the same rule /workstreams:run uses, since
 workflows may not have queued yet on the first look.
 
-Overridable for tests: FT_GH (the gh command, default `gh`).
+Overridable for tests: FT_GH (the gh command, default `gh`), and
+FT_WAIT_CALL_FLOOR (the seconds one `gh pr view` is always allowed).
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -50,6 +51,14 @@ EXCERPT = 160
 
 DEFAULT_TIMEOUT = 540
 DEFAULT_INTERVAL = 30
+
+# What one `gh pr view` is always allowed, even when the wait has almost run out.
+# The deadline is tested before each look, so reaching this floor means time
+# genuinely remains and the only question is whether a real call fits in it: a
+# budget of the last half second does not, and gh would be killed and reported as
+# exit 4 -- a status the skill pauses the target on -- where the honest answer is
+# `pending`. Tests lower it to keep the hang case from taking half a minute.
+CALL_FLOOR = 30.0
 
 # What gh says when the number is not a pull request in that repository. It gets
 # its own status because it is the one failure waiting cannot cure: the caller
@@ -88,6 +97,16 @@ def die(message: str, status: int = 1):
 
 def excerpt(text: str) -> str:
     return " ".join(text.rstrip("\n").split("\n"))[:EXCERPT]
+
+
+def call_floor() -> float:
+    """The floor on one call's budget, overridable so a test need not wait it out."""
+    raw = os.environ.get("FT_WAIT_CALL_FLOOR") or ""
+    try:
+        floor = float(raw)
+    except ValueError:
+        return CALL_FLOOR
+    return floor if floor > 0 else CALL_FLOOR
 
 
 def parse_options(argv):
@@ -179,11 +198,19 @@ def wait(command: str, repo: str, pr: str, timeout: int, interval: int) -> str:
     mid-wait would extend or end it by however far it jumped.
     """
     deadline = time.monotonic() + timeout
+    floor = call_floor()
     seen_none = 0
     while True:
-        # Floor of one second: a budget already spent still asks gh once rather
-        # than failing with a timeout it never gave the call a chance to use.
-        folded = look(command, repo, pr, max(1.0, deadline - time.monotonic()))
+        # The deadline is tested here, before the look, because the sleep at the
+        # bottom is what crosses it: testing after the look gave the next call
+        # whatever was left, which was nothing, and a real gh was killed and
+        # reported as exit 4 where the answer was `pending`.
+        if time.monotonic() >= deadline:
+            return "pending"
+        # Past that test time genuinely remains, so the floor below is only
+        # reached in the last seconds of a wait, where a call that would not fit
+        # is still worth making rather than timing out on arrival.
+        folded = look(command, repo, pr, max(floor, deadline - time.monotonic()))
         state = folded["state"]
         if state == "MERGED":
             return "merged"
@@ -202,9 +229,9 @@ def wait(command: str, repo: str, pr: str, timeout: int, interval: int) -> str:
                 return "passed"
         else:
             seen_none = 0
-        if time.monotonic() >= deadline:
-            return "pending"
-        time.sleep(interval)
+        # Never sleep past the deadline: the caller sets its own Bash timeout
+        # just above this one, and an interval that overshot would spend it.
+        time.sleep(min(float(interval), max(0.0, deadline - time.monotonic())))
 
 
 def run(argv):

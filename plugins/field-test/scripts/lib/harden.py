@@ -31,11 +31,11 @@ FIELDS = (
     "summary",
     "repo",
 )
-# Stored as a JSON number or null rather than a string. `review_rounds` is the
-# count of review rounds the target has had, recorded here so that the harden
-# skill (PR #77) can bound the review phase at one repeat across a resumed
-# session: a count written as the string "1" would compare against a number and
-# start the loop over. Nothing on this branch reads it back.
+# Stored as a JSON number or null rather than a string, and the fields `bump`
+# will add one to. `review_rounds` is the count of review rounds the target has
+# had, recorded here so the harden skill can bound the review phase at one
+# repeat across a resumed session: a count written as the string "1" would
+# compare against a number and start the loop over.
 NUMERIC_FIELDS = ("pr", "review_rounds")
 EFFORTS = ("low", "medium", "high")
 MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")
@@ -255,6 +255,44 @@ def set_field(document, path: str, field: str, value):
             target[field] = value
             return document
     raise Invalid(f"set: unknown target: {path}", 1)
+
+
+# --- bump --------------------------------------------------------------------
+
+
+def check_numeric_field(field: str) -> None:
+    """`bump` is arithmetic, so it takes only the fields that hold a number."""
+    if field not in NUMERIC_FIELDS:
+        raise Invalid(f"bump: {field} is not a numeric field (one of:{listed(NUMERIC_FIELDS)})")
+
+
+def bump_field(document, path: str, field: str) -> int:
+    """Add one to a numeric field of one target, and return what it now holds.
+
+    The harden loop counts review rounds, and every count it keeps is one a
+    resumed session has to agree with. Reading the value, adding one, and
+    writing it back would put that arithmetic in the skill, where a tick that
+    stopped between the read and the write leaves the count behind by one and
+    the next round repeats a review already run.
+
+    A field that is null or absent counts as 0, which is what a target added
+    before the field existed carries. A field holding something that is not a
+    whole number is refused rather than replaced: the state file was written by
+    something other than this script, and overwriting it would lose whatever
+    that was.
+    """
+    for target in document["targets"]:
+        if target.get("path") == path:
+            current = target.get(field)
+            if current is None:
+                current = 0
+            # bool before int: True is an int in Python, and a field holding one
+            # is not a count anybody meant to increment.
+            if isinstance(current, bool) or not isinstance(current, int):
+                raise Invalid(f"bump: {field} is not a number on {path}: {current}", 1)
+            target[field] = current + 1
+            return target[field]
+    raise Invalid(f"bump: unknown target: {path}", 1)
 
 
 # --- next --------------------------------------------------------------------
