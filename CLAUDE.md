@@ -21,12 +21,11 @@ Plugins are listed in `README.md`; each has its own README.
 New `gh` skills belong in the `gh` plugin, which is the intended home for the commands still in
 `~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
 `tidy-user-notifications`). The no-checkout rebase `rebase-prs` performs already lives here as
-`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`, and,
-until issue #56 ports `gh-sync.sh`, its bash copy `scripts/lib/discover.sh` as well.
+`gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
 `/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but `gh-sync-repo.py`,
+not yet ported to Python, which today is all of them but `gh-sync.py`, `gh-sync-repo.py`,
 `lib/discover.py` and the two hook helpers.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a

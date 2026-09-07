@@ -24,6 +24,7 @@ deliberately independent, so deleting a shell script never means editing a Pytho
 | `bin/gh` | A stand-in for the `gh` CLI, put on `PATH` for every test. |
 | `scenarios.py` | The repository states whose whole report is compared against the shell version. |
 | `golden/bash-output.json` | What `gh-sync-repo.sh` printed for each of those, captured before it was deleted. |
+| `golden/bash-sync-output.json` | The same for the orchestrator: what `gh-sync.sh` printed for the fan-out states in `test_gh_sync.py`. |
 | `test_*.py` | The ported spec examples (the source spec is named in each module docstring), the direct tests for `lib/`, and the parity check. |
 
 ## The fixtures
@@ -132,6 +133,11 @@ assumed. `scenarios.py` builds forty states — every skip reason, and the lines
 produces — and `golden/bash-output.json` holds what the shell script printed for each, captured
 before it was deleted, with commit hashes and the sandbox path normalised out.
 `test_output_parity.py` runs the port over the same scenarios and compares.
+
+The orchestrator is held to the same standard by its own table: the scenarios at the top of
+`test_gh_sync.py` and `golden/bash-sync-output.json`, captured from `gh-sync.sh` the same way.
+That report is what the session-start hook greps for `would `, `✗` and `could not`, so the header,
+the blank line under it, and the order of the sections are all contract.
 
 Adding a scenario after the shell script is gone means adding a golden entry by hand; prefer an
 ordinary test in `test_gh_sync_repo.py` for anything new, and keep the golden as the record of

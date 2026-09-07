@@ -189,8 +189,7 @@ Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_
 `SHEPHERD_LOG_LINES`) are documented at the top of the script.
 
 Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
-rule, `scripts/lib/discover.py`, and `/gh:sync` reaches it through the bash copy
-`scripts/lib/discover.sh` until issue #56 ports `gh-sync.sh`.
+rule, `scripts/lib/discover.py`, which each script imports.
 
 ## Session start hook
 
@@ -224,7 +223,7 @@ would need different credentials per org anyway.
 The scripts have no dependency on the plugin runtime:
 
 ```bash
-plugins/gh/scripts/gh-sync.sh --dry-run ~/Code/@bje/@bje-settings
+python3 plugins/gh/scripts/gh-sync.py --dry-run ~/Code/@bje/@bje-settings
 python3 plugins/gh/scripts/gh-sync-repo.py --dry-run ~/Code/@bje/@bje-settings/terraform
 plugins/gh/scripts/gh-shepherd-status.sh ~/Code/@bje/@bje-settings/terraform
 plugins/gh/scripts/gh-shepherd-pr.sh ~/Code/@bje/@bje-settings/terraform 12 state
@@ -249,8 +248,9 @@ spec/run.sh --quick      # the suite once, under the default shell
 The shellspec suite runs under both shells deliberately: bash 5 is what most contributors have on
 `PATH`, but `/bin/bash` is 3.2 on macOS and is what actually executes those scripts.
 
-`gh-sync-repo.py` is asserted against the report the shell version printed, captured scenario by
-scenario in `tests/gh/golden/bash-output.json` before that version was deleted.
+`gh-sync-repo.py` and `gh-sync.py` are each asserted against the report their shell version
+printed, captured scenario by scenario in `tests/gh/golden/bash-output.json` and
+`golden/bash-sync-output.json` before those versions were deleted.
 
 CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py` over both
 reports: `kcov` for the shell scripts and `coverage.py` for the Python ones, whose tests live in

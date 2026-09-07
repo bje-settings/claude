@@ -6,7 +6,7 @@ Usage:
   gh-sync-repo.py [--dry-run] [--no-install] <repo-path>
 
 Flags may also arrive as GH_SYNC_DRY_RUN=1 / GH_SYNC_NO_INSTALL=1, which is how
-gh-sync.sh passes them to the per-repo jobs it backgrounds.
+gh-sync.py passes them to the jobs it runs one per repository.
 
 Exit status is 0 for a synced repo AND for a skipped one: skipping is a normal
 outcome, not a failure. Non-zero means the script itself broke.
@@ -58,7 +58,7 @@ class Skip(Exception):
 
 
 def flag_is_set(name):
-    """An env flag as gh-sync.sh sets it: "1" on, "0" or unset off."""
+    """An env flag as gh-sync.py sets it: "1" on, "0" or unset off."""
     return os.environ.get(name, "0") not in ("", "0")
 
 
