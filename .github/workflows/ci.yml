@@ -26,11 +26,6 @@ jobs:
       - name: Lint shell scripts
         run: |
           shellcheck -S warning \
-            plugins/gh/scripts/lib/shepherd.sh \
-            plugins/gh/scripts/gh-shepherd-status.sh \
-            plugins/gh/scripts/gh-shepherd-pr.sh \
-            fixtures/gh/fixtures.sh \
-            fixtures/gh/bin/gh \
             spec/run.sh
 
   # The Python counterpart of the shellcheck job. ruff's target-version is py39,

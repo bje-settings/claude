@@ -28,6 +28,8 @@ statusCheckRollup says and there is one source of truth:
                           --branch matches headBranch, --status matches status
   GH_FIXTURE_RUN_LOG      file whose content `gh run view --log-failed` prints
   GH_FIXTURE_FAIL_REBASE  if non-empty, `pr update-branch` fails
+  GH_FIXTURE_FAIL_COMMENT if non-empty, `pr comment` fails, so a caller's
+                          "could not post the comment" arm can be reached
   GH_FIXTURE_WATCH_HANG   if non-empty, `pr checks --watch` never returns, so
                           a caller's own bound can be exercised
 
@@ -241,6 +243,8 @@ def pr_update_branch(args):
 
 def pr_comment(args):
     pull = one_pr(args)
+    if os.environ.get("GH_FIXTURE_FAIL_COMMENT"):
+        die("HTTP 403: Resource not accessible by integration")
     number = pull["number"]
     body = args.body
     if args.body_file:

@@ -32,11 +32,7 @@ run() { printf '\n\033[1m== %s\033[0m\n' "$1"; shift; "$@" || fail=1; }
 
 if command -v shellcheck >/dev/null 2>&1; then
   run "shellcheck" shellcheck -S warning \
-    plugins/gh/scripts/lib/shepherd.sh \
-    plugins/gh/scripts/gh-shepherd-status.sh \
-    plugins/gh/scripts/gh-shepherd-pr.sh \
-    fixtures/gh/fixtures.sh \
-    fixtures/gh/bin/gh
+    spec/run.sh
 else
   printf 'shellcheck not installed, skipping lint\n' >&2
 fi

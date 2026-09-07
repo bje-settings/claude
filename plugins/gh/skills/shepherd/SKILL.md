@@ -31,7 +31,7 @@ stop. Do not classify the directory yourself; the library already did.
 For each path:
 
 ```bash
-"$S/gh-shepherd-status.sh" <path>
+python3 "$S/gh-shepherd-status.py" <path>
 ```
 
 Read `targets` and `skipped_no_automerge`. A repo with no targets gets no agent; report it in

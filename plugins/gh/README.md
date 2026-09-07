@@ -170,12 +170,12 @@ resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
 The deterministic parts are two scripts; the agent only decides between their results.
 
 ```bash
-plugins/gh/scripts/gh-shepherd-status.sh <path>                       # the work list, as JSON
-plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> state|rebase|recreate|wait|merged
-plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> skip <reason-file>
+python3 plugins/gh/scripts/gh-shepherd-status.py <path>               # the work list, as JSON
+python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|merged
+python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> skip <reason-file>
 ```
 
-`status` changes nothing. `gh-shepherd-pr.sh` writes only through `rebase` (the branch update),
+`status` changes nothing. `gh-shepherd-pr.py` writes only through `rebase` (the branch update),
 `recreate` and `skip` (one comment each), and refuses each of those when its precondition does
 not hold: a pull request that is not open, a `recreate` on a branch Dependabot did not author, a
 `skip` with an empty reason. Every action prints one JSON object with `ok` and `detail`, and
@@ -232,36 +232,31 @@ The scripts have no dependency on the plugin runtime:
 ```bash
 python3 plugins/gh/scripts/gh-sync.py --dry-run ~/Code/@bje/@bje-settings
 python3 plugins/gh/scripts/gh-sync-repo.py --dry-run ~/Code/@bje/@bje-settings/terraform
-plugins/gh/scripts/gh-shepherd-status.sh ~/Code/@bje/@bje-settings/terraform
-plugins/gh/scripts/gh-shepherd-pr.sh ~/Code/@bje/@bje-settings/terraform 12 state
+python3 plugins/gh/scripts/gh-shepherd-status.py ~/Code/@bje/@bje-settings/terraform
+python3 plugins/gh/scripts/gh-shepherd-pr.py ~/Code/@bje/@bje-settings/terraform 12 state
 ```
 
-The bash ones are written for bash 3.2, the version macOS ships at `/bin/bash`. The Python ones
-are stdlib-only and target Python 3.9, which is what `/usr/bin/python3` is on a Mac with the
-Command Line Tools.
+Every script in this plugin is Python now: stdlib-only, targeting Python 3.9, which is what
+`/usr/bin/python3` is on a Mac with the Command Line Tools.
 
 ## Tests
 
 Because this skill deletes branches and removes worktrees, its behaviour is asserted against
-real git repositories rather than mocks. The bash scripts have shellspec specs in `spec/gh/`
-with fixtures in `fixtures/gh/`; the Python ones have pytest tests in `tests/gh/`, fixtures
-included.
+real git repositories rather than mocks. The tests are pytest, in `tests/gh/`, fixtures
+included; `tests/gh/README.md` documents them.
 
 ```bash
-spec/run.sh              # lint, then both harnesses (shellspec under bash 5 and bash 3.2)
-spec/run.sh --quick      # the suite once, under the default shell
+uv run --locked pytest tests/gh -q   # this plugin's tests alone
+spec/run.sh                          # lint, then every harness in the repo
 ```
-
-The shellspec suite runs under both shells deliberately: bash 5 is what most contributors have on
-`PATH`, but `/bin/bash` is 3.2 on macOS and is what actually executes those scripts.
 
 `gh-sync-repo.py` and `gh-sync.py` are each asserted against the report their shell version
 printed, captured scenario by scenario in `tests/gh/golden/bash-output.json` and
 `golden/bash-sync-output.json` before those versions were deleted.
 
-CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py` over both
-reports: `kcov` for the shell scripts and `coverage.py` for the Python ones, whose tests live in
-`tests/gh/`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
+CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py`. This
+plugin's half of that is the `coverage.py` report over `tests/gh/`. Run it locally with
+`spec/run.sh --coverage`.
 All three supported package managers have an install test. The uncovered remainder is defensive branches
 guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
 immediately after.
