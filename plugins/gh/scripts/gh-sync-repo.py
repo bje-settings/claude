@@ -723,6 +723,7 @@ def parse_args(argv):
 
 
 def main(argv):
+    streams.bind_closed_streams()
     streams.use_utf8(sys.stdout)
     streams.use_utf8(sys.stderr)
     repo, dry_run, no_install, status = parse_args(argv)
