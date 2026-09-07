@@ -6,10 +6,10 @@ that is four copies of the same broken-pipe dance to keep in step; here it is
 one, and one place for a test to reach.
 
 Nothing here knows what any script does. `run` takes the script's name (for the
-messages), a callable returning the exit status, and the exception classes that
-callable means to report; it owns only what happens around them: the encoding of
-the two output streams, the flush, and the three ways a script can end other
-than normally.
+messages), a callable returning the exit status, the exception classes that
+callable means to report, and the status an unanticipated one exits with; it
+owns only what happens around them: the encoding of the two output streams, the
+flush, and the three ways a script can end other than normally.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def utf8(stream) -> None:
         pass
 
 
-def run(prog: str, body, reported=(Failure,)) -> int:
+def run(prog: str, body, reported=(Failure,), internal_status: int = 1) -> int:
     """Call `body` and turn every way it can end into an exit status.
 
     `reported` names the exceptions the script raises deliberately, each
@@ -72,6 +72,13 @@ def run(prog: str, body, reported=(Failure,)) -> int:
     another `lib/` module, because the tests load each one by path under a
     plugin-unique name, outside any package, where a sibling import would not
     resolve. Everything else is unanticipated and reported as such.
+
+    `internal_status` is what an unanticipated exception exits with. It defaults
+    to 1, which is what a script whose statuses leave 1 for "everything else"
+    wants. A script that gave 1 a narrower meaning passes its own: in
+    `ws-pr-status.py`, exit 1 means "the pull request does not exist" and the run
+    loop fails a stream permanently on it, so an internal error arriving as a 1
+    would strand work no tick could recover.
     """
     utf8(sys.stdout)
     utf8(sys.stderr)
@@ -108,9 +115,10 @@ def run(prog: str, body, reported=(Failure,)) -> int:
     except Exception as error:
         # Every script's usage text promises its own message rather than a
         # traceback. Deliberate: an arm nobody anticipated still reports one line
-        # and exit 1, the way every anticipated one does. The class name is
-        # included so an exception with an empty message (str(error) == "") still
-        # names what happened instead of printing a bare colon.
+        # and `internal_status`, the way every anticipated one reports its own.
+        # The class name is included so an exception with an empty message
+        # (str(error) == "") still names what happened instead of printing a
+        # bare colon.
         sys.stderr.write(f"{prog}: internal error: {type(error).__name__}: {error}\n")
-        return 1
+        return internal_status
     return status

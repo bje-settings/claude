@@ -111,6 +111,18 @@ def test_run_does_not_report_a_class_the_script_did_not_name(capsys):
     assert "internal error: OtherFailure: bad selector" in capsys.readouterr().err
 
 
+def test_run_exits_with_the_status_the_script_gave_unanticipated_failures(capsys):
+    """A script that gave 1 a narrower meaning says so once, here, rather than
+    catching everything itself: `ws-pr-status.py` keeps exit 1 for "the pull
+    request does not exist", which the run loop fails a stream permanently on."""
+
+    def body():
+        raise RuntimeError("nobody saw this coming")
+
+    assert cli.run("prog.py", body, internal_status=4) == 4
+    assert "internal error: RuntimeError" in capsys.readouterr().err
+
+
 def test_run_reports_an_unanticipated_failure_naming_its_class(capsys):
     def body():
         raise RuntimeError()
