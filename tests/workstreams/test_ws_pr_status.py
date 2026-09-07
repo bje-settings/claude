@@ -276,6 +276,22 @@ def test_exits_quietly_when_the_reader_closes_the_pipe(ws_sandbox):
 # --- the arm no stub can provoke ----------------------------------------------
 
 
+def test_exits_4_on_a_failure_nobody_anticipated_so_exit_1_means_only_a_missing_pr(
+    monkeypatch, capsys
+):
+    """Exit 1 is the run loop's permanent failure, so nothing but a pull request
+    that does not exist may reach it. Driven directly: an arm nobody anticipated
+    is by definition one no stub was written to produce."""
+    module = load_lib_module("workstreams_ws_pr_status_internal", WS_PR_STATUS)
+
+    def explode(_reference):
+        raise RuntimeError("nobody saw this coming")
+
+    monkeypatch.setattr(module, "gh_view", explode)
+    assert module.main(["ws-pr-status.py", "10"]) == 4
+    assert "internal error: RuntimeError" in capsys.readouterr().err
+
+
 def test_says_so_when_gh_exits_0_with_something_that_is_not_json(monkeypatch):
     """Not in the shell spec, where such an answer went straight to jq and the
     failure read as "jq failed while folding the pull request" -- a message

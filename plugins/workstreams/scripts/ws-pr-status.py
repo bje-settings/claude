@@ -21,7 +21,8 @@ every check succeeded, was neutral, or skipped; none if there are none. failing
 names the checks that failed (a CheckRun's name or a StatusContext's context).
 
 Exit 0 on success, 1 when the pull request does not exist, 2 on usage, 4 when
-gh itself failed or answered with something this cannot read.
+gh itself failed, answered with something this cannot read, or failed in a way
+nobody anticipated.
 
 1 and 4 are separated because the run loop decides differently on them: a pull
 request that does not exist is a permanent failure of the stream that reported
@@ -125,7 +126,11 @@ def body(argv) -> int:
 
 
 def main(argv) -> int:
-    return cli.run(PROG, lambda: body(argv), (cli.Failure, pr_status.Malformed))
+    # internal_status 4, not the default 1: exit 1 has to mean "the pull request
+    # does not exist" and nothing else, because the run loop fails a stream
+    # permanently on it. An arm nobody anticipated is this script failing, which
+    # is what 4 already says.
+    return cli.run(PROG, lambda: body(argv), (cli.Failure, pr_status.Malformed), internal_status=4)
 
 
 if __name__ == "__main__":
