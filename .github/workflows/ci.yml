@@ -12,25 +12,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  SHELLSPEC_VERSION: "0.28.1"
-
+# THESE JOB NAMES ARE A CONTRACT: ruff, pytest, pytest-floor and coverage here,
+# plus plugin-validate in plugin-validate.yml, are required by the repo ruleset
+# Require CI (22359720), which matches them by exact string. Renaming one does
+# not fail the build: the required check simply never reports and every pull
+# request waits forever for something that will not arrive. Keep them short and
+# stable, and put descriptive text in step names, where it helps in logs without
+# becoming load-bearing.
+#
+# A new job name becomes a required check only after it has reported on main,
+# for the same reason; add it to the ruleset right after the pull request that
+# introduces it merges.
 jobs:
-  lint:
-    name: shellcheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # shellcheck ships on the Ubuntu runner image, so there is nothing to install.
-      - name: Lint shell scripts
-        run: |
-          shellcheck -S warning \
-            spec/run.sh
-
-  # The Python counterpart of the shellcheck job. ruff's target-version is py39,
-  # so syntax newer than the floor is a lint failure rather than something a user
-  # on the Python macOS ships discovers at runtime.
+  # ruff's target-version is py39, so syntax newer than the floor is a lint
+  # failure rather than something a user on the Python macOS ships discovers at
+  # runtime.
   ruff:
     name: ruff
     runs-on: ubuntu-latest
@@ -66,10 +62,9 @@ jobs:
         with:
           enable-cache: true
       # The tests that exercise the dependency-install path need real package
-      # managers, the same three the shell suite needs. corepack is what makes a
-      # project's packageManager field authoritative, which is how the Yarn Berry
-      # fixture pins its version; the runner images ship yarn 1 globally, and
-      # yarn 1 ignores that field.
+      # managers. corepack is what makes a project's packageManager field
+      # authoritative, which is how the Yarn Berry fixture pins its version; the
+      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -89,10 +84,9 @@ jobs:
         with:
           enable-cache: true
       # The tests that exercise the dependency-install path need real package
-      # managers, the same three the shell suite needs. corepack is what makes a
-      # project's packageManager field authoritative, which is how the Yarn Berry
-      # fixture pins its version; the runner images ship yarn 1 globally, and
-      # yarn 1 ignores that field.
+      # managers. corepack is what makes a project's packageManager field
+      # authoritative, which is how the Yarn Berry fixture pins its version; the
+      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -106,98 +100,18 @@ jobs:
       - name: Run the Python suite on the 3.9 floor
         run: uv run --locked pytest -n auto
 
-  test:
-    # The suite runs on macOS on purpose: /bin/bash there is 3.2, which is what
-    # actually executes these scripts when the plugin runs. bash 5 is covered by
-    # the coverage job, whose kcov pass runs the same suite on ubuntu-22.04 with
-    # .shellspec's --shell bash, which is bash 5 there; so the separate bash-5
-    # job was dropped in #68 (issue #67).
-    #
-    # THESE JOB NAMES ARE A CONTRACT: shellcheck, bash-3.2, coverage,
-    # ruff, pytest and pytest-floor are required, or about to be required, by the
-    # branch ruleset, which matches them by exact string. Renaming one does not
-    # fail the build: the required check simply never reports and every pull
-    # request waits forever for something that will not arrive. Keep them short
-    # and stable, and put descriptive text in step names, where it helps in logs
-    # without becoming load-bearing.
-    #
-    # A new job name becomes a required check only after it has reported on main,
-    # for the same reason; add it to the ruleset right after the pull request that
-    # introduces it merges.
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: bash-3.2
-            os: macos-latest
-            shellspec_args: "--shell /bin/bash"
-    steps:
-      - uses: actions/checkout@v7
-
-      # The specs that exercise the dependency-install path need real package
-      # managers. corepack is what makes a project's packageManager field
-      # authoritative, which is how the Yarn Berry fixture pins its version; the
-      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-      - run: corepack enable
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10
-
-      - name: Install shellspec
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/shellspec.tar.gz \
-            "https://github.com/shellspec/shellspec/releases/download/${SHELLSPEC_VERSION}/shellspec-dist.tar.gz"
-          sudo mkdir -p /opt/shellspec
-          sudo tar xzf /tmp/shellspec.tar.gz -C /opt/shellspec --strip-components=1
-          sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
-          shellspec --version
-
-      - name: Report the shell actually under test (/bin/bash 3.2)
-        run: /bin/bash --version | head -1
-
-      # The fixtures pass identity to every git command they run, so no global
-      # git config is needed here. --jobs spreads spec files across the runner's
-      # cores; every example builds its fixtures in its own temp dir, so they do
-      # not share state.
-      - name: Run specs
-        run: shellspec --jobs "$(nproc 2>/dev/null || sysctl -n hw.ncpu)" ${{ matrix.shellspec_args }}
-
   coverage:
     name: coverage
-    # ubuntu-22.04, not ubuntu-latest, because of kcov. kcov is the coverage tool
-    # shellspec integrates with directly (--kcov); the obvious alternative,
-    # bashcov, forces xtrace globally and stops shellspec running any examples at
-    # all. kcov 38 from this image's archive works. It is absent from the 24.04
-    # archive that ubuntu-latest now uses, and upstream's own kcov/kcov:v42 image
-    # carries a newer build that breaks shellspec: the same suite reports 51
-    # failures under it and none under kcov 38. So this pins the runner rather
-    # than the container. When 22.04 is retired, re-test a newer kcov before
-    # moving; do not silently switch images.
-    #
-    # Since #68 this is also the only job that runs the shellspec suite under
-    # bash 5 (the test job runs it under /bin/bash 3.2 on macOS). Moving it into
-    # a container or adding a --shell override would silently drop that run.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       code-quality: write
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install kcov
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq kcov
-          kcov --version
-
-      # As in the test job: corepack makes the packageManager field authoritative
-      # for the Yarn Berry fixture, and pnpm is the branch checked first.
+      # As in the pytest jobs: corepack makes the packageManager field
+      # authoritative for the Yarn Berry fixture, and pnpm is the branch checked
+      # first.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -206,56 +120,25 @@ jobs:
         with:
           version: 10
 
-      - name: Install shellspec
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/shellspec.tar.gz \
-            "https://github.com/shellspec/shellspec/releases/download/${SHELLSPEC_VERSION}/shellspec-dist.tar.gz"
-          sudo mkdir -p /opt/shellspec
-          sudo tar xzf /tmp/shellspec.tar.gz -C /opt/shellspec --strip-components=1
-          sudo ln -sf /opt/shellspec/shellspec /usr/local/bin/shellspec
-
-      # Coverage is measured for the plugins only, pooled across every plugin
-      # under plugins/. Specs and fixtures are test code: counting them would
-      # inflate the number without saying anything about how well the plugins
-      # are tested.
-      #
-      # No --jobs here: serial by construction under kcov; see CLAUDE.md, Tests.
-      - name: Run specs under kcov
-        run: |
-          shellspec --kcov --covdir coverage \
-            --kcov-options "--include-path=./plugins --path-strip-level=1"
-
-      # The threshold is enforced here rather than with shellspec's
-      # --fail-low-coverage, which reports a failure at any coverage level once
-      # enabled: it exits 101 at 97% with kcov's low limit set to 95, and exits 0
-      # for the same run without the flag. This step fails the job before the
-      # upload, with the per-file numbers and the uncovered lines in the log, so
-      # a drop says which file moved.
-      - name: Enforce the coverage threshold for the shell scripts
-        run: python3 tests/coverage_check.py coverage/cobertura.xml 95
-
-      # coverage.py measures the Python scripts. It runs after kcov, which owns
-      # the whole covdir; this only adds a file to it. The threshold is the same
-      # 95, applied to each report separately, so neither harness can be carried
-      # by the other.
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
+      # Coverage is measured for the plugins only, pooled across every plugin
+      # under plugins/, plus tests/coverage_check.py, which decides whether a
+      # build passes and so is measured rather than trusted. The tests
+      # themselves are test code: counting them would inflate the number without
+      # saying anything about how well the plugins are tested.
       - name: Run the Python suite under coverage.py
-        run: uv run --locked pytest --cov --cov-report=xml
+        run: uv run --locked pytest -n auto --cov --cov-report=xml
 
       # The runner's own python3, not uv's: the gate is stdlib-only and
-      # 3.9-compatible precisely so it does not need the dev environment.
-      - name: Enforce the coverage threshold for the Python scripts
+      # 3.9-compatible precisely so a broken dev environment is never what
+      # decides whether a build passes. It fails the job before the upload, with
+      # the per-file numbers and the uncovered lines in the log, so a drop says
+      # which file moved.
+      - name: Enforce the coverage threshold
         run: python3 tests/coverage_check.py coverage/python.xml 95
-
-      - uses: actions/upload-code-coverage@v1
-        with:
-          file: coverage/cobertura.xml
-          language: Shell
-          label: code-coverage/kcov
 
       - uses: actions/upload-code-coverage@v1
         with:

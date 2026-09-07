@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Fail if line coverage is below a threshold.
 
-Used by CI in place of shellspec's --fail-low-coverage, which reports a failure
-at any coverage level once enabled, and by spec/run.sh for both reports. Prints
-the per-file numbers and the uncovered lines either way, so a drop says which
+Used by the CI coverage job and by contributors locally. Prints the per-file
+numbers and the uncovered lines whether or not it fails, so a drop says which
 file moved rather than only that the total fell.
 
-It reads both cobertura reports the repo produces: kcov's, which carries lines
-only, and coverage.py's, which also marks partially covered branches. Where
-branch data is present the partly-taken lines are listed beside the uncovered
-ones; where it is absent nothing changes. The gate itself is the root line-rate
-in both cases, so a partial branch is reported but never fails a build on its
-own.
+It reads a cobertura report. coverage.py's also marks partially covered
+branches; where that data is present the partly-taken lines are listed beside
+the uncovered ones, and where it is absent nothing changes. The gate itself is
+the root line-rate either way, so a partial branch is reported but never fails a
+build on its own.
 
 Stdlib only, and 3.9-compatible: the CI coverage job runs this with the runner's
 system python3, outside the uv environment, so that a broken dev environment
@@ -87,8 +85,8 @@ def partial_branches(cls):
     """Line numbers whose branches were only partly taken, in document order.
 
     coverage.py writes branch="true" with condition-coverage="50% (1/2)" on such
-    a line; kcov writes no branch attributes at all, so this is empty for its
-    report and the caller prints nothing extra. A line that was never hit is left
+    a line; a report carrying no branch attributes at all yields nothing here and
+    the caller prints nothing extra. A line that was never hit is left
     to the uncovered list rather than counted twice, and a branch line carrying no
     condition-coverage at all says nothing either way and is skipped.
     """

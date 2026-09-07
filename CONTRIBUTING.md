@@ -3,26 +3,23 @@
 ## Tests
 
 ```bash
-spec/run.sh
+uv sync --locked                      # create .venv and install the dev toolchain
+uv run --locked pytest -n auto --cov  # the whole suite, with coverage
+uv run --locked ruff check . && uv run --locked ruff format .
 ```
 
-That is still the one command: it lints, then runs both harnesses. shellspec covers the scripts
-that are bash, pytest covers the ones that are Python.
+That is the one command. Every plugin script is Python and pytest is the only harness, so `uv` is
+the only requirement; there is nothing else to install.
 
-Requires `uv`, `shellspec` and `jq`; `shellcheck` is used if present.
+Tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub `gh`
+under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module basenames
+are unique across the suite, so a new one gets its plugin in the name.
 
-Specs live in `spec/`, tests in `tests/`. Fixtures for a bash script live in
-`fixtures/<plugin>/`; fixtures for a Python one live beside its tests in `tests/<plugin>/` (its
-`conftest.py` and its stub `gh` under `bin/`). See `tests/gh/README.md`. A plugin that is Python
-throughout, as `field-test` is, has neither a `spec/` nor a `fixtures/` directory: its fixtures are
-in `tests/<plugin>/conftest.py` beside the tests that read them.
-
-To work on the Python side alone:
+Coverage is gated at 95%, the same threshold CI enforces:
 
 ```bash
-uv sync --locked                      # create .venv and install the dev toolchain
-uv run --locked pytest -n auto --cov  # the Python suite, with coverage
-uv run --locked ruff check . && uv run --locked ruff format .
+uv run --locked pytest -n auto --cov --cov-report=xml
+python3 tests/coverage_check.py coverage/python.xml 95
 ```
 
 `--locked` everywhere, as in CI: without it uv silently re-resolves and rewrites `uv.lock` when
@@ -48,9 +45,8 @@ surviving checkout to fix it. `--allow-missing-config` keeps commits working on 
 
 The hooks are ruff (lint and format check), the Python suite minus the examples marked `slow`,
 which run a real package-manager install (`pytest -n auto -x -q -m "not slow"`; CI runs those
-too), `claude plugin validate --strict` over the marketplace manifest and every plugin, and
-`shellcheck` over the `.sh` files that remain and the `fixtures/*/bin/gh` stubs. They need `uv`,
-`claude` and `shellcheck` on PATH.
+too), and `claude plugin validate --strict` over the marketplace manifest and every plugin. They
+need `uv` and `claude` on PATH.
 Nothing here is the enforcement layer: CI runs the same checks whether or not you installed them.
 
 Run them without committing:

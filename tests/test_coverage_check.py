@@ -82,7 +82,7 @@ def test_names_the_uncovered_lines(run_script, report):
 def test_names_the_partly_taken_branches(run_script, report):
     """names the lines whose branches were only partly taken
 
-    kcov's report carries no branch attributes, so this listing is coverage.py's
+    A report with no branch attributes has no such listing, so this is coverage.py's
     alone; a line that is hit but only half-branched is invisible in the line
     number and is exactly what the port added branch coverage to surface.
     """
@@ -102,8 +102,8 @@ def test_names_the_partly_taken_branches(run_script, report):
     assert "partial branches: 3,7" not in result.stdout
 
 
-def test_says_nothing_about_branches_for_a_kcov_report(run_script, report):
-    """stays quiet about branches on a report that has none (kcov's)"""
+def test_says_nothing_about_branches_for_a_report_without_branch_data(run_script, report):
+    """stays quiet about branches on a report that carries none"""
     write_report(report, 97, 100)
     result = run_script(CHECK, report, 95)
     assert result.status == 0
