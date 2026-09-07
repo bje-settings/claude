@@ -105,6 +105,21 @@ def test_check_state_does_not_let_a_status_context_fall_through_to_conclusion():
     assert shepherd.check_state(row) == "pending"
 
 
+def test_check_state_calls_a_row_that_is_not_an_object_pending():
+    """A null element in the rollup, which GraphQL can answer with.
+
+    The jq took the unfinished arm for it (`null != "COMPLETED"`), and so does
+    this: read as failed it would report a green pull request as broken, and
+    read as an attribute error it took the whole script down with a traceback.
+    """
+    assert shepherd.check_state(None) == "pending"
+    assert shepherd.check_state("build") == "pending"
+
+
+def test_checks_calls_a_rollup_holding_a_null_row_pending():
+    assert shepherd.checks({"statusCheckRollup": [None]})["state"] == "pending"
+
+
 def test_check_state_reads_a_row_with_no_typename_as_a_check_run():
     """gh omits __typename unless it is asked for; the CheckRun arm is the default."""
     assert shepherd.check_state({"status": "COMPLETED", "conclusion": "SUCCESS"}) == "passed"
@@ -169,7 +184,52 @@ def test_a_failing_row_with_no_link_reports_a_null_one():
     ]
 
 
-# --- is_bot --------------------------------------------------------------------
+# --- missing_field, one test per required field --------------------------------
+
+
+def readable(**overrides):
+    """A pull request carrying every field the loop decides from."""
+    pull = {"state": "OPEN", "headRefOid": "sha1", "statusCheckRollup": [], "labels": []}
+    pull.update(overrides)
+    return pull
+
+
+def test_missing_field_accepts_an_answer_carrying_all_of_them():
+    assert shepherd.missing_field(readable()) == ""
+
+
+def test_missing_field_refuses_an_answer_that_is_not_an_object():
+    assert shepherd.missing_field([]) == "a pull request object"
+    assert shepherd.missing_field(None) == "a pull request object"
+
+
+@pytest.mark.parametrize("field", ["state", "headRefOid"])
+def test_missing_field_names_a_field_gh_did_not_answer_with(field):
+    pull = readable()
+    del pull[field]
+    assert shepherd.missing_field(pull) == field
+    assert shepherd.missing_field(readable(**{field: None})) == field
+
+
+def test_missing_field_names_the_rollup_key_when_it_is_absent():
+    """Absent, not empty: an empty rollup is a real answer about a new head."""
+    pull = readable()
+    del pull["statusCheckRollup"]
+    assert shepherd.missing_field(pull) == "statusCheckRollup"
+    assert shepherd.missing_field(readable(statusCheckRollup=None)) == ""
+
+
+def test_missing_field_names_labels_when_they_are_not_a_list():
+    assert shepherd.missing_field(readable(labels=None)) == "labels"
+
+
+def test_missing_field_refuses_the_empty_object_summary_would_have_shaped():
+    """The regression: `summary({})` is a pull request whose checks read passed."""
+    assert shepherd.missing_field({}) == "state"
+    assert shepherd.summary({})["checks"]["state"] == "none"
+
+
+# --- is_bot and is_dependabot --------------------------------------------------
 
 
 def test_is_bot_reads_the_flag_gh_reports():
@@ -188,6 +248,35 @@ def test_a_human_author_is_not_a_bot():
 
 def test_a_pull_request_with_no_author_at_all_is_not_a_bot():
     assert not shepherd.is_bot({})
+
+
+@pytest.mark.parametrize("login", list(shepherd.DEPENDABOT_LOGINS))
+def test_every_login_dependabot_appears_under_is_dependabot(login):
+    """`app/` from `gh pr view --json author`, `[bot]` from GraphQL and REST."""
+    assert shepherd.is_dependabot({"author": {"login": login}})
+
+
+def test_another_bot_is_a_bot_and_is_not_dependabot():
+    """The distinction recreate turns on: `@dependabot recreate` is answered by one bot.
+
+    renovate and github-actions open dependency pull requests too, and a
+    recreate comment on one of theirs is a comment nothing will ever read.
+    """
+    renovate = {"author": {"login": "renovate[bot]", "is_bot": True}}
+    assert shepherd.is_bot(renovate)
+    assert not shepherd.is_dependabot(renovate)
+    assert shepherd.summary(renovate)["is_bot"] is True
+    assert shepherd.summary(renovate)["is_dependabot"] is False
+
+
+def test_an_app_login_with_no_flag_is_still_a_bot():
+    assert shepherd.is_bot({"author": {"login": "app/github-actions"}})
+
+
+def test_a_human_is_neither():
+    human = {"author": {"login": "someone", "is_bot": False}}
+    assert not shepherd.is_bot(human)
+    assert not shepherd.is_dependabot(human)
 
 
 # --- rank ----------------------------------------------------------------------
@@ -288,6 +377,7 @@ def test_summary_carries_the_fields_the_loop_needs():
         "labels": ["dependencies"],
         "createdAt": "2026-01-01T00:00:00Z",
         "checks": {"state": "none", "failing": []},
+        "is_dependabot": True,
     }
 
 

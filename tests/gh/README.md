@@ -113,6 +113,8 @@ Controlled by:
 | `GH_FIXTURE_RUNS` | JSON array for `gh run list`. |
 | `GH_FIXTURE_RUN_LOG` | File whose content `gh run view --log-failed` prints. |
 | `GH_FIXTURE_FAIL_REBASE` | Non-empty makes `pr update-branch` fail. |
+| `GH_FIXTURE_REBASE_ASYNC` | Non-empty makes `pr update-branch` report success and leave the head where it was, which is what the real one does while GitHub is still queuing the update. |
+| `GH_FIXTURE_REBASE_UPTODATE` | Non-empty makes `pr update-branch` report the branch already up to date and move nothing. |
 | `GH_FIXTURE_FAIL_COMMENT` | Non-empty makes `pr comment` fail, so the "could not post the comment" arms of `recreate` and `skip` are reachable. |
 | `GH_FIXTURE_WATCH_HANG` | Non-empty makes `pr checks --watch` never return, so a caller's own bound can be exercised. |
 

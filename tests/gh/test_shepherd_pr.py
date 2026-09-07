@@ -1,7 +1,8 @@
 """Black-box tests for `gh-shepherd-pr.py`.
 
 The port of `spec/gh/shepherd_pr_spec.sh`: one named test per example that spec
-held, plus the stream cases the shell version had no way to reach. Every run is
+held, plus the cases the shell version had no way to reach -- the single-byte
+locale, the reader that closed the pipe, and the `gh is required` preflight. Every run is
 against a real git repository built by the `gh` fixture, never a mocked git.
 
 Dependabot answers `recreate` asynchronously, so the examples that need an
@@ -156,7 +157,7 @@ def test_fails_closed_when_gh_cannot_resolve_the_repository(gh, shepherd_pr, mon
     monkeypatch.setenv("GH_FIXTURE_FAIL", "1")
     result = shepherd_pr(gh.repo, 1, "state")
     assert result.status == 1
-    assert "could not resolve the repository" in result.stderr
+    assert "could not resolve the repository with gh: gh: simulated failure" in result.stderr
 
 
 def test_refuses_to_run_without_its_library(gh, run_script):
@@ -195,6 +196,7 @@ def test_reports_ok_false_exit_0_for_a_pull_request_it_cannot_read(gh, shepherd_
     report = document(result)
     assert report["ok"] is False
     assert "could not read pull request #99" in report["detail"]
+    assert "Could not resolve to a PullRequest" in report["detail"]
 
 
 def test_reports_a_merge_and_its_commit(gh, shepherd_pr):
@@ -245,6 +247,42 @@ def test_reports_a_failed_rebase_without_claiming_a_new_head(gh, shepherd_pr, mo
     assert "after" not in report
 
 
+def test_reports_the_head_as_unmoved_when_update_branch_has_only_been_queued(
+    gh, shepherd_pr, monkeypatch
+):
+    """`gh pr update-branch` returns as soon as GitHub accepts the request.
+
+    Called "rebased" this tells the caller a new CI run is coming when the head
+    is still the one whose checks it has already seen.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="BEHIND"))
+    monkeypatch.setenv("GH_FIXTURE_REBASE_ASYNC", "1")
+    report = document(shepherd_pr(gh.repo, 1, "rebase"))
+    assert report["ok"] is True
+    assert report["before"] == report["after"] == "sha1"
+    assert "the head has not moved" in report["detail"]
+    assert "branch has been updated" in report["output"]
+
+
+def test_reports_the_head_as_unmoved_when_the_branch_was_already_up_to_date(
+    gh, shepherd_pr, monkeypatch
+):
+    """The other exit-0 answer that moves nothing, and it says so in the output."""
+    gh.write_prs(gh.dep_pr(1, merge="BEHIND"))
+    monkeypatch.setenv("GH_FIXTURE_REBASE_UPTODATE", "1")
+    report = document(shepherd_pr(gh.repo, 1, "rebase"))
+    assert report["ok"] is True
+    assert report["after"] == "sha1"
+    assert "already up-to-date" in report["output"]
+
+
+def test_carries_ghs_own_words_on_a_rebase_that_worked(gh, shepherd_pr):
+    gh.write_prs(gh.dep_pr(1, merge="BEHIND"))
+    report = document(shepherd_pr(gh.repo, 1, "rebase"))
+    assert report["detail"] == "rebased"
+    assert "branch has been updated" in report["output"]
+
+
 def test_does_not_call_update_branch_for_an_unknown_pull_request(gh, shepherd_pr, call_log):
     report = document(shepherd_pr(gh.repo, 99, "rebase"))
     assert report["ok"] is False
@@ -259,6 +297,27 @@ def test_refuses_on_a_pull_request_dependabot_did_not_author_and_posts_nothing(g
     report = document(shepherd_pr(gh.repo, 1, "recreate"))
     assert report["ok"] is False
     assert "not authored by Dependabot" in report["detail"]
+    assert comments(gh) == "NONE"
+
+
+def test_refuses_recreate_for_a_bot_that_is_not_dependabot_and_posts_nothing(
+    gh, shepherd_pr, fast_poll
+):
+    """renovate opens dependency pull requests too, and answers no recreate comment.
+
+    `is_bot` still reports what it is, so the loop can say why it stopped; what
+    the action turns on is `is_dependabot`. `fast_poll` is not needed for the
+    refusal, which is immediate; it is there so that a version of this that
+    stopped refusing fails in seconds rather than polling for two CI cycles.
+    """
+    pull = gh.dep_pr(1, merge="DIRTY")
+    pull["author"] = {"login": "renovate[bot]", "is_bot": True}
+    gh.write_prs(pull)
+    report = document(shepherd_pr(gh.repo, 1, "recreate"))
+    assert report["ok"] is False
+    assert "not authored by Dependabot" in report["detail"]
+    assert report["pr"]["is_bot"] is True
+    assert report["pr"]["is_dependabot"] is False
     assert comments(gh) == "NONE"
 
 
@@ -375,6 +434,23 @@ def test_gives_up_after_two_ci_cycles_when_the_head_never_moves(gh, shepherd_pr,
     assert "@dependabot recreate" in comments(gh)
 
 
+def test_polls_at_least_once_when_the_ci_estimate_is_zero(gh, shepherd_pr, monkeypatch):
+    """A bound of twice zero would comment and then report a read never attempted.
+
+    The comment is a write, so a bound that cannot hold a single poll must not be
+    reachable: the loop is floored at one interval instead.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="DIRTY"))
+    monkeypatch.setenv("SHEPHERD_CI_SECONDS", "0")
+    monkeypatch.setenv("SHEPHERD_POLL_SECONDS", "1")
+    report = document(shepherd_pr(gh.repo, 1, "recreate"))
+    assert report["ok"] is False
+    assert "head did not change within 1s" in report["detail"]
+    assert report["read_failures"] == 0
+    assert "could not be re-read" not in report["detail"]
+    assert "@dependabot recreate" in comments(gh)
+
+
 # --- wait ---------------------------------------------------------------------
 
 
@@ -421,6 +497,26 @@ def test_keeps_only_the_requested_number_of_log_lines(gh, shepherd_pr, monkeypat
     assert document(shepherd_pr(gh.repo, 1, "wait"))["log_tail"] == "line 2\nline 3"
 
 
+def test_fetches_the_log_of_the_actions_job_behind_a_failing_status_context(
+    gh, shepherd_pr, monkeypatch, call_log
+):
+    """A StatusContext links to its own service, not to a run whose log gh has.
+
+    One ahead of a failing Actions job in the same rollup must not end the
+    search, or the agent classifies the failure with no log at all.
+    """
+    gh.write_prs(gh.dep_pr(1, checks="status-then-job-failed"))
+    log = gh.path / "log.txt"
+    log.write_text("the failing step\n")
+    monkeypatch.setenv("GH_FIXTURE_RUN_LOG", str(log))
+    report = document(shepherd_pr(gh.repo, 1, "wait"))
+    assert report["result"] == "failed"
+    assert [check["name"] for check in report["pr"]["checks"]["failing"]] == ["ci/legacy", "build"]
+    assert report["log_tail"] == "the failing step"
+    assert "log_error" not in report
+    assert "run view" in call_log.read_text()
+
+
 def test_answers_failed_with_an_empty_log_when_the_failing_check_is_not_an_actions_job(
     gh, shepherd_pr, call_log
 ):
@@ -442,6 +538,41 @@ def test_watches_while_checks_are_pending_and_reports_pending_when_its_bound_is_
     assert report["bound"] == 1
     assert report["watcher_rc"] == 124
     assert "checks 1" in call_log.read_text()
+
+
+def test_does_not_watch_a_rollup_that_has_already_failed(gh, shepherd_pr, call_log, monkeypatch):
+    """`gh pr checks --watch` has been seen not to return on a terminal rollup.
+
+    A watcher that hangs here would turn an answer the pull request already
+    carries into a bound-length wait, so the failure is read from the rollup and
+    no watcher is started at all.
+    """
+    gh.write_prs(gh.dep_pr(1, checks="failed"))
+    monkeypatch.setenv("GH_FIXTURE_WATCH_HANG", "1")
+    report = document(shepherd_pr(gh.repo, 1, "wait"))
+    assert report["result"] == "failed"
+    assert "--watch" not in call_log.read_text()
+
+
+def test_clamps_the_wait_bound_so_one_call_fits_inside_a_tool_call(gh, shepherd_pr, monkeypatch):
+    """Twice a slow repository's CI cycle is longer than the caller can wait."""
+    gh.write_prs(gh.dep_pr(1, checks="pending"))
+    monkeypatch.setenv("SHEPHERD_CI_SECONDS", "1000")
+    monkeypatch.delenv("SHEPHERD_WAIT_BOUND", raising=False)
+    report = document(shepherd_pr(gh.repo, 1, "wait"))
+    assert report["result"] == "pending"
+    assert report["bound"] == 540
+
+
+def test_reports_the_time_actually_spent_rather_than_the_bound(gh, shepherd_pr, monkeypatch):
+    """A watcher that returned at once did not wait the bound out."""
+    gh.write_prs(gh.dep_pr(1, checks="pending"))
+    monkeypatch.setenv("SHEPHERD_WAIT_BOUND", "300")
+    report = document(shepherd_pr(gh.repo, 1, "wait"))
+    assert report["result"] == "pending"
+    assert report["bound"] == 300
+    assert report["waited"] < 300
+    assert f"after {report['waited']}s" in report["detail"]
 
 
 def test_reports_the_rollup_not_the_watcher_once_the_watcher_returns(gh, shepherd_pr, monkeypatch):
@@ -510,6 +641,20 @@ def test_is_a_usage_error_without_a_reason_file(gh, shepherd_pr):
     assert "skip needs a reason file" in result.stderr
 
 
+def test_is_a_usage_error_with_an_empty_reason_file_argument(gh, shepherd_pr):
+    """`skip ""` is a caller that lost its variable, which is what the shell said.
+
+    Not an `ok:false` document: the argument is missing, not the file, and the
+    two call for different fixes.
+    """
+    gh.write_prs(gh.dep_pr(1))
+    result = shepherd_pr(gh.repo, 1, "skip", "")
+    assert result.status == 2
+    assert "skip needs a reason file" in result.stderr
+    assert result.stdout == ""
+    assert comments(gh) == "NONE"
+
+
 def test_refuses_to_comment_on_a_pull_request_that_is_not_open(gh, shepherd_pr):
     gh.write_prs(gh.dep_pr(1, state="MERGED"))
     reason = gh.path / "reason.md"
@@ -525,6 +670,66 @@ def test_skip_reports_ok_false_when_the_pull_request_cannot_be_read(gh, shepherd
     report = document(shepherd_pr(gh.repo, 99, "skip", reason))
     assert report["ok"] is False
     assert comments(gh) == "NONE"
+
+
+# --- an answer gh gave without the fields the loop reads -----------------------
+
+
+def test_refuses_a_pull_request_gh_answered_without_the_fields_the_loop_reads(
+    gh, shepherd_pr, call_log
+):
+    """The regression: an answer carrying only `number` used to become `passed`.
+
+    `summary` shapes whatever it is handed, so a projection missing everything
+    else came back as a pull request with no checks -- which `wait` reads as
+    nothing left to watch.
+    """
+    (gh.path / "prs.json").write_text(json.dumps([{"number": 7}]))
+    report = document(shepherd_pr(gh.repo, 7, "wait"))
+    assert report["ok"] is False
+    assert "gh answered without state" in report["detail"]
+    assert "result" not in report
+    assert "--watch" not in call_log.read_text()
+
+
+def test_reads_a_rollup_holding_a_null_row_rather_than_dying_on_it(gh, shepherd_pr):
+    """GraphQL can answer with a null element; it used to be an exit-1 traceback."""
+    pull = gh.dep_pr(1, checks="pending")
+    pull["statusCheckRollup"] = [None]
+    gh.write_prs(pull)
+    result = shepherd_pr(gh.repo, 1, "state")
+    assert result.status == 0
+    assert "Traceback" not in result.stderr
+    assert document(result)["pr"]["checks"]["state"] == "pending"
+
+
+# --- environment overrides that were not used ----------------------------------
+
+
+def test_says_so_when_a_wait_bound_override_is_not_a_number(gh, shepherd_pr, monkeypatch):
+    """A bound nobody meant to use would otherwise decide the whole run in silence."""
+    gh.write_prs(gh.dep_pr(1, checks="pending"))
+    monkeypatch.setenv("SHEPHERD_WAIT_BOUND", "abc")
+    result = shepherd_pr(gh.repo, 1, "wait")
+    assert result.status == 0
+    assert "SHEPHERD_WAIT_BOUND=abc ignored; using 540" in result.stderr
+    assert document(result)["bound"] == 540
+
+
+def test_says_so_when_a_log_line_count_override_is_not_a_number(gh, shepherd_pr, monkeypatch):
+    gh.write_prs(gh.dep_pr(1))
+    monkeypatch.setenv("SHEPHERD_LOG_LINES", "lots")
+    result = shepherd_pr(gh.repo, 1, "state")
+    assert result.status == 0
+    assert "SHEPHERD_LOG_LINES=lots ignored; using 60" in result.stderr
+
+
+def test_says_nothing_when_no_override_was_given(gh, shepherd_pr, monkeypatch):
+    """Only a value that was set and not used is worth a line."""
+    gh.write_prs(gh.dep_pr(1))
+    monkeypatch.delenv("SHEPHERD_LOG_LINES", raising=False)
+    monkeypatch.delenv("SHEPHERD_CI_SECONDS", raising=False)
+    assert shepherd_pr(gh.repo, 1, "state").stderr == ""
 
 
 # --- streams ------------------------------------------------------------------

@@ -23,7 +23,9 @@ fields the loop needs to pick its next step, plus a `checks` summary reduced
 from statusCheckRollup so the caller does not have to know both the CheckRun
 and StatusContext shapes.
 
-Exits 2 on a usage error, 1 when gh cannot answer for the repository.
+Exits 2 on a usage error, 1 when gh cannot answer for the repository, and 3 on
+an internal error, which is outside the documented set so a caller cannot
+mistake it for an answer.
 """
 
 from __future__ import annotations
@@ -63,43 +65,56 @@ def use_utf8(stream):
         streams.use_utf8(stream)
 
 
-def gh_json(args):
-    """gh's answer parsed, or None when it could not be read.
+def one_line(text):
+    """gh's output on one line, so it can sit in a one-line message."""
+    if not text:
+        return ""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    return " ".join(text.split())
 
-    Every caller here treats "gh refused", "gh is missing" and "gh answered with
-    something that is not JSON" the same way -- the repository cannot be read,
-    or the optional listing is empty -- so the reason does not travel with the
-    None the way it does in gh-sync-repo.py.
+
+def gh_json(args):
+    """(gh's answer parsed, why it could not be read).
+
+    The reason travels with the None the way it does in gh-sync-repo.py: every
+    caller here does treat "gh refused", "gh is missing" and "gh answered with
+    something that is not JSON" the same way, but the person reading the
+    refusal afterwards cannot tell an expired token from a repository that does
+    not exist unless gh's own words come with it.
     """
     try:
         completed = subprocess.run(
             ["gh", *args],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
         )
-    except OSError:
-        return None
+    except OSError as error:
+        return None, f"cannot run gh: {error}"
+    problem = one_line(completed.stderr)
     if completed.returncode != 0:
-        return None
+        return None, problem or f"gh exited {completed.returncode}"
     try:
-        return json.loads(completed.stdout.decode("utf-8", "replace") or "null")
+        return json.loads(completed.stdout.decode("utf-8", "replace") or "null"), ""
     except ValueError:
-        return None
+        return None, problem or "gh answered with something that is not JSON"
 
 
 def resolve_repo():
-    """(nameWithOwner, default branch), or (None, None) when gh cannot say."""
-    view = gh_json(["repo", "view", "--json", "nameWithOwner,defaultBranchRef"])
+    """(nameWithOwner, default branch, why not), the last empty when both resolved."""
+    view, problem = gh_json(["repo", "view", "--json", "nameWithOwner,defaultBranchRef"])
     if not isinstance(view, dict):
-        return None, None
+        return None, None, problem or "gh answered with no repository object"
     name = view.get("nameWithOwner") or None
     branch = (view.get("defaultBranchRef") or {}).get("name") or None
-    if not name or not branch:
-        return None, None
-    return name, branch
+    if not name:
+        return None, None, "gh answered without nameWithOwner"
+    if not branch:
+        # Half an answer is not an answer: the run listing needs the branch.
+        return None, None, "gh answered without a default branch"
+    return name, branch, ""
 
 
-def main(argv):
+def run(argv):
     if streams is not None:
         streams.bind_closed_streams()
     use_utf8(sys.stdout)
@@ -120,7 +135,10 @@ def main(argv):
         return 2
     try:
         os.chdir(target)
-    except OSError:
+    except OSError as error:
+        # Named, because "exit 2" against a path the caller believes in reads as
+        # a bug in the caller rather than as a directory it may not enter.
+        print(f"cannot enter {target}: {error}", file=sys.stderr)
         return 2
     if (
         subprocess.run(
@@ -137,12 +155,12 @@ def main(argv):
         print("gh is required", file=sys.stderr)
         return 1
 
-    repo, default_branch = resolve_repo()
+    repo, default_branch, problem = resolve_repo()
     if repo is None:
-        print("could not resolve the repository with gh", file=sys.stderr)
+        print(f"could not resolve the repository with gh: {problem}", file=sys.stderr)
         return 1
 
-    pulls = gh_json(
+    pulls, problem = gh_json(
         [
             "pr",
             "list",
@@ -159,12 +177,12 @@ def main(argv):
         ]
     )
     if not isinstance(pulls, list):
-        print(f"could not list pull requests for {repo}", file=sys.stderr)
+        print(f"could not list pull requests for {repo}: {problem}", file=sys.stderr)
         return 1
 
     # A run listing the repository cannot answer is not a failure: a repo with
     # no Actions at all is normal, and the loop only needs a wait bound.
-    runs = gh_json(
+    runs, _ = gh_json(
         [
             "run",
             "list",
@@ -196,6 +214,23 @@ def main(argv):
         if streams is not None:  # pragma: no branch - only a broken checkout has none
             streams.silence_output()
     return 0
+
+
+def main(argv):
+    """`run`, with anything it did not expect reported rather than raised.
+
+    Exit 3 is outside the documented set on purpose: a caller parsing the JSON
+    on stdout must not read a crash as an answer, and the agent gets a line
+    naming what broke instead of a traceback it cannot act on.
+    """
+    try:
+        return run(argv)
+    except Exception as error:
+        print(
+            f"{os.path.basename(__file__)}: internal error: {type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
+        return 3
 
 
 if __name__ == "__main__":
