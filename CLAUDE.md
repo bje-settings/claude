@@ -45,9 +45,9 @@ shell parsing decided, plus `run.py`, which `hooks/hook-io.py` imports rather th
 copy of where the run marker lives. Scripts import `lib` through `sys.path`, but tests load a
 plugin's lib modules by path under a plugin-unique module name, because two plugins' `lib` packages
 collide on `sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/`
-imports another
-`lib/` module: a module loaded by path sits outside any package, where a sibling import would not
-resolve, so a module that raises its own error class hands it to `cli.run` rather than importing one.
+imports another `lib/` module: a module loaded by path sits outside any package, where a sibling
+import would not resolve, so a module that raises its own error class hands it to `cli.run` rather
+than importing one.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root
