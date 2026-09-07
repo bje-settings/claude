@@ -24,7 +24,7 @@ deliberately independent, so deleting a shell script never means editing a Pytho
 | `bin/gh` | A stand-in for the `gh` CLI, put on `PATH` for every test. |
 | `scenarios.py` | The repository states whose whole report is compared against the shell version. |
 | `golden/bash-output.json` | What `gh-sync-repo.sh` printed for each of those, captured before it was deleted. |
-| `golden/bash-sync-output.json` | The same for the orchestrator: what `gh-sync.sh` printed for the fan-out states in `test_gh_sync.py`. |
+| `golden/bash-sync-output.json` | The same for the orchestrator: what `gh-sync.sh` printed for the states in `test_gh_sync.py`, which are the fan-out ones plus the single-repository and no-repositories cases. |
 | `test_*.py` | The ported spec examples (the source spec is named in each module docstring), the direct tests for `lib/`, and the parity check. |
 
 ## The fixtures
@@ -139,9 +139,22 @@ The orchestrator is held to the same standard by its own table: the scenarios at
 That report is what the session-start hook greps for `would `, `✗` and `could not`, so the header,
 the blank line under it, and the order of the sections are all contract.
 
-Adding a scenario after the shell script is gone means adding a golden entry by hand; prefer an
-ordinary test in `test_gh_sync_repo.py` for anything new, and keep the golden as the record of
-what the port had to match.
+Both goldens are records of what the port had to match, not a place to add cases to. The shell
+script they were captured from is gone, so a new entry would have to be written by hand, which
+asserts what somebody expected rather than what the shell printed. New scenarios go in an ordinary
+test in `test_gh_sync_repo.py` or `test_gh_sync.py`.
+
+Three or four lines of `gh-sync.py` are unmeasured in the tracked file on purpose: the two wiring
+refusals (`missing <per-repo script>` and `missing <discovery library>`) and the `except
+ImportError` arm that pairs with the second. They are reachable only through `orchestrator_copy`,
+which puts a copy of the script in the sandbox with one of its neighbours taken away, which is how
+the shell spec provoked them too. Coverage records the copy's path, and the copy is outside
+coverage's source tree, so those lines read as uncovered even though the behaviour is asserted by a
+passing test. Line numbers are deliberately not listed here; they move with every edit.
+
+Everything that can be reached against the tracked script is, which is why the spawn failure and
+the report formatting have direct in-process tests (`load_orchestrator`) beside their black-box
+ones rather than being provoked through a copy.
 
 ## Running
 
