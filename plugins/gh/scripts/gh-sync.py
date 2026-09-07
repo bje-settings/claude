@@ -68,7 +68,7 @@ def write(text):
 
     Raw, not `print`: a job's output is passed through exactly as it arrived,
     down to its trailing newlines. That pass-through is pinned by the byte-for-byte
-    golden the port is compared against, and the session-start hook greps the
+    golden the port is compared against, and the session-start hook scans the
     result.
     """
     global _quiet
