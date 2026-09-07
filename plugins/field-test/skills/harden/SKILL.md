@@ -17,10 +17,11 @@ explicit: there is no discovery in this version, and a target list you did not w
 you cannot reason about.
 
 This skill runs in the main session. Only the main session schedules wakes; the worker and the
-applier are subagents that return once and schedule nothing; the review itself runs here. Scripts are called by path, never
-through a variable holding a command string (a Bash tool running zsh does not split one):
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every `ft-harden-state.sh` command takes the
-`<plugin:skill>` being hardened as its first argument, after the command word.
+applier are subagents that return once and schedule nothing, and the review round runs here.
+Scripts are called by path, never through a variable holding a command string (a Bash tool
+running zsh does not split one): `bash "${CLAUDE_PLUGIN_ROOT}/scripts/<script>"`. Every
+`ft-harden-state.sh` command takes the `<plugin:skill>` being hardened as its first argument,
+after the command word.
 
 Write every transition to state **before** taking the next action. The state file is what a
 resumed session reads; acting first and recording after is how the same fix gets made twice.
@@ -110,20 +111,27 @@ one PR, set the target `paused` with its question and stop the loop: that is a d
 person. If it returns `failed`, or no JSON block at all, set the target `failed` with the error
 as its `question` and go to Step 6: the findings stay filed as issues for a person to pick up.
 
-**Review** (`phase review`). Review the PR **in this session**, the way `/workstreams:run` does:
-invoke `/pr-review-toolkit:review-pr` on it, read the bot and human review comments already on it
-(`gh pr view <n> --repo <repo> --json reviews,comments` and
-`gh api "repos/<repo>/pulls/<n>/comments"`), and open the code behind every finding before acting
-on it. A finding is a claim, not a fact. Drop the ones that do not hold, keeping each reason for
-the summary. `review-pr` runs here rather than inside a subagent because its analyzer agents wake
-whoever invoked them, and a subagent gets no such wake (issue #62).
+**Review** (`phase review`). Count the round with `set "$TARGET" review_rounds <n>`, then run it
+with the `Skill` tool:
 
-Hand what survives to `workstreams:applier` as a filled-in `apply-prompt.md`. An `error` from the
-applier pauses the target with that error, naming the findings it had already applied. Repeat the
-review once if the applied changes were substantial; if a second round is also substantial, pause
-the target rather than starting a third.
+`/workstreams:review <n> --worktree <the worker's worktree> --base <the PR's base branch>`
 
-**Merge** (`phase merge`). Only once review applies nothing:
+`<n>` is the round about to run: 1 the first time, 2 for the one repeat. The round belongs to
+`/workstreams:run`, which owns this shape; it is invoked here rather than restated. It reviews,
+reads the PR's own bot and human threads, verifies every finding against the code, applies the
+ones that hold through `workstreams:applier`, replies on the threads, and returns one JSON block.
+It runs in this session rather than inside a subagent because `/pr-review-toolkit:review-pr`
+dispatches analyzer agents that wake whoever invoked them, and a subagent gets no such wake
+(issue #62).
+
+On what it returns, decide by the round rule `/workstreams:run` Step 4 states: measure
+`git -C <worktree> diff --stat <the pushed range>`, a substantial delta earns exactly one repeat,
+a second substantial round pauses rather than starting a third, and a cosmetic one falls through.
+Here the fall-through is the merge step below, and a pause is `set "$TARGET" status paused` with
+the question. An `error` from the round pauses the target with that error, naming the findings it
+had already applied. Keep every rejected finding with its reason for the summary.
+
+**Merge** (`phase merge`). Only once a review round applied nothing, or only cosmetic changes:
 
 ```bash
 gh pr ready <n> --repo <repo>
@@ -165,6 +173,6 @@ every issue filed that did not end up in a merged PR.
 ## Out of scope
 
 Approving PRs; bypassing a check, a ruleset, or a required review; and deciding what counts as a
-mechanical fix beyond the definitions `/gh:shepherd` already carries. This skill also does not
-carry a review loop of its own: `/workstreams:run` and `pr-review-toolkit` own that shape, and it
-is reused here rather than restated.
+mechanical fix beyond the definitions `/gh:shepherd` already carries. This skill also carries no
+review round of its own: `/workstreams:review` is the round, and it is invoked here rather than
+restated.

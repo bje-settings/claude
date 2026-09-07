@@ -23,9 +23,11 @@ fixtures.
 A `plugin:skill` target has to be installed, since it is resolved through Claude's own plugin
 registry rather than from a path. A project or user command or skill is found on disk.
 
-`/field-test:harden` reuses the `workstreams:stream-<effort>` and `workstreams:applier` agents
-and the review loop `/workstreams:run` already owns rather than growing its own, so both plugins
-have to be there; `ft-preflight.sh` checks before a round starts rather than halfway through one.
+`/field-test:harden` reuses the `workstreams:stream-<effort>` agents for its fix phase and
+invokes `/workstreams:review` for its review round rather than growing one of its own, so both
+plugins have to be there: `workstreams` for the agents and the skill, `pr-review-toolkit` because
+that round runs `review-pr`. `ft-preflight.sh` checks before a round starts rather than halfway
+through one.
 
 ## `/field-test:run <target> [args...]`
 

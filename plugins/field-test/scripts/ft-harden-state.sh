@@ -18,9 +18,10 @@
 # session that stopped can re-run the skill and continue. `next` prints the path
 # of the first target still to do, and nothing when the list is exhausted.
 #
-# `set` accepts only the fields below. pr takes a number or null and issues a JSON
-# array (--json is implied for both); everything else is stored as a string.
-#   status phase issues pr merge_sha question summary repo
+# `set` accepts only the fields below. pr and review_rounds take a number or null
+# and issues a JSON array (--json is implied for all three); everything else is
+# stored as a string.
+#   status phase issues pr review_rounds merge_sha question summary repo
 # Target statuses: pending running paused done failed
 # Phases: field-test verify fix review merge summary done
 #
@@ -33,12 +34,12 @@ set -uo pipefail
 
 STATUSES=" pending running paused done failed "
 PHASES=" field-test verify fix review merge summary done "
-FIELDS=" status phase issues pr merge_sha question summary repo "
+FIELDS=" status phase issues pr review_rounds merge_sha question summary repo "
 EFFORTS=" low medium high "
 MODELS=" haiku sonnet opus fable inherit "
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 
-usage() { sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { printf 'ft-harden-state.sh: %s\n' "$1" >&2; exit "${2:-1}"; }
 need() { [[ -n "${2:-}" && "${2:-}" != -* ]] || die "$1 needs a value" 2; }
 
@@ -141,8 +142,8 @@ case "$cmd" in
     if [[ "$field" == "phase" ]] && [[ "$value" == *[[:space:]]* || "$PHASES" != *" $value "* ]]; then
       die "set: invalid phase: $value (one of:$PHASES)" 2
     fi
-    if [[ "$field" == "pr" ]]; then
-      [[ "$value" =~ ^[0-9]+$ || "$value" == "null" ]] || die "set: pr takes a number or null, got: $value" 2
+    if [[ "$field" == "pr" || "$field" == "review_rounds" ]]; then
+      [[ "$value" =~ ^[0-9]+$ || "$value" == "null" ]] || die "set: $field takes a number or null, got: $value" 2
       mode="--json"
     elif [[ "$field" == "issues" ]]; then
       # Valid JSON that is not an array is refused here; invalid JSON falls
