@@ -10,7 +10,8 @@ It stays silent unless there is something worth acting on, because a hook that
 speaks every single time stops being read, and it always exits 0 on the
 `session-start` path, so nothing here can stop a session from starting. The
 `; exit 0` in hooks.json holds the same guarantee for the cases this file is
-never reached in at all: no python3 on PATH, or an unreadable hooks directory.
+never reached in at all: no python3 on PATH, or a hooks directory this file was
+never installed into.
 
 Usage:
   hook-io.py session-start              the whole hook; payload on stdin
@@ -20,17 +21,28 @@ Usage:
 
 The last three are the pieces `session-start` is built from, kept as
 subcommands because they are the seams the tests and a human debugging the hook
-work at. They are the one place that answers with a usage message and exit 2: a
-typo in hooks.json is a wiring mistake, and a hook that swallowed it would be
-silent about the check it was supposed to run for the life of the install.
-Nothing is written to stdout on that path, so the hook still contributes no
-context, and hooks.json's `; exit 0` keeps it from surfacing as a hook failure.
+work at.
+
+Anything else -- no subcommand, one that is not a subcommand, or `branch`
+without exactly two branch names -- is the one path that answers with a usage
+message and exit 2: a typo in hooks.json is a wiring mistake, and a hook that
+swallowed it would be silent about the check it was supposed to run for the life
+of the install. hooks.json's `; exit 0` absorbs the status, so the diagnostic
+that actually survives is the usage line on stderr, which Claude Code's debug
+log keeps. Nothing is written to stdout there, so the hook still contributes no
+context.
+
+stderr is where the other degraded runs leave their trace too, for the same
+reason: a missing `gh-sync.py` or a missing git is worth one line in the debug
+log and nothing at all in the session.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 
@@ -41,11 +53,12 @@ SYNC = os.path.join(SCRIPTS, "gh-sync.py")
 sys.path.insert(0, SCRIPTS)
 
 try:
-    from lib import streams  # noqa: E402
+    from lib import discover, streams  # noqa: E402
 except ImportError:
     # A hook must not be the reason a session stops, so an installation missing
-    # the plugin's own library still runs: it loses the stream handling and
-    # nothing else. Every use below is guarded.
+    # the plugin's own library still runs: it loses the stream handling and the
+    # repository count in one message, and nothing else. Every use is guarded.
+    discover = None
     streams = None
 
 ORIGIN_HEAD = "refs/remotes/origin/HEAD"
@@ -56,6 +69,18 @@ ORIGIN_PREFIX = "refs/remotes/origin/"
 # run whose merge lookups all failed has nothing to propose, and silence there
 # would read as "everything is in order" rather than "nothing could be checked".
 ACTIONABLE = ("would ", "✗", "could not")
+
+# The hook's own budget is 60 seconds, so the fan-out has to be stopped with time
+# left to say that it was. One fetch per repository is the slow part, and a
+# directory of repositories against a remote that is answering slowly is exactly
+# the case that runs over.
+SYNC_TIMEOUT = 50.0
+SYNC_TIMEOUT_ENV = "GH_HOOK_SYNC_TIMEOUT"
+
+FAILED_LINE = "could not run the sync check: {detail}"
+TIMEOUT_LINE = (
+    "could not finish the sync check within {seconds} s ({count} repositories under {cwd})"
+)
 
 BRANCH_MESSAGE = """\
 This session started on branch '{current}'; the repository's default branch is '{default}'.
@@ -89,6 +114,16 @@ def emit(context):
     sys.stdout.write("\n")
 
 
+def note(line):
+    """One line to stderr, where Claude Code's debug log keeps it.
+
+    stdout carries the hook response and nothing else, so a run that is degraded
+    but has nothing a session should act on still leaves a trace for whoever is
+    debugging the install.
+    """
+    sys.stderr.write(line + "\n")
+
+
 def payload_cwd():
     """The `cwd` of the payload on stdin, or "" when there is not one to read.
 
@@ -118,7 +153,10 @@ def git(cwd, *args):
 
     None and "" are different answers and both are used below: `show-ref
     --verify --quiet` succeeds with no output at all, so only None can mean "the
-    ref is not there". stderr is discarded; a hook has nowhere useful to put it.
+    ref is not there". stderr is discarded here on purpose: the failure worth a
+    line in the debug log is git missing altogether, which `session_start`
+    checks once before any of this, and a ref that is not there is not a failure
+    at all.
     """
     try:
         completed = subprocess.run(
@@ -127,8 +165,9 @@ def git(cwd, *args):
             stderr=subprocess.DEVNULL,
         )
     except OSError:
-        # No git on PATH, or a cwd that vanished between the isdir check and
-        # here. Either way there is nothing to report.
+        # A cwd that vanished between the isdir check and here, or a git that
+        # left the PATH since `session_start` looked. Nothing to report either
+        # way.
         return None
     if completed.returncode != 0:
         return None
@@ -170,26 +209,114 @@ def branch_message(cwd):
     return BRANCH_MESSAGE.format(current=current, default=default)
 
 
-def report_message(cwd):
-    """The fan-out message, or None when the dry run said nothing actionable.
+def sync_timeout():
+    """The fan-out's budget in seconds: SYNC_TIMEOUT, or the override.
+
+    The environment override exists so a test can reach the timeout arm without
+    waiting out the real bound. Anything unparseable or not positive is the
+    default rather than an error: this is a hook, and a stray value in the
+    environment must not be the thing that decides a session.
+    """
+    raw = os.environ.get(SYNC_TIMEOUT_ENV, "")
+    try:
+        value = float(raw)
+    except ValueError:
+        return SYNC_TIMEOUT
+    return value if value > 0 else SYNC_TIMEOUT
+
+
+def kill_group(child):
+    """Stop the fan-out and everything it started.
+
+    `gh-sync.py` spawns a `gh-sync-repo.py` per repository, each of which runs
+    git: killing the child alone would leave those running against the network
+    long after the session moved on. The child is its own session leader, so the
+    group signalled here cannot reach this hook or the session that started it.
+    """
+    try:
+        os.killpg(os.getpgid(child.pid), signal.SIGKILL)
+    except OSError:
+        # The child is already gone, or has no group of its own to signal.
+        child.kill()
+
+
+def repo_count(cwd):
+    """How many repositories the fan-out was working through.
+
+    The same discovery `gh-sync.py` does, so the number in the timeout message
+    is the one it was working from. It is a local `git rev-parse` per immediate
+    subdirectory, cheap even directly after a run that used its whole budget.
+    Any failure answers 0: this is one detail inside a message about a different
+    failure, and it must not become a second one.
+    """
+    if discover is None:
+        return 0
+    try:
+        return len(discover.discover_repos(cwd))
+    except Exception:
+        return 0
+
+
+def last_line(text):
+    """The last line of `text` with anything in it, stripped, or ""."""
+    for line in reversed(text.splitlines()):
+        if line.strip():
+            return line.strip()
+    return ""
+
+
+def run_sync(cwd):
+    """The dry-run fan-out's report, or a one-line account of a degraded run.
 
     `sys.executable`, not `python3`: the child must be the interpreter already
     running this hook, not whichever one happens to come first on the PATH of
     the session that started.
+
+    Popen rather than `subprocess.run(timeout=...)`: on a timeout the whole
+    process group has to go, and `TimeoutExpired` does not carry the pid to
+    signal it by.
     """
-    if not os.access(SYNC, os.R_OK):
-        return None
+    timeout = sync_timeout()
     try:
-        completed = subprocess.run(
+        child = subprocess.Popen(
             [sys.executable, SYNC, "--dry-run", "--no-install", cwd],
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
     except OSError:
+        # `os.access` said the file is readable and the exec still failed: a
+        # partial install, or a machine out of processes. Nothing to say.
         return None
-    if completed.returncode != 0:
+    try:
+        out, err = child.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_group(child)
+        child.communicate()
+        return TIMEOUT_LINE.format(seconds=format(timeout, "g"), count=repo_count(cwd), cwd=cwd)
+    if child.returncode != 0:
+        # The child's own diagnosis, kept whole where the debug log will have
+        # it; the session gets one line, because a person reads that one.
+        text = err.decode("utf-8", "replace")
+        sys.stderr.write(text if text.endswith("\n") or not text else text + "\n")
+        detail = last_line(text) or f"exit status {child.returncode}"
+        return FAILED_LINE.format(detail=detail)
+    return out.decode("utf-8", "replace")
+
+
+def report_message(cwd):
+    """The fan-out message, or None when the dry run said nothing actionable.
+
+    A degraded run goes back through this same path rather than around it:
+    "could not" is already the vocabulary `gh-sync.py` reports a lookup it could
+    not make in, and the filter below already treats it as worth saying.
+    """
+    if not os.access(SYNC, os.R_OK):
+        note("missing " + SYNC)
         return None
-    report = completed.stdout.decode("utf-8", "replace")
+    report = run_sync(cwd)
+    if report is None:
+        return None
     if not any(marker in report for marker in ACTIONABLE):
         return None
     return REPORT_MESSAGE.format(report=report.rstrip("\n"))
@@ -200,6 +327,12 @@ def session_start():
     cwd = payload_cwd()
     if not cwd or not os.path.isdir(cwd):
         cwd = os.getcwd()
+    if shutil.which("git") is None:
+        # Both branches need git: the in-repo check cannot ask what branch this
+        # is, and `gh-sync.py` refuses outright. Neither is worth a line of a
+        # session's context, and both are worth one in the debug log.
+        note("git is not on PATH")
+        return
     if git(cwd, "rev-parse", "--show-toplevel") is not None:
         message = branch_message(cwd)
     else:
