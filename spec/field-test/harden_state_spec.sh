@@ -148,6 +148,7 @@ Describe 'ft-harden-state.sh'
       The status should be success
       The value "$(target 0)" should include '"status":"pending"'
       The value "$(target 0)" should include '"phase":"field-test"'
+      The value "$(target 0)" should include '"review_rounds":0'
       The value "$(field 'repo')" should equal 'acme-org/widgets'
     End
 
@@ -224,6 +225,18 @@ Describe 'ft-harden-state.sh'
       When run script "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets pr forty-four
       The status should equal 2
       The stderr should include 'pr takes a number or null'
+    End
+
+    # The review phase hands the round to /workstreams:review and records which
+    # round it was, so a resumed run knows whether the round it is starting is
+    # the one repeat the round rule allows. A count stored as a string would
+    # compare wrong against that limit rather than fail.
+    It 'stores the review round as a number and refuses one that is not'
+      "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets review_rounds 2
+      When run script "$FT_HARDEN_STATE" set gh:shepherd /repos/widgets review_rounds two
+      The status should equal 2
+      The stderr should include 'review_rounds takes a number or null'
+      The value "$(jq -c '.targets[0].review_rounds' "$(STATE_FILE)")" should equal '2'
     End
 
     It 'stores the issues as a JSON array'
