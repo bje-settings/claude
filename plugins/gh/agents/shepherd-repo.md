@@ -65,8 +65,9 @@ in the order given:
      branch update, usually a conflict that appeared since `status` ran), re-read `state` and
      decide again; a second `ok:false` is `blocked` with the detail. `ok:true` with `after`
      equal to `before` means GitHub accepted the update and has not applied it yet, or the
-     branch was already current; `ok:true` with `after` empty means the update landed and the
-     confirming read did not. Both still go to `wait`, which re-reads. Do not rebase again to
+     branch was already current (`output` carries the line gh printed, which says which);
+     `ok:true` with `after` empty means the update landed and the confirming read did not.
+     Both still go to `wait`, which re-reads. Do not rebase again to
      "make sure": that is a second CI run for a read that failed.
    - `DIRTY` (conflicts) → if `pr.is_dependabot`, `recreate`. Otherwise this pull request needs a
      human or a larger model: record it as `needs_escalation` with the reason "conflicts on a
@@ -80,9 +81,9 @@ in the order given:
        with `mergeCommit` from `pr.mergeCommit` and `rebases: 1`, and continue.
      - `recreate` `ok:true` otherwise (the head moved) → `wait`.
      - `recreate` `ok:false` → record it as `blocked` with the detail and continue. The detail
-       says which it was: the comment could not be posted, the head did not change within the
-       bound, or the pull request could not be re-read at all (a gh failure, not a Dependabot
-       one). Do not retry.
+       says which it was: the author is not Dependabot, the pull request is not open, the
+       comment could not be posted, the head did not change within the bound, or the pull
+       request could not be re-read at all (a gh failure, not a Dependabot one). Do not retry.
      - `pr.is_bot` is the broader flag: true for renovate and github-actions as well. Only
        `pr.is_dependabot` gets a `recreate`; another bot's conflicted pull request is
        `needs_escalation` like a human's.
@@ -96,14 +97,14 @@ in the order given:
 3. Act on the `wait` result:
    - `ok:false` → the wait could not be completed: the pull request could not be read, or the
      checks watcher itself failed (a 502, an expired token; the detail says which and carries
-     gh's own words). This is not `pending`. Re-read `state` and decide again; a second
+     gh's own words, and `waited` says how long the watcher ran). This is not `pending`. Re-read `state` and decide again; a second
      `ok:false` is `blocked` with the detail.
    - `merged` → record the merge commit and continue to the next target.
    - `passed` → re-read `state`. Auto-merge normally fires within a minute; if the pull request
      is still `OPEN` after one more `wait`, record it as `blocked` with `mergeStateStatus` (a
      review requirement, for example) and continue. Do not merge it yourself.
-   - `pending` → `wait` again. After three consecutive `pending` results with no change in
-     `pr.headRefOid`, record the pull request as `blocked` ("checks did not finish") and
+   - `pending` → `wait` again (`waited` is how many seconds the watcher ran before the bound).
+     After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull request as `blocked` ("checks did not finish") and
      continue.
    - `failed` → classify the failure (step 4).
 4. Classify from `pr.checks.failing` and `log_tail`. A `log_error` beside them means gh would
