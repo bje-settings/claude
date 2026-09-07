@@ -184,7 +184,19 @@ exits 0 whether or not it acted, so a refusal is data for the agent rather than 
 request closed or merged with its head unmoved returns early with `ok: true` and
 `result: "closed"` or `"merged"` rather than waiting out the bound; and a poll that cannot read
 the pull request is counted, not mistaken for "the head did not move". If no poll succeeded the
-detail says so and carries gh's last error.
+detail says so and carries gh's last error. `recreate` is for Dependabot's own pull requests:
+the summary's `is_bot` says whether any bot opened it, and `is_dependabot` is what the refusal
+turns on, because `@dependabot recreate` on a renovate branch is a comment nothing will answer.
+
+Nothing here reports a silence as a fact. A read gh could not answer carries gh's own words, an
+answer missing a field the loop decides from is refused rather than shaped into a pull request
+with no checks, and a `wait` whose watcher failed for a reason of its own is `ok: false` rather
+than `pending` -- reported as pending, an expired token is waited out one CI cycle at a time
+forever. `rebase` reports gh's output and says when the head has not moved, since
+`gh pr update-branch` returns as soon as GitHub accepts the request and prints the same line
+when the branch was already current. A failed `wait` carries `log_tail`, and `log_error` beside
+it when gh would not hand the log over, so an empty tail is not mistaken for a job that printed
+nothing.
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`) are documented at the top of the script.
 
