@@ -8,6 +8,10 @@ Three things, all of which have to happen before a script writes its first line:
     streams.use_utf8(sys.stdout)
     streams.use_utf8(sys.stderr)
 
+and, in a script that reads one of these reports back, stdin as well:
+
+    streams.use_utf8(sys.stdin)
+
 and one that happens once a reader has gone away:
 
     streams.silence_output()
@@ -39,11 +43,16 @@ def bind_closed_streams():
 
 
 def use_utf8(stream):
-    """Make `stream` write UTF-8, replacing anything it cannot encode.
+    """Make `stream` read or write UTF-8, replacing anything it cannot handle.
 
     The reports carry ✓, ✗ and · and a repository path may hold any byte, so under
     a single-byte locale (LC_ALL=en_US.ISO8859-1, PYTHONIOENCODING=ascii) writing
     one raises UnicodeEncodeError and the run dies on its first line.
+
+    Reading is the same problem from the other end, and the reason this is not
+    named for writing: `hook-io.py report` reads a report holding those same
+    characters on stdin, where an unreconfigured stream raises UnicodeDecodeError
+    instead of handing back a decoded line.
 
     A stream that has been replaced with something without `reconfigure`, or that
     is already detached, is left as it is: the fallback is the original, loud
