@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A stand-in for the gh CLI, for the workstreams specs. Put this directory on PATH.
 #
-# Like fixtures/gh/bin/gh, it does not fake the output of the script under test.
+# Like tests/gh/bin/gh, it does not fake the output of the script under test.
 # It holds canned issues, pull requests, and extensions, applies the filtering the
 # real gh applies server-side, projects the fields named by --json, and runs the
 # caller's own --jq expression with real jq, so the jq in the scripts is exercised

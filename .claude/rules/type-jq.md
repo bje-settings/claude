@@ -49,3 +49,11 @@ extract to move a number.
 kcov traces what shellspec runs via `When run script`. A script invoked from a helper function
 may not be traced at all, so a file can look uncovered while being thoroughly exercised, or the
 reverse.
+
+## The check-state fold now
+
+That fold lives in `plugins/gh/scripts/lib/shepherd.py`, where each arm is a plain function with
+its own named test and coverage.py's branch data reports the arms separately, so the three
+mutations above cannot pass unnoticed any more. The lesson stands for every jq that remains: a
+`.jq` file or an inline program is still one line to kcov, and only a test per branch says whether
+it works.
