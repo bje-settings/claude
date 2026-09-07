@@ -118,12 +118,12 @@ that prompted this skill; the other is a report nobody checked.
 `field-test`, `verify`, `fix`, `review`, `merge`, `summary`, `done`. A target is `failed` when its
 fix worker failed or returned no report; its issues stay open. `next` prints the first target
 that is neither done nor failed, including a paused one, so a question cannot be stepped over, and
-refuses a target whose status or path it cannot read rather than reporting a run as finished.
-A target that comes back `running` is resumed at its recorded phase, with its `pr` and
-`review_rounds` as they stand, rather than started over. `bump` adds one to a numeric field
-(`pr`, `review_rounds`) and prints the new value, so counting a review round is one call rather
-than a read, an addition, and a write a stopped session can land between. `init` refuses to
-overwrite a run in progress without `--force`.
+refuses a target whose status or path it cannot read rather than reporting a run as finished. A
+target that comes back `running` is resumed at its recorded phase, with its `pr` and
+`review_rounds` as they stand, rather than started over. `bump` adds one to a numeric field (`pr`,
+`review_rounds`) and prints the new value, so counting a review round is one call rather than a
+read, an addition, and a write a stopped session can land between. `init` refuses to overwrite a
+run in progress without `--force`.
 
 ## Hooks
 
@@ -190,7 +190,7 @@ All deterministic, and all Python (stdlib only, 3.9), tested under `tests/field-
 | `ft-redact.py` | Text in, text out; identity inside the enterprise, placeholders outside |
 | `ft-issue.py` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
 | `ft-preflight.py` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
-| `ft-harden-state.py` | Atomic read/write of one hardening run; validates fields, statuses, and phases. `bump` adds one to a numeric field, so no caller counts a round by hand |
+| `ft-harden-state.py` | Atomic read/write of one hardening run; validates fields, statuses, and phases; `bump` counts a numeric field |
 | `ft-verify-report.py` | A report's claims against `gh pr view`, per pull request |
 | `ft-wait-pr.py` | Blocking, bounded wait on one pull request: `merged`, `passed`, `failed`, `pending` |
 

@@ -182,21 +182,13 @@ def cmd_names(argv):
     cli.write_out(json.dumps(table, indent=2, ensure_ascii=False) + "\n")
 
 
-def cmd_search(argv):
-    repo = argv[0] if argv else ""
-    signature = argv[1] if len(argv) > 1 else ""
-    if not repo or not signature:
-        die("search needs <repo> <signature>", 2)
-    # The signature is in the issue body verbatim, so a substring search on it is
-    # exact enough; anything gh cannot answer means "no match", and the caller
-    # opens a new issue rather than silently attaching to the wrong one.
-    #
-    # That contract stays -- exit 0, empty stdout -- because the caller reads the
-    # output and a failure that looked like a match would attach a finding to the
-    # wrong issue. But each way of reaching it says so on stderr first. "No
-    # existing issue" and "could not find out" lead to the same next step and to
-    # very different duplicates, and without a line here the second is invisible.
-    # See #74 for the argument about whether the status should change too.
+def search_number(repo: str, signature: str):
+    """The number of the open finding that already carries `signature`, or None.
+
+    None is every other answer, including the ones gh could not give: the caller
+    opens a new issue rather than silently attaching to the wrong one, and
+    `no_match` has already said on stderr which None this is.
+    """
     try:
         finished = subprocess.run(
             [
@@ -218,25 +210,50 @@ def cmd_search(argv):
             check=False,
         )
     except OSError as error:
-        return no_match(f"gh could not run ({error})")
+        no_match(f"gh could not run ({error})")
+        return None
     if finished.returncode != 0:
         detail = finished.stderr.decode("utf-8", "replace").strip().replace("\n", " ")
-        return no_match(f"gh exited {finished.returncode} ({detail[:GH_ERROR_CHARS]})")
+        no_match(f"gh exited {finished.returncode} ({detail[:GH_ERROR_CHARS]})")
+        return None
     try:
         issues = json.loads(finished.stdout.decode("utf-8", "replace"))
     except ValueError:
-        return no_match("gh's answer is not JSON")
+        no_match("gh's answer is not JSON")
+        return None
     if not isinstance(issues, list):
-        return no_match("gh's answer is not a list of issues")
+        no_match("gh's answer is not a list of issues")
+        return None
     for issue in issues:
         if isinstance(issue, dict) and signature in (issue.get("body") or ""):
-            number = issue.get("number")
             # `// empty` in the shell's jq: a match with no number printed
-            # nothing at all. The caller tests for empty output and opens a new
-            # issue, and the string "None" would read to it as issue None.
-            if number is not None:
-                cli.write_out(str(number) + "\n")
-            return
+            # nothing at all. The first match settles it either way, so a match
+            # whose number is missing answers None rather than sending the scan
+            # on to a later issue the signature never named.
+            return issue.get("number")
+    return None
+
+
+def cmd_search(argv):
+    repo = argv[0] if argv else ""
+    signature = argv[1] if len(argv) > 1 else ""
+    if not repo or not signature:
+        die("search needs <repo> <signature>", 2)
+    # The signature is in the issue body verbatim, so a substring search on it is
+    # exact enough; anything gh cannot answer means "no match", and the caller
+    # opens a new issue rather than silently attaching to the wrong one.
+    #
+    # That contract stays -- exit 0, empty stdout -- because the caller reads the
+    # output and a failure that looked like a match would attach a finding to the
+    # wrong issue. But each way of reaching it says so on stderr first. "No
+    # existing issue" and "could not find out" lead to the same next step and to
+    # very different duplicates, and without a line here the second is invisible.
+    # See #74 for the argument about whether the status should change too.
+    number = search_number(repo, signature)
+    # The caller tests for empty output and opens a new issue, and the string
+    # "None" would read to it as issue None.
+    if number is not None:
+        cli.write_out(str(number) + "\n")
 
 
 def cmd_render(argv):
