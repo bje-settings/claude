@@ -22,6 +22,7 @@ from conftest import (
     comments_page,
     load_lib_module,
     ws_fixture_comments,
+    ws_graphql_calls,
 )
 
 pytestmark = pytest.mark.usefixtures("ws_sandbox")
@@ -97,6 +98,60 @@ def test_asks_for_the_next_page_with_the_cursor_github_gave_it(ws_pr_comments, w
         [comments_page(has_next=True), comments_page()],
     )
     assert entries(ws_pr_comments("10")) == []
+
+
+def test_keeps_a_finished_connections_cursor_while_another_pages_on(ws_pr_comments, ws_sandbox):
+    """Only `reviews` has a second page. The other two are done, and the round
+    that follows must ask for them from where they stopped: falling back to a
+    null cursor would hand back their first page and list every entry twice."""
+    ws_fixture_comments(
+        ws_sandbox.gh_dir / "comments.json",
+        [
+            comments_page(
+                reviews=[{"databaseId": 1, "body": "one", "author": None}],
+                comments=[{"databaseId": 2, "body": "two", "author": None}],
+                threads=[
+                    {
+                        "isResolved": False,
+                        "comments": {
+                            "nodes": [
+                                {
+                                    "databaseId": 3,
+                                    "body": "three",
+                                    "path": "a.py",
+                                    "line": 1,
+                                    "author": None,
+                                }
+                            ]
+                        },
+                    }
+                ],
+                has_next=["reviews"],
+            ),
+            comments_page(reviews=[{"databaseId": 4, "body": "four", "author": None}]),
+        ],
+    )
+    found = [entry["id"] for entry in entries(ws_pr_comments("10"))]
+    assert found == [1, 2, 3, 4]
+    calls = ws_graphql_calls(ws_sandbox.gh_dir)
+    assert len(calls) == 2
+    assert calls[0].get("reviewsAfter") is None
+    assert (
+        calls[1]["reviewsAfter"],
+        calls[1]["commentsAfter"],
+        calls[1]["threadsAfter"],
+    ) == ("r-next", "c-next", "t-next")
+
+
+def test_sends_the_repository_as_a_string_even_when_it_is_all_digits(ws_pr_comments, ws_sandbox):
+    """`gh api graphql -F` types its value, so -F name=2048 ships an Int against
+    a String! variable and GitHub rejects the query. The stub types -F the same
+    way, so this fails on a script that reaches for the wrong flag."""
+    ws_fixture_comments(ws_sandbox.gh_dir / "comments.json", [comments_page()])
+    result = ws_pr_comments("https://github.com/2048/2048/pull/10")
+    assert result.status == 0, result.stderr
+    assert result.stdout == "[]\n"
+    assert ws_graphql_calls(ws_sandbox.gh_dir)[0]["owner"] == "2048"
 
 
 def test_reports_an_empty_pull_request_as_an_empty_list(ws_pr_comments, ws_sandbox):

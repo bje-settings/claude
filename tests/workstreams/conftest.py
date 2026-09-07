@@ -394,33 +394,54 @@ COMMENTS_PAGE = {
 }
 
 
+CONNECTION_NAMES = ("reviews", "comments", "reviewThreads")
+
+
 def comments_page(reviews=(), comments=(), threads=(), has_next=False):
     """A page of the query's answer, for the tests that build their own.
 
-    `has_next` is set on all three connections at once, which is what a caller
-    that has to ask for a second page sees; the tests that care about one
-    connection alone assert on the entries rather than on the paging.
+    `has_next` is either a bool, which sets the flag on all three connections at
+    once, or the names of the connections that carry it (`reviews`, `comments`,
+    `reviewThreads`). GitHub pages the three independently, and a fixture that
+    can only page them together cannot tell a script that keeps a finished
+    connection's cursor from one that falls back to null.
     """
+    if has_next is True:
+        more = set(CONNECTION_NAMES)
+    elif has_next is False:
+        more = set()
+    else:
+        more = set(has_next)
+        unknown = more - set(CONNECTION_NAMES)
+        assert not unknown, f"no such connection: {sorted(unknown)}"
     return {
         "data": {
             "repository": {
                 "pullRequest": {
                     "reviews": {
-                        "pageInfo": _page_info(has_next, "r-next"),
+                        "pageInfo": _page_info("reviews" in more, "r-next"),
                         "nodes": list(reviews),
                     },
                     "comments": {
-                        "pageInfo": _page_info(has_next, "c-next"),
+                        "pageInfo": _page_info("comments" in more, "c-next"),
                         "nodes": list(comments),
                     },
                     "reviewThreads": {
-                        "pageInfo": _page_info(has_next, "t-next"),
+                        "pageInfo": _page_info("reviewThreads" in more, "t-next"),
                         "nodes": list(threads),
                     },
                 }
             }
         }
     }
+
+
+def ws_graphql_calls(gh_dir):
+    """The variables of every `gh api graphql` call the stub answered, in order."""
+    log = Path(gh_dir) / ".graphql-calls"
+    if not log.is_file():
+        return []
+    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
 
 
 EXTENSIONS_WITH_STACK = "gh stack\tgithub/gh-stack\tv0.1.0\ngh dash\tdlvhdr/gh-dash\tv4.0.0\n"
