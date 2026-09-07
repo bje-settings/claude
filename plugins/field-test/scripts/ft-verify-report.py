@@ -16,10 +16,12 @@ Prints {ok, checked, matched, mismatches, results} and exits:
   2  usage, or a report this cannot read (no prs array, a number written as
      a word, no repository)
   3  the report names no pull requests: nothing to check is not a pass
-  4  gh could not answer, so no claim was checked
+  4  gh could not answer, so no claim was checked; also an internal error,
+     which is not a verdict about the report
 
 The comparison is in lib/verify.py. Nothing here trusts the report: a pull
-request gh cannot answer for is a mismatch, not a pass. Pull request numbers
+request gh cannot answer for is a mismatch, not a pass. A gh that answered for
+none of them is the exit-4 arm instead, since nothing was checked. Pull request numbers
 written as strings ("50") are read as numbers, since the report is assembled
 from a markdown table.
 
@@ -45,6 +47,12 @@ PROG = "ft-verify-report.py"
 
 DIGITS = re.compile(r"^[0-9]+$")
 EXCERPT = 160
+
+# An arm nobody anticipated is not a verdict about the report. Exit 1 here means
+# the report and GitHub disagree, and the harden skill files every mismatch as an
+# issue against the target; a bug in this script would file findings nobody can
+# act on. 4 is the status the skill retries once and then pauses on.
+INTERNAL_ERROR = 4
 
 
 class Failure(Exception):
@@ -86,13 +94,27 @@ def read_report(path: str):
     try:
         with open(path, encoding="utf-8") as handle:
             document = json.load(handle)
-    except OSError:
-        die(f"no report at {path}", 2)
+    except OSError as error:
+        # Not "no report at": the file is there, and a permission or a device is
+        # a different fix from a report the skill never wrote.
+        die(f"cannot read {path}: {error}", 2)
     except ValueError:
         die(f"report is not valid JSON: {path}", 2)
     if not isinstance(document, dict) or not isinstance(document.get("prs"), list):
         die(f"report has no prs array: {path}", 2)
     return document
+
+
+def word(value) -> str:
+    """A refused number the way jq printed it, so the message names what was there.
+
+    Python's `str` renders JSON's null and true as None and True, which are not
+    words any report contains and send the reader looking for the wrong thing. A
+    string stays as it is: `got: fifty` is what the report holds.
+    """
+    if isinstance(value, str):
+        return value
+    return json.dumps(value)
 
 
 def claims_of(document, path: str):
@@ -111,7 +133,7 @@ def claims_of(document, path: str):
             number = int(number)
         claims.append({"number": number, "claimed": entry.get("claimed") or ""})
     bad = [
-        str(claim["number"])
+        word(claim["number"])
         for claim in claims
         # bool before int on purpose: True is an int to Python and would be
         # accepted as a pull request number, which no report ever means.
@@ -127,9 +149,10 @@ def ask_gh(command: str, number, repo: str):
 
     A failure is recorded rather than raised: a pull request gh cannot answer
     for is a mismatch the report has to own, not a reason to stop checking the
-    rest. An answer that is not a JSON object is the other case, and that one
-    does stop the run: nothing was checked, and reporting a mismatch for it
-    would blame the report for gh.
+    rest -- as long as gh was answering at all, which `verify.answered` decides
+    once every claim has been asked. An answer that is not a JSON object is the
+    other case, and that one stops the run where it stands: nothing was checked,
+    and reporting a mismatch for it would blame the report for gh.
     """
     try:
         finished = subprocess.run(
@@ -183,6 +206,14 @@ def run(argv):
 
     command = os.environ.get("FT_GH") or "gh"
     actual = [ask_gh(command, claim["number"], repo) for claim in claims]
+    if not verify.answered(actual):
+        # Nothing was checked, so there is nothing to report against the target.
+        # Exit 1 here would file one issue per claim for a gh that never ran.
+        die(
+            "gh could not answer, so no claim was checked: "
+            + excerpt(actual[0].get("error") or ""),
+            4,
+        )
     result = verify.compare(claims, actual)
     sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
     # Exit 1 when anything did not match, so a caller can branch on the status
@@ -205,7 +236,7 @@ def main(argv):
         return 0
     except Exception as error:
         sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
-        return 1
+        return INTERNAL_ERROR
     return status
 
 

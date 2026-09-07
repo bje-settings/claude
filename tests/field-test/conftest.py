@@ -1,13 +1,11 @@
 """Canned input for the field-test tests.
 
-All of it: `fixtures/field-test/` and `setup_ft_sandbox` in `spec/spec_helper.sh`
-are gone, and what they held for the run side and the harden side lives here
-beside the tests that read it. Each
-writer produces one fixture; `ft_sandbox` wires them together for one test: a
-temp state directory holding a live run marker for session `ft-session`, a fake
-HOME with Claude's plugin registry, the canned enterprise answer, and
-`tests/field-test/bin/gh` ahead of any real gh on PATH. Tests replace individual
-pieces to build the negative cases.
+Every fixture this plugin's tests read lives here, beside them. Each writer
+produces one fixture; `ft_sandbox` wires them together for one test: a temp
+state directory holding a live run marker for session `ft-session`, a fake HOME
+with Claude's plugin registry, the canned enterprise answer, the pull requests
+and reports the harden side checks, and `tests/field-test/bin/gh` ahead of any
+real gh on PATH. Tests replace individual pieces to build the negative cases.
 
 Two kinds of fixture live here. `ft_fixture_events` produces one events file per
 branch of `plugins/field-test/scripts/lib/collect.py`, so every finding has an
@@ -549,6 +547,9 @@ PRS = [
         "statusCheckRollup": [_check("bash-5", "IN_PROGRESS", None)],
         "sequence": [{"statusCheckRollup": []}],
     },
+    # A state no reader here knows, with nothing in the rollup: the shape that
+    # used to fall through the state arms and be reported as a pass.
+    {"number": 62, "state": "LOCKED", "isDraft": False, "statusCheckRollup": []},
 ]
 
 # What a field-test report claimed about the pull requests of one round.
@@ -779,7 +780,7 @@ class FtSandbox:
 
 @pytest.fixture
 def ft_sandbox(sandbox, monkeypatch) -> FtSandbox:
-    """The pytest counterpart of `setup_ft_sandbox` for the run side."""
+    """One wired-up sandbox: state directory, HOME, and the stub gh on PATH."""
     state_dir = sandbox.path / "state"
     home = sandbox.path / "ft-home"
     gh_dir = sandbox.path / "gh"
