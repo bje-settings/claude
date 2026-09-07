@@ -7,8 +7,8 @@
 #
 # The list is deliberately short. A field test observes; the only thing it stops is
 # an action that cannot be undone from the transcript. Every pattern here has a
-# denied sample in fixtures/field-test/commands/deny.txt, asserted one pattern at a
-# time, and allow.txt holds the near misses no pattern may match. A pattern that
+# denied sample in tests/field-test/commands/deny.txt, asserted one pattern at a
+# time, and allow.txt beside it holds the near misses no pattern may match. A pattern that
 # stops matching, or starts matching too much, fails the suite.
 #
 # `(?s)` makes `.` match newlines, because a Bash call is often several lines

@@ -126,8 +126,8 @@ progress without `--force`.
 
 Registered for the whole session, and doing nothing at all in a session that is not a field test:
 the first thing each does is look for a run marker for the payload's session id, and there is
-none. They are `python3`, like every script in this plugin, because a hook runs on every tool call and
-should depend only on what the machine already has.
+none. They are `python3`, as is every script in this plugin; a hook in particular runs on every tool
+call and should depend only on what the machine already has.
 
 | Hook | Records |
 | --- | --- |
@@ -176,8 +176,8 @@ enterprise membership decides what gets published, and a stale answer would deci
 
 ## Scripts
 
-All deterministic. The run side is Python (stdlib only, 3.9), tested under `tests/field-test/`;
-the harden side is still bash 3.2, spec'd under `spec/field-test/`, and issue #60 ports it.
+All deterministic, and all Python (stdlib only, 3.9), tested under `tests/field-test/`. Nothing
+here is bash any more, and the plugin has no shellspec spec left.
 
 | Script | Purpose |
 | --- | --- |
