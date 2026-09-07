@@ -20,7 +20,7 @@ level down, to merge. Serial within a repo, parallel across repos.
 
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/scripts"
-. "$S/lib/discover.sh" && discover_repos "$PWD"
+python3 "$S/lib/discover.py" "$PWD"
 ```
 
 One path per line. If there are none, say "No git repositories directly inside <cwd>" and
@@ -31,7 +31,7 @@ stop. Do not classify the directory yourself; the library already did.
 For each path:
 
 ```bash
-"$S/gh-shepherd-status.sh" <path>
+python3 "$S/gh-shepherd-status.py" <path>
 ```
 
 Read `targets` and `skipped_no_automerge`. A repo with no targets gets no agent; report it in

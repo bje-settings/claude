@@ -170,12 +170,12 @@ resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
 The deterministic parts are two scripts; the agent only decides between their results.
 
 ```bash
-plugins/gh/scripts/gh-shepherd-status.sh <path>                       # the work list, as JSON
-plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> state|rebase|recreate|wait|merged
-plugins/gh/scripts/gh-shepherd-pr.sh <path> <n> skip <reason-file>
+python3 plugins/gh/scripts/gh-shepherd-status.py <path>               # the work list, as JSON
+python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|merged
+python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> skip <reason-file>
 ```
 
-`status` changes nothing. `gh-shepherd-pr.sh` writes only through `rebase` (the branch update),
+`status` changes nothing. `gh-shepherd-pr.py` writes only through `rebase` (the branch update),
 `recreate` and `skip` (one comment each), and refuses each of those when its precondition does
 not hold: a pull request that is not open, a `recreate` on a branch Dependabot did not author, a
 `skip` with an empty reason. Every action prints one JSON object with `ok` and `detail`, and
@@ -184,11 +184,24 @@ exits 0 whether or not it acted, so a refusal is data for the agent rather than 
 request closed or merged with its head unmoved returns early with `ok: true` and
 `result: "closed"` or `"merged"` rather than waiting out the bound; and a poll that cannot read
 the pull request is counted, not mistaken for "the head did not move". If no poll succeeded the
-detail says so and carries gh's last error.
+detail says so and carries gh's last error. `recreate` is for Dependabot's own pull requests:
+the summary's `is_bot` says whether any bot opened it, and `is_dependabot` is what the refusal
+turns on, because `@dependabot recreate` on a renovate branch is a comment nothing will answer.
+
+Nothing here reports a silence as a fact. A read gh could not answer carries gh's own words, an
+answer missing a field the loop decides from is refused rather than shaped into a pull request
+with no checks, and a `wait` whose watcher failed for a reason of its own is `ok: false` rather
+than `pending` -- reported as pending, an expired token is waited out one CI cycle at a time
+forever. `rebase` reports gh's output and says when the head has not moved, since
+`gh pr update-branch` returns as soon as GitHub accepts the request and prints the same line
+when the branch was already current. A failed `wait` carries `log_tail`, and `log_error` beside
+it when gh would not hand the log over, so an empty tail is not mistaken for a job that printed
+nothing.
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`) are documented at the top of the script.
 
-Repository discovery is shared with `/gh:sync` through `scripts/lib/discover.sh`.
+Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
+rule, `scripts/lib/discover.py`, which each script imports.
 
 ## Session start hook
 
@@ -200,14 +213,21 @@ check and, if there is anything worth acting on, asks whether to run `/gh:sync`.
   purely local and does not hit the network.
 - Otherwise it stays silent.
 
-JSON on both ends (reading the payload, writing the response) is handled by `hooks/hook-io.py`,
-which also holds the message text. Doing that inline with `python3 -c` buried it in quoted
-heredocs inside the shell, where it could not be linted or tested.
+The whole hook is `hooks/hook-io.py`, run as `hook-io.py session-start`: it reads the payload,
+picks the branch the payload's directory calls for, and writes the response. Its `cwd`, `branch`
+and `report` subcommands are the pieces that decision is built from, kept as seams for the tests
+and for debugging the hook by hand.
 
-The hook never changes a branch, worktree, or working tree, and always exits 0, so it cannot
-block a session from starting or surprise you with a change you did not ask for. In fan-out mode
-it does fetch, which updates remote-tracking refs, and that is one network round trip per
-repository against the hook's 60 second budget.
+The hook never changes a branch, worktree, or working tree, and every path through
+`session-start` exits 0, so it cannot block a session from starting or surprise you with a change
+you did not ask for. `hooks.json` wraps it in `command -v python3 ... ; exit 0`, which holds that
+guarantee even for the cases the file is never reached in at all: no python3 on PATH, or a hooks
+directory this file was never installed into. In fan-out mode it does fetch, which updates
+remote-tracking refs, and that is one network round trip per repository against the hook's 60
+second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
+out. A degraded run -- a missing `gh-sync.py`, no git on PATH, a fan-out that failed or timed out
+-- leaves a line on stderr for `claude --debug`, and says so in the session only when there is
+something to act on.
 
 ## Credentials
 
@@ -219,38 +239,41 @@ would need different credentials per org anyway.
 
 ## Running outside Claude Code
 
-The scripts are plain bash with no dependency on the plugin runtime:
+The scripts have no dependency on the plugin runtime:
 
 ```bash
-plugins/gh/scripts/gh-sync.sh --dry-run ~/Code/@bje/@bje-settings
-plugins/gh/scripts/gh-sync-repo.sh --dry-run ~/Code/@bje/@bje-settings/terraform
-plugins/gh/scripts/gh-shepherd-status.sh ~/Code/@bje/@bje-settings/terraform
-plugins/gh/scripts/gh-shepherd-pr.sh ~/Code/@bje/@bje-settings/terraform 12 state
+python3 plugins/gh/scripts/gh-sync.py --dry-run ~/Code/@bje/@bje-settings
+python3 plugins/gh/scripts/gh-sync-repo.py --dry-run ~/Code/@bje/@bje-settings/terraform
+python3 plugins/gh/scripts/gh-shepherd-status.py ~/Code/@bje/@bje-settings/terraform
+python3 plugins/gh/scripts/gh-shepherd-pr.py ~/Code/@bje/@bje-settings/terraform 12 state
 ```
 
-They are written for bash 3.2, the version macOS ships at `/bin/bash`.
+Every script in this plugin is Python now: stdlib-only, targeting Python 3.9, which is what
+`/usr/bin/python3` is on a Mac with the Command Line Tools.
 
 ## Tests
 
 Because this skill deletes branches and removes worktrees, its behaviour is asserted against
-real git repositories rather than mocks. Specs live in `spec/gh/`, fixtures in `fixtures/gh/`.
+real git repositories rather than mocks. The tests are pytest, in `tests/gh/`, fixtures
+included; `tests/gh/README.md` documents them.
 
 ```bash
-spec/run.sh              # lint, then the suite under bash 5 and bash 3.2
-spec/run.sh --quick      # the suite once, under the default shell
+uv run --locked pytest tests/gh -q   # this plugin's tests alone
+spec/run.sh                          # lint, then every harness in the repo
 ```
 
-The suite runs under both shells deliberately: bash 5 is what most contributors have on `PATH`,
-but `/bin/bash` is 3.2 on macOS and is what actually executes these scripts.
+`gh-sync-repo.py` and `gh-sync.py` are each asserted against the report their shell version
+printed, captured scenario by scenario in `tests/gh/golden/bash-output.json` and
+`golden/bash-sync-output.json` before those versions were deleted.
 
-CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py` over both
-reports: `kcov` for the shell scripts and `coverage.py` for `hooks/hook-io.py`, which is Python and
-has its tests in `tests/gh/`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
-All three supported package managers have an install spec. The uncovered remainder is defensive branches
+CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py`. This
+plugin's half of that is the `coverage.py` report over `tests/gh/`. Run it locally with
+`spec/run.sh --coverage`.
+All three supported package managers have an install test. The uncovered remainder is defensive branches
 guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
 immediately after.
 
 Covered in particular: every path that can delete something (each merge signal, a reused branch
 name, a fork's pull request, a pull request merged into another base, worktrees clean and dirty),
 every preflight refusal, and the guarantee that `--dry-run` changes nothing it says it would
-change. See `fixtures/gh/README.md` for how to build a scenario.
+change. See `tests/gh/README.md` for how to build a scenario.

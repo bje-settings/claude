@@ -15,7 +15,7 @@ Sync the current checkout, or every checkout one level down.
 ## Step 1 — Run
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/gh-sync.sh $ARGUMENTS
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gh-sync.py" $ARGUMENTS
 ```
 
 The script detects its own scope, so do not inspect the directory or classify it first.

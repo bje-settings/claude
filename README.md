@@ -99,4 +99,6 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for running the tests and installing the marketplace locally.
+Run `spec/run.sh` for the whole suite: it lints, then runs shellspec over the scripts that are
+bash and pytest over the ones that are Python. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for installing the marketplace locally.
