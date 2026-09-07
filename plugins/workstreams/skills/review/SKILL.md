@@ -8,7 +8,6 @@ description: >
   rejected and why, and the range it pushed. The caller decides whether another round is due.
   Used by /workstreams:run and /field-test:harden.
 allowed-tools: Bash, Read, Skill, Agent
-disable-model-invocation: true
 ---
 
 Invocation: `/workstreams:review <pr> --worktree <absolute path> --base <branch>`
