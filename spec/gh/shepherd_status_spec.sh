@@ -47,6 +47,22 @@ Describe 'gh-shepherd-status.sh'
       The status should equal 2
       The stderr should include 'missing'
     End
+
+    It 'fails closed when gh repo view answers without a usable nameWithOwner or default branch'
+      export GH_FIXTURE_REPO=""
+      When run script "$SHEPHERD_STATUS" "$REPO"
+      The status should equal 1
+      The stderr should include 'could not resolve the repository'
+      The output should equal ''
+    End
+
+    It 'fails closed when gh cannot list pull requests'
+      printf 'not json' > "$GH_FIXTURE_PRS"
+      When run script "$SHEPHERD_STATUS" "$REPO"
+      The status should equal 1
+      The stderr should include 'could not list pull requests'
+      The output should equal ''
+    End
   End
 
   Describe 'target selection'
@@ -181,6 +197,14 @@ Describe 'gh-shepherd-status.sh'
     It 'falls back to 300 when the run listing is unavailable'
       export GH_FIXTURE_RUNS="$SANDBOX/missing.json"
       When run script "$SHEPHERD_STATUS" "$REPO"
+      The output should include '"ci_seconds": 300'
+    End
+
+    It 'falls back to 300 when gh run list fails'
+      export GH_FIXTURE_RUNS="$SANDBOX/runs.json"
+      printf 'not json' > "$GH_FIXTURE_RUNS"
+      When run script "$SHEPHERD_STATUS" "$REPO"
+      The status should be success
       The output should include '"ci_seconds": 300'
     End
   End

@@ -78,7 +78,11 @@ done
 }
 
 if [[ "$cmd" == "repo" && "$sub" == "view" ]]; then
-  jq -n --arg b "${GH_FIXTURE_DEFAULT:-main}" --arg r "${GH_FIXTURE_REPO:-acme/widgets}" \
+  # Unset falls back to the canned defaults; explicitly empty (not merely
+  # unset) is a spec asking for an incomplete answer, so a caller can prove it
+  # handles `gh repo view` succeeding without a usable nameWithOwner or
+  # defaultBranchRef.name.
+  jq -n --arg b "${GH_FIXTURE_DEFAULT-main}" --arg r "${GH_FIXTURE_REPO-acme/widgets}" \
     '{defaultBranchRef:{name:$b}, nameWithOwner:$r}' \
     | jq -r "$jq_expr"
   exit 0
