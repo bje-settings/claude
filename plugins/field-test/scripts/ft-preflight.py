@@ -11,10 +11,12 @@ says HOME is unset, when there is no file to name). A `detail` field carries
 the tool's own message when there is one, so a network error is not reported
 as a missing login.
 
-`harden` reuses the workstreams worker and reviewer agents and the review loop
-they already own rather than growing its own, so both plugins have to be
-installed. That dependency is checked here instead of failing halfway through a
-target, when a fix is already in flight.
+`harden` reuses the workstreams worker agents and invokes /workstreams:review for
+its review round rather than growing one of its own, so both plugins have to be
+installed: workstreams for stream-low, stream-medium, stream-high, applier, and
+the review skill, and pr-review-toolkit because that round runs review-pr. That
+dependency is checked here instead of failing halfway through a target, when a
+fix is already in flight.
 
 Checks gh, gh auth, the workstreams plugin, and pr-review-toolkit. jq is not
 among them: nothing in this plugin shells out to jq any more, and the harden
