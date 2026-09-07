@@ -35,7 +35,6 @@ if command -v shellcheck >/dev/null 2>&1; then
     plugins/gh/scripts/lib/shepherd.sh \
     plugins/gh/scripts/gh-shepherd-status.sh \
     plugins/gh/scripts/gh-shepherd-pr.sh \
-    plugins/gh/hooks/session-start.sh \
     fixtures/gh/fixtures.sh \
     fixtures/gh/bin/gh
 else

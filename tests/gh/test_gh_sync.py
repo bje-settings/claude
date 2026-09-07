@@ -3,7 +3,7 @@
 Each ported test carries the `It` description it came from in its docstring.
 `gh-sync.py` is the orchestrator: it decides the scope, runs `gh-sync-repo.py`
 once per repository at most `-j N` at a time, and assembles the reports in
-directory order. The report is a contract (the session-start hook greps it for
+directory order. The report is a contract (the session-start hook scans it for
 `would `, `✗` and `could not`), so `SCENARIOS` below is compared byte for byte
 against what the shell version printed, captured in
 `golden/bash-sync-output.json` before it was deleted.

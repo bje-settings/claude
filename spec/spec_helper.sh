@@ -6,10 +6,9 @@
 ROOT="${SHELLSPEC_PROJECT_ROOT:-$PWD}"
 PLUGIN_DIR="$ROOT/plugins/gh"
 FIXTURES_DIR="$ROOT/fixtures/gh"
-HOOK="$PLUGIN_DIR/hooks/session-start.sh"
 SHEPHERD_STATUS="$PLUGIN_DIR/scripts/gh-shepherd-status.sh"
 SHEPHERD_PR="$PLUGIN_DIR/scripts/gh-shepherd-pr.sh"
-export ROOT PLUGIN_DIR FIXTURES_DIR HOOK SHEPHERD_STATUS SHEPHERD_PR
+export ROOT PLUGIN_DIR FIXTURES_DIR SHEPHERD_STATUS SHEPHERD_PR
 
 # shellcheck source=../fixtures/gh/fixtures.sh
 . "$FIXTURES_DIR/fixtures.sh"
