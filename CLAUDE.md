@@ -24,9 +24,9 @@ New `gh` skills belong in the `gh` plugin, which is the intended home for the co
 `gh-shepherd-pr.sh rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
 
 Plugin scripts that are still bash must run under bash 3.2, which is what macOS ships at
-`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every script
-not yet ported to Python, which today is all of them but `gh-sync.py`, `gh-sync-repo.py`,
-`lib/discover.py` and the two hook helpers.
+`/bin/bash`. No associative arrays, no `wait -n` without a fallback. This applies to every `.sh`
+still under `plugins/*/scripts` and `plugins/*/hooks`, whichever those are today; the Python side
+is not enumerated here, because a list of ported files rots with every port.
 
 New scripts are Python, not bash. A Python script goes at `plugins/<plugin>/scripts/*.py` and a
 hook at `plugins/<plugin>/hooks/*.py`; code shared inside one plugin goes in
