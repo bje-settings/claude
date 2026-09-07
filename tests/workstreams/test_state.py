@@ -181,6 +181,66 @@ def test_set_stream_field_refuses_an_unknown_stream():
     assert "unknown stream: nope" in raised.value.message
 
 
+# --- bump_stream_field --------------------------------------------------------
+
+
+def test_bump_stream_field_adds_one_and_reports_what_the_field_now_holds():
+    document = a_state(streams=[a_stream("s1")])
+    assert state.bump_stream_field(document, "s1", "review_rounds") == 1
+    assert state.bump_stream_field(document, "s1", "review_rounds") == 2
+    assert document["streams"][0]["review_rounds"] == 2
+
+
+def test_bump_stream_field_treats_a_null_count_as_zero():
+    """A stream planned before the field existed carries no count at all."""
+    document = a_state(streams=[a_stream("s1")])
+    document["streams"][0]["attempts"] = None
+    assert state.bump_stream_field(document, "s1", "attempts") == 1
+
+
+def test_bump_stream_field_treats_an_absent_count_as_zero():
+    document = a_state(streams=[a_stream("s1")])
+    del document["streams"][0]["attempts"]
+    assert state.bump_stream_field(document, "s1", "attempts") == 1
+
+
+def test_bump_stream_field_writes_only_the_named_stream():
+    document = a_state(streams=[a_stream("s1"), a_stream("s2")])
+    state.bump_stream_field(document, "s2", "review_rounds")
+    assert [record["review_rounds"] for record in document["streams"]] == [0, 1]
+
+
+def test_bump_stream_field_refuses_an_unknown_stream():
+    with pytest.raises(state.Invalid) as raised:
+        state.bump_stream_field(a_state(), "nope", "review_rounds")
+    assert raised.value.status == 1
+    assert "unknown stream: nope" in raised.value.message
+
+
+@pytest.mark.parametrize("value", ["two", True, 1.5, [1]])
+def test_bump_stream_field_refuses_a_count_that_is_not_a_whole_number(value):
+    """Refused rather than replaced: a field holding something else means the
+    file was written by something other than this script, and overwriting it
+    would lose whatever that was. `True` is an int in Python and is not a count."""
+    document = a_state(streams=[a_stream("s1")])
+    document["streams"][0]["review_rounds"] = value
+    with pytest.raises(state.Invalid) as raised:
+        state.bump_stream_field(document, "s1", "review_rounds")
+    assert raised.value.status == 1
+    assert "is not a number on stream s1" in raised.value.message
+
+
+def test_check_numeric_field_accepts_every_field_that_holds_a_number():
+    for field in state.NUMERIC_FIELDS:
+        state.check_numeric_field(field)
+
+
+def test_check_numeric_field_refuses_a_field_that_holds_a_string():
+    with pytest.raises(state.Invalid) as raised:
+        state.check_numeric_field("status")
+    assert "not a numeric field" in raised.value.message
+
+
 # --- filter_streams -----------------------------------------------------------
 
 
