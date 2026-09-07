@@ -1,9 +1,14 @@
-"""Black-box tests for the gh plugin's SessionStart hook helper.
+"""Black-box tests for the seams the gh plugin's SessionStart hook is built from.
+
+`hook-io.py` is the hook: `hooks.json` runs `hook-io.py session-start`, and
+`tests/gh/test_session_start.py` covers that whole path. Its `cwd`, `branch` and
+`report` subcommands are the pieces that decision is built from, kept as seams
+for the tests and for debugging the hook by hand, and this file is those three.
 
 The eight ported tests carry the `It` description they came from in their
-docstring; the two under "no dependency on anything outside the stdlib" were
-added with the port. Every run goes through `run_script`, so the helper is
-exercised as its own process exactly as the shell hook runs it.
+docstring; the rest were added with the port. Every run goes through
+`run_script`, so a seam is exercised as its own process, exactly as a person
+debugging the hook would run it.
 """
 
 from __future__ import annotations
@@ -78,6 +83,26 @@ def test_report_message_wraps_the_report(run_script):
     context = context_of(result.stdout)
     assert "would delete gone" in context
     assert "No branch, worktree, or working tree" in context
+
+
+def test_report_reads_a_non_ascii_report_under_a_single_byte_locale(run_script):
+    """Added with the port: the report on stdin holds ✓, ✗ and ·.
+
+    Reading is the half `use_utf8` was not doing before the port. Under
+    LC_ALL=en_US.ISO8859-1 with PYTHONIOENCODING=ascii an unreconfigured stdin
+    raises UnicodeDecodeError on the first line carrying one, and the hook dies
+    with a traceback instead of wrapping the report. The literal survives
+    because the answer is `ensure_ascii` JSON, which any locale can write.
+    """
+    result = run_script(
+        HOOK_IO,
+        "report",
+        stdin="a: ✗ fetch failed",
+        env={"LC_ALL": "en_US.ISO8859-1", "PYTHONIOENCODING": "ascii"},
+    )
+    assert result.status == 0
+    assert "Traceback" not in result.stderr
+    assert "a: ✗ fetch failed" in context_of(result.stdout)
 
 
 # --- contract ----------------------------------------------------------------
