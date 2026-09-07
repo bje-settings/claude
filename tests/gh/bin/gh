@@ -1,0 +1,330 @@
+#!/usr/bin/env python3
+"""A stand-in for the gh CLI, for the Python tests. Put this directory on PATH.
+
+It deliberately does NOT fake the output of the command under test. It holds a
+canned set of pull requests, applies the same filtering the real `gh pr list`
+applies server-side (--state, --base, --head, --limit), and projects the fields
+named by --json. The scripts do their own projection and filtering in Python
+now, so this stub answering with the projected JSON is what exercises them.
+
+`--jq` is still accepted, and is applied by piping the projected JSON through
+real jq, so a caller that uses it gets what real gh would give. Without jq on
+PATH a `--jq` call fails loudly rather than quietly returning unfiltered JSON.
+
+Controlled by:
+  GH_FIXTURE_PRS       path to a JSON array of PR objects (default: no PRs)
+  GH_FIXTURE_FAIL      if non-empty, every call exits non-zero
+  GH_FIXTURE_FAIL_HEAD if non-empty, only --head calls fail, so a bulk lookup
+                       can succeed while the per-branch one does not
+  GH_FIXTURE_CALL_LOG  if set, every invocation appends its arguments here
+  GH_FIXTURE_DEFAULT   default branch reported by `gh repo view` (default: main)
+
+For the shepherd ports that follow the stub also answers `pr view`, `pr checks`,
+`pr update-branch`, `pr comment`, `run list`, and `run view`, all against the
+same canned set, so a pull request's checks are whatever its own
+statusCheckRollup says and there is one source of truth:
+  GH_FIXTURE_REPO         nameWithOwner from `gh repo view` (default: acme/widgets)
+  GH_FIXTURE_RUNS         JSON array for `gh run list` (default: no runs);
+                          --branch matches headBranch, --status matches status
+  GH_FIXTURE_RUN_LOG      file whose content `gh run view --log-failed` prints
+  GH_FIXTURE_FAIL_REBASE  if non-empty, `pr update-branch` fails
+  GH_FIXTURE_WATCH_HANG   if non-empty, `pr checks --watch` never returns, so
+                          a caller's own bound can be exercised
+
+`pr update-branch --rebase` and `pr comment` are mutations: the first rewrites
+the pull request in GH_FIXTURE_PRS with a new head SHA, the second appends to
+"$GH_FIXTURE_PRS.comments". Both are also visible in GH_FIXTURE_CALL_LOG.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+PASSING_CONCLUSIONS = ("SUCCESS", "NEUTRAL", "SKIPPED")
+PENDING_STATES = ("PENDING", "EXPECTED")
+
+
+def die(message, status=1):
+    print(message, file=sys.stderr)
+    raise SystemExit(status)
+
+
+class Args:
+    """The flags this stub emulates, parsed the way the shell version parsed them."""
+
+    def __init__(self):
+        self.state = ""
+        self.base = ""
+        self.head = ""
+        self.label = ""
+        # Deliberately not gh's own default of 30: an example that forgets to
+        # pass --limit would otherwise be silently truncated and pass for the
+        # wrong reason. A test that cares about the limit asserts the --limit
+        # in the call log rather than inferring it from the row count.
+        self.limit = 1000
+        self.fields = ""
+        self.jq = ""
+        self.body = ""
+        self.body_file = ""
+        self.watch = False
+        self.branch = ""
+        self.run_status = ""
+        self.positional = []
+
+
+# flag -> attribute for the flags that take a value.
+VALUE_FLAGS = {
+    "--state": "state",
+    "--base": "base",
+    "--head": "head",
+    "--label": "label",
+    "--limit": "limit",
+    "--json": "fields",
+    "--jq": "jq",
+    "-q": "jq",
+    "--body": "body",
+    "--body-file": "body_file",
+    "--branch": "branch",
+    "--status": "run_status",
+}
+
+# Accepted and ignored: the stub has one repository, so --repo cannot change a
+# result. --job and --log-failed select within a log the test authored, so there
+# is nothing to narrow.
+IGNORED_WITH_VALUE = ("--repo", "-R", "--job")
+IGNORED_FLAGS = ("--rebase", "--fail-fast", "--log-failed")
+
+
+def parse_args(argv):
+    args = Args()
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg in VALUE_FLAGS:
+            index += 1
+            value = argv[index] if index < len(argv) else ""
+            if arg == "--limit":
+                args.limit = int(value)
+            else:
+                setattr(args, VALUE_FLAGS[arg], value)
+        elif arg in IGNORED_WITH_VALUE:
+            index += 1
+        elif arg in IGNORED_FLAGS:
+            pass
+        elif arg == "--watch":
+            args.watch = True
+        elif arg.startswith("-"):
+            # Anything unrecognised is a filter this stub does not emulate.
+            # Ignoring it silently would let tests pass against a query the real
+            # gh answers differently, which is how --head came to be missing in
+            # the first place.
+            die(f"gh stub: unhandled flag: {arg}", 64)
+        else:
+            args.positional.append(arg)
+        index += 1
+    return args
+
+
+def project(rows, fields):
+    """The --json field projection, as jq's reduce over $fields did it."""
+    if not fields:
+        return rows
+    names = fields.split(",")
+    return [{name: row.get(name) for name in names} for row in rows]
+
+
+def emit(value, jq_expr):
+    """Print a result, through real jq when the caller asked for --jq."""
+    text = json.dumps(value)
+    if not jq_expr:
+        print(text)
+        return
+    if shutil.which("jq") is None:
+        die("gh stub: --jq needs jq on PATH", 70)
+    completed = subprocess.run(["jq", "-r", jq_expr], input=text.encode("utf-8"), check=False)
+    raise SystemExit(completed.returncode)
+
+
+def payload():
+    source = os.environ.get("GH_FIXTURE_PRS", "")
+    if not source or not os.path.isfile(source):
+        return []
+    with open(source, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def one_pr(args):
+    """The pull request named by the first positional argument, as real gh does."""
+    number = args.positional[0] if args.positional else ""
+    if not number.isdigit():
+        die("gh stub: pull request number required")
+    for pull in payload():
+        if pull.get("number") == int(number):
+            return pull
+    die(f"GraphQL: Could not resolve to a PullRequest with the number of {number}.")
+
+
+def checks_state(pull):
+    """none | pending | failed | passed, from one PR's rollup."""
+    states = []
+    for check in pull.get("statusCheckRollup") or []:
+        if check.get("__typename") == "StatusContext":
+            if check.get("state") == "SUCCESS":
+                states.append("passed")
+            elif check.get("state") in PENDING_STATES:
+                states.append("pending")
+            else:
+                states.append("failed")
+        elif check.get("status") != "COMPLETED":
+            states.append("pending")
+        elif check.get("conclusion") in PASSING_CONCLUSIONS:
+            states.append("passed")
+        else:
+            states.append("failed")
+    if not states:
+        return "none"
+    if "failed" in states:
+        return "failed"
+    if "pending" in states:
+        return "pending"
+    return "passed"
+
+
+def pr_list(args):
+    rows = payload()
+    if args.state:
+        rows = [r for r in rows if (r.get("state") or "MERGED") == args.state.upper()]
+    if args.base:
+        rows = [r for r in rows if r.get("baseRefName") == args.base]
+    if args.head:
+        rows = [r for r in rows if r.get("headRefName") == args.head]
+    if args.label:
+        rows = [r for r in rows if args.label in [x.get("name") for x in (r.get("labels") or [])]]
+    emit(project(rows[: args.limit], args.fields), args.jq)
+
+
+def pr_checks(args):
+    pull = one_pr(args)
+    # A "hang" that is long enough to outlast any bound a test sets, but not
+    # infinite: a script with no bound of its own then fails in 30 s with a
+    # message, instead of eating the CI job's whole timeout in silence.
+    if args.watch and os.environ.get("GH_FIXTURE_WATCH_HANG"):
+        time.sleep(30)
+        # 65, not 8: 8 is gh's real "pending" code, which an unbounded caller
+        # that loops on pending would read as ordinary and try again.
+        die("gh stub: --watch hung for 30s and nothing bounded it", 65)
+    # Exit codes as real gh: 0 all passed, 1 something failed, 8 pending.
+    state = checks_state(pull)
+    raise SystemExit({"failed": 1, "pending": 8}.get(state, 0))
+
+
+def pr_update_branch(args):
+    pull = one_pr(args)
+    if os.environ.get("GH_FIXTURE_FAIL_REBASE"):
+        die("GraphQL: merge conflict between base and head (updatePullRequestBranch)")
+    # The rebase moves the head and leaves the pull request current with its base.
+    number = pull["number"]
+    rows = payload()
+    for row in rows:
+        if row.get("number") == number:
+            row["headRefOid"] = "rebased-" + (row.get("headRefOid") or "")
+            row["mergeStateStatus"] = "BLOCKED"
+    with open(os.environ["GH_FIXTURE_PRS"], "w", encoding="utf-8") as handle:
+        json.dump(rows, handle)
+    print(f"✓ Pull request #{number} branch has been updated")
+
+
+def pr_comment(args):
+    pull = one_pr(args)
+    number = pull["number"]
+    body = args.body
+    if args.body_file:
+        with open(args.body_file, encoding="utf-8") as handle:
+            body = handle.read()
+    path = os.environ["GH_FIXTURE_PRS"] + ".comments"
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("#{}\t{}\n".format(number, body.replace("\n", " ")))
+    with open(path, encoding="utf-8") as handle:
+        count = len(handle.read().splitlines())
+    repo = os.environ.get("GH_FIXTURE_REPO", "acme/widgets")
+    print(f"https://github.com/{repo}/pull/{number}#issuecomment-{count}")
+
+
+def run_list(args):
+    source = os.environ.get("GH_FIXTURE_RUNS", "")
+    if source and os.path.isfile(source):
+        with open(source, encoding="utf-8") as handle:
+            rows = json.load(handle)
+    else:
+        rows = []
+    if args.branch:
+        rows = [r for r in rows if r.get("headBranch") == args.branch]
+    if args.run_status:
+        rows = [r for r in rows if (r.get("status") or "").lower() == args.run_status.lower()]
+    emit(project(rows[: args.limit], args.fields), args.jq)
+
+
+def run_view(args):
+    log = os.environ.get("GH_FIXTURE_RUN_LOG", "")
+    if log and os.path.isfile(log):
+        with open(log, encoding="utf-8") as handle:
+            sys.stdout.write(handle.read())
+    else:
+        print(
+            "build\tUNKNOWN STEP\t2026-01-01T00:00:00Z ##[error]Process completed with exit code 1."
+        )
+
+
+def repo_view(args):
+    view = {
+        "defaultBranchRef": {"name": os.environ.get("GH_FIXTURE_DEFAULT", "main")},
+        "nameWithOwner": os.environ.get("GH_FIXTURE_REPO", "acme/widgets"),
+    }
+    if args.fields:
+        view = {name: view.get(name) for name in args.fields.split(",")}
+    emit(view, args.jq)
+
+
+HANDLERS = {
+    "pr list": pr_list,
+    "pr view": lambda args: emit(project([one_pr(args)], args.fields)[0], args.jq),
+    "pr checks": pr_checks,
+    "pr update-branch": pr_update_branch,
+    "pr comment": pr_comment,
+    "run list": run_list,
+    "run view": run_view,
+    "repo view": repo_view,
+}
+
+
+def main(argv):
+    # Optional call log, so a test can assert how many calls were made and of
+    # what shape. Written before any failure check, so failed calls are recorded.
+    call_log = os.environ.get("GH_FIXTURE_CALL_LOG")
+    if call_log:
+        with open(call_log, "a", encoding="utf-8") as handle:
+            handle.write(" ".join(argv) + "\n")
+
+    if os.environ.get("GH_FIXTURE_FAIL"):
+        die("gh: simulated failure")
+
+    command = " ".join(argv[:2])
+    args = parse_args(argv[2:])
+
+    if os.environ.get("GH_FIXTURE_FAIL_HEAD") and args.head:
+        die("gh: simulated per-branch failure")
+
+    handler = HANDLERS.get(command)
+    if handler is None:
+        die(f"gh stub: unsupported: {command}")
+    handler(args)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -11,11 +11,11 @@ that are bash, pytest covers the ones that are Python.
 
 Requires `uv`, `shellspec` and `jq`; `shellcheck` is used if present.
 
-Specs live in `spec/`, tests in `tests/`, fixtures in `fixtures/<plugin>/` for the shell specs and
-in `tests/<plugin>/` for the Python tests (its `conftest.py` and its stub `gh` under `bin/`). See
-`fixtures/gh/README.md`. A plugin that is Python throughout, as `field-test` is, has neither a
-`spec/` nor a `fixtures/` directory: its fixtures are in `tests/<plugin>/conftest.py` beside the
-tests that read them.
+Specs live in `spec/`, tests in `tests/`. Fixtures for a bash script live in
+`fixtures/<plugin>/`; fixtures for a Python one live beside its tests in `tests/<plugin>/` (its
+`conftest.py` and its stub `gh` under `bin/`). See `tests/gh/README.md`. A plugin that is Python
+throughout, as `field-test` is, has neither a `spec/` nor a `fixtures/` directory: its fixtures are
+in `tests/<plugin>/conftest.py` beside the tests that read them.
 
 To work on the Python side alone:
 
@@ -46,8 +46,9 @@ back to a `pre-commit` on PATH, and commits fail outright if there is none; re-r
 surviving checkout to fix it. `--allow-missing-config` keeps commits working on branches that predate
 `.pre-commit-config.yaml` instead of refusing them.
 
-The hooks are ruff (lint and format check), the Python suite (`pytest -n auto -x -q`, about two
-seconds), `claude plugin validate --strict` over the marketplace manifest and every plugin, and
+The hooks are ruff (lint and format check), the Python suite minus the examples marked `slow`,
+which run a real package-manager install (`pytest -n auto -x -q -m "not slow"`; CI runs those
+too), `claude plugin validate --strict` over the marketplace manifest and every plugin, and
 `shellcheck` over the `.sh` files that remain and the `fixtures/*/bin/gh` stubs. They need `uv`,
 `claude` and `shellcheck` on PATH.
 Nothing here is the enforcement layer: CI runs the same checks whether or not you installed them.

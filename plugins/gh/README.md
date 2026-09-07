@@ -188,7 +188,9 @@ detail says so and carries gh's last error.
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`) are documented at the top of the script.
 
-Repository discovery is shared with `/gh:sync` through `scripts/lib/discover.sh`.
+Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
+rule, `scripts/lib/discover.py`, and `/gh:sync` reaches it through the bash copy
+`scripts/lib/discover.sh` until issue #56 ports `gh-sync.sh`.
 
 ## Session start hook
 
@@ -219,38 +221,45 @@ would need different credentials per org anyway.
 
 ## Running outside Claude Code
 
-The scripts are plain bash with no dependency on the plugin runtime:
+The scripts have no dependency on the plugin runtime:
 
 ```bash
 plugins/gh/scripts/gh-sync.sh --dry-run ~/Code/@bje/@bje-settings
-plugins/gh/scripts/gh-sync-repo.sh --dry-run ~/Code/@bje/@bje-settings/terraform
+python3 plugins/gh/scripts/gh-sync-repo.py --dry-run ~/Code/@bje/@bje-settings/terraform
 plugins/gh/scripts/gh-shepherd-status.sh ~/Code/@bje/@bje-settings/terraform
 plugins/gh/scripts/gh-shepherd-pr.sh ~/Code/@bje/@bje-settings/terraform 12 state
 ```
 
-They are written for bash 3.2, the version macOS ships at `/bin/bash`.
+The bash ones are written for bash 3.2, the version macOS ships at `/bin/bash`. The Python ones
+are stdlib-only and target Python 3.9, which is what `/usr/bin/python3` is on a Mac with the
+Command Line Tools.
 
 ## Tests
 
 Because this skill deletes branches and removes worktrees, its behaviour is asserted against
-real git repositories rather than mocks. Specs live in `spec/gh/`, fixtures in `fixtures/gh/`.
+real git repositories rather than mocks. The bash scripts have shellspec specs in `spec/gh/`
+with fixtures in `fixtures/gh/`; the Python ones have pytest tests in `tests/gh/`, fixtures
+included.
 
 ```bash
-spec/run.sh              # lint, then the suite under bash 5 and bash 3.2
+spec/run.sh              # lint, then both harnesses (shellspec under bash 5 and bash 3.2)
 spec/run.sh --quick      # the suite once, under the default shell
 ```
 
-The suite runs under both shells deliberately: bash 5 is what most contributors have on `PATH`,
-but `/bin/bash` is 3.2 on macOS and is what actually executes these scripts.
+The shellspec suite runs under both shells deliberately: bash 5 is what most contributors have on
+`PATH`, but `/bin/bash` is 3.2 on macOS and is what actually executes those scripts.
+
+`gh-sync-repo.py` is asserted against the report the shell version printed, captured scenario by
+scenario in `tests/gh/golden/bash-output.json` before that version was deleted.
 
 CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py` over both
-reports: `kcov` for the shell scripts and `coverage.py` for `hooks/hook-io.py`, which is Python and
-has its tests in `tests/gh/`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
-All three supported package managers have an install spec. The uncovered remainder is defensive branches
+reports: `kcov` for the shell scripts and `coverage.py` for the Python ones, whose tests live in
+`tests/gh/`. Run it locally with `spec/run.sh --coverage`, which needs kcov.
+All three supported package managers have an install test. The uncovered remainder is defensive branches
 guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
 immediately after.
 
 Covered in particular: every path that can delete something (each merge signal, a reused branch
 name, a fork's pull request, a pull request merged into another base, worktrees clean and dirty),
 every preflight refusal, and the guarantee that `--dry-run` changes nothing it says it would
-change. See `fixtures/gh/README.md` for how to build a scenario.
+change. See `tests/gh/README.md` for how to build a scenario.

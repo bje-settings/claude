@@ -104,8 +104,8 @@ Describe 'gh-sync.sh'
       mkdir -p "$SANDBOX/fake"
       cp "$SYNC" "$SANDBOX/fake/gh-sync.sh"
       cp -R "$PLUGIN_DIR/scripts/lib" "$SANDBOX/fake/lib"
-      printf '#!/usr/bin/env bash\nexit 7\n' > "$SANDBOX/fake/gh-sync-repo.sh"
-      chmod +x "$SANDBOX/fake/gh-sync-repo.sh"
+      printf 'import sys\nsys.exit(7)\n' > "$SANDBOX/fake/gh-sync-repo.py"
+      chmod +x "$SANDBOX/fake/gh-sync-repo.py"
       fixture_create_at "$SANDBOX/fan" a >/dev/null
       When run script "$SANDBOX/fake/gh-sync.sh" "$SANDBOX/fan"
       The status should be success
@@ -126,7 +126,7 @@ Describe 'gh-sync.sh'
     It 'refuses to run when the discovery library is missing'
       mkdir -p "$SANDBOX/lonely"
       cp "$SYNC" "$SANDBOX/lonely/gh-sync.sh"
-      cp "$SYNC_REPO" "$SANDBOX/lonely/gh-sync-repo.sh"
+      cp "$SYNC_REPO" "$SANDBOX/lonely/gh-sync-repo.py"
       When run script "$SANDBOX/lonely/gh-sync.sh" "$SANDBOX"
       The status should equal 2
       The stderr should include 'missing'

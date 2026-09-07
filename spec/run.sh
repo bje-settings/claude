@@ -33,7 +33,6 @@ run() { printf '\n\033[1m== %s\033[0m\n' "$1"; shift; "$@" || fail=1; }
 if command -v shellcheck >/dev/null 2>&1; then
   run "shellcheck" shellcheck -S warning \
     plugins/gh/scripts/gh-sync.sh \
-    plugins/gh/scripts/gh-sync-repo.sh \
     plugins/gh/scripts/lib/discover.sh \
     plugins/gh/scripts/lib/shepherd.sh \
     plugins/gh/scripts/gh-shepherd-status.sh \
@@ -103,8 +102,10 @@ else
   # Half the jobs each, so the two passes together hold one worker per core:
   # the examples that poll on real seconds start missing their bounds when the
   # machine is oversubscribed, and measured wall time is the same either way.
-  # pytest first, and on its own: it is seconds, and it is the harness a Python
-  # change is most likely to have broken.
+  # pytest first, and on its own: it is the harness a Python change is most
+  # likely to have broken. The whole suite, including the examples marked `slow`
+  # that perform a real package-manager install; those are the ones the
+  # pre-commit hook deselects, and CI runs them too.
   run "pytest" uv run --locked pytest -n auto
   jobs=$(( (jobs + 1) / 2 ))
   legacy_out="$(mktemp)" || { printf 'could not create a temp file for the /bin/bash pass\n' >&2; exit 1; }
