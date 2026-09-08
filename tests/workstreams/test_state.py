@@ -258,6 +258,138 @@ def test_filter_streams_returns_nothing_when_no_stream_matches():
     assert state.filter_streams(a_state(streams=[a_stream("s1")]), "done") == []
 
 
+# --- is_finished --------------------------------------------------------------
+
+
+def test_is_finished_is_true_when_every_stream_is_terminal():
+    """done and failed together: both count, not only done."""
+    document = a_state(streams=[a_stream("s1", status="done"), a_stream("s2", status="failed")])
+    assert state.is_finished(document) is True
+
+
+def test_is_finished_is_true_for_a_plan_with_no_streams():
+    """A plan `init` wrote and nobody added a stream to is replaceable."""
+    assert state.is_finished(a_state()) is True
+
+
+@pytest.mark.parametrize("status", ["planned", "running", "draft", "reviewing"])
+def test_is_finished_is_false_while_a_stream_is_still_working(status):
+    document = a_state(streams=[a_stream("s1", status="done"), a_stream("s2", status=status)])
+    assert state.is_finished(document) is False
+
+
+def test_is_finished_is_false_for_a_paused_stream():
+    """The user owes an answer, so the plan is not over.
+
+    Its own test rather than a parameter of the one above: `paused` is the arm
+    somebody reading TERMINAL as "not running" would get wrong, and archiving a
+    plan over it would file the question away unanswered.
+    """
+    document = a_state(streams=[a_stream("s1", status="paused")])
+    assert state.is_finished(document) is False
+
+
+def test_is_finished_is_false_for_a_status_outside_the_vocabulary():
+    """A hand-edited status is not terminal; it is a file needing a person."""
+    document = a_state(streams=[a_stream("s1", status="nearly")])
+    assert state.is_finished(document) is False
+
+
+# --- reconcile ----------------------------------------------------------------
+
+
+def test_reconcile_marks_a_stream_whose_pr_merged_done():
+    document = a_state(streams=[a_stream("s1", status="reviewing", pr=10)])
+    document, transitions = state.reconcile(document, {10: "MERGED"})
+    assert document["streams"][0]["status"] == "done"
+    assert transitions == [{"stream": "s1", "from": "reviewing", "to": "done"}]
+
+
+def test_reconcile_marks_a_stream_whose_pr_closed_failed_with_the_question():
+    document = a_state(streams=[a_stream("s1", status="draft", pr=11)])
+    document, transitions = state.reconcile(document, {11: "CLOSED"})
+    stream = document["streams"][0]
+    assert stream["status"] == "failed"
+    assert stream["question"] == "PR #11 was closed without merging"
+    assert transitions == [{"stream": "s1", "from": "draft", "to": "failed"}]
+
+
+def test_reconcile_leaves_a_stream_whose_pr_is_open_alone():
+    document = a_state(streams=[a_stream("s1", status="reviewing", pr=12, question=None)])
+    document, transitions = state.reconcile(document, {12: "OPEN"})
+    assert document["streams"][0]["status"] == "reviewing"
+    assert transitions == []
+
+
+def test_reconcile_ignores_a_stream_with_no_pr():
+    """A stream still working has nothing on GitHub to reconcile against."""
+    document = a_state(streams=[a_stream("s1", status="running", pr=None)])
+    document, transitions = state.reconcile(document, {10: "MERGED"})
+    assert document["streams"][0]["status"] == "running"
+    assert transitions == []
+
+
+def test_reconcile_leaves_a_terminal_stream_alone():
+    """A failed stream whose PR was merged later stays failed.
+
+    The loop already reached a verdict on it, and reopening one from a merge
+    somebody did afterwards would resurrect work the report has closed out.
+    """
+    document = a_state(streams=[a_stream("s1", status="failed", pr=10)])
+    document, transitions = state.reconcile(document, {10: "MERGED"})
+    assert document["streams"][0]["status"] == "failed"
+    assert transitions == []
+
+
+def test_reconcile_leaves_a_stream_whose_pr_was_not_asked_about():
+    document = a_state(streams=[a_stream("s1", status="draft", pr=99)])
+    document, transitions = state.reconcile(document, {10: "MERGED"})
+    assert document["streams"][0]["status"] == "draft"
+    assert transitions == []
+
+
+def test_reconcile_reports_every_transition_in_order():
+    document = a_state(
+        streams=[
+            a_stream("s1", status="reviewing", pr=10),
+            a_stream("s2", status="draft", pr=11),
+            a_stream("s3", status="running", pr=12),
+        ]
+    )
+    document, transitions = state.reconcile(document, {10: "MERGED", 11: "CLOSED", 12: "OPEN"})
+    assert [entry["stream"] for entry in transitions] == ["s1", "s2"]
+    assert [stream["status"] for stream in document["streams"]] == [
+        "done",
+        "failed",
+        "running",
+    ]
+
+
+# --- archive_name -------------------------------------------------------------
+
+
+def test_file_stem_is_the_state_file_name_without_json():
+    assert state.file_stem("bje-settings/example") == "bje-settings__example"
+
+
+def test_archive_name_carries_the_repo_and_the_moment_it_was_created():
+    assert state.archive_name(a_state()) == "bje-settings__example.2026-01-01T00-00-00Z.json"
+
+
+@pytest.mark.parametrize("created", ["2026-01-01T00:00:00Z", "2026/01/01", "a\\b"])
+def test_archive_name_replaces_what_a_path_would_read_as_structure(created):
+    """A colon is a separator on some filesystems; a slash is one everywhere."""
+    name = state.archive_name(a_state(created=created))
+    assert ":" not in name and "/" not in name and "\\" not in name
+
+
+@pytest.mark.parametrize("document", [{"created": "2026-01-01T00:00:00Z"}, {"repo": None}])
+def test_archive_name_falls_back_to_unknown_for_a_field_it_cannot_read(document):
+    """Only something other than this script writes such a file, and it is still
+    worth keeping."""
+    assert "unknown" in state.archive_name(document)
+
+
 # --- meta and deferred --------------------------------------------------------
 
 

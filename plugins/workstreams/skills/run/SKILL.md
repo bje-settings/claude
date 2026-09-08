@@ -27,11 +27,24 @@ the appliers are subagents that return once and never schedule anything.
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.py"
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" reconcile
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 ```
 
 Stop with the install hints if preflight exits 1. Stop and say to run `/workstreams:plan` if
-there is no state file. If no stream is `planned`, `running`, `draft`, or `reviewing`, skip to
-Step 5.
+there is no state file.
+
+`reconcile` asks GitHub about every pull request of a stream that is not finished: one whose PR
+was merged becomes `done`, one whose PR was closed becomes `failed` with the reason. It is what
+notices a PR merged outside this loop, in a browser or by another session, which nothing else
+here would ever look at again. It prints the transitions it applied as a JSON array; report them
+in this tick. Exit 4 means gh could not answer (a rate limit, an expired token, a number nothing
+resolves): say so in this tick and carry on with what is on disk. Do not stop the loop over it,
+and re-read the state after it runs, since it may have moved streams.
+
+Then `finished`: exit 0 means every stream is `done` or `failed`. Say the run is finished and go
+straight to Step 5, which reports and archives it; schedule no wake. Exit 1 means there is work
+left; if no stream is `planned`, `running`, `draft`, or `reviewing`, go to Step 5 as well.
 
 Read `meta.plan_path` for the plan document, and the target repository's `CLAUDE.md` and
 `.claude/rules/` once now; the briefs below quote its conventions rather than inventing any.
@@ -187,7 +200,7 @@ output:
   `CI is failing on PR #N after review (<failing>); decide whether to fix, retry, or drop the stream`,
   where `<failing>` is the `failing` list from the status output.
 
-## Step 5: Report
+## Step 5: Report and archive
 
 Print one report and stop the loop (`ScheduleWakeup` with `stop: true`):
 
@@ -197,5 +210,17 @@ Print one report and stop the loop (`ScheduleWakeup` with `stop: true`):
 - **Paused streams** with the exact question each is waiting on.
 - **Findings rejected during review**, per PR, with the one-line reason each was dropped.
 - **Failed streams** with the last error.
+
+Then archive the run, but only if it is over:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" archive
+```
+
+Run `archive` only when `finished` exits 0, and print the path it prints so the user knows where
+the record went. A run holding a `paused` stream is not finished: its file stays where it is, so
+the user can answer the question and re-run this skill. Never pass `--force` here; a plan that is
+not finished is one the next run still needs.
 
 The PRs are drafts. Marking them ready and merging is the user's decision.

@@ -76,10 +76,19 @@ Then check for an existing plan:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 ```
 
-If a plan exists, ask the user whether to replace it before going further; if they decline,
-stop. Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory, and
+`show` exiting non-zero means there is no plan: carry on. If it exits 0 a plan exists, and
+`finished` says what kind:
+
+- **`finished` exits 0**: every stream of the last run reached `done` or `failed`. Say that the
+  previous run is finished and will be archived, and carry on without asking. There is nothing
+  in it for the user to decide.
+- **`finished` exits 1**: the run is still live, or a stream is `paused` waiting on an answer.
+  Ask the user whether to replace it before going further; if they decline, stop.
+
+Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory, and
 `ExitPlanMode`. The loop cadence in the plan is a number of seconds between 60 and 3600.
 
 ## Step 7: Record
@@ -87,7 +96,8 @@ stop. Then `EnterPlanMode`, write the plan using `plan-template.md` in this dire
 Only after the plan is approved, since plan mode blocks writes, persist it:
 
 ```bash
-# --force only when the user said to replace an existing plan
+# --force only for an unfinished plan the user chose to replace: init archives a
+# finished one itself and says on stderr where it went
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" init
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" \
   add-stream <id> --issues <n,n> --kind independent \

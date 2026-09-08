@@ -23,7 +23,16 @@ flowchart TD
     C1 --> T
     T -->|user rejects| T1([stop: nothing recorded])
     T -->|user approves| W{a plan already exists for this repo?}
-    W -->|yes, user declines to replace| W1([stop: existing plan kept])
-    W -->|no, or user says replace| Z[record streams, deferrals, and cadence in the state file]
+    W -->|no| Z
+    W -->|yes, and every stream of it is done or failed| W2[say the finished run will be archived;<br>do not ask]
+    W -->|yes, and it is still live or paused| W3{user says replace it?}
+    W3 -->|no| W1([stop: existing plan kept])
+    W3 -->|yes| Z
+    W2 --> Z[record streams, deferrals, and cadence in the state file<br>init archives whatever plan was there]
     Z --> Z1([done: nothing started; /workstreams:run executes])
 ```
+
+A finished plan is not a question. Every stream of it reached `done` or `failed`, so there is
+nothing for the user to decide about replacing it; `init` moves it to the state dir's `archive/`
+and the new plan takes its place. Only a run still live, or one holding a `paused` stream whose
+question nobody answered, is worth stopping to ask about.

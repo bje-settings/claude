@@ -10,6 +10,12 @@ held, which is the blind spot `.claude/rules/type-py.md` describes; here every
 branch is its own arm of the coverage report and its own unit test in
 `tests/workstreams/test_state.py`.
 
+Beside them is the lifecycle the file itself has: whether a plan is finished,
+what a finished plan is archived as, and how a plan is brought back into line
+with what GitHub says about its pull requests. See
+`plugins/workstreams/docs/spike-65-state-file.md` for why the file is kept at
+all and what it would take to derive its contents instead.
+
 Nothing here touches the filesystem or the environment: the functions take a
 state document (the parsed JSON) and return a new value or raise `Invalid`. The
 script owns reading, writing, and exit codes.
@@ -22,6 +28,15 @@ import re
 
 # The vocabularies the script validates against.
 STATUSES = ("planned", "running", "draft", "reviewing", "paused", "done", "failed")
+# The statuses no later tick moves a stream off. `paused` is not one of them: the
+# user owes an answer, and a plan holding a paused stream is still a plan being
+# run. Everything else is work the loop expects to pick up again.
+TERMINAL = ("done", "failed")
+# The three states `gh pr view --json state` answers with, and what each of them
+# settles. OPEN settles nothing -- it is the ordinary case the run loop is
+# already working through -- so it is absent here rather than mapped to a status.
+PR_STATES = ("OPEN", "MERGED", "CLOSED")
+RECONCILED = {"MERGED": "done", "CLOSED": "failed"}
 KINDS = ("independent", "stack")
 FIELDS = (
     "status",
@@ -234,6 +249,94 @@ def filter_streams(state: dict, status: str) -> list:
     `--status` passes.
     """
     return [stream for stream in state["streams"] if status == "" or stream.get("status") == status]
+
+
+# --- lifecycle ---------------------------------------------------------------
+
+
+def is_finished(document) -> bool:
+    """Whether every stream of this plan has reached a terminal status.
+
+    A finished plan is one nothing is left to do on, which is what `plan` reads
+    to know it may replace the file without asking and what `run` reads to know
+    the report it is about to print is the last one. `paused` is deliberately not
+    terminal: a paused stream is waiting on an answer from the user, and treating
+    it as finished would archive the question along with the plan.
+
+    Vacuously true for a plan with no streams: that is what `init` writes before
+    the first `add-stream`, so a half-written plan nobody carried on with is
+    replaceable rather than something to ask about.
+    """
+    return all(stream.get("status") in TERMINAL for stream in document["streams"])
+
+
+def reconcile(document, pr_states):
+    """Bring the streams into line with what GitHub says about their PRs.
+
+    `pr_states` maps a pull request number to its state (`PR_STATES`). A merged
+    pull request is the stream's work landing, whoever merged it: the run loop
+    marks a stream `done` off its own checks, but a PR merged in a browser, by
+    another session, or by `harden` never comes back through the loop, and
+    without this the plan says `reviewing` forever. A closed one is that stream
+    failing, with the question saying so, because nothing is coming of the branch
+    it left behind.
+
+    Only non-terminal streams with a pull request are touched, and only the two
+    states `RECONCILED` maps: `OPEN` is the ordinary case the loop is already
+    handling, and a stream whose PR is not in the map was not asked about.
+
+    Returns the document and the transitions applied, each `{"stream", "from",
+    "to"}`, so the caller can report what moved rather than diffing the file.
+    """
+    transitions = []
+    for stream in document["streams"]:
+        was = stream.get("status")
+        number = stream.get("pr")
+        if was in TERMINAL or number is None:
+            continue
+        now = RECONCILED.get(pr_states.get(number))
+        if now is None:
+            continue
+        if now == "failed":
+            stream["question"] = f"PR #{number} was closed without merging"
+        stream["status"] = now
+        transitions.append({"stream": stream.get("id"), "from": was, "to": now})
+    return document, transitions
+
+
+def file_stem(repo: str) -> str:
+    """owner/name as one path segment: the state file's name without `.json`."""
+    return repo.replace("/", "__")
+
+
+def safe_part(value: str) -> str:
+    """One component of a file name, with anything a path could read as structure
+    replaced.
+
+    `created` carries colons (`2026-09-07T12:34:56Z`), which are a path separator
+    on some filesystems and merely awkward on the rest, and the field is only as
+    trustworthy as whatever last wrote the file, so a slash or a backslash in it
+    must not decide where the archive lands.
+    """
+    for character in ":/\\":
+        value = value.replace(character, "-")
+    return value
+
+
+def archive_name(document) -> str:
+    """What a finished plan is filed under: `<owner>__<name>.<created>.json`.
+
+    Named for the repository and the moment the plan was created, so a repository
+    worked several times keeps one file per run rather than one file overwritten.
+    A document missing either field -- possible only if something other than this
+    wrote it -- is still archived, under `unknown`, because the point of the move
+    is not losing the file.
+    """
+    repo = document.get("repo")
+    created = document.get("created")
+    stem = file_stem(repo) if isinstance(repo, str) and repo else "unknown"
+    stamp = created if isinstance(created, str) and created else "unknown"
+    return f"{safe_part(stem)}.{safe_part(stamp)}.json"
 
 
 # --- meta and deferred -------------------------------------------------------

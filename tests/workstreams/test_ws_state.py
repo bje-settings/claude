@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import stat
 import subprocess
@@ -1341,6 +1342,298 @@ def test_shows_a_non_ascii_reason_under_a_non_utf8_locale(planned, ws_sandbox, w
     )
     assert result.status == 0
     assert "café" in result.stdout
+
+
+# --- lifecycle: finished, archive, reconcile ----------------------------------
+
+
+@pytest.fixture
+def lifecycle(ws_sandbox, ws_state):
+    """A plan with streams whose statuses and PRs each test sets for itself."""
+
+    class Lifecycle:
+        def plan(self, *streams):
+            """One stream record per (id, status, pr); pr None writes no pr."""
+            assert ws_state("init").status == 0
+            for stream_id, status, pr in streams:
+                assert (
+                    ws_state(
+                        "add-stream",
+                        stream_id,
+                        "--issues",
+                        "1",
+                        "--kind",
+                        "independent",
+                        "--model",
+                        "sonnet",
+                        "--effort",
+                        "low",
+                    ).status
+                    == 0
+                )
+                assert ws_state("set", stream_id, "status", status).status == 0
+                if pr is not None:
+                    assert ws_state("set", stream_id, "pr", str(pr)).status == 0
+
+        def statuses(self):
+            return [stream["status"] for stream in ws_sandbox.read_state()["streams"]]
+
+        def archived(self):
+            directory = ws_sandbox.state_dir / "archive"
+            return (
+                sorted(path.name for path in directory.glob("*.json")) if directory.is_dir() else []
+            )
+
+        def archived_document(self):
+            files = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
+            assert len(files) == 1, files
+            return json.loads(files[0].read_text(encoding="utf-8"))
+
+    return Lifecycle()
+
+
+def test_finished_says_nothing_and_exits_0_when_every_stream_is_terminal(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 10), ("s2", "failed", None))
+    result = ws_state("finished")
+    assert result.status == 0
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_while_a_stream_is_paused(lifecycle, ws_state):
+    """A paused stream is a question the user owes an answer to, not a finished run."""
+    lifecycle.plan(("s1", "done", 10), ("s2", "paused", 11))
+    result = ws_state("finished")
+    assert result.status == 1
+    assert "is not finished" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_with_a_message_when_there_is_no_plan(ws_state):
+    result = ws_state("finished")
+    assert result.status == 1
+    assert "run init first" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_rejects_a_stray_argument(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    result = ws_state("finished", "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_moves_a_finished_plan_and_prints_where_it_went(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    before = ws_sandbox.read_state()
+    result = ws_state("archive")
+    assert result.status == 0
+    assert not ws_sandbox.state_file().exists()
+    moved = result.stdout.strip()
+    assert moved == str(ws_sandbox.state_dir / "archive" / lifecycle.archived()[0])
+    assert json.loads(pathlib.Path(moved).read_text(encoding="utf-8")) == before
+
+
+def test_archive_refuses_an_unfinished_plan_and_leaves_it_where_it_is(
+    lifecycle, ws_sandbox, ws_state
+):
+    """The refusing half of a destructive command, beside the acting half above."""
+    lifecycle.plan(("s1", "reviewing", 12))
+    before = snapshot(ws_sandbox)
+    result = ws_state("archive")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == before
+    assert lifecycle.archived() == []
+
+
+def test_archive_moves_an_unfinished_plan_with_force(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "reviewing", 12))
+    assert ws_state("archive", "--force").status == 0
+    assert not ws_sandbox.state_file().exists()
+    assert lifecycle.archived_document()["streams"][0]["status"] == "reviewing"
+
+
+def test_archive_rejects_an_unknown_argument(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    result = ws_state("archive", "--now")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_reports_an_archive_directory_it_cannot_create(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    (ws_sandbox.state_dir / "archive").write_text("", encoding="utf-8")
+    result = ws_state("archive")
+    assert result.status == 1
+    assert "cannot create" in result.stderr
+    assert ws_sandbox.state_file().is_file()
+
+
+def test_archive_reports_a_move_it_could_not_make(lifecycle, ws_sandbox, ws_state):
+    """A directory already standing where the archived plan would go.
+
+    The plan stays where it is: a move that could not be made must not read as
+    one that was, or the next tick starts a plan over a run still in progress.
+    """
+    lifecycle.plan(("s1", "done", 10))
+    created = ws_sandbox.read_state()["created"].replace(":", "-")
+    blocker = ws_sandbox.state_dir / "archive" / f"bje-settings__example.{created}.json"
+    blocker.mkdir(parents=True)
+    (blocker / "occupied").write_text("", encoding="utf-8")
+    result = ws_state("archive")
+    assert result.status == 1
+    assert "cannot archive" in result.stderr
+    assert ws_sandbox.state_file().is_file()
+
+
+def test_init_archives_a_finished_plan_and_starts_a_new_one(lifecycle, ws_sandbox, ws_state):
+    """The case that made this worth doing: a finished run no longer asks."""
+    lifecycle.plan(("s1", "done", 10))
+    before = ws_sandbox.read_state()
+    result = ws_state("init")
+    assert result.status == 0
+    assert "archived the finished plan to" in result.stderr
+    assert ws_sandbox.read_state()["streams"] == []
+    assert lifecycle.archived_document() == before
+
+
+def test_init_still_refuses_an_unfinished_plan(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "running", None))
+    before = snapshot(ws_sandbox)
+    result = ws_state("init")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == before
+    assert lifecycle.archived() == []
+
+
+def test_init_force_archives_the_unfinished_plan_before_overwriting_it(
+    lifecycle, ws_sandbox, ws_state
+):
+    """--force keeps what it replaces: the plan is gone from where the skills
+    look for it, not gone from disk."""
+    lifecycle.plan(("s1", "running", None))
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert "archived the unfinished plan to" in result.stderr
+    assert ws_sandbox.read_state()["streams"] == []
+    assert lifecycle.archived_document()["streams"][0]["status"] == "running"
+
+
+def test_init_force_archives_a_file_it_could_not_parse(ws_sandbox, ws_state):
+    """A file another tool left at the path is still not this script's to destroy."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text("{not json at all", encoding="utf-8")
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert "archived the unfinished plan to" in result.stderr
+    archived = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
+    assert [path.read_text(encoding="utf-8") for path in archived] == ["{not json at all"]
+
+
+def test_reconcile_marks_a_merged_pr_done_and_a_closed_one_failed(lifecycle, ws_sandbox, ws_state):
+    """PR 14 is merged in the fixtures and PR 19 was closed without merging."""
+    lifecycle.plan(("s1", "reviewing", 14), ("s2", "draft", 19), ("s3", "running", 12))
+    result = ws_state("reconcile")
+    assert result.status == 0
+    assert json.loads(result.stdout) == [
+        {"stream": "s1", "from": "reviewing", "to": "done"},
+        {"stream": "s2", "from": "draft", "to": "failed"},
+    ]
+    assert lifecycle.statuses() == ["done", "failed", "running"]
+    assert ws_sandbox.read_state()["streams"][1]["question"] == "PR #19 was closed without merging"
+
+
+def test_reconcile_leaves_an_open_pr_alone_and_prints_an_empty_array(
+    lifecycle, ws_sandbox, ws_state
+):
+    lifecycle.plan(("s1", "reviewing", 12))
+    before = snapshot(ws_sandbox)
+    result = ws_state("reconcile")
+    assert result.status == 0
+    assert json.loads(result.stdout) == []
+    assert snapshot(ws_sandbox) == before
+
+
+def test_reconcile_does_not_ask_about_a_stream_with_no_pr(lifecycle, ws_state):
+    """A running stream that has not pushed yet has nothing to reconcile, and
+    asking gh about a null number would be an error, not an answer."""
+    lifecycle.plan(("s1", "running", None), ("s2", "done", 14))
+    result = ws_state("reconcile")
+    assert result.status == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_reconcile_exits_4_and_writes_nothing_when_gh_fails(lifecycle, ws_sandbox, ws_state):
+    """A rate limit or an expired token is a tick to repeat, not a plan to fail.
+
+    WS_REPO so the failure is the pull request read and not the repository one:
+    naming the repository fails the way it does for every command, exit 1.
+    """
+    lifecycle.plan(("s1", "reviewing", 14))
+    before = snapshot(ws_sandbox)
+    ws_sandbox.setenv("WS_REPO", "bje-settings/example")
+    ws_sandbox.setenv("WS_GH_FIXTURE_FAIL", "1")
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "gh pr view failed for #14" in result.stderr
+    assert snapshot(ws_sandbox) == before
+
+
+def test_reconcile_exits_4_for_a_pull_request_that_does_not_exist(lifecycle, ws_sandbox, ws_state):
+    """The run skill fails a stream on a missing PR at its own review step, where
+    it has the stream in hand; guessing here would fail one over a typo."""
+    lifecycle.plan(("s1", "reviewing", 404))
+    before = snapshot(ws_sandbox)
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "Could not resolve" in result.stderr
+    assert snapshot(ws_sandbox) == before
+
+
+def test_reconcile_exits_4_when_gh_answers_with_something_it_cannot_read(
+    lifecycle, ws_sandbox, ws_state
+):
+    lifecycle.plan(("s1", "reviewing", 14))
+    stubs = ws_sandbox.path / "chatty-pr-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text("#!/bin/sh\necho 'not json at all'\n", encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    ws_sandbox.setenv("WS_REPO", "bje-settings/example")
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "did not answer with a state" in result.stderr
+
+
+def test_reconcile_exits_4_on_a_state_it_does_not_know(lifecycle, ws_sandbox, ws_state):
+    """gh answering with a state outside the three is gh answering another
+    question, and acting on it would move a stream on a guess."""
+    lifecycle.plan(("s1", "reviewing", 14))
+    stubs = ws_sandbox.path / "odd-pr-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text('#!/bin/sh\necho \'{"state": "LOCKED"}\'\n', encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    ws_sandbox.setenv("WS_REPO", "bje-settings/example")
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "unknown state: LOCKED" in result.stderr
+
+
+def test_reconcile_reports_gh_missing_from_path(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "reviewing", 14))
+    bare = ws_sandbox.sandbox.path_without("gh")
+    result = ws_state("reconcile", env={"PATH": bare, "WS_REPO": "bje-settings/example"})
+    assert result.status == 4
+    assert "gh pr view failed for #14" in result.stderr
+
+
+def test_reconcile_rejects_a_stray_argument(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 14))
+    result = ws_state("reconcile", "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
 
 
 # --- usage --------------------------------------------------------------------

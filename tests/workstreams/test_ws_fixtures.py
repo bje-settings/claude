@@ -94,6 +94,15 @@ def test_prs_cover_open_drafts_a_ready_pr_and_a_merged_pr(ws_sandbox):
     ]
 
 
+def test_prs_cover_all_three_states_reconcile_reads(ws_sandbox):
+    """carries an open, a merged, and a closed-unmerged pull request
+
+    `reconcile` decides on the state alone, so a fixture set holding only OPEN
+    and MERGED would let the closed arm pass for want of a case to reach it.
+    """
+    assert sorted({pr["state"] for pr in prs(ws_sandbox)}) == ["CLOSED", "MERGED", "OPEN"]
+
+
 def test_pr_twelve_is_stacked_on_the_branch_of_pr_ten(ws_sandbox):
     """stacks PR 12 on the branch of PR 10"""
     by_number = {pr["number"]: pr for pr in prs(ws_sandbox)}

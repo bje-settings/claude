@@ -4,6 +4,9 @@
   ws-state.py path
   ws-state.py init [--force] [--repo <owner/name>]
   ws-state.py show
+  ws-state.py finished
+  ws-state.py archive [--force]
+  ws-state.py reconcile
   ws-state.py meta <field> <value>
   ws-state.py add-stream <id> --issues <n,n,...> --kind independent|stack
                          --model <alias> --effort low|medium|high [--reason <text>]
@@ -17,8 +20,20 @@ One state file per repository, at
   ${WS_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/<owner>__<name>.json
 where owner/name comes from --repo (init only), then WS_REPO, then `gh repo view`.
 Writes go to a temp file and are moved into place, so a crash mid-write leaves
-the old state intact. `init` refuses to overwrite an existing file without
---force.
+the old state intact.
+
+The file has a lifecycle, and these three commands are it. `finished` answers
+whether every stream has reached `done` or `failed` (a `paused` stream has not:
+it is waiting on the user). `archive` moves a finished plan to
+  <state dir>/archive/<owner>__<name>.<created>.json
+and prints where it went, so the next plan for the repository starts from
+nothing while the last one is still readable. `init` archives a finished plan
+itself and carries on, and refuses an unfinished one without --force; with
+--force it archives that one too rather than discarding it. `reconcile` asks
+GitHub about every pull request of a stream that is not finished, marking a
+stream whose PR was merged `done` and one whose PR was closed `failed`, and
+prints the transitions it applied as a JSON array. It is what notices a PR
+merged outside the run loop.
 
 A stacked stream is one layer of a stack: --stack names the stack (shared by its
 layers), --order is the position from the bottom starting at 1, and --base is the
@@ -40,8 +55,15 @@ a session that stopped between the read and the write would leave the count
 behind by one. A field that is null or absent counts as 0.
 
 Exit 0 on success, 1 on any other failure (missing or corrupt state file, unknown
-stream, gh failure, unwritable directory), 2 on usage, 3 when init would
-overwrite without --force.
+stream, gh failure, unwritable directory), 2 on usage, 3 when init or archive
+would act on an unfinished plan without --force, 4 when `reconcile` could not
+read GitHub.
+
+`finished` exits 0 when the plan is finished and 1 when it is not, or when there
+is no plan at all; it prints nothing on stdout. `reconcile` exits 4, having
+written nothing, whenever gh failed, answered with something it could not read,
+or named a pull request that does not exist: 4 rather than 1 so the run loop can
+tell a tick worth repeating from a plan it must stop on.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -150,7 +172,29 @@ def state_dir() -> str:
 
 
 def state_path(directory: str, repo: str) -> str:
-    return os.path.join(directory, repo.replace("/", "__") + ".json")
+    return os.path.join(directory, st.file_stem(repo) + ".json")
+
+
+def archive_state(path: str, document, directory: str) -> str:
+    """Move a plan into the archive dir, and say where it went.
+
+    A move rather than a copy and a delete: the plan is gone from where the
+    skills look for it the moment the rename lands, and it is never both places
+    at once. The archive lives under the state dir, so it follows WS_STATE_DIR or
+    CLAUDE_PLUGIN_DATA wherever those point and needs nothing of any particular
+    machine's layout.
+    """
+    destination_dir = os.path.join(directory, "archive")
+    try:
+        os.makedirs(destination_dir, exist_ok=True)
+    except OSError:
+        die(f"cannot create {destination_dir}")
+    destination = os.path.join(destination_dir, st.archive_name(document))
+    try:
+        os.replace(path, destination)
+    except OSError as error:
+        die(f"cannot archive {path}: {error}")
+    return destination
 
 
 def write_state(path: str, document) -> None:
@@ -205,9 +249,30 @@ def require_state(path: str):
     return document
 
 
+def read_state(path: str):
+    """The parsed state file, or None when it is not one this can read.
+
+    `require_state` is the same read with a message and an exit status attached;
+    this one is for `init`, which has somewhere to go either way: a file it
+    cannot parse is still a file it must not silently destroy.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle, parse_constant=st.no_constants)
+    except (OSError, ValueError):
+        return None
+    return document if st.is_state(document) else None
+
+
+def locate(repo_arg: str = ""):
+    """The state dir and the current repository's file inside it."""
+    directory = state_dir()
+    return directory, state_path(directory, resolve_repo(repo_arg or os.environ.get("WS_REPO", "")))
+
+
 def open_state(repo_arg: str = ""):
     """The path of the current repo's state file and its parsed contents."""
-    path = state_path(state_dir(), resolve_repo(repo_arg or os.environ.get("WS_REPO", "")))
+    _, path = locate(repo_arg)
     return path, require_state(path)
 
 
@@ -232,13 +297,32 @@ def cmd_init(args):
     directory = state_dir()
     repo = resolve_repo(repo_arg or os.environ.get("WS_REPO", ""))
     path = state_path(directory, repo)
-    if os.path.isfile(path) and not force:
-        die(f"state already exists at {path}; pass --force to start over", 3)
+    created = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if os.path.isfile(path):
+        existing = read_state(path)
+        finished = existing is not None and st.is_finished(existing)
+        if not finished and not force:
+            die(f"state already exists at {path}; pass --force to start over", 3)
+        # Either the last run is over, or the user said to replace one that is
+        # not. Both keep the file: a finished plan is the record of what ran, and
+        # a replaced one is what the user would want back if replacing it was the
+        # mistake. A file this could not parse is archived too, under the
+        # repository and this moment, since there is no plan in it to read them
+        # off.
+        moved = archive_state(
+            path,
+            existing if existing is not None else {"repo": repo, "created": created},
+            directory,
+        )
+        sys.stderr.write(
+            "{}: archived the {} plan to {}\n".format(
+                PROG, "finished" if finished else "unfinished", moved
+            )
+        )
     try:
         os.makedirs(directory, exist_ok=True)
     except OSError:
         die(f"cannot create {directory}")
-    created = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     write_state(path, st.new_state(repo, created))
     print(path)
 
@@ -254,6 +338,106 @@ def cmd_show(args):
         die(f"show: unknown argument: {args[0]}", 2)
     _, document = open_state()
     sys.stdout.write(dumps(document))
+
+
+def cmd_finished(args):
+    """Exit 0 when every stream is done or failed, 1 when any is not.
+
+    Nothing on stdout: the answer is the exit status, so a skill asks with `if`
+    rather than by matching text, and a plan with no file at all answers 1 the
+    same way every other command reports a missing file.
+    """
+    if args:
+        die(f"finished: unknown argument: {args[0]}", 2)
+    path, document = open_state()
+    if not st.is_finished(document):
+        die(f"the plan at {path} is not finished", 1)
+
+
+def cmd_archive(args):
+    force = False
+    index = 0
+    while index < len(args):
+        if args[index] == "--force":
+            force = True
+        else:
+            die(f"archive: unknown argument: {args[index]}", 2)
+        index += 1
+    directory, path = locate()
+    document = require_state(path)
+    if not st.is_finished(document) and not force:
+        die(f"the plan at {path} is not finished; pass --force to archive it anyway", 3)
+    print(archive_state(path, document, directory))
+
+
+def cmd_reconcile(args):
+    """Ask GitHub about the pull requests the plan is still waiting on.
+
+    One `gh pr view` per pull request, and the whole answer is assembled before
+    anything is written: a plan half-reconciled against a GitHub that stopped
+    answering part-way through is worse than one not reconciled at all, because
+    the next tick cannot tell which half it is looking at.
+    """
+    if args:
+        die(f"reconcile: unknown argument: {args[0]}", 2)
+    path, document = open_state()
+    pr_states = {number: gh_pr_state(number) for number in pending_prs(document)}
+    document, transitions = st.reconcile(document, pr_states)
+    if transitions:
+        write_state(path, document)
+    sys.stdout.write(dumps(transitions))
+
+
+def pending_prs(document) -> list:
+    """The pull request numbers of the streams that are not finished, in order.
+
+    Deduplicated because a stack's layers each carry their own record but a
+    caller may have written one PR to two of them; asking GitHub twice for the
+    same number is a round trip that buys nothing.
+    """
+    numbers = []
+    for stream in document["streams"]:
+        number = stream.get("pr")
+        if stream.get("status") in st.TERMINAL:
+            continue
+        # bool before int: True is an int in Python and is not a pull request.
+        if isinstance(number, int) and not isinstance(number, bool) and number not in numbers:
+            numbers.append(number)
+    return numbers
+
+
+def gh_pr_state(number: int) -> str:
+    """OPEN, MERGED or CLOSED for one pull request, or exit 4.
+
+    Every way of not getting an answer is a 4, including a pull request that does
+    not exist: the run loop already fails a stream on a missing PR at its review
+    step, where it has the stream in hand, and guessing here that a number
+    nothing resolves means the work was abandoned would fail a stream over a
+    typo. Reconciling is a read; a read that could not be made changes nothing.
+    """
+    try:
+        finished = subprocess.run(
+            ["gh", "pr", "view", str(number), "--json", "state"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError as error:
+        die(f"reconcile: gh pr view failed for #{number}: {error}", 4)
+    errors = finished.stderr.decode("utf-8", "replace")
+    if errors:
+        # gh's own message, unchanged: a rate limit, an expired token and a
+        # number nobody can resolve all arrive here, and which one it was is
+        # what the reader needs.
+        sys.stderr.write(errors)
+    if finished.returncode != 0:
+        die(f"reconcile: gh pr view failed for #{number}", 4)
+    try:
+        answer = json.loads(finished.stdout.decode("utf-8", "replace"))["state"]
+    except (ValueError, KeyError, TypeError):
+        die(f"reconcile: gh pr view for #{number} did not answer with a state", 4)
+    if answer not in st.PR_STATES:
+        die(f"reconcile: gh pr view for #{number} answered with an unknown state: {answer}", 4)
+    return answer
 
 
 def cmd_meta(args):
@@ -371,6 +555,9 @@ COMMANDS = {
     "init": cmd_init,
     "path": cmd_path,
     "show": cmd_show,
+    "finished": cmd_finished,
+    "archive": cmd_archive,
+    "reconcile": cmd_reconcile,
     "meta": cmd_meta,
     "add-stream": cmd_add_stream,
     "set": cmd_set,
