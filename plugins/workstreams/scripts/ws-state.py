@@ -195,8 +195,11 @@ def archive_state(path: str, document, directory: str) -> str:
     destination_dir = os.path.join(directory, "archive")
     try:
         os.makedirs(destination_dir, exist_ok=True)
-    except OSError:
-        die(f"cannot create {destination_dir}")
+    except OSError as error:
+        # The error text, as the os.replace arm below has it: a file standing
+        # where the directory goes, a permission fault and a read-only
+        # filesystem are three different fixes and would otherwise read alike.
+        die(f"cannot create {destination_dir}: {error}")
     destination = os.path.join(destination_dir, st.archive_name(document))
     if os.path.lexists(destination):
         die(f"cannot archive {path}: {destination} already exists")
@@ -260,16 +263,23 @@ def require_state(path: str):
 
 
 def read_state(path: str):
-    """The parsed state file, or None when it is not one this can read.
+    """The parsed state file, or None when it is not a plan this can read.
 
     `require_state` is the same read with a message and an exit status attached;
     this one is for `init`, which has somewhere to go either way: a file it
     cannot parse is still a file it must not silently destroy.
+
+    None means "not a plan" and nothing else. A file that cannot be opened at
+    all dies here, the way `require_state` reports one: a permission fault read
+    as bad JSON would have `init` offering --force, and --force would then
+    archive a file it never managed to read as an unfinished plan.
     """
     try:
         with open(path, encoding="utf-8") as handle:
             document = json.load(handle, parse_constant=st.no_constants)
-    except (OSError, ValueError):
+    except OSError as error:
+        die(f"cannot read {path}: {error}")
+    except ValueError:
         return None
     return document if st.is_state(document) else None
 
@@ -331,8 +341,8 @@ def cmd_init(args):
         )
     try:
         os.makedirs(directory, exist_ok=True)
-    except OSError:
-        die(f"cannot create {directory}")
+    except OSError as error:
+        die(f"cannot create {directory}: {error}")
     write_state(path, st.new_state(repo, created))
     print(path)
 

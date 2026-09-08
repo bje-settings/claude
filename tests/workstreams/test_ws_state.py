@@ -1554,6 +1554,26 @@ def test_init_force_archives_the_unfinished_plan_before_overwriting_it(
     assert lifecycle.archived_document()["streams"][0]["status"] == "running"
 
 
+@not_as_root
+def test_init_reports_a_state_file_it_cannot_read_rather_than_offering_force(ws_sandbox, ws_state):
+    """A permission fault is not bad JSON, and --force is not the fix for it.
+
+    Read as "cannot parse", `init` would tell the user to start over, and
+    --force would then archive a file it never managed to read.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text('{"streams": []}', encoding="utf-8")
+    ws_sandbox.state_file().chmod(0)
+    try:
+        result = ws_state("init")
+        assert result.status == 1
+        assert f"cannot read {ws_sandbox.state_file()}" in result.stderr
+        assert "pass --force" not in result.stderr
+        assert ws_sandbox.state_file().is_file()
+    finally:
+        ws_sandbox.state_file().chmod(0o644)
+
+
 def test_init_force_archives_a_file_it_could_not_parse(ws_sandbox, ws_state):
     """A file another tool left at the path is still not this script's to destroy."""
     ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)

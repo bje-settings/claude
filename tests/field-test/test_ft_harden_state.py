@@ -393,6 +393,25 @@ def test_init_force_archives_the_run_it_replaces(state):
     assert archived_document(state)["targets"][0]["path"] == "/repos/widgets"
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="running as root, permissions do not apply")
+def test_init_reports_a_state_file_it_cannot_read_rather_than_offering_force(state):
+    """A permission fault is not bad JSON, and --force is not the fix for it.
+
+    Read as "cannot parse", `init` would tell the user to start over, and
+    --force would then archive a file it never managed to read.
+    """
+    state.init()
+    state.path.chmod(0)
+    try:
+        result = state.run("init", "gh:shepherd")
+        assert result.status == 1
+        assert f"cannot read {state.path}" in result.stderr
+        assert "--force to start over" not in result.stderr
+        assert state.path.is_file()
+    finally:
+        state.path.chmod(0o644)
+
+
 def test_init_force_archives_a_file_it_could_not_parse(state):
     """A file another tool left at the path is still not this script's to destroy."""
     state.init()
