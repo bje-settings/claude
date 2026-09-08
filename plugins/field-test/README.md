@@ -105,7 +105,9 @@ Per target, with every transition written to state before the next action is tak
 5. **Merge.** Ready, auto-merge, then `ft-wait-pr.py` blocking in the foreground. A mechanical CI
    failure goes back to the fix step once; anything behavioural pauses with the question, and so
    does a green pull request that auto-merge has not landed after three looks.
-6. **Summarise** in the same table every round, then the next target.
+6. **Summarise** in the same table every round, then the next target. Once every target is
+   `done` or `failed`, the run file is archived; one holding a `paused` target stays where it is,
+   so the question can be answered and the skill re-run.
 
 The wait blocks rather than arming a wake on purpose. A worker that schedules a wake and ends its
 turn leaves the loop looking at "waiting" with nothing running, which is one of the two failures
@@ -122,8 +124,19 @@ refuses a target whose status or path it cannot read rather than reporting a run
 target that comes back `running` is resumed at its recorded phase, with its `pr` and
 `review_rounds` as they stand, rather than started over. `bump` adds one to a numeric field (`pr`,
 `review_rounds`) and prints the new value, so counting a review round is one call rather than a
-read, an addition, and a write a stopped session can land between. `init` refuses to overwrite a
-run in progress without `--force`.
+read, an addition, and a write a stopped session can land between.
+
+The file has a lifecycle, so a finished run does not outlive itself. `finished` answers whether
+every target reached `done` or `failed` in its exit status: 0 finished, 3 not finished, and 1 for
+a file that is missing, corrupt, or unreadable, which is a failure to stop on rather than a run
+still going. `archive` moves a finished run to
+`${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/archive/<plugin>__<skill>.<created>.json`, with `:`
+in the timestamp replaced by `-` so the name is one path segment everywhere, and prints
+where it went, which the skill does after its final report. `init` archives a finished run itself
+and carries on, so a run that is over is never a question; it still refuses one in progress
+without `--force`, and with `--force` archives that one too rather than discarding it. A run
+holding a `paused` target is not finished and is left where it is. The reasoning is the
+workstreams spike, `plugins/workstreams/docs/spike-65-state-file.md`, which this side mirrors.
 
 ## Hooks
 
@@ -190,7 +203,7 @@ All deterministic, and all Python (stdlib only, 3.9), tested under `tests/field-
 | `ft-redact.py` | Text in, text out; identity inside the enterprise, placeholders outside |
 | `ft-issue.py` | `names`, `search`, `render`, `ensure-label` around filing a finding. Nothing here creates an issue; `ensure-label` creates or updates the `field-test` label, and `bug` is expected to exist already |
 | `ft-preflight.py` | Dependency check for `harden`; JSON `{ok, missing[]}` with install hints |
-| `ft-harden-state.py` | Atomic read/write of one hardening run; validates fields, statuses, and phases; `bump` counts a numeric field |
+| `ft-harden-state.py` | Atomic read/write of one hardening run; validates fields, statuses, and phases; `bump` counts a numeric field; `finished` and `archive` are the file's lifecycle |
 | `ft-verify-report.py` | A report's claims against `gh pr view`, per pull request |
 | `ft-wait-pr.py` | Blocking, bounded wait on one pull request: `merged`, `passed`, `failed`, `pending` |
 

@@ -283,6 +283,68 @@ def test_a_target_that_was_never_added_fails_rather_than_being_created():
     assert caught.value.status == 1
 
 
+# --- lifecycle ---------------------------------------------------------------
+
+
+def test_a_run_with_every_target_terminal_is_finished():
+    """done and failed together: both count, not only done."""
+    document = run_state("/repos/widgets", "/repos/gadgets")
+    harden.set_field(document, "/repos/widgets", "status", "done")
+    harden.set_field(document, "/repos/gadgets", "status", "failed")
+    assert harden.is_finished(document) is True
+
+
+def test_a_run_with_no_targets_is_finished():
+    """What `init` writes before the first add-target: replaceable, not a question."""
+    assert harden.is_finished(run_state()) is True
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_a_run_with_a_target_still_to_do_is_not_finished(status):
+    document = run_state("/repos/widgets")
+    harden.set_field(document, "/repos/widgets", "status", status)
+    assert harden.is_finished(document) is False
+
+
+def test_a_paused_target_leaves_the_run_unfinished():
+    """The question is what the target is waiting on; archiving would file it away.
+
+    Its own test rather than a parameter of the one above: `paused` is the arm
+    somebody reading TERMINAL as "not running" would get wrong.
+    """
+    document = run_state("/repos/widgets")
+    harden.set_field(document, "/repos/widgets", "status", "paused")
+    assert harden.is_finished(document) is False
+
+
+def test_a_status_outside_the_vocabulary_leaves_the_run_unfinished():
+    document = run_state("/repos/widgets")
+    document["targets"][0]["status"] = "nearly"
+    assert harden.is_finished(document) is False
+
+
+def test_the_file_stem_is_the_file_name_without_json():
+    assert harden.file_stem("gh:shepherd") == "gh__shepherd"
+
+
+def test_the_archive_name_carries_the_skill_and_when_the_run_started():
+    assert harden.archive_name(run_state()) == "gh__shepherd.2026-01-02T03-04-05Z.json"
+
+
+@pytest.mark.parametrize("created", ["2026-01-02T03:04:05Z", "2026/01/02", "a\\b"])
+def test_the_archive_name_replaces_what_a_path_would_read_as_structure(created):
+    """A colon is a separator on some filesystems; a slash is one everywhere."""
+    name = harden.archive_name({"skill": "gh:shepherd", "created": created})
+    assert ":" not in name and "/" not in name and "\\" not in name
+
+
+@pytest.mark.parametrize("document", [{"created": "2026-01-02T03:04:05Z"}, {"skill": None}])
+def test_the_archive_name_falls_back_to_unknown_for_a_field_it_cannot_read(document):
+    """Only something other than this script writes such a file, and it is still
+    worth keeping."""
+    assert "unknown" in harden.archive_name(document)
+
+
 # --- bump --------------------------------------------------------------------
 
 

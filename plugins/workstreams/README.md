@@ -36,7 +36,8 @@ Selectors, in any mix: issue numbers (`12`, `#12`, `10-14`), `label:<name>`,
 6. Ask the user every question the plan depends on, propose the plan in plan mode, and once it
    is approved record it in the state file.
 
-Nothing is started. An existing plan is only replaced when the user says so.
+Nothing is started. An unfinished plan is only replaced when the user says so; a finished one is
+archived and replaced without asking, since there is nothing left in it to decide about.
 
 ## `/workstreams:run`
 
@@ -88,6 +89,19 @@ One state file per repository at `${CLAUDE_PLUGIN_DATA}/<owner>__<repo>.json`, w
 `scripts/ws-state.py`. `/workstreams:run` reads stream statuses from it, so a session that stops
 mid-run can re-run the skill and continue. `ws-state.py show` prints it.
 
+The file has a lifecycle, so a finished run does not outlive itself. A run whose streams are all
+`done` or `failed` is archived to `${CLAUDE_PLUGIN_DATA}/archive/<owner>__<repo>.<created>.json`,
+with `:` in the timestamp replaced by `-` so the name is one path segment everywhere,
+by `run` after its final report and by `plan` when it starts the next one, so a finished plan is
+never a question the user has to answer. `finished` answers in its exit status: 0 finished, 3 not
+finished, and 1 for a file that is missing, corrupt, or unreadable, which is a failure to stop on
+rather than a plan still running. Every tick reconciles the plan against GitHub first: a
+pull request merged outside the loop marks its stream `done` and one closed without merging marks
+it `failed`, which is the only way a merge nobody here saw ever reaches the plan. A run holding a
+`paused` stream is not finished and is left where it is. Why the file is kept at all, rather than
+derived from GitHub or moved onto it, is in
+[`docs/spike-65-state-file.md`](docs/spike-65-state-file.md).
+
 Stream statuses: `planned`, `running`, `draft`, `reviewing`, `paused`, `done`, `failed`. A stack
 is several stream records sharing a `stack` name, ordered from the bottom; the run skill treats
 it as one unit of work. `review_rounds` counts the review rounds *scheduled* on a stream's PR, so
@@ -105,9 +119,17 @@ broken-pipe case, and one module each for the scripts whose decisions are worth 
 | --- | --- |
 | `ws-preflight.py` | Dependency check; JSON `{ok, missing[]}` with install hints |
 | `ws-issues.py` | Selectors to a JSON array of issues, with `#N` references extracted |
-| `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range. `bump` adds one to a numeric field, so no caller counts by hand |
+| `ws-state.py` | Atomic read/write of the state file; validates fields, statuses, efforts, models, and the `loop_delay` range. `bump` adds one to a numeric field, so no caller counts by hand. `finished`, `archive`, and `reconcile` are the file's lifecycle |
 | `ws-pr-status.py` | One PR reduced to draft state, base, head, mergeability, folded checks, review decision. Exits 1 when the PR does not exist and 4 when gh itself failed, so the run loop can fail a stream permanently on the first and, on the second, leave its status alone and look again next tick rather than strand it over a rate limit |
 | `ws-pr-comments.py` | One PR's reviews, issue comments, and review threads as one flat list, each entry saying whether its author is a bot and whether its thread is resolved |
+
+## Docs
+
+`docs/` holds the decisions behind the plugin's shape, written up where a reader can find them
+rather than left in an issue thread. Today that is
+[`spike-65-state-file.md`](docs/spike-65-state-file.md): whether the loop can run without the
+per-repository state file, five options compared, and why the file was kept and given a lifecycle
+instead.
 
 ## Out of scope for now
 

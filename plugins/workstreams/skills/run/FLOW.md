@@ -4,12 +4,23 @@
 flowchart TD
     P{gh-stack, pr-review-toolkit,<br>gh login all present?}
     P -->|no| P1([stop: print the install command for each missing piece])
-    P -->|yes| S{a plan exists for this repo?}
-    S -->|no| S1([stop: run /workstreams:plan first])
-    S -->|yes, every stream already done, paused, or failed| Z
-    S -->|yes| L[start one worker per independent stream<br>and one per stack, each in its own worktree]
+    P -->|yes| RE[reconcile the plan against GitHub:<br>a merged PR is done, a closed one failed]
+    RE -->|no state file| S1([stop: run /workstreams:plan first])
+    RE -->|the file cannot be read| S2([stop this tick: report the message;<br>the file needs a person])
+    RE -->|gh could not answer| RE1[report it in this tick;<br>carry on with what is on disk]
+    RE -->|reconciled| S{the plan has any streams?}
+    RE1 --> S
+    S -->|no: add-stream never landed| S1
+    S -->|yes| FIN{every stream done or failed?}
+    FIN -->|yes| Z
+    FIN -->|no, but none left to work| Z
+    FIN -->|no| L[start one worker per independent stream<br>and one per stack, each in its own worktree]
     L --> T[schedule a wake 60s to 3600s out, matched to the work]
-    T --> W{on wake: what does each stream say?}
+    T --> WR[on wake: reconcile against GitHub again]
+    WR -->|the file cannot be read| S2
+    WR -->|gh could not answer| WS
+    WR -->|reconciled| WS[report this tick's transitions,<br>then re-read the plan with show]
+    WS --> W{what does each stream say?}
     W -->|a worker returned a draft PR| Q
     W -->|left draft or reviewing by a session that stopped| Q
     W -->|worker needs a user decision| Pz[paused: record the question, tell the user, keep going]
@@ -39,8 +50,22 @@ flowchart TD
     C -->|gh itself failed| C2[report it in this tick, leave the stream reviewing]
     D & Pz & Pz2 & Pz3 & Pz4 & F & F2 & C1 & C2 & Q1 --> A{any stream still running,<br>draft, or reviewing?}
     A -->|yes| T
-    A -->|no| Z([stop the loop; report every PR in stack order, deferred issues with reasons,<br>paused streams with questions, rejected findings with reasons, failures])
+    A -->|no| Z[stop the loop; report every PR in stack order, deferred issues with reasons,<br>paused streams with questions, rejected findings with reasons, failures]
+    Z --> ZF{every stream done or failed?}
+    ZF -->|yes| ZA([archive the plan and print where it went])
+    ZF -->|no: a stream is paused| ZK([leave the plan in place so the user can answer and re-run])
 ```
+
+Every tick starts by reconciling the plan against GitHub, the first one and each wake alike,
+because a pull request merged outside this loop -- in a browser, by another session, by
+`/field-test:harden` -- never comes back through the review step that would otherwise notice, and
+a wake that skipped it would go on reviewing work that had already landed. gh failing to answer is
+reported and stepped over rather than stopped on, for the same reason an exit 4 anywhere else in
+the tick is: a rate limit is not a verdict on the work. A state file that cannot be read is not
+that case: nothing was written, nothing can be, and the tick stops with the message.
+
+The file is archived only once the run is over, and a `paused` stream means it is not. The question
+is what the user still owes an answer to, and archiving the plan would file it away unanswered.
 
 Layers of a stack are reviewed bottom-up: a layer's round does not start until the layer below it
 is `done`, because a change applied below changes what the layer above rebases onto.

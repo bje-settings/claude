@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from pathlib import Path
 
 import pytest
 from conftest import FT_HARDEN_STATE
@@ -218,6 +220,245 @@ def test_reports_a_state_directory_it_cannot_create(ft_sandbox, run_script):
     result = run_script(FT_HARDEN_STATE, "init", "gh:shepherd")
     assert result.status == 1
     assert "cannot create" in result.stderr
+
+
+# --- lifecycle: finished and archive -----------------------------------------
+
+
+def archive_dir(state):
+    return state.path.parent / "archive"
+
+
+def archived(state):
+    directory = archive_dir(state)
+    return sorted(path.name for path in directory.glob("*.json")) if directory.is_dir() else []
+
+
+def archived_document(state):
+    files = sorted(archive_dir(state).glob("*.json"))
+    assert len(files) == 1, files
+    return json.loads(files[0].read_text(encoding="utf-8"))
+
+
+def test_finished_says_nothing_and_exits_0_when_every_target_is_terminal(state):
+    state.two_targets()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    assert state.set("/repos/gadgets", "status", "failed").status == 0
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 0
+    assert result.stdout == ""
+
+
+def test_finished_exits_3_while_a_target_is_paused(state):
+    """A paused target is waiting on a person, so the run is not over.
+
+    3, the status `init` and `archive` already use for a run in progress, and
+    not 1: 1 is a file the skill has to stop on.
+    """
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "paused").status == 0
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 3
+    assert "is not finished" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_with_a_message_when_there_is_no_run(state):
+    """A missing run is not an unfinished one, and the statuses say which."""
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 1
+    assert "run init first" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_on_a_file_it_cannot_parse(state):
+    """A corrupt file read as "not finished" would leave a run looking live."""
+    state.init()
+    state.path.write_text("{not json at all", encoding="utf-8")
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 1
+    assert "not valid field-test JSON" in result.stderr
+
+
+def test_finished_rejects_a_stray_argument(state):
+    state.init()
+    result = state.run("finished", "gh:shepherd", "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_moves_a_finished_run_and_prints_where_it_went(state):
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    before = state.document()
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 0
+    assert not state.path.exists()
+    moved = result.stdout.strip()
+    assert moved == str(archive_dir(state) / archived(state)[0])
+    archived_document = json.loads(Path(moved).read_text(encoding="utf-8"))
+    assert archived_document == before
+
+
+def test_archive_refuses_a_run_in_progress_and_leaves_it_where_it_is(state):
+    """The refusing half of a destructive command, beside the acting half above."""
+    state.one_target()
+    before = state.path.read_text(encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert state.path.read_text(encoding="utf-8") == before
+    assert archived(state) == []
+
+
+def test_archive_moves_a_run_in_progress_with_force(state):
+    state.one_target()
+    assert state.run("archive", "gh:shepherd", "--force").status == 0
+    assert not state.path.exists()
+    assert archived_document(state)["targets"][0]["status"] == "pending"
+
+
+def test_archive_rejects_an_unknown_argument(state):
+    state.init()
+    result = state.run("archive", "gh:shepherd", "--now")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_reports_an_archive_directory_it_cannot_create(state):
+    state.init()
+    archive_dir(state).write_text("", encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 1
+    assert "cannot create" in result.stderr
+    assert state.path.is_file()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="running as root, permissions do not apply")
+def test_archive_reports_a_move_it_could_not_make(state):
+    """A rename the filesystem refused, here a state dir that cannot be written.
+
+    The run stays where it is: a move that could not be made must not read as one
+    that was, or the next `init` starts over a run still in progress. The
+    destination is free, so this is the rename failing and not the
+    occupied-destination refusal above.
+    """
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    archive_dir(state).mkdir(parents=True)
+    state.path.parent.chmod(0o555)
+    try:
+        result = state.run("archive", "gh:shepherd")
+        assert result.status == 1
+        assert "cannot archive" in result.stderr
+        assert "already exists" not in result.stderr
+        assert state.path.is_file()
+    finally:
+        state.path.parent.chmod(0o755)
+
+
+def test_archive_refuses_a_destination_that_is_already_a_file(state):
+    """An archive already filed under this name is not this command's to replace.
+
+    The name is the skill and the run's `created` second, which two runs can
+    share, and os.replace would overwrite the earlier one silently. Both files
+    survive instead.
+    """
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    created = state.document()["created"].replace(":", "-")
+    occupied = archive_dir(state) / f"gh__shepherd.{created}.json"
+    occupied.parent.mkdir(parents=True)
+    occupied.write_text('{"an": "earlier run"}', encoding="utf-8")
+    before = state.path.read_text(encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 1
+    assert "already exists" in result.stderr
+    assert state.path.read_text(encoding="utf-8") == before
+    assert occupied.read_text(encoding="utf-8") == '{"an": "earlier run"}'
+
+
+def test_init_archives_a_finished_run_and_starts_a_new_one(state):
+    """A hardening run that is over no longer has to be forced out of the way."""
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    before = state.document()
+    result = state.run("init", "gh:shepherd")
+    assert result.status == 0
+    assert "archived the finished run to" in result.stderr
+    assert state.targets() == []
+    assert archived_document(state) == before
+
+
+def test_init_force_archives_the_run_it_replaces(state):
+    """--force keeps what it replaces: the run is gone from where the skill looks
+    for it, not gone from disk."""
+    state.one_target()
+    result = state.run("init", "gh:shepherd", "--force")
+    assert result.status == 0
+    assert "archived the unfinished run to" in result.stderr
+    assert state.targets() == []
+    assert archived_document(state)["targets"][0]["path"] == "/repos/widgets"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="running as root, permissions do not apply")
+def test_init_reports_a_state_file_it_cannot_read_rather_than_offering_force(state):
+    """A permission fault is not bad JSON, and --force is not the fix for it.
+
+    Read as "cannot parse", `init` would tell the user to start over, and
+    --force would then archive a file it never managed to read.
+    """
+    state.init()
+    state.path.chmod(0)
+    try:
+        result = state.run("init", "gh:shepherd")
+        assert result.status == 1
+        assert f"cannot read {state.path}" in result.stderr
+        assert "--force to start over" not in result.stderr
+        assert state.path.is_file()
+    finally:
+        state.path.chmod(0o644)
+
+
+def test_init_force_archives_a_file_it_could_not_parse(state):
+    """A file another tool left at the path is still not this script's to destroy."""
+    state.init()
+    state.path.write_text("{not json at all", encoding="utf-8")
+    result = state.run("init", "gh:shepherd", "--force")
+    assert result.status == 0
+    assert "archived the unfinished run to" in result.stderr
+    archived = sorted(archive_dir(state).glob("*.json"))
+    assert [path.read_text(encoding="utf-8") for path in archived] == ["{not json at all"]
+    # The name as well as the content: a file with no run in it is filed under
+    # the skill and this moment, not under `unknown.unknown.json`.
+    assert re.match(r"^gh__shepherd\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$", archived[0].name)
+
+
+def test_init_refuses_json_that_is_not_a_run_without_force(state):
+    """Valid JSON that is not a hardening run is another tool's file.
+
+    There is no run in it to call finished, so it is refused the way one in
+    progress is, and left exactly where it was.
+    """
+    state.init()
+    state.path.write_text("{}", encoding="utf-8")
+    result = state.run("init", "gh:shepherd")
+    assert result.status == 3
+    assert "--force to start over" in result.stderr
+    assert state.path.read_text(encoding="utf-8") == "{}"
+
+
+def test_init_force_archives_json_that_is_not_a_run(state):
+    """The acting half: --force keeps the file rather than overwriting it."""
+    state.init()
+    state.path.write_text("{}", encoding="utf-8")
+    result = state.run("init", "gh:shepherd", "--force")
+    assert result.status == 0
+    assert "archived the unfinished run to" in result.stderr
+    assert state.targets() == []
+    assert [
+        path.read_text(encoding="utf-8") for path in sorted(archive_dir(state).glob("*.json"))
+    ] == ["{}"]
 
 
 # --- add-target --------------------------------------------------------------

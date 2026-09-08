@@ -76,18 +76,46 @@ Then check for an existing plan:
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 ```
 
-If a plan exists, ask the user whether to replace it before going further; if they decline,
-stop. Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory, and
+`show` exiting 1 with `no state file at ...` means there is no plan: carry on. Read the other two
+exit-1 messages apart, because they end differently:
+
+- **`state file is not valid workstreams JSON: ...`**: the file is corrupt. Say so, and ask the
+  user whether to replace it; if they decline, stop. If they agree, carry on to Step 7 and use
+  `--force`, which archives the corrupt file intact rather than destroying it. `finished` cannot
+  answer for such a file, so do not run it.
+- **`cannot read ...`**: the file is there and cannot be opened at all. Stop and show the message;
+  it needs a person, and `--force` would archive a file nothing has read.
+
+Exit 2 means neither `CLAUDE_PLUGIN_DATA` nor `WS_STATE_DIR` is set: stop and show the message.
+If `show` exits 0 a plan exists, and `finished` says what kind:
+
+- **`finished` exits 0**: every stream of the last run reached `done` or `failed`. Say that the
+  previous run is finished and will be archived, and carry on without asking. There is nothing
+  in it for the user to decide.
+- **`finished` exits 3**: the run is still live, or a stream is `paused` waiting on an answer.
+  Ask the user whether to replace it before going further; if they decline, stop.
+- **`finished` exits anything else** (1: the file is missing, corrupt, or unreadable): that is a
+  failure, not an answer about the plan. Stop and show its message. `show` has already separated
+  those cases, so reaching this means the file changed under you.
+
+Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory, and
 `ExitPlanMode`. The loop cadence in the plan is a number of seconds between 60 and 3600.
 
 ## Step 7: Record
 
 Only after the plan is approved, since plan mode blocks writes, persist it:
 
+`init` exits 3 for any plan it may not replace on its own, which includes a file at that path it
+cannot parse: there is no plan in it to call finished, so it is treated as unfinished. `show` is
+what says which of the two it is. Either way `--force` is the way forward, and it archives the
+file intact rather than destroying it.
+
 ```bash
-# --force only when the user said to replace an existing plan
+# --force only for an unfinished plan the user chose to replace: init archives a
+# finished one itself and says on stderr where it went
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" init
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" \
   add-stream <id> --issues <n,n> --kind independent \

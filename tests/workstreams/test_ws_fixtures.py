@@ -94,6 +94,19 @@ def test_prs_cover_open_drafts_a_ready_pr_and_a_merged_pr(ws_sandbox):
     ]
 
 
+def test_prs_cover_all_three_states_reconcile_reads(ws_sandbox):
+    """carries an open, a merged, and a closed-unmerged pull request
+
+    `reconcile` decides on the state alone, so a fixture set holding only OPEN
+    and MERGED would let the closed arm pass for want of a case to reach it.
+    """
+    assert sorted({pr["state"] for pr in prs(ws_sandbox)}) == ["CLOSED", "MERGED", "OPEN"]
+    # Which number carries which state, not only that the three are present: the
+    # reconcile tests read PR 19 as the closed one and PR 14 as the merged one.
+    by_number = {pr["number"]: pr["state"] for pr in prs(ws_sandbox)}
+    assert [by_number[19], by_number[14]] == ["CLOSED", "MERGED"]
+
+
 def test_pr_twelve_is_stacked_on_the_branch_of_pr_ten(ws_sandbox):
     """stacks PR 12 on the branch of PR 10"""
     by_number = {pr["number"]: pr for pr in prs(ws_sandbox)}
@@ -173,6 +186,26 @@ def test_rejects_a_flag_it_does_not_emulate(ws_sandbox, run_gh):
     result = run_gh("issue", "list", "--assignee", "me", "--json", "number")
     assert result.status == 64
     assert "unhandled flag: --assignee" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    [("issue", "list"), ("issue", "view", "1"), ("repo", "view"), ("extension", "list")],
+)
+def test_rejects_repo_on_every_subcommand_but_pr_view(ws_sandbox, run_gh, command):
+    """--repo is emulated for `pr view` alone; elsewhere it is a flag the stub
+    does not emulate, and answering it from the local fixture anyway would let a
+    script name the wrong repository and still pass."""
+    result = run_gh(*command, "--repo", "acme/widget")
+    assert result.status == 64
+    assert "unhandled flag: --repo" in result.stderr
+
+
+def test_accepts_repo_on_pr_view(ws_sandbox, run_gh):
+    """pr view is the one call the workstreams scripts make with --repo."""
+    result = run_gh("pr", "view", "10", "--repo", "acme/widget", "--json", "number")
+    assert result.status == 0
+    assert output_json(result) == {"number": 10}
 
 
 def test_projects_to_exactly_the_json_fields_asked_for(ws_sandbox, run_gh):

@@ -44,6 +44,9 @@ MODELS = ("haiku", "sonnet", "opus", "fable", "inherit")
 # is waiting on a decision, and the caller has to see it and stop rather than
 # step over it and bury the question under the next round.
 UNFINISHED = ("pending", "running", "paused")
+# The mirror of it: the statuses no later round moves a target off. `paused` is
+# not one, for the same reason it is not one in `UNFINISHED`.
+TERMINAL = ("done", "failed")
 
 VERSION = 1
 
@@ -89,9 +92,44 @@ def check_skill(command: str, skill: str) -> str:
     return skill
 
 
+def file_stem(skill: str) -> str:
+    """gh:shepherd becomes gh__shepherd, the shape ws-state uses for owner/name."""
+    return skill.replace("/", "_").replace(":", "__")
+
+
 def file_name(skill: str) -> str:
-    """gh:shepherd becomes gh__shepherd.json, the shape ws-state uses for owner/name."""
-    return skill.replace("/", "_").replace(":", "__") + ".json"
+    """The state file of one hardening run: the stem with .json on it."""
+    return file_stem(skill) + ".json"
+
+
+def safe_part(value: str) -> str:
+    """One component of a file name, with anything a path could read as structure
+    replaced.
+
+    `created` carries colons (`2026-09-07T12:34:56Z`), which are a path separator
+    on some filesystems and merely awkward on the rest, and the field is only as
+    trustworthy as whatever last wrote the file, so a slash in it must not decide
+    where the archive lands.
+    """
+    for character in ":/\\":
+        value = value.replace(character, "-")
+    return value
+
+
+def archive_name(document) -> str:
+    """What a finished run is filed under: `<plugin>__<skill>.<created>.json`.
+
+    Named for the skill and the moment the run started, so a skill hardened
+    several times keeps one file per run rather than one file overwritten. A
+    document missing either field -- possible only if something other than this
+    wrote it -- is still archived, under `unknown`, because the point of the move
+    is not losing the file.
+    """
+    skill = document.get("skill")
+    created = document.get("created")
+    stem = file_stem(skill) if isinstance(skill, str) and skill else "unknown"
+    stamp = created if isinstance(created, str) and created else "unknown"
+    return f"{safe_part(stem)}.{safe_part(stamp)}.json"
 
 
 # --- shape -------------------------------------------------------------------
@@ -293,6 +331,25 @@ def bump_field(document, path: str, field: str) -> int:
             target[field] = current + 1
             return target[field]
     raise Invalid(f"bump: unknown target: {path}", 1)
+
+
+# --- lifecycle ---------------------------------------------------------------
+
+
+def is_finished(document) -> bool:
+    """Whether every target of this run has reached a terminal status.
+
+    A finished run is one nothing is left to do on, which is what the skill reads
+    to know the summary it just printed was the last one and the file can be
+    archived. `paused` is deliberately not terminal: a paused target is waiting
+    on a decision from a person, and archiving it would file the question away
+    with the run.
+
+    Vacuously true for a run with no targets: that is what `init` writes before
+    the first `add-target`, so a run nobody carried on with is replaceable rather
+    than something to ask about.
+    """
+    return all(target.get("status") in TERMINAL for target in document["targets"])
 
 
 # --- next --------------------------------------------------------------------

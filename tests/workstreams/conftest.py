@@ -145,6 +145,7 @@ ISSUES = [
 #   16 draft, checks pass (NEUTRAL beside SUCCESS)
 #   17 draft, checks pending (COMPLETED CheckRun with no conclusion)
 #   18 draft, checks fail (STALE)
+#   19 closed without merging, so `reconcile` has all three PR states to read
 def _check_run(name, status, conclusion):
     return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion}
 
@@ -285,6 +286,19 @@ PRS = [
         "mergeable": "MERGEABLE",
         "reviewDecision": None,
         "statusCheckRollup": [_check_run("test", "COMPLETED", "STALE")],
+    },
+    {
+        "number": 19,
+        "url": "https://example.invalid/p/19",
+        "title": "chore: pin the linter",
+        "state": "CLOSED",
+        "isDraft": False,
+        "baseRefName": "main",
+        "headRefName": "wktr-2-pin-linter-again",
+        "headRefOid": "ddd111",
+        "mergeable": "UNKNOWN",
+        "reviewDecision": None,
+        "statusCheckRollup": [],
     },
 ]
 

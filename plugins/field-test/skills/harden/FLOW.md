@@ -5,12 +5,17 @@ flowchart TD
     P{gh, gh login, workstreams,<br>pr-review-toolkit all present?}
     P -->|no| P1([stop: print the install command for each missing piece])
     P -->|yes| E{a hardening run already<br>exists for this skill?}
-    E -->|yes| E1[ask: resume it, or start over? never force on your own]
+    E -->|a file is there that cannot be read| E3([stop: show the message; the file needs a person])
+    E -->|yes, and every target is done or failed| E2[archive it and start a new one;<br>nothing to ask]
+    E -->|yes, still in progress| E1[ask: resume it, or start over? never force on your own]
     E -->|no| I[record the run and its targets, in the order given]
     E1 -->|resume| N
     E1 -->|start over| I
+    E2 --> I
     I --> N{next target still to do?}
-    N -->|none| Z
+    N -->|none| NE{the run has any targets at all?}
+    NE -->|no: add-target never landed| NE1([stop: say so; nothing to report or archive])
+    NE -->|yes| Z
     N -->|the state file describes<br>a target no command could act on| Z2([stop: report what next said;<br>the file needs a person])
     N -->|one, already paused| Z1([stop: report the question it is waiting on])
     N -->|one, still running from a session that stopped| RS{which phase did it reach?}
@@ -58,8 +63,15 @@ flowchart TD
     MQ -->|failed, mechanically, again| Z1
     MQ -->|failed, behaviourally| Z1
     S --> N
-    Z([stop the loop; print every target's summary,<br>then every question still open])
+    Z[stop the loop; print every target's summary,<br>then every question still open]
+    Z --> ZF{every target done or failed?}
+    ZF -->|yes| ZA([archive the run and print where it went])
+    ZF -->|no: a target is paused| ZK([leave the run in place so the user can answer and re-run])
 ```
+
+The run file is archived only once the run is over, and a `paused` target means it is not: the
+question is what somebody still owes an answer to. A finished run is not a question either way,
+which is why `init` archives one itself rather than asking.
 
 The review round is `/workstreams:review`, invoked here rather than restated: it reviews, reads
 the PR's own bot and human threads, verifies every finding against the code, applies what holds

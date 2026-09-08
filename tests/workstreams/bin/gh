@@ -26,7 +26,13 @@ Controlled by:
                        Every graphql call's variables are appended to
                        .graphql-calls, one JSON object per line and without
                        the query itself, so a test can assert which cursors a
-                       later page was asked for.
+                       later page was asked for. Every `gh pr view` call is
+                       appended to .pr-view-calls here too, one JSON object per
+                       line holding the number asked about and the --repo it was
+                       asked of (an empty string when the caller passed none),
+                       so a test can assert which repository a script named
+                       rather than trusting that the current directory happened
+                       to be right.
   WS_GH_FIXTURE_REPO   nameWithOwner reported by `gh repo view` (default below)
   WS_GH_FIXTURE_FAIL   if non-empty, every call exits non-zero
   WS_GH_FIXTURE_NOAUTH if non-empty, `gh auth status` fails
@@ -39,7 +45,20 @@ import subprocess
 import sys
 
 DEFAULT_REPO = "bje-settings/example"
-FLAGS_WITH_VALUES = ("--state", "--label", "--milestone", "--search", "--limit", "--json")
+FLAGS_WITH_VALUES = (
+    "--state",
+    "--label",
+    "--milestone",
+    "--search",
+    "--limit",
+    "--json",
+)
+# --repo is emulated for `pr view` alone, which is the only call any workstreams
+# script makes with it. Every other subcommand still exits 64 on it, keeping the
+# stub's "anything it does not emulate is an error" contract: a script that
+# started naming a repository somewhere the stub answers from the local fixture
+# would otherwise be served the same canned data and pass.
+REPO_FLAG_COMMANDS = ("pr view",)
 JQ_FLAGS = ("--jq", "-q")
 # The GraphQL variables ws-pr-comments.py sends for its three cursors. Named
 # here so the stub can tell a caller that asked for a later page from one that
@@ -140,16 +159,19 @@ def value_of(argv, index):
     return argv[index + 1]
 
 
-def parse(argv):
-    """The flags the stub emulates, plus at most one positional argument."""
-    options = {"state": "", "label": "", "milestone": "", "search": "", "limit": 1000}
+def parse(argv, command):
+    """The flags the stub emulates for `command`, plus at most one positional."""
+    options = {"state": "", "label": "", "milestone": "", "search": "", "repo": "", "limit": 1000}
+    accepted = FLAGS_WITH_VALUES
+    if command in REPO_FLAG_COMMANDS:
+        accepted += ("--repo",)
     fields = ""
     jq_expr = None
     positional = ""
     index = 0
     while index < len(argv):
         argument = argv[index]
-        if argument in FLAGS_WITH_VALUES:
+        if argument in accepted:
             value = value_of(argv, index)
             if argument == "--json":
                 fields = value
@@ -257,6 +279,21 @@ def graphql(argv):
     return 0
 
 
+def record_pr_view(number, repo):
+    """Append what this `pr view` was asked, for a test to read back.
+
+    Recorded before the number is validated, so a call the stub refuses is still
+    visible: a caller that asked the wrong repository about a bad number got
+    both wrong, and only one of them would otherwise show.
+    """
+    directory = os.environ.get("WS_GH_FIXTURE_DIR", "")
+    if not directory or not os.path.isdir(directory):
+        return
+    line = json.dumps({"number": number, "repo": repo}, sort_keys=True)
+    with open(os.path.join(directory, ".pr-view-calls"), "a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
 def main(argv):
     if os.environ.get("WS_GH_FIXTURE_FAIL"):
         sys.stderr.write("gh: simulated failure\n")
@@ -265,7 +302,7 @@ def main(argv):
     command = " ".join(argv[:2])
     if command == "api graphql":
         return graphql(argv[2:])
-    options, fields, jq_expr, positional = parse(argv[2:])
+    options, fields, jq_expr, positional = parse(argv[2:], command)
 
     if command == "auth status":
         if os.environ.get("WS_GH_FIXTURE_NOAUTH"):
@@ -294,6 +331,7 @@ def main(argv):
         emit(issues[: options["limit"]], fields, jq_expr)
     elif command == "pr view":
         number = positional.lstrip("#").rsplit("/", 1)[-1]
+        record_pr_view(number, options["repo"])
         if not number.isdigit():
             fail(f"pr view needs a number or url, got: {positional}")
         emit(one("prs.json", int(number), "a PullRequest"), fields, jq_expr)

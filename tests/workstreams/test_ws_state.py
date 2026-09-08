@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import stat
 import subprocess
@@ -218,9 +219,15 @@ def test_rejects_a_name_with_owner_that_is_not_a_repository(ws_sandbox, ws_state
     assert why  # names the arm in the test id
 
 
-def test_rejects_a_repo_that_is_not_owner_name(ws_state):
-    """rejects a repo that is not owner/name"""
-    result = ws_state("init", "--repo", "widgets")
+@pytest.mark.parametrize("repo", ["widgets", "acme/", "a/b/c", "acme widget/x"])
+def test_rejects_a_repo_that_is_not_owner_name(ws_state, repo):
+    """rejects a repo that is not owner/name
+
+    Still exit 2: `--repo` is an argument, so a bad one is usage. Only the shape
+    widened, from "holds a slash" to owner/name, so `a/b/c` no longer reaches gh
+    as a host name.
+    """
+    result = ws_state("init", "--repo", repo)
     assert result.status == 2
     assert "owner/name" in result.stderr
 
@@ -368,10 +375,17 @@ def test_fails_and_cleans_up_when_the_state_file_cannot_be_moved_into_place(ws_s
 # --- without a usable state file ----------------------------------------------
 
 
-def test_show_fails_and_says_to_init(ws_state):
-    """show fails and says to init"""
+def test_show_fails_and_says_to_init(ws_sandbox, ws_state):
+    """show fails and says to init
+
+    The exact wording is pinned, not just "run init first": the `run` and `plan`
+    skills tell "there is no plan for this repository" apart from every other
+    exit 1 by matching the `no state file at` prefix, so rewording this message
+    silently changes what those skills do. See the ws-state.py docstring.
+    """
     result = ws_state("show")
     assert result.status == 1
+    assert result.stderr.startswith(f"ws-state.py: no state file at {ws_sandbox.state_file()};")
     assert "run init first" in result.stderr
 
 
@@ -1341,6 +1355,493 @@ def test_shows_a_non_ascii_reason_under_a_non_utf8_locale(planned, ws_sandbox, w
     )
     assert result.status == 0
     assert "café" in result.stdout
+
+
+# --- lifecycle: finished, archive, reconcile ----------------------------------
+
+
+@pytest.fixture
+def lifecycle(ws_sandbox, ws_state):
+    """A plan with streams whose statuses and PRs each test sets for itself."""
+
+    class Lifecycle:
+        def plan(self, *streams):
+            """One stream record per (id, status, pr); pr None writes no pr."""
+            assert ws_state("init").status == 0
+            for stream_id, status, pr in streams:
+                assert (
+                    ws_state(
+                        "add-stream",
+                        stream_id,
+                        "--issues",
+                        "1",
+                        "--kind",
+                        "independent",
+                        "--model",
+                        "sonnet",
+                        "--effort",
+                        "low",
+                    ).status
+                    == 0
+                )
+                assert ws_state("set", stream_id, "status", status).status == 0
+                if pr is not None:
+                    assert ws_state("set", stream_id, "pr", str(pr)).status == 0
+
+        def statuses(self):
+            return [stream["status"] for stream in ws_sandbox.read_state()["streams"]]
+
+        def archived(self):
+            directory = ws_sandbox.state_dir / "archive"
+            return (
+                sorted(path.name for path in directory.glob("*.json")) if directory.is_dir() else []
+            )
+
+        def archived_document(self):
+            files = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
+            assert len(files) == 1, files
+            return json.loads(files[0].read_text(encoding="utf-8"))
+
+    return Lifecycle()
+
+
+def test_finished_says_nothing_and_exits_0_when_every_stream_is_terminal(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 10), ("s2", "failed", None))
+    result = ws_state("finished")
+    assert result.status == 0
+    assert result.stdout == ""
+
+
+def test_finished_exits_3_while_a_stream_is_paused(lifecycle, ws_state):
+    """A paused stream is a question the user owes an answer to, not a finished run.
+
+    3, the status `init` and `archive` already use for an unfinished plan, and
+    not 1: 1 is a file the caller has to stop on.
+    """
+    lifecycle.plan(("s1", "done", 10), ("s2", "paused", 11))
+    result = ws_state("finished")
+    assert result.status == 3
+    assert "is not finished" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_with_a_message_when_there_is_no_plan(ws_state):
+    """A missing plan is not an unfinished one, and the statuses say which."""
+    result = ws_state("finished")
+    assert result.status == 1
+    assert "run init first" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_on_a_file_it_cannot_parse(ws_sandbox, ws_state):
+    """A corrupt file read as "not finished" would leave a run looking live."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text('{"streams": [', encoding="utf-8")
+    result = ws_state("finished")
+    assert result.status == 1
+    assert "not valid workstreams JSON" in result.stderr
+
+
+def test_finished_rejects_a_stray_argument(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    result = ws_state("finished", "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_moves_a_finished_plan_and_prints_where_it_went(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    before = ws_sandbox.read_state()
+    result = ws_state("archive")
+    assert result.status == 0
+    assert not ws_sandbox.state_file().exists()
+    moved = result.stdout.strip()
+    assert moved == str(ws_sandbox.state_dir / "archive" / lifecycle.archived()[0])
+    assert json.loads(pathlib.Path(moved).read_text(encoding="utf-8")) == before
+
+
+def test_archive_refuses_an_unfinished_plan_and_leaves_it_where_it_is(
+    lifecycle, ws_sandbox, ws_state
+):
+    """The refusing half of a destructive command, beside the acting half above."""
+    lifecycle.plan(("s1", "reviewing", 12))
+    before = snapshot(ws_sandbox)
+    result = ws_state("archive")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == before
+    assert lifecycle.archived() == []
+
+
+def test_archive_moves_an_unfinished_plan_with_force(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "reviewing", 12))
+    assert ws_state("archive", "--force").status == 0
+    assert not ws_sandbox.state_file().exists()
+    assert lifecycle.archived_document()["streams"][0]["status"] == "reviewing"
+
+
+def test_archive_rejects_an_unknown_argument(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    result = ws_state("archive", "--now")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_reports_an_archive_directory_it_cannot_create(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "done", 10))
+    (ws_sandbox.state_dir / "archive").write_text("", encoding="utf-8")
+    result = ws_state("archive")
+    assert result.status == 1
+    assert "cannot create" in result.stderr
+    assert ws_sandbox.state_file().is_file()
+
+
+@not_as_root
+def test_archive_reports_a_move_it_could_not_make(lifecycle, ws_sandbox, ws_state):
+    """A rename the filesystem refused, here a state dir that cannot be written.
+
+    The plan stays where it is: a move that could not be made must not read as
+    one that was, or the next tick starts a plan over a run still in progress.
+    The destination is free, so this is the rename failing and not the
+    occupied-destination refusal above.
+    """
+    lifecycle.plan(("s1", "done", 10))
+    (ws_sandbox.state_dir / "archive").mkdir(parents=True)
+    ws_sandbox.state_dir.chmod(0o555)
+    try:
+        result = ws_state("archive")
+        assert result.status == 1
+        assert "cannot archive" in result.stderr
+        assert "already exists" not in result.stderr
+        assert ws_sandbox.state_file().is_file()
+    finally:
+        ws_sandbox.state_dir.chmod(0o755)
+
+
+def test_archive_refuses_a_destination_that_is_already_a_file(lifecycle, ws_sandbox, ws_state):
+    """An archive already filed under this name is not this command's to replace.
+
+    The name is the repository and the plan's `created` second, which two plans
+    can share, and os.replace would overwrite the earlier one silently. Both
+    files survive instead.
+    """
+    lifecycle.plan(("s1", "done", 10))
+    created = ws_sandbox.read_state()["created"].replace(":", "-")
+    occupied = ws_sandbox.state_dir / "archive" / f"bje-settings__example.{created}.json"
+    occupied.parent.mkdir(parents=True)
+    occupied.write_text('{"an": "earlier plan"}', encoding="utf-8")
+    before = snapshot(ws_sandbox)
+    result = ws_state("archive")
+    assert result.status == 1
+    assert "already exists" in result.stderr
+    assert snapshot(ws_sandbox) == before
+    assert occupied.read_text(encoding="utf-8") == '{"an": "earlier plan"}'
+
+
+def test_init_archives_a_finished_plan_and_starts_a_new_one(lifecycle, ws_sandbox, ws_state):
+    """The case that made this worth doing: a finished run no longer asks."""
+    lifecycle.plan(("s1", "done", 10))
+    before = ws_sandbox.read_state()
+    result = ws_state("init")
+    assert result.status == 0
+    assert "archived the finished plan to" in result.stderr
+    assert ws_sandbox.read_state()["streams"] == []
+    assert lifecycle.archived_document() == before
+
+
+def test_init_still_refuses_an_unfinished_plan(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "running", None))
+    before = snapshot(ws_sandbox)
+    result = ws_state("init")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == before
+    assert lifecycle.archived() == []
+
+
+def test_init_force_archives_the_unfinished_plan_before_overwriting_it(
+    lifecycle, ws_sandbox, ws_state
+):
+    """--force keeps what it replaces: the plan is gone from where the skills
+    look for it, not gone from disk."""
+    lifecycle.plan(("s1", "running", None))
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert "archived the unfinished plan to" in result.stderr
+    assert ws_sandbox.read_state()["streams"] == []
+    assert lifecycle.archived_document()["streams"][0]["status"] == "running"
+
+
+@not_as_root
+def test_init_reports_a_state_file_it_cannot_read_rather_than_offering_force(ws_sandbox, ws_state):
+    """A permission fault is not bad JSON, and --force is not the fix for it.
+
+    Read as "cannot parse", `init` would tell the user to start over, and
+    --force would then archive a file it never managed to read.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text('{"streams": []}', encoding="utf-8")
+    ws_sandbox.state_file().chmod(0)
+    try:
+        result = ws_state("init")
+        assert result.status == 1
+        assert f"cannot read {ws_sandbox.state_file()}" in result.stderr
+        assert "pass --force" not in result.stderr
+        assert ws_sandbox.state_file().is_file()
+    finally:
+        ws_sandbox.state_file().chmod(0o644)
+
+
+def test_init_force_archives_a_file_it_could_not_parse(ws_sandbox, ws_state):
+    """A file another tool left at the path is still not this script's to destroy."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text("{not json at all", encoding="utf-8")
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert "archived the unfinished plan to" in result.stderr
+    archived = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
+    assert [path.read_text(encoding="utf-8") for path in archived] == ["{not json at all"]
+    # The name as well as the content: a file with no plan in it is filed under
+    # the repository and this moment, not under `unknown.unknown.json`.
+    assert re.match(
+        r"^bje-settings__example\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$",
+        archived[0].name,
+    )
+
+
+def test_init_refuses_json_that_is_not_a_plan_without_force(ws_sandbox, ws_state):
+    """Valid JSON that is not a workstreams plan is another tool's file.
+
+    There is no plan in it to call finished, so it is refused the way an
+    unfinished one is, and left exactly where it was.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text("{}", encoding="utf-8")
+    result = ws_state("init")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == "{}"
+
+
+def test_init_force_archives_json_that_is_not_a_plan(ws_sandbox, ws_state):
+    """The acting half: --force keeps the file rather than overwriting it."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text("{}", encoding="utf-8")
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert "archived the unfinished plan to" in result.stderr
+    assert ws_sandbox.read_state()["streams"] == []
+    archived = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
+    assert [path.read_text(encoding="utf-8") for path in archived] == ["{}"]
+
+
+def pr_view_calls(ws_sandbox):
+    """Every `gh pr view` the stub was asked, in order: its number and its --repo.
+
+    The state file's location and the repository its pull request numbers belong
+    to are two different facts, and only the calls say which one reconcile used.
+    """
+    path = ws_sandbox.gh_dir / ".pr-view-calls"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_reconcile_marks_a_merged_pr_done_and_a_closed_one_failed(lifecycle, ws_sandbox, ws_state):
+    """PR 14 is merged in the fixtures and PR 19 was closed without merging."""
+    lifecycle.plan(("s1", "reviewing", 14), ("s2", "draft", 19), ("s3", "running", 12))
+    result = ws_state("reconcile")
+    assert result.status == 0
+    assert json.loads(result.stdout) == [
+        {"stream": "s1", "from": "reviewing", "to": "done"},
+        {"stream": "s2", "from": "draft", "to": "failed"},
+    ]
+    assert lifecycle.statuses() == ["done", "failed", "running"]
+    assert ws_sandbox.read_state()["streams"][1]["question"] == "PR #19 was closed without merging"
+
+
+def test_reconcile_leaves_an_open_pr_alone_and_prints_an_empty_array(
+    lifecycle, ws_sandbox, ws_state
+):
+    lifecycle.plan(("s1", "reviewing", 12))
+    before = snapshot(ws_sandbox)
+    result = ws_state("reconcile")
+    assert result.status == 0
+    assert json.loads(result.stdout) == []
+    assert snapshot(ws_sandbox) == before
+
+
+def test_reconcile_does_not_ask_about_a_stream_with_no_pr(lifecycle, ws_state):
+    """A running stream that has not pushed yet has nothing to reconcile, and
+    asking gh about a null number would be an error, not an answer."""
+    lifecycle.plan(("s1", "running", None), ("s2", "done", 14))
+    result = ws_state("reconcile")
+    assert result.status == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_reconcile_exits_4_and_writes_nothing_when_gh_fails(lifecycle, ws_sandbox, ws_state):
+    """A rate limit or an expired token is a tick to repeat, not a plan to fail.
+
+    WS_REPO so the failure is the pull request read and not the repository one:
+    naming the repository fails the way it does for every command, exit 1.
+    """
+    lifecycle.plan(("s1", "reviewing", 14))
+    before = snapshot(ws_sandbox)
+    ws_sandbox.setenv("WS_REPO", "bje-settings/example")
+    ws_sandbox.setenv("WS_GH_FIXTURE_FAIL", "1")
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "gh pr view failed for #14" in result.stderr
+    assert snapshot(ws_sandbox) == before
+
+
+def test_reconcile_exits_4_for_a_pull_request_that_does_not_exist(lifecycle, ws_sandbox, ws_state):
+    """The run skill fails a stream on a missing PR at its own review step, where
+    it has the stream in hand; guessing here would fail one over a typo."""
+    lifecycle.plan(("s1", "reviewing", 404))
+    before = snapshot(ws_sandbox)
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "Could not resolve" in result.stderr
+    assert snapshot(ws_sandbox) == before
+
+
+def test_reconcile_exits_4_when_gh_answers_with_something_it_cannot_read(
+    lifecycle, ws_sandbox, ws_state
+):
+    lifecycle.plan(("s1", "reviewing", 14))
+    stubs = ws_sandbox.path / "chatty-pr-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text("#!/bin/sh\necho 'not json at all'\n", encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    ws_sandbox.setenv("WS_REPO", "bje-settings/example")
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "did not answer with a state" in result.stderr
+
+
+def test_reconcile_exits_4_on_a_state_it_does_not_know(lifecycle, ws_sandbox, ws_state):
+    """gh answering with a state outside the three is gh answering another
+    question, and acting on it would move a stream on a guess."""
+    lifecycle.plan(("s1", "reviewing", 14))
+    stubs = ws_sandbox.path / "odd-pr-gh"
+    stubs.mkdir()
+    (stubs / "gh").write_text('#!/bin/sh\necho \'{"state": "LOCKED"}\'\n', encoding="utf-8")
+    (stubs / "gh").chmod(0o755)
+    ws_sandbox.sandbox.stub_path(stubs)
+    ws_sandbox.setenv("WS_REPO", "bje-settings/example")
+    result = ws_state("reconcile")
+    assert result.status == 4
+    assert "unknown state: LOCKED" in result.stderr
+
+
+def test_reconcile_reports_gh_missing_from_path(lifecycle, ws_sandbox, ws_state):
+    lifecycle.plan(("s1", "reviewing", 14))
+    bare = ws_sandbox.sandbox.path_without("gh")
+    result = ws_state("reconcile", env={"PATH": bare, "WS_REPO": "bje-settings/example"})
+    assert result.status == 4
+    assert "gh pr view failed for #14" in result.stderr
+
+
+def test_reconcile_rejects_a_stray_argument(lifecycle, ws_state):
+    lifecycle.plan(("s1", "done", 14))
+    result = ws_state("reconcile", "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_pending_prs_skips_a_pr_field_holding_true():
+    """`True` is an `int` in Python, and `true` in the file is not PR 1.
+
+    Driven directly: `set` refuses a non-numeric pr, so only a hand-edited file
+    reaches this arm, and asking GitHub about 1 would reconcile a stream
+    against a pull request nobody named.
+    """
+    module = load_ws_state_module()
+    document = {"streams": [{"id": "s1", "status": "reviewing", "pr": True}]}
+    assert module.pending_prs(document) == []
+
+
+def test_reconcile_names_the_repository_it_asks_about(lifecycle, ws_sandbox, ws_state):
+    """A PR number without a repository is a number: gh must be told which one."""
+    lifecycle.plan(("s1", "reviewing", 14))
+    assert ws_state("reconcile").status == 0
+    assert pr_view_calls(ws_sandbox) == [{"number": "14", "repo": "bje-settings/example"}]
+
+
+def test_reconcile_asks_the_plans_repository_not_the_working_directorys(ws_sandbox, ws_state):
+    """The plan's own record decides, not wherever the script happens to run.
+
+    The file is located for acme/widgets while the plan inside it records
+    acme/plans, which no ordinary run produces and a moved or hand-edited file
+    does. Asking about the location would send #14 to the wrong repository and
+    mark a stream done on an unrelated answer.
+    """
+    ws_sandbox.setenv("WS_REPO", "acme/widgets")
+    assert ws_state("init").status == 0
+    assert (
+        ws_state(
+            "add-stream",
+            "s1",
+            "--issues",
+            "1",
+            "--kind",
+            "independent",
+            "--model",
+            "sonnet",
+            "--effort",
+            "low",
+        ).status
+        == 0
+    )
+    assert ws_state("set", "s1", "status", "reviewing").status == 0
+    assert ws_state("set", "s1", "pr", "14").status == 0
+    path = ws_sandbox.state_file("acme/widgets")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["repo"] = "acme/plans"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert ws_state("reconcile").status == 0
+    assert pr_view_calls(ws_sandbox) == [{"number": "14", "repo": "acme/plans"}]
+
+
+def test_reconcile_refuses_a_plan_that_records_no_repository(ws_sandbox, ws_state):
+    """Without a repository there is nothing to ask, and guessing one would ask
+    the wrong GitHub. Nothing is written and gh is never called."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    document = '{"version": 1, "streams": [{"id": "s1", "status": "reviewing", "pr": 14}]}'
+    ws_sandbox.state_file().write_text(document, encoding="utf-8")
+    result = ws_state("reconcile")
+    assert result.status == 1
+    assert "does not record a" in result.stderr
+    assert pr_view_calls(ws_sandbox) == []
+    assert snapshot(ws_sandbox) == document
+
+
+@pytest.mark.parametrize("repo", ["a/b/c", "acme/", "/widget", " acme/widget"])
+def test_reconcile_refuses_a_plan_whose_repository_is_malformed(ws_sandbox, ws_state, repo):
+    """A repo gh cannot resolve is exit 1, not the exit 4 the run loop retries.
+
+    `a/b/c` is the case that made this worth fixing: gh reads the first segment
+    as a host and fails to connect, which arrived as "could not read GitHub" and
+    had the loop repeating a tick that could never succeed.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    document = json.dumps(
+        {
+            "version": 1,
+            "repo": repo,
+            "streams": [{"id": "s1", "status": "reviewing", "pr": 14}],
+        }
+    )
+    ws_sandbox.state_file().write_text(document, encoding="utf-8")
+    result = ws_state("reconcile")
+    assert result.status == 1
+    assert "does not record a usable repository" in result.stderr
+    assert repr(repo) in result.stderr
+    assert pr_view_calls(ws_sandbox) == []
+    assert snapshot(ws_sandbox) == document
 
 
 # --- usage --------------------------------------------------------------------

@@ -26,12 +26,45 @@ the appliers are subagents that return once and never schedule anything.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-preflight.py"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" reconcile
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 ```
 
-Stop with the install hints if preflight exits 1. Stop and say to run `/workstreams:plan` if
-there is no state file. If no stream is `planned`, `running`, `draft`, or `reviewing`, skip to
-Step 5.
+Stop with the install hints if preflight exits 1.
+
+`reconcile` runs before `show`, so what `show` prints is the plan as it now stands rather than one
+already out of date. It asks GitHub about every pull request of a stream that is not finished: one
+whose PR was merged becomes `done`, one whose PR was closed becomes `failed` with the reason. It is
+what notices a PR merged outside this loop, in a browser or by another session, which nothing else
+here would ever look at again. It prints the transitions it applied as a JSON array; report them
+in this tick. Then, on its exit status:
+
+- **4**: gh could not answer (a rate limit, an expired token, a number nothing resolves). Say so
+  in this tick and carry on with what is on disk; nothing was written. Do not stop the loop over
+  it.
+- **1 saying `no state file at ...`**: there is no plan for this repository. Say to run
+  `/workstreams:plan` and stop.
+- **1 for any other reason** (a state file it cannot read or parse, a plan recording no usable
+  repository, a write that failed): stop this tick and report the message. Unlike an exit 4, this
+  is not a tick worth repeating: the file needs a person.
+- **2**: neither `CLAUDE_PLUGIN_DATA` nor `WS_STATE_DIR` is set, so nothing here can find a state
+  file at all. Report the message and stop the loop. `reconcile` runs first, so this is the
+  command that reports it, but every command below fails the same way.
+
+`show` reads the same file, so it fails the same way: exit 1 saying `no state file at ...` is the
+only "there is no plan" answer. Any other exit 1, and exit 2, is a failure to report and stop on,
+never a missing plan.
+
+If the plan `show` prints has no streams, `init` wrote it and the first `add-stream` never landed:
+`finished` calls that plan finished, so say to run `/workstreams:plan` and stop rather than
+reporting and archiving an empty run.
+
+Then `finished`: exit 0 means every stream is `done` or `failed`. Say the run is finished and go
+straight to Step 5, which reports and archives it; schedule no wake. Exit 3 means there is work
+left; if no stream is `planned`, `running`, `draft`, or `reviewing`, go to Step 5 as well. Any
+other exit is a failure, not an answer about the plan (1 is a state file that is missing, corrupt,
+or unreadable): report its message and stop the loop.
 
 Read `meta.plan_path` for the plan document, and the target repository's `CLAUDE.md` and
 `.claude/rules/` once now; the briefs below quote its conventions rather than inventing any.
@@ -67,7 +100,29 @@ resumes this conversation, so its prompt is a plain instruction, not a skill inv
 `Continue the workstreams run loop for <owner/repo> from Step 3 of the run skill.` Pass
 `noop: true` when a tick changes no stream's state.
 
-On each wake:
+On each wake, starting with the same reconcile the tick above began with:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" reconcile
+```
+
+Its exit status is read exactly as in Step 1: 4 is reported in this tick and stepped over, an exit
+1 saying `no state file at ...` means the plan is gone and the loop stops, any other exit 1 stops
+this tick with its message, and exit 2 stops the loop. A pull request merged between two wakes is
+only ever noticed here, so a tick that skipped it would keep reviewing work that had already
+landed.
+
+Report the transitions it printed in this tick, as Step 1 does, then re-read the plan before
+working the numbered list below:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
+```
+
+A stream `reconcile` has just moved to `done` or `failed` is finished, whatever this session last
+remembered about it. Work the list against what `show` prints, not against the statuses carried
+over from the previous tick: dispatching a review for a stream whose PR merged between the wakes
+is the mistake this prevents. Then:
 
 1. **Workers that returned.** Parse the fenced JSON block at the end of each result. For a stack
    the worker reports `stream` as the bottom layer's id and `prs` bottom-up; write `prs[i]` to
@@ -187,7 +242,7 @@ output:
   `CI is failing on PR #N after review (<failing>); decide whether to fix, retry, or drop the stream`,
   where `<failing>` is the `failing` list from the status output.
 
-## Step 5: Report
+## Step 5: Report and archive
 
 Print one report and stop the loop (`ScheduleWakeup` with `stop: true`):
 
@@ -197,5 +252,18 @@ Print one report and stop the loop (`ScheduleWakeup` with `stop: true`):
 - **Paused streams** with the exact question each is waiting on.
 - **Findings rejected during review**, per PR, with the one-line reason each was dropped.
 - **Failed streams** with the last error.
+
+Then archive the run, but only if it is over:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" archive
+```
+
+Run `archive` only when `finished` exits 0, and print the path it prints so the user knows where
+the record went. Exit 3 means the run is not over: leave the file where it is. Any other exit is a
+failure to report and stop on. A run holding a `paused` stream is not finished: its file stays
+where it is, so the user can answer the question and re-run this skill. Never pass `--force` here;
+a plan that is not finished is one the next run still needs.
 
 The PRs are drafts. Marking them ready and merging is the user's decision.
