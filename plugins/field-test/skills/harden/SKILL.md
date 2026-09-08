@@ -41,7 +41,10 @@ present, says why a check failed).
 
 `init` exiting 3 means a run for this skill is still in progress: show it with
 `show <plugin:skill>` and ask whether to resume it or start over with `--force`; never `--force`
-on your own, since the targets already worked are what would be lost. A run whose targets are all
+on your own, since the targets already worked are what would be lost. A file at that path `init`
+cannot parse exits 3 as well, since there is no run in it to call finished; `show` says which of
+the two it is, and `--force` is the way forward for both, archiving the file intact rather than
+destroying it. A run whose targets are all
 `done` or `failed` is not that case: `init` archives it itself, says on stderr where it went, and
 carries on, so there is nothing to ask about. Pass `--model` and `--effort` to `init` only when
 the user asked for a size; the defaults are `opus` and `high`.
@@ -60,7 +63,9 @@ TARGET="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" next <plugi
 act on (a status outside the vocabulary, a path that is not a string). Stop the loop and report
 its stderr; the file needs a person, and continuing would work the wrong target or none.
 
-Otherwise, nothing printed means every target is finished: go to Step 7. A target whose status is
+Otherwise, nothing printed means every target is finished: go to Step 7. Unless the run has no
+targets at all, which `show <plugin:skill>` says: `add-target` never landed, so there is nothing
+to report or archive. Say so and stop. A target whose status is
 already `paused` comes back from `next` on purpose. Do not step over it: report its question and
 stop.
 

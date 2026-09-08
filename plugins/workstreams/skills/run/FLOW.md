@@ -4,17 +4,23 @@
 flowchart TD
     P{gh-stack, pr-review-toolkit,<br>gh login all present?}
     P -->|no| P1([stop: print the install command for each missing piece])
-    P -->|yes| S{a plan exists for this repo?}
-    S -->|no| S1([stop: run /workstreams:plan first])
-    S -->|yes| RE[reconcile the plan against GitHub:<br>a merged PR is done, a closed one failed]
+    P -->|yes| RE[reconcile the plan against GitHub:<br>a merged PR is done, a closed one failed]
+    RE -->|no state file| S1([stop: run /workstreams:plan first])
+    RE -->|the file cannot be read| S2([stop this tick: report the message;<br>the file needs a person])
     RE -->|gh could not answer| RE1[report it in this tick;<br>carry on with what is on disk]
-    RE -->|reconciled| FIN
-    RE1 --> FIN{every stream done or failed?}
+    RE -->|reconciled| S{the plan has any streams?}
+    RE1 --> S
+    S -->|no: add-stream never landed| S1
+    S -->|yes| FIN{every stream done or failed?}
     FIN -->|yes| Z
     FIN -->|no, but none left to work| Z
     FIN -->|no| L[start one worker per independent stream<br>and one per stack, each in its own worktree]
     L --> T[schedule a wake 60s to 3600s out, matched to the work]
-    T --> W{on wake: what does each stream say?}
+    T --> WR[on wake: reconcile against GitHub again]
+    WR -->|the file cannot be read| S2
+    WR -->|gh could not answer| W
+    WR -->|reconciled| W
+    W{what does each stream say?}
     W -->|a worker returned a draft PR| Q
     W -->|left draft or reviewing by a session that stopped| Q
     W -->|worker needs a user decision| Pz[paused: record the question, tell the user, keep going]
@@ -50,11 +56,13 @@ flowchart TD
     ZF -->|no: a stream is paused| ZK([leave the plan in place so the user can answer and re-run])
 ```
 
-The tick starts by reconciling the plan against GitHub, because a pull request merged outside this
-loop -- in a browser, by another session, by `/field-test:harden` -- never comes back through the
-review step that would otherwise notice. gh failing to answer is reported and stepped over rather
-than stopped on, for the same reason an exit 4 anywhere else in the tick is: a rate limit is not a
-verdict on the work.
+Every tick starts by reconciling the plan against GitHub, the first one and each wake alike,
+because a pull request merged outside this loop -- in a browser, by another session, by
+`/field-test:harden` -- never comes back through the review step that would otherwise notice, and
+a wake that skipped it would go on reviewing work that had already landed. gh failing to answer is
+reported and stepped over rather than stopped on, for the same reason an exit 4 anywhere else in
+the tick is: a rate limit is not a verdict on the work. A state file that cannot be read is not
+that case: nothing was written, nothing can be, and the tick stops with the message.
 
 The file is archived only once the run is over, and a `paused` stream means it is not. The question
 is what the user still owes an answer to, and archiving the plan would file it away unanswered.

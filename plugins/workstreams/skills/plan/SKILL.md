@@ -79,8 +79,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 ```
 
-`show` exiting non-zero means there is no plan: carry on. If it exits 0 a plan exists, and
-`finished` says what kind:
+`show` exiting 1 with `no state file at ...` means there is no plan: carry on. Any other non-zero
+exit is a failure, not an absent plan: exit 1 also covers a file that is corrupt or unreadable,
+and exit 2 means neither `CLAUDE_PLUGIN_DATA` nor `WS_STATE_DIR` is set. Stop and show the message
+in those cases. If `show` exits 0 a plan exists, and `finished` says what kind:
 
 - **`finished` exits 0**: every stream of the last run reached `done` or `failed`. Say that the
   previous run is finished and will be archived, and carry on without asking. There is nothing
@@ -96,6 +98,11 @@ Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory,
 ## Step 7: Record
 
 Only after the plan is approved, since plan mode blocks writes, persist it:
+
+`init` exits 3 for any plan it may not replace on its own, which includes a file at that path it
+cannot parse: there is no plan in it to call finished, so it is treated as unfinished. `show` is
+what says which of the two it is. Either way `--force` is the way forward, and it archives the
+file intact rather than destroying it.
 
 ```bash
 # --force only for an unfinished plan the user chose to replace: init archives a
