@@ -10,7 +10,8 @@ and the follow-up it leaves open.
 name and order, model, effort, status, PR numbers, branch, worktree, agent, question, attempts,
 `review_rounds`), the deferred issues with their reasons, and `meta` (`loop_delay`, `plan_path`).
 `/workstreams:run` reads it at the top of every tick and writes each transition before taking the
-next action; `/workstreams:plan` refuses to overwrite it without `--force`.
+next action; `/workstreams:plan` refused to overwrite it without `--force`, whatever state the
+plan in it had reached, which is where this spike starts.
 
 Three things went wrong while dogfooding the plugin on issues #25 and #32 (PRs #44 and #45):
 
@@ -37,7 +38,7 @@ Each option below answers the same five questions:
   follows the same answer.
 - **Python port**: how it interacts with the port of the plugin scripts to Python.
 
-The port is not a future consideration any more: `ws-state.py` and the rest landed in #79 and #83,
+The port is not a future consideration any more: `ws-state.py` landed in #71 and the rest in #75,
 so whatever this spike recommends is written in Python, against a suite that measures it by branch.
 That is a point in favour of any option that keeps decisions in a script rather than in a skill's
 prose.
@@ -125,13 +126,16 @@ Give the file the lifecycle it never had, and reconcile it against GitHub at the
   the stream `done`, closed marks it `failed` with the reason.
 
 - **Resume**: the state file, as today, now reconciled against GitHub before it is read.
-- **Crash gap**: unchanged and closed the way it already is -- the file records `running` and the
-  agent before the worker is dispatched, so a resumed session knows a worker was started.
+- **Crash gap**: narrowed, not closed. The file records `running` and the agent, so a resumed
+  session knows a worker was started -- but the run skill dispatches the worker with the `Agent`
+  tool and records afterwards, because the agent id only exists once it has. A session that dies
+  inside that window leaves a worker nothing on disk accounts for. Closing it needs a marker
+  written before the dispatch, which is option 3's territory.
 - **Stack order**: unchanged; `stack` and `order` are on each stream record.
 - **`harden`**: yes, and lifecycle only. Its merge phase already records `merge_sha`, so it has
   the equivalent of `reconcile` built into the phase that would need it; what it lacks is
   `finished` and `archive`.
-- **Python port**: lands as three pure functions in `lib/state.py` and three commands on
+- **Python port**: lands as pure functions in `lib/state.py` and three commands on
   `ws-state.py`, each with a test per arm. No skill rewrite, no change to what a worker reports.
 
 It fixes all three symptoms directly, it is small, and it is consistent with the standing rule in

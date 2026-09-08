@@ -130,7 +130,8 @@ The file has a lifecycle, so a finished run does not outlive itself. `finished` 
 every target reached `done` or `failed` in its exit status: 0 finished, 3 not finished, and 1 for
 a file that is missing, corrupt, or unreadable, which is a failure to stop on rather than a run
 still going. `archive` moves a finished run to
-`${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/archive/<plugin>__<skill>.<created>.json` and prints
+`${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/archive/<plugin>__<skill>.<created>.json`, with `:`
+in the timestamp replaced by `-` so the name is one path segment everywhere, and prints
 where it went, which the skill does after its final report. `init` archives a finished run itself
 and carries on, so a run that is over is never a question; it still refuses one in progress
 without `--force`, and with `--force` archives that one too rather than discarding it. A run

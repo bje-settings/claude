@@ -20,9 +20,10 @@ The file has a lifecycle, and two commands are it. `finished` answers whether
 every target has reached `done` or `failed` (a `paused` target has not: it is
 waiting on a person). `archive` moves a finished run to
   ${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/archive/<plugin>__<skill>.<created>.json
-and prints where it went, so the next run of the same skill starts from nothing
-while the last one is still readable. `init` archives a finished run itself and
-carries on; it refuses one still in progress without --force, because the targets
+(with `:` in <created> replaced by `-`, so the name is one path segment on every
+filesystem) and prints where it went, so the next run of the same skill starts
+from nothing while the last one is still readable. `init` archives a finished
+run itself and carries on; it refuses one still in progress without --force, because the targets
 already worked are the thing you would lose, and with --force it archives that
 one too rather than discarding it.
 

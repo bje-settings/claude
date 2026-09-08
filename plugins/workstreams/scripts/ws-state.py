@@ -26,9 +26,10 @@ The file has a lifecycle, and these three commands are it. `finished` answers
 whether every stream has reached `done` or `failed` (a `paused` stream has not:
 it is waiting on the user). `archive` moves a finished plan to
   <state dir>/archive/<owner>__<name>.<created>.json
-and prints where it went, so the next plan for the repository starts from
-nothing while the last one is still readable. `init` archives a finished plan
-itself and carries on, and refuses an unfinished one without --force; with
+(with `:` in <created> replaced by `-`, so the name is one path segment on
+every filesystem) and prints where it went, so the next plan for the repository
+starts from nothing while the last one is still readable. `init` archives a
+finished plan itself and carries on, and refuses an unfinished one without --force; with
 --force it archives that one too rather than discarding it. `reconcile` asks
 GitHub about every pull request of a stream that is not finished, marking a
 stream whose PR was merged `done` and one whose PR was closed `failed`, and

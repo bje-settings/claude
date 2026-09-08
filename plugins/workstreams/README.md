@@ -36,7 +36,8 @@ Selectors, in any mix: issue numbers (`12`, `#12`, `10-14`), `label:<name>`,
 6. Ask the user every question the plan depends on, propose the plan in plan mode, and once it
    is approved record it in the state file.
 
-Nothing is started. An existing plan is only replaced when the user says so.
+Nothing is started. An unfinished plan is only replaced when the user says so; a finished one is
+archived and replaced without asking, since there is nothing left in it to decide about.
 
 ## `/workstreams:run`
 
@@ -90,6 +91,7 @@ mid-run can re-run the skill and continue. `ws-state.py show` prints it.
 
 The file has a lifecycle, so a finished run does not outlive itself. A run whose streams are all
 `done` or `failed` is archived to `${CLAUDE_PLUGIN_DATA}/archive/<owner>__<repo>.<created>.json`,
+with `:` in the timestamp replaced by `-` so the name is one path segment everywhere,
 by `run` after its final report and by `plan` when it starts the next one, so a finished plan is
 never a question the user has to answer. `finished` answers in its exit status: 0 finished, 3 not
 finished, and 1 for a file that is missing, corrupt, or unreadable, which is a failure to stop on
