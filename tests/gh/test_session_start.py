@@ -44,13 +44,17 @@ def context_of(stdout):
 
     Doubles as the contract assertion: every example that expects the hook to
     speak goes through here, so the shape is checked everywhere rather than in
-    one example that could pass while the others emitted something else.
+    one example that could pass while the others emitted something else. That
+    includes `systemMessage`, the field the CLI renders directly regardless of
+    whether the model ever takes a turn -- every spoken example must carry it,
+    identical to `additionalContext`, not just the model-context field.
     """
     body = json.loads(stdout)
     output = body["hookSpecificOutput"]
     assert output["hookEventName"] == "SessionStart"
     assert isinstance(output["additionalContext"], str)
     assert output["additionalContext"].strip()
+    assert body["systemMessage"] == output["additionalContext"]
     return output["additionalContext"]
 
 
