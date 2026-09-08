@@ -201,14 +201,21 @@ check and, if there is anything worth acting on, asks whether to run `/gh:sync`.
   purely local and does not hit the network.
 - Otherwise it stays silent.
 
-JSON on both ends (reading the payload, writing the response) is handled by `hooks/hook-io.py`,
-which also holds the message text. Doing that inline with `python3 -c` buried it in quoted
-heredocs inside the shell, where it could not be linted or tested.
+The whole hook is `hooks/hook-io.py`, run as `hook-io.py session-start`: it reads the payload,
+picks the branch the payload's directory calls for, and writes the response. Its `cwd`, `branch`
+and `report` subcommands are the pieces that decision is built from, kept as seams for the tests
+and for debugging the hook by hand.
 
-The hook never changes a branch, worktree, or working tree, and always exits 0, so it cannot
-block a session from starting or surprise you with a change you did not ask for. In fan-out mode
-it does fetch, which updates remote-tracking refs, and that is one network round trip per
-repository against the hook's 60 second budget.
+The hook never changes a branch, worktree, or working tree, and every path through
+`session-start` exits 0, so it cannot block a session from starting or surprise you with a change
+you did not ask for. `hooks.json` wraps it in `command -v python3 ... ; exit 0`, which holds that
+guarantee even for the cases the file is never reached in at all: no python3 on PATH, or a hooks
+directory this file was never installed into. In fan-out mode it does fetch, which updates
+remote-tracking refs, and that is one network round trip per repository against the hook's 60
+second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
+out. A degraded run -- a missing `gh-sync.py`, no git on PATH, a fan-out that failed or timed out
+-- leaves a line on stderr for `claude --debug`, and says so in the session only when there is
+something to act on.
 
 ## Credentials
 
