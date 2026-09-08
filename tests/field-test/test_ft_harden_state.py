@@ -335,6 +335,27 @@ def test_archive_reports_a_move_it_could_not_make(state):
     assert state.path.is_file()
 
 
+def test_archive_refuses_a_destination_that_is_already_a_file(state):
+    """An archive already filed under this name is not this command's to replace.
+
+    The name is the skill and the run's `created` second, which two runs can
+    share, and os.replace would overwrite the earlier one silently. Both files
+    survive instead.
+    """
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    created = state.document()["created"].replace(":", "-")
+    occupied = archive_dir(state) / f"gh__shepherd.{created}.json"
+    occupied.parent.mkdir(parents=True)
+    occupied.write_text('{"an": "earlier run"}', encoding="utf-8")
+    before = state.path.read_text(encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 1
+    assert "already exists" in result.stderr
+    assert state.path.read_text(encoding="utf-8") == before
+    assert occupied.read_text(encoding="utf-8") == '{"an": "earlier run"}'
+
+
 def test_init_archives_a_finished_run_and_starts_a_new_one(state):
     """A hardening run that is over no longer has to be forced out of the way."""
     state.one_target()

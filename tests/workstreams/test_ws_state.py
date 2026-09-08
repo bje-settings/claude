@@ -1486,6 +1486,26 @@ def test_archive_reports_a_move_it_could_not_make(lifecycle, ws_sandbox, ws_stat
     assert ws_sandbox.state_file().is_file()
 
 
+def test_archive_refuses_a_destination_that_is_already_a_file(lifecycle, ws_sandbox, ws_state):
+    """An archive already filed under this name is not this command's to replace.
+
+    The name is the repository and the plan's `created` second, which two plans
+    can share, and os.replace would overwrite the earlier one silently. Both
+    files survive instead.
+    """
+    lifecycle.plan(("s1", "done", 10))
+    created = ws_sandbox.read_state()["created"].replace(":", "-")
+    occupied = ws_sandbox.state_dir / "archive" / f"bje-settings__example.{created}.json"
+    occupied.parent.mkdir(parents=True)
+    occupied.write_text('{"an": "earlier plan"}', encoding="utf-8")
+    before = snapshot(ws_sandbox)
+    result = ws_state("archive")
+    assert result.status == 1
+    assert "already exists" in result.stderr
+    assert snapshot(ws_sandbox) == before
+    assert occupied.read_text(encoding="utf-8") == '{"an": "earlier plan"}'
+
+
 def test_init_archives_a_finished_plan_and_starts_a_new_one(lifecycle, ws_sandbox, ws_state):
     """The case that made this worth doing: a finished run no longer asks."""
     lifecycle.plan(("s1", "done", 10))

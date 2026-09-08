@@ -183,6 +183,12 @@ def archive_state(path: str, document, directory: str) -> str:
     at once. The archive lives under the state dir, so it follows WS_STATE_DIR or
     CLAUDE_PLUGIN_DATA wherever those point and needs nothing of any particular
     machine's layout.
+
+    An occupied destination is refused, and both files are left as they are. The
+    name is the repository and the plan's `created` second, which two plans can
+    share -- an unparseable file archived twice inside one second, two documents
+    both filed under `unknown`, an archive restored and archived again -- and
+    os.replace would overwrite the earlier one without a word.
     """
     destination_dir = os.path.join(directory, "archive")
     try:
@@ -190,6 +196,8 @@ def archive_state(path: str, document, directory: str) -> str:
     except OSError:
         die(f"cannot create {destination_dir}")
     destination = os.path.join(destination_dir, st.archive_name(document))
+    if os.path.lexists(destination):
+        die(f"cannot archive {path}: {destination} already exists")
     try:
         os.replace(path, destination)
     except OSError as error:
