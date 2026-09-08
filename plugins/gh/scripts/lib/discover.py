@@ -10,6 +10,10 @@ or run it as a script, which prints the same list one path per line:
 
     python3 lib/discover.py [target]
 
+`toplevel(path)` answers the narrower question on its own: the checkout root
+containing `path`, or None. `gh-sync.py` asks it to tell a target that is itself
+inside a repository from a directory that merely holds one.
+
 Paths are symlink-resolved, because git reports resolved paths and callers
 compare against them. On macOS /tmp and /var are symlinks, so a logical path
 would never match.
@@ -32,8 +36,16 @@ import os
 import subprocess
 import sys
 
+# The parent of this directory, not this directory: `gh-sync.py` imports this
+# file as `lib.discover`, so importing the sibling as `lib.streams` too leaves one
+# module object rather than a second copy under another name. Run as a script the
+# parent is not on sys.path at all, which is what this puts back.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def _toplevel(path):
+from lib import streams  # noqa: E402
+
+
+def toplevel(path):
     """The checkout root containing `path`, or None when there is none.
 
     A missing git is the same answer as a directory outside any checkout: no
@@ -63,16 +75,16 @@ def discover_repos(target=None):
         raise NotADirectoryError(target)
     real_target = os.path.realpath(target)
 
-    top = _toplevel(real_target)
+    top = toplevel(real_target)
     if top:
         return [top]
 
     roots = []
-    try:
-        entries = sorted(os.listdir(real_target))
-    except OSError:
-        return roots
-    for name in entries:
+    # os.listdir is deliberately unguarded. A target that cannot be read is not a
+    # target with no repositories in it, and answering the second question when
+    # the first one was asked is how an unreadable directory came back as "No git
+    # repositories directly inside" and exit 0. The callers report the OSError.
+    for name in sorted(os.listdir(real_target)):
         # The shell glob this replaces was "$target"/*/, which never matches a
         # dotfile: the fan-out fixtures park their bare origins in a hidden
         # directory precisely because of that.
@@ -82,34 +94,17 @@ def discover_repos(target=None):
         if not os.path.isdir(entry):
             continue
         real = os.path.realpath(entry)
-        top = _toplevel(entry)
+        top = toplevel(entry)
         # Only the checkout root counts, never a subdirectory of one.
         if top and top == real:
             roots.append(real)
     return roots
 
 
-def use_utf8(stream):
-    """Make `stream` write UTF-8, replacing anything it cannot encode.
-
-    A repository path may hold any byte, so under a single-byte locale
-    (LC_ALL=en_US.ISO8859-1, PYTHONIOENCODING=ascii) printing one can raise
-    UnicodeEncodeError. A stream that has been replaced with something without
-    reconfigure, or that is already detached, is left alone rather than turned
-    into a different crash.
-    """
-    try:
-        stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        # A stream with no reconfigure (a replaced sys.stdout, or one closed
-        # outright) is left as it is: the fallback is the original, loud
-        # UnicodeEncodeError rather than a silent one, and this must not raise.
-        pass
-
-
 def main(argv):
-    use_utf8(sys.stdout)
-    use_utf8(sys.stderr)
+    streams.bind_closed_streams()
+    streams.use_utf8(sys.stdout)
+    streams.use_utf8(sys.stderr)
     target = argv[0] if argv else None
     try:
         roots = discover_repos(target)
@@ -118,6 +113,12 @@ def main(argv):
         # was wrong; a skill running this over several targets has nothing else to
         # go on.
         print(f"not a directory: {target if target else os.getcwd()}", file=sys.stderr)
+        return 1
+    except OSError as error:
+        # A target that exists and is a directory but cannot be listed. Reported
+        # rather than swallowed, for the same reason: an empty answer here would
+        # be indistinguishable from a directory holding no checkouts.
+        print(f"could not read {target if target else os.getcwd()}: {error}", file=sys.stderr)
         return 1
     try:
         for root in roots:
@@ -131,12 +132,7 @@ def main(argv):
         # business, not a failure here. Both descriptors go to devnull, not just
         # stdout, so nothing the interpreter still tries to flush on the way out
         # can resurface as a broken-pipe trace either.
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-            os.dup2(devnull, sys.stderr.fileno())
-        finally:
-            os.close(devnull)
+        streams.silence_output()
     return 0
 
 

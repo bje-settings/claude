@@ -75,8 +75,6 @@ repos:
         pass_filenames: false
         files: (\.sh$|/bin/gh$)
         args:
-          - plugins/gh/scripts/gh-sync.sh
-          - plugins/gh/scripts/lib/discover.sh
           - plugins/gh/scripts/lib/shepherd.sh
           - plugins/gh/scripts/gh-shepherd-status.sh
           - plugins/gh/scripts/gh-shepherd-pr.sh

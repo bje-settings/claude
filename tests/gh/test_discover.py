@@ -6,7 +6,6 @@ The nine examples there exercised the shell function directly; these exercise
 
 from __future__ import annotations
 
-import io
 import os
 
 import pytest
@@ -172,13 +171,39 @@ def test_exits_cleanly_when_the_reader_closes_the_pipe(gh, run_with_closed_reade
     assert stderr == ""
 
 
-def test_use_utf8_leaves_a_stream_it_cannot_reconfigure_alone(sandbox):
-    """A replaced or detached stdout must not turn one crash into another.
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root reads a directory whatever its mode says",
+)
+def test_an_unreadable_target_is_an_error_not_an_empty_answer(gh):
+    """A directory that cannot be listed is not a directory with no repositories.
 
-    The two shapes the guard names: an object with no `reconfigure` at all, and a
-    real wrapper whose buffer has been taken away, which raises ValueError.
+    Swallowed, the OSError became an empty list, and the caller reported "No git
+    repositories directly inside" and exited 0.
     """
-    discover.use_utf8(io.StringIO())
-    detached = io.TextIOWrapper(io.BytesIO())
-    detached.detach()
-    discover.use_utf8(detached)
+    blocked = gh.path / "blocked"
+    blocked.mkdir()
+    blocked.chmod(0o000)
+    try:
+        with pytest.raises(OSError):
+            discover.discover_repos(blocked)
+    finally:
+        blocked.chmod(0o700)
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root reads a directory whatever its mode says",
+)
+def test_the_script_form_reports_an_unreadable_target(gh, run_script):
+    """The script form names it on stderr and exits 1, as it does for a non-directory."""
+    blocked = gh.path / "blocked"
+    blocked.mkdir()
+    blocked.chmod(0o000)
+    try:
+        result = run_script(DISCOVER, str(blocked))
+    finally:
+        blocked.chmod(0o700)
+    assert result.status == 1
+    assert "could not read" in result.stderr
+    assert "Traceback" not in result.stderr

@@ -92,9 +92,6 @@ fixture_merge_commit() {
   fixture_push "$w"
 }
 
-# fixture_dirty <work> [file] — uncommitted change to a TRACKED file
-fixture_dirty() { printf 'dirty\n' >> "${1}/${2:-file.txt}"; }
-
 # fixture_forget_origin_head <work> — drop the cached origin/HEAD, forcing the
 # default-branch resolution to fall through to its later strategies
 # origin/HEAD is a SYMBOLIC ref, so update-ref -d leaves it resolvable. It has to
