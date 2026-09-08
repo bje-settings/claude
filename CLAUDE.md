@@ -112,15 +112,16 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
 - Plugin state lives under `${CLAUDE_PLUGIN_DATA}`. `${CLAUDE_PLUGIN_ROOT}` changes on update.
 - Derive what a plugin needs each time it runs, rather than writing a file to remember it. State
-  on disk is a last resort: it is the copy that goes stale, and nothing else reads it. A plugin
-  that must keep state or a plan owns the whole lifecycle of it -- creation, resume, reconcile
+  on disk is a last resort: it is the copy that goes stale. A plugin that must keep state or a
+  plan owns the whole lifecycle of it -- creation, resume, reconcile
   against the source of truth, and archive or removal when it is finished -- not just the write.
   `plugins/workstreams/docs/spike-65-state-file.md` is the worked example: what could be derived,
   what could not, and what the file owed once it was kept.
 - A plugin works generally, on any machine and any repository layout. Nothing in one may assume
   the author's directory structure, tool setup, or environment beyond what its preflight script
-  checks and reports. A plugin that depends on how one machine happens to be arranged is not a
-  tool, and the field test that would catch it is the one nobody ran.
+  checks and reports. Paths come from `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, and the
+  target repository's own conventions; a literal path, or a tool the preflight does not check, is
+  a defect.
 
 ### Skills
 
