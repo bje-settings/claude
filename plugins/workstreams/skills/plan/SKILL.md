@@ -79,10 +79,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 ```
 
-`show` exiting 1 with `no state file at ...` means there is no plan: carry on. Any other non-zero
-exit is a failure, not an absent plan: exit 1 also covers a file that is corrupt or unreadable,
-and exit 2 means neither `CLAUDE_PLUGIN_DATA` nor `WS_STATE_DIR` is set. Stop and show the message
-in those cases. If `show` exits 0 a plan exists, and `finished` says what kind:
+`show` exiting 1 with `no state file at ...` means there is no plan: carry on. Read the other two
+exit-1 messages apart, because they end differently:
+
+- **`state file is not valid workstreams JSON: ...`**: the file is corrupt. Say so, and ask the
+  user whether to replace it; if they decline, stop. If they agree, carry on to Step 7 and use
+  `--force`, which archives the corrupt file intact rather than destroying it. `finished` cannot
+  answer for such a file, so do not run it.
+- **`cannot read ...`**: the file is there and cannot be opened at all. Stop and show the message;
+  it needs a person, and `--force` would archive a file nothing has read.
+
+Exit 2 means neither `CLAUDE_PLUGIN_DATA` nor `WS_STATE_DIR` is set: stop and show the message.
+If `show` exits 0 a plan exists, and `finished` says what kind:
 
 - **`finished` exits 0**: every stream of the last run reached `done` or `failed`. Say that the
   previous run is finished and will be archived, and carry on without asking. There is nothing
@@ -90,7 +98,8 @@ in those cases. If `show` exits 0 a plan exists, and `finished` says what kind:
 - **`finished` exits 3**: the run is still live, or a stream is `paused` waiting on an answer.
   Ask the user whether to replace it before going further; if they decline, stop.
 - **`finished` exits anything else** (1: the file is missing, corrupt, or unreadable): that is a
-  failure, not an answer about the plan. Stop and show its message.
+  failure, not an answer about the plan. Stop and show its message. `show` has already separated
+  those cases, so reaching this means the file changed under you.
 
 Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory, and
 `ExitPlanMode`. The loop cadence in the plan is a number of seconds between 60 and 3600.

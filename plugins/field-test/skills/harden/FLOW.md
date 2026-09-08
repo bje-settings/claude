@@ -13,7 +13,9 @@ flowchart TD
     E1 -->|start over| I
     E2 --> I
     I --> N{next target still to do?}
-    N -->|none| Z
+    N -->|none| NE{the run has any targets at all?}
+    NE -->|no: add-target never landed| NE1([stop: say so; nothing to report or archive])
+    NE -->|yes| Z
     N -->|the state file describes<br>a target no command could act on| Z2([stop: report what next said;<br>the file needs a person])
     N -->|one, already paused| Z1([stop: report the question it is waiting on])
     N -->|one, still running from a session that stopped| RS{which phase did it reach?}

@@ -18,9 +18,9 @@ flowchart TD
     L --> T[schedule a wake 60s to 3600s out, matched to the work]
     T --> WR[on wake: reconcile against GitHub again]
     WR -->|the file cannot be read| S2
-    WR -->|gh could not answer| W
-    WR -->|reconciled| W
-    W{what does each stream say?}
+    WR -->|gh could not answer| WS
+    WR -->|reconciled| WS[report this tick's transitions,<br>then re-read the plan with show]
+    WS --> W{what does each stream say?}
     W -->|a worker returned a draft PR| Q
     W -->|left draft or reviewing by a session that stopped| Q
     W -->|worker needs a user decision| Pz[paused: record the question, tell the user, keep going]

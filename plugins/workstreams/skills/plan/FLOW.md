@@ -24,9 +24,10 @@ flowchart TD
     T -->|user rejects| T1([stop: nothing recorded])
     T -->|user approves| W{a plan already exists for this repo?}
     W -->|no| Z
-    W -->|a file is there that cannot be read| W4([stop: show the message; the file needs a person])
+    W -->|a file is there that cannot be opened at all| W4([stop: show the message; the file needs a person])
+    W -->|a file is there that is not valid workstreams JSON| W3
     W -->|yes, and every stream of it is done or failed| W2[say the finished run will be archived;<br>do not ask]
-    W -->|yes, and it is still live or paused| W3{user says replace it?}
+    W -->|yes, and it is still live or paused| W3{user says replace it?<br>corrupt: init --force archives it intact}
     W3 -->|no| W1([stop: existing plan kept])
     W3 -->|yes| Z
     W2 --> Z[record streams, deferrals, and cadence in the state file<br>init archives whatever plan was there]
