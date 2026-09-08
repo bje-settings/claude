@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 
 import pytest
 from conftest import FT_HARDEN_STATE
@@ -295,7 +296,8 @@ def test_archive_moves_a_finished_run_and_prints_where_it_went(state):
     assert not state.path.exists()
     moved = result.stdout.strip()
     assert moved == str(archive_dir(state) / archived(state)[0])
-    assert json.loads(open(moved, encoding="utf-8").read()) == before
+    archived_document = json.loads(Path(moved).read_text(encoding="utf-8"))
+    assert archived_document == before
 
 
 def test_archive_refuses_a_run_in_progress_and_leaves_it_where_it_is(state):
