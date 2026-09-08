@@ -375,10 +375,17 @@ def test_fails_and_cleans_up_when_the_state_file_cannot_be_moved_into_place(ws_s
 # --- without a usable state file ----------------------------------------------
 
 
-def test_show_fails_and_says_to_init(ws_state):
-    """show fails and says to init"""
+def test_show_fails_and_says_to_init(ws_sandbox, ws_state):
+    """show fails and says to init
+
+    The exact wording is pinned, not just "run init first": the `run` and `plan`
+    skills tell "there is no plan for this repository" apart from every other
+    exit 1 by matching the `no state file at` prefix, so rewording this message
+    silently changes what those skills do. See the ws-state.py docstring.
+    """
     result = ws_state("show")
     assert result.status == 1
+    assert result.stderr.startswith(f"ws-state.py: no state file at {ws_sandbox.state_file()};")
     assert "run init first" in result.stderr
 
 

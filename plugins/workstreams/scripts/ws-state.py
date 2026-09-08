@@ -70,6 +70,10 @@ or named a pull request that does not exist: 4 rather than 1 so the run loop can
 tell a tick worth repeating from a plan it must stop on. A `repo` in the file
 that is not `owner/name` is exit 1, not 4: gh would never resolve it, so the
 tick is not worth repeating.
+
+The message a missing state file is reported with, `no state file at <path>; run
+init first`, is part of the contract too: the `run` and `plan` skills match on
+that prefix to tell "no plan for this repository" from every other exit 1.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
