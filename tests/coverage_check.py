@@ -5,7 +5,7 @@ Used by the CI coverage job and by contributors locally. Prints the per-file
 numbers and the uncovered lines whether or not it fails, so a drop says which
 file moved rather than only that the total fell.
 
-It reads a cobertura report. coverage.py's also marks partially covered
+It reads a cobertura report. coverage.py's report also marks partially covered
 branches; where that data is present the partly-taken lines are listed beside
 the uncovered ones, and where it is absent nothing changes. The gate itself is
 the root line-rate either way, so a partial branch is reported but never fails a

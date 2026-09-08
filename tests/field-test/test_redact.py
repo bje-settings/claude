@@ -4,7 +4,7 @@ The module holds what the `REDACT_JQ` program in ft-redact.sh decided: which
 values are replaced everywhere, which only where they stand as a word, and what
 a names file has to look like before a redaction can be claimed at all. Each arm
 gets a name here, because the whole program counted as one covered line and a
-narrowed condition moved no number (`.claude/rules/type-jq.md`).
+narrowed condition moved no number (`.claude/rules/type-py.md`).
 """
 
 from __future__ import annotations

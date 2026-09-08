@@ -9,7 +9,7 @@ The arms matter more than they look. A cancelled or timed-out run reported as
 pending is a loop that waits forever for a run that already ended; a completed
 run with no conclusion reported as passed is a merge on an answer that has not
 arrived. Under kcov the jq program was one line however many decisions it held,
-which is the blind spot `.claude/rules/type-jq.md` describes; here each arm is
+which is the blind spot `.claude/rules/type-py.md` describes; here each arm is
 its own branch in the report and its own unit test in
 `tests/field-test/test_checks.py`.
 

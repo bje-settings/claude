@@ -248,7 +248,7 @@ python3 plugins/gh/scripts/gh-shepherd-status.py ~/Code/@bje/@bje-settings/terra
 python3 plugins/gh/scripts/gh-shepherd-pr.py ~/Code/@bje/@bje-settings/terraform 12 state
 ```
 
-Every script in this plugin is Python now: stdlib-only, targeting Python 3.9, which is what
+Every script in this plugin is Python: stdlib-only, targeting Python 3.9, which is what
 `/usr/bin/python3` is on a Mac with the Command Line Tools.
 
 ## Tests
@@ -266,9 +266,9 @@ uv run --locked pytest -n auto --cov        # the whole suite, with coverage
 printed, captured scenario by scenario in `tests/gh/golden/bash-output.json` and
 `golden/bash-sync-output.json` before those versions were deleted.
 
-CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py`. This
-plugin's half of that is the `coverage.py` report over `tests/gh/`. Run it locally with
-`uv run --locked pytest -n auto --cov --cov-report=xml` followed by
+CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py`. The gate is
+one pooled report across every plugin; what `tests/gh/` exercises is this plugin's share. Run it
+locally with `uv run --locked pytest -n auto --cov --cov-report=xml` followed by
 `python3 tests/coverage_check.py coverage/python.xml 95`.
 All three supported package managers have an install test. The uncovered remainder is defensive branches
 guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails

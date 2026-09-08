@@ -29,19 +29,19 @@ the harness, the coverage tooling, and the rules all assume Python. A Python scr
 plugin goes in `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE`
 is the script's own directory, and a hook, which sits one level across rather than one level up,
 inserts the sibling `scripts/` directory instead. Nothing imports across plugins: a user installs
-one plugin without the others. `plugins/workstreams/scripts/lib/` is the worked example: `cli.py`
-holds what every one of that plugin's scripts does around its own work (the UTF-8 output streams,
-the flush, a reported failure, a closed pipe, an unanticipated exception), and `state.py`,
-`issues.py` and `pr_status.py` hold what used to be each script's jq filters and argument checks,
-as plain functions with a unit test per arm; `plugins/gh/scripts/lib/` is laid out the same way.
-`plugins/field-test/scripts/lib/` is the same shape: it holds what that plugin's jq programs and
-shell parsing decided, plus `run.py`, which `hooks/hook-io.py` imports rather than keeping a second
-copy of where the run marker lives. Scripts import `lib` through `sys.path`, but tests load a
-plugin's lib modules by path under a plugin-unique module name, because two plugins' `lib` packages
-collide on `sys.modules["lib"]` in one pytest process. That loader is why nothing under `lib/`
-imports another `lib/` module: a module loaded by path sits outside any package, where a sibling
-import would not resolve, so a module that raises its own error class hands it to `cli.run` rather
-than importing one.
+one plugin without the others. `plugins/gh/scripts/lib/` and `plugins/workstreams/scripts/lib/` are
+the worked examples: `cli.py` holds what every one of a plugin's scripts does around its own work
+(the UTF-8 output streams, the flush, a reported failure, a closed pipe, an unanticipated
+exception), and the modules beside it hold what used to be each script's jq filters and argument
+checks, as plain functions with a unit test per arm. `plugins/field-test/scripts/lib/` is the same
+shape, and its `run.py` is what `hooks/hook-io.py` imports rather than keeping a second copy of
+where the run marker lives. Scripts import `lib` through `sys.path`; tests load a plugin's lib
+modules by path under a plugin-unique module name, so the names the tests themselves hold do not
+collide. That by-path load is not on its own enough: a script loaded in-process still runs its own
+`from lib import ...` through `sys.modules["lib"]`, which the root `conftest.py` resets before every
+test. The loader is why nothing under `lib/` imports another `lib/` module: a module loaded by path
+sits outside any package, where a sibling import would not resolve, so a module that raises its own
+error class hands it to `cli.run` rather than importing one.
 
 Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
 tests in one process while each script resolves `lib` from its own `sys.path`. The root

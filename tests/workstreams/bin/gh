@@ -2,10 +2,11 @@
 """A stand-in for the gh CLI, for the workstreams tests. Put this directory on PATH.
 
 Replaces the bash stub (deleted in #55) with the same environment contract.
-Like that stub, it does not fake the output of the script
-under test: it holds canned issues, pull requests, and extensions, applies the
-filtering the real gh applies server-side, projects the fields named by --json,
-and runs the caller's own --jq expression with real jq. Anything it does not
+Like that stub, it does not fake the output of the script under test: it holds
+canned issues, pull requests, and extensions, applies the filtering the real gh
+applies server-side, projects the fields named by --json, and runs the caller's
+own --jq expression with real jq. Without jq on PATH a --jq call fails loudly
+rather than quietly returning unfiltered JSON. Anything it does not
 emulate is an error, so a test cannot pass against a query the real gh would
 answer differently: an unknown flag exits 64, an unknown --json field exits 1
 like gh's "Unknown JSON field", a failing --jq exits 1, a flag given last with
@@ -33,6 +34,7 @@ Controlled by:
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -82,6 +84,8 @@ def emit(document, fields, jq_expr):
         return
     # Real jq, exactly as the shell stub ran it: the expression is the caller's,
     # and a stub that reimplemented it would prove nothing about the caller.
+    if shutil.which("jq") is None:
+        fail("--jq needs jq on PATH", 70)
     finished = subprocess.run(
         ["jq", "-rc", jq_expr], input=text.encode("utf-8"), stdout=subprocess.PIPE, check=False
     )

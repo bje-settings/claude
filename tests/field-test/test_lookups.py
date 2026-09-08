@@ -4,7 +4,7 @@
 did with parameter expansion and what jq did with `INSTALLED_ROWS_JQ`,
 `MARKETPLACE_PATH_JQ` and the two enterprise readers. Each arm is named here
 because none of them moved a coverage number before
-(`.claude/rules/type-jq.md`), and because a wrong answer from any of them is a
+(`.claude/rules/type-py.md`), and because a wrong answer from any of them is a
 repository name in a public issue or an issue filed against nothing.
 """
 

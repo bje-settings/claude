@@ -34,8 +34,8 @@ Each finding needs both halves:
 1. The change that makes the behaviour right.
 2. A fixture and a spec that would have caught it, built from the shape the issue describes.
    `<the repository's rule for this; for example: assert against real repositories built by the
-   fixtures rather than mocking, and where the logic is in jq, add the branch's own fixture and
-   verify it by mutation.>`
+   fixtures rather than mocking, and where the code makes a decision, add a test that reaches each
+   arm and verify it by mutation.>`
 
 A finding you conclude is not a bug is a finding to say so about, in the pull request body, with
 the reason. Do not close the issue yourself.

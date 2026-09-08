@@ -17,10 +17,11 @@ PLUGINS = ROOT / "plugins"
 MERMAID_FENCE = re.compile(r"^```mermaid", re.MULTILINE)
 
 # A command held in a variable and expanded as one. zsh does not word-split an
-# unquoted expansion, so `S="bash ...sh"; $S show` looks up the whole string as a
-# command name and exits 127 under the Bash tool's shell. Spell the script out at
-# every call site: bash "${CLAUDE_PLUGIN_ROOT}/scripts/x.sh" show
-COMMAND_IN_A_VARIABLE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*="[a-z]+ ')
+# unquoted expansion, so `S="python3 ...py"; $S show` looks up the whole string
+# as a command name and exits 127 under the Bash tool's shell. Spell the script
+# out at every call site: python3 "${CLAUDE_PLUGIN_ROOT}/scripts/x.py" show.
+# The interpreter half of the pattern allows digits, so `python3` is caught.
+COMMAND_IN_A_VARIABLE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*="[a-z][a-z0-9]* ')
 # A bare expansion in command position. ${VAR} placeholders inside a path are
 # fine; a lone $VAR starting the line is the idiom this rejects.
 BARE_EXPANSION = re.compile(r"^\$[A-Za-z_][A-Za-z0-9_]* ")

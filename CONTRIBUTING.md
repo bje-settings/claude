@@ -5,11 +5,13 @@
 ```bash
 uv sync --locked                      # create .venv and install the dev toolchain
 uv run --locked pytest -n auto --cov  # the whole suite, with coverage
-uv run --locked ruff check . && uv run --locked ruff format .
+uv run --locked ruff check . && uv run --locked ruff format --check .
 ```
 
-That is the one command. Every plugin script is Python and pytest is the only harness, so `uv` is
-the only requirement; there is nothing else to install.
+That is the whole of it. Every plugin script is Python and pytest is the only harness, so `uv` is
+the only requirement for the suite; tests that need `jq` or a package manager skip themselves
+without it (the `gh` stubs shell out to `jq` for `--jq`), and the pre-commit hooks additionally
+need `claude`.
 
 Tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub `gh`
 under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module basenames

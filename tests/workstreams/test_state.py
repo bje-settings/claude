@@ -4,7 +4,7 @@ The module holds the jq programs the shell ws-state ran -- the add-stream filter
 `set` filters, the list-streams selection, defer, meta and the shape check --
 and the argument validation the shell did with regexes and substring tests. A
 whole jq filter counted as a single covered line, and a narrowed `select` or an
-inverted condition changed no number at all (`.claude/rules/type-jq.md`). These
+inverted condition changed no number at all (`.claude/rules/type-py.md`). These
 tests exist so each arm has an example that reaches it and a name that says
 which one went red.
 

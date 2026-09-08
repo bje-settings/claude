@@ -9,7 +9,7 @@ CI duration.
 Every decision here is a plain function with a unit test per arm in
 `tests/gh/test_shepherd_lib.py`. Under kcov the jq versions were one line each
 however many outcomes they decided between, which is the blind spot
-`.claude/rules/type-jq.md` describes: three mutations of the check-state fold
+`.claude/rules/type-py.md` describes: three mutations of the check-state fold
 left a 219-example suite green.
 
 Nothing here runs `gh` or touches the filesystem: the callers hand in parsed

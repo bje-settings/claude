@@ -66,9 +66,8 @@ branch = true
 patch = ["subprocess"]
 # Most of the code under test is driven black-box, in a child process, so an
 # xdist worker that only ran those measures no source file itself and warns.
-# (Shell stubs on PATH never enter coverage at all; the subprocess patch is a
-# .pth in the venv, so it reaches Python children only. A plugin's scripts/lib/
-# modules are the exception: their unit tests import them in the worker.)
+# (A plugin's scripts/lib/ modules are the exception: their unit tests import
+# them in the worker.)
 disable_warnings = ["no-data-collected"]
 omit = [
   # Every pattern starts "**/", so that it is not anchored to the working

@@ -45,13 +45,16 @@ shared inside one plugin goes in `plugins/<plugin>/scripts/lib/`, imported with
 rather than one level up, so it inserts the sibling `scripts/` directory instead.
 
 Nothing imports across plugins: a user installs one plugin without the others. Tests load a
-plugin's `lib` modules **by path**, under a plugin-unique module name, because two plugins' `lib`
-packages would otherwise collide on `sys.modules["lib"]` in one pytest process. That loader is also
-why nothing under `lib/` imports another `lib/` module: a module loaded by path sits outside any
-package, where a sibling import would not resolve.
+plugin's `lib` modules **by path**, under a plugin-unique module name, so the names the tests
+themselves hold do not collide. That is not on its own enough: a script loaded in-process still
+runs its own `from lib import ...` through `sys.modules["lib"]`, which the root `conftest.py`
+resets before every test. The by-path loader is also why nothing under `lib/` imports another
+`lib/` module: a module loaded by path sits outside any package, where a sibling import would not
+resolve.
 
-Test module basenames are unique across the whole suite for the same reason pytest imports them
-into one namespace: `test_gh_fixtures.py` and `test_ws_fixtures.py`, never two `test_fixtures.py`.
+Test module basenames are unique across the whole suite for the same reason: pytest imports them
+into one namespace, so `test_gh_fixtures.py` and `test_ws_fixtures.py`, never two
+`test_fixtures.py`.
 
 ## The 3.9 floor
 

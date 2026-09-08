@@ -6,7 +6,7 @@ Flattening them is where the decisions live: which entries are a bot's, which
 thread a comment belongs to and whether that thread is resolved, and which
 records carry nothing worth reading. Each is a plain function with a unit test
 per arm in `tests/workstreams/test_pr_comments.py`, for the reason
-`.claude/rules/type-jq.md` gives: a decision buried in a query string is a
+`.claude/rules/type-py.md` gives: a decision buried in a query string is a
 decision no coverage report can name.
 
 Nothing here runs gh or touches the filesystem: `flatten` takes the parsed

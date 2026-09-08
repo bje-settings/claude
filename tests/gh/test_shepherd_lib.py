@@ -3,7 +3,7 @@
 These are new, not ported. The check-state fold, the merge-risk ordering and the
 median CI duration lived in `lib/shepherd.jq`, `lib/shepherd-status.jq` and
 `lib/ci-seconds.jq`, where kcov scored each whole program as one line however
-many outcomes it decided between. `.claude/rules/type-jq.md` records what that
+many outcomes it decided between. `.claude/rules/type-py.md` records what that
 cost: three mutations of this fold -- narrowing the fail set so `CANCELLED` and
 `TIMED_OUT` stopped counting, dropping `NEUTRAL` from the pass set, and
 inverting the `COMPLETED` arm -- each left a 219-example suite green with

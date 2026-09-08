@@ -1,7 +1,7 @@
 # coverage and report artifacts
 /coverage/
 
-# python bytecode from the hook helpers
+# python bytecode
 __pycache__/
 
 # python harness artifacts
