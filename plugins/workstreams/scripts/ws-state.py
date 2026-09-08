@@ -67,7 +67,9 @@ file needs a person": any status other than 0 or 3 is a failure to report and
 stop on. `reconcile` exits 4, having
 written nothing, whenever gh failed, answered with something it could not read,
 or named a pull request that does not exist: 4 rather than 1 so the run loop can
-tell a tick worth repeating from a plan it must stop on.
+tell a tick worth repeating from a plan it must stop on. A `repo` in the file
+that is not `owner/name` is exit 1, not 4: gh would never resolve it, so the
+tick is not worth repeating.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -116,7 +118,7 @@ def need(flag: str, value):
 def resolve_repo(given: str) -> str:
     """owner/name, from the argument, else from gh."""
     repo = given or gh_repo()
-    if "/" not in repo:
+    if not st.is_repo(repo):
         die(f"repo must be owner/name, got: {repo}", 2)
     return repo
 
@@ -419,10 +421,19 @@ def plan_repo(document, path) -> str:
     repository, and `reconcile` run from another checkout would otherwise ask
     about that repository's #14 and mark a stream done on the answer. The plan
     records the repository `init` resolved, so that is what is asked.
+
+    The shape is checked before gh sees it. A `repo` of `a/b/c` is a host to gh,
+    not a repository, so it comes back as a connection failure and `reconcile`
+    reports its exit 4 -- the status that tells the run loop to try the tick
+    again -- for a document that will never reconcile. Exit 1 instead, naming the
+    file and the value, so the loop stops and a person fixes the plan.
     """
     repo = document.get("repo")
-    if not isinstance(repo, str) or "/" not in repo:
-        die(f"the plan at {path} does not record a repository to reconcile against")
+    if not st.is_repo(repo):
+        die(
+            f"the plan at {path} does not record a usable repository "
+            f"to reconcile against: {repo!r}"
+        )
     return repo
 
 

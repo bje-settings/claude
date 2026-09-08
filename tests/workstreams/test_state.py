@@ -377,6 +377,41 @@ def test_reconcile_reports_every_transition_in_order():
     ]
 
 
+# --- is_repo ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "repo",
+    ["bje-settings/claude", "a/b", "Owner_1/name.js", "o-o/n-n"],
+)
+def test_is_repo_accepts_owner_name(repo):
+    assert state.is_repo(repo) is True
+
+
+@pytest.mark.parametrize(
+    ("repo", "why"),
+    [
+        ("widgets", "no slash at all"),
+        ("acme/", "no name"),
+        ("/widget", "no owner"),
+        ("a/b/c", "a third segment, which gh reads as a host"),
+        (" acme/widget", "a leading space"),
+        ("acme/widget ", "a trailing space"),
+        ("acme widget/x", "a space inside the owner"),
+        ("", "empty"),
+    ],
+)
+def test_is_repo_refuses_anything_gh_cannot_resolve(repo, why):
+    assert state.is_repo(repo) is False
+    assert why  # names the arm in the test id
+
+
+@pytest.mark.parametrize("value", [None, 42, ["acme", "widget"]])
+def test_is_repo_refuses_a_value_that_is_not_a_string(value):
+    """The `repo` a state file records is only as good as whatever wrote it."""
+    assert state.is_repo(value) is False
+
+
 # --- archive_name -------------------------------------------------------------
 
 

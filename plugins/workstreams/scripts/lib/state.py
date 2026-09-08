@@ -68,6 +68,11 @@ VERSION = 1
 DIGITS = re.compile(r"^[0-9]+$")
 ISSUE_LIST = re.compile(r"^[0-9]+(,[0-9]+)*$")
 ORDER = re.compile(r"^[1-9][0-9]*$")
+# owner/name, the only shape `gh --repo` and the state file accept. Anything
+# else -- an empty half, a third segment, a stray space -- is not a repository
+# gh can be asked about, and passing it on turns a bad value in the document
+# into a gh error the caller has to guess at.
+REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 class Invalid(Exception):
@@ -309,6 +314,18 @@ def reconcile(document, pr_states):
         stream["status"] = now
         transitions.append({"stream": stream.get("id"), "from": was, "to": now})
     return document, transitions
+
+
+def is_repo(value) -> bool:
+    """Whether a value names a repository as `owner/name`.
+
+    Both the argument `resolve_repo` takes and the `repo` the plan records go
+    through here, because gh is handed either one. `a/b/c` is the case worth
+    naming: gh reads it as host `a`, so it fails as a network error rather than
+    as the bad value it is, and `reconcile` reports that as its "could not read
+    GitHub" status, which the run loop retries forever.
+    """
+    return isinstance(value, str) and bool(REPO.match(value))
 
 
 def file_stem(repo: str) -> str:

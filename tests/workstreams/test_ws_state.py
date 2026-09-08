@@ -219,9 +219,15 @@ def test_rejects_a_name_with_owner_that_is_not_a_repository(ws_sandbox, ws_state
     assert why  # names the arm in the test id
 
 
-def test_rejects_a_repo_that_is_not_owner_name(ws_state):
-    """rejects a repo that is not owner/name"""
-    result = ws_state("init", "--repo", "widgets")
+@pytest.mark.parametrize("repo", ["widgets", "acme/", "a/b/c", "acme widget/x"])
+def test_rejects_a_repo_that_is_not_owner_name(ws_state, repo):
+    """rejects a repo that is not owner/name
+
+    Still exit 2: `--repo` is an argument, so a bad one is usage. Only the shape
+    widened, from "holds a slash" to owner/name, so `a/b/c` no longer reaches gh
+    as a host name.
+    """
+    result = ws_state("init", "--repo", repo)
     assert result.status == 2
     assert "owner/name" in result.stderr
 
@@ -1801,7 +1807,32 @@ def test_reconcile_refuses_a_plan_that_records_no_repository(ws_sandbox, ws_stat
     ws_sandbox.state_file().write_text(document, encoding="utf-8")
     result = ws_state("reconcile")
     assert result.status == 1
-    assert "does not record a repository" in result.stderr
+    assert "does not record a" in result.stderr
+    assert pr_view_calls(ws_sandbox) == []
+    assert snapshot(ws_sandbox) == document
+
+
+@pytest.mark.parametrize("repo", ["a/b/c", "acme/", "/widget", " acme/widget"])
+def test_reconcile_refuses_a_plan_whose_repository_is_malformed(ws_sandbox, ws_state, repo):
+    """A repo gh cannot resolve is exit 1, not the exit 4 the run loop retries.
+
+    `a/b/c` is the case that made this worth fixing: gh reads the first segment
+    as a host and fails to connect, which arrived as "could not read GitHub" and
+    had the loop repeating a tick that could never succeed.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    document = json.dumps(
+        {
+            "version": 1,
+            "repo": repo,
+            "streams": [{"id": "s1", "status": "reviewing", "pr": 14}],
+        }
+    )
+    ws_sandbox.state_file().write_text(document, encoding="utf-8")
+    result = ws_state("reconcile")
+    assert result.status == 1
+    assert "does not record a usable repository" in result.stderr
+    assert repr(repo) in result.stderr
     assert pr_view_calls(ws_sandbox) == []
     assert snapshot(ws_sandbox) == document
 
