@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 from conftest import FT_HARDEN_STATE
@@ -419,9 +420,38 @@ def test_init_force_archives_a_file_it_could_not_parse(state):
     result = state.run("init", "gh:shepherd", "--force")
     assert result.status == 0
     assert "archived the unfinished run to" in result.stderr
+    archived = sorted(archive_dir(state).glob("*.json"))
+    assert [path.read_text(encoding="utf-8") for path in archived] == ["{not json at all"]
+    # The name as well as the content: a file with no run in it is filed under
+    # the skill and this moment, not under `unknown.unknown.json`.
+    assert re.match(r"^gh__shepherd\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$", archived[0].name)
+
+
+def test_init_refuses_json_that_is_not_a_run_without_force(state):
+    """Valid JSON that is not a hardening run is another tool's file.
+
+    There is no run in it to call finished, so it is refused the way one in
+    progress is, and left exactly where it was.
+    """
+    state.init()
+    state.path.write_text("{}", encoding="utf-8")
+    result = state.run("init", "gh:shepherd")
+    assert result.status == 3
+    assert "--force to start over" in result.stderr
+    assert state.path.read_text(encoding="utf-8") == "{}"
+
+
+def test_init_force_archives_json_that_is_not_a_run(state):
+    """The acting half: --force keeps the file rather than overwriting it."""
+    state.init()
+    state.path.write_text("{}", encoding="utf-8")
+    result = state.run("init", "gh:shepherd", "--force")
+    assert result.status == 0
+    assert "archived the unfinished run to" in result.stderr
+    assert state.targets() == []
     assert [
         path.read_text(encoding="utf-8") for path in sorted(archive_dir(state).glob("*.json"))
-    ] == ["{not json at all"]
+    ] == ["{}"]
 
 
 # --- add-target --------------------------------------------------------------

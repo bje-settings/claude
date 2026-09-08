@@ -101,6 +101,10 @@ def test_prs_cover_all_three_states_reconcile_reads(ws_sandbox):
     and MERGED would let the closed arm pass for want of a case to reach it.
     """
     assert sorted({pr["state"] for pr in prs(ws_sandbox)}) == ["CLOSED", "MERGED", "OPEN"]
+    # Which number carries which state, not only that the three are present: the
+    # reconcile tests read PR 19 as the closed one and PR 14 as the merged one.
+    by_number = {pr["number"]: pr["state"] for pr in prs(ws_sandbox)}
+    assert [by_number[19], by_number[14]] == ["CLOSED", "MERGED"]
 
 
 def test_pr_twelve_is_stacked_on_the_branch_of_pr_ten(ws_sandbox):

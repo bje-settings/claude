@@ -283,7 +283,14 @@ def reconcile(document, pr_states):
 
     Only non-terminal streams with a pull request are touched, and only the two
     states `RECONCILED` maps: `OPEN` is the ordinary case the loop is already
-    handling, and a stream whose PR is not in the map was not asked about.
+    handling, and a stream whose PR is not in the map was not asked about. A
+    `pr` that is not a number is not a pull request either: `True` is an `int` in
+    Python, and without the guard a hand-edited `true` would inherit whatever
+    PR 1 answered.
+
+    A closed pull request overwrites the `question` of a `paused` stream, which
+    is deliberate: the branch it was waiting on a decision about is gone, so the
+    closure supersedes whatever the question asked.
 
     Returns the document and the transitions applied, each `{"stream", "from",
     "to"}`, so the caller can report what moved rather than diffing the file.
@@ -292,7 +299,7 @@ def reconcile(document, pr_states):
     for stream in document["streams"]:
         was = stream.get("status")
         number = stream.get("pr")
-        if was in TERMINAL or number is None:
+        if was in TERMINAL or not isinstance(number, int) or isinstance(number, bool):
             continue
         now = RECONCILED.get(pr_states.get(number))
         if now is None:

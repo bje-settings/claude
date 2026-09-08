@@ -299,10 +299,22 @@ def test_is_finished_is_false_for_a_status_outside_the_vocabulary():
 
 
 def test_reconcile_marks_a_stream_whose_pr_merged_done():
-    document = a_state(streams=[a_stream("s1", status="reviewing", pr=10)])
+    document = a_state(
+        streams=[a_stream("s1", status="reviewing", pr=10, question="waiting on a decision")]
+    )
     document, transitions = state.reconcile(document, {10: "MERGED"})
     assert document["streams"][0]["status"] == "done"
     assert transitions == [{"stream": "s1", "from": "reviewing", "to": "done"}]
+    # Only the closed arm writes a question; a merge leaves whatever was there.
+    assert document["streams"][0]["question"] == "waiting on a decision"
+
+
+def test_reconcile_ignores_a_pr_field_holding_true():
+    """`True` is an `int`, so without the bool guard this would read PR 1's state."""
+    document = a_state(streams=[a_stream("s1", status="reviewing", pr=True)])
+    document, transitions = state.reconcile(document, {1: "MERGED"})
+    assert document["streams"][0]["status"] == "reviewing"
+    assert transitions == []
 
 
 def test_reconcile_marks_a_stream_whose_pr_closed_failed_with_the_question():

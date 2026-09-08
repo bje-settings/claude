@@ -1583,6 +1583,38 @@ def test_init_force_archives_a_file_it_could_not_parse(ws_sandbox, ws_state):
     assert "archived the unfinished plan to" in result.stderr
     archived = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
     assert [path.read_text(encoding="utf-8") for path in archived] == ["{not json at all"]
+    # The name as well as the content: a file with no plan in it is filed under
+    # the repository and this moment, not under `unknown.unknown.json`.
+    assert re.match(
+        r"^bje-settings__example\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.json$",
+        archived[0].name,
+    )
+
+
+def test_init_refuses_json_that_is_not_a_plan_without_force(ws_sandbox, ws_state):
+    """Valid JSON that is not a workstreams plan is another tool's file.
+
+    There is no plan in it to call finished, so it is refused the way an
+    unfinished one is, and left exactly where it was.
+    """
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text("{}", encoding="utf-8")
+    result = ws_state("init")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert snapshot(ws_sandbox) == "{}"
+
+
+def test_init_force_archives_json_that_is_not_a_plan(ws_sandbox, ws_state):
+    """The acting half: --force keeps the file rather than overwriting it."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text("{}", encoding="utf-8")
+    result = ws_state("init", "--force")
+    assert result.status == 0
+    assert "archived the unfinished plan to" in result.stderr
+    assert ws_sandbox.read_state()["streams"] == []
+    archived = sorted((ws_sandbox.state_dir / "archive").glob("*.json"))
+    assert [path.read_text(encoding="utf-8") for path in archived] == ["{}"]
 
 
 def pr_view_calls(ws_sandbox):
@@ -1700,6 +1732,18 @@ def test_reconcile_rejects_a_stray_argument(lifecycle, ws_state):
     result = ws_state("reconcile", "--force")
     assert result.status == 2
     assert "unknown argument" in result.stderr
+
+
+def test_pending_prs_skips_a_pr_field_holding_true():
+    """`True` is an `int` in Python, and `true` in the file is not PR 1.
+
+    Driven directly: `set` refuses a non-numeric pr, so only a hand-edited file
+    reaches this arm, and asking GitHub about 1 would reconcile a stream
+    against a pull request nobody named.
+    """
+    module = load_ws_state_module()
+    document = {"streams": [{"id": "s1", "status": "reviewing", "pr": True}]}
+    assert module.pending_prs(document) == []
 
 
 def test_reconcile_names_the_repository_it_asks_about(lifecycle, ws_sandbox, ws_state):
