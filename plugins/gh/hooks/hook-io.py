@@ -101,13 +101,21 @@ including any repository that gets skipped and why.
 
 
 def emit(context):
-    """Write one SessionStart hook response."""
+    """Write one SessionStart hook response.
+
+    `additionalContext` is model-context-only: it surfaces only once the model
+    takes a turn, and a user whose first input pre-empts that turn (running the
+    very command this hook would have suggested) never sees it at all.
+    `systemMessage` is rendered directly by the CLI regardless of whether the
+    model ever takes a turn, so the same text goes out both ways.
+    """
     json.dump(
         {
+            "systemMessage": context,
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
                 "additionalContext": context,
-            }
+            },
         },
         sys.stdout,
     )

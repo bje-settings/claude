@@ -21,10 +21,16 @@ HOOK_IO = ROOT / "plugins" / "gh" / "hooks" / "hook-io.py"
 
 
 def context_of(stdout: str) -> str:
-    """The additionalContext of a SessionStart hook response."""
+    """The additionalContext of a SessionStart hook response.
+
+    Also asserts the CLI-rendered `systemMessage` carries the identical text,
+    since every message this hook emits must reach the user whether or not the
+    model ever takes a turn.
+    """
     payload = json.loads(stdout)
     output = payload["hookSpecificOutput"]
     assert output["hookEventName"] == "SessionStart"
+    assert payload["systemMessage"] == output["additionalContext"]
     return output["additionalContext"]
 
 
