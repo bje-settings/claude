@@ -37,10 +37,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" add-target <plugin:sk
 
 `add-target` once per target, in the order given; `--repo` is `gh repo view --json nameWithOwner`
 run in that directory. Stop with the install hints if preflight exits 1 (a `detail` field, when
-present, says why a check failed). If a run already exists (`init` exits 3), show it with
+present, says why a check failed).
+
+`init` exiting 3 means a run for this skill is still in progress: show it with
 `show <plugin:skill>` and ask whether to resume it or start over with `--force`; never `--force`
-on your own, since the targets already worked are what would be lost. Pass `--model` and
-`--effort` to `init` only when the user asked for a size; the defaults are `opus` and `high`.
+on your own, since the targets already worked are what would be lost. A run whose targets are all
+`done` or `failed` is not that case: `init` archives it itself, says on stderr where it went, and
+carries on, so there is nothing to ask about. Pass `--model` and `--effort` to `init` only when
+the user asked for a size; the defaults are `opus` and `high`.
 
 Read the repository conventions of each target once now: its `CLAUDE.md` and `.claude/rules/`
 decide branch names, worktree locations, install commands, and commit style. The briefs below
@@ -202,11 +206,22 @@ purpose. Never arm a `Monitor` or a wake in place of it.
 Fill in `summary-template.md` and store it with `set "$TARGET" summary "<text>"`. Set the target
 `done` unless Step 5 already set it `failed`, then go back to Step 2.
 
-## Step 7: Report
+## Step 7: Report and archive
 
 Print every target's summary in one table, in order, then stop the loop with `ScheduleWakeup`
 `stop: true`. Below the table: every paused target with the exact question it is waiting on, and
 every issue filed that did not end up in a merged PR.
+
+Then archive the run, but only if it is over:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" finished <plugin:skill>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" archive <plugin:skill>
+```
+
+Run `archive` only when `finished` exits 0, and print the path it prints so the user knows where
+the record went. A run holding a `paused` target is not finished: its file stays where it is, so
+the user can answer the question and re-run this skill. Never pass `--force` here.
 
 ## Out of scope
 

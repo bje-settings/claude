@@ -4,6 +4,8 @@
   ft-harden-state.py path <plugin:skill>
   ft-harden-state.py init <plugin:skill> [--force] [--model <alias>] [--effort low|medium|high]
   ft-harden-state.py show <plugin:skill>
+  ft-harden-state.py finished <plugin:skill>
+  ft-harden-state.py archive <plugin:skill> [--force]
   ft-harden-state.py add-target <plugin:skill> <path> [--repo <owner/name>]
   ft-harden-state.py set <plugin:skill> <path> <field> <value> [--json]
   ft-harden-state.py bump <plugin:skill> <path> <numeric-field>
@@ -12,8 +14,17 @@
 One state file per skill being hardened, at
   ${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/<plugin>__<skill>.json
 Writes go to a temp file and are moved into place, so a crash mid-write leaves
-the old state intact. `init` refuses to overwrite an existing run without
---force, because the targets already worked are the thing you would lose.
+the old state intact.
+
+The file has a lifecycle, and two commands are it. `finished` answers whether
+every target has reached `done` or `failed` (a `paused` target has not: it is
+waiting on a person). `archive` moves a finished run to
+  ${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/archive/<plugin>__<skill>.<created>.json
+and prints where it went, so the next run of the same skill starts from nothing
+while the last one is still readable. `init` archives a finished run itself and
+carries on; it refuses one still in progress without --force, because the targets
+already worked are the thing you would lose, and with --force it archives that
+one too rather than discarding it.
 
 The loop writes every transition here before taking the next action, so a
 session that stopped can re-run the skill and continue. `next` prints the path
@@ -35,8 +46,11 @@ session that stopped between the read and the write would leave the count behind
 by one and repeat a round already run. A field that is null or absent counts
 as 0.
 
-Exit 0 on success, 1 on any other failure, 2 on usage, 3 when init would
-overwrite without --force.
+Exit 0 on success, 1 on any other failure, 2 on usage, 3 when init or archive
+would act on a run still in progress without --force.
+
+`finished` exits 0 when the run is finished and 1 when it is not, or when there
+is no run at all; it prints nothing on stdout.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -141,6 +155,43 @@ def require_state(path: str, skill: str):
     return document
 
 
+def read_state(path: str):
+    """The parsed run, or None when it is not one this can read.
+
+    `require_state` is the same read with a message and an exit status attached;
+    this one is for `init`, which has somewhere to go either way: a file it
+    cannot parse is still a file it must not silently destroy.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return document if harden.is_state(document) else None
+
+
+def archive_state(path: str, document, directory: str) -> str:
+    """Move a run into the archive dir, and say where it went.
+
+    A move rather than a copy and a delete: the run is gone from where the skill
+    looks for it the moment the rename lands, and it is never both places at
+    once. The archive sits under the harden state dir, so it follows
+    FT_STATE_DIR or CLAUDE_PLUGIN_DATA wherever those point and assumes nothing
+    about any particular machine's layout.
+    """
+    destination_dir = os.path.join(directory, "archive")
+    try:
+        os.makedirs(destination_dir, exist_ok=True)
+    except OSError:
+        die(f"cannot create {destination_dir}")
+    destination = os.path.join(destination_dir, harden.archive_name(document))
+    try:
+        os.replace(path, destination)
+    except OSError as error:
+        die(f"cannot archive {path}: {error}")
+    return destination
+
+
 # --- commands ----------------------------------------------------------------
 
 
@@ -174,13 +225,36 @@ def cmd_init(args, path: str, skill: str, directory: str) -> None:
         index += 2
     harden.check_model(model)
     harden.check_effort(effort)
-    if os.path.isfile(path) and not force:
-        die(f"a hardening run for {skill} already exists at {path}; pass --force to start over", 3)
+    created = now()
+    if os.path.isfile(path):
+        existing = read_state(path)
+        finished = existing is not None and harden.is_finished(existing)
+        if not finished and not force:
+            die(
+                f"a hardening run for {skill} already exists at {path}; pass --force to start over",
+                3,
+            )
+        # Either the last run is over, or the user said to replace one that is
+        # not. Both keep the file: a finished run is the record of what was
+        # hardened, and a replaced one is what the user would want back if
+        # replacing it was the mistake. A file this could not parse is archived
+        # too, under the skill and this moment, since there is no run in it to
+        # read them off.
+        moved = archive_state(
+            path,
+            existing if existing is not None else {"skill": skill, "created": created},
+            directory,
+        )
+        sys.stderr.write(
+            "{}: archived the {} run to {}\n".format(
+                PROG, "finished" if finished else "unfinished", moved
+            )
+        )
     try:
         os.makedirs(directory, exist_ok=True)
     except OSError:
         die(f"cannot create {directory}")
-    write_state(path, harden.new_state(skill, now(), model, effort))
+    write_state(path, harden.new_state(skill, created, model, effort))
     # write_out, not sys.stdout.write: the state file is already on disk, and a
     # reader that went away must not be why this command reports a failure.
     cli.write_out(path + "\n")
@@ -190,6 +264,36 @@ def cmd_show(args, path: str, skill: str) -> None:
     if args:
         die(f"show: unknown argument: {args[0]}", 2)
     cli.write_out(dumps(require_state(path, skill)))
+
+
+def cmd_finished(args, path: str, skill: str) -> None:
+    """Exit 0 when every target is done or failed, 1 when any is not.
+
+    Nothing on stdout: the answer is the exit status, so the skill asks with `if`
+    rather than by matching text, and a skill with no run at all answers 1 the
+    same way every other command reports a missing file.
+    """
+    if args:
+        die(f"finished: unknown argument: {args[0]}", 2)
+    if not harden.is_finished(require_state(path, skill)):
+        die(f"the hardening run for {skill} is not finished", 1)
+
+
+def cmd_archive(args, path: str, skill: str, directory: str) -> None:
+    force = False
+    for argument in args:
+        if argument != "--force":
+            die(f"archive: unknown argument: {argument}", 2)
+        force = True
+    document = require_state(path, skill)
+    if not harden.is_finished(document) and not force:
+        die(
+            f"the hardening run for {skill} is not finished; pass --force to archive it anyway",
+            3,
+        )
+    # write_out, not sys.stdout.write: the file has already moved, and a reader
+    # that went away must not be how this command reports a failure.
+    cli.write_out(archive_state(path, document, directory) + "\n")
 
 
 def cmd_add_target(args, path: str, skill: str) -> None:
@@ -260,7 +364,17 @@ def run(argv):
     # The skill is checked before the command word, the order the shell used: a
     # mistyped command with no target reports the missing target first.
     skill = harden.check_skill(command, argv[2] if len(argv) > 2 else "")
-    if command not in ("path", "init", "show", "add-target", "set", "bump", "next"):
+    if command not in (
+        "path",
+        "init",
+        "show",
+        "finished",
+        "archive",
+        "add-target",
+        "set",
+        "bump",
+        "next",
+    ):
         die(f"unknown command: {command}", 2)
     harden_dir = os.path.join(directory, "harden")
     path = os.path.join(harden_dir, harden.file_name(skill))
@@ -272,6 +386,10 @@ def run(argv):
         cmd_init(args, path, skill, harden_dir)
     elif command == "show":
         cmd_show(args, path, skill)
+    elif command == "finished":
+        cmd_finished(args, path, skill)
+    elif command == "archive":
+        cmd_archive(args, path, skill, harden_dir)
     elif command == "add-target":
         cmd_add_target(args, path, skill)
     elif command == "set":

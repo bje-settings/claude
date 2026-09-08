@@ -220,6 +220,156 @@ def test_reports_a_state_directory_it_cannot_create(ft_sandbox, run_script):
     assert "cannot create" in result.stderr
 
 
+# --- lifecycle: finished and archive -----------------------------------------
+
+
+def archive_dir(state):
+    return state.path.parent / "archive"
+
+
+def archived(state):
+    directory = archive_dir(state)
+    return sorted(path.name for path in directory.glob("*.json")) if directory.is_dir() else []
+
+
+def archived_document(state):
+    files = sorted(archive_dir(state).glob("*.json"))
+    assert len(files) == 1, files
+    return json.loads(files[0].read_text(encoding="utf-8"))
+
+
+def test_finished_says_nothing_and_exits_0_when_every_target_is_terminal(state):
+    state.two_targets()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    assert state.set("/repos/gadgets", "status", "failed").status == 0
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 0
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_while_a_target_is_paused(state):
+    """A paused target is waiting on a person, so the run is not over."""
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "paused").status == 0
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 1
+    assert "is not finished" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_exits_1_with_a_message_when_there_is_no_run(state):
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 1
+    assert "run init first" in result.stderr
+    assert result.stdout == ""
+
+
+def test_finished_rejects_a_stray_argument(state):
+    state.init()
+    result = state.run("finished", "gh:shepherd", "--force")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_moves_a_finished_run_and_prints_where_it_went(state):
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    before = state.document()
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 0
+    assert not state.path.exists()
+    moved = result.stdout.strip()
+    assert moved == str(archive_dir(state) / archived(state)[0])
+    assert json.loads(open(moved, encoding="utf-8").read()) == before
+
+
+def test_archive_refuses_a_run_in_progress_and_leaves_it_where_it_is(state):
+    """The refusing half of a destructive command, beside the acting half above."""
+    state.one_target()
+    before = state.path.read_text(encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 3
+    assert "pass --force" in result.stderr
+    assert state.path.read_text(encoding="utf-8") == before
+    assert archived(state) == []
+
+
+def test_archive_moves_a_run_in_progress_with_force(state):
+    state.one_target()
+    assert state.run("archive", "gh:shepherd", "--force").status == 0
+    assert not state.path.exists()
+    assert archived_document(state)["targets"][0]["status"] == "pending"
+
+
+def test_archive_rejects_an_unknown_argument(state):
+    state.init()
+    result = state.run("archive", "gh:shepherd", "--now")
+    assert result.status == 2
+    assert "unknown argument" in result.stderr
+
+
+def test_archive_reports_an_archive_directory_it_cannot_create(state):
+    state.init()
+    archive_dir(state).write_text("", encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 1
+    assert "cannot create" in result.stderr
+    assert state.path.is_file()
+
+
+def test_archive_reports_a_move_it_could_not_make(state):
+    """A directory already standing where the archived run would go.
+
+    The run stays where it is: a move that could not be made must not read as one
+    that was, or the next `init` starts over a run still in progress.
+    """
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    created = state.document()["created"].replace(":", "-")
+    blocker = archive_dir(state) / f"gh__shepherd.{created}.json"
+    blocker.mkdir(parents=True)
+    (blocker / "occupied").write_text("", encoding="utf-8")
+    result = state.run("archive", "gh:shepherd")
+    assert result.status == 1
+    assert "cannot archive" in result.stderr
+    assert state.path.is_file()
+
+
+def test_init_archives_a_finished_run_and_starts_a_new_one(state):
+    """A hardening run that is over no longer has to be forced out of the way."""
+    state.one_target()
+    assert state.set("/repos/widgets", "status", "done").status == 0
+    before = state.document()
+    result = state.run("init", "gh:shepherd")
+    assert result.status == 0
+    assert "archived the finished run to" in result.stderr
+    assert state.targets() == []
+    assert archived_document(state) == before
+
+
+def test_init_force_archives_the_run_it_replaces(state):
+    """--force keeps what it replaces: the run is gone from where the skill looks
+    for it, not gone from disk."""
+    state.one_target()
+    result = state.run("init", "gh:shepherd", "--force")
+    assert result.status == 0
+    assert "archived the unfinished run to" in result.stderr
+    assert state.targets() == []
+    assert archived_document(state)["targets"][0]["path"] == "/repos/widgets"
+
+
+def test_init_force_archives_a_file_it_could_not_parse(state):
+    """A file another tool left at the path is still not this script's to destroy."""
+    state.init()
+    state.path.write_text("{not json at all", encoding="utf-8")
+    result = state.run("init", "gh:shepherd", "--force")
+    assert result.status == 0
+    assert "archived the unfinished run to" in result.stderr
+    assert [
+        path.read_text(encoding="utf-8") for path in sorted(archive_dir(state).glob("*.json"))
+    ] == ["{not json at all"]
+
+
 # --- add-target --------------------------------------------------------------
 
 
