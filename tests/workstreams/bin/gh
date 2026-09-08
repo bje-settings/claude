@@ -28,6 +28,12 @@ Controlled by:
                        the query itself, so a test can assert which cursors a
                        later page was asked for.
   WS_GH_FIXTURE_REPO   nameWithOwner reported by `gh repo view` (default below)
+                       Every `gh pr view` call is appended to .pr-view-calls in
+                       the fixture directory, one JSON object per line holding
+                       the number asked about and the --repo it was asked of
+                       (an empty string when the caller passed none), so a test
+                       can assert which repository a script named rather than
+                       trusting that the current directory happened to be right.
   WS_GH_FIXTURE_FAIL   if non-empty, every call exits non-zero
   WS_GH_FIXTURE_NOAUTH if non-empty, `gh auth status` fails
 """
@@ -39,7 +45,15 @@ import subprocess
 import sys
 
 DEFAULT_REPO = "bje-settings/example"
-FLAGS_WITH_VALUES = ("--state", "--label", "--milestone", "--search", "--limit", "--json")
+FLAGS_WITH_VALUES = (
+    "--state",
+    "--label",
+    "--milestone",
+    "--search",
+    "--limit",
+    "--json",
+    "--repo",
+)
 JQ_FLAGS = ("--jq", "-q")
 # The GraphQL variables ws-pr-comments.py sends for its three cursors. Named
 # here so the stub can tell a caller that asked for a later page from one that
@@ -142,7 +156,7 @@ def value_of(argv, index):
 
 def parse(argv):
     """The flags the stub emulates, plus at most one positional argument."""
-    options = {"state": "", "label": "", "milestone": "", "search": "", "limit": 1000}
+    options = {"state": "", "label": "", "milestone": "", "search": "", "repo": "", "limit": 1000}
     fields = ""
     jq_expr = None
     positional = ""
@@ -257,6 +271,21 @@ def graphql(argv):
     return 0
 
 
+def record_pr_view(number, repo):
+    """Append what this `pr view` was asked, for a test to read back.
+
+    Recorded before the number is validated, so a call the stub refuses is still
+    visible: a caller that asked the wrong repository about a bad number got
+    both wrong, and only one of them would otherwise show.
+    """
+    directory = os.environ.get("WS_GH_FIXTURE_DIR", "")
+    if not directory or not os.path.isdir(directory):
+        return
+    line = json.dumps({"number": number, "repo": repo}, sort_keys=True)
+    with open(os.path.join(directory, ".pr-view-calls"), "a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
 def main(argv):
     if os.environ.get("WS_GH_FIXTURE_FAIL"):
         sys.stderr.write("gh: simulated failure\n")
@@ -294,6 +323,7 @@ def main(argv):
         emit(issues[: options["limit"]], fields, jq_expr)
     elif command == "pr view":
         number = positional.lstrip("#").rsplit("/", 1)[-1]
+        record_pr_view(number, options["repo"])
         if not number.isdigit():
             fail(f"pr view needs a number or url, got: {positional}")
         emit(one("prs.json", int(number), "a PullRequest"), fields, jq_expr)

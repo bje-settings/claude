@@ -381,11 +381,26 @@ def cmd_reconcile(args):
     if args:
         die(f"reconcile: unknown argument: {args[0]}", 2)
     path, document = open_state()
-    pr_states = {number: gh_pr_state(number) for number in pending_prs(document)}
+    repo = plan_repo(document, path)
+    pr_states = {number: gh_pr_state(number, repo) for number in pending_prs(document)}
     document, transitions = st.reconcile(document, pr_states)
     if transitions:
         write_state(path, document)
     sys.stdout.write(dumps(transitions))
+
+
+def plan_repo(document, path) -> str:
+    """The repository the plan records, which is the one its PR numbers belong to.
+
+    Not the current directory's: a pull request number means nothing without a
+    repository, and `reconcile` run from another checkout would otherwise ask
+    about that repository's #14 and mark a stream done on the answer. The plan
+    records the repository `init` resolved, so that is what is asked.
+    """
+    repo = document.get("repo")
+    if not isinstance(repo, str) or "/" not in repo:
+        die(f"the plan at {path} does not record a repository to reconcile against")
+    return repo
 
 
 def pending_prs(document) -> list:
@@ -406,8 +421,11 @@ def pending_prs(document) -> list:
     return numbers
 
 
-def gh_pr_state(number: int) -> str:
+def gh_pr_state(number: int, repo: str) -> str:
     """OPEN, MERGED or CLOSED for one pull request, or exit 4.
+
+    Asked of `repo`, the repository the plan records, so the answer is about the
+    pull request the plan means wherever this happens to be run from.
 
     Every way of not getting an answer is a 4, including a pull request that does
     not exist: the run loop already fails a stream on a missing PR at its review
@@ -417,7 +435,7 @@ def gh_pr_state(number: int) -> str:
     """
     try:
         finished = subprocess.run(
-            ["gh", "pr", "view", str(number), "--json", "state"],
+            ["gh", "pr", "view", str(number), "--repo", repo, "--json", "state"],
             capture_output=True,
             check=False,
         )

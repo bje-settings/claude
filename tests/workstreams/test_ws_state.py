@@ -1531,6 +1531,18 @@ def test_init_force_archives_a_file_it_could_not_parse(ws_sandbox, ws_state):
     assert [path.read_text(encoding="utf-8") for path in archived] == ["{not json at all"]
 
 
+def pr_view_calls(ws_sandbox):
+    """Every `gh pr view` the stub was asked, in order: its number and its --repo.
+
+    The state file's location and the repository its pull request numbers belong
+    to are two different facts, and only the calls say which one reconcile used.
+    """
+    path = ws_sandbox.gh_dir / ".pr-view-calls"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
 def test_reconcile_marks_a_merged_pr_done_and_a_closed_one_failed(lifecycle, ws_sandbox, ws_state):
     """PR 14 is merged in the fixtures and PR 19 was closed without merging."""
     lifecycle.plan(("s1", "reviewing", 14), ("s2", "draft", 19), ("s3", "running", 12))
@@ -1634,6 +1646,61 @@ def test_reconcile_rejects_a_stray_argument(lifecycle, ws_state):
     result = ws_state("reconcile", "--force")
     assert result.status == 2
     assert "unknown argument" in result.stderr
+
+
+def test_reconcile_names_the_repository_it_asks_about(lifecycle, ws_sandbox, ws_state):
+    """A PR number without a repository is a number: gh must be told which one."""
+    lifecycle.plan(("s1", "reviewing", 14))
+    assert ws_state("reconcile").status == 0
+    assert pr_view_calls(ws_sandbox) == [{"number": "14", "repo": "bje-settings/example"}]
+
+
+def test_reconcile_asks_the_plans_repository_not_the_working_directorys(ws_sandbox, ws_state):
+    """The plan's own record decides, not wherever the script happens to run.
+
+    The file is located for acme/widgets while the plan inside it records
+    acme/plans, which no ordinary run produces and a moved or hand-edited file
+    does. Asking about the location would send #14 to the wrong repository and
+    mark a stream done on an unrelated answer.
+    """
+    ws_sandbox.setenv("WS_REPO", "acme/widgets")
+    assert ws_state("init").status == 0
+    assert (
+        ws_state(
+            "add-stream",
+            "s1",
+            "--issues",
+            "1",
+            "--kind",
+            "independent",
+            "--model",
+            "sonnet",
+            "--effort",
+            "low",
+        ).status
+        == 0
+    )
+    assert ws_state("set", "s1", "status", "reviewing").status == 0
+    assert ws_state("set", "s1", "pr", "14").status == 0
+    path = ws_sandbox.state_file("acme/widgets")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["repo"] = "acme/plans"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    assert ws_state("reconcile").status == 0
+    assert pr_view_calls(ws_sandbox) == [{"number": "14", "repo": "acme/plans"}]
+
+
+def test_reconcile_refuses_a_plan_that_records_no_repository(ws_sandbox, ws_state):
+    """Without a repository there is nothing to ask, and guessing one would ask
+    the wrong GitHub. Nothing is written and gh is never called."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    document = '{"version": 1, "streams": [{"id": "s1", "status": "reviewing", "pr": 14}]}'
+    ws_sandbox.state_file().write_text(document, encoding="utf-8")
+    result = ws_state("reconcile")
+    assert result.status == 1
+    assert "does not record a repository" in result.stderr
+    assert pr_view_calls(ws_sandbox) == []
+    assert snapshot(ws_sandbox) == document
 
 
 # --- usage --------------------------------------------------------------------
