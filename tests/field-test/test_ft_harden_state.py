@@ -247,21 +247,35 @@ def test_finished_says_nothing_and_exits_0_when_every_target_is_terminal(state):
     assert result.stdout == ""
 
 
-def test_finished_exits_1_while_a_target_is_paused(state):
-    """A paused target is waiting on a person, so the run is not over."""
+def test_finished_exits_3_while_a_target_is_paused(state):
+    """A paused target is waiting on a person, so the run is not over.
+
+    3, the status `init` and `archive` already use for a run in progress, and
+    not 1: 1 is a file the skill has to stop on.
+    """
     state.one_target()
     assert state.set("/repos/widgets", "status", "paused").status == 0
     result = state.run("finished", "gh:shepherd")
-    assert result.status == 1
+    assert result.status == 3
     assert "is not finished" in result.stderr
     assert result.stdout == ""
 
 
 def test_finished_exits_1_with_a_message_when_there_is_no_run(state):
+    """A missing run is not an unfinished one, and the statuses say which."""
     result = state.run("finished", "gh:shepherd")
     assert result.status == 1
     assert "run init first" in result.stderr
     assert result.stdout == ""
+
+
+def test_finished_exits_1_on_a_file_it_cannot_parse(state):
+    """A corrupt file read as "not finished" would leave a run looking live."""
+    state.init()
+    state.path.write_text("{not json at all", encoding="utf-8")
+    result = state.run("finished", "gh:shepherd")
+    assert result.status == 1
+    assert "not valid field-test JSON" in result.stderr
 
 
 def test_finished_rejects_a_stray_argument(state):

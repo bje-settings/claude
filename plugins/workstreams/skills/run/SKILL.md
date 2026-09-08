@@ -43,8 +43,10 @@ resolves): say so in this tick and carry on with what is on disk. Do not stop th
 and re-read the state after it runs, since it may have moved streams.
 
 Then `finished`: exit 0 means every stream is `done` or `failed`. Say the run is finished and go
-straight to Step 5, which reports and archives it; schedule no wake. Exit 1 means there is work
-left; if no stream is `planned`, `running`, `draft`, or `reviewing`, go to Step 5 as well.
+straight to Step 5, which reports and archives it; schedule no wake. Exit 3 means there is work
+left; if no stream is `planned`, `running`, `draft`, or `reviewing`, go to Step 5 as well. Any
+other exit is a failure, not an answer about the plan (1 is a state file that is missing, corrupt,
+or unreadable): report its message and stop the loop.
 
 Read `meta.plan_path` for the plan document, and the target repository's `CLAUDE.md` and
 `.claude/rules/` once now; the briefs below quote its conventions rather than inventing any.
@@ -219,8 +221,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" archive
 ```
 
 Run `archive` only when `finished` exits 0, and print the path it prints so the user knows where
-the record went. A run holding a `paused` stream is not finished: its file stays where it is, so
-the user can answer the question and re-run this skill. Never pass `--force` here; a plan that is
-not finished is one the next run still needs.
+the record went. Exit 3 means the run is not over: leave the file where it is. Any other exit is a
+failure to report and stop on. A run holding a `paused` stream is not finished: its file stays
+where it is, so the user can answer the question and re-run this skill. Never pass `--force` here;
+a plan that is not finished is one the next run still needs.
 
 The PRs are drafts. Marking them ready and merging is the user's decision.

@@ -5,6 +5,7 @@ flowchart TD
     P{gh, gh login, workstreams,<br>pr-review-toolkit all present?}
     P -->|no| P1([stop: print the install command for each missing piece])
     P -->|yes| E{a hardening run already<br>exists for this skill?}
+    E -->|a file is there that cannot be read| E3([stop: show the message; the file needs a person])
     E -->|yes, and every target is done or failed| E2[archive it and start a new one;<br>nothing to ask]
     E -->|yes, still in progress| E1[ask: resume it, or start over? never force on your own]
     E -->|no| I[record the run and its targets, in the order given]

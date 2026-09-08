@@ -55,12 +55,15 @@ a session that stopped between the read and the write would leave the count
 behind by one. A field that is null or absent counts as 0.
 
 Exit 0 on success, 1 on any other failure (missing or corrupt state file, unknown
-stream, gh failure, unwritable directory), 2 on usage, 3 when init or archive
-would act on an unfinished plan without --force, 4 when `reconcile` could not
-read GitHub.
+stream, gh failure, unwritable directory), 2 on usage, 3 when a plan is
+unfinished -- init or archive asked to act on one without --force, or `finished`
+answering that it is not -- and 4 when `reconcile` could not read GitHub.
 
-`finished` exits 0 when the plan is finished and 1 when it is not, or when there
-is no plan at all; it prints nothing on stdout. `reconcile` exits 4, having
+`finished` exits 0 when the plan is finished and 3 when it is not; it prints
+nothing on stdout. A missing, corrupt or unreadable state file is 1, as it is
+for every other command, so a caller can tell "there is work left" from "this
+file needs a person": any status other than 0 or 3 is a failure to report and
+stop on. `reconcile` exits 4, having
 written nothing, whenever gh failed, answered with something it could not read,
 or named a pull request that does not exist: 4 rather than 1 so the run loop can
 tell a tick worth repeating from a plan it must stop on.
@@ -349,17 +352,20 @@ def cmd_show(args):
 
 
 def cmd_finished(args):
-    """Exit 0 when every stream is done or failed, 1 when any is not.
+    """Exit 0 when every stream is done or failed, 3 when any is not.
 
     Nothing on stdout: the answer is the exit status, so a skill asks with `if`
-    rather than by matching text, and a plan with no file at all answers 1 the
-    same way every other command reports a missing file.
+    rather than by matching text. 3 is the status `init` and `archive` already
+    use for "this plan is unfinished", and it is not 1 because 1 is what a
+    missing, corrupt or unreadable file exits with: a caller that read every
+    non-zero status as "not finished" would take a file it cannot parse for a
+    plan still running.
     """
     if args:
         die(f"finished: unknown argument: {args[0]}", 2)
     path, document = open_state()
     if not st.is_finished(document):
-        die(f"the plan at {path} is not finished", 1)
+        die(f"the plan at {path} is not finished", 3)
 
 
 def cmd_archive(args):

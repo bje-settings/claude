@@ -220,8 +220,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ft-harden-state.py" archive <plugin:skill
 ```
 
 Run `archive` only when `finished` exits 0, and print the path it prints so the user knows where
-the record went. A run holding a `paused` target is not finished: its file stays where it is, so
-the user can answer the question and re-run this skill. Never pass `--force` here.
+the record went. Exit 3 means the run is not over: leave the file where it is. Any other exit is a
+failure to report and stop on, since it says nothing about whether the run finished. A run holding
+a `paused` target is not finished: its file stays where it is, so the user can answer the question
+and re-run this skill. Never pass `--force` here.
 
 ## Out of scope
 

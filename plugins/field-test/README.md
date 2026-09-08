@@ -127,7 +127,9 @@ target that comes back `running` is resumed at its recorded phase, with its `pr`
 read, an addition, and a write a stopped session can land between.
 
 The file has a lifecycle, so a finished run does not outlive itself. `finished` answers whether
-every target reached `done` or `failed`; `archive` moves such a run to
+every target reached `done` or `failed` in its exit status: 0 finished, 3 not finished, and 1 for
+a file that is missing, corrupt, or unreadable, which is a failure to stop on rather than a run
+still going. `archive` moves a finished run to
 `${FT_STATE_DIR:-$CLAUDE_PLUGIN_DATA}/harden/archive/<plugin>__<skill>.<created>.json` and prints
 where it went, which the skill does after its final report. `init` archives a finished run itself
 and carries on, so a run that is over is never a question; it still refuses one in progress

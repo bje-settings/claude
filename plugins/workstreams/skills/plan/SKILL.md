@@ -85,8 +85,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" finished
 - **`finished` exits 0**: every stream of the last run reached `done` or `failed`. Say that the
   previous run is finished and will be archived, and carry on without asking. There is nothing
   in it for the user to decide.
-- **`finished` exits 1**: the run is still live, or a stream is `paused` waiting on an answer.
+- **`finished` exits 3**: the run is still live, or a stream is `paused` waiting on an answer.
   Ask the user whether to replace it before going further; if they decline, stop.
+- **`finished` exits anything else** (1: the file is missing, corrupt, or unreadable): that is a
+  failure, not an answer about the plan. Stop and show its message.
 
 Then `EnterPlanMode`, write the plan using `plan-template.md` in this directory, and
 `ExitPlanMode`. The loop cadence in the plan is a number of seconds between 60 and 3600.

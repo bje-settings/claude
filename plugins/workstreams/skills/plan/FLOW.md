@@ -24,6 +24,7 @@ flowchart TD
     T -->|user rejects| T1([stop: nothing recorded])
     T -->|user approves| W{a plan already exists for this repo?}
     W -->|no| Z
+    W -->|a file is there that cannot be read| W4([stop: show the message; the file needs a person])
     W -->|yes, and every stream of it is done or failed| W2[say the finished run will be archived;<br>do not ask]
     W -->|yes, and it is still live or paused| W3{user says replace it?}
     W3 -->|no| W1([stop: existing plan kept])

@@ -1399,20 +1399,34 @@ def test_finished_says_nothing_and_exits_0_when_every_stream_is_terminal(lifecyc
     assert result.stdout == ""
 
 
-def test_finished_exits_1_while_a_stream_is_paused(lifecycle, ws_state):
-    """A paused stream is a question the user owes an answer to, not a finished run."""
+def test_finished_exits_3_while_a_stream_is_paused(lifecycle, ws_state):
+    """A paused stream is a question the user owes an answer to, not a finished run.
+
+    3, the status `init` and `archive` already use for an unfinished plan, and
+    not 1: 1 is a file the caller has to stop on.
+    """
     lifecycle.plan(("s1", "done", 10), ("s2", "paused", 11))
     result = ws_state("finished")
-    assert result.status == 1
+    assert result.status == 3
     assert "is not finished" in result.stderr
     assert result.stdout == ""
 
 
 def test_finished_exits_1_with_a_message_when_there_is_no_plan(ws_state):
+    """A missing plan is not an unfinished one, and the statuses say which."""
     result = ws_state("finished")
     assert result.status == 1
     assert "run init first" in result.stderr
     assert result.stdout == ""
+
+
+def test_finished_exits_1_on_a_file_it_cannot_parse(ws_sandbox, ws_state):
+    """A corrupt file read as "not finished" would leave a run looking live."""
+    ws_sandbox.state_dir.mkdir(parents=True, exist_ok=True)
+    ws_sandbox.state_file().write_text('{"streams": [', encoding="utf-8")
+    result = ws_state("finished")
+    assert result.status == 1
+    assert "not valid workstreams JSON" in result.stderr
 
 
 def test_finished_rejects_a_stray_argument(lifecycle, ws_state):

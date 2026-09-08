@@ -46,11 +46,15 @@ session that stopped between the read and the write would leave the count behind
 by one and repeat a round already run. A field that is null or absent counts
 as 0.
 
-Exit 0 on success, 1 on any other failure, 2 on usage, 3 when init or archive
-would act on a run still in progress without --force.
+Exit 0 on success, 1 on any other failure, 2 on usage, 3 when a run is
+unfinished -- init or archive asked to act on one still in progress without
+--force, or `finished` answering that it is not.
 
-`finished` exits 0 when the run is finished and 1 when it is not, or when there
-is no run at all; it prints nothing on stdout.
+`finished` exits 0 when the run is finished and 3 when it is not; it prints
+nothing on stdout. A missing, corrupt or unreadable state file is 1, as it is
+for every other command, so a caller can tell "there is work left" from "this
+file needs a person": any status other than 0 or 3 is a failure to report and
+stop on.
 """
 
 # Stdlib only, Python 3.9: an end user runs this with the python3 macOS ships.
@@ -275,16 +279,19 @@ def cmd_show(args, path: str, skill: str) -> None:
 
 
 def cmd_finished(args, path: str, skill: str) -> None:
-    """Exit 0 when every target is done or failed, 1 when any is not.
+    """Exit 0 when every target is done or failed, 3 when any is not.
 
     Nothing on stdout: the answer is the exit status, so the skill asks with `if`
-    rather than by matching text, and a skill with no run at all answers 1 the
-    same way every other command reports a missing file.
+    rather than by matching text. 3 is the status `init` and `archive` already
+    use for "this run is unfinished", and it is not 1 because 1 is what a
+    missing, corrupt or unreadable file exits with: a caller that read every
+    non-zero status as "not finished" would take a file it cannot parse for a
+    run still going.
     """
     if args:
         die(f"finished: unknown argument: {args[0]}", 2)
     if not harden.is_finished(require_state(path, skill)):
-        die(f"the hardening run for {skill} is not finished", 1)
+        die(f"the hardening run for {skill} is not finished", 3)
 
 
 def cmd_archive(args, path: str, skill: str, directory: str) -> None:

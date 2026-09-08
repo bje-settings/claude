@@ -91,7 +91,9 @@ mid-run can re-run the skill and continue. `ws-state.py show` prints it.
 The file has a lifecycle, so a finished run does not outlive itself. A run whose streams are all
 `done` or `failed` is archived to `${CLAUDE_PLUGIN_DATA}/archive/<owner>__<repo>.<created>.json`,
 by `run` after its final report and by `plan` when it starts the next one, so a finished plan is
-never a question the user has to answer. Every tick reconciles the plan against GitHub first: a
+never a question the user has to answer. `finished` answers in its exit status: 0 finished, 3 not
+finished, and 1 for a file that is missing, corrupt, or unreadable, which is a failure to stop on
+rather than a plan still running. Every tick reconciles the plan against GitHub first: a
 pull request merged outside the loop marks its stream `done` and one closed without merging marks
 it `failed`, which is the only way a merge nobody here saw ever reaches the plan. A run holding a
 `paused` stream is not finished and is left where it is. Why the file is kept at all, rather than
