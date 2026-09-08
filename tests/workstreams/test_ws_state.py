@@ -1483,21 +1483,26 @@ def test_archive_reports_an_archive_directory_it_cannot_create(lifecycle, ws_san
     assert ws_sandbox.state_file().is_file()
 
 
+@not_as_root
 def test_archive_reports_a_move_it_could_not_make(lifecycle, ws_sandbox, ws_state):
-    """A directory already standing where the archived plan would go.
+    """A rename the filesystem refused, here a state dir that cannot be written.
 
     The plan stays where it is: a move that could not be made must not read as
     one that was, or the next tick starts a plan over a run still in progress.
+    The destination is free, so this is the rename failing and not the
+    occupied-destination refusal above.
     """
     lifecycle.plan(("s1", "done", 10))
-    created = ws_sandbox.read_state()["created"].replace(":", "-")
-    blocker = ws_sandbox.state_dir / "archive" / f"bje-settings__example.{created}.json"
-    blocker.mkdir(parents=True)
-    (blocker / "occupied").write_text("", encoding="utf-8")
-    result = ws_state("archive")
-    assert result.status == 1
-    assert "cannot archive" in result.stderr
-    assert ws_sandbox.state_file().is_file()
+    (ws_sandbox.state_dir / "archive").mkdir(parents=True)
+    ws_sandbox.state_dir.chmod(0o555)
+    try:
+        result = ws_state("archive")
+        assert result.status == 1
+        assert "cannot archive" in result.stderr
+        assert "already exists" not in result.stderr
+        assert ws_sandbox.state_file().is_file()
+    finally:
+        ws_sandbox.state_dir.chmod(0o755)
 
 
 def test_archive_refuses_a_destination_that_is_already_a_file(lifecycle, ws_sandbox, ws_state):

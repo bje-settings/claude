@@ -332,22 +332,27 @@ def test_archive_reports_an_archive_directory_it_cannot_create(state):
     assert state.path.is_file()
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="running as root, permissions do not apply")
 def test_archive_reports_a_move_it_could_not_make(state):
-    """A directory already standing where the archived run would go.
+    """A rename the filesystem refused, here a state dir that cannot be written.
 
     The run stays where it is: a move that could not be made must not read as one
-    that was, or the next `init` starts over a run still in progress.
+    that was, or the next `init` starts over a run still in progress. The
+    destination is free, so this is the rename failing and not the
+    occupied-destination refusal above.
     """
     state.one_target()
     assert state.set("/repos/widgets", "status", "done").status == 0
-    created = state.document()["created"].replace(":", "-")
-    blocker = archive_dir(state) / f"gh__shepherd.{created}.json"
-    blocker.mkdir(parents=True)
-    (blocker / "occupied").write_text("", encoding="utf-8")
-    result = state.run("archive", "gh:shepherd")
-    assert result.status == 1
-    assert "cannot archive" in result.stderr
-    assert state.path.is_file()
+    archive_dir(state).mkdir(parents=True)
+    state.path.parent.chmod(0o555)
+    try:
+        result = state.run("archive", "gh:shepherd")
+        assert result.status == 1
+        assert "cannot archive" in result.stderr
+        assert "already exists" not in result.stderr
+        assert state.path.is_file()
+    finally:
+        state.path.parent.chmod(0o755)
 
 
 def test_archive_refuses_a_destination_that_is_already_a_file(state):
