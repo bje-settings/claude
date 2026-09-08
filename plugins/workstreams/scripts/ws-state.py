@@ -435,8 +435,7 @@ def plan_repo(document, path) -> str:
     repo = document.get("repo")
     if not st.is_repo(repo):
         die(
-            f"the plan at {path} does not record a usable repository "
-            f"to reconcile against: {repo!r}"
+            f"the plan at {path} does not record a usable repository to reconcile against: {repo!r}"
         )
     return repo
 
