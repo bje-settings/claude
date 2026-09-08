@@ -90,11 +90,9 @@ from lib import state as st  # noqa: E402
 
 PROG = "ws-state.py"
 
-# Every failure the script reports as its own: the message and the status.
-# Not usage alone. Status 2 is a usage error, 3 is `init` declining to
-# overwrite, and 1 is everything else the script refuses or cannot do (an
-# unreadable state file, a repository it cannot name, a directory it cannot
-# write).
+# Every failure the script reports as its own: the message and the status. Not
+# usage alone. What each status means is in the docstring above, which is the
+# contract its callers read; a second list here would be the one that goes stale.
 Failure = cli.Failure
 
 # The pretty JSON `jq .` printed; see lib/cli.py for why it is spelled that way.
