@@ -28,6 +28,14 @@ statusCheckRollup says and there is one source of truth:
                           --branch matches headBranch, --status matches status
   GH_FIXTURE_RUN_LOG      file whose content `gh run view --log-failed` prints
   GH_FIXTURE_FAIL_REBASE  if non-empty, `pr update-branch` fails
+  GH_FIXTURE_REBASE_ASYNC if non-empty, `pr update-branch` reports success and
+                          leaves the head where it was, which is what the real
+                          one does while GitHub is still queuing the update
+  GH_FIXTURE_REBASE_UPTODATE
+                          if non-empty, `pr update-branch` reports the branch
+                          already up to date and moves nothing
+  GH_FIXTURE_FAIL_COMMENT if non-empty, `pr comment` fails, so a caller's
+                          "could not post the comment" arm can be reached
   GH_FIXTURE_WATCH_HANG   if non-empty, `pr checks --watch` never returns, so
                           a caller's own bound can be exercised
 
@@ -225,10 +233,20 @@ def pr_checks(args):
 
 def pr_update_branch(args):
     pull = one_pr(args)
+    number = pull["number"]
     if os.environ.get("GH_FIXTURE_FAIL_REBASE"):
         die("GraphQL: merge conflict between base and head (updatePullRequestBranch)")
+    # Both no-op answers real gh gives: the update is accepted and GitHub has
+    # not applied it yet, and the branch was current already. Neither moves the
+    # head, and both exit 0, so a caller that reads success as "there is a new
+    # head" is wrong about both.
+    if os.environ.get("GH_FIXTURE_REBASE_UPTODATE"):
+        print(f"✓ Pull request #{number} already up-to-date with base branch")
+        return
+    if os.environ.get("GH_FIXTURE_REBASE_ASYNC"):
+        print(f"✓ Pull request #{number} branch has been updated")
+        return
     # The rebase moves the head and leaves the pull request current with its base.
-    number = pull["number"]
     rows = payload()
     for row in rows:
         if row.get("number") == number:
@@ -241,6 +259,8 @@ def pr_update_branch(args):
 
 def pr_comment(args):
     pull = one_pr(args)
+    if os.environ.get("GH_FIXTURE_FAIL_COMMENT"):
+        die("HTTP 403: Resource not accessible by integration")
     number = pull["number"]
     body = args.body
     if args.body_file:

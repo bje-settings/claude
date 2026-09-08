@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 GH_SCRIPTS = ROOT / "plugins" / "gh" / "scripts"
 SYNC = GH_SCRIPTS / "gh-sync.py"
 SYNC_REPO = GH_SCRIPTS / "gh-sync-repo.py"
+SHEPHERD_STATUS = GH_SCRIPTS / "gh-shepherd-status.py"
+SHEPHERD_PR = GH_SCRIPTS / "gh-shepherd-pr.py"
 DISCOVER = GH_SCRIPTS / "lib" / "discover.py"
 STUB_BIN = Path(__file__).resolve().parent / "bin"
 
@@ -495,6 +497,10 @@ class Fixtures:
                               | null-conclusion (COMPLETED with conclusion null)
                               | status-failed | status-pending | status-passed
                                 (StatusContext rows, the older commit-status shape)
+                              | status-then-job-failed (a failing StatusContext
+                                ahead of a failing Actions job, so a caller
+                                looking for a job log has to walk past a row
+                                that has no run to fetch)
           auto=True           auto-merge enabled
           bot=True            authored by app/dependabot; False gives a human
           draft=False
@@ -587,6 +593,11 @@ ROLLUP_SHAPES = {
     "null-conclusion": (("test", "COMPLETED", "SUCCESS"), ("build", "COMPLETED", None)),
 }
 
+# A rollup whose first failing row is a StatusContext and whose second is an
+# Actions job. Nothing links a StatusContext to a run, so a caller after the
+# failed steps' log has to keep looking rather than stop at the first failure.
+MIXED_SHAPE = "status-then-job-failed"
+
 # The older commit-status shape, which the fold reads by .state rather than by
 # .status and .conclusion.
 STATUS_SHAPES = {
@@ -598,6 +609,11 @@ STATUS_SHAPES = {
 
 def _rollup(number, checks):
     """The statusCheckRollup for one named check shape."""
+    if checks == MIXED_SHAPE:
+        return [
+            _status_context("FAILURE"),
+            _check_run(number, "build", "COMPLETED", "FAILURE"),
+        ]
     if checks in STATUS_SHAPES:
         return [_status_context(STATUS_SHAPES[checks])]
     return [_check_run(number, *shape) for shape in ROLLUP_SHAPES.get(checks, ())]
@@ -624,6 +640,13 @@ def gh(sandbox, monkeypatch):
     monkeypatch.setenv("GH_FIXTURE_PRS", str(fixtures.prs_file))
     monkeypatch.delenv("GH_FIXTURE_FAIL", raising=False)
     monkeypatch.delenv("GH_FIXTURE_FAIL_HEAD", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_FAIL_REBASE", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_REBASE_ASYNC", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_REBASE_UPTODATE", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_FAIL_COMMENT", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_WATCH_HANG", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_RUNS", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_RUN_LOG", raising=False)
     monkeypatch.delenv("GH_FIXTURE_CALL_LOG", raising=False)
     monkeypatch.delenv("GH_SYNC_DRY_RUN", raising=False)
     monkeypatch.delenv("GH_SYNC_NO_INSTALL", raising=False)
@@ -666,6 +689,26 @@ def sync(run_script, gh):
 
     def run(*args, **kwargs):
         return run_script(SYNC, *args, **kwargs)
+
+    return run
+
+
+@pytest.fixture
+def shepherd_status(run_script, gh):
+    """Run gh-shepherd-status.py against a fixture repository."""
+
+    def run(*args, **kwargs):
+        return run_script(SHEPHERD_STATUS, *args, **kwargs)
+
+    return run
+
+
+@pytest.fixture
+def shepherd_pr(run_script, gh):
+    """Run gh-shepherd-pr.py against a fixture repository."""
+
+    def run(*args, **kwargs):
+        return run_script(SHEPHERD_PR, *args, **kwargs)
 
     return run
 

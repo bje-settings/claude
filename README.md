@@ -99,4 +99,6 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for running the tests and installing the marketplace locally.
+Run `uv run --locked pytest -n auto --cov` for the whole suite. Every plugin script is Python, so
+pytest is the only harness and `uv` the only requirement. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for installing the marketplace locally.

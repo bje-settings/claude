@@ -1,6 +1,4 @@
-# shellspec artifacts
-.shellspec-quick.log
-/report/
+# coverage and report artifacts
 /coverage/
 
 # python bytecode from the hook helpers
