@@ -188,6 +188,26 @@ def test_rejects_a_flag_it_does_not_emulate(ws_sandbox, run_gh):
     assert "unhandled flag: --assignee" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "command",
+    [("issue", "list"), ("issue", "view", "1"), ("repo", "view"), ("extension", "list")],
+)
+def test_rejects_repo_on_every_subcommand_but_pr_view(ws_sandbox, run_gh, command):
+    """--repo is emulated for `pr view` alone; elsewhere it is a flag the stub
+    does not emulate, and answering it from the local fixture anyway would let a
+    script name the wrong repository and still pass."""
+    result = run_gh(*command, "--repo", "acme/widget")
+    assert result.status == 64
+    assert "unhandled flag: --repo" in result.stderr
+
+
+def test_accepts_repo_on_pr_view(ws_sandbox, run_gh):
+    """pr view is the one call the workstreams scripts make with --repo."""
+    result = run_gh("pr", "view", "10", "--repo", "acme/widget", "--json", "number")
+    assert result.status == 0
+    assert output_json(result) == {"number": 10}
+
+
 def test_projects_to_exactly_the_json_fields_asked_for(ws_sandbox, run_gh):
     """projects to exactly the --json fields asked for"""
     result = run_gh("issue", "view", "1", "--json", "number,title")
