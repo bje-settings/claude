@@ -48,7 +48,23 @@ the serial-within-a-repo guarantee lives in the agent.
 
 If the user named a single repo with `--repo <path>`, shepherd only that one.
 
-## Step 4 — Report
+## Step 4 — Verify the blocked entries
+
+Auto-merge fires on GitHub's own schedule, and a pull request can merge in the seconds between
+the worker's last read and its report. One `blocked` shape is that race's signature: a
+`mergeStateStatus` of `CLEAN` or `UNKNOWN` **with** `autoMerge` true and nothing named against
+it. For each such entry, once:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gh-shepherd-pr.py" <path> <n> merged
+```
+
+`merged: true` moves the entry to `merged` with its `mergeCommit`; anything else leaves it
+blocked, unchanged. This is a read, and one round trip per entry. It never merges anything, and
+it is not run for a `blocked` entry that names a cause (`BLOCKED`, `DIRTY`, `BEHIND`, or a
+`reviewDecision`): those were decided by GitHub, not by timing.
+
+## Step 5 — Report
 
 Collate the agents' JSON into one table per repo:
 
@@ -56,7 +72,7 @@ Collate the agents' JSON into one table per repo:
 | --- | --- | --- |
 | #n | merged `sha` | rebases: 1; `merged_as` when the version differs from the title |
 | #n | skipped | reason, comment URL |
-| #n | blocked | `mergeStateStatus`, reason |
+| #n | blocked | `mergeStateStatus`, `reviewDecision`, `waited`, reason |
 | #n | needs escalation | reason; `hypothesis` when present |
 | #n | closed | reason |
 

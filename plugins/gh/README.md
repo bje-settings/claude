@@ -136,7 +136,7 @@ high), oldest first within a band.
 | Conflicts, human branch | Reported as needing escalation. Never resolved by the skill. |
 | Checks running | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
 | Checks green, auto-merge fired | Recorded with the merge commit. Next. |
-| Checks green, still open | Reported as blocked with the merge state (a review requirement, for instance). Never merged by hand. |
+| Checks green, still open | `settle`: read the pull request until GitHub decides. Merged is recorded as merged, and closed as closed; a `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is a block whose reason names that field; `BEHIND` or `DIRTY` sends the loop back to decide again; the bound passing with nothing reported is a block whose reason is exactly that. Never merged by hand. |
 | Checks failed, mechanical | Fixed once in a throwaway worktree and pushed: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
 | Checks failed, not mechanical | Skipped with a comment saying why: anything touching program logic, tests' expectations of behaviour, configuration semantics, or a CI workflow. |
 | Checks failed, unclear | Reported as needing escalation, with a `hypothesis` when the worker has one, so the escalation rerun does not start from zero. |
@@ -153,12 +153,45 @@ failure are small-model work; cost scales with the rare hard case rather than th
 
 ### Waiting
 
-The wait is a blocking `gh pr checks --watch`, run inside the per-repo subagent, once per CI
-cycle. It is deliberately not a Monitor or a scheduled wake: those idle the worker and leave the
-orchestrator seeing only "waiting". The bound comes from the median duration of the last twenty
+There are two waits, and they wait on different things. The CI wait is a blocking
+`gh pr checks --watch`, run inside the per-repo subagent, once per CI cycle. It is deliberately
+not a Monitor or a scheduled wake: those idle the worker and leave the orchestrator seeing only
+"waiting". The bound comes from the median duration of the last twenty
 completed runs on the default branch, doubled, clamped to two to nine minutes; a wait that hits
 its bound returns `pending` and the agent calls it again. A rollup that is already terminal is
 answered from the pull request without watching at all.
+
+The second is `settle`, the grace between "checks passed" and "auto-merge did not fire". It
+exists because that grace used to be one `gh` round trip: the agent was told to spend it on a
+second `wait`, and `wait` returns at once on a terminal rollup. A pull request that merged one
+second later was reported blocked.
+
+`settle` ends on evidence rather than on a clock. Any state GitHub reports that decides the
+question ends it -- merged, closed, a blocking review decision, or a base that moved to `BEHIND`
+or `DIRTY`, each on sight; a `BLOCKED` merge state once a second read confirms it, since GitHub
+reports `BLOCKED` while it is still reconciling a check that has only just gone green. Only a
+pull request GitHub has said nothing decisive about -- still `OPEN`, not merged, in a merge
+state that neither proves nor reopens the question (`CLEAN` usually, `UNKNOWN` and the rest the
+same way) -- reaches the bound, and the reason it records then says exactly that rather than
+guessing at a cause.
+
+It reports the reading as well as the result. `waited` is measured rather than accumulated from
+its own sleeps, and `reads_ok`, `read_failures` and `read_error` travel beside it. If every read
+after the first fails, `settle` refuses with gh's own words instead of answering `open`: "nothing
+was reported against it" would be a statement about a silence, which is the one thing nothing in
+this plugin does.
+
+That bound is 90 seconds, and it is the one guess in the script that decides an outcome rather
+than sizing a bound. It is deliberately not scaled
+from `SHEPHERD_CI_SECONDS`: that number is the measured median of the repository's own workflow
+runs, and what `settle` waits on is GitHub's auto-merge latency after the checks are already
+green. Measuring that latency properly is future work; the constant is what stands in until
+field tests say whether it ever decides an outcome.
+
+The orchestrator makes one more read before printing. A `blocked` entry with a `CLEAN` or
+`UNKNOWN` merge state and auto-merge on is the signature of the same race, so it runs `merged`
+once and reclassifies. A `blocked` entry that names a cause is left alone: GitHub decided it,
+not the clock.
 
 ### What it never does
 
@@ -171,7 +204,7 @@ The deterministic parts are two scripts; the agent only decides between their re
 
 ```bash
 python3 plugins/gh/scripts/gh-shepherd-status.py <path>               # the work list, as JSON
-python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|merged
+python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|settle|merged
 python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> skip <reason-file>
 ```
 
@@ -197,8 +230,15 @@ forever. `rebase` reports gh's output and says when the head has not moved, sinc
 when the branch was already current. A failed `wait` carries `log_tail`, and `log_error` beside
 it when gh would not hand the log over, so an empty tail is not mistaken for a job that printed
 nothing.
+
+`settle` writes nothing at all: it is reads and a sleep. It refuses a pull request that is
+closed, one without auto-merge, or one whose checks are neither `passed` nor absent, rather than
+waiting out a bound on a question nobody asked; a pull request that has already merged is
+answered rather than refused, since that is the answer `settle` is asked for.
+
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
-`SHEPHERD_LOG_LINES`) are documented at the top of the script.
+`SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`) are documented at the top
+of the script.
 
 Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
 rule, `scripts/lib/discover.py`, which each script imports.

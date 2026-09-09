@@ -189,7 +189,13 @@ def test_a_failing_row_with_no_link_reports_a_null_one():
 
 def readable(**overrides):
     """A pull request carrying every field the loop decides from."""
-    pull = {"state": "OPEN", "headRefOid": "sha1", "statusCheckRollup": [], "labels": []}
+    pull = {
+        "state": "OPEN",
+        "headRefOid": "sha1",
+        "statusCheckRollup": [],
+        "reviewDecision": "",
+        "labels": [],
+    }
     pull.update(overrides)
     return pull
 
@@ -362,6 +368,7 @@ def test_summary_carries_the_fields_the_loop_needs():
         "labels": [{"name": "dependencies"}],
         "createdAt": "2026-01-01T00:00:00Z",
         "statusCheckRollup": [],
+        "reviewDecision": "REVIEW_REQUIRED",
     }
     assert shepherd.summary(pull) == {
         "number": 1,
@@ -378,11 +385,40 @@ def test_summary_carries_the_fields_the_loop_needs():
         "createdAt": "2026-01-01T00:00:00Z",
         "checks": {"state": "none", "failing": []},
         "is_dependabot": True,
+        "reviewDecision": "REVIEW_REQUIRED",
     }
 
 
 def test_summary_flattens_a_merge_commit_to_its_oid():
     assert shepherd.summary({"mergeCommit": {"oid": "abc"}})["mergeCommit"] == "abc"
+
+
+def test_summary_reports_no_review_requirement_as_the_empty_string():
+    """A repository that requires no review answers null, and settle must read
+    that as "keep waiting" rather than as a missing field."""
+    assert shepherd.summary({})["reviewDecision"] == ""
+    assert shepherd.summary({"reviewDecision": None})["reviewDecision"] == ""
+
+
+def test_pr_fields_asks_gh_for_the_review_decision():
+    """settle decides `blocked` from it, so a read that omitted it would leave
+    the loop guessing at branch protection again."""
+    assert "reviewDecision" in shepherd.PR_FIELDS.split(",")
+
+
+def test_missing_field_accepts_an_empty_review_decision():
+    """An empty string is a real answer about a repository with no required
+    review, so it must not be read as an answer that omitted the field."""
+    assert shepherd.missing_field(readable(reviewDecision="")) == ""
+    assert shepherd.missing_field(readable(reviewDecision=None)) == ""
+
+
+def test_missing_field_names_the_review_decision_when_it_is_absent():
+    """`settle` decides `blocked` from it, and `summary` turns an absent field
+    into "" -- which settle cannot tell from "no review required"."""
+    pull = readable()
+    del pull["reviewDecision"]
+    assert shepherd.missing_field(pull) == "reviewDecision"
 
 
 def test_status_document_splits_targets_from_pull_requests_without_auto_merge():

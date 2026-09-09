@@ -31,9 +31,12 @@ flowchart TD
         T -->|Conflicts, human branch| E([Needs escalation: a human or larger model decides]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
-        W -->|Checks green| P{Auto-merge fired?}
-        P -->|Yes| S
-        P -->|No, e.g. review required| BL([Blocked: never merged by hand]):::stop --> S
+        W -->|Checks green| P[Settle: read until GitHub decides]
+        P -->|Merged| S
+        P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Blocked: reason names only what was read]):::stop --> S
+        P -->|Bound passed, nothing reported against it| BL
+        P -->|Base moved: BEHIND or DIRTY| T
+        P -->|Closed while settling| CS
         W -->|Still running| W
         W -->|Still running after three waits, head unchanged| BP([Blocked: checks did not finish]):::stop --> S
         W -->|Checks failed| K{Fix is mechanical?}
@@ -43,7 +46,11 @@ flowchart TD
     end
 
     C --> D[Collate worker reports]
-    D --> Z3([Table per repo; offer escalation; suggest resolve-alerts])
+    D --> V{Blocked, CLEAN or UNKNOWN, auto-merge on?}
+    V -->|Yes: one merged read| V2{Merged after all?}
+    V2 -->|Yes| V3[Move it to merged] --> Z3
+    V2 -->|No| Z3
+    V -->|No: GitHub named a cause| Z3([Table per repo; offer escalation; suggest resolve-alerts])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```

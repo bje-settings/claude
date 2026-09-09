@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
 import pytest
 from lib import prs as prs_lib
@@ -214,6 +215,16 @@ def test_the_stub_can_fail_only_the_per_branch_query(gh, monkeypatch):
     assert "simulated per-branch failure" in stderr
 
 
+def test_the_stub_delays_its_answer_on_demand(gh, monkeypatch):
+    """The knob a caller that measures its own elapsed time is told apart by."""
+    gh.write_prs(gh.dep_pr(1))
+    monkeypatch.setenv("GH_FIXTURE_DELAY", "1")
+    started = time.monotonic()
+    status, _, _ = run_gh("pr", "view", "1", "--json", "number")
+    assert status == 0
+    assert time.monotonic() - started >= 1
+
+
 def test_the_stub_fails_on_demand(gh, monkeypatch):
     """fails on demand, to exercise the degraded path"""
     monkeypatch.setenv("GH_FIXTURE_FAIL", "1")
@@ -276,6 +287,9 @@ def test_dep_pr_defaults(gh):
     assert pull["autoMergeRequest"] == {"mergeMethod": "MERGE"}
     assert pull["author"]["login"] == "app/dependabot"
     assert "merge-risk" not in json.dumps(pull)
+    # "" is what gh answers for a repository that requires no review, and it is
+    # the state `settle` must keep waiting through rather than read as a block.
+    assert pull["reviewDecision"] == ""
 
 
 def test_dep_pr_honours_every_key(gh):
@@ -287,6 +301,7 @@ def test_dep_pr_honours_every_key(gh):
         auto=False,
         bot=False,
         draft=True,
+        review="REVIEW_REQUIRED",
         risk="high",
         created="2020-01-01T00:00:00Z",
         head="abc",
@@ -296,6 +311,7 @@ def test_dep_pr_honours_every_key(gh):
     assert pull["autoMergeRequest"] is None
     assert pull["author"]["is_bot"] is False
     assert pull["isDraft"] is True
+    assert pull["reviewDecision"] == "REVIEW_REQUIRED"
     assert {"name": "merge-risk:high"} in pull["labels"]
     assert pull["createdAt"] == "2020-01-01T00:00:00Z"
     assert pull["headRefOid"] == "abc"
