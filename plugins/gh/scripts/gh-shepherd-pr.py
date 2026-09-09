@@ -6,6 +6,7 @@ Usage:
   gh-shepherd-pr.py <path> <number> rebase
   gh-shepherd-pr.py <path> <number> recreate
   gh-shepherd-pr.py <path> <number> wait
+  gh-shepherd-pr.py <path> <number> settle
   gh-shepherd-pr.py <path> <number> skip <reason-file>
   gh-shepherd-pr.py <path> <number> merged
 
@@ -28,6 +29,16 @@ confused caller cannot make it act on the wrong pull request.
             `log_error` beside it when gh would not hand the log over. A
             watcher that failed for a reason of its own (a 502, an expired
             token) is `ok: false`, never `pending`.
+  settle    the grace between "checks passed" and "auto-merge did not fire".
+            Polls the pull request until GitHub answers one way or the other:
+            `merged`; `blocked` when a read proves auto-merge cannot fire (a
+            BLOCKED merge state, or a reviewDecision of REVIEW_REQUIRED or
+            CHANGES_REQUESTED), naming the field it read; `changed` when the
+            merge state moved to BEHIND or DIRTY, so the caller decides again;
+            `open` when the bound passed with GitHub saying nothing either way.
+            Refuses a pull request that is not OPEN, has no auto-merge, or
+            whose checks are not terminal and passing. Never watches checks --
+            that is `wait` -- and never merges.
   skip      posts the comment in <reason-file> and reports its URL. Refuses
             an empty file: a skip without a reason is not a skip.
   merged    whether the pull request is MERGED, and its merge commit.
@@ -47,6 +58,9 @@ Environment:
   SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
+  SHEPHERD_SETTLE_BOUND  how long `settle` waits with no evidence either way,
+                         in seconds (default 90). See SETTLE_BOUND_DEFAULT.
+  SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).
 
 Exits 0 when the action ran and reported (including ok:false refusals), 2 on
 a usage error, 1 when gh could not answer at all, and 3 on an internal error,
@@ -77,7 +91,7 @@ except ImportError:
     shepherd = None
     streams = None
 
-ACTIONS = ("state", "rebase", "recreate", "wait", "skip", "merged")
+ACTIONS = ("state", "rebase", "recreate", "wait", "settle", "skip", "merged")
 
 NUMBER_RE = re.compile(r"^[1-9][0-9]*$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
@@ -103,6 +117,40 @@ WAIT_BOUND_MAX = 540
 
 # The floor on the recreate poll interval when it was derived rather than given.
 POLL_FLOOR = 15
+
+# How long `settle` keeps reading when GitHub reports nothing either way, and how
+# often it reads. Deliberately constants rather than something derived from
+# SHEPHERD_CI_SECONDS: that number is the measured median of the repository's own
+# workflow runs, and what settle waits on is GitHub's auto-merge latency AFTER the
+# checks are already green, which the length of a CI run says nothing about.
+#
+# 90 seconds is a guess, and the only one in this file. It is survivable because
+# settle almost never reaches it: every state GitHub can report that decides the
+# question ends the poll early, and this bound covers only "still CLEAN, still
+# OPEN, still not merged". If field tests show it deciding real outcomes -- a repo
+# whose merges routinely lag past it, or one where waiting it out is wasteful --
+# the fix is to measure auto-merge latency the way lib/shepherd.py:ci_seconds
+# measures run durations, not to nudge the constant.
+SETTLE_BOUND_DEFAULT = 90
+SETTLE_POLL_DEFAULT = 5
+
+# Merge states that prove auto-merge cannot fire now. BLOCKED is a required
+# review or a required check that has not reported; either way GitHub will not
+# merge, and the caller records that rather than guessing at branch protection.
+BLOCKING_MERGE_STATES = ("BLOCKED",)
+
+# Merge states that are not a verdict but a new question: the base moved under
+# the pull request while settle watched. The caller re-enters its own decision
+# (rebase, or ask Dependabot to recreate) instead of recording it as blocked.
+RECHECK_MERGE_STATES = ("BEHIND", "DIRTY")
+
+# Review decisions that prove auto-merge cannot fire. "" (no review required)
+# and APPROVED are not among them; neither is a reason to stop waiting.
+BLOCKING_REVIEW_DECISIONS = ("REVIEW_REQUIRED", "CHANGES_REQUESTED")
+
+# Checks states settle will act on. Anything else is `wait`'s job, and settle
+# refuses rather than quietly waiting out a run it should have watched.
+SETTLED_CHECK_STATES = ("passed", "none")
 
 # The exit codes `gh pr checks` uses to say something about the checks: 0 all
 # passed, 1 one failed, 8 still pending. 124 is this script's own bound. Any
@@ -247,6 +295,18 @@ def poll_interval(ci_seconds):
     else:
         interval = ignored("SHEPHERD_POLL_SECONDS", raw, POLL_FLOOR)
     return max(interval, 1)
+
+
+def settle_interval():
+    """Seconds between two settle reads.
+
+    Floored at a second for the same reason `poll_interval` is: a zero interval
+    would spin without ever reaching the bound, which is the one way this loop
+    could fail to terminate. Unlike the recreate poll it is not derived from the
+    CI cycle -- see SETTLE_POLL_DEFAULT -- and small on purpose, because the race
+    this exists to close was decided by one second.
+    """
+    return max(env_int("SHEPHERD_SETTLE_POLL", SETTLE_POLL_DEFAULT, POSITIVE_RE), 1)
 
 
 def tail_lines(text, count):
@@ -665,6 +725,119 @@ class Shepherd:
             text = ANSI_RE.sub("", completed.stdout.decode("utf-8", "replace"))
             return tail_lines(text, self.log_lines), ""
         return "", ""
+
+    def settle_verdict(self, pull):
+        """(result, detail) for a read that decides the question, or None.
+
+        "Decides" is deliberately narrow: only what GitHub actually reported. A
+        pull request that is still OPEN and CLEAN with auto-merge on has not
+        been decided either way, however long it has sat there, and the caller
+        keeps reading rather than inventing a cause for the delay.
+        """
+        state = pull.get("state")
+        if state == "MERGED":
+            return "merged", "merged"
+        if state == "CLOSED":
+            return "closed", "pull request was closed while settling"
+        merge = pull.get("mergeStateStatus") or ""
+        review = pull.get("reviewDecision") or ""
+        # Both are named when both are blocking: the reason is the reader's only
+        # account of why, and dropping one of two causes makes the next step
+        # look smaller than it is.
+        blocking = []
+        if merge in BLOCKING_MERGE_STATES:
+            blocking.append("mergeStateStatus is " + merge)
+        if review in BLOCKING_REVIEW_DECISIONS:
+            blocking.append("reviewDecision is " + review)
+        if blocking:
+            return "blocked", "auto-merge cannot fire: " + " and ".join(blocking)
+        if merge in RECHECK_MERGE_STATES:
+            # Not a verdict: the base moved under the pull request while this
+            # ran. The caller decides again -- a rebase, or a recreate -- rather
+            # than recording a block that describes a state that no longer holds.
+            return "changed", "mergeStateStatus is now " + merge + "; the base moved while settling"
+        return None
+
+    def settle(self):
+        pull = self.read_pr()
+        if pull is None:
+            return self.unreadable()
+        if pull.get("state") == "MERGED":
+            # Not a refusal: "it already merged" is the answer this action is
+            # asked for, and the caller records the merge from it.
+            return self.emit(
+                True,
+                "merged",
+                result="merged",
+                mergeCommit=pull.get("mergeCommit"),
+                waited=0,
+                read_failures=0,
+                pr=pull,
+            )
+        if pull.get("state") != "OPEN":
+            return self.refuse_not_open(pull)
+        if not pull.get("autoMerge"):
+            return self.emit(
+                False,
+                f"refused: auto-merge is not enabled on #{self.number}; there is nothing to "
+                "settle, and this script never enables it",
+                pr=pull,
+            )
+        checks_state = pull["checks"]["state"]
+        if checks_state not in SETTLED_CHECK_STATES:
+            # settle is the grace AFTER a green run. Watching a run that is still
+            # going is `wait`, and answering here would waste the bound on a
+            # question that was never asked.
+            return self.emit(
+                False,
+                f"refused: checks are {checks_state}, not passed; `wait` is what watches a run",
+                pr=pull,
+            )
+
+        bound = env_int("SHEPHERD_SETTLE_BOUND", SETTLE_BOUND_DEFAULT, POSITIVE_RE)
+        interval = settle_interval()
+        waited = 0
+        reads_failed = 0
+        while True:
+            verdict = self.settle_verdict(pull)
+            if verdict is not None:
+                result, detail = verdict
+                extra = {}
+                if result == "merged":
+                    extra["mergeCommit"] = pull.get("mergeCommit")
+                if result == "blocked":
+                    # The agent copies this verbatim into its report, which is
+                    # the point: a reason it wrote itself is a reason it can
+                    # speculate in.
+                    extra["reason"] = detail
+                return self.emit(
+                    True,
+                    detail,
+                    result=result,
+                    waited=waited,
+                    read_failures=reads_failed,
+                    pr=pull,
+                    **extra,
+                )
+            if waited >= bound:
+                break
+            time.sleep(interval)
+            waited += interval
+            fresh = self.read_pr()
+            # A read that failed says nothing about the pull request. Count it
+            # and keep going; the last good read is still what gets reported.
+            if fresh is None:
+                reads_failed += 1
+                continue
+            pull = fresh
+        return self.emit(
+            True,
+            f"still open after {waited}s with auto-merge enabled and nothing reported against it",
+            result="open",
+            waited=waited,
+            read_failures=reads_failed,
+            pr=pull,
+        )
 
     def skip(self, reason_file):
         if not os.path.isfile(reason_file) or os.path.getsize(reason_file) == 0:

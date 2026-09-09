@@ -276,6 +276,9 @@ def test_dep_pr_defaults(gh):
     assert pull["autoMergeRequest"] == {"mergeMethod": "MERGE"}
     assert pull["author"]["login"] == "app/dependabot"
     assert "merge-risk" not in json.dumps(pull)
+    # "" is what gh answers for a repository that requires no review, and it is
+    # the state `settle` must keep waiting through rather than read as a block.
+    assert pull["reviewDecision"] == ""
 
 
 def test_dep_pr_honours_every_key(gh):
@@ -287,6 +290,7 @@ def test_dep_pr_honours_every_key(gh):
         auto=False,
         bot=False,
         draft=True,
+        review="REVIEW_REQUIRED",
         risk="high",
         created="2020-01-01T00:00:00Z",
         head="abc",
@@ -296,6 +300,7 @@ def test_dep_pr_honours_every_key(gh):
     assert pull["autoMergeRequest"] is None
     assert pull["author"]["is_bot"] is False
     assert pull["isDraft"] is True
+    assert pull["reviewDecision"] == "REVIEW_REQUIRED"
     assert {"name": "merge-risk:high"} in pull["labels"]
     assert pull["createdAt"] == "2020-01-01T00:00:00Z"
     assert pull["headRefOid"] == "abc"

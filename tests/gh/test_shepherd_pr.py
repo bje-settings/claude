@@ -612,6 +612,217 @@ def test_wait_reports_ok_false_when_the_pull_request_cannot_be_read(gh, shepherd
     assert document(shepherd_pr(gh.repo, 99, "wait"))["ok"] is False
 
 
+# --- settle -------------------------------------------------------------------
+
+
+@pytest.fixture
+def fast_settle(monkeypatch):
+    """A settle that answers in seconds rather than in a minute and a half."""
+    monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "3")
+    monkeypatch.setenv("SHEPHERD_SETTLE_POLL", "1")
+
+
+def test_settle_reports_merged_when_auto_merge_lands_after_the_first_read(
+    gh, shepherd_pr, fast_settle, call_log
+):
+    """The field-test race itself: OPEN and CLEAN on the first read, MERGED one poll later.
+
+    The mutation is gated on the first `pr view` reaching the call log, so it
+    cannot land before the read this test exists to make fail.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", auto=True))
+    after_call(
+        call_log,
+        "pr view 1",
+        lambda: set_pr(gh, lambda row: row.update(state="MERGED", mergeCommit={"oid": "abc"})),
+    )
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "merged"
+    assert report["mergeCommit"] == "abc"
+    assert report["waited"] > 0
+    assert comments(gh) == "NONE"
+
+
+def test_settle_reports_merged_at_once_when_it_already_merged(gh, shepherd_pr):
+    """Not a refusal: "it already merged" is the answer settle is asked for."""
+    gh.write_prs(gh.dep_pr(1, state="MERGED"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is True
+    assert report["result"] == "merged"
+    assert report["mergeCommit"] == "merged1"
+    assert report["waited"] == 0
+
+
+def test_settle_reports_blocked_naming_the_merge_state_it_read(gh, shepherd_pr, fast_settle):
+    gh.write_prs(gh.dep_pr(1, merge="BLOCKED", checks="passed"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "blocked"
+    assert report["reason"] == "auto-merge cannot fire: mergeStateStatus is BLOCKED"
+    assert report["waited"] == 0
+
+
+def test_settle_reports_blocked_naming_the_review_decision_it_read(gh, shepherd_pr, fast_settle):
+    """The case the old prose guessed at, now read from the API instead."""
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", review="REVIEW_REQUIRED"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "blocked"
+    assert report["reason"] == "auto-merge cannot fire: reviewDecision is REVIEW_REQUIRED"
+
+
+def test_settle_names_both_causes_when_both_are_blocking(gh, shepherd_pr, fast_settle):
+    """Dropping one of two causes makes the next step look smaller than it is."""
+    gh.write_prs(gh.dep_pr(1, merge="BLOCKED", checks="passed", review="CHANGES_REQUESTED"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["reason"] == (
+        "auto-merge cannot fire: mergeStateStatus is BLOCKED and "
+        "reviewDecision is CHANGES_REQUESTED"
+    )
+
+
+@pytest.mark.parametrize("state", ["BEHIND", "DIRTY"])
+def test_settle_reports_changed_when_the_base_moved_under_it(gh, shepherd_pr, fast_settle, state):
+    """Not a block: the caller decides again rather than recording a state that no longer holds."""
+    gh.write_prs(gh.dep_pr(1, merge=state, checks="passed"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "changed"
+    assert state in report["detail"]
+
+
+def test_settle_reports_closed_when_the_pull_request_is_closed_while_it_waits(
+    gh, shepherd_pr, fast_settle, call_log
+):
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
+    after_call(call_log, "pr view 1", lambda: set_pr(gh, lambda row: row.update(state="CLOSED")))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "closed"
+    assert report["waited"] > 0
+
+
+def test_settle_keeps_waiting_through_a_merge_state_github_has_not_computed(
+    gh, shepherd_pr, fast_settle
+):
+    """UNKNOWN is GitHub recomputing, not a verdict; reading it as one is the bug again."""
+    gh.write_prs(gh.dep_pr(1, merge="UNKNOWN", checks="passed"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "open"
+    assert report["waited"] >= 3
+
+
+def test_settle_reports_open_with_what_it_read_when_auto_merge_never_fires(
+    gh, shepherd_pr, fast_settle
+):
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", auto=True))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is True
+    assert report["result"] == "open"
+    assert report["waited"] >= 3
+    assert {"mergeStateStatus", "autoMerge", "reviewDecision"} <= set(report["pr"])
+    assert "reason" not in report
+    assert comments(gh) == "NONE"
+
+
+def test_settle_refuses_without_auto_merge(gh, shepherd_pr):
+    """There is nothing to settle, and this script never enables auto-merge."""
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", auto=False))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is False
+    assert "auto-merge is not enabled" in report["detail"]
+
+
+@pytest.mark.parametrize("checks", ["pending", "failed"])
+def test_settle_refuses_checks_that_are_not_terminal_and_passing(gh, shepherd_pr, call_log, checks):
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks=checks))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is False
+    assert f"checks are {checks}" in report["detail"]
+    # settle never watches checks; that is what `wait` is for.
+    assert "pr checks" not in call_log.read_text()
+
+
+def test_settle_accepts_a_head_that_reported_no_checks_at_all(gh, shepherd_pr, fast_settle):
+    """`none` is what `wait` already answers `passed` for, so settle takes it too."""
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="none"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is True
+    assert report["result"] == "open"
+
+
+def test_settle_refuses_a_pull_request_that_is_closed(gh, shepherd_pr):
+    gh.write_prs(gh.dep_pr(1, state="CLOSED"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is False
+    assert "refused: pull request is CLOSED" in report["detail"]
+
+
+def test_settle_reports_ok_false_when_the_pull_request_cannot_be_read(gh, shepherd_pr):
+    report = document(shepherd_pr(gh.repo, 99, "settle"))
+    assert report["ok"] is False
+    assert "could not read pull request #99" in report["detail"]
+
+
+def test_settle_keeps_polling_when_one_read_fails(
+    gh, shepherd_pr, fast_settle, call_log, monkeypatch
+):
+    """A read that failed says nothing about the pull request: it is counted, not acted on.
+
+    The port of the recreate example of the same name. The pull request vanishes
+    for a couple of polls -- gh answering about nothing at all, as an expired
+    token or a 502 would -- and comes back merged.
+    """
+    monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "8")
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
+    path = gh.path / "prs.json"
+    keep = json.loads(path.read_text())
+    keep[0].update(state="MERGED", mergeCommit={"oid": "abc"})
+
+    def blink():
+        path.unlink()
+        time.sleep(2)
+        path.write_text(json.dumps(keep))
+
+    after_call(call_log, "pr view 1", blink)
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is True
+    assert report["result"] == "merged"
+    assert report["read_failures"] > 0
+
+
+def test_settle_polls_at_least_once_when_the_bound_is_shorter_than_the_interval(
+    gh, shepherd_pr, monkeypatch, call_log
+):
+    """A bound below one interval must still buy a read, not answer from the first one."""
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
+    monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "1")
+    monkeypatch.setenv("SHEPHERD_SETTLE_POLL", "2")
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["waited"] == 2
+    assert call_log.read_text().count("pr view 1") >= 2
+
+
+def test_settle_says_so_when_its_bound_override_is_not_a_number(gh, shepherd_pr, monkeypatch):
+    gh.write_prs(gh.dep_pr(1, merge="BLOCKED", checks="passed"))
+    monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "soon")
+    result = shepherd_pr(gh.repo, 1, "settle")
+    assert result.status == 0
+    assert "SHEPHERD_SETTLE_BOUND=soon ignored; using 90" in result.stderr
+
+
+def test_settle_says_so_when_its_poll_override_is_not_a_number(gh, shepherd_pr, monkeypatch):
+    gh.write_prs(gh.dep_pr(1, merge="BLOCKED", checks="passed"))
+    monkeypatch.setenv("SHEPHERD_SETTLE_POLL", "often")
+    result = shepherd_pr(gh.repo, 1, "settle")
+    assert result.status == 0
+    assert "SHEPHERD_SETTLE_POLL=often ignored; using 5" in result.stderr
+
+
+def test_wait_still_returns_at_once_on_a_terminal_rollup(gh, shepherd_pr, call_log):
+    """The guard on the split: the grace lives in `settle`, and `wait` grows no sleep of its own."""
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", auto=True))
+    report = document(shepherd_pr(gh.repo, 1, "wait"))
+    assert report["result"] == "passed"
+    assert "pr checks" not in call_log.read_text()
+
+
 # --- skip ---------------------------------------------------------------------
 
 

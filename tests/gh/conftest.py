@@ -504,6 +504,8 @@ class Fixtures:
           auto=True           auto-merge enabled
           bot=True            authored by app/dependabot; False gives a human
           draft=False
+          review=             reviewDecision: "" (no review required, the default)
+                              | REVIEW_REQUIRED | CHANGES_REQUESTED | APPROVED
           risk=               merge-risk band label to add: low | medium | high
           created=            createdAt; defaults to 2026-01-<number>T00:00:00Z
           head=               headRefOid; defaults to sha<number>
@@ -515,6 +517,7 @@ class Fixtures:
             "auto": True,
             "bot": True,
             "draft": False,
+            "review": "",
             "risk": "",
             "created": "",
             "head": "",
@@ -541,6 +544,7 @@ class Fixtures:
             "labels": labels,
             "autoMergeRequest": {"mergeMethod": "MERGE"} if known["auto"] else None,
             "mergeStateStatus": known["merge"],
+            "reviewDecision": known["review"],
             "mergeable": "CONFLICTING" if known["merge"] == "DIRTY" else "MERGEABLE",
             "headRefOid": head,
             "headRefName": f"dependabot/npm/dep-{number}",

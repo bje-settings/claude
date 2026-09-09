@@ -362,6 +362,7 @@ def test_summary_carries_the_fields_the_loop_needs():
         "labels": [{"name": "dependencies"}],
         "createdAt": "2026-01-01T00:00:00Z",
         "statusCheckRollup": [],
+        "reviewDecision": "REVIEW_REQUIRED",
     }
     assert shepherd.summary(pull) == {
         "number": 1,
@@ -378,11 +379,31 @@ def test_summary_carries_the_fields_the_loop_needs():
         "createdAt": "2026-01-01T00:00:00Z",
         "checks": {"state": "none", "failing": []},
         "is_dependabot": True,
+        "reviewDecision": "REVIEW_REQUIRED",
     }
 
 
 def test_summary_flattens_a_merge_commit_to_its_oid():
     assert shepherd.summary({"mergeCommit": {"oid": "abc"}})["mergeCommit"] == "abc"
+
+
+def test_summary_reports_no_review_requirement_as_the_empty_string():
+    """A repository that requires no review answers null, and settle must read
+    that as "keep waiting" rather than as a missing field."""
+    assert shepherd.summary({})["reviewDecision"] == ""
+    assert shepherd.summary({"reviewDecision": None})["reviewDecision"] == ""
+
+
+def test_pr_fields_asks_gh_for_the_review_decision():
+    """settle decides `blocked` from it, so a read that omitted it would leave
+    the loop guessing at branch protection again."""
+    assert "reviewDecision" in shepherd.PR_FIELDS.split(",")
+
+
+def test_missing_field_does_not_require_the_review_decision():
+    """An empty string is a real answer about a repository with no required
+    review, so requiring the field would fail closed on the common case."""
+    assert shepherd.missing_field(readable(reviewDecision="")) == ""
 
 
 def test_status_document_splits_targets_from_pull_requests_without_auto_merge():

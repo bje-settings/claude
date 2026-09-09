@@ -24,7 +24,8 @@ import time
 # The --json field list both scripts ask gh for.
 PR_FIELDS = (
     "number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,"
-    "mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit"
+    "mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,"
+    "reviewDecision"
 )
 
 # A CheckRun conclusion that does not stand in the way of a merge. NEUTRAL and
@@ -224,6 +225,11 @@ def summary(pull):
         "createdAt": pull.get("createdAt"),
         "checks": checks(pull),
         "is_dependabot": is_dependabot(pull),
+        # "" for a repository that requires no review, which is the common case
+        # and a real answer -- which is why `missing_field` does not require it.
+        # REVIEW_REQUIRED and CHANGES_REQUESTED are what `settle` reads as proof
+        # that auto-merge cannot fire, rather than guessing at branch protection.
+        "reviewDecision": pull.get("reviewDecision") or "",
     }
 
 

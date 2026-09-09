@@ -27,7 +27,7 @@ it held.
 ```bash
 S="${CLAUDE_PLUGIN_ROOT}/scripts"
 python3 "$S/gh-shepherd-status.py" <path>               # the work list
-python3 "$S/gh-shepherd-pr.py" <path> <n> state|rebase|recreate|wait|merged
+python3 "$S/gh-shepherd-pr.py" <path> <n> state|rebase|recreate|wait|settle|merged
 python3 "$S/gh-shepherd-pr.py" <path> <n> skip <reason-file>
 ```
 
@@ -35,9 +35,10 @@ python3 "$S/gh-shepherd-pr.py" <path> <n> skip <reason-file>
 
 - **Never merge, never enable or disable auto-merge, never bypass a check, never edit labels.**
   Auto-merge fires on its own once checks pass. Your job ends at "checks green".
-- **Every `recreate` and `wait` call MUST pass `timeout: 600000` on the Bash tool call itself.**
+- **Every `recreate`, `wait`, and `settle` call MUST pass `timeout: 600000` on the Bash tool
+  call itself.**
   Without it the call is cut off at the tool's 120 s default and you see no result. Never run
-  either through a Monitor or a scheduled wake, and never end your turn while one is
+  any of them through a Monitor or a scheduled wake, and never end your turn while one is
   outstanding: that idles you and the orchestrator sees only "waiting". A `wait` returns
   `pending` when its own bound is hit; call it again, still with `timeout: 600000`. One `wait`
   per CI cycle, no shorter polling.
@@ -49,6 +50,12 @@ python3 "$S/gh-shepherd-pr.py" <path> <n> skip <reason-file>
   build or test), named `.claude/worktrees/wktr-pr<n>-shepherd-diag` so it cannot be confused
   with a fix worktree. It never pushes, and it is removed with `git worktree remove` before you
   move on to the next pull request, whether or not it confirmed anything.
+- **A `blocked` reason names only fields you actually read.** Copy `mergeStateStatus`,
+  `reviewDecision`, `autoMerge` and the script's own `reason` out of the JSON in front of you.
+  Never write that a review requirement, a branch protection rule, or a server-side auto-merge
+  setting is the cause unless the state you read says so. "Checks passed and it has not merged
+  yet" is not evidence of any of them, and a guess in that field is read downstream as a
+  finding.
 - Work only on pull requests the status script listed as targets (or, on an escalation rerun,
   the ones the orchestrator named). A `dependencies` pull request without auto-merge is not
   yours: report it, do not enable it.
@@ -100,9 +107,23 @@ in the order given:
      gh's own words, and `waited` says how long the watcher ran). This is not `pending`. Re-read `state` and decide again; a second
      `ok:false` is `blocked` with the detail.
    - `merged` → record the merge commit and continue to the next target.
-   - `passed` → re-read `state`. Auto-merge normally fires within a minute; if the pull request
-     is still `OPEN` after one more `wait`, record it as `blocked` with `mergeStateStatus` (a
-     review requirement, for example) and continue. Do not merge it yourself.
+   - `passed` → `settle`, once. It is the grace between "checks passed" and "auto-merge did
+     not fire", and it ends as soon as GitHub says anything either way. Do not use a second
+     `wait` for this: `wait` returns at once on a rollup that is already terminal, so it buys
+     no grace at all. Act on `settle`'s `result`:
+     - `merged` → record the merge commit and continue.
+     - `blocked` → record it as `blocked`, copying `mergeStateStatus`, `reviewDecision`,
+       `autoMerge`, `waited` and the script's `reason` verbatim. The reason already names the
+       field that proved it; do not add a cause of your own.
+     - `changed` → the base moved while settling. Go back to step 2 and decide again from the
+       new `mergeStateStatus`. This is not a block.
+     - `closed` → record it under `closed` with the detail and continue.
+     - `open` → the bound passed with GitHub reporting nothing against it. Record it as
+       `blocked` with the same four fields and the detail as the reason. "Still open, nothing
+       reported against it" is the whole finding; do not speculate past it.
+     - `ok:false` → the refusal says which precondition failed. Re-read `state` and decide
+       again; a second `ok:false` is `blocked` with the detail.
+     Never merge it yourself.
    - `pending` → `wait` again (`waited` is how many seconds the watcher ran before the bound).
      After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull request as `blocked` ("checks did not finish") and
      continue.
@@ -152,7 +173,7 @@ Return one JSON object and nothing else:
   "ci_seconds": 86,
   "merged": [{"number": 1, "mergeCommit": "sha", "rebases": 1, "fixed": false, "merged_as": "x.y.z+2 (title said x.y.z+1)"}],
   "skipped": [{"number": 2, "reason": "…", "comment_url": "…"}],
-  "blocked": [{"number": 3, "mergeStateStatus": "BLOCKED", "reason": "…"}],
+  "blocked": [{"number": 3, "mergeStateStatus": "BLOCKED", "reviewDecision": "REVIEW_REQUIRED", "autoMerge": true, "waited": 90, "reason": "…"}],
   "needs_escalation": [{"number": 4, "reason": "…", "hypothesis": "…"}],
   "closed": [{"number": 5, "reason": "already closed"}],
   "skipped_no_automerge": [{"number": 6, "title": "…", "author": "…"}],
@@ -165,6 +186,10 @@ Count `rebases` per pull request from your own `rebase` and `recreate` calls; th
 uses it to confirm the serial argument (one per pull request is the expected number). `closed`
 entries carry a `reason`: "already closed" from step 1, or the `recreate` detail when the pull
 request was closed while `recreate` waited.
+
+`blocked` entries carry the four fields `settle` reported (`mergeStateStatus`,
+`reviewDecision`, `autoMerge`, `waited`) alongside the reason, so the orchestrator can tell a
+pull request GitHub refused from one it simply had not merged yet.
 
 `hypothesis` is optional and only for `needs_escalation`: what you think the fix is and why you
 could not verify it (a plausible mechanical fix behind CI-only secrets, for example). Omit the
