@@ -189,7 +189,13 @@ def test_a_failing_row_with_no_link_reports_a_null_one():
 
 def readable(**overrides):
     """A pull request carrying every field the loop decides from."""
-    pull = {"state": "OPEN", "headRefOid": "sha1", "statusCheckRollup": [], "labels": []}
+    pull = {
+        "state": "OPEN",
+        "headRefOid": "sha1",
+        "statusCheckRollup": [],
+        "reviewDecision": "",
+        "labels": [],
+    }
     pull.update(overrides)
     return pull
 
@@ -400,10 +406,19 @@ def test_pr_fields_asks_gh_for_the_review_decision():
     assert "reviewDecision" in shepherd.PR_FIELDS.split(",")
 
 
-def test_missing_field_does_not_require_the_review_decision():
+def test_missing_field_accepts_an_empty_review_decision():
     """An empty string is a real answer about a repository with no required
-    review, so requiring the field would fail closed on the common case."""
+    review, so it must not be read as an answer that omitted the field."""
     assert shepherd.missing_field(readable(reviewDecision="")) == ""
+    assert shepherd.missing_field(readable(reviewDecision=None)) == ""
+
+
+def test_missing_field_names_the_review_decision_when_it_is_absent():
+    """`settle` decides `blocked` from it, and `summary` turns an absent field
+    into "" -- which settle cannot tell from "no review required"."""
+    pull = readable()
+    del pull["reviewDecision"]
+    assert shepherd.missing_field(pull) == "reviewDecision"
 
 
 def test_status_document_splits_targets_from_pull_requests_without_auto_merge():

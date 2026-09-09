@@ -159,13 +159,21 @@ def missing_field(pull):
     """
     if not isinstance(pull, dict):
         return "a pull request object"
-    # The four fields the loop decides on; the checks differ per field, so the
-    # list lives here rather than in a constant nothing else reads.
+    # The fields the loop decides on; the checks differ per field, so the list
+    # lives here rather than in a constant nothing else reads.
     for field in ("state", "headRefOid"):
         if not pull.get(field):
             return field
     if "statusCheckRollup" not in pull:
         return "statusCheckRollup"
+    # Presence, not truth, for the same reason as the rollup above: null is a
+    # real answer about a repository that requires no review, and `settle`
+    # decides `blocked` from this field. An answer that omitted it altogether
+    # would come out of `summary` as "" -- indistinguishable from "no review
+    # required" -- and settle would wait out its bound and then report that
+    # nothing was against a pull request nobody told us about.
+    if "reviewDecision" not in pull:
+        return "reviewDecision"
     if not isinstance(pull.get("labels"), list):
         return "labels"
     return ""

@@ -14,6 +14,9 @@ PATH a `--jq` call fails loudly rather than quietly returning unfiltered JSON.
 Controlled by:
   GH_FIXTURE_PRS       path to a JSON array of PR objects (default: no PRs)
   GH_FIXTURE_FAIL      if non-empty, every call exits non-zero
+  GH_FIXTURE_DELAY     seconds each call sleeps before answering, so a caller
+                       that measures its own elapsed time can be told apart
+                       from one that adds up its sleeps
   GH_FIXTURE_FAIL_HEAD if non-empty, only --head calls fail, so a bulk lookup
                        can succeed while the per-branch one does not
   GH_FIXTURE_CALL_LOG  if set, every invocation appends its arguments here
@@ -329,6 +332,13 @@ def main(argv):
     if call_log:
         with open(call_log, "a", encoding="utf-8") as handle:
             handle.write(" ".join(argv) + "\n")
+
+    delay = os.environ.get("GH_FIXTURE_DELAY", "")
+    if delay:
+        # After the call log, so a test gating on a call still opens its gate at
+        # once, and the delay lands where a real gh's latency would: in the
+        # answer, not in the invocation.
+        time.sleep(float(delay))
 
     if os.environ.get("GH_FIXTURE_FAIL"):
         die("gh: simulated failure")

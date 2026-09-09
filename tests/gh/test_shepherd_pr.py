@@ -98,6 +98,25 @@ def after_call(log, pattern, action):
     return _background(seen, action)
 
 
+def after_nth_call(log, pattern, count, action):
+    """Run `action` once the gh call log holds `count` invocations matching `pattern`.
+
+    `after_call` is not enough for a poll loop. The stub writes the call log as
+    its first statement, before it opens the canned pull requests, so a gate on
+    the first `pr view` opens *before* that read answers -- and a mutation that
+    wins the gap lands in the very read the test meant to precede it. Waiting
+    for the second call is unambiguous: the first read has returned by then.
+    """
+
+    def seen():
+        try:
+            return log.read_text().count(pattern) >= count
+        except OSError:
+            return False
+
+    return _background(seen, action)
+
+
 @pytest.fixture
 def call_log(gh, monkeypatch):
     path = gh.path / "calls.log"
@@ -125,6 +144,19 @@ def test_prints_usage_for_help(gh, shepherd_pr):
     result = shepherd_pr("--help")
     assert result.status == 0
     assert "Usage:" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "action", ["state", "rebase", "recreate", "wait", "settle", "skip", "merged"]
+)
+def test_the_usage_text_names_every_action_the_script_accepts(gh, shepherd_pr, action):
+    """The usage block is the contract a caller enumerates results from.
+
+    An action the script runs but does not advertise is one nobody calls; one it
+    advertises but rejects is worse.
+    """
+    assert action in shepherd_pr("--help").stdout
+    assert f"unknown action: {action}" not in shepherd_pr(gh.repo, 1, action).stderr
 
 
 def test_rejects_a_non_numeric_pull_request_number(gh, shepherd_pr):
@@ -631,9 +663,10 @@ def test_settle_reports_merged_when_auto_merge_lands_after_the_first_read(
     cannot land before the read this test exists to make fail.
     """
     gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", auto=True))
-    after_call(
+    after_nth_call(
         call_log,
         "pr view 1",
+        2,
         lambda: set_pr(gh, lambda row: row.update(state="MERGED", mergeCommit={"oid": "abc"})),
     )
     report = document(shepherd_pr(gh.repo, 1, "settle"))
@@ -641,16 +674,24 @@ def test_settle_reports_merged_when_auto_merge_lands_after_the_first_read(
     assert report["mergeCommit"] == "abc"
     assert report["waited"] > 0
     assert comments(gh) == "NONE"
+    assert "pr merge" not in call_log.read_text()
 
 
 def test_settle_reports_merged_at_once_when_it_already_merged(gh, shepherd_pr):
-    """Not a refusal: "it already merged" is the answer settle is asked for."""
-    gh.write_prs(gh.dep_pr(1, state="MERGED"))
+    """Not a refusal: "it already merged" is the answer settle is asked for.
+
+    With `auto=False` and no checks, the shape GitHub actually returns for a
+    merged pull request: it clears `autoMergeRequest` on merge, and the head's
+    rollup need not survive either. Both of the later guards would refuse this,
+    so the example also pins that the MERGED arm is reached before them.
+    """
+    gh.write_prs(gh.dep_pr(1, state="MERGED", auto=False, checks="none"))
     report = document(shepherd_pr(gh.repo, 1, "settle"))
     assert report["ok"] is True
     assert report["result"] == "merged"
     assert report["mergeCommit"] == "merged1"
     assert report["waited"] == 0
+    assert report["read_failures"] == 0
 
 
 def test_settle_reports_blocked_naming_the_merge_state_it_read(gh, shepherd_pr, fast_settle):
@@ -658,7 +699,35 @@ def test_settle_reports_blocked_naming_the_merge_state_it_read(gh, shepherd_pr, 
     report = document(shepherd_pr(gh.repo, 1, "settle"))
     assert report["result"] == "blocked"
     assert report["reason"] == "auto-merge cannot fire: mergeStateStatus is BLOCKED"
-    assert report["waited"] == 0
+    # A second read had to confirm it, so this cost a poll rather than none.
+    assert report["waited"] > 0
+    assert report["reads_ok"] >= 2
+
+
+def test_settle_does_not_block_on_a_single_read_of_blocked(gh, shepherd_pr, fast_settle, call_log):
+    """GitHub reports BLOCKED while reconciling a check that just went green.
+
+    One sample of it is the same race this action exists to close, so it has to
+    survive a poll -- and a pull request that merges in the meantime is merged,
+    not blocked.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="BLOCKED", checks="passed"))
+    # Gated on the first call rather than the second: the mutation may land
+    # before that read answers or after it, and either way a single sample of
+    # BLOCKED must not be what decides. Both orderings satisfy the assertion.
+    after_call(
+        call_log,
+        "pr view 1",
+        lambda: set_pr(
+            gh,
+            lambda row: row.update(
+                state="MERGED", mergeStateStatus="CLEAN", mergeCommit={"oid": "abc"}
+            ),
+        ),
+    )
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "merged"
+    assert report["mergeCommit"] == "abc"
 
 
 def test_settle_reports_blocked_naming_the_review_decision_it_read(gh, shepherd_pr, fast_settle):
@@ -677,6 +746,56 @@ def test_settle_names_both_causes_when_both_are_blocking(gh, shepherd_pr, fast_s
         "auto-merge cannot fire: mergeStateStatus is BLOCKED and "
         "reviewDecision is CHANGES_REQUESTED"
     )
+    # The review decision is terminal on sight, and it carries the merge state
+    # with it rather than waiting a poll to corroborate what it already ends on.
+    assert report["waited"] == 0
+
+
+def test_settle_keeps_waiting_on_an_approved_review(gh, shepherd_pr, fast_settle):
+    """APPROVED is a review decision, not a blocking one, and neither is "".
+
+    Without this, anything that read a non-empty reviewDecision as blocking
+    would report every approved pull request in the fleet as blocked.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed", review="APPROVED"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "open"
+
+
+def test_settle_blocks_rather_than_rechecks_when_a_review_is_required_on_a_stale_base(
+    gh, shepherd_pr, fast_settle
+):
+    """Precedence: a blocking review outranks a base that moved.
+
+    Reporting `changed` here would send the caller off to rebase, which buys a
+    CI run and leaves the pull request just as unmergeable as it was.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="BEHIND", checks="passed", review="REVIEW_REQUIRED"))
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "blocked"
+    assert report["reason"] == "auto-merge cannot fire: reviewDecision is REVIEW_REQUIRED"
+
+
+def test_settle_blocks_on_a_merge_state_that_turned_blocked_mid_poll(
+    gh, shepherd_pr, fast_settle, call_log, monkeypatch
+):
+    """The verdict path reached from a later read rather than from the first.
+
+    Two reads have to see BLOCKED before it counts, so this also proves the
+    corroboration survives being discovered mid-loop rather than up front.
+    """
+    monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "8")
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
+    after_nth_call(
+        call_log,
+        "pr view 1",
+        2,
+        lambda: set_pr(gh, lambda row: row.update(mergeStateStatus="BLOCKED")),
+    )
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["result"] == "blocked"
+    assert report["reason"] == "auto-merge cannot fire: mergeStateStatus is BLOCKED"
+    assert report["pr"]["mergeStateStatus"] == "BLOCKED"
 
 
 @pytest.mark.parametrize("state", ["BEHIND", "DIRTY"])
@@ -684,6 +803,7 @@ def test_settle_reports_changed_when_the_base_moved_under_it(gh, shepherd_pr, fa
     """Not a block: the caller decides again rather than recording a state that no longer holds."""
     gh.write_prs(gh.dep_pr(1, merge=state, checks="passed"))
     report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is True
     assert report["result"] == "changed"
     assert state in report["detail"]
 
@@ -692,8 +812,11 @@ def test_settle_reports_closed_when_the_pull_request_is_closed_while_it_waits(
     gh, shepherd_pr, fast_settle, call_log
 ):
     gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
-    after_call(call_log, "pr view 1", lambda: set_pr(gh, lambda row: row.update(state="CLOSED")))
+    after_nth_call(
+        call_log, "pr view 1", 2, lambda: set_pr(gh, lambda row: row.update(state="CLOSED"))
+    )
     report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is True
     assert report["result"] == "closed"
     assert report["waited"] > 0
 
@@ -708,6 +831,27 @@ def test_settle_keeps_waiting_through_a_merge_state_github_has_not_computed(
     assert report["waited"] >= 3
 
 
+def test_settle_refuses_when_the_bound_arrives_on_a_read_that_failed(
+    gh, shepherd_pr, fast_settle, call_log
+):
+    """ "Nothing was reported against it" would be a statement about a silence.
+
+    The mirror of the recovering case below it: the pull request vanishes part
+    way through and never comes back, so the newest thing settle knows predates
+    the bound it is about to report on. It says so, carrying gh's own words,
+    rather than answering `open`.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
+    path = gh.path / "prs.json"
+    after_nth_call(call_log, "pr view 1", 2, path.unlink)
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    assert report["ok"] is False
+    assert "could not re-read the pull request" in report["detail"]
+    assert "result" not in report
+    assert report["read_failures"] > 0
+    assert report["read_error"]
+
+
 def test_settle_reports_open_with_what_it_read_when_auto_merge_never_fires(
     gh, shepherd_pr, fast_settle
 ):
@@ -718,6 +862,10 @@ def test_settle_reports_open_with_what_it_read_when_auto_merge_never_fires(
     assert report["waited"] >= 3
     assert {"mergeStateStatus", "autoMerge", "reviewDecision"} <= set(report["pr"])
     assert "reason" not in report
+    # Every read landed, so the detail is a statement about the pull request.
+    assert report["reads_ok"] > 1
+    assert report["read_failures"] == 0
+    assert report["read_error"] == ""
     assert comments(gh) == "NONE"
 
 
@@ -748,7 +896,7 @@ def test_settle_accepts_a_head_that_reported_no_checks_at_all(gh, shepherd_pr, f
 
 
 def test_settle_refuses_a_pull_request_that_is_closed(gh, shepherd_pr):
-    gh.write_prs(gh.dep_pr(1, state="CLOSED"))
+    gh.write_prs(gh.dep_pr(1, state="CLOSED", auto=False))
     report = document(shepherd_pr(gh.repo, 1, "settle"))
     assert report["ok"] is False
     assert "refused: pull request is CLOSED" in report["detail"]
@@ -780,7 +928,7 @@ def test_settle_keeps_polling_when_one_read_fails(
         time.sleep(2)
         path.write_text(json.dumps(keep))
 
-    after_call(call_log, "pr view 1", blink)
+    after_nth_call(call_log, "pr view 1", 2, blink)
     report = document(shepherd_pr(gh.repo, 1, "settle"))
     assert report["ok"] is True
     assert report["result"] == "merged"
@@ -795,8 +943,35 @@ def test_settle_polls_at_least_once_when_the_bound_is_shorter_than_the_interval(
     monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "1")
     monkeypatch.setenv("SHEPHERD_SETTLE_POLL", "2")
     report = document(shepherd_pr(gh.repo, 1, "settle"))
-    assert report["waited"] == 2
+    assert report["waited"] >= 2
+    assert report["reads_ok"] >= 2
     assert call_log.read_text().count("pr view 1") >= 2
+
+
+def test_settle_measures_the_time_it_waited_rather_than_adding_up_its_sleeps(
+    gh, shepherd_pr, monkeypatch
+):
+    """`wait` already refuses to assume this; settle reports the same field.
+
+    Each read takes a second here, so a settle that counted only its own sleeps
+    would report half of the wall clock -- and the agent copies `waited` into
+    its report as evidence of how long GitHub was given.
+    """
+    gh.write_prs(gh.dep_pr(1, merge="CLEAN", checks="passed"))
+    monkeypatch.setenv("SHEPHERD_SETTLE_BOUND", "4")
+    monkeypatch.setenv("SHEPHERD_SETTLE_POLL", "1")
+    monkeypatch.setenv("GH_FIXTURE_DELAY", "1")
+    started = time.monotonic()
+    report = document(shepherd_pr(gh.repo, 1, "settle"))
+    elapsed = time.monotonic() - started
+    assert report["result"] == "open"
+    # One sleep of a second per poll, so a settle that added up its own sleeps
+    # would report exactly the number of polls it made. The reads cost a second
+    # each on top, and the report has to follow the clock, not the arithmetic.
+    sleeps = report["reads_ok"] - 1
+    assert sleeps > 0
+    assert report["waited"] > sleeps
+    assert report["waited"] <= elapsed
 
 
 def test_settle_says_so_when_its_bound_override_is_not_a_number(gh, shepherd_pr, monkeypatch):

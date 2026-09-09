@@ -652,6 +652,7 @@ def gh(sandbox, monkeypatch):
     monkeypatch.delenv("GH_FIXTURE_RUNS", raising=False)
     monkeypatch.delenv("GH_FIXTURE_RUN_LOG", raising=False)
     monkeypatch.delenv("GH_FIXTURE_CALL_LOG", raising=False)
+    monkeypatch.delenv("GH_FIXTURE_DELAY", raising=False)
     monkeypatch.delenv("GH_SYNC_DRY_RUN", raising=False)
     monkeypatch.delenv("GH_SYNC_NO_INSTALL", raising=False)
     # Corepack asks before downloading a package manager it does not have, which

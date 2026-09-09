@@ -136,7 +136,7 @@ high), oldest first within a band.
 | Conflicts, human branch | Reported as needing escalation. Never resolved by the skill. |
 | Checks running | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
 | Checks green, auto-merge fired | Recorded with the merge commit. Next. |
-| Checks green, still open | `settle`: read the pull request until GitHub decides. Merged is recorded as merged; a `BLOCKED` merge state or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision is a block whose reason names that field; `BEHIND` or `DIRTY` sends the loop back to decide again. Never merged by hand. |
+| Checks green, still open | `settle`: read the pull request until GitHub decides. Merged is recorded as merged, and closed as closed; a `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is a block whose reason names that field; `BEHIND` or `DIRTY` sends the loop back to decide again; the bound passing with nothing reported is a block whose reason is exactly that. Never merged by hand. |
 | Checks failed, mechanical | Fixed once in a throwaway worktree and pushed: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
 | Checks failed, not mechanical | Skipped with a comment saying why: anything touching program logic, tests' expectations of behaviour, configuration semantics, or a CI workflow. |
 | Checks failed, unclear | Reported as needing escalation, with a `hypothesis` when the worker has one, so the escalation rerun does not start from zero. |
@@ -167,12 +167,22 @@ second `wait`, and `wait` returns at once on a terminal rollup. A pull request t
 second later was reported blocked.
 
 `settle` ends on evidence rather than on a clock. Any state GitHub reports that decides the
-question ends it at once -- merged, closed, a `BLOCKED` merge state, a blocking review decision,
-or a base that moved to `BEHIND` or `DIRTY`. Only "still `CLEAN`, still `OPEN`, still not
-merged", where GitHub has reported nothing either way, reaches the bound, and the reason it
-records then says exactly that rather than guessing at a cause.
+question ends it -- merged, closed, a blocking review decision, or a base that moved to `BEHIND`
+or `DIRTY`, each on sight; a `BLOCKED` merge state once a second read confirms it, since GitHub
+reports `BLOCKED` while it is still reconciling a check that has only just gone green. Only a
+pull request GitHub has said nothing decisive about -- still `OPEN`, not merged, in a merge
+state that neither proves nor reopens the question (`CLEAN` usually, `UNKNOWN` and the rest the
+same way) -- reaches the bound, and the reason it records then says exactly that rather than
+guessing at a cause.
 
-That bound is 90 seconds, and it is the one guess in the script. It is deliberately not scaled
+It reports the reading as well as the result. `waited` is measured rather than accumulated from
+its own sleeps, and `reads_ok`, `read_failures` and `read_error` travel beside it. If every read
+after the first fails, `settle` refuses with gh's own words instead of answering `open`: "nothing
+was reported against it" would be a statement about a silence, which is the one thing nothing in
+this plugin does.
+
+That bound is 90 seconds, and it is the one guess in the script that decides an outcome rather
+than sizing a bound. It is deliberately not scaled
 from `SHEPHERD_CI_SECONDS`: that number is the measured median of the repository's own workflow
 runs, and what `settle` waits on is GitHub's auto-merge latency after the checks are already
 green. Measuring that latency properly is future work; the constant is what stands in until
@@ -221,9 +231,10 @@ when the branch was already current. A failed `wait` carries `log_tail`, and `lo
 it when gh would not hand the log over, so an empty tail is not mistaken for a job that printed
 nothing.
 
-`settle` writes nothing at all: it is reads and a sleep, and it refuses a pull request that is
-not open, one without auto-merge, or one whose checks are not terminal and passing, rather than
-waiting out a bound on a question nobody asked.
+`settle` writes nothing at all: it is reads and a sleep. It refuses a pull request that is
+closed, one without auto-merge, or one whose checks are neither `passed` nor absent, rather than
+waiting out a bound on a question nobody asked; a pull request that has already merged is
+answered rather than refused, since that is the answer `settle` is asked for.
 
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`) are documented at the top

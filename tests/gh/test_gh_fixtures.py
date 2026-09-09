@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
 import pytest
 from lib import prs as prs_lib
@@ -212,6 +213,16 @@ def test_the_stub_can_fail_only_the_per_branch_query(gh, monkeypatch):
     )
     assert status != 0
     assert "simulated per-branch failure" in stderr
+
+
+def test_the_stub_delays_its_answer_on_demand(gh, monkeypatch):
+    """The knob a caller that measures its own elapsed time is told apart by."""
+    gh.write_prs(gh.dep_pr(1))
+    monkeypatch.setenv("GH_FIXTURE_DELAY", "1")
+    started = time.monotonic()
+    status, _, _ = run_gh("pr", "view", "1", "--json", "number")
+    assert status == 0
+    assert time.monotonic() - started >= 1
 
 
 def test_the_stub_fails_on_demand(gh, monkeypatch):

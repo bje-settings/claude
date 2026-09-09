@@ -121,8 +121,10 @@ in the order given:
      - `open` → the bound passed with GitHub reporting nothing against it. Record it as
        `blocked` with the same four fields and the detail as the reason. "Still open, nothing
        reported against it" is the whole finding; do not speculate past it.
-     - `ok:false` → the refusal says which precondition failed. Re-read `state` and decide
-       again; a second `ok:false` is `blocked` with the detail.
+     - `ok:false` → either a precondition failed, or every read after the first one did (the
+       detail says which, and carries gh's own words in `read_error`). A run of failed reads
+       is a fact about gh, never a finding about the pull request: re-read `state` and decide
+       again, and a second `ok:false` is `blocked` with the detail as the reason.
      Never merge it yourself.
    - `pending` → `wait` again (`waited` is how many seconds the watcher ran before the bound).
      After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull request as `blocked` ("checks did not finish") and
@@ -187,9 +189,11 @@ uses it to confirm the serial argument (one per pull request is the expected num
 entries carry a `reason`: "already closed" from step 1, or the `recreate` detail when the pull
 request was closed while `recreate` waited.
 
-`blocked` entries carry the four fields `settle` reported (`mergeStateStatus`,
-`reviewDecision`, `autoMerge`, `waited`) alongside the reason, so the orchestrator can tell a
-pull request GitHub refused from one it simply had not merged yet.
+A `blocked` entry recorded from a `settle` result carries the four fields `settle` reported
+(`mergeStateStatus`, `reviewDecision`, `autoMerge`, `waited`) alongside the reason, so the
+orchestrator can tell a pull request GitHub refused from one it simply had not merged yet. The
+other paths that record `blocked` -- a second `ok:false` from `rebase`, `recreate`, `wait` or
+`settle`, and three `pending` waits -- carry the reason alone.
 
 `hypothesis` is optional and only for `needs_escalation`: what you think the fix is and why you
 could not verify it (a plausible mechanical fix behind CI-only secrets, for example). Omit the
