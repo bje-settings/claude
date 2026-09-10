@@ -43,7 +43,12 @@ nobody reviewed.
 uv run --locked pytest -n auto --cov --cov-report=xml
 python3 tests/coverage_check.py coverage/python.xml 95
 claude plugin validate . --strict
+claude plugin validate plugins/<plugin> --strict
 ```
+
+Both, not just the first: `.` validates the marketplace manifest, and the plugin's own manifest is
+a separate pass. It is the one downstream CI will run against the copy, so it is the one that
+matters here.
 
 The tests do not travel with the copy, so this is the only place they run for it. A failure here
 stops the publish.
@@ -55,8 +60,9 @@ python3 scripts/publish-plugin.py <plugin> <dest> --check
 ```
 
 Exit 0 means the copy is already current and there is nothing to do; say so and stop. Exit 1 means
-there is drift, and the report names every file. Exit 2 is a refusal: read it, fix the cause, do
-not work around it.
+there is drift, and the report names every file. Exit 2 is a refusal and nothing was written: read
+it, fix the cause, do not work around it. Exit 3 means a crash, or a write that died partway with
+the copy half made; the recovery commands are on stderr.
 
 The report prints the version the copy records. If content changed but the plugin's `version` in
 `plugins/<plugin>/.claude-plugin/plugin.json` did not, raise that now: downstream, the version is

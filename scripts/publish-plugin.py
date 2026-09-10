@@ -11,29 +11,38 @@ into a repo that team can read. The destination supplies its own marketplace
 manifest; all this writes is `<dest>/plugins/<name>/`.
 
 WHAT GETS PUBLISHED IS WHAT IS COMMITTED. The file list comes from
-`git ls-files -s -- plugins/<name>`, never from walking the directory. The index
-carries the mode as well as the path, so the executable bit travels with the
-file, and nothing untracked, ignored or generated can reach a repo another team
-reads: no __pycache__, no .venv, no stray .env, no .DS_Store.
+`git ls-files -s -- plugins/<name>`, never from walking the directory, so what
+reaches another team's repository is what someone committed here. Nothing
+untracked or generated can ride along: no __pycache__, no .venv, no stray .env,
+no .DS_Store. The index carries the mode as well as the path, so the executable
+bit travels with the file.
 
 Exit codes are a contract; the callers are a skill and a person reading a report:
 
     0  applied, or --check found the copy in sync
     1  --check found drift
-    2  refused, or called wrongly
-    3  an unexpected exception
+    2  refused: a precondition did not hold and NOTHING was written
+    3  an unexpected exception, or a write that failed partway
 
 3 exists because Python exits 1 on an uncaught traceback. Without a top-level
 handler an internal bug would be indistinguishable from drift, and a caller that
-treats 1 as "there is work to do" would loop on a crash.
+treats 1 as "there is work to do" would loop on a crash. A write that dies
+partway is 3 rather than 2 for the same reason in reverse: 2 promises the
+destination is untouched, and by then it is not. That case prints recovery
+commands on stderr.
 
 THE UNTRACKED ASYMMETRY. Untracked files in the SOURCE are reported and do not
 block: publishing only reads the source, so an untracked file there is not at
-risk and is simply not published, which is the same reasoning `/gh:sync` gives
-for not blocking on them. Untracked files in the DESTINATION plugin directory
-are a hard refusal, because the delete sweep would destroy them and git cannot
-bring back a file it never tracked. The two rules look inconsistent and are not:
-one is about what gets read, the other about what gets destroyed.
+risk and is simply not published, which is the reasoning `/gh:sync` gives for not
+blocking on them either.
+
+In the DESTINATION the question is what would be DESTROYED. A tracked file is
+recoverable with `git checkout --`, so changing or removing one is reviewable
+like any other diff; an untracked file is not, and overwriting it destroys it as
+completely as deleting it. So a publish refuses when it would write over or
+delete an untracked file there -- unless the copy already carries this tool's own
+UPSTREAM.json naming this plugin and this source, which makes it a mirror we
+manage, whose uncommitted files are our own previous output. See `unrecoverable`.
 
 Nothing here commits, pushes, or touches a path outside `<dest>/plugins/<name>/`.
 """
@@ -75,7 +84,13 @@ EXIT_CRASH = 3
 
 
 class Refused(Exception):
-    """A precondition did not hold. Nothing has been written; exit 2."""
+    """A precondition did not hold. Nothing has been written; exit 2.
+
+    The one place that invariant is qualified is `apply_mirror`, which can raise
+    this from inside the copy or the sweep. `run` catches it there and exits 3
+    with recovery instructions, precisely so that exit 2 keeps meaning "the
+    destination is as you left it".
+    """
 
 
 # --------------------------------------------------------------------------
@@ -120,6 +135,18 @@ def silence_output(include_stderr=True):
         os.close(devnull)
 
 
+def flush_quietly():
+    """Push buffered stdout out before writing to stderr, ignoring a gone reader.
+
+    stderr is unbuffered and stdout is not, so without this a failure report
+    overtakes the run's own output and the two read in the wrong order.
+    """
+    try:
+        sys.stdout.flush()
+    except (BrokenPipeError, ValueError):
+        pass
+
+
 def write(text):
     """Print, and go quiet for the rest of the run once the reader has gone.
 
@@ -137,12 +164,12 @@ def write(text):
 # --------------------------------------------------------------------------
 
 
-def git(repo, *args):
-    """Run one git command in `repo` and hand back its stdout, stripped.
+def run_git(repo, *args):
+    """Run one git command in `repo`, returning (returncode, stdout, stderr).
 
-    Raises Refused when git is missing or the command fails, carrying git's own
-    words rather than a summary of them: a caller reading the refusal needs to
-    know what git actually said.
+    Raises Refused only when git itself is missing. A non-zero exit is handed
+    back rather than raised, because a couple of callers need to tell one kind
+    of failure from another; `git` is the wrapper for everyone else.
     """
     try:
         done = subprocess.run(
@@ -152,28 +179,72 @@ def git(repo, *args):
         )
     except FileNotFoundError:
         raise Refused("git is not on PATH") from None
-    if done.returncode != 0:
-        detail = done.stderr.decode("utf-8", "replace").strip()
-        raise Refused("git {} failed in {}: {}".format(" ".join(args), repo, detail))
-    return done.stdout.decode("utf-8", "replace").strip()
+    return (
+        done.returncode,
+        done.stdout.decode("utf-8", "replace"),
+        done.stderr.decode("utf-8", "replace").strip(),
+    )
+
+
+def git(repo, *args):
+    """One git command's stdout, stripped, or a refusal carrying git's own words.
+
+    Never a summary of them: a caller reading the refusal needs to know what git
+    actually said, and this repo's rule is that nothing reports a silence as a
+    fact.
+    """
+    status, out, err = run_git(repo, *args)
+    if status != 0:
+        raise Refused(f"git {' '.join(args)} failed in {repo}: {err}")
+    return out.strip()
+
+
+def git_lines(repo, *args):
+    """Records of a `-z` git listing, which is the only NUL-safe way to read one.
+
+    The caller passes `-z` itself, in its correct position: appending it here
+    would put it after the `--`, where git reads it as a pathspec rather than a
+    flag and hands back one enormous unsplit record.
+
+    Without `-z`, git applies `core.quotePath` (on by default) and hands back
+    `"plugins/gh/caf\303\251.md"`, quotes included, for any non-ASCII name --
+    and splits nothing at all for a name containing a newline, so a line-based
+    reader sees two paths where there is one. The first case crashes; the second
+    is worse, because a fragment can look like a legitimate relative path and
+    then fail to match a real file, which in the delete sweep means walking past
+    something it was asked to protect.
+    """
+    return [chunk for chunk in git(repo, *args).split("\0") if chunk]
 
 
 def is_git_repo(path):
-    try:
-        git(path, "rev-parse", "--git-dir")
-    except Refused:
+    """Whether `path` is inside a git repository.
+
+    False only for git's own "not a repository" answer. Any other failure --
+    `detected dubious ownership`, an unreadable .git, a corrupt one -- is a
+    refusal carrying git's words, because telling someone their repository is
+    not a repository sends them to re-clone something that is fine.
+    """
+    status, _, err = run_git(path, "rev-parse", "--git-dir")
+    if status == 0:
+        return True
+    if "not a git repository" in err.lower():
         return False
-    return True
+    raise Refused(f"git could not read {path}: {err}")
 
 
 def common_dir(repo):
-    """The shared object store behind `repo`.
+    """The shared object store behind `repo`, canonicalised.
 
     A worktree has its own git dir but the same common dir as the checkout it
     came from, which is the only thing that distinguishes "another repo" from
     "another view of this one".
+
+    realpath because git does not canonicalise symlinks here: on macOS /tmp is a
+    symlink to /private/tmp, so the same object store reached by two names would
+    compare unequal and the worktree guard would not fire.
     """
-    return git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    return os.path.realpath(git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
 
 
 def index_entries(repo, relative):
@@ -182,15 +253,14 @@ def index_entries(repo, relative):
     Paths are relative to `relative` itself, so they are directly usable as
     destination paths.
     """
-    listing = git(repo, "ls-files", "-s", "--", str(relative))
     entries = {}
-    for line in listing.splitlines():
-        if not line.strip():
-            continue
+    for chunk in git_lines(repo, "ls-files", "-s", "-z", "--", str(relative)):
         # "<mode> <sha> <stage>\t<path>"
-        meta, _, path = line.partition("\t")
-        mode = meta.split()[0]
-        entries[str(Path(path).relative_to(relative))] = mode
+        meta, _, path = chunk.partition("\t")
+        fields = meta.split()
+        if not fields or not path:
+            raise Refused(f"could not read git's index listing for {relative}: {chunk!r}")
+        entries[str(Path(path).relative_to(relative))] = fields[0]
     return entries
 
 
@@ -209,8 +279,18 @@ def parse_origin(url):
     # Peeled apart rather than matched in one go, because a single trailing
     # pattern cannot tell a host from an owner: "https://host/repo" would hand
     # back "host/repo", which looks exactly like a real answer and is wrong.
-    remainder = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://", "", url)
-    remainder = remainder.split("@", 1)[-1]
+    stripped = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://", "", url, count=1)
+    had_scheme = stripped != url
+    remainder = stripped
+    # Userinfo only exists in a URL or the scp-like SSH form, both of which have
+    # a host. Splitting on "@" unconditionally would eat the host of anything
+    # else: a local path like ~/Code/@org/@team/repo would come back as
+    # "@team/repo", which is not a slug but looks exactly like one.
+    if had_scheme or re.match(r"^[^/]*@[^/]*:", remainder):
+        remainder = remainder.split("@", 1)[-1]
+    elif remainder.startswith((".", "/", "~")) or os.sep in remainder and ":" not in remainder:
+        # A filesystem path, not a remote. Nothing here is an owner or a repo.
+        return None
     # The host, then the separator the two forms differ on: ':' for the scp-like
     # SSH form, '/' for a URL. An optional port belongs to the host either way.
     match = re.match(r"^[^/:]+(?::\d+)?[:/](.+)$", remainder)
@@ -221,11 +301,13 @@ def parse_origin(url):
     if path.endswith(".git"):
         path = path[: -len(".git")]
     parts = [part for part in path.split("/") if part and part not in (".", "..")]
-    if len(parts) < 2:
+    if len(parts) != 2:
+        # Exactly two, not "the last two". A nested-group URL and a browser URL
+        # such as .../owner/repo/tree/main are indistinguishable here, and the
+        # second would yield "tree/main" -- wrong, and plausible enough that
+        # nobody would question it in the copy's provenance.
         return None
-    # The last two, so a self-hosted instance with nested groups still yields the
-    # owner and repository rather than the top of the group tree.
-    return "/".join(parts[-2:])
+    return "/".join(parts)
 
 
 # --------------------------------------------------------------------------
@@ -275,7 +357,7 @@ def check_destination(dest_repo, plugin):
 
     The directory not existing yet is fine: that is the first publish. What the
     write would DESTROY is a separate question, decided in `run` once the plan
-    is known; see `undeletable`.
+    is known; see `unrecoverable`.
     """
     if os.path.islink(str(dest_repo)):
         raise Refused(
@@ -325,35 +407,53 @@ def check_destination(dest_repo, plugin):
 
 
 def untracked_in(dest_repo, relative):
-    """Paths under `relative` that git does not track, relative to `relative`."""
-    listing = git(dest_repo, "ls-files", "--others", "--exclude-standard", "--", str(relative))
-    return {str(Path(line).relative_to(relative)) for line in listing.splitlines() if line.strip()}
+    """Paths under `relative` that git does not track, relative to `relative`.
+
+    Deliberately WITHOUT --exclude-standard. The question here is "could git
+    give this file back", and for an ignored file the answer is no, exactly as
+    for any other untracked one. Asking with --exclude-standard means a
+    destination whose .gitignore happens to cover plugins/<name>/ reports
+    nothing untracked at all, and the guard built on it silently permits the
+    sweep to delete a stranger's work.
+    """
+    return {
+        str(Path(line).relative_to(relative))
+        for line in git_lines(
+            dest_repo,
+            "ls-files",
+            "--others",
+            "-z",
+            "--",
+            str(relative),
+        )
+    }
 
 
-def undeletable(dest_repo, relative, removed, managed):
-    """Of the files the sweep would remove, the ones that would be lost for good.
+def unrecoverable(dest_repo, relative, touched, managed):
+    """Of the files this publish would write over or delete, the ones git cannot restore.
 
-    A tracked file is recoverable downstream with `git checkout --`, so removing
-    one is reviewable like any other change. An untracked file is not: git cannot
-    restore something it never tracked, and that is the only deletion here that
-    cannot be undone.
+    A tracked file is recoverable downstream with `git checkout --`, so changing
+    or removing one is reviewable like any other diff. An untracked file is not:
+    git cannot restore something it never tracked. Overwriting destroys it every
+    bit as completely as unlinking it, which is why `touched` is every path the
+    publish would add, change OR remove, and not just the ones it would delete.
 
     `managed` is what keeps the rule from being uselessly strict. Once a copy
     carries this tool's own UPSTREAM.json naming this plugin and this source, the
-    directory is a managed mirror: every file in it came from here, so an
-    untracked one is simply output from a previous run that has not been
-    committed yet, and deleting it costs nothing. That case is the normal loop --
-    publish, look, publish again -- and a blanket rule would deadlock it, and
+    directory is a mirror we manage: every file in it came from here, so an
+    untracked one is output from a previous run that has not been committed yet
+    and rewriting or dropping it costs nothing. That is the normal loop --
+    publish, look, publish again -- and a blanket rule would deadlock it and
     would also refuse to propagate an upstream deletion.
 
-    Before that stamp exists the directory belongs to whoever made it, and an
-    untracked file in it is someone's work. That is the first publish, which is
-    exactly when the destination is least likely to be what the operator thinks.
+    Before that stamp exists the directory belongs to whoever made it. That is
+    the first publish, which is exactly when the destination is least likely to
+    be what the operator thinks it is.
     """
     if managed:
         return []
     loose = untracked_in(dest_repo, relative)
-    return sorted(path for path in removed if path in loose)
+    return sorted(path for path in touched if path in loose)
 
 
 # --------------------------------------------------------------------------
@@ -383,13 +483,23 @@ def provenance(plugin, source, previous):
             f"cannot read owner/repo out of the origin URL {url!r}, and a copy whose "
             "provenance is wrong is worse than one that was not written"
         )
-    manifest = json.loads((source / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    manifest_path = source / ".claude-plugin" / "plugin.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as error:
+        raise Refused(f"could not read {manifest_path}: {error}") from None
+    version = manifest.get("version") if isinstance(manifest, dict) else None
+    if not version:
+        # Refused rather than recorded as null. Downstream the version is how one
+        # copy is told from another, and it is what provenance_drift compares, so
+        # a null would sit in the copy forever comparing equal to itself.
+        raise Refused(f"{manifest_path} declares no version, which the copy is identified by")
     commit = git(ROOT, "log", "-1", "--format=%H", "--", str(relative))
 
     record = {
         "source": slug,
         "plugin": plugin,
-        "version": manifest.get("version"),
+        "version": version,
         "commit": commit,
         "published": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
     }
@@ -430,6 +540,25 @@ def wanted_mode(mode):
     return MODE_EXEC if mode == MODE_EXEC else MODE_FILE
 
 
+def _raise_walk_error(error):
+    raise Refused(f"could not read {getattr(error, 'filename', '')}: {error}")
+
+
+def walk(root):
+    """os.walk that raises instead of skipping a directory it cannot read.
+
+    os.walk swallows every scandir error by default, so an unreadable directory
+    yields nothing and looks exactly like an empty one. Everything here that
+    walks is answering a question where "empty" and "could not look" have
+    opposite consequences: the delete sweep would leave files behind, the plan
+    would call the copy in sync, and the confinement pass would prove nothing
+    about the part of the tree it never saw. This repo's rule is that nothing
+    reports a silence as a fact.
+    """
+
+    return os.walk(str(root), onerror=_raise_walk_error)
+
+
 def plan(source, entries, target):
     """What would have to change downstream, as (added, changed, removed).
 
@@ -437,12 +566,26 @@ def plan(source, entries, target):
     that looked only at content would call a copy in sync while git reported a
     permanent `old mode 100755 / new mode 100644` diff that re-running this could
     never clear.
+
+    A destination path that exists but is not a regular file -- a directory
+    where upstream has a file, or a symlink -- is a refusal rather than an
+    `added`. Copying onto a directory writes a file *inside* it and then strips
+    the execute bit off the directory itself, leaving a tree that neither git
+    nor rm can traverse; copying onto a symlink writes through it and silently
+    corrupts whatever it points at, and leaves the link in place so the copy
+    never converges.
     """
     added, changed, removed = [], [], []
     for path in sorted(entries):
         want = source / path
         have = target / path
-        if not have.is_file() or os.path.islink(str(have)):
+        if os.path.islink(str(have)) or (have.exists() and not have.is_file()):
+            raise Refused(
+                f"{target / path} already exists and is not a regular file. "
+                "Refusing: writing onto it would corrupt what is there rather "
+                "than replace it. Remove it in the destination first."
+            )
+        if not have.exists():
             added.append(path)
         elif not filecmp.cmp(str(want), str(have), shallow=False):
             changed.append(path)
@@ -450,14 +593,51 @@ def plan(source, entries, target):
             changed.append(path)
 
     if target.is_dir():
-        keep = set(entries) | {PROVENANCE}
-        for current, _, files in os.walk(str(target)):
-            for name in files:
-                found = Path(current) / name
-                relative = str(found.relative_to(target))
-                if relative not in keep:
-                    removed.append(relative)
+        for relative in extraneous(target, entries):
+            removed.append(relative)
     return added, changed, sorted(removed)
+
+
+def keep_set(target, entries):
+    """What the sweep must not delete: the published names, and their identities.
+
+    Names alone are not enough. On a case-insensitive filesystem -- APFS by
+    default, so every Mac this runs on -- an upstream rename that changes only
+    case leaves the file on disk under its old name while the new name refers to
+    that same file. Compared by name the old one looks extraneous, and the sweep
+    deletes the file that was just published.
+
+    os.path.normcase does not help: on POSIX it returns the path unchanged, so
+    it silently does nothing on the platform where the problem occurs. Device
+    and inode identify the file itself and are exact on either kind of
+    filesystem.
+    """
+    names = set(entries) | {PROVENANCE}
+    identities = set()
+    for name in names:
+        try:
+            found = (target / name).stat()
+        except OSError:
+            continue
+        identities.add((found.st_dev, found.st_ino))
+    return names, identities
+
+
+def extraneous(target, entries):
+    """Paths under `target` that this publish does not account for."""
+    names, identities = keep_set(target, entries)
+    loose = []
+    for current, _, files in walk(target):
+        for name in files:
+            found = Path(current) / name
+            relative = str(found.relative_to(target))
+            if relative in names:
+                continue
+            here = found.stat()
+            if (here.st_dev, here.st_ino) in identities:
+                continue
+            loose.append(relative)
+    return loose
 
 
 def confine(target, path):
@@ -499,7 +679,7 @@ def check_confinement(target, entries):
     for path in sorted(entries):
         confine(target, target / path)
     if target.is_dir():
-        for current, directories, files in os.walk(str(target)):
+        for current, directories, files in walk(target):
             for name in list(directories) + files:
                 confine(target, Path(current) / name)
 
@@ -527,13 +707,13 @@ def apply_mirror(source, entries, target, record):
         else:
             destination.chmod(mode & ~0o111)
 
-    keep = set(entries) | {PROVENANCE}
-    for current, _, files in os.walk(str(target)):
-        for name in files:
-            found = Path(current) / name
-            if str(found.relative_to(target)) not in keep:
-                confine(target, found)
-                found.unlink()
+    # Recomputed after the copy, not reused from plan(): the identities are of
+    # the files as they are now, which is what makes a case-only rename resolve
+    # to the file just written rather than to a name that no longer applies.
+    for relative in extraneous(target, entries):
+        found = target / relative
+        confine(target, found)
+        found.unlink()
     prune_empty(target)
 
     written = target / PROVENANCE
@@ -548,7 +728,7 @@ def prune_empty(target):
     git cannot track an empty directory, so one left behind is invisible to
     `git status` downstream and would make --check and git disagree forever.
     """
-    for current, _, _ in os.walk(str(target), topdown=False):
+    for current, _, _ in os.walk(str(target), topdown=False, onerror=_raise_walk_error):
         here = Path(current)
         if here == target:
             continue
@@ -624,10 +804,10 @@ def run(args):
         write("already in sync; nothing written\n")
         return EXIT_OK
 
-    doomed = undeletable(args.dest, relative, removed, managed)
+    doomed = unrecoverable(args.dest, relative, added + changed + removed, managed)
     if doomed:
         raise Refused(
-            "{} holds untracked files this publish would delete, and it carries no "
+            "{} holds untracked files this publish would overwrite or delete, and it carries no "
             "{} of ours saying the directory is a copy we manage. Refusing, "
             "because git cannot restore a file it never tracked:\n{}\n"
             "Commit or remove them, or run with --check to see the whole "
@@ -638,14 +818,21 @@ def run(args):
 
     try:
         apply_mirror(source, entries, target, record)
-    except OSError as error:
-        write(
-            f"failed partway through writing {args.dest / relative}: {error}\n"
-            "recover with:\n"
+    except (OSError, Refused) as error:
+        # Not EXIT_REFUSED: a refusal means nothing was written, and by here the
+        # copy is half-made. On stderr, not through write(), because write() has
+        # gone quiet if the reader left and this is the one message that must
+        # arrive.
+        flush_quietly()
+        print(
+            f"publish-plugin.py: failed partway through writing {args.dest / relative}: {error}\n"
+            "The copy is incomplete. Recover in the destination with:\n"
             f"  git -C {args.dest} checkout -- {relative}\n"
             f"  git -C {args.dest} clean -fd {relative}\n"
+            "Note that `clean -fd` also removes untracked files under that path.",
+            file=sys.stderr,
         )
-        return EXIT_REFUSED
+        return EXIT_CRASH
 
     for line in report_lines(added, changed, removed):
         write(line + "\n")
@@ -659,10 +846,12 @@ def run(args):
 def provenance_drift(previous, record, target, entries):
     """Why the copy's provenance is wrong, or "" when it is fine.
 
-    Absent or unreadable is drift: provenance is the one thing the destination
-    cannot derive, so a copy without it is not in the state this tool produces.
-    A version disagreeing with the copy's own manifest is drift too, and is the
-    signature of a hand-edit or an apply that died partway.
+    Three arms. Absent or unreadable is drift: provenance is the one thing the
+    destination cannot derive, so a copy without it is not in the state this tool
+    produces. A version disagreeing with the copy's own manifest is drift, and is
+    the signature of a hand-edit or an apply that died partway. A record naming a
+    different plugin or a different source repository is drift too, and is the
+    one that means this directory belongs to some other mirror entirely.
 
     A stale `commit` alone is NOT drift, for the reason given in run().
     """
@@ -722,5 +911,10 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         sys.exit(EXIT_CRASH)
     except Exception as error:  # noqa: BLE001 - the whole point is that nothing escapes as 1
-        print(f"publish-plugin.py: unexpected failure: {error!r}", file=sys.stderr)
+        # str, not repr: repr(OSError) drops the filename, which is the one
+        # thing an operator needs to act on.
+        print(
+            f"publish-plugin.py: unexpected failure: {type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
         sys.exit(EXIT_CRASH)

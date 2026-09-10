@@ -94,6 +94,15 @@ def git(repo, *args, check=True):
     return done.stdout.decode("utf-8", "replace").strip()
 
 
+def index_modes(repo, path):
+    """The index mode git records for one path, or None."""
+    listing = git(repo, "ls-files", "-s", "--", path)
+    for line in listing.splitlines():
+        if line.strip():
+            return line.split()[0]
+    return None
+
+
 def make_repo(path, origin="https://github.com/example/upstream.git"):
     path.mkdir(parents=True, exist_ok=True)
     git(path, "init", "-q", "-b", "main")
@@ -141,7 +150,12 @@ def marketplace(sandbox):
 
 @pytest.fixture
 def downstream(sandbox):
-    """A destination repo with a commit, and a sentinel outside plugins/."""
+    """A destination repo with a commit, and a neighbouring plugin it owns.
+
+    The neighbour sits inside `plugins/` but outside `plugins/<name>/`, which is
+    the boundary that matters: the destination is not a delivery vehicle for one
+    plugin, and the mirror must leave everything beside its own directory alone.
+    """
     repo = make_repo(sandbox / "downstream", origin="https://github.com/example/downstream.git")
     write(repo / "README.md", "# downstream\n")
     write(repo / "plugins" / "neighbour" / "keep.md", "a plugin this repo owns\n")
@@ -153,9 +167,10 @@ def downstream(sandbox):
 def publish(marketplace):
     """The real script, loaded by path, with its ROOT pointed at the fixture.
 
-    Loaded inside the fixture rather than at module scope: CLAUDE.md is explicit
-    that an in-process loader must not cache a script module across tests, and
-    the root conftest resets the `lib` namespace around every example.
+    Loaded inside the fixture rather than at module scope, because CLAUDE.md is
+    explicit that an in-process loader must not cache a script module across
+    tests. Note this script has no `lib/` and no sys.path.insert by design, so
+    the conftest's `lib` reset is not what makes this safe -- the fresh load is.
     """
     spec = importlib.util.spec_from_file_location("publish_plugin_under_test", SCRIPT)
     module = importlib.util.module_from_spec(spec)
@@ -357,8 +372,16 @@ def test_an_emptied_directory_is_pruned(publish, marketplace, downstream, capsys
 
 
 def test_untracked_and_ignored_files_are_never_published(publish, marketplace, downstream, capsys):
-    """publishes what is committed, so nothing generated can reach the copy"""
+    """publishes what is committed, so nothing generated can reach the copy
+
+    Both categories, which are not the same: an untracked file is reported as
+    not published, while an ignored one is invisible even to that report. The
+    .gitignore is what makes the second case real -- without it every file here
+    is merely untracked and the ignored arm is never reached.
+    """
     source = marketplace / "plugins" / PLUGIN
+    write(marketplace / ".gitignore", "__pycache__/\n.DS_Store\n")
+    commit_all(marketplace, "ignore generated files")
     write(source / "__pycache__/run.cpython-39.pyc", "bytecode\n")
     write(source / ".DS_Store", "finder\n")
     write(source / "scratch.txt", "notes to self\n")
@@ -555,7 +578,7 @@ def test_refuses_to_destroy_untracked_work_in_a_copy_it_does_not_own(publish, do
     write(squatter / "draft/plan.md", "a plan\n")
 
     err = refuses(publish, downstream, capsys, PLUGIN, downstream)
-    assert "untracked files this publish would delete" in err
+    assert "overwrite or delete" in err
     assert "notes.md" in err
     assert (squatter / "notes.md").is_file()
 
@@ -839,8 +862,9 @@ def test_it_reports_nothing_when_stdout_is_closed_outright(script_copy, downstre
     """binds devnull when fd 1 is gone, so the work still happens
 
     Started with stdout closed, Python sets sys.stdout to None and every write
-    is an AttributeError raised after the work is done: the mirror lands and the
-    caller sees a traceback instead of a status.
+    is an AttributeError. The first write here is the report header, before the
+    mirror is made, so without this the publish would not happen at all and the
+    caller would see a traceback instead of a status.
     """
     done = subprocess.run(
         [
@@ -955,7 +979,8 @@ def test_binding_closed_streams_replaces_a_missing_stdout(publish, monkeypatch):
     """gives the script somewhere to write when a descriptor is gone outright
 
     Started with fd 1 closed, Python sets sys.stdout to None and every later
-    write is an AttributeError raised after the work is done.
+    write is an AttributeError. In this script the first one would land on the
+    report header, before the mirror is made.
     """
     monkeypatch.setattr(publish.sys, "stdout", None)
     monkeypatch.setattr(publish.sys, "stderr", None)
@@ -1019,9 +1044,10 @@ def test_refuses_a_plugin_with_nothing_committed(publish, marketplace, downstrea
 def add_gitlink(repo, path):
     """Record `path` in the index as a submodule, without needing a real one.
 
-    git refuses a null sha for a gitlink, so it is given a real commit -- this
-    repo's own HEAD. Nothing reads through the pointer; what matters is that the
-    index reports mode 160000 for that path.
+    git refuses a null sha for a gitlink, so it is given a real commit: the
+    fixture repo's own HEAD, not this checkout's. Nothing reads through the
+    pointer; what matters is that the index reports mode 160000 for that path,
+    which is asserted below rather than assumed.
     """
     sha = git(repo, "rev-parse", "HEAD")
     # The working tree needs a git directory at that path too, or git reports the
@@ -1030,6 +1056,7 @@ def add_gitlink(repo, path):
     nested.mkdir(parents=True, exist_ok=True)
     git(nested, "init", "-q", "-b", "main")
     git(repo, "update-index", "--add", "--cacheinfo", f"160000,{sha},{path}")
+    assert index_modes(repo, path) == "160000", "the fixture did not produce a gitlink"
 
 
 def test_refuses_a_submodule_in_the_source(publish, marketplace, downstream, capsys):
@@ -1086,11 +1113,14 @@ def test_a_write_that_fails_partway_says_how_to_recover(publish, downstream, cap
         raise OSError(28, "No space left on device")
 
     monkeypatch.setattr(publish.shutil, "copy2", explode)
-    status, out, _ = invoke(publish, PLUGIN, downstream, capsys=capsys)
+    status, _, err = invoke(publish, PLUGIN, downstream, capsys=capsys)
 
-    assert status == publish.EXIT_REFUSED
-    assert "failed partway" in out
-    assert "git -C" in out and "clean -fd" in out
+    # Exit 3, not 2: exit 2 promises the destination is untouched, and by here
+    # it is not. On stderr, because write() has gone quiet if the reader left
+    # and this is the one message that must arrive.
+    assert status == publish.EXIT_CRASH
+    assert "failed partway" in err
+    assert "git -C" in err and "clean -fd" in err
 
 
 def test_an_unreadable_manifest_in_the_copy_is_drift(publish, downstream, capsys):
@@ -1127,3 +1157,303 @@ def test_refuses_when_a_symlinked_parent_aims_back_at_the_source(
     assert status == publish.EXIT_REFUSED
     assert "same directory" in err
     assert tree(marketplace) == before
+
+
+# --------------------------------------------------------------------------
+# arms a mutation survey found unpinned
+#
+# Each of these corresponds to a mutation that left the suite green, or to a bug
+# a review reproduced. The pattern to watch for is a guard whose promise is
+# stated in prose and checked against only one of the states that can break it.
+# --------------------------------------------------------------------------
+
+
+def test_refuses_to_overwrite_untracked_work_at_a_colliding_path(publish, downstream, capsys):
+    """refuses to write over an untracked file, not only to delete one
+
+    Overwriting destroys an untracked file exactly as completely as unlinking
+    it, and git can restore neither. A guard that looked only at what the sweep
+    would REMOVE let the first publish into somebody's directory clobber every
+    path that happened to collide with an upstream name, reporting it as an
+    ordinary `update`.
+    """
+    squatter = downstream / "plugins" / PLUGIN
+    write(squatter / "README.md", "HANDWRITTEN, NOT OURS\n")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "overwrite or delete" in err
+    assert (squatter / "README.md").read_text(encoding="utf-8") == "HANDWRITTEN, NOT OURS\n"
+
+
+def test_an_ignored_destination_directory_does_not_disable_the_guard(publish, downstream, capsys):
+    """still refuses when the destination's .gitignore covers the copy
+
+    `git ls-files --others` with --exclude-standard reports nothing for an
+    ignored path, so asking that way made a destination whose .gitignore covered
+    plugins/<name>/ look as though it held no untracked files at all, and the
+    sweep deleted a stranger's work with exit 0. "Can git give this file back"
+    is the real question, and for an ignored file the answer is no.
+    """
+    write(downstream / ".gitignore", "plugins/demo/\n")
+    commit_all(downstream, "ignore the copy")
+    write(downstream / "plugins" / PLUGIN / "notes.md", "work in progress\n")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "notes.md" in err
+    assert (downstream / "plugins" / PLUGIN / "notes.md").is_file()
+
+
+def test_a_case_only_rename_upstream_does_not_delete_the_file(
+    publish, marketplace, downstream, capsys
+):
+    """publishes a case-only rename without dropping the file
+
+    On a case-insensitive filesystem -- APFS by default, so every Mac this runs
+    on -- the old on-disk name still matches the new content, so the copy is not
+    an `add`; compared case-sensitively the on-disk name is then absent from the
+    keep set and the sweep deletes the file that was just published.
+    """
+    invoke(publish, PLUGIN, downstream, capsys=capsys)
+    git(marketplace, "mv", "plugins/demo/README.md", "plugins/demo/Readme.md")
+    commit_all(marketplace, "rename by case")
+
+    status, _, _ = invoke(publish, PLUGIN, downstream, capsys=capsys)
+    assert status == publish.EXIT_OK
+    copied = tree(downstream / "plugins" / PLUGIN)
+    assert [name for name in copied if name.lower() == "readme.md"]
+
+
+def test_an_apply_repairs_provenance_that_check_calls_drift(publish, downstream, capsys):
+    """rewrites a corrupted UPSTREAM.json even though the tree matches
+
+    --check and the apply path have to agree about what "in sync" means. If the
+    apply short-circuits on the file tree alone, --check keeps reporting drift
+    that a publish will not fix, and the skill reading those two exit codes
+    loops forever.
+    """
+    invoke(publish, PLUGIN, downstream, capsys=capsys)
+    (downstream / "plugins" / PLUGIN / publish.PROVENANCE).write_text("{broken", encoding="utf-8")
+
+    assert invoke(publish, PLUGIN, downstream, "--check", capsys=capsys)[0] == publish.EXIT_DRIFT
+    assert invoke(publish, PLUGIN, downstream, capsys=capsys)[0] == publish.EXIT_OK
+    assert invoke(publish, PLUGIN, downstream, "--check", capsys=capsys)[0] == publish.EXIT_OK
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("plugin", "somebody-elses"), ("source", "another/repo")],
+)
+def test_each_half_of_the_stamp_is_checked_on_its_own(publish, downstream, capsys, field, value):
+    """treats a stamp wrong in either field as not ours
+
+    The docstring claims both halves matter. Tested together, either one alone
+    would still refuse and the claim would be unasserted.
+    """
+    squatter = downstream / "plugins" / PLUGIN
+    write(squatter / "notes.md", "work in progress\n")
+    record = {"plugin": PLUGIN, "source": "example/upstream"}
+    record[field] = value
+    write(squatter / publish.PROVENANCE, json.dumps(record) + "\n")
+
+    refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert (squatter / "notes.md").is_file()
+
+
+def test_confinement_does_not_accept_a_sibling_that_shares_a_prefix(publish, sandbox):
+    """keeps `demo-vendor` from passing as though it were inside `demo`
+
+    A prefix test without the separator would let any sibling whose name starts
+    with the target's pass, which is how a path outside the copy gets written.
+    """
+    target = sandbox / "plugins" / PLUGIN
+    target.mkdir(parents=True)
+    sibling = sandbox / "plugins" / (PLUGIN + "-vendor")
+    sibling.mkdir()
+
+    publish.confine(target, target / "inside.md")
+    with pytest.raises(publish.Refused):
+        publish.confine(target, sibling / "outside.md")
+
+
+def test_confinement_reaches_a_stale_symlinked_directory(publish, downstream, capsys, sandbox):
+    """refuses a symlinked directory left over from an older version of the copy
+
+    The per-entry pass only covers paths the source still has. A directory the
+    plugin used to ship, now replaced downstream by a symlink, is reachable only
+    by walking what is actually there.
+    """
+    escape = sandbox / "escape"
+    escape.mkdir()
+    copy = downstream / "plugins" / PLUGIN
+    copy.mkdir(parents=True)
+    (copy / "old-skills").symlink_to(str(escape))
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "outside" in err
+
+
+def test_refuses_a_directory_where_the_source_has_a_file(publish, downstream, capsys):
+    """refuses rather than copying a file into a directory of the same name
+
+    shutil.copy2 onto a directory writes *inside* it, and the mode fix-up then
+    strips the execute bit off the directory, leaving a tree neither git nor rm
+    can traverse -- damage this tool caused and cannot undo.
+    """
+    blocking = downstream / "plugins" / PLUGIN / "README.md"
+    write(blocking / "inside.md", "git cannot commit an empty directory\n")
+    commit_all(downstream, "a directory in the way")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "not a regular file" in err
+    assert blocking.is_dir()
+
+
+def test_refuses_a_symlinked_file_inside_the_copy(publish, downstream, capsys):
+    """refuses a symlink where a regular file belongs
+
+    Copying through it corrupts whatever it points at and leaves the link in
+    place, so the copy never converges and reports the same add forever.
+    """
+    copy = downstream / "plugins" / PLUGIN
+    copy.mkdir(parents=True)
+    write(copy / "LICENSE", "a real file\n")
+    (copy / "README.md").symlink_to("LICENSE")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "not a regular file" in err
+    assert (copy / "LICENSE").read_text(encoding="utf-8") == "a real file\n"
+
+
+def test_a_non_ascii_filename_publishes_rather_than_crashing(
+    publish, marketplace, downstream, capsys
+):
+    """handles a tracked filename git would quote
+
+    With core.quotePath on by default, `git ls-files` returns
+    `"plugins/demo/caf\\303\\251.md"`, quotes included, which a line-based reader
+    cannot turn back into a path. Reading the listing NUL-separated is what makes
+    the name ordinary.
+    """
+    write(marketplace / "plugins" / PLUGIN / "café.md", "accented\n")
+    commit_all(marketplace, "add an accented filename")
+
+    status, _, _ = invoke(publish, PLUGIN, downstream, capsys=capsys)
+    assert status == publish.EXIT_OK
+    assert (downstream / "plugins" / PLUGIN / "café.md").read_text(encoding="utf-8") == "accented\n"
+
+
+def test_a_newline_in_a_filename_does_not_defeat_the_deletion_guard(publish, downstream, capsys):
+    """counts a file whose name contains a newline as one path, not two
+
+    Split on newlines, the leading fragment can still look like a legitimate
+    relative path, so the guard compares real files against a name that matches
+    nothing and lets the sweep delete something it was asked to protect.
+    """
+    copy = downstream / "plugins" / PLUGIN
+    copy.mkdir(parents=True)
+    write(copy / "two\nlines.md", "not ours\n")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "lines.md" in err
+    assert (copy / "two\nlines.md").is_file()
+
+
+def test_an_unreadable_destination_directory_is_not_reported_as_in_sync(
+    publish, downstream, capsys
+):
+    """refuses when part of the copy cannot be listed
+
+    os.walk discards scandir errors by default, so an unreadable directory
+    yields nothing and is indistinguishable from an empty one. Every walk here
+    answers a question where those two have opposite consequences.
+    """
+    invoke(publish, PLUGIN, downstream, capsys=capsys)
+    locked = downstream / "plugins" / PLUGIN / "skills"
+    original = locked.stat().st_mode
+    locked.chmod(0o300)
+    try:
+        status, _, err = invoke(publish, PLUGIN, downstream, "--check", capsys=capsys)
+    finally:
+        locked.chmod(original)
+    assert status == publish.EXIT_REFUSED
+    assert "could not read" in err
+
+
+def test_the_published_date_survives_a_no_op_republish(publish, downstream, capsys):
+    """keeps the recorded date when nothing else changed
+
+    Run twice in the same second, a regenerated date is identical to a carried
+    one and the test proves nothing. Backdating the recorded date is what makes
+    the difference visible, and the difference is the whole basis for telling a
+    downstream reviewer that any diff at all is real content.
+    """
+    invoke(publish, PLUGIN, downstream, capsys=capsys)
+    record = downstream / "plugins" / PLUGIN / publish.PROVENANCE
+    loaded = json.loads(record.read_text(encoding="utf-8"))
+    loaded["published"] = "2020-01-01"
+    record.write_text(json.dumps(loaded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    status, out, _ = invoke(publish, PLUGIN, downstream, capsys=capsys)
+    assert status == publish.EXIT_OK
+    assert "already in sync" in out
+    assert json.loads(record.read_text(encoding="utf-8"))["published"] == "2020-01-01"
+
+
+def test_refuses_a_manifest_with_no_version(publish, marketplace, downstream, capsys):
+    """refuses rather than recording a null version in the copy
+
+    Downstream the version is how one copy is told from another, and it is what
+    the drift check compares, so a null would sit there forever comparing equal
+    to itself.
+    """
+    manifest = marketplace / "plugins" / PLUGIN / ".claude-plugin" / "plugin.json"
+    write(manifest, json.dumps({"name": PLUGIN, "description": "no version"}) + "\n")
+    commit_all(marketplace, "drop the version")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "no version" in err
+
+
+def test_refuses_an_unreadable_source_manifest(publish, marketplace, downstream, capsys):
+    """names the file rather than exiting 3 on a malformed manifest"""
+    write(marketplace / "plugins" / PLUGIN / ".claude-plugin" / "plugin.json", "{not json")
+    commit_all(marketplace, "break the manifest")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "plugin.json" in err
+
+
+def test_a_git_failure_is_not_reported_as_not_a_repository(publish, downstream, capsys, sandbox):
+    """carries git's own words when git refuses to look
+
+    The realistic case is `detected dubious ownership`, which happens whenever
+    the destination is owned by another user. Reported as "not a git
+    repository", it sends someone off to re-clone a repository that is fine.
+    """
+    hostile = sandbox / "hostile"
+    hostile.mkdir()
+    write(hostile / "git", "#!/bin/sh\necho 'fatal: detected dubious ownership' >&2\nexit 128\n")
+    (hostile / "git").chmod(0o755)
+    sandbox.stub_path(hostile)
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "dubious ownership" in err
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/owner/repo/tree/main",
+        "~/Code/@org/@team/repo",
+        "../mirrors/org-claude",
+        "/absolute/path/repo",
+    ],
+)
+def test_a_plausible_looking_wrong_slug_is_refused(publish, url):
+    """returns nothing for shapes that would parse into a wrong-but-credible slug
+
+    These are worse than an obvious failure: a browser URL yields `tree/main`
+    and a local path yields the last two directories, either of which reads like
+    a real answer in the copy's provenance.
+    """
+    assert publish.parse_origin(url) is None
