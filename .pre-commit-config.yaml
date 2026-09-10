@@ -55,11 +55,16 @@ repos:
         pass_filenames: false
         always_run: true
 
-      # Manifest validation, the same two commands the plugin-validate workflow
-      # runs. Needs no API key or login: validate reads the manifests off disk.
+      # Manifest validation, the same commands the plugin-validate workflow runs,
+      # including shopt -s nullglob and the found counter. Kept identical on
+      # purpose: CONTRIBUTING.md tells contributors this hook runs what CI runs,
+      # and a hook that diverged would pass locally and fail in CI. See the
+      # comment in .github/workflows/plugin-validate.yml for why an empty
+      # plugins/ has to fail rather than pass quietly.
+      # Needs no API key or login: validate reads the manifests off disk.
       - id: plugin-validate
         name: claude plugin validate --strict
-        entry: bash -c 'set -euo pipefail; claude plugin validate . --strict; for p in plugins/*/; do claude plugin validate "$p" --strict; done'
+        entry: bash -c 'set -euo pipefail; shopt -s nullglob; claude plugin validate . --strict; found=0; for p in plugins/*/; do claude plugin validate "$p" --strict; found=$((found + 1)); done; if [ "$found" -eq 0 ]; then echo "No plugin directories found under plugins/" >&2; exit 1; fi'
         language: system
         pass_filenames: false
         always_run: true

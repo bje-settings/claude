@@ -51,10 +51,29 @@ jobs:
 
       # Loop over plugins/*/ rather than a hard-coded list, so a new plugin is
       # covered the day it lands without editing this workflow.
+      #
+      # nullglob and the counter are both load-bearing, and neither is enough
+      # alone. Without nullglob, a plugins/ with no subdirectories leaves the
+      # pattern unexpanded and the body runs once with p set to the literal
+      # string "plugins/*/", so the build fails with `File not found:
+      # .../plugins/*` -- an error naming a path nobody created, which sends the
+      # reader looking for a directory called "*". With nullglob but no counter,
+      # that same empty plugins/ makes the loop run zero times and the step pass,
+      # which is worse: a required check reporting success while validating
+      # nothing. A marketplace with no plugins is a broken state, not a clean
+      # one, so it fails here and says so.
       - name: Validate the marketplace manifest and every plugin
         run: |
           set -euo pipefail
+          shopt -s nullglob
           claude plugin validate . --strict
+          found=0
           for p in plugins/*/; do
             claude plugin validate "$p" --strict
+            found=$((found + 1))
           done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No plugin directories found under plugins/; the marketplace manifest cannot be satisfied."
+            exit 1
+          fi
+          echo "Validated the marketplace manifest and $found plugin(s)."
