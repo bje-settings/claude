@@ -97,6 +97,26 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+## Sharing a plugin outside this repo
+
+This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
+it either. Until it is published, a single plugin can be mirrored into a repository that team does
+have access to, and that repository supplies its own marketplace manifest.
+
+```bash
+python3 scripts/publish-plugin.py <plugin> <path-to-destination-repo> --check   # what would change
+python3 scripts/publish-plugin.py <plugin> <path-to-destination-repo>           # do it
+```
+
+The `/publish` skill wraps that with the checks worth running first and opens the pull request
+downstream. The mirror publishes what git tracks, writes only `<dest>/plugins/<name>/`, and
+commits nothing; `UPSTREAM.json` in the copy records the source repository, version and commit it
+came from. Re-publishing unchanged content is byte-identical, so any diff in a sync pull request
+is real content.
+
+`gh` is mirrored into `sm-incubator/org-claude` today. That copy is generated: fixes belong here
+and get republished, never edited downstream.
+
 ## Contributing
 
 Run `uv run --locked pytest -n auto --cov` for the whole suite. Every plugin script is Python, so

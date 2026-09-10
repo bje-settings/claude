@@ -127,7 +127,40 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 
 Every skill directory carries a `FLOW.md` beside its `SKILL.md`, holding a mermaid flow diagram.
 The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforced by
-`tests/test_skills.py` across all plugins; see `.claude/rules/file-skill-md.md`.
+`tests/test_skills.py` across the plugins **and** `.claude/skills/`; see
+`.claude/rules/file-skill-md.md`.
+
+## Repo tooling: root `scripts/` and `.claude/skills/`
+
+Not everything here is a plugin. `scripts/*.py` is this repo's own tooling and `.claude/skills/`
+holds the skills that drive it. Neither is installed by anyone, neither is in the marketplace
+manifest, and `claude plugin validate` never sees either. They are held to the same standards
+anyway, because they can change other repositories.
+
+Three things differ from a plugin, and `.claude/rules/type-py.md` has the detail: a root script is
+one self-contained module with no `lib/` and no `sys.path.insert`, repo-relative paths are correct
+in it rather than a defect, and its tests may drive it in-process. `tests/test_repo_layout.py`
+enforces the first of those, since its failure mode is a confusing error in an unrelated plugin's
+tests. Repo-local skills are checked by `tests/test_skills.py`, including the frontmatter that
+`--strict` would otherwise have covered.
+
+### Publishing a plugin downstream
+
+This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
+it either. Until it is published, a plugin is mirrored into a repository that team can read, and
+that repository carries its own marketplace manifest.
+
+`/publish <plugin> <dest>` is the skill; `scripts/publish-plugin.py` is the deterministic half.
+The mirror enumerates `git ls-files`, so what gets published is what is committed, and it writes
+only `<dest>/plugins/<name>/`. It never commits, and the destination repo reviews the result as a
+pull request.
+
+`sm-incubator/org-claude` is the one downstream today, holding a copy of `gh` in a marketplace
+named `lab`; teammates there install with `/plugin install gh@lab`. That copy is generated and
+read-only: a fix goes here and is republished, never edited there. Because it is distributed on
+its own, `plugins/gh/README.md` must stay free of enterprise framing and literal local paths.
+When this repo is published, the copy is replaced by a marketplace entry pointing here, and the
+script and skill retire.
 
 ### Tests
 

@@ -915,3 +915,215 @@ def test_an_unexpected_failure_is_not_mistaken_for_drift(script_copy, downstream
     result = run_script(broken, PLUGIN, str(downstream))
     assert result.status == 3
     assert "unexpected failure" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# arms that are awkward to reach from the outside
+#
+# Unit tests, per .claude/rules/type-py.md: "decision logic that is awkward to
+# provoke from the outside gets direct unit tests beside that". Several of these
+# are refusal arms that a black-box run can only reach with an elaborate fixture,
+# and one group is the stream handling inlined from
+# plugins/gh/scripts/lib/streams.py, whose whole risk is drifting from the
+# canonical copy unnoticed.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "   ",
+        "not-a-url",
+        "https://github.com/",
+        # One path segment: the host is not an owner, however much it looks like
+        # one to a pattern anchored at the end of the string.
+        "https://github.com/only-one-part",
+        "git@github.com:",
+    ],
+)
+def test_an_unusable_origin_url_yields_no_slug(publish, url):
+    """reads no owner/repo out of a URL it does not understand
+
+    Returning None rather than guessing is the point: a wrong `source` in the
+    copy's provenance reads like an answer, which is worse than a refusal.
+    """
+    assert publish.parse_origin(url) is None
+
+
+def test_binding_closed_streams_replaces_a_missing_stdout(publish, monkeypatch):
+    """gives the script somewhere to write when a descriptor is gone outright
+
+    Started with fd 1 closed, Python sets sys.stdout to None and every later
+    write is an AttributeError raised after the work is done.
+    """
+    monkeypatch.setattr(publish.sys, "stdout", None)
+    monkeypatch.setattr(publish.sys, "stderr", None)
+    publish.bind_closed_streams()
+    assert publish.sys.stdout is not None
+    publish.sys.stdout.write("swallowed")
+
+
+def test_use_utf8_leaves_a_stream_it_cannot_reconfigure(publish):
+    """does not raise on a stream with no reconfigure, or a detached one
+
+    The fallback is the original, loud UnicodeEncodeError, never a silent one.
+    """
+
+    class NoReconfigure:
+        pass
+
+    class Detached:
+        def reconfigure(self, **kwargs):
+            raise ValueError("underlying buffer has been detached")
+
+    publish.use_utf8(NoReconfigure())
+    publish.use_utf8(Detached())
+
+
+def test_write_goes_quiet_once_the_reader_has_gone(publish, monkeypatch):
+    """stops writing, and does not raise, after a broken pipe"""
+    silenced = []
+
+    class Gone:
+        def write(self, text):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(publish.sys, "stdout", Gone())
+    monkeypatch.setattr(publish, "silence_output", lambda **kwargs: silenced.append(kwargs))
+    publish.write("anything\n")
+    assert silenced == [{"include_stderr": False}]
+
+
+def test_it_refuses_in_process_without_git(publish, downstream, capsys, monkeypatch, sandbox):
+    """refuses with git's absence named, rather than raising FileNotFoundError"""
+    monkeypatch.setenv("PATH", sandbox.path_without("git"))
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "git is not on PATH" in err
+
+
+def test_refuses_a_plugin_with_nothing_committed(publish, marketplace, downstream, capsys):
+    """refuses a plugin directory git tracks no files under
+
+    A manifest on disk is not enough: the mirror publishes the index, so a
+    wholly untracked plugin would publish as an empty directory.
+    """
+    write(
+        marketplace / "plugins" / "ghost" / ".claude-plugin" / "plugin.json",
+        json.dumps({"name": "ghost", "version": "0.0.1"}) + "\n",
+    )
+    err = refuses(publish, downstream, capsys, "ghost", downstream)
+    assert "tracks no files" in err
+
+
+def add_gitlink(repo, path):
+    """Record `path` in the index as a submodule, without needing a real one.
+
+    git refuses a null sha for a gitlink, so it is given a real commit -- this
+    repo's own HEAD. Nothing reads through the pointer; what matters is that the
+    index reports mode 160000 for that path.
+    """
+    sha = git(repo, "rev-parse", "HEAD")
+    # The working tree needs a git directory at that path too, or git reports the
+    # gitlink as deleted and the dirty-source guard is what refuses instead.
+    nested = repo / path
+    nested.mkdir(parents=True, exist_ok=True)
+    git(nested, "init", "-q", "-b", "main")
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{sha},{path}")
+
+
+def test_refuses_a_submodule_in_the_source(publish, marketplace, downstream, capsys):
+    """refuses to publish a submodule, which is a pointer rather than content
+
+    Committed, not merely staged: the uncommitted-source refusal is checked
+    first and would otherwise be what this example proved.
+    """
+    add_gitlink(marketplace, "plugins/demo/vendored")
+    git(marketplace, "commit", "-q", "-m", "vendor something")
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "submodule" in err
+
+
+def test_refuses_a_submodule_in_the_destination(publish, downstream, capsys):
+    """refuses a destination copy that is itself a submodule
+
+    Deleting into a gitlink breaks the submodule and leaves .gitmodules stale.
+    """
+    add_gitlink(downstream, "plugins/demo")
+    (downstream / "plugins" / PLUGIN).mkdir(parents=True, exist_ok=True)
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "submodule" in err
+
+
+def test_refuses_a_symlinked_plugin_directory(publish, downstream, capsys, sandbox):
+    """refuses when the copy's own directory points somewhere else"""
+    elsewhere = sandbox / "elsewhere"
+    elsewhere.mkdir()
+    (downstream / "plugins").mkdir(parents=True, exist_ok=True)
+    (downstream / "plugins" / PLUGIN).symlink_to(str(elsewhere))
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "symlink" in err
+
+
+def test_refuses_when_the_destination_path_is_a_file(publish, downstream, capsys):
+    """refuses when something that is not a directory is already in the way"""
+    (downstream / "plugins").mkdir(parents=True, exist_ok=True)
+    write(downstream / "plugins" / PLUGIN, "a file, not a plugin\n")
+
+    err = refuses(publish, downstream, capsys, PLUGIN, downstream)
+    assert "not a directory" in err
+
+
+def test_a_write_that_fails_partway_says_how_to_recover(publish, downstream, capsys, monkeypatch):
+    """reports the git commands that undo a half-written copy
+
+    Copy-then-delete means a crash leaves a superset rather than a hole, and the
+    destination is required to be a git repo precisely so this is recoverable.
+    """
+
+    def explode(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(publish.shutil, "copy2", explode)
+    status, out, _ = invoke(publish, PLUGIN, downstream, capsys=capsys)
+
+    assert status == publish.EXIT_REFUSED
+    assert "failed partway" in out
+    assert "git -C" in out and "clean -fd" in out
+
+
+def test_an_unreadable_manifest_in_the_copy_is_drift(publish, downstream, capsys):
+    """exits 1 when the copied manifest cannot be parsed
+
+    The version comparison is how a half-finished apply is caught, so a manifest
+    that cannot be read is itself the signal rather than a reason to skip it.
+    """
+    invoke(publish, PLUGIN, downstream, capsys=capsys)
+    write(downstream / "plugins" / PLUGIN / ".claude-plugin" / "plugin.json", "{not json")
+
+    status, out, _ = invoke(publish, PLUGIN, downstream, "--check", capsys=capsys)
+    assert status == publish.EXIT_DRIFT
+    assert "cannot be read" in out
+
+
+def test_refuses_when_a_symlinked_parent_aims_back_at_the_source(
+    publish, marketplace, downstream, capsys
+):
+    """refuses a destination whose plugins/ points at the source's own
+
+    The subtlest way to end up overwriting the plugin with itself, and it slips
+    past every guard above: the destination is a genuinely different repository
+    with a different object store, neither it nor `plugins/demo` is a symlink,
+    and yet `<dest>/plugins/demo` and `<source>/plugins/demo` are one directory,
+    because `<dest>/plugins` is the symlink.
+    """
+    plugins = downstream / "plugins"
+    shutil.rmtree(str(plugins))
+    plugins.symlink_to(str(marketplace / "plugins"))
+
+    before = tree(marketplace)
+    status, _, err = invoke(publish, PLUGIN, downstream, capsys=capsys)
+    assert status == publish.EXIT_REFUSED
+    assert "same directory" in err
+    assert tree(marketplace) == before

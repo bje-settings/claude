@@ -205,13 +205,27 @@ def parse_origin(url):
     url = url.strip()
     if not url:
         return None
-    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", url)
+
+    # Peeled apart rather than matched in one go, because a single trailing
+    # pattern cannot tell a host from an owner: "https://host/repo" would hand
+    # back "host/repo", which looks exactly like a real answer and is wrong.
+    remainder = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://", "", url)
+    remainder = remainder.split("@", 1)[-1]
+    # The host, then the separator the two forms differ on: ':' for the scp-like
+    # SSH form, '/' for a URL. An optional port belongs to the host either way.
+    match = re.match(r"^[^/:]+(?::\d+)?[:/](.+)$", remainder)
     if not match:
         return None
-    owner, repo = match.group(1), match.group(2)
-    if not owner or not repo or owner in (".", "..") or repo in (".", ".."):
+
+    path = match.group(1).strip("/")
+    if path.endswith(".git"):
+        path = path[: -len(".git")]
+    parts = [part for part in path.split("/") if part and part not in (".", "..")]
+    if len(parts) < 2:
         return None
-    return f"{owner}/{repo}"
+    # The last two, so a self-hosted instance with nested groups still yields the
+    # owner and repository rather than the top of the group tree.
+    return "/".join(parts[-2:])
 
 
 # --------------------------------------------------------------------------
