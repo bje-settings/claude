@@ -1,6 +1,7 @@
 # gh
 
-GitHub and git workflow skills for the `bje` enterprise.
+GitHub and git workflow skills: keep checkouts current, and merge dependency
+pull requests one at a time.
 
 ## `/gh:sync`
 
@@ -203,9 +204,9 @@ resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
 The deterministic parts are two scripts; the agent only decides between their results.
 
 ```bash
-python3 plugins/gh/scripts/gh-shepherd-status.py <path>               # the work list, as JSON
-python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|settle|merged
-python3 plugins/gh/scripts/gh-shepherd-pr.py <path> <n> skip <reason-file>
+python3 <plugin>/scripts/gh-shepherd-status.py <path>               # the work list, as JSON
+python3 <plugin>/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|settle|merged
+python3 <plugin>/scripts/gh-shepherd-pr.py <path> <n> skip <reason-file>
 ```
 
 `status` changes nothing. `gh-shepherd-pr.py` writes only through `rebase` (the branch update),
@@ -271,21 +272,28 @@ something to act on.
 
 ## Credentials
 
-`direnv` sets `GH_CONFIG_DIR` per directory, and these scripts inherit the environment of the
-directory they were invoked from. Run the command from inside the org tree you are targeting so
-the correct GitHub account is active. This is also why `~/Code/@bje/` itself is a no-op: its
-immediate children are org directories rather than repositories, and an enterprise-wide sync
-would need different credentials per org anyway.
+These scripts shell out to `gh` and `git` and inherit the environment of the directory they
+were invoked from. If you use a per-directory credential switcher such as `direnv` to select a
+GitHub account (`GH_CONFIG_DIR`), run the command from inside the tree it applies to, so the
+right account is active.
+
+One consequence of the non-recursive scope: a directory whose immediate children are themselves
+directories *of* repositories, rather than repositories, is a no-op. That is deliberate. Such a
+tree usually spans several accounts, and one pass over it would use the wrong credentials for
+all but one.
 
 ## Running outside Claude Code
 
 The scripts have no dependency on the plugin runtime:
 
+From an installed copy of the plugin, `<plugin>` below is the plugin's own directory; inside
+Claude Code the skills use `${CLAUDE_PLUGIN_ROOT}` for it.
+
 ```bash
-python3 plugins/gh/scripts/gh-sync.py --dry-run ~/Code/@bje/@bje-settings
-python3 plugins/gh/scripts/gh-sync-repo.py --dry-run ~/Code/@bje/@bje-settings/terraform
-python3 plugins/gh/scripts/gh-shepherd-status.py ~/Code/@bje/@bje-settings/terraform
-python3 plugins/gh/scripts/gh-shepherd-pr.py ~/Code/@bje/@bje-settings/terraform 12 state
+python3 <plugin>/scripts/gh-sync.py --dry-run /path/to/a/directory-of-repos
+python3 <plugin>/scripts/gh-sync-repo.py --dry-run /path/to/a/repo
+python3 <plugin>/scripts/gh-shepherd-status.py /path/to/a/repo
+python3 <plugin>/scripts/gh-shepherd-pr.py /path/to/a/repo 12 state
 ```
 
 Every script in this plugin is Python: stdlib-only, targeting Python 3.9, which is what
@@ -293,28 +301,19 @@ Every script in this plugin is Python: stdlib-only, targeting Python 3.9, which 
 
 ## Tests
 
-Because this skill deletes branches and removes worktrees, its behaviour is asserted against
-real git repositories rather than mocks. The tests are pytest, in `tests/gh/`, fixtures
-included; `tests/gh/README.md` documents them.
+The tests for this plugin live in the repository that owns it, `bje-settings/claude`, under
+`tests/gh/`, and are not distributed with the plugin: a read-only copy of this directory carries
+the code and not the harness. If you are reading this in such a copy, `UPSTREAM.json` beside this
+file names the source repository and the commit the copy was taken from.
 
-```bash
-uv run --locked pytest tests/gh -q          # this plugin's tests alone
-uv run --locked pytest -n auto --cov        # the whole suite, with coverage
-```
+Because these skills delete branches and remove worktrees, their behaviour is asserted against
+real git repositories rather than mocks. Covered in particular: every path that can delete
+something (each merge signal, a reused branch name, a fork's pull request, a pull request merged
+into another base, worktrees clean and dirty), every preflight refusal, and the guarantee that
+`--dry-run` changes nothing it says it would change. `gh-sync-repo.py` and `gh-sync.py` are each
+asserted against the report their shell predecessors printed, captured scenario by scenario
+before those versions were deleted.
 
-`gh-sync-repo.py` and `gh-sync.py` are each asserted against the report their shell version
-printed, captured scenario by scenario in `tests/gh/golden/bash-output.json` and
-`golden/bash-sync-output.json` before those versions were deleted.
-
-CI adds a coverage job which fails below 95%, enforced by `tests/coverage_check.py`. The gate is
-one pooled report across every plugin; what `tests/gh/` exercises is this plugin's share. Run it
-locally with `uv run --locked pytest -n auto --cov --cov-report=xml` followed by
-`python3 tests/coverage_check.py coverage/python.xml 95`.
-All three supported package managers have an install test. The uncovered remainder is defensive branches
-guarding states that cannot be provoked, such as a ref that resolves during enumeration and fails
-immediately after.
-
-Covered in particular: every path that can delete something (each merge signal, a reused branch
-name, a fork's pull request, a pull request merged into another base, worktrees clean and dirty),
-every preflight refusal, and the guarantee that `--dry-run` changes nothing it says it would
-change. See `tests/gh/README.md` for how to build a scenario.
+All three supported package managers have an install test. The uncovered remainder is defensive
+branches guarding states that cannot be provoked, such as a ref that resolves during enumeration
+and fails immediately after.

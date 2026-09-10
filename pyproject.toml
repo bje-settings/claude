@@ -55,11 +55,16 @@ markers = [
 ]
 
 [tool.coverage.run]
+# plugins/ is what people install. scripts/ is this repo's own tooling, which is
+# not a plugin and is not installed by anyone, but can delete and overwrite files
+# in another repository, so it is held to the same gate rather than exempted for
+# being "just tooling".
+#
 # tests/ is here for one file, tests/coverage_check.py: it is test infrastructure,
 # but it decides whether a build passes, so it is measured like anything else
 # rather than trusted. coverage's source takes directories, not single files, so
 # the tests themselves are omitted below.
-source = ["plugins", "tests"]
+source = ["plugins", "scripts", "tests"]
 branch = true
 # The tests run each script black-box, as its own process, the way Claude Code
 # runs it. Without this the child process is not measured at all.

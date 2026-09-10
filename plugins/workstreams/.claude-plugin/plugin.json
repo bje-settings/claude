@@ -2,6 +2,7 @@
   "name": "workstreams",
   "description": "Turn a set of GitHub issues into parallel workstreams run by subagents, each ending in a reviewed draft PR. /workstreams:plan evaluates the issues, maps collisions into stacks, sizes each stream, and proposes the plan; /workstreams:run executes it as a self-timed loop; /workstreams:review runs one review round over a draft PR and applies what holds.",
   "version": "0.1.0",
+  "license": "MIT",
   "author": {
     "name": "Brian Espinosa",
     "email": "b@bje.co"

@@ -15,7 +15,8 @@ need `claude`.
 
 Tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub `gh`
 under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module basenames
-are unique across the suite, so a new one gets its plugin in the name.
+are unique across the suite, so a new one gets its plugin in the name. Tests that span plugins, or
+that cover the repo's own tooling under `scripts/`, sit at the root of `tests/`.
 
 Coverage is gated at 95%, the same threshold CI enforces:
 
@@ -56,6 +57,16 @@ Run them without committing:
 ```bash
 uv run --locked pre-commit run --all-files
 ```
+
+## Publishing a plugin downstream
+
+`/publish <plugin> <dest>` mirrors one plugin into a repository that cannot read this one, as a
+read-only copy. It runs the suite and manifest validation first, then
+`scripts/publish-plugin.py`, then opens a pull request in the destination.
+
+Run `python3 scripts/publish-plugin.py <plugin> <dest> --check` on its own any time to see whether
+a copy is current; it writes nothing and exits 1 if there is drift. Bump the plugin's `version`
+before publishing a content change, since downstream that is how one copy is told from another.
 
 ## Local install
 

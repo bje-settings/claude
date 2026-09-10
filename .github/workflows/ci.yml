@@ -124,11 +124,11 @@ jobs:
         with:
           enable-cache: true
 
-      # Coverage is measured for the plugins only, pooled across every plugin
-      # under plugins/, plus tests/coverage_check.py, which decides whether a
-      # build passes and so is measured rather than trusted. The tests
+      # Coverage is pooled across every plugin under plugins/, the repo's own
+      # tooling under scripts/, and tests/coverage_check.py, which decides
+      # whether a build passes and so is measured rather than trusted. The tests
       # themselves are test code: counting them would inflate the number without
-      # saying anything about how well the plugins are tested.
+      # saying anything about how well the code is tested.
       - name: Run the Python suite under coverage.py
         run: uv run --locked pytest -n auto --cov --cov-report=xml
 
