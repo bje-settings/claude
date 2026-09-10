@@ -1,6 +1,7 @@
 ---
 paths:
   - "plugins/**/*.py"
+  - "scripts/**/*.py"
   - "tests/**/*.py"
 ---
 
@@ -55,6 +56,32 @@ resolve.
 Test module basenames are unique across the whole suite for the same reason: pytest imports them
 into one namespace, so `test_gh_fixtures.py` and `test_ws_fixtures.py`, never two
 `test_fixtures.py`.
+
+## Repo tooling: `scripts/`
+
+`scripts/*.py` at the repo root is this repo's own tooling. It is **not** a plugin: nobody
+installs it, it is not in the marketplace manifest, and `claude plugin validate` never sees it.
+It is held to everything else on this page anyway, coverage gate included, because it can delete
+and overwrite files in another repository.
+
+Three things differ from a plugin script:
+
+- **No `lib/`, and no `sys.path.insert`.** A plugin reaches its shared code that way, and the root
+  `tests/conftest.py` cleans up after it by stripping leftover `sys.path` entries -- but only ones
+  whose parent parts contain `plugins`. A root `scripts` entry would survive that sweep and could
+  then shadow a plugin's own `lib` in a later test. So a root script is one self-contained module.
+  If it needs something a plugin's `lib/` already has, inline it with a comment naming the
+  canonical copy and saying why it is not imported, and cover it with tests of its own; do not
+  widen `_is_leftover_plugin_entry`, whose current meaning is precise.
+- **Repo-relative paths are correct here.** The rule that a literal path is a defect is about
+  plugins, which must run on any machine and any layout. Repo tooling runs in this checkout, so
+  `python3 scripts/<name>.py` is the right call form, and there is no `${CLAUDE_PLUGIN_ROOT}` for
+  it to use instead.
+- **Tests may drive it in-process.** A script that derives its own repository root from `__file__`
+  cannot be pointed at a fixture by copying it, because a copy is a different file and coverage's
+  relative `source` would not measure it. Load the real module by path and set its root, and keep
+  a few `run_script` examples for the contracts that only exist at the process boundary. See the
+  docstring in `tests/test_publish.py`.
 
 ## The 3.9 floor
 
