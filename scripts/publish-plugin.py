@@ -144,6 +144,12 @@ def flush_quietly():
     try:
         sys.stdout.flush()
     except (BrokenPipeError, ValueError):
+        # Swallowed on purpose, and only these two. This runs on the way to
+        # reporting a failure on stderr, so it must not become the failure: a
+        # reader that has gone away (BrokenPipeError) or a stream already closed
+        # or detached (ValueError) are both states where there is nothing left to
+        # flush and nothing anyone can do about it. The message that matters is
+        # the one printed to stderr immediately after.
         pass
 
 
