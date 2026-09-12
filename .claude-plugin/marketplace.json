@@ -23,6 +23,12 @@
       "source": "./plugins/field-test",
       "description": "Plugin quality assurance. /field-test:run runs a skill or command under observation and files one reproducible issue per problem; /field-test:harden loops that over a list of repositories and drives each round through fix, review, and merge until the skill is clean.",
       "category": "development"
+    },
+    {
+      "name": "mermaid",
+      "source": "./plugins/mermaid",
+      "description": "Mermaid diagram previews. /mermaid:view shares a mermaid.live or mermaid.ink link for a diagram whenever one is written, edited, or reviewed.",
+      "category": "development"
     }
   ]
 }

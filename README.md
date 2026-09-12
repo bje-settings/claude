@@ -97,6 +97,21 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+### [`mermaid`](plugins/mermaid)
+
+> Mermaid diagram previews.
+
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/mermaid#mermaidview"><code>/mermaid:view</code></a>: share a mermaid.live or mermaid.ink preview link, built by a script rather than by hand, whenever a Mermaid diagram is written, edited, or reviewed.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
 ## Sharing a plugin outside this repo
 
 This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
