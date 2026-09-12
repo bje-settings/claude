@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# local, untracked claude notes
+CLAUDE.local.md
+
 # coverage and report artifacts
 /coverage/
 
