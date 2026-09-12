@@ -92,6 +92,8 @@ Pick the mechanism by the decision rule in the
 [extension overview](https://code.claude.com/docs/en/features-overview#match-features-to-your-goal).
 If a plugin grows until the right mechanism changes, raise it during planning or review.
 
+- Skills and tools should aim to be as simple as possible.
+- Anything getting too complex may need to become modular primitives instead.
 - Hook when the action must happen the same way every time and needs no reasoning. Hooks cost
   zero context unless they return output. Guardrails belong in `PreToolUse` hooks; an instruction
   in CLAUDE.md or a skill is a request, not enforcement.
