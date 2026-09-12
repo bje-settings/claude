@@ -18,48 +18,22 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 
 Plugins are listed in `README.md`; each has its own README.
 
-New `gh` skills belong in the `gh` plugin, which is the intended home for the commands still in
-`~/Code/@brianespinosa/dotfiles/.claude/commands/gh/` (`rebase-prs`, `security-alerts`,
-`tidy-user-notifications`). The no-checkout rebase `rebase-prs` performs already lives here as
-`gh-shepherd-pr.py rebase`; repo discovery shared by skills is `scripts/lib/discover.py`.
+New `gh` skills belong in the `gh` plugin. Repo discovery shared by skills is
+`scripts/lib/discover.py`.
 
-Plugin scripts are Python. Nothing under `plugins/` is bash any more, and nothing new should be:
-the harness, the coverage tooling, and the rules all assume Python. A Python script goes at
-`plugins/<plugin>/scripts/*.py` and a hook at `plugins/<plugin>/hooks/*.py`; code shared inside one
-plugin goes in `plugins/<plugin>/scripts/lib/`, imported by `sys.path.insert(0, HERE)` where `HERE`
-is the script's own directory, and a hook, which sits one level across rather than one level up,
-inserts the sibling `scripts/` directory instead. Nothing imports across plugins: a user installs
-one plugin without the others. `plugins/gh/scripts/lib/` and `plugins/workstreams/scripts/lib/` are
-the worked examples: `cli.py` holds what every one of a plugin's scripts does around its own work
-(the UTF-8 output streams, the flush, a reported failure, a closed pipe, an unanticipated
-exception), and the modules beside it hold what used to be each script's jq filters and argument
-checks, as plain functions with a unit test per arm. `plugins/field-test/scripts/lib/` is the same
-shape, and its `run.py` is what `hooks/hook-io.py` imports rather than keeping a second copy of
-where the run marker lives. Scripts import `lib` through `sys.path`; tests load a plugin's lib
-modules by path under a plugin-unique module name, so the names the tests themselves hold do not
-collide. That by-path load is not on its own enough: a script loaded in-process still runs its own
-`from lib import ...` through `sys.modules["lib"]`, which the root `conftest.py` resets before every
-test. The loader is why nothing under `lib/` imports another `lib/` module: a module loaded by path
-sits outside any package, where a sibling import would not resolve, so a module that raises its own
-error class hands it to `cli.run` rather than importing one.
-
-Two plugins' `lib` packages collide on `sys.modules["lib"]`, because pytest runs every plugin's
-tests in one process while each script resolves `lib` from its own `sys.path`. The root
-`tests/conftest.py` handles it: an autouse fixture drops every `lib` and `lib.*` module and every
-leftover `plugins/<plugin>/scripts` or `.../hooks` entry from `sys.path` before each test and again
-after it, so each in-process load re-resolves `lib` from its own script's directory. Do not change
-how a plugin script imports; end users run them as processes. An in-process loader must not cache a
-script module across tests, or it hands the next test another plugin's `lib`; load it inside the
-test that uses it.
+Plugin scripts are Python (stdlib only, see below); nothing under `plugins/` is bash. A script goes
+at `plugins/<plugin>/scripts/*.py`, a hook at `plugins/<plugin>/hooks/*.py`, and code shared within
+one plugin goes in `plugins/<plugin>/scripts/lib/`, imported via `sys.path.insert(0, HERE)`.
+Nothing imports across plugins, and nothing under one plugin's `lib/` imports another `lib/`
+module — `plugins/gh/scripts/lib/` and `plugins/workstreams/scripts/lib/` are the worked examples.
+Do not change how a plugin script imports `lib`: the root `tests/conftest.py` resets
+`sys.modules`/`sys.path` between tests so each plugin's `lib` resolves independently, which means
+an in-process test loader must not cache a script module across tests either.
 
 Stdlib only, always, so an end user never needs `uv` or a virtualenv to run a plugin. The floor is
-Python 3.9, which is what a Mac with the Command Line Tools has at `/usr/bin/python3`. ruff's
-`target-version = "py39"` plus the `FA` rules catch the syntax: `match`, and a PEP 604 `X | None`
-annotation in a module with no `from __future__ import annotations`. It cannot catch library
-surface, such as `datetime.UTC` or a keyword argument added in a later release; only running on 3.9
-does, which is what the `pytest-floor` job is for. A script's exit codes and its stdout are a
-contract: the callers are skills and agents that read both, so a change to either is a change to
-every call site.
+Python 3.9 (what a Mac's Command Line Tools ships at `/usr/bin/python3`); ruff's `target-version`
+catches most syntax issues, but library surface added after 3.9 only the `pytest-floor` CI job
+catches. A script's exit codes and stdout are a contract with the skills/agents that call it.
 
 `workstreams` depends on `gh-stack` and `pr-review-toolkit` through its preflight script; do not
 vendor either. `field-test` depends on `workstreams` and `pr-review-toolkit` the same way, through
@@ -115,10 +89,8 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - Plugin state lives under `${CLAUDE_PLUGIN_DATA}`. `${CLAUDE_PLUGIN_ROOT}` changes on update.
 - Derive what a plugin needs each time it runs, rather than writing a file to remember it. State
   on disk is a last resort: it is the copy that goes stale. A plugin that must keep state or a
-  plan owns the whole lifecycle of it -- creation, resume, reconcile
-  against the source of truth, and archive or removal when it is finished -- not just the write.
-  `plugins/workstreams/docs/spike-65-state-file.md` is the worked example: what could be derived,
-  what could not, and what the file owed once it was kept.
+  plan owns its whole lifecycle -- creation, resume, reconcile against the source of truth, and
+  archive or removal when finished -- not just the write.
 - A plugin works generally, on any machine and any repository layout. Nothing in one may assume
   the author's directory structure, tool setup, or environment beyond what its preflight script
   checks and reports. Paths come from `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, and the
@@ -161,8 +133,6 @@ pull request.
 named `lab`; teammates there install with `/plugin install gh@lab`. That copy is generated and
 read-only: a fix goes here and is republished, never edited there. Because it is distributed on
 its own, `plugins/gh/README.md` must stay free of enterprise framing and literal local paths.
-When this repo is published, the copy is replaced by a marketplace entry pointing here, and the
-script and skill retire.
 
 ### Tests
 
@@ -182,22 +152,13 @@ whose `path_without` method builds a `PATH` holding the real tools minus the nam
 top of those.
 
 Coverage is coverage.py with `branch = true` and `patch = ["subprocess"]`, so a script exercised
-black-box in a child process is still measured. Branch coverage is the point: a former `jq`
-program moved into Python stops being one opaque line and becomes arms the report can name, which
-is why the port was worth doing at all. Stub tools under `tests/<plugin>/bin/` are omitted from the
-config, since the subprocess patch would otherwise measure a fixture standing in for a tool as code
-under test. Every omit pattern is `**/`-prefixed because a relative one is anchored to the current
-directory of whichever process reads the config, and coverage.py re-reads it in every measured
-child. See `.claude/rules/type-py.md`.
+black-box in a child process is still measured. Stub tools under `tests/<plugin>/bin/` are omitted
+from the config. See `.claude/rules/type-py.md`.
 
-`tests/coverage_check.py` is the gate, at 95%, and is itself in the denominator, because a gate
-nobody tests is a gate nobody can trust. 95% is the enterprise Code Coverage ruleset's threshold.
-The script is deliberately stdlib-only and 3.9-compatible: CI runs it with the runner's system
-`python3`, outside the uv environment, so a broken dev environment is never what decides whether a
-build passes. It prints per-file numbers with the uncovered lines, and the partly-taken branches
-beside them, so a drop says which file moved. The gate itself is the report's root line-rate: a
-partial branch is reported for a human to act on, never enforced. Reproduce a CI coverage run with
-`uv run --locked pytest -n auto --cov --cov-report=xml` followed by
+`tests/coverage_check.py` is the gate, at 95% (the enterprise Code Coverage ruleset's threshold),
+and is itself in the denominator. It's deliberately stdlib-only and 3.9-compatible since CI runs
+it with the runner's system `python3`, outside the uv environment. Reproduce a CI coverage run
+with `uv run --locked pytest -n auto --cov --cov-report=xml` followed by
 `python3 tests/coverage_check.py coverage/python.xml 95`.
 
 The suite runs in parallel under `pytest-xdist` (`-n auto`), so every test must build its state in
@@ -205,12 +166,10 @@ its own temp dir (the `sandbox` fixture); nothing may write to the checkout or t
 
 The CI job names `ruff`, `pytest`, `pytest-floor` and `coverage` in `ci.yml`, plus `plugin-validate`
 in its own workflow, are required checks on the default branch, matched by exact string. Renaming
-one does not fail the build: the required check never reports and pull requests wait forever. Put
-descriptive text in step names instead. A new job name becomes a required check only after it has
-reported on main, because one that never has blocks every pull request; add it to the ruleset right
-after the pull request that introduces it merges. Removing a job is the mirror image: delete its
-name from the ruleset before merging the pull request that removes it, or that pull request and
-every later one wait on a check that never reports.
+one silently blocks every pull request forever (the required check never reports again) -- put
+descriptive text in step names instead. Adding or removing a required job means updating the
+branch ruleset in the same pull request (add only after the new name has reported on main once;
+remove before the pull request that drops the job merges).
 
 Manifest validation is its own workflow, `.github/workflows/plugin-validate.yml`, so a bad manifest
 reads as its own check rather than as a failure inside `ci.yml`. It runs `claude plugin validate
@@ -237,11 +196,6 @@ repos outside the `bje` enterprise into this repo; reconstruct the shape of the 
 
 Test the non-deterministic parts too. For a skill or agent, run realistic prompts in fresh
 sessions with and without it and compare, or use the official `skill-creator` plugin for evals.
-
-## Rules and settings syncing (future)
-
-Not yet implemented. When added, this section should describe how `.claude/rules/` and
-`settings.json` get shared into other `@bje` repos.
 
 ## Enterprise CLAUDE.md
 
