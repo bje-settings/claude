@@ -1,10 +1,11 @@
 """Build a mermaid.live / mermaid.ink preview URL for a diagram read from stdin.
 
 One script, no `lib/`: this plugin has nothing else to share it with. The guard
-around `main` (UTF-8 streams, broken-pipe handling) is the same shape every
-other plugin's `scripts/lib/cli.py` gives its scripts; inlined here rather than
-imported, since nothing crosses plugin boundaries and there is no second script
-in this plugin to justify a shared module.
+around `main` (UTF-8 streams, broken-pipe handling) is the same shape
+`workstreams` and `field-test` give their scripts via `scripts/lib/cli.py`
+(`gh` has no such module; its `lib/streams.py` covers only the UTF-8 half).
+Inlined here rather than imported, since nothing crosses plugin boundaries and
+there is no second script in this plugin to justify a shared module.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import json
 import os
 import sys
 import zlib
+
+PROG = "mermaid-url.py"
 
 ROUTES = {
     "view": "https://mermaid.live/view#pako:{payload}",
@@ -40,7 +43,10 @@ def build_url(diagram: str, route: str, theme: str) -> str:
     (the Mermaid config, itself JSON, as a *string* rather than a nested
     object -- that is what mermaid.live's own decoder expects). Editor UI keys
     (`grid`, `panZoom`, `pan`, `zoom`, ...) are omitted; they are view state,
-    not part of the diagram.
+    not part of the diagram. `theme` is passed through verbatim: Mermaid
+    accepts custom theme names alongside its built-in set, so nothing here
+    restricts it -- a typo just renders with the wrong theme rather than
+    failing.
     """
     state = {"code": diagram, "mermaid": json.dumps({"theme": theme})}
     compressed = zlib.compress(json.dumps(state).encode("utf-8"), 9)
@@ -48,35 +54,50 @@ def build_url(diagram: str, route: str, theme: str) -> str:
     return ROUTES[route].format(payload=payload)
 
 
+def read_diagram() -> str:
+    """Read the diagram source from stdin as strict UTF-8.
+
+    Read at the byte level rather than through text-mode `sys.stdin`: a
+    malformed byte here is data loss, not a display glitch, since it would be
+    compressed into the URL and shared. `errors="replace"` -- the right call
+    for stdout/stderr, where it only affects how already-correct data is
+    displayed -- would otherwise silently swap the offending byte for U+FFFD
+    and hand back a corrupted, still-"successful" link.
+    """
+    raw = sys.stdin.buffer.read()
+    try:
+        diagram = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise Failure(f"diagram source is not valid UTF-8: {error}") from error
+    return diagram.strip()
+
+
 def run(argv: list[str]) -> str:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog=PROG, description=__doc__.splitlines()[0])
     parser.add_argument("--route", choices=sorted(ROUTES), default="view")
     parser.add_argument("--theme", default="default")
     args = parser.parse_args(argv)
 
-    diagram = sys.stdin.read().strip()
+    diagram = read_diagram()
     if not diagram:
         raise Failure("no diagram source on stdin")
 
     return build_url(diagram, args.route, args.theme)
 
 
-def main() -> int:
-    # stdin too, not just stdout/stderr: unlike most plugin scripts, this one's
-    # own input is untrusted text (the diagram source), not just its output.
-    for name in ("stdin", "stdout", "stderr"):
+def main(argv: list[str] | None = None) -> int:
+    for name in ("stdout", "stderr"):
         try:
             getattr(sys, name).reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
 
-    prog = "mermaid-url"
     try:
-        url = run(sys.argv[1:])
+        url = run(sys.argv[1:] if argv is None else argv)
         sys.stdout.write(url + "\n")
         sys.stdout.flush()
     except Failure as error:
-        sys.stderr.write(f"{prog}: {error.message}\n")
+        sys.stderr.write(f"{PROG}: {error.message}\n")
         return error.status
     except BrokenPipeError:
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -87,7 +108,7 @@ def main() -> int:
             os.close(devnull)
         return 0
     except Exception as error:
-        sys.stderr.write(f"{prog}: internal error: {type(error).__name__}: {error}\n")
+        sys.stderr.write(f"{PROG}: internal error: {type(error).__name__}: {error}\n")
         return 1
     return 0
 

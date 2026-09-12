@@ -15,7 +15,13 @@ EOF
 ```
 
 Post it as a short markdown link, never bare: `[Preview: <short description>](<url>)`.
+Add `--theme <name>` when the user asks for a specific Mermaid theme (default is `default`).
 
-`view` is the default and read-only. Use `--route edit` only when the user asks for an
-editable link. Use `--route ink-svg` or `--route ink-img` only when the diagram is going
-into a markdown or issue image embed rather than chat.
+`view` is the default and read-only: the diagram never leaves the browser, since
+mermaid.live decodes it from the URL fragment, which is never sent to a server.
+Use `--route edit` only when the user asks for an editable link.
+
+`--route ink-svg`/`--route ink-img` send the diagram to mermaid.ink instead, which decodes
+it server-side to return an image. Use one of these only when the diagram is going into a
+markdown or issue image embed rather than chat, and only for a diagram that's fine to send
+to a third party.

@@ -8,7 +8,7 @@ flowchart TD
 
     B --> C{User asked for<br/>an editable link?}
     C -->|Yes| D[--route edit]
-    C -->|No| E{Going into a markdown<br/>or issue image embed?}
+    C -->|No| E{Going into a markdown or issue<br/>image embed, and OK to send<br/>to mermaid.ink server-side?}
     E -->|Yes| F[--route ink-svg / ink-img]
     E -->|No| G[--route view, the default]
 

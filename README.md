@@ -106,7 +106,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Skills</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/mermaid#mermaidview"><code>/mermaid:view</code></a>: share a mermaid.live preview link, built by a script rather than by hand, whenever a Mermaid diagram is written, edited, or reviewed.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/mermaid#mermaidview"><code>/mermaid:view</code></a>: share a mermaid.live or mermaid.ink preview link, built by a script rather than by hand, whenever a Mermaid diagram is written, edited, or reviewed.</li>
       </ul>
     </td>
   </tr>

@@ -27,7 +27,7 @@
     {
       "name": "mermaid",
       "source": "./plugins/mermaid",
-      "description": "Mermaid diagram previews. /mermaid:view shares a mermaid.live link for a diagram whenever one is written, edited, or reviewed.",
+      "description": "Mermaid diagram previews. /mermaid:view shares a mermaid.live or mermaid.ink link for a diagram whenever one is written, edited, or reviewed.",
       "category": "development"
     }
   ]
