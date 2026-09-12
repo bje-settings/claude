@@ -90,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
         try:
             getattr(sys, name).reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
+            # AttributeError: no `reconfigure` at all -- a caller replaced the
+            # stream with something of its own (a test double, an io.StringIO),
+            # which already accepts str and has no encoding to change.
+            # ValueError: the stream has the method but refuses (e.g. it's
+            # already closed); nothing to fix here either -- a write to it
+            # will raise on its own terms regardless of encoding.
             pass
 
     try:
