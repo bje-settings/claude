@@ -154,7 +154,7 @@ so a stale `uv.lock` fails instead of being rewritten under you.
 - A plugin's tests live in `tests/<plugin>/`; tests that span plugins or cover the harness itself
   sit at the root of `tests/`.
 - A test module's basename is unique across the whole suite, because pytest imports them into one
-  namespace -- hence `test_gh_fixtures.py` and `test_ws_fixtures.py` rather than two
+  namespace -- hence `test_gh_fixtures.py` and `test_ft_fixtures.py` rather than two
   `test_fixtures.py`.
 - `run_script` drives a script black-box, as its own process under `sys.executable`, the way
   Claude Code runs it; decision logic that's awkward to provoke from the outside gets direct unit

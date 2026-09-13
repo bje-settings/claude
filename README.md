@@ -62,7 +62,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testrun-target-args"><code>/field-test:run</code></a>: run a skill or command as a field test, collect what its scripts and subagents actually did, and file one reproducible issue per problem on the repository that owns the plugin under test. Every issue is shown before it is created.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testharden-pluginskill---targets-repo-path"><code>/field-test:harden</code></a>: run that loop over an ordered list of target repositories, verify each round's report against GitHub, and drive the findings through fix, review, and merge until the skill is clean or a decision needs a person.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testharden-pluginskill---targets-repo-path"><code>/field-test:harden</code></a>: run that loop over an ordered list of target repositories, verify each round's report against GitHub, and drive the findings through fix, review, and merge until the skill is clean or a decision needs a person. Unavailable until <a href="https://github.com/bje-settings/claude/issues/111">#111</a> lands.</li>
       </ul>
     </td>
   </tr>
