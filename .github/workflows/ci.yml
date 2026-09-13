@@ -44,6 +44,7 @@ jobs:
             echo "expected node minor >= 18, got $node_version" >&2
             exit 1
           fi
+          # Must match .npmrc's use-node-version exactly; bump both together.
           pnpm_node_version="$(pnpm exec node --version)"
           if [[ "$pnpm_node_version" != "v22.23.2" ]]; then
             echo "expected pnpm exec node --version to print v22.23.2 exactly, got $pnpm_node_version" >&2
