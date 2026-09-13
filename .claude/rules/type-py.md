@@ -54,7 +54,7 @@ resets before every test. The by-path loader is also why nothing under `lib/` im
 resolve.
 
 Test module basenames are unique across the whole suite for the same reason: pytest imports them
-into one namespace, so `test_gh_fixtures.py` and `test_ws_fixtures.py`, never two
+into one namespace, so `test_gh_fixtures.py` and `test_ft_fixtures.py`, never two
 `test_fixtures.py`.
 
 ## Repo tooling: `scripts/`
