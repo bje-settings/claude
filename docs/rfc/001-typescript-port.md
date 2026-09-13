@@ -238,10 +238,10 @@ plugin was laid out rather than after four were.
 ### Hooks
 
 Both Python hook scripts port: the `gh` SessionStart hook, and `field-test`'s PreToolUse and
-PostToolUse hooks, which run on every Bash call, plus its SubagentStop and Stop hooks. The
-`command -v python3` guard each one carries becomes a silent Node floor guard: it checks the
-runtime, exits quietly when it cannot run, and says nothing on the happy path, because a hook that
-writes to stderr writes into every tool call.
+PostToolUse hooks, which run on every Bash call, plus its PostToolUseFailure, SubagentStop and Stop
+hooks. The `command -v python3` guard each one carries becomes a silent Node floor guard: it
+checks the runtime, exits quietly when it cannot run, and says nothing on the happy path, because a
+hook that writes to stderr writes into every tool call.
 
 The cost is measured rather than assumed. On the author's machine, a bare `python3` start is about
 33 ms and the current `field-test` hook about 45 ms; a bare `node` start is about 42 ms and a
@@ -353,11 +353,15 @@ entry is load-bearing here.
   file where `plugins/<p>/src/lib` should be, and the failure is an unresolved import rather than a
   clear message. The repository's own tooling already assumes a POSIX checkout, but this makes the
   assumption load-bearing for anyone editing plugin code.
-- **The local-marketplace dereference is unverified.** The documented behavior covers installation
-  from a marketplace. The local development flow, `/plugin marketplace add ./repo` followed by
-  `/plugin install <name>@bje`, is believed to take the same path and is not proven.
+- **The local development flow probably does not get the dereference.** The plugins reference
+  carves three install paths out of the three-way rule: with `--plugin-dir`, from a local path, or
+  from a `command` source in copy mode, only symlinks resolving inside the plugin's own directory
+  are preserved, and all others are skipped. `/plugin marketplace add ./repo` followed by
+  `/plugin install <name>@bje` reads as the local-path case, which would leave a locally installed
+  plugin without its root `lib/` and needing a documented step in place of the dereference. The
+  installed and mirrored paths, which are the ones users take, are unaffected.
   [#127](https://github.com/bje-settings/claude/issues/127) is the first plugin that links the root
-  lib, and confirming this is its acceptance criterion.
+  lib, and settling the local step is in its scope.
 - **A type system is not a domain check.** Nothing about TypeScript catches a shepherd that treats
   a cancelled check as pending. The mutation discipline in `.claude/rules/type-py.md` is what caught
   that, and it carries into `type-ts.md` unchanged, because it is the part of the current setup that
@@ -386,7 +390,7 @@ plugin code moves; this is the substrate arriving.
 | T8 | [#122](https://github.com/bje-settings/claude/issues/122) | Require `biome`, `types` and `vitest` on ruleset 22359720 |
 | T9 | [#123](https://github.com/bje-settings/claude/issues/123) | `CLAUDE.md` and a `type-ts.md` rule for the TypeScript layer |
 
-**[Milestone 3: TypeScript port, mermaid and gh](https://github.com/bje-settings/claude/milestone/3).**
+**[Milestone 3: TypeScript port: mermaid and gh](https://github.com/bje-settings/claude/milestone/3).**
 The harness first, then the root lib, then the smallest plugin as a tracer bullet, then the largest
 parity port.
 
@@ -452,17 +456,20 @@ It absorbs six `field-test` issues: [#93](https://github.com/bje-settings/claude
   scope. The answer decides where #122 and #138 make their edits, in HCL under review or in the
   GitHub UI. It does not change what the required-check list should contain, so it blocks neither
   milestone 2's first issues nor this RFC.
-- **Does `/plugin marketplace add ./repo` dereference the root-lib symlink?** The documented
-  three-way rule is stated for marketplace installation. The local development flow is assumed to
-  take the same path and is unproven until #127, where confirming it is an acceptance criterion. If
-  it does not, the local flow needs a documented step and the decision on the root `lib/` is
-  unaffected, because the installed and mirrored paths are the ones users take.
+- **What does the local development flow do in place of the dereference?** The plugins reference
+  answers the underlying question the other way from the assumption this RFC started with: for a
+  plugin installed with `--plugin-dir`, from a local path, or from a `command` source in copy mode,
+  only symlinks resolving inside the plugin's own directory survive.
+  `/plugin marketplace add ./repo` reads as the local-path case, so what is open is what replaces
+  the dereference there, a documented step or a different local flow. #127 settles it on the first
+  plugin that links the root lib. The decision on the root `lib/` is unaffected either way, because
+  the installed and mirrored paths are the ones users take.
 
 ## Decisions & Follow-ups
 
-Eleven decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5 and 10
-are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions 1, 6 and 7 by
-[ADR 002](../adr/002-quality-gate-venues.md).
+Thirteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
+and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions 1, 6, 7 and
+13 by [ADR 002](../adr/002-quality-gate-venues.md).
 
 1. **The coverage report keeps its consumer.** `actions/upload-code-coverage` stays, feeding the
    enterprise Code Coverage ruleset; vitest's own thresholds are the gate; the `cobertura` reporter
@@ -522,6 +529,18 @@ are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions
     `path-docs-rfc` rules copied from `SurveyMonkey/skills` unchanged. *Against:* it is a docs tree
     to maintain, with an index to keep current on every landing, in a repository that has managed
     without one by putting its reasoning in `CLAUDE.md` and in comments.
+12. **Erasable syntax only**, enforced by `tsc --erasableSyntaxOnly`, with explicit `.ts` imports,
+    `nodenext` for both `module` and `moduleResolution`, `allowImportingTsExtensions`, and no build
+    step anywhere in the tree. *Against:* it rules out `enum`, parameter properties and namespaces,
+    which are ordinary TypeScript that every other project a contributor has worked in allows, and
+    it makes the substrate depend on a runtime feature younger than anything else in the toolchain,
+    with a compiler flag rather than a compiler standing between the source and a launch failure.
+13. **The local hooks are staged-only and never run a suite**, with lefthook replacing the
+    pre-commit framework and `vitest related` resolving the module graph so the hook scales with
+    the diff rather than with the repository. *Against:* a commit stops proving the suite is green,
+    which is most of what the current hook is for, so a contributor can commit something CI will
+    fail on; and stating it as a rule rather than as a budget forecloses running a suite locally
+    even at a size where it would still be cheap.
 
 **The fresh slate is literal.** #129 removes `plugins/workstreams` and `tests/workstreams` as soon
 as this RFC merges; the primitives are written into an empty directory.
@@ -533,14 +552,16 @@ Two constraints found while verifying the shape, both of which bind anything bui
   network fetch on someone else's machine. Dependencies are declared once, at the repository root,
   and everything a plugin ships at run time is either in its own tree or in the root `lib/` the
   installer dereferenced into it.
-- **The local marketplace flow must be confirmed to dereference the root-lib symlink**, on the first
-  plugin that links it, which is #127. Until then the documented behavior covers installation and
-  the local development flow is an assumption.
+- **The local development flow needs its own answer for the root-lib symlink.** The documented
+  three-way rule has a carve-out for `--plugin-dir`, local-path and copy-mode `command` installs,
+  where only symlinks inside the plugin's own directory survive, and
+  `/plugin marketplace add ./repo` reads as that carve-out. #127 is the first plugin that links the
+  root lib and is where the local step is settled.
 
 ## Related
 
 - [Milestone 2: TypeScript toolchain](https://github.com/bje-settings/claude/milestone/2)
-- [Milestone 3: TypeScript port, mermaid and gh](https://github.com/bje-settings/claude/milestone/3)
+- [Milestone 3: TypeScript port: mermaid and gh](https://github.com/bje-settings/claude/milestone/3)
 - [Milestone 4: workstreams primitives](https://github.com/bje-settings/claude/milestone/4)
 - [Milestone 5: field-test on TypeScript](https://github.com/bje-settings/claude/milestone/5)
 - [#111: rebuild workstreams on the round primitives](https://github.com/bje-settings/claude/issues/111)

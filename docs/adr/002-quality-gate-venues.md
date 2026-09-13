@@ -4,7 +4,7 @@ description: Local hooks run staged-only through lefthook and never run a suite,
 status: stable
 created: 2026-09-12
 owner: brianespinosa
-related_milestones: [2]
+related_milestones: [2, 5]
 ---
 
 # ADR 002: Quality gate venues
