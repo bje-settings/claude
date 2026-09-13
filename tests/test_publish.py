@@ -141,8 +141,7 @@ def tree(root):
 
 
 def untouched(repo):
-    """The property a refusal (or a no-op) actually promises: nothing written,
-    nothing committed.
+    """What a refusal (or a no-op) actually promises: nothing written, nothing committed.
 
     `.git` is pruned from the walk on purpose. Git rewrites files under it --
     `.git/objects/maintenance.lock`, created and removed around auto-maintenance
@@ -277,10 +276,27 @@ def test_untouched_changes_when_the_working_tree_gains_a_file(downstream):
 
 
 def test_untouched_changes_when_a_commit_moves_head(downstream):
-    """treats a new commit as a real change, because HEAD moved"""
+    """treats a new commit as a real change, because HEAD moved
+
+    An empty commit, so nothing else about the snapshot can account for the
+    difference: a commit that also edited a tracked file would still fail this
+    assertion with HEAD tracking deleted from `untouched()` entirely, and would
+    prove nothing about the `rev-parse HEAD` half of the helper.
+    """
     before = untouched(downstream)
-    write(downstream / "README.md", "# downstream, edited\n")
-    commit_all(downstream, "edit")
+    git(downstream, "commit", "-q", "--allow-empty", "-m", "move head")
+    assert untouched(downstream) != before
+
+
+def test_untouched_changes_when_the_index_moves_without_touching_a_byte(downstream):
+    """treats an index-only change as real, though no file on disk moved and HEAD stayed put
+
+    `git rm --cached` untracks a file without touching it on disk: the working
+    tree is byte-for-byte the same before and after, and no commit happens, so
+    only `git status` can account for the difference this proves.
+    """
+    before = untouched(downstream)
+    git(downstream, "rm", "-q", "--cached", "plugins/neighbour/keep.md")
     assert untouched(downstream) != before
 
 
@@ -472,18 +488,21 @@ def test_untracked_and_ignored_files_are_never_published(publish, marketplace, d
 
 
 def test_nothing_outside_the_plugin_directory_is_touched(publish, downstream, capsys):
-    """writes only <dest>/plugins/<name>/, never a neighbour"""
-    before = {
-        name: value
-        for name, value in tree(downstream).items()
-        if not name.startswith(os.path.join("plugins", PLUGIN))
-    }
+    """writes only <dest>/plugins/<name>/, never a neighbour
+
+    Reads the `.git`-pruned walk `untouched()` uses, not `tree()`: this is a
+    before/after comparison of the whole repo, filtered down to what sits
+    outside the plugin directory, and `tree()` would carry the same
+    `.git/objects/maintenance.lock`-style race #140 fixed elsewhere in this file.
+    """
+    prefix = os.path.join("plugins", PLUGIN)
+
+    def outside(snapshot):
+        return {name: value for name, value in snapshot.items() if not name.startswith(prefix)}
+
+    before = outside(untouched(downstream)[0])
     invoke(publish, PLUGIN, downstream, capsys=capsys)
-    after = {
-        name: value
-        for name, value in tree(downstream).items()
-        if not name.startswith(os.path.join("plugins", PLUGIN))
-    }
+    after = outside(untouched(downstream)[0])
     assert after == before
 
 
