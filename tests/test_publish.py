@@ -164,13 +164,14 @@ def untouched(repo):
         status = git(repo, "status", "--porcelain", "--untracked-files=all", check=False)
         head = git(repo, "rev-parse", "HEAD", check=False)
     except OSError:
-        # A handful of examples deliberately remove git from PATH, or replace it
-        # with a stub that always fails, to prove the script under test refuses
-        # gracefully. Without git on PATH nothing could have written through it
-        # either, so the file walk above is what the comparison rests on; a
-        # failed git call is otherwise reported as an empty result (check=False)
-        # rather than raised, so a consistently-failing git still compares equal
-        # before and after.
+        # A handful of examples deliberately remove git from PATH to prove the
+        # script under test refuses gracefully rather than raising
+        # FileNotFoundError. Without git on PATH nothing could have written
+        # through it either, so the file walk above is what the comparison
+        # rests on. A git that is merely unusable (a hostile stub, dubious
+        # ownership) is a different case: check=False turns that into an empty
+        # result rather than raising, so a consistently-failing git still
+        # compares equal before and after without reaching this branch.
         status, head = None, None
     return found, status, head
 
@@ -269,9 +270,18 @@ def test_the_downstream_fixture_has_a_neighbour_it_owns(downstream):
 
 
 def test_untouched_changes_when_the_working_tree_gains_a_file(downstream):
-    """treats a new file in the working tree as a real change"""
+    """treats a new file in the working tree as a real change, even one git cannot see
+
+    Ignored, so `git status` and HEAD stay identical before and after: an
+    untracked-but-visible file would also move `git status`, and would prove
+    nothing about the file walk on its own -- the case this isolates is the one
+    the walk alone must catch, a destination whose own `.gitignore` covers the
+    path a refusal would otherwise write to.
+    """
+    write(downstream / ".gitignore", "scratch/\n")
+    commit_all(downstream, "ignore scratch")
     before = untouched(downstream)
-    write(downstream / "plugins" / "neighbour" / "extra.md", "new content\n")
+    write(downstream / "scratch" / "extra.md", "new content\n")
     assert untouched(downstream) != before
 
 
@@ -318,6 +328,24 @@ def test_untouched_is_blind_to_a_file_written_and_removed_inside_git(downstream)
     finally:
         lock.unlink()
     assert untouched(downstream) == before
+
+
+def test_untouched_reads_status_and_head_as_none_when_git_is_unusable(
+    downstream, monkeypatch, sandbox
+):
+    """falls back to None for status and HEAD, not an empty string that could pass for clean
+
+    Without git on PATH, `subprocess.run` raises `FileNotFoundError`, an
+    `OSError` the two `check=False` calls above cannot turn into an empty
+    result the way an ordinary git failure would. The other examples in this
+    file only ever compare two `untouched()` calls to each other, so a fallback
+    of `("", "")` instead of `(None, None)` would pass every one of them too --
+    this asserts the actual values.
+    """
+    monkeypatch.setenv("PATH", sandbox.path_without("git"))
+    _, status, head = untouched(downstream)
+    assert status is None
+    assert head is None
 
 
 # --------------------------------------------------------------------------
