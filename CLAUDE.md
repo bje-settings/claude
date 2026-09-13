@@ -219,3 +219,10 @@ every commit through the `pre-commit` framework.
 
 `ENTERPRISE_CLAUDE.md` is the `CLAUDE.md` for the `~/Code/@bje/` directory itself, symlinked there
 so enterprise-wide context lives here instead of in the personal dotfiles repo.
+
+## Records
+
+Decisions live in `docs/rfc/` and `docs/adr/`, under `.claude/rules/path-docs.md` and its per-type
+rules, with an `index.md` per bundle that a landing PR updates. `docs/rfc/001-typescript-port.md`
+is the record for the TypeScript port, with `docs/adr/001-typescript-on-node-22-18.md` (runtime,
+shared `lib/`, test seam) and `docs/adr/002-quality-gate-venues.md` (hooks, CI, coverage) behind it.
