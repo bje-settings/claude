@@ -28,7 +28,7 @@ needs `uv` or a virtualenv to run a plugin:
   code shared within one plugin goes in `plugins/<plugin>/scripts/lib/`, imported via
   `sys.path.insert(0, HERE)`.
 - Nothing imports across plugins, and nothing under one plugin's `lib/` imports another `lib/`
-  module -- `plugins/gh/scripts/lib/` and `plugins/workstreams/scripts/lib/` are the worked
+  module -- `plugins/gh/scripts/lib/` and `plugins/field-test/scripts/lib/` are the worked
   examples.
 - Do not change how a plugin script imports `lib`: the root `tests/conftest.py` resets
   `sys.modules`/`sys.path` between tests so each plugin's `lib` resolves independently, which
@@ -40,9 +40,9 @@ needs `uv` or a virtualenv to run a plugin:
 
 Cross-plugin dependencies, declared through a preflight script rather than vendored:
 
-- `workstreams` depends on `gh-stack` and `pr-review-toolkit`.
 - `field-test` depends on `workstreams` and `pr-review-toolkit` (through the `harden` skill's
-  preflight) -- do not duplicate the review loop `workstreams` already owns.
+  preflight). `workstreams` is being rebuilt as the #111 primitives, and `harden` is rebuilt on
+  them at #137; do not duplicate the review loop in `field-test` meanwhile.
 
 ### Plugin domains
 
@@ -208,8 +208,8 @@ every commit through the `pre-commit` framework.
   it should and that it refuses when it should. Assert against real repositories built by the
   fixtures rather than mocking git; see `tests/gh/README.md`.
 - When a fixture makes a claim about the state it produces, assert that claim in the plugin's own
-  fixture test too (`tests/gh/test_gh_fixtures.py`, `tests/workstreams/test_ws_fixtures.py`,
-  `tests/field-test/test_ft_fixtures.py`), so the other tests cannot pass for the wrong reason.
+  fixture test too (`tests/gh/test_gh_fixtures.py`, `tests/field-test/test_ft_fixtures.py`), so
+  the other tests cannot pass for the wrong reason.
 - Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
   repos outside the `bje` enterprise into this repo; reconstruct the shape of the case instead.
 - Test the non-deterministic parts too. For a skill or agent, run realistic prompts in fresh

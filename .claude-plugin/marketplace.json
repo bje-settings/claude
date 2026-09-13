@@ -13,12 +13,6 @@
       "category": "development"
     },
     {
-      "name": "workstreams",
-      "source": "./plugins/workstreams",
-      "description": "Turn a set of GitHub issues into parallel workstreams run by subagents, each ending in a reviewed draft PR. /workstreams:plan proposes streams, stacks, and sizing; /workstreams:run executes them as a self-timed loop.",
-      "category": "development"
-    },
-    {
       "name": "field-test",
       "source": "./plugins/field-test",
       "description": "Plugin quality assurance. /field-test:run runs a skill or command under observation and files one reproducible issue per problem; /field-test:harden loops that over a list of repositories and drives each round through fix, review, and merge until the skill is clean.",

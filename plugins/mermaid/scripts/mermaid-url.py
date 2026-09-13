@@ -2,7 +2,7 @@
 
 One script, no `lib/`: this plugin has nothing else to share it with. The guard
 around `main` (UTF-8 streams, broken-pipe handling) is the same shape
-`workstreams` and `field-test` give their scripts via `scripts/lib/cli.py`
+`field-test` gives its scripts via `scripts/lib/cli.py`
 (`gh` has no such module; its `lib/streams.py` covers only the UTF-8 half).
 Inlined here rather than imported, since nothing crosses plugin boundaries and
 there is no second script in this plugin to justify a shared module.
