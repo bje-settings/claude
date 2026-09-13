@@ -124,7 +124,11 @@ def commit_all(repo, message="fixture"):
 
 
 def tree(root):
-    """Every file under `root` as {relative path: (bytes, is-executable)}."""
+    """Every file under `root` as {relative path: (bytes, is-executable)}.
+
+    Walks `.git/` too, so this is a content assertion, never a before/after
+    snapshot -- use `untouched()` for that.
+    """
     found = {}
     for current, _, names in os.walk(str(root)):
         for name in names:
@@ -134,6 +138,42 @@ def tree(root):
                 bool(path.stat().st_mode & stat.S_IXUSR),
             )
     return found
+
+
+def untouched(repo):
+    """The property a refusal (or a no-op) actually promises: nothing written,
+    nothing committed.
+
+    `.git` is pruned from the walk on purpose. Git rewrites files under it --
+    `.git/objects/maintenance.lock`, created and removed around auto-maintenance
+    that an ordinary read-only command can trigger, is the case #140 hit -- so
+    its bytes are git's own state, not the destination's content, and a
+    before/after diff that includes them is racy under xdist. `git status` and
+    `rev-parse HEAD` are what stand in for "nothing changed in git" instead.
+    """
+    found = {}
+    for current, dirs, names in os.walk(str(repo)):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        for name in names:
+            path = Path(current) / name
+            found[str(path.relative_to(repo))] = (
+                path.read_bytes(),
+                bool(path.stat().st_mode & stat.S_IXUSR),
+            )
+    try:
+        status = git(repo, "status", "--porcelain", "--untracked-files=all", check=False)
+        head = git(repo, "rev-parse", "HEAD", check=False)
+    except OSError:
+        # A handful of examples deliberately remove git from PATH, or replace it
+        # with a stub that always fails, to prove the script under test refuses
+        # gracefully. Without git on PATH nothing could have written through it
+        # either, so the file walk above is what the comparison rests on; a
+        # failed git call is otherwise reported as an empty result (check=False)
+        # rather than raised, so a consistently-failing git still compares equal
+        # before and after.
+        status, head = None, None
+    return found, status, head
 
 
 @pytest.fixture
@@ -229,6 +269,41 @@ def test_the_downstream_fixture_has_a_neighbour_it_owns(downstream):
     assert git(downstream, "status", "--porcelain") == ""
 
 
+def test_untouched_changes_when_the_working_tree_gains_a_file(downstream):
+    """treats a new file in the working tree as a real change"""
+    before = untouched(downstream)
+    write(downstream / "plugins" / "neighbour" / "extra.md", "new content\n")
+    assert untouched(downstream) != before
+
+
+def test_untouched_changes_when_a_commit_moves_head(downstream):
+    """treats a new commit as a real change, because HEAD moved"""
+    before = untouched(downstream)
+    write(downstream / "README.md", "# downstream, edited\n")
+    commit_all(downstream, "edit")
+    assert untouched(downstream) != before
+
+
+def test_untouched_is_blind_to_a_file_written_and_removed_inside_git(downstream):
+    """does not see a file created and removed inside .git/, the racy case #140 hit
+
+    Git creates and removes files like `.git/objects/maintenance.lock` around
+    auto-maintenance triggered by its own read-only commands. The property this
+    helper checks -- working tree, `git status`, and `HEAD` -- must stay equal
+    across that, in both directions: while the file exists, and after it is gone
+    again.
+    """
+    before = untouched(downstream)
+    lock = downstream / ".git" / "objects" / "maintenance.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("held\n", encoding="utf-8")
+    try:
+        assert untouched(downstream) == before
+    finally:
+        lock.unlink()
+    assert untouched(downstream) == before
+
+
 # --------------------------------------------------------------------------
 # it acts when it should
 # --------------------------------------------------------------------------
@@ -304,12 +379,12 @@ def test_republishing_unchanged_content_writes_nothing(publish, downstream, caps
     instead of learning to wave through a date bump.
     """
     invoke(publish, PLUGIN, downstream, capsys=capsys)
-    before = tree(downstream)
+    before = untouched(downstream)
 
     status, out, _ = invoke(publish, PLUGIN, downstream, capsys=capsys)
     assert status == publish.EXIT_OK
     assert "already in sync" in out
-    assert tree(downstream) == before
+    assert untouched(downstream) == before
 
 
 def test_a_changed_file_propagates(publish, marketplace, downstream, capsys):
@@ -448,11 +523,11 @@ def test_the_origin_url_is_parsed_into_a_slug(publish, downstream, marketplace, 
 
 
 def refuses(publish, downstream, capsys, *argv):
-    before = tree(downstream)
+    before = untouched(downstream)
     status, _, err = invoke(publish, *argv, capsys=capsys)
     assert status == publish.EXIT_REFUSED
     assert err.startswith("refused:")
-    assert tree(downstream) == before
+    assert untouched(downstream) == before
     return err
 
 
@@ -676,12 +751,12 @@ def test_refuses_when_there_is_no_origin(publish, marketplace, downstream, capsy
 def test_check_reports_in_sync_and_writes_nothing(publish, downstream, capsys):
     """exits 0 on a current copy, touching nothing"""
     invoke(publish, PLUGIN, downstream, capsys=capsys)
-    before = tree(downstream)
+    before = untouched(downstream)
 
     status, out, _ = invoke(publish, PLUGIN, downstream, "--check", capsys=capsys)
     assert status == publish.EXIT_OK
     assert "in sync" in out
-    assert tree(downstream) == before
+    assert untouched(downstream) == before
 
 
 @pytest.mark.parametrize("kind", ["changed", "added", "removed"])
@@ -697,12 +772,12 @@ def test_check_reports_content_drift_and_writes_nothing(
     else:
         git(marketplace, "rm", "-q", "plugins/demo/README.md")
     commit_all(marketplace, "upstream moves")
-    before = tree(downstream)
+    before = untouched(downstream)
 
     status, out, _ = invoke(publish, PLUGIN, downstream, "--check", capsys=capsys)
     assert status == publish.EXIT_DRIFT
     assert "drift against" in out
-    assert tree(downstream) == before
+    assert untouched(downstream) == before
 
 
 def test_check_catches_a_mode_only_difference(publish, downstream, capsys):
@@ -1152,11 +1227,11 @@ def test_refuses_when_a_symlinked_parent_aims_back_at_the_source(
     shutil.rmtree(str(plugins))
     plugins.symlink_to(str(marketplace / "plugins"))
 
-    before = tree(marketplace)
+    before = untouched(marketplace)
     status, _, err = invoke(publish, PLUGIN, downstream, capsys=capsys)
     assert status == publish.EXIT_REFUSED
     assert "same directory" in err
-    assert tree(marketplace) == before
+    assert untouched(marketplace) == before
 
 
 # --------------------------------------------------------------------------
