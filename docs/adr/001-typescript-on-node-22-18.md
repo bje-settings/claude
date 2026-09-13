@@ -64,7 +64,7 @@ is the spike recorded in
 [SurveyMonkey/skills ADR 012](https://github.com/SurveyMonkey/skills/blob/main/docs/adr/012-typescript-on-node-22-18.md),
 which measured 22.16 and 22.17 failing at launch and 22.18.0, 22.22.2, 24.15.0 and 24.18.0 all
 running silently. It is cited rather than re-run: it is the same question about the same runtime,
-asked by the same maintainer in a record that landed next door on the same day as this one.
+asked by the same maintainer in a record that landed next door the day this one was written.
 
 **The floor is held in three places and executed in one.** `.npmrc` carries `use-node-version` and
 `engine-strict`, `package.json` carries `engines.node`, and each entry point carries a guard that
@@ -121,17 +121,17 @@ different audience, read by another team as the plugin's source, so `publish-plu
 PostToolUseFailure, SubagentStop and Stop hooks, with a silent Node floor guard replacing
 `command -v python3`. Silent is the requirement: a hook writes into every tool call, so it checks
 the runtime, exits quietly when it cannot run, and says nothing otherwise. The measured cost is
-about +50 ms per Bash tool call in a
-session with `field-test` installed, against about 33 ms for a bare `python3` start, 45 ms for the
-current hook, 42 ms for a bare `node` start and 70 ms for a hook-shaped `.ts`. It is paid so that
-one file does not keep an entire second toolchain alive.
+about +50 ms per Bash tool call in a session with `field-test` installed, from the two of those
+hooks that run on every one, against about 33 ms for a bare `python3` start, 45 ms for the current
+hook, 42 ms for a bare `node` start and 70 ms for a hook-shaped `.ts`. It is paid so that one file
+does not keep an entire second toolchain alive.
 
-**A plugin never carries its own `package.json`.** Claude Code runs an `npm install` inside the
-cache copy when it finds a `package.json` and a lockfile together, which turns installing a plugin
-into a network fetch on a user's machine at the moment they wanted a tool. Dependencies are
-declared once, at the repository root, where they are dev and CI dependencies only. What a plugin
-ships at run time is its own tree plus the root `lib/` the installer dereferenced into it, and
-nothing else.
+**A plugin never carries its own `package.json`.** Claude Code runs a dependency install inside the
+cache copy when it finds a `package.json` and an npm or bun lockfile together, which turns
+installing a plugin into a network fetch on a user's machine at the moment they wanted a tool.
+Dependencies are declared once, at the repository root, where they are dev and CI dependencies
+only. What a plugin ships at run time is its own tree plus the root `lib/` the installer
+dereferenced into it, and nothing else.
 
 ## Consequences
 
@@ -147,12 +147,16 @@ nothing else.
   There is no per-plugin visibility and no mechanism to give one, which makes review the only thing
   standing between the shared library and a helper only one plugin needs. The layout test enforces
   that the symlink is the only crossing; it cannot enforce that what crosses deserves to.
-- **The local development flow is carved out of the three-way rule.** The plugins reference states
-  that for a plugin installed with `--plugin-dir`, from a local path, or from a `command` source in
-  copy mode, only symlinks resolving inside the plugin's own directory are preserved and all others
-  are skipped. `/plugin marketplace add ./repo` reads as the local-path case, so the local
-  development flow most likely needs a documented step in place of the dereference; it is settled on
-  the first plugin that links the root lib. Nothing about the installed or mirrored paths changes.
+- **Which side of a carve-out the local development flow falls on is unsettled.** The plugins
+  reference states that for a plugin installed with `--plugin-dir`, from a local path, or from a
+  `command` source in copy mode, only symlinks resolving inside the plugin's own directory are
+  preserved and all others are skipped. The same reference has marketplace plugins copied into the
+  cache, and gives the dereference a worked example of a plugin linking to a sibling in the same
+  marketplace, which is what a relative-path source is. `/plugin marketplace add ./repo` installs
+  through a marketplace of relative-path sources, so it reads either way and the reference does not
+  settle it; [#127](https://github.com/bje-settings/claude/issues/127) does, on the first plugin
+  that links the root lib. If it turns out to be the carve-out, the local flow needs a documented
+  step in place of the dereference. Nothing about the installed or mirrored paths changes.
 - **Tests and fixtures ship inertly in the cache copy.** The installed plugin is larger than the
   plugin, permanently, because there is no exclusion mechanism to ask for. The mirror filter keeps
   the downstream copy clean and is one more rule to keep in sync with the layout.

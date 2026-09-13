@@ -31,8 +31,8 @@ will not be.
 job names in `ci.yml` and `plugin-validate.yml`. Both workflows carry a header comment saying so,
 because the failure mode is not a red build: a renamed job means the required check never reports
 again and every pull request in the repository waits forever for something that will not arrive. A
-port that adds three jobs and later removes four has to touch that list seven times, and each touch
-has that failure available to it.
+port that adds three jobs and later removes four has to touch that list up to seven times, and each
+touch has that failure available to it.
 
 **Coverage has two consumers with different shapes, and one of them fails silently.** Locally and
 in CI, `tests/coverage_check.py` reads `coverage/python.xml` and fails the job below 95, with the
@@ -117,7 +117,7 @@ that already has several.
   review obligation is that the list is empty or every entry carries a reason, and that a new entry
   is argued rather than appended.
 - **The Python jobs stay required until #138.** For milestones 2 through 4 the repository runs both
-  toolchains and the required-check list carries seven names, so a pull request that touches
+  toolchains and the required-check list carries eight names, so a pull request that touches
   neither substrate still waits on both. That is the cost of porting one plugin at a time, and it
   ends when `field-test` moves.
 - **A commit no longer proves the suite is green.** Staged-only hooks are a smaller promise than

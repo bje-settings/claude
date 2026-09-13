@@ -272,8 +272,9 @@ after it.
 
 The required checks stay exact-named jobs on ruleset 22359720, matched by string. Jobs are added to
 the ruleset only after the new name has reported on `main` once, and removed from the ruleset
-before the pull request that drops the job merges. That is the rule `ci.yml` already documents in
-its header comment, and every ruleset edit in milestones 2 and 5 follows it.
+before the pull request that drops the job merges. `ci.yml`'s header comment already documents the
+adding half and `CLAUDE.md` documents both, and every ruleset edit in milestones 2 and 5 follows
+them.
 
 The Python jobs, `ruff`, `pytest`, `pytest-floor` and `coverage`, stay required for as long as
 Python is in the tree, which is through milestone 4. `biome`, `types` and `vitest` are added
@@ -287,9 +288,9 @@ is not decoration here. vitest adds the `cobertura` reporter beside its own thre
 thresholds are the gate, and `tests/coverage_check.py` retires with the Python toolchain rather
 than being reimplemented.
 
-**Divergence from `SurveyMonkey/skills` RFC 002:** its coverage report has no consumer, so its
-vitest config emits no Cobertura. The two configurations differ by one reporter entry, and that
-entry is load-bearing here.
+**Divergence from `SurveyMonkey/skills` RFC 002:** its coverage report has no consumer outside the
+repository, so nothing there emits Cobertura. The two configurations differ by one reporter entry,
+and that entry is load-bearing here.
 
 ## Alternatives Considered
 
@@ -353,15 +354,18 @@ entry is load-bearing here.
   file where `plugins/<p>/src/lib` should be, and the failure is an unresolved import rather than a
   clear message. The repository's own tooling already assumes a POSIX checkout, but this makes the
   assumption load-bearing for anyone editing plugin code.
-- **The local development flow probably does not get the dereference.** The plugins reference
+- **Whether the local development flow gets the dereference is unsettled.** The plugins reference
   carves three install paths out of the three-way rule: with `--plugin-dir`, from a local path, or
   from a `command` source in copy mode, only symlinks resolving inside the plugin's own directory
-  are preserved, and all others are skipped. `/plugin marketplace add ./repo` followed by
-  `/plugin install <name>@bje` reads as the local-path case, which would leave a locally installed
-  plugin without its root `lib/` and needing a documented step in place of the dereference. The
-  installed and mirrored paths, which are the ones users take, are unaffected.
+  are preserved, and all others are skipped. The same reference also has marketplace plugins copied
+  into the cache, and gives the dereference a worked example of a plugin linking to a sibling in the
+  same marketplace, which is what a relative-path source is. `/plugin marketplace add ./repo`
+  followed by `/plugin install <name>@bje` installs through a marketplace of relative-path sources,
+  so it reads either way. If it is the carve-out, a locally installed plugin arrives without its
+  root `lib/` and the local flow needs a documented step in place of the dereference. The installed
+  and mirrored paths, which are the ones users take, are unaffected either way.
   [#127](https://github.com/bje-settings/claude/issues/127) is the first plugin that links the root
-  lib, and settling the local step is in its scope.
+  lib, and settling this is in its scope.
 - **A type system is not a domain check.** Nothing about TypeScript catches a shepherd that treats
   a cancelled check as pending. The mutation discipline in `.claude/rules/type-py.md` is what caught
   that, and it carries into `type-ts.md` unchanged, because it is the part of the current setup that
@@ -456,14 +460,15 @@ It absorbs six `field-test` issues: [#93](https://github.com/bje-settings/claude
   scope. The answer decides where #122 and #138 make their edits, in HCL under review or in the
   GitHub UI. It does not change what the required-check list should contain, so it blocks neither
   milestone 2's first issues nor this RFC.
-- **What does the local development flow do in place of the dereference?** The plugins reference
-  answers the underlying question the other way from the assumption this RFC started with: for a
-  plugin installed with `--plugin-dir`, from a local path, or from a `command` source in copy mode,
-  only symlinks resolving inside the plugin's own directory survive.
-  `/plugin marketplace add ./repo` reads as the local-path case, so what is open is what replaces
-  the dereference there, a documented step or a different local flow. #127 settles it on the first
-  plugin that links the root lib. The decision on the root `lib/` is unaffected either way, because
-  the installed and mirrored paths are the ones users take.
+- **Does `/plugin marketplace add ./repo` dereference the root-lib symlink?** The plugins reference
+  states the three-way rule for a plugin copied into the cache, and separately carves out installs
+  with `--plugin-dir`, from a local path, or from a `command` source in copy mode, where only
+  symlinks resolving inside the plugin's own directory survive. A marketplace added from a local
+  directory sits between the two: its plugins are marketplace plugins copied into the cache, and its
+  sources are relative paths. The reference does not say which rule applies, so what is open is
+  whether the local flow needs a documented step in place of the dereference. #127 settles it on the
+  first plugin that links the root lib. The decision on the root `lib/` is unaffected either way,
+  because the installed and mirrored paths are the ones users take.
 
 ## Decisions & Follow-ups
 
@@ -475,9 +480,9 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    enterprise Code Coverage ruleset; vitest's own thresholds are the gate; the `cobertura` reporter
    is added for the upload; `tests/coverage_check.py` retires with Python rather than being
    reimplemented. *Against:* it makes the two repositories' vitest configs differ by one reporter
-   entry, which is a divergence a future reader has to notice, and it means the rule
-   `SurveyMonkey/skills` states, that nothing consumes the report, is simply false here and cannot
-   be copied along with the config.
+   entry, which is a divergence a future reader has to notice, and it is one of the few places
+   where `SurveyMonkey/skills`'s configuration cannot be taken 1:1, because nothing there consumes
+   a coverage report outside the repository and nothing there emits Cobertura at all.
 2. **The Node floor is 22.18, held in three places and executed in one.** `.npmrc` with
    `use-node-version` and `engine-strict`, `engines.node` in `package.json`, one CI leg on 22.18
    itself, `@types/node` on the 22 line, and no 24 matrix leg until 22 leaves LTS. *Against:*
@@ -547,16 +552,16 @@ as this RFC merges; the primitives are written into an empty directory.
 
 Two constraints found while verifying the shape, both of which bind anything built under this RFC:
 
-- **A plugin must never gain its own `package.json` plus lockfile.** Claude Code runs an
-  `npm install` inside the cache copy when it finds both, which turns installing a plugin into a
-  network fetch on someone else's machine. Dependencies are declared once, at the repository root,
-  and everything a plugin ships at run time is either in its own tree or in the root `lib/` the
-  installer dereferenced into it.
-- **The local development flow needs its own answer for the root-lib symlink.** The documented
+- **A plugin must never gain its own `package.json` plus lockfile.** Claude Code runs a dependency
+  install inside the cache copy when it finds a `package.json` and an npm or bun lockfile, which
+  turns installing a plugin into a network fetch on someone else's machine. Dependencies are
+  declared once, at the repository root, and everything a plugin ships at run time is either in its
+  own tree or in the root `lib/` the installer dereferenced into it.
+- **The local development flow may need its own answer for the root-lib symlink.** The documented
   three-way rule has a carve-out for `--plugin-dir`, local-path and copy-mode `command` installs,
-  where only symlinks inside the plugin's own directory survive, and
-  `/plugin marketplace add ./repo` reads as that carve-out. #127 is the first plugin that links the
-  root lib and is where the local step is settled.
+  where only symlinks inside the plugin's own directory survive, and the reference does not say
+  whether a marketplace added from a local directory falls under it. #127 is the first plugin that
+  links the root lib and is where that is settled.
 
 ## Related
 
