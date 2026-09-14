@@ -26,7 +26,11 @@ concurrency:
 #
 # vitest, types and biome report on every run starting at #119, #117 and #118,
 # but are not required checks yet: they join ruleset 22359720 at #122, once
-# each has reported green on main at least once (ADR 002).
+# each has reported green on main at least once (ADR 002). vitest-floor also
+# reports on every run as of #119's review round 1, but #122's scope
+# (docs/rfc/001-typescript-port.md T8, ADR 002) names only biome, types and
+# vitest; whether vitest-floor should join the ruleset too, matching
+# pytest-floor's required status, is unresolved and belongs to #122.
 jobs:
   # ruff's target-version is py39, so syntax newer than the floor is a lint
   # failure rather than something a user on the Python macOS ships discovers at
@@ -188,15 +192,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Not the node-pnpm composite action: it resolves the newest 22.x and
-      # asserts that exact version, which this job deliberately overrides.
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
-        with:
-          node-version: 22.18.0
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # The node-pnpm composite action, same as every other Node job: it
+      # installs from the lockfile and asserts the default pins. It does not
+      # by itself put Node 22.18.0 on PATH or in pnpm's own Node selection -
+      # .npmrc's use-node-version pins 22.23.2, and pnpm honours that for
+      # `pnpm exec`/`pnpm run` regardless of what setup-node installed. The
+      # steps below override it per-command with --config.use-node-version.
+      - uses: ./.github/actions/node-pnpm
+      # Fails loudly, rather than the job silently running on 22.23.2 like
+      # .npmrc's default, if the override flag ever stops working or the
+      # floor version drifts from engines.node in package.json (bump both
+      # together).
+      - name: Assert the floor Node
+        run: |
+          version="$(pnpm --config.use-node-version=22.18.0 exec node --version)"
+          if [[ "$version" != "v22.18.0" ]]; then
+            echo "expected pnpm --config.use-node-version=22.18.0 exec node --version to print v22.18.0 exactly, got $version" >&2
+            exit 1
+          fi
       # ADR 001: "a floor nothing executes is a claim." This proves the
       # suite runs on Node 22.18.0, the first release whose type stripping
       # runs without a flag and writes nothing to stderr, the same property
@@ -205,7 +218,7 @@ jobs:
       # upload; running vitest twice per CI run would only move that step
       # later.
       - name: Run the vitest suite on the Node 22.18 floor
-        run: pnpm exec vitest run --coverage.enabled=false
+        run: pnpm --config.use-node-version=22.18.0 exec vitest run --coverage.enabled=false
 
   types:
     name: types
