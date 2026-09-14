@@ -7,5 +7,11 @@
   "engines": {
     "node": ">=22.18.0 <23"
   },
-  "devDependencies": {}
+  "scripts": {
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "4.1.11",
+    "vitest": "4.1.11"
+  }
 }

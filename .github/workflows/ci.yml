@@ -23,34 +23,11 @@ concurrency:
 # A new job name becomes a required check only after it has reported on main,
 # for the same reason; add it to the ruleset right after the pull request that
 # introduces it merges.
+#
+# vitest, types and biome report on every run starting at #119, #117 and #118,
+# but are not required checks yet: they join ruleset 22359720 at #122, once
+# each has reported green on main at least once (ADR 002).
 jobs:
-  # Not a required check on ruleset 22359720: nothing depends on the Node
-  # toolchain yet. #119 decides whether this survives as its own job once the
-  # vitest job exists.
-  install:
-    name: install
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/node-pnpm
-      - name: Assert the Node pins
-        run: |
-          node_version="$(node --version)"
-          if [[ ! "$node_version" =~ ^v22\.([0-9]+)\. ]]; then
-            echo "expected node --version to match ^v22.(minor)., got $node_version" >&2
-            exit 1
-          fi
-          if (( BASH_REMATCH[1] < 18 )); then
-            echo "expected node minor >= 18, got $node_version" >&2
-            exit 1
-          fi
-          # Must match .npmrc's use-node-version exactly; bump both together.
-          pnpm_node_version="$(pnpm exec node --version)"
-          if [[ "$pnpm_node_version" != "v22.23.2" ]]; then
-            echo "expected pnpm exec node --version to print v22.23.2 exactly, got $pnpm_node_version" >&2
-            exit 1
-          fi
-
   # ruff's target-version is py39, so syntax newer than the floor is a lint
   # failure rather than something a user on the Python macOS ships discovers at
   # runtime.
@@ -174,3 +151,34 @@ jobs:
           file: coverage/python.xml
           language: Python
           label: code-coverage/pytest
+
+  vitest:
+    name: vitest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      code-quality: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      - name: Run the vitest suite with coverage at 100
+        run: pnpm test
+
+      # vitest's own thresholds cannot see an empty file set: a 100%
+      # threshold over zero files passes (reproduced -- it reports
+      # "Unknown%" over 0/0 and exits 0), which ADR 002 calls this
+      # repository's signature bug arriving inside the coverage gate. The
+      # thresholds catch a bucket that drops below 100 over whatever files
+      # they did see; this catches the report naming no files at all.
+      - name: Refuse a coverage report that names no file
+        run: jq -e 'del(.total) | length > 0' coverage/coverage-summary.json
+
+      # The TypeScript half of the enterprise Code Coverage ruleset's input,
+      # beside the Python upload in the coverage job above. It lives in this
+      # job rather than in coverage because that job is deleted with the
+      # Python toolchain at #138, while this one is not.
+      - uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/vitest

@@ -1,9 +1,12 @@
 # Shared setup for jobs that run the TypeScript toolchain: pins pnpm and Node,
-# and installs from the lockfile. Exists so #117, #118 and #119 each add one
-# `uses: ./.github/actions/node-pnpm` line instead of copying these steps and
-# the SHA pins into every workflow job.
+# asserts the pins actually landed, and installs from the lockfile. Exists so
+# #117, #118 and #119 each add one `uses: ./.github/actions/node-pnpm` line
+# instead of copying these steps and the SHA pins into every workflow job. The
+# Node pin assertions used to be their own `install` job in ci.yml; #119 moved
+# them here so every job using this action gets them, not just one that
+# nothing else depended on.
 name: Set up pnpm and Node
-description: Install pnpm and Node at the pinned versions, then install dependencies from the frozen lockfile.
+description: Install pnpm and Node at the pinned versions, assert the pins, then install dependencies from the frozen lockfile.
 
 runs:
   using: composite
@@ -19,6 +22,25 @@ runs:
       with:
         node-version-file: package.json
         cache: pnpm
+
+    - name: Assert the Node pins
+      shell: bash
+      run: |
+        node_version="$(node --version)"
+        if [[ ! "$node_version" =~ ^v22\.([0-9]+)\. ]]; then
+          echo "expected node --version to match ^v22.(minor)., got $node_version" >&2
+          exit 1
+        fi
+        if (( BASH_REMATCH[1] < 18 )); then
+          echo "expected node minor >= 18, got $node_version" >&2
+          exit 1
+        fi
+        # Must match .npmrc's use-node-version exactly; bump both together.
+        pnpm_node_version="$(pnpm exec node --version)"
+        if [[ "$pnpm_node_version" != "v22.23.2" ]]; then
+          echo "expected pnpm exec node --version to print v22.23.2 exactly, got $pnpm_node_version" >&2
+          exit 1
+        fi
 
     # Never a bare install: frozen-lockfile fails if package.json and the
     # lockfile disagree, which is what makes the pins real.
