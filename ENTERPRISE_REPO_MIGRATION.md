@@ -48,7 +48,6 @@ local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<org>/<repo>
 | `google-calendar-health-report` | `bje-apps`                   | Apps Script with Slack alerts                                           |
 | `home-assistant-config`         | `bje-devices`                | Docs-only; see prerequisites                                            |
 | `vu1-claude-token-usage`        | `bje-devices`                |                                                                         |
-| `PuckJS-TV-mount-remote`        | `bje-devices` or archive     | Undecided; last push 2021                                               |
 | `tacoma.fyi`                    | `tacoma-fyi`                 |                                                                         |
 | `tacomawedge`                   | `tacoma-fyi`                 |                                                                         |
 | `release-action`                | `bje-actions`                | Move with its consumers; update `uses:` refs                            |
@@ -65,6 +64,7 @@ local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<org>/<repo>
 | `defiance`                      | archive                      | README, LICENSE, and package.json only                                  |
 | `filter`                        | archive                      | Prototype; last push 2022                                               |
 | `claude-workflows`              | archived (done)              | Personal job-search prompts                                             |
+| `PuckJS-TV-mount-remote`        | archived (done)              | Last push 2021                                                          |
 | `user-github-workflows`         | stays on user, split later   | See below                                                               |
 | `brianespinosa`                 | stays on user                | Profile README must live on the user account                            |
 | `dotfiles`                      | stays on user                |                                                                         |
