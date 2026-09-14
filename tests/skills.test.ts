@@ -28,7 +28,7 @@ function flowPath(skill: string): string {
 
 it('finds skills to check', () => {
   // Without this, a glob that matches nothing makes every check below pass
-  // vacuously -- the "green for the wrong reason" failure this suite exists
+  // vacuously: the "green for the wrong reason" failure this suite exists
   // to prevent.
   expect(skillFiles().length).toBeGreaterThan(0)
 })
@@ -112,10 +112,13 @@ it('gives every repo-local skill a name, a description, and no model invocation'
 })
 
 describe('skillsUnder filtering', () => {
-  let scratch: string
+  // '' rather than an unassigned `let`: if the `it` body throws before
+  // mkdtempSync returns, an unguarded rmSync(undefined) here would replace
+  // the real failure with its own TypeError.
+  let scratch = ''
 
   afterEach(() => {
-    rmSync(scratch, { recursive: true, force: true })
+    if (scratch) rmSync(scratch, { recursive: true, force: true })
   })
 
   it('filters out a SKILL.md that is not under a skills/ directory', () => {

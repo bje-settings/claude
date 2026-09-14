@@ -48,7 +48,7 @@ export default defineConfig({
       // report entirely" property `all: true` used to state explicitly.
       // json-summary is what the CI guard below reads to refuse a report
       // naming no files. cobertura feeds actions/upload-code-coverage for the
-      // enterprise Code Coverage ruleset -- the one divergence from the
+      // enterprise Code Coverage ruleset: the one divergence from the
       // SurveyMonkey/skills baseline, which has no such ruleset to feed.
       reporter: ['text', 'json-summary', 'cobertura'],
       reportsDirectory: 'coverage',

@@ -33,7 +33,7 @@ function findFilesNamed(dir: string, name: string): string[] {
 // spec this replaced did: `find "$ROOT/plugins" -path '*/skills/*' -name
 // SKILL.md`. Walking from the repository root instead would descend into
 // .claude/worktrees/, where a checkout of this same repository doubles every
-// skill and makes the count meaningless -- which is also why the second root
+// skill and makes the count meaningless. That is also why the second root
 // is .claude/skills and never .claude: a fixed-depth glob would quietly stop
 // checking a skill the day someone groups them into subdirectories.
 export function skillsUnder(root: string): string[] {

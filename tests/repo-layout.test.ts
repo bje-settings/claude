@@ -1,14 +1,14 @@
 // Repo-wide conventions that only a test can hold. Ported from
 // tests/test_repo_layout.py: each of these is a rule written down somewhere
-// in prose -- CLAUDE.md or a file under .claude/rules/ -- whose failure mode
+// in prose, CLAUDE.md or a file under .claude/rules/, whose failure mode
 // is silent. Prose does not survive a refactor by someone who has not read
 // it, and none of these would show up as a broken test anywhere else.
 //
 // test_repo_layout.py's test_repo_tooling_never_touches_sys_path is
 // deliberately NOT ported here: it parses Python with the `ast` module to
 // prove no root script does `sys.path.insert`/`sys.path.append`, its subject
-// (Python `scripts/`) retires with #138, and its TypeScript successor -- no
-// cross-plugin import via the root lib -- needs the root lib from #125,
+// (Python `scripts/`) retires with #138, and its TypeScript successor, no
+// cross-plugin import via the root lib, needs the root lib from #125,
 // which does not exist yet. The Python test stays in tests/test_repo_layout.py
 // until #138.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -47,7 +47,8 @@ it('keeps one LICENSE, copied identically into every plugin', () => {
     let content: Buffer | undefined
     try {
       content = readFileSync(licenseFile)
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
       wrong.push(`${rel(plugin)}: no LICENSE`)
       continue
     }
@@ -74,10 +75,13 @@ it('declares the licence in the manifest as well as beside it', () => {
 })
 
 describe('pluginDirs filtering', () => {
-  let scratch: string
+  // '' rather than an unassigned `let`: if the `it` body throws before
+  // mkdtempSync returns, an unguarded rmSync(undefined) here would replace
+  // the real failure with its own TypeError.
+  let scratch = ''
 
   afterEach(() => {
-    rmSync(scratch, { recursive: true, force: true })
+    if (scratch) rmSync(scratch, { recursive: true, force: true })
   })
 
   it('filters directories to the ones that actually carry a plugin manifest', () => {
