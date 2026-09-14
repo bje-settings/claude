@@ -200,3 +200,16 @@ jobs:
       # invocation then means the same thing from an editor or a hook.
       - name: Type-check the TypeScript
         run: pnpm exec tsc -p tsconfig.json
+
+  biome:
+    name: biome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      # `biome ci`, the read-only verdict, never `check --write`: a gate that
+      # edits the tree to make itself pass reports on a tree nobody reviewed.
+      # --error-on-warnings because a recommended rule that only warns would
+      # otherwise be reported and passed.
+      - name: Lint and format-check with Biome
+        run: pnpm exec biome ci . --error-on-warnings

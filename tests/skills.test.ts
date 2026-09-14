@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { REPO_SKILLS, SKILL_ROOTS, rel, skillFiles, skillsUnder } from './repo.ts'
+import { REPO_SKILLS, rel, SKILL_ROOTS, skillFiles, skillsUnder } from './repo.ts'
 
 const MERMAID_FENCE = /^```mermaid/m
 

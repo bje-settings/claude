@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ROOT, pluginDirs, rel } from './repo.ts'
+import { pluginDirs, ROOT, rel } from './repo.ts'
 
 it('expresses a path relative to the repo root', () => {
   // rel() is exercised elsewhere only inside branches that stay empty
