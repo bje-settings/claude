@@ -165,6 +165,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/node-pnpm
+
+      # A config lefthook rejects is a hook that silently never runs: nothing
+      # else in CI would catch a malformed lefthook.yml before it reached a
+      # contributor's next commit. This job already has node_modules, and the
+      # postinstall that would otherwise sync the hooks here is a no-op: pnpm
+      # sets CI, which lefthook's postinstall treats as a skip.
+      - name: Validate lefthook.yml
+        run: pnpm exec lefthook validate
+
       - name: Run the vitest suite with coverage at 100
         run: pnpm test
 

@@ -10,8 +10,8 @@ uv run --locked ruff check . && uv run --locked ruff format --check .
 
 That is the whole of it. Every plugin script is Python and pytest is the only harness, so `uv` is
 the only requirement for the suite; tests that need `jq` or a package manager skip themselves
-without it (the `gh` stubs shell out to `jq` for `--jq`), and the pre-commit hooks additionally
-need `claude`.
+without it (the `gh` stubs shell out to `jq` for `--jq`), and the git hooks' own steps
+additionally need `claude` and `uv`, and warn to stderr without them rather than failing the commit.
 
 Tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub `gh`
 under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module basenames
@@ -32,30 +32,34 @@ only when you mean to update the lock, and commit the result.
 `uv sync` builds the environment on Python 3.9, the floor every plugin script targets, because
 that is what macOS ships at `/usr/bin/python3`.
 
-## Pre-commit hooks
+## Git hooks
 
 ```bash
-uv sync --locked && uv run --locked pre-commit install --allow-missing-config
+pnpm install
 ```
 
-Run this once, from the root checkout, not per worktree: `pre-commit install` writes a single hook
-into the clone's shared `.git/hooks/`, which every worktree of the clone already shares (a worktree
-does not set `core.hooksPath`), so one install covers the clone and all its worktrees. The generated
-hook records the `.venv` python it was installed from, so if that checkout is removed the hook falls
-back to a `pre-commit` on PATH, and commits fail outright if there is none; re-run the install from a
-surviving checkout to fix it. `--allow-missing-config` keeps commits working on branches that predate
-`.pre-commit-config.yaml` instead of refusing them.
+`pnpm install` installs the hooks: lefthook's own postinstall runs `lefthook install` (via
+`pnpm.onlyBuiltDependencies` in `package.json`, since pnpm 10 blocks a dependency's lifecycle
+scripts otherwise), or run `pnpm exec lefthook install` by hand. Do this once, from the root
+checkout, not per worktree: lefthook resolves the hooks directory with
+`git rev-parse --git-path hooks`, the clone's shared `.git/hooks/`, so one install covers the
+clone and every worktree of it.
 
-The hooks are ruff (lint and format check), the Python suite minus the examples marked `slow`,
-which run a real package-manager install (`pytest -n auto -x -q -m "not slow"`; CI runs those
-too), and `claude plugin validate --strict` over the marketplace manifest and every plugin. They
-need `uv` and `claude` on PATH.
-Nothing here is the enforcement layer: CI runs the same checks whether or not you installed them.
+The hook script it installs finds the lefthook binary through whichever checkout ran the install,
+or the checkout the commit runs in, but each step still needs that checkout's own `node_modules`
+(and `.venv`, for the ruff steps). A worktree that has not run its own `pnpm install` yet prints
+`Can't find lefthook in PATH` at commit time and lets the commit through unchecked; it gains the
+hooks the moment that worktree runs its own `pnpm install`.
+
+`pre-commit` runs Biome, `tsc`, `vitest related`, `claude plugin validate --strict`, and ruff
+(check and format), each scoped to what is staged, except `tsc` which checks the whole project.
+None of them runs a suite (ADR 002); `lefthook.yml` holds the exact steps. `pre-push` runs nothing.
+Nothing here is the enforcement layer: CI runs the same checks whether or not the hooks ran.
 
 Run them without committing:
 
 ```bash
-uv run --locked pre-commit run --all-files
+pnpm exec lefthook run pre-commit --all-files
 ```
 
 ## Publishing a plugin downstream

@@ -191,16 +191,11 @@ so a stale `uv.lock` fails instead of being rewritten under you.
   validate --strict` over the marketplace manifest and every directory under `plugins/`, which
   needs no API key or login, on a pinned Claude Code version.
 
-#### Pre-commit
+#### Git hooks
 
-In an opted-in clone, `claude plugin validate --strict`, ruff, and the Python suite run before
-every commit through the `pre-commit` framework.
-
-- `.pre-commit-config.yaml` holds the hooks; `CONTRIBUTING.md` says how to opt in.
-- Every hook is `repo: local`: each tool already has one source of truth (`uv.lock` for ruff and
-  pytest, `PATH` for `claude`), and mirroring versions into `rev:` fields here would add a second.
-- Opting in is once per clone, from the root checkout, and covers every worktree of it, since
-  worktrees share the clone's `.git/hooks/`; CI, not the hooks, is the enforcement layer.
+- lefthook, staged-only, never a suite (ADR 002).
+- `lefthook.yml` holds the steps; `CONTRIBUTING.md` says how they install.
+- A worktree needs its own `pnpm install` for the hooks to run there.
 
 #### Fixture quality
 

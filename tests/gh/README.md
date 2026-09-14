@@ -170,5 +170,7 @@ cannot run.
 Those install tests are marked `slow`: each writes a lock file with the real package manager and
 then installs from it, which makes them the only ones that need a package manager installed at
 all. That dependency is what the marker is for, not speed -- against a warm corepack cache they
-cost about three seconds apiece, beside the ordinary sync examples rather than ahead of them. The
-pre-commit `pytest` hook deselects them with `-m "not slow"`; CI runs the whole suite.
+cost about three seconds apiece, beside the ordinary sync examples rather than ahead of them. No
+hook deselects them: lefthook's pre-commit gates are staged-only and never run this suite at all
+(ADR 002). CI always runs the whole suite; `-m "not slow"` is for a hand run on a machine with no
+package manager installed.
