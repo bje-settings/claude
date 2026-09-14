@@ -45,22 +45,34 @@ checkout, not per worktree: lefthook resolves the hooks directory with
 `git rev-parse --git-path hooks`, the clone's shared `.git/hooks/`, so one install covers the
 clone and every worktree of it.
 
-The hook script it installs finds the lefthook binary through whichever checkout ran the install,
-or the checkout the commit runs in, but each step still needs that checkout's own `node_modules`
-(and `.venv`, for the ruff steps). A worktree that has not run its own `pnpm install` yet prints
-`Can't find lefthook in PATH` at commit time and lets the commit through unchecked; it gains the
-hooks the moment that worktree runs its own `pnpm install`.
+The hook script it installs finds the lefthook binary through a hardcoded absolute path into
+whichever checkout ran the install, or the checkout the commit runs in. Each pnpm-based step still
+needs that checkout's own `node_modules` (ruff needs only `uv` on PATH: `uv run` provisions its own
+`.venv` on demand, unlike the pnpm-based steps). As long as the installing checkout's
+`node_modules` still exists, a worktree that has not run its own `pnpm install` yet still finds
+lefthook through it and runs the hooks; each pnpm-based step's own `node_modules` guard is what
+then warns and skips, letting the commit through unchecked. Only when no checkout with a working
+lefthook binary can be found at all does the hook script itself print `Can't find lefthook in PATH`
+and let the commit through the same way. Either way, the worktree gains real hooks the moment it
+runs its own `pnpm install`.
 
 `pre-commit` runs Biome, `tsc`, `vitest related`, `claude plugin validate --strict`, and ruff
 (check and format), each scoped to what is staged, except `tsc` which checks the whole project.
-None of them runs a suite (ADR 002); `lefthook.yml` holds the exact steps. `pre-push` runs nothing.
-Nothing here is the enforcement layer: CI runs the same checks whether or not the hooks ran.
+None of them runs a suite (ADR 002); `lefthook.yml` holds the exact steps. There is no `pre-push`
+key, so lefthook installs no pre-push hook at all. Nothing here is the enforcement layer: CI runs
+the same checks whether or not the hooks ran.
 
 Run them without committing:
 
 ```bash
 pnpm exec lefthook run pre-commit --all-files
 ```
+
+`--all-files` only widens the steps lefthook itself scopes with `{staged_files}` (`vitest related`,
+ruff): `biome` keeps checking the index (`--staged` is Biome's own selection, not a lefthook file
+list), so it reports success having checked nothing on a clean tree, and `vitest related` runs the
+whole suite rather than a related subset. Run `pnpm exec biome check . --error-on-warnings` to
+check every file with Biome directly.
 
 ## Publishing a plugin downstream
 
