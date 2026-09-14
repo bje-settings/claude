@@ -196,7 +196,8 @@ so a stale `uv.lock` fails instead of being rewritten under you.
 
 - lefthook, staged-only, never a suite (ADR 002).
 - `lefthook.yml` holds the steps; `CONTRIBUTING.md` says how they install.
-- A worktree needs its own `pnpm install` for the hooks to run there.
+- A worktree without its own `pnpm install` still runs the hooks, borrowed from whichever checkout
+  installed them; each step warns and skips there until the worktree gets its own `node_modules`.
 
 #### Fixture quality
 

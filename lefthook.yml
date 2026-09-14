@@ -22,26 +22,29 @@
 #
 # pre-commit runs only the gates that are staged-scoped and stay fast: Biome
 # over the staged JSON, .mjs and .ts; `vitest related` over the tests the
-# staged files reach; `claude plugin validate --strict` when a manifest is
-# staged; and, for as long as Python is in the tree (#138 retires it), ruff
-# (check and format --check) over staged Python. `tsc -p` is the one step
-# that is NOT staged-only: it type-checks the whole project, because a type
-# error caused by a staged file is usually in a file that was not staged, and
-# a project-wide checker handed a file list answers a different question. The
-# glob decides when the step runs, not what it checks. None of these runs a
-# suite; that is stated as a rule in ADR 002, not a budget, because a hook
-# that runs everything gets slower as the repository grows and the response
-# is always to disable it.
+# staged files reach; `claude plugin validate --strict` when a plugin or the
+# marketplace manifest is touched; and, for as long as Python is in the tree
+# (#138 retires it), ruff (check and format --check) over staged Python.
+# `tsc -p` is the one step that is NOT staged-only: it type-checks the whole
+# project, because a type error caused by a staged file is usually in a file
+# that was not staged, and a project-wide checker handed a file list answers a
+# different question. The glob decides when the step runs, not what it
+# checks. None of these runs a suite; that is stated as a rule in ADR 002, not
+# a budget, because a hook that runs everything gets slower as the repository
+# grows and the response is always to disable it.
 #
-# There is no `pre-push` key below, so lefthook installs no pre-push hook at
-# all (a declared-but-empty `commands: {}` still gets a hook file, which would
-# spawn a process, and print `Can't find lefthook in PATH`, on every push in a
-# worktree with no reachable binary, for a group that runs nothing). CI is the
-# enforcement boundary (ADR 002): the pytest and vitest suites need tooling a
-# fresh clone or worktree may not have yet, and a slow pre-push hook trains
-# people straight to --no-verify, which this repository forbids outright. This
-# is why #120 removes .pre-commit-config.yaml's local hooks rather than
-# porting them to a pre-push stage.
+# There is no `pre-push` key below, so a `lefthook install` against this
+# config writes no pre-push hook file (a declared-but-empty `commands: {}`
+# still gets one, which would spawn a process, and print `Can't find lefthook
+# in PATH`, on every push in a worktree with no reachable binary, for a group
+# that runs nothing). Removing the key does not retroactively delete a
+# pre-push hook file a prior install already wrote: `pnpm exec lefthook
+# uninstall` (then reinstall) clears one left over from an earlier revision of
+# this file. CI is the enforcement boundary (ADR 002): the pytest and vitest
+# suites need tooling a fresh clone or worktree may not have yet, and a slow
+# pre-push hook trains people straight to --no-verify, which this repository
+# forbids outright. This is why #120 removes .pre-commit-config.yaml's local
+# hooks rather than porting them to a pre-push stage.
 #
 # Bypass for one commit or push with --no-verify. CI enforces regardless.
 

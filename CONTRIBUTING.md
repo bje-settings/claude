@@ -59,8 +59,10 @@ runs its own `pnpm install`.
 `pre-commit` runs Biome, `tsc`, `vitest related`, `claude plugin validate --strict`, and ruff
 (check and format), each scoped to what is staged, except `tsc` which checks the whole project.
 None of them runs a suite (ADR 002); `lefthook.yml` holds the exact steps. There is no `pre-push`
-key, so lefthook installs no pre-push hook at all. Nothing here is the enforcement layer: CI runs
-the same checks whether or not the hooks ran.
+key, so a fresh `lefthook install` writes no pre-push hook file; it does not remove one a prior
+install already wrote under an earlier revision of `lefthook.yml` that did have the key, for which
+`pnpm exec lefthook uninstall` (then reinstall) is the fix. Nothing here is the enforcement layer:
+CI runs the same checks whether or not the hooks ran.
 
 Run them without committing:
 
@@ -69,10 +71,11 @@ pnpm exec lefthook run pre-commit --all-files
 ```
 
 `--all-files` only widens the steps lefthook itself scopes with `{staged_files}` (`vitest related`,
-ruff): `biome` keeps checking the index (`--staged` is Biome's own selection, not a lefthook file
-list), so it reports success having checked nothing on a clean tree, and `vitest related` runs the
-whole suite rather than a related subset. Run `pnpm exec biome check . --error-on-warnings` to
-check every file with Biome directly.
+`plugin-validate`, ruff): `biome` keeps checking the index (`--staged` is Biome's own selection, not
+a lefthook file list), so it reports success having checked nothing on a clean tree, `vitest
+related` runs the whole suite rather than a related subset, and `plugin-validate` runs on every
+plugin in the tree rather than only the ones with staged files. Run
+`pnpm exec biome check . --error-on-warnings` to check every file with Biome directly.
 
 ## Publishing a plugin downstream
 
