@@ -75,6 +75,5 @@ Add the marketplace locally for testing:
 ```bash
 /plugin marketplace add ./path/to/this/repo
 /plugin install gh@bje
-/plugin install workstreams@bje
 /plugin install field-test@bje
 ```
