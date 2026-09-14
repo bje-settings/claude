@@ -81,9 +81,11 @@ export function sandboxEnv(base: NodeJS.ProcessEnv, home: string): NodeJS.Proces
 }
 
 /** Look `tool` up on a PATH value, the way a shell does: first executable
- *  match wins, and nothing is found when the value is empty.
+ *  match wins, and nothing is found when the value is empty. Exported for the
+ *  git shim, which needs the real git's absolute path: a shim named `git`
+ *  would otherwise resolve itself.
  */
-function findOnPath(tool: string, pathValue: string | undefined): string | undefined {
+export function findOnPath(tool: string, pathValue: string | undefined): string | undefined {
   for (const directory of (pathValue ?? '').split(path.delimiter)) {
     const candidate = path.join(directory, tool)
     try {
