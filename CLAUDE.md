@@ -215,6 +215,24 @@ every commit through the `pre-commit` framework.
 - Test the non-deterministic parts too. For a skill or agent, run realistic prompts in fresh
   sessions with and without it and compare, or use the official `skill-creator` plugin for evals.
 
+## Language server
+
+Sessions on this checkout run the TypeScript language server: `.claude/settings.json` enables
+`typescript-lsp@claude-plugins-official`, which expects the server on `PATH`, so install it once
+per machine:
+
+```bash
+npm install -g typescript-language-server typescript
+```
+
+Once the repository pins `typescript` in `devDependencies`, the server will resolve that version,
+so `tsc` and the editor answer from the same version; until then it resolves whichever
+`typescript` the global install above puts on `PATH`.
+
+`.claude/settings.json` is SurveyMonkey/skills' settings verbatim, so it also turns off auto
+memory (`autoMemoryEnabled`) and strips the Claude Code attribution trailer from commits and PR
+descriptions (`attribution`), matching this repo's own git conventions.
+
 ## Enterprise CLAUDE.md
 
 `ENTERPRISE_CLAUDE.md` is the `CLAUDE.md` for the `~/Code/@bje/` directory itself, symlinked there
