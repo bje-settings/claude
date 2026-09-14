@@ -391,6 +391,37 @@ it('refuses the subcommands the shim is told to fail and forwards the rest', () 
   expect(forwarded.stdout.trim()).toBe(git.headSha(work))
 })
 
+it('walks past a -c option and its value before reading the subcommand', () => {
+  // `-c key=value` carries its value in the next argument, so a shim that read
+  // it as an ordinary option would take `key=value` for the subcommand: every
+  // refusal would stop firing and every call would forward silently, which is
+  // the failure `gitShim`'s own doc comment warns a caller about. The test
+  // above covers `-C`; this covers the other prefix the walker has to skip, and
+  // the comment on GIT_SHIM names both.
+  const { git, work, sandbox } = repository()
+
+  const shim = git.gitShim('worktree list')
+
+  const env = {
+    ...sandbox.env,
+    GIT_STUB_FAIL: shim.failing,
+    PATH: `${shim.directory}${path.delimiter}${sandbox.env.PATH}`,
+  }
+  const refused = spawnSync('git', ['-c', 'core.pager=cat', '-C', work, 'worktree', 'list'], {
+    env,
+    encoding: 'utf8',
+  })
+  expect(refused.status).toBe(1)
+  expect(refused.stderr).toContain('git stub: refusing worktree list')
+
+  const forwarded = spawnSync('git', ['-C', work, '-c', 'core.pager=cat', 'rev-parse', 'HEAD'], {
+    env,
+    encoding: 'utf8',
+  })
+  expect(forwarded.status).toBe(0)
+  expect(forwarded.stdout.trim()).toBe(git.headSha(work))
+})
+
 it('forwards to a real git whose path holds shell and replacement metacharacters', () => {
   // An apostrophe would end the shim's single-quoted literal and leave a
   // script that does not parse; a `$&` would be read as a replacement pattern

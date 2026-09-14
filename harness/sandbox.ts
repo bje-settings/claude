@@ -9,9 +9,17 @@
 // reach whatever ran next in that worker. The sandbox hands out an `env`
 // object instead, which the spawn helper and the git builder take as the
 // child's environment, and which the test may edit freely because nobody else
-// can see it. The second is that git's config lookup is held inside the
-// sandbox rather than left to HOME alone; `sandboxEnv` says why.
-import { accessSync, constants, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+// can see it. The second is that git's whole environment, and gh's, is held
+// inside the sandbox rather than left to HOME alone; `sandboxEnv` says why.
+import {
+  accessSync,
+  constants,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { onTestFinished } from 'vitest'
@@ -69,8 +77,9 @@ export interface Sandbox {
   /** The private temp directory. Everything the test writes goes under here. */
   readonly path: string
   /** The child environment: `process.env` with HOME moved, no plugin data
-   *  directory, and git's config lookup held inside the sandbox. Mutable, and
-   *  private to this sandbox. */
+   *  directory, git's config lookup held inside the sandbox, and git's and
+   *  gh's own variables swept out of it. Mutable, and private to this
+   *  sandbox. */
   readonly env: NodeJS.ProcessEnv
   /** `path.join` rooted at the sandbox, for building fixture paths. */
   join(...parts: string[]): string
@@ -83,8 +92,8 @@ export interface Sandbox {
 }
 
 /** The environment a sandbox hands out: `base`, with HOME pointed at `home`,
- *  CLAUDE_PLUGIN_DATA removed, and git's config lookup held inside the
- *  sandbox.
+ *  CLAUDE_PLUGIN_DATA removed, git's config lookup held inside the sandbox,
+ *  and git's and gh's own variables swept out of it.
  *
  *  Moving HOME is not enough to keep the developer's git configuration out.
  *  `GIT_CONFIG_GLOBAL` overrides the HOME lookup entirely, and this
@@ -104,6 +113,30 @@ export interface Sandbox {
  */
 export function sandboxEnv(base: NodeJS.ProcessEnv, home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base }
+  // The whole prefix, because pinning one variable pins one variable: git takes
+  // a repository, a configuration and an author identity from its environment,
+  // and each of those outranks what is pinned below. `GIT_DIR` and
+  // `GIT_WORK_TREE` replace the repository `-C` chose, whatever `-C` said;
+  // `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS` carry configuration that
+  // neither `GIT_CONFIG_GLOBAL` nor `GIT_CONFIG_NOSYSTEM` displaces; and
+  // `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL` beat the `-c user.name` the git
+  // builders pass, so the identity they claim to pin is not pinned at all. A
+  // git hook is run with the author ones and `GIT_INDEX_FILE` exported, and a
+  // pre-commit hook is one of the places this suite runs, so that is the
+  // ordinary case rather than a contrived one. `git rev-parse --local-env-vars`
+  // names fifteen of these and none of the author ones, which is why this
+  // sweeps the prefix rather than keeping a list that would have to be right.
+  //
+  // `GH_` goes with it. `gh` is an injected mock (ADR 001), so nothing the
+  // suite runs may reach the real one, and a child holding `GH_TOKEN` or
+  // `GH_CONFIG_DIR` would turn that mistake into a live API call as the
+  // developer instead of into a failure; `GITHUB_TOKEN` is the same credential
+  // under gh's other name. A test that wants any of these back sets it on the
+  // sandbox's own `env`, which is private to it.
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GIT_') || key.startsWith('GH_')) delete env[key]
+  }
+  delete env.GITHUB_TOKEN
   env.HOME = home
   env.GIT_CONFIG_GLOBAL = path.join(home, '.gitconfig')
   env.GIT_CONFIG_NOSYSTEM = '1'
@@ -112,15 +145,21 @@ export function sandboxEnv(base: NodeJS.ProcessEnv, home: string): NodeJS.Proces
 }
 
 /** Look `tool` up on a PATH value, the way a shell does: first executable
- *  match wins, and nothing is found when the value is empty. Exported for the
- *  git shim, which needs the real git's absolute path: a shim named `git`
- *  would otherwise resolve itself.
+ *  match wins, a directory is not a match, and nothing is found when the value
+ *  is empty. Exported for the git shim, which needs the real git's absolute
+ *  path: a shim named `git` would otherwise resolve itself.
  */
 export function findOnPath(tool: string, pathValue: string | undefined): string | undefined {
   for (const directory of (pathValue ?? '').split(path.delimiter)) {
     const candidate = path.join(directory, tool)
     try {
       accessSync(candidate, constants.X_OK)
+      // A directory carrying the traverse bit passes the executable check too,
+      // so a PATH entry holding one named after a tool would be linked in as
+      // that tool and the "not installed" branch it stands for would never
+      // fire. Python's `shutil.which` excludes directories for the same reason;
+      // `os.access` alone does not.
+      if (statSync(candidate).isDirectory()) continue
       return candidate
     } catch {
       // Not here, or not executable. Keep walking: a tool genuinely missing

@@ -49,6 +49,25 @@ it('removes the sandbox directory on cleanup', () => {
   expect(existsSync(sandbox.path)).toBe(false)
 })
 
+// One claim in two tests, which is the only order that can prove it: a test
+// cannot watch its own `onTestFinished` run, so the first records the path and
+// the second, which runs once the first has finished, reads it back. Without
+// the pair, a `createSandbox` that registered nothing at all goes unnoticed,
+// because the test above calls `cleanup()` itself.
+let autoCleaned = ''
+
+it('registers its own cleanup, so a test need not call it', () => {
+  const sandbox = createSandbox()
+  autoCleaned = sandbox.path
+
+  expect(existsSync(autoCleaned)).toBe(true)
+})
+
+it('has removed the previous test sandbox by the time the next test runs', () => {
+  expect(autoCleaned).not.toBe('')
+  expect(existsSync(autoCleaned)).toBe(false)
+})
+
 it('holds git config lookup inside the sandbox, whatever the base env said', () => {
   // Moving HOME alone does not do it: GIT_CONFIG_GLOBAL overrides the HOME
   // lookup, and this repository's own workspace exports it, so a fixture would
@@ -57,6 +76,35 @@ it('holds git config lookup inside the sandbox, whatever the base env said', () 
 
   expect(env.GIT_CONFIG_GLOBAL).toBe(path.join('/sandbox/home', '.gitconfig'))
   expect(env.GIT_CONFIG_NOSYSTEM).toBe('1')
+})
+
+it('drops the git and gh environment a hook or a workspace exports', () => {
+  // Pinning GIT_CONFIG_GLOBAL pins one variable. GIT_DIR replaces the
+  // repository `-C` chose, GIT_CONFIG_COUNT carries configuration that neither
+  // pin displaces, GIT_AUTHOR_NAME beats the `-c user.name` the git builders
+  // pass, and a git hook exports the last of those. GH_TOKEN and GH_CONFIG_DIR
+  // are the developer's own credentials, which an injected mock means nothing
+  // here may reach. The whole environment is asserted, not one key at a time,
+  // so a variable that stops being swept is a failure rather than an omission.
+  const env = sandboxEnv(
+    {
+      GIT_DIR: '/developer/repo/.git',
+      GIT_AUTHOR_NAME: 'Outer',
+      GIT_CONFIG_COUNT: '1',
+      GH_TOKEN: 'secret',
+      GH_CONFIG_DIR: '/developer/.config/gh',
+      GITHUB_TOKEN: 'secret',
+      PATH: '/usr/bin',
+    },
+    '/sandbox/home',
+  )
+
+  expect(Object.keys(env).sort()).toEqual([
+    'GIT_CONFIG_GLOBAL',
+    'GIT_CONFIG_NOSYSTEM',
+    'HOME',
+    'PATH',
+  ])
 })
 
 it('never mutates the environment it was built from', () => {
@@ -137,6 +185,19 @@ it('skips a non-essential tool that is not installed', () => {
   const directory = sandbox.pathWithout()
 
   expect(readdirSync(directory).sort()).toEqual([...ESSENTIAL_TOOLS].sort())
+})
+
+it('does not mistake a directory for the tool it is named after', () => {
+  // A directory carrying the traverse bit passes the executable check, so one
+  // named after a tool would be linked in as that tool and the "not installed"
+  // branch it stands for would never fire. Python's `shutil.which` excludes
+  // directories; `os.access` and `accessSync` alone do not.
+  const sandbox = createSandbox()
+  const bin = essentialsOnly(sandbox)
+  mkdirSync(path.join(bin, 'jq'))
+  sandbox.env.PATH = bin
+
+  expect(readdirSync(sandbox.pathWithout()).sort()).toEqual([...ESSENTIAL_TOOLS].sort())
 })
 
 it('refuses to build a PATH with an essential tool missing', () => {

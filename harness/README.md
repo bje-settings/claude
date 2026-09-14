@@ -24,7 +24,7 @@ stopped producing its state would make every test built on it pass for the wrong
 
 ```ts
 const sandbox = createSandbox() // call it inside a test
-sandbox.env // process.env, with HOME moved, CLAUDE_PLUGIN_DATA gone, git config pinned inside
+sandbox.env // process.env, with HOME moved, CLAUDE_PLUGIN_DATA gone, git and gh swept out
 sandbox.join('r') // a path inside the sandbox
 sandbox.stubPath(directory) // put `directory` first on the sandbox's PATH
 sandbox.pathWithout('jq') // a PATH of the real tools, minus jq
@@ -40,7 +40,9 @@ directory; `sandbox.cleanup()` removes it sooner.
 
 `pathWithout` refuses a name that is not in `COMMON_TOOLS` (a typo would remove nothing and the test
 would pass for the wrong reason) and refuses to return a PATH missing an essential tool (`sh`,
-`bash`, `node`), which would fail a later test for a reason it never meant to provoke.
+`bash`, `node`), which would fail a later test for a reason it never meant to provoke. A directory
+named after a tool is not a match for it: the traverse bit passes an executable check, and linking
+one in would leave the "not installed" branch it stands for unreachable.
 
 ## The `gh` mock
 
@@ -124,6 +126,14 @@ by the sandbox's `env`, which points `GIT_CONFIG_GLOBAL` inside the sandbox HOME
 `GIT_CONFIG_NOSYSTEM`. Moving HOME alone is not enough: `GIT_CONFIG_GLOBAL` overrides the HOME
 lookup, and this repository's own workspace exports it from direnv, so a fixture would otherwise
 read a file CI never sees.
+
+Pinning those two is not enough either, so the sandbox's `env` carries no `GIT_` or `GH_` variable
+it did not set itself. `GIT_DIR` replaces the repository `-C` chose, `GIT_CONFIG_COUNT` carries
+configuration neither pin displaces, and `GIT_AUTHOR_NAME` beats the `-c user.name` above, so the
+identity that reads as pinned is not. A git hook is run with those exported, and a pre-commit hook
+is one of the places this suite runs. `GH_` goes with them because `gh` is an injected mock: nothing
+here may reach the real one, and a child holding the developer's token would make that mistake a
+live API call rather than a failure.
 
 The distinction between the three merge builders is load-bearing, and `git.test.ts` asserts each of
 those claims directly.
