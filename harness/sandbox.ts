@@ -2,14 +2,15 @@
 // environment the test can rewrite. The port of the `Sandbox` class and the
 // `sandbox` fixture in tests/conftest.py.
 //
-// The one deliberate change from the Python original is that nothing here
-// touches `process.env`. pytest gives every example its own monkeypatch and
-// undoes it at the end; vitest runs several test files through one worker
+// Two deliberate changes from the Python original. The first is that nothing
+// here touches `process.env`. pytest gives every example its own monkeypatch
+// and undoes it at the end; vitest runs several test files through one worker
 // process, so a mutated `process.env` would outlive the test that set it and
 // reach whatever ran next in that worker. The sandbox hands out an `env`
 // object instead, which the spawn helper and the git builder take as the
 // child's environment, and which the test may edit freely because nobody else
-// can see it.
+// can see it. The second is that git's config lookup is held inside the
+// sandbox rather than left to HOME alone; `sandboxEnv` says why.
 import { accessSync, constants, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -20,7 +21,12 @@ import { onTestFinished } from 'vitest'
 // is how the "tool is not installed" branches get provoked without touching
 // the real PATH. Python's `python3` is `node` here: it is the interpreter the
 // ported scripts run under, and the one whose absence they have to survive.
-export const COMMON_TOOLS: readonly string[] = [
+//
+// `as const` so the names survive as a type: `pathWithout` only ever walks this
+// list, so an essential tool missing from it would never be checked for, and
+// the guarantee below would quietly stop holding. `CommonTool` makes that a
+// compile error instead.
+const COMMON_TOOL_NAMES = [
   'bash',
   'sh',
   'jq',
@@ -44,17 +50,27 @@ export const COMMON_TOOLS: readonly string[] = [
   'id',
   'chmod',
   'node',
-]
+] as const
+
+/** A name `pathWithout` knows how to link. */
+export type CommonTool = (typeof COMMON_TOOL_NAMES)[number]
+
+// Exported as `readonly string[]`, so a caller may still ask about a name that
+// is not one of these: `pathWithout` refuses a typo at run time, and
+// sandbox.test.ts proves it by passing one.
+export const COMMON_TOOLS: readonly string[] = COMMON_TOOL_NAMES
 
 // Without these a returned PATH is not a usable shell environment at all, and
-// a script would fail for a reason the test never meant to provoke.
-export const ESSENTIAL_TOOLS: readonly string[] = ['bash', 'sh', 'node']
+// a script would fail for a reason the test never meant to provoke. Typed as
+// `CommonTool`, so one of these can never be a name `pathWithout` does not walk.
+export const ESSENTIAL_TOOLS: readonly CommonTool[] = ['bash', 'sh', 'node']
 
 export interface Sandbox {
   /** The private temp directory. Everything the test writes goes under here. */
   readonly path: string
-  /** The child environment: `process.env` with HOME moved and no plugin data
-   *  directory. Mutable, and private to this sandbox. */
+  /** The child environment: `process.env` with HOME moved, no plugin data
+   *  directory, and git's config lookup held inside the sandbox. Mutable, and
+   *  private to this sandbox. */
   readonly env: NodeJS.ProcessEnv
   /** `path.join` rooted at the sandbox, for building fixture paths. */
   join(...parts: string[]): string
@@ -66,8 +82,21 @@ export interface Sandbox {
   cleanup(): void
 }
 
-/** The environment a sandbox hands out: `base`, with HOME pointed at `home`
- *  and CLAUDE_PLUGIN_DATA removed.
+/** The environment a sandbox hands out: `base`, with HOME pointed at `home`,
+ *  CLAUDE_PLUGIN_DATA removed, and git's config lookup held inside the
+ *  sandbox.
+ *
+ *  Moving HOME is not enough to keep the developer's git configuration out.
+ *  `GIT_CONFIG_GLOBAL` overrides the HOME lookup entirely, and this
+ *  repository's own workspace exports it from direnv, so without this a
+ *  fixture reads the developer's real global config while CI reads none: with
+ *  `status.showUntrackedFiles = no` and `merge.ff = false` in that file, two
+ *  of git.test.ts's own assertions fail locally and pass in CI. Pointing it
+ *  inside the sandbox restores the plain meaning of moving HOME, and leaves a
+ *  test free to write that file itself. `GIT_CONFIG_NOSYSTEM` is the same
+ *  argument for the machine's system config, which sets `init.defaultBranch`
+ *  on a stock macOS git; it rather than `GIT_CONFIG_SYSTEM` because Apple's
+ *  build reads its own system file whatever that is pointed at.
  *
  *  A copy, never the object it was given: the point of the sandbox is that a
  *  test cannot change what another test sees. Exported so its own claims can
@@ -76,6 +105,8 @@ export interface Sandbox {
 export function sandboxEnv(base: NodeJS.ProcessEnv, home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base }
   env.HOME = home
+  env.GIT_CONFIG_GLOBAL = path.join(home, '.gitconfig')
+  env.GIT_CONFIG_NOSYSTEM = '1'
   delete env.CLAUDE_PLUGIN_DATA
   return env
 }
@@ -145,7 +176,9 @@ export function createSandbox(): Sandbox {
       // the first one's links and hand back a PATH that still holds the tool
       // the test is trying to take away.
       const directory = mkdtempSync(path.join(root, 'bin-without-'))
-      for (const tool of COMMON_TOOLS) {
+      // The `as const` list rather than the exported one, so `tool` carries the
+      // literal type the ESSENTIAL_TOOLS check below is written against.
+      for (const tool of COMMON_TOOL_NAMES) {
         if (tools.includes(tool)) continue
         const real = findOnPath(tool, env.PATH)
         if (real === undefined) {

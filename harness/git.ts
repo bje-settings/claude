@@ -38,7 +38,7 @@ export interface GitRun {
 const GIT_SHIM = `#!/bin/sh
 # Walk past git's own options so the comparison below sees the subcommand and
 # its arguments, the way "git -C dir -c key=value fetch origin" hides "fetch".
-real='__REAL_GIT__'
+real=__REAL_GIT__
 tail=''
 started=''
 skip=''
@@ -129,15 +129,22 @@ export interface GitFixtures {
   /** The branch HEAD is on. */
   currentBranch(work: string): string
   /** A directory whose `git` refuses the named subcommands, and the value to
-   *  pass as `GIT_STUB_FAIL` beside it. */
+   *  pass as `GIT_STUB_FAIL` beside it. Both are needed: with the directory
+   *  missing from PATH, or `GIT_STUB_FAIL` unset, or a typo in a subcommand,
+   *  the shim forwards to the real git and says nothing. Assert on the
+   *  `git stub: refusing ` line, not merely on a non-zero status, or a test
+   *  that meant to exercise the failure passes on the success path. */
   gitShim(...failing: string[]): { directory: string; failing: string }
 }
 
 /** Builders for repositories in known states, all inside one sandbox.
  *
  *  Every git call is isolated from the developer's own configuration, which
- *  may set a different default branch, sign commits, or install hooks, any of
- *  which would change what a fixture actually produces.
+ *  may set a different default branch, sign commits, install hooks, or hide
+ *  untracked files, any of which would change what a fixture actually
+ *  produces. Identity, signing and hooks are pinned per command below; the
+ *  rest is pinned by `sandbox.env`, which holds git's config lookup inside the
+ *  sandbox rather than leaving it to HOME alone (see `sandboxEnv`).
  */
 export function createGitFixtures(sandbox: Sandbox): GitFixtures {
   function run(directory: string, args: string[], allowFailure: boolean): GitRun {
@@ -158,6 +165,14 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       ],
       { env: sandbox.env },
     )
+    // Before the decode, because a child that never started leaves `stdout` and
+    // `stderr` undefined rather than empty: reading them first turns "git is not
+    // on the PATH this sandbox hands out" into a TypeError naming neither git
+    // nor the PATH, and it fires through `tryGit` too, whose whole contract is
+    // to hand back a result instead of throwing. `spawn.ts` guards the same way.
+    if (result.error) {
+      throw result.error
+    }
     const stdout = result.stdout.toString('utf8')
     const stderr = result.stderr.toString('utf8')
     if (!allowFailure && result.status !== 0) {
@@ -341,6 +356,14 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     },
 
     dropRemoteBranches(work: string): void {
+      // origin/HEAD first, and as a symbolic ref: `update-ref -d` is a silent
+      // no-op on one, so looping alone empties `for-each-ref` (it skips a
+      // symref whose target is gone) while `symbolic-ref
+      // refs/remotes/origin/HEAD` still answers with the branch just deleted.
+      // A command resolving the default branch that way would read a default
+      // branch out of a repository that has none, which is the state this
+      // builder exists to produce.
+      fixtures.forgetOriginHead(work)
       const refs = git(work, 'for-each-ref', '--format=%(refname)', 'refs/remotes/origin/')
       for (const ref of lines(refs)) {
         git(work, 'update-ref', '-d', ref)
@@ -362,9 +385,19 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
         throw new Error('git is not on PATH; cannot build a shim that forwards to it')
       }
       const directory = mkdtempSync(path.join(sandbox.path, 'git-shim-'))
-      writeFileSync(path.join(directory, 'git'), GIT_SHIM.replace('__REAL_GIT__', real), {
-        mode: 0o755,
-      })
+      // A shell literal, not a bare interpolation, and both halves matter. The
+      // quoting keeps a path holding a space or an apostrophe from ending the
+      // literal and breaking the script, and the replacer function keeps a `$&`
+      // in the path from being read as a replacement pattern and rewriting
+      // itself. The Python original got both from `{real!r}`.
+      const quoted = `'${real.replaceAll("'", `'\\''`)}'`
+      writeFileSync(
+        path.join(directory, 'git'),
+        GIT_SHIM.replace('__REAL_GIT__', () => quoted),
+        {
+          mode: 0o755,
+        },
+      )
       return { directory, failing: failing.join(',') }
     },
   }

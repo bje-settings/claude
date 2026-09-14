@@ -24,7 +24,7 @@ stopped producing its state would make every test built on it pass for the wrong
 
 ```ts
 const sandbox = createSandbox() // call it inside a test
-sandbox.env // process.env, with HOME moved and CLAUDE_PLUGIN_DATA gone
+sandbox.env // process.env, with HOME moved, CLAUDE_PLUGIN_DATA gone, git config pinned inside
 sandbox.join('r') // a path inside the sandbox
 sandbox.stubPath(directory) // put `directory` first on the sandbox's PATH
 sandbox.pathWithout('jq') // a PATH of the real tools, minus jq
@@ -113,12 +113,17 @@ Two constructors, because the two scopes need different shapes:
 | `forgetOriginHead` | Drops the cached `origin/HEAD`. It is a *symbolic* ref, so it is deleted as one; `update-ref -d` leaves it resolvable. |
 | `dropRemoteBranches` | Removes every remote-tracking branch, so no default branch resolves at all. |
 | `lockIndex` | An index lock, which `git status` tolerates but ref-writing commands refuse, so a mid-run git failure can be provoked without corrupting anything. |
-| `gitShim` | A directory whose `git` refuses the named subcommands and forwards everything else, plus the `GIT_STUB_FAIL` value to pass beside it. |
+| `gitShim` | A directory whose `git` refuses the named subcommands and forwards everything else, plus the `GIT_STUB_FAIL` value to pass beside it. Assert on the `git stub: refusing ` line: a shim that was wired up wrong forwards silently. |
 | `sha` / `headSha` / `branches` / `currentBranch` | Read the repository back. |
 | `git` / `tryGit` | Any other git command, throwing on failure or reporting it. |
 
-Every call is isolated from the developer's own git configuration, which may set a different
-default branch, sign commits, or install hooks, any of which would change what a fixture produces.
+Every call is isolated from the developer's own git configuration, which may set a different default
+branch, sign commits, install hooks, or hide untracked files, any of which would change what a
+fixture produces. Identity, signing and hooks are pinned per command with `-c`; the rest is pinned
+by the sandbox's `env`, which points `GIT_CONFIG_GLOBAL` inside the sandbox HOME and sets
+`GIT_CONFIG_NOSYSTEM`. Moving HOME alone is not enough: `GIT_CONFIG_GLOBAL` overrides the HOME
+lookup, and this repository's own workspace exports it from direnv, so a fixture would otherwise
+read a file CI never sees.
 
 The distinction between the three merge builders is load-bearing, and `git.test.ts` asserts each of
 those claims directly.

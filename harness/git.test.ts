@@ -4,7 +4,15 @@
 // builder that quietly stopped producing its state would make them pass for
 // the wrong reason.
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
 import { createGitFixtures, DEFAULT_BRANCH, type GitFixtures } from './git.ts'
@@ -187,7 +195,11 @@ it('leaves an in-progress marker as a directory or as a file', () => {
   git.inProgress(work, 'rebase-merge')
   git.inProgress(work, 'MERGE_HEAD')
 
-  expect(existsSync(path.join(gitdir, 'rebase-merge'))).toBe(true)
+  // A directory, not merely something with that name: a command that reads
+  // `rebase-merge/head-name` sees no rebase at all if the builder writes a
+  // file, and `existsSync` alone cannot tell the two apart.
+  expect(statSync(path.join(gitdir, 'rebase-merge')).isDirectory()).toBe(true)
+  expect(statSync(path.join(gitdir, 'MERGE_HEAD')).isFile()).toBe(true)
   expect(readFileSync(path.join(gitdir, 'MERGE_HEAD'), 'utf8')).toBe(`${git.headSha(work)}\n`)
 })
 
@@ -311,6 +323,9 @@ it('removes every remote-tracking branch, and tolerates there being none', () =>
   git.dropRemoteBranches(work)
 
   expect(git.git(work, 'for-each-ref', '--format=%(refname)', 'refs/remotes/origin/')).toBe('')
+  // for-each-ref alone is not the claim: it skips a symbolic ref whose target
+  // is gone, so origin/HEAD can still answer with a branch this just deleted.
+  expect(git.tryGit(work, 'symbolic-ref', 'refs/remotes/origin/HEAD').status).not.toBe(0)
   expect(git.branches(work)).toEqual(['feature', DEFAULT_BRANCH])
 })
 
@@ -323,6 +338,36 @@ it('reports the command and git stderr when git fails', () => {
 
   expect(() => git.git(sandbox.path, 'rev-parse', 'HEAD')).toThrow(
     /git rev-parse HEAD failed in .*not a git repository/s,
+  )
+})
+
+it('reports git itself being unspawnable, rather than crashing on absent output', () => {
+  // spawnSync leaves stdout and stderr undefined when the child never started,
+  // so decoding them first would raise a TypeError naming neither git nor the
+  // PATH. It has to reach `tryGit` as well, which promises a result rather than
+  // a throw for anything git itself reports.
+  const sandbox = createSandbox()
+  const git = createGitFixtures(sandbox)
+  sandbox.env.PATH = sandbox.pathWithout('git')
+
+  expect(() => git.git(sandbox.path, 'rev-parse', 'HEAD')).toThrow(/ENOENT/)
+  expect(() => git.tryGit(sandbox.path, 'rev-parse', 'HEAD')).toThrow(/ENOENT/)
+})
+
+it('resolves global git config inside the sandbox, not on the developer machine', () => {
+  // The three `-c` overrides cover identity, signing and hooks; everything else
+  // in a global config still applies, so the file git reads has to be the
+  // sandbox's own. `status.showUntrackedFiles` is the demonstration: with the
+  // developer's config reaching in, this file's untracked assertion fails
+  // locally and passes in CI.
+  const { git, work, sandbox } = repository()
+  const home = sandbox.join('home')
+
+  writeFileSync(path.join(home, '.gitconfig'), '[status]\n\tshowUntrackedFiles = no\n')
+
+  expect(git.git(work, 'config', '--get', 'status.showUntrackedFiles')).toBe('no')
+  expect(git.git(work, 'config', '--show-origin', '--get', 'status.showUntrackedFiles')).toBe(
+    `file:${path.join(home, '.gitconfig')}\tno`,
   )
 })
 
@@ -344,6 +389,32 @@ it('refuses the subcommands the shim is told to fail and forwards the rest', () 
   const forwarded = spawnSync('git', ['-C', work, 'rev-parse', 'HEAD'], { env, encoding: 'utf8' })
   expect(forwarded.status).toBe(0)
   expect(forwarded.stdout.trim()).toBe(git.headSha(work))
+})
+
+it('forwards to a real git whose path holds shell and replacement metacharacters', () => {
+  // An apostrophe would end the shim's single-quoted literal and leave a
+  // script that does not parse; a `$&` would be read as a replacement pattern
+  // and rewrite itself into the path. The Python original got both from
+  // `{real!r}`, and a plain string replacement carries neither forward.
+  const sandbox = createSandbox()
+  const git = createGitFixtures(sandbox)
+  const odd = sandbox.join("o'brien $& bin")
+  mkdirSync(odd, { recursive: true })
+  writeFileSync(path.join(odd, 'git'), '#!/bin/sh\necho forwarded\n', { mode: 0o755 })
+  sandbox.env.PATH = odd
+
+  const shim = git.gitShim('fetch')
+
+  const forwarded = spawnSync('git', ['status'], {
+    env: {
+      ...sandbox.env,
+      GIT_STUB_FAIL: shim.failing,
+      PATH: `${shim.directory}${path.delimiter}${odd}`,
+    },
+    encoding: 'utf8',
+  })
+  expect(forwarded.stderr).toBe('')
+  expect(forwarded.stdout).toBe('forwarded\n')
 })
 
 it('refuses to build a shim when there is no real git to forward to', () => {

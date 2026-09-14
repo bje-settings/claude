@@ -49,6 +49,16 @@ it('removes the sandbox directory on cleanup', () => {
   expect(existsSync(sandbox.path)).toBe(false)
 })
 
+it('holds git config lookup inside the sandbox, whatever the base env said', () => {
+  // Moving HOME alone does not do it: GIT_CONFIG_GLOBAL overrides the HOME
+  // lookup, and this repository's own workspace exports it, so a fixture would
+  // read the developer's real global config while CI read none.
+  const env = sandboxEnv({ GIT_CONFIG_GLOBAL: '/developer/config/git' }, '/sandbox/home')
+
+  expect(env.GIT_CONFIG_GLOBAL).toBe(path.join('/sandbox/home', '.gitconfig'))
+  expect(env.GIT_CONFIG_NOSYSTEM).toBe('1')
+})
+
 it('never mutates the environment it was built from', () => {
   // The property vitest makes load-bearing: several test files share one
   // worker process, so an env rewritten in place would outlive this test.
