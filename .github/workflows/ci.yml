@@ -205,7 +205,11 @@ jobs:
       # together).
       - name: Assert the floor Node
         run: |
-          version="$(pnpm --config.use-node-version=22.18.0 exec node --version)"
+          # tail -n 1: on the first invocation pnpm downloads the pinned
+          # version and prints a "Fetching Node.js 22.18.0 ..." progress
+          # line to stdout ahead of the actual `node --version` output, so
+          # the raw capture would compare against two lines instead of one.
+          version="$(pnpm --config.use-node-version=22.18.0 exec node --version | tail -n 1)"
           if [[ "$version" != "v22.18.0" ]]; then
             echo "expected pnpm --config.use-node-version=22.18.0 exec node --version to print v22.18.0 exactly, got $version" >&2
             exit 1
