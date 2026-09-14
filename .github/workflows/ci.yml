@@ -24,6 +24,33 @@ concurrency:
 # for the same reason; add it to the ruleset right after the pull request that
 # introduces it merges.
 jobs:
+  # Not a required check on ruleset 22359720: nothing depends on the Node
+  # toolchain yet. #119 decides whether this survives as its own job once the
+  # vitest job exists.
+  install:
+    name: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      - name: Assert the Node pins
+        run: |
+          node_version="$(node --version)"
+          if [[ ! "$node_version" =~ ^v22\.([0-9]+)\. ]]; then
+            echo "expected node --version to match ^v22.(minor)., got $node_version" >&2
+            exit 1
+          fi
+          if (( BASH_REMATCH[1] < 18 )); then
+            echo "expected node minor >= 18, got $node_version" >&2
+            exit 1
+          fi
+          # Must match .npmrc's use-node-version exactly; bump both together.
+          pnpm_node_version="$(pnpm exec node --version)"
+          if [[ "$pnpm_node_version" != "v22.23.2" ]]; then
+            echo "expected pnpm exec node --version to print v22.23.2 exactly, got $pnpm_node_version" >&2
+            exit 1
+          fi
+
   # ruff's target-version is py39, so syntax newer than the floor is a lint
   # failure rather than something a user on the Python macOS ships discovers at
   # runtime.
@@ -64,14 +91,15 @@ jobs:
       # The tests that exercise the dependency-install path need real package
       # managers. corepack is what makes a project's packageManager field
       # authoritative, which is how the Yarn Berry fixture pins its version; the
-      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
+      # runner images ship yarn 1 globally, and yarn 1 ignores that field. No
+      # version input to pnpm/action-setup: the pnpm version comes from this
+      # repo's own package.json packageManager field now, and the action
+      # refuses two sources of the version.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: corepack enable
       - uses: pnpm/action-setup@v6
-        with:
-          version: 10
       - name: Run the Python suite on the newest 3.x
         run: uv run --locked --python "${{ steps.python.outputs.python-path }}" pytest -n auto
 
@@ -86,14 +114,15 @@ jobs:
       # The tests that exercise the dependency-install path need real package
       # managers. corepack is what makes a project's packageManager field
       # authoritative, which is how the Yarn Berry fixture pins its version; the
-      # runner images ship yarn 1 globally, and yarn 1 ignores that field.
+      # runner images ship yarn 1 globally, and yarn 1 ignores that field. No
+      # version input to pnpm/action-setup: the pnpm version comes from this
+      # repo's own package.json packageManager field now, and the action
+      # refuses two sources of the version.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: corepack enable
       - uses: pnpm/action-setup@v6
-        with:
-          version: 10
       # No --python here on purpose: .python-version pins 3.9, which is what
       # /usr/bin/python3 is on a Mac with the Command Line Tools, and therefore
       # what actually runs the plugin scripts for an end user.
@@ -111,14 +140,14 @@ jobs:
 
       # As in the pytest jobs: corepack makes the packageManager field
       # authoritative for the Yarn Berry fixture, and pnpm is the branch checked
-      # first.
+      # first. No version input to pnpm/action-setup: the pnpm version comes
+      # from this repo's own package.json packageManager field now, and the
+      # action refuses two sources of the version.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: corepack enable
       - uses: pnpm/action-setup@v6
-        with:
-          version: 10
 
       - uses: astral-sh/setup-uv@v10.0.1
         with:
