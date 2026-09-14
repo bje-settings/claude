@@ -7,6 +7,9 @@ CLAUDE.local.md
 # coverage and report artifacts
 /coverage/
 
+# node toolchain
+node_modules/
+
 # python bytecode
 __pycache__/
 
