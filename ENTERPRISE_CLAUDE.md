@@ -10,13 +10,20 @@ is held by the normal personal `brianespinosa` account, so credentials are inher
 
 ## Orgs
 
-| Org directory      | GitHub org       | Notes                                                      |
-| ------------------ | ---------------- | ---------------------------------------------------------- |
-| `@bje-settings/`   | `bje-settings`   | Enterprise and org configuration as code (`terraform`)     |
-| `@bje-co/`         | `bje-co`         | Primary org (`blocks`, `bje.co`, `cm`, `.github`)          |
-| `@bje-actions/`    | `bje-actions`    | Public reusable Actions/workflows (`conflict-label`)      |
-| `@bork-ltd/`       | `bork-ltd`       | `shippo-packing-slips`                                     |
-| `@arsenalamerica/` | `arsenalamerica` | Arsenal America; has its own `.envrc` for `VERCEL_TEAM_ID` |
+| Org directory          | GitHub org           | Notes                                                                    |
+| ---------------------- | -------------------- | ------------------------------------------------------------------------ |
+| `@bje-settings/`       | `bje-settings`       | Enterprise configuration and Claude marketplace (`claude`, `containers`, `github`, `terraform`) |
+| `@bje-sync-providers/` | `bje-sync-providers` | `bje-sync` providers (`github`, `receiver`, `vercel`)                    |
+| `@bje-co/`             | `bje-co`             | Primary org; anything on the bje.co domain (`blocks`, `bje.co`, `cm`, `.github`) |
+| `@bje-web/`            | `bje-web`            | Web sites with no other org home (no repos yet)                          |
+| `@bje-apps/`           | `bje-apps`           | Standalone apps and tools (no repos yet)                                 |
+| `@bje-devices/`        | `bje-devices`        | Home automation and hardware (no repos yet)                              |
+| `@tacoma-fyi/`         | `tacoma-fyi`         | Tacoma community sites (no repos yet)                                    |
+| `@bje-actions/`        | `bje-actions`        | Public reusable Actions/workflows (`conflict-label`)                     |
+| `@bork-ltd/`           | `bork-ltd`           | `shippo-packing-slips`                                                   |
+| `@arsenalamerica/`     | `arsenalamerica`     | Arsenal America; has its own `.envrc` for `VERCEL_TEAM_ID`               |
+
+A `bje-bots` org is planned but not created. See `REPO-MIGRATION.md` for which repos move where.
 
 ## Directory Structure
 
@@ -47,6 +54,10 @@ the personal user account. When a repo is transferred, move the local checkout t
 `integrations/github` Terraform provider, state in HCP Terraform, applies in GitHub
 Actions. Org settings, Actions policy, custom properties, and org rulesets are managed
 there rather than through the GitHub UI. `bje-co` is not yet covered.
+
+`terraform` (and the personal `brianespinosa/settings` probot config) is likely to be replaced by
+`bje-sync`, whose providers live in `bje-sync-providers`. Check before investing in new
+terraform modules.
 
 ## Enterprise rulesets
 
