@@ -179,8 +179,9 @@ so a stale `uv.lock` fails instead of being rewritten under you.
 
 #### CI required checks
 
-- `ruff`, `pytest`, `pytest-floor` and `coverage` in `ci.yml`, plus `plugin-validate` in its own
-  workflow, are required checks on the default branch, matched by exact string.
+- `ruff`, `pytest`, `pytest-floor`, `coverage`, `vitest`, `vitest-floor`, `types` and `biome` in
+  `ci.yml`, plus `plugin-validate` in its own workflow, are required checks on the default branch,
+  matched by exact string.
 - Renaming one silently blocks every pull request forever (the required check never reports
   again) -- put descriptive text in step names instead.
 - Adding or removing a required job means updating the branch ruleset in the same pull request:
