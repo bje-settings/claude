@@ -225,8 +225,13 @@ per machine:
 npm install -g typescript-language-server typescript
 ```
 
-The server resolves the compiler the repository pins in `devDependencies` (`typescript`, landing
-with #117), so `tsc` and the editor answer from the same version.
+Once the repository pins `typescript` in `devDependencies`, the server will resolve that version,
+so `tsc` and the editor answer from the same version; until then it resolves whichever
+`typescript` the global install above puts on `PATH`.
+
+`.claude/settings.json` is SurveyMonkey/skills' settings verbatim, so it also turns off auto
+memory (`autoMemoryEnabled`) and strips the Claude Code attribution trailer from commits and PR
+descriptions (`attribution`), matching this repo's own git conventions.
 
 ## Enterprise CLAUDE.md
 
