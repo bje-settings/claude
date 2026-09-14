@@ -7,5 +7,14 @@
   "engines": {
     "node": ">=22.18.0 <23"
   },
-  "devDependencies": {}
+  "scripts": {
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@types/node": "22.20.2",
+    "@vitest/coverage-v8": "4.1.11",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  }
 }

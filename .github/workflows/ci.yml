@@ -23,34 +23,15 @@ concurrency:
 # A new job name becomes a required check only after it has reported on main,
 # for the same reason; add it to the ruleset right after the pull request that
 # introduces it merges.
+#
+# vitest, types and biome report on every run starting at #119, #117 and #118,
+# but are not required checks yet: they join ruleset 22359720 at #122, once
+# each has reported green on main at least once (ADR 002). vitest-floor also
+# reports on every run as of #119's review round 1, but #122's scope
+# (docs/rfc/001-typescript-port.md T8, ADR 002) names only biome, types and
+# vitest; whether vitest-floor should join the ruleset too, matching
+# pytest-floor's required status, is unresolved and belongs to #122.
 jobs:
-  # Not a required check on ruleset 22359720: nothing depends on the Node
-  # toolchain yet. #119 decides whether this survives as its own job once the
-  # vitest job exists.
-  install:
-    name: install
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/node-pnpm
-      - name: Assert the Node pins
-        run: |
-          node_version="$(node --version)"
-          if [[ ! "$node_version" =~ ^v22\.([0-9]+)\. ]]; then
-            echo "expected node --version to match ^v22.(minor)., got $node_version" >&2
-            exit 1
-          fi
-          if (( BASH_REMATCH[1] < 18 )); then
-            echo "expected node minor >= 18, got $node_version" >&2
-            exit 1
-          fi
-          # Must match .npmrc's use-node-version exactly; bump both together.
-          pnpm_node_version="$(pnpm exec node --version)"
-          if [[ "$pnpm_node_version" != "v22.23.2" ]]; then
-            echo "expected pnpm exec node --version to print v22.23.2 exactly, got $pnpm_node_version" >&2
-            exit 1
-          fi
-
   # ruff's target-version is py39, so syntax newer than the floor is a lint
   # failure rather than something a user on the Python macOS ships discovers at
   # runtime.
@@ -174,3 +155,102 @@ jobs:
           file: coverage/python.xml
           language: Python
           label: code-coverage/pytest
+
+  vitest:
+    name: vitest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      code-quality: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      - name: Run the vitest suite with coverage at 100
+        run: pnpm test
+
+      # vitest's own thresholds cannot see an empty file set: a 100%
+      # threshold over zero files passes (reproduced: it reports
+      # "Unknown%" over 0/0 and exits 0), which ADR 002 calls this
+      # repository's signature bug arriving inside the coverage gate. The
+      # thresholds catch a bucket that drops below 100 over whatever files
+      # they did see; this catches the report naming no files at all.
+      - name: Refuse a coverage report that names no file
+        run: jq -e 'del(.total) | length > 0' coverage/coverage-summary.json
+
+      # The TypeScript half of the enterprise Code Coverage ruleset's input,
+      # beside the Python upload in the coverage job above. It lives in this
+      # job rather than in coverage because that job is deleted with the
+      # Python toolchain at #138, while this one is not.
+      - uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage/cobertura-coverage.xml
+          language: TypeScript
+          label: code-coverage/vitest
+
+  vitest-floor:
+    name: vitest-floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The node-pnpm composite action, same as every other Node job: it
+      # installs from the lockfile and asserts the default pins. It does not
+      # by itself put Node 22.18.0 on PATH or in pnpm's own Node selection -
+      # .npmrc's use-node-version pins 22.23.2, and pnpm honours that for
+      # `pnpm exec`/`pnpm run` regardless of what setup-node installed. The
+      # steps below override it per-command with --config.use-node-version.
+      - uses: ./.github/actions/node-pnpm
+      # Fails loudly, rather than the job silently running on 22.23.2 like
+      # .npmrc's default, if the override flag ever stops working or the
+      # floor version drifts from engines.node in package.json (bump both
+      # together).
+      - name: Assert the floor Node
+        run: |
+          # tail -n 1: on the first invocation pnpm downloads the pinned
+          # version and prints a "Fetching Node.js 22.18.0 ..." progress
+          # line to stdout ahead of the actual `node --version` output, so
+          # the raw capture would compare against two lines instead of one.
+          version="$(pnpm --config.use-node-version=22.18.0 exec node --version | tail -n 1)"
+          if [[ "$version" != "v22.18.0" ]]; then
+            echo "expected pnpm --config.use-node-version=22.18.0 exec node --version to print v22.18.0 exactly, got $version" >&2
+            exit 1
+          fi
+      # ADR 001: "a floor nothing executes is a claim." This proves the
+      # suite runs on Node 22.18.0, the first release whose type stripping
+      # runs without a flag and writes nothing to stderr, the same property
+      # pytest-floor proves for the Python floor. No coverage report here:
+      # the vitest job above is the coverage gate and the enterprise
+      # upload; running vitest twice per CI run would only move that step
+      # later.
+      - name: Run the vitest suite on the Node 22.18 floor
+        run: pnpm --config.use-node-version=22.18.0 exec vitest run --coverage.enabled=false
+
+  types:
+    name: types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      # `tsc` errors on no inputs, but a shrinking include set is the quieter
+      # failure this repository refuses everywhere: git pathspec `*` matches
+      # across directory separators, so `tests/*.ts` reaches nested files too.
+      - name: Refuse a run that finds no TypeScript
+        run: |
+          git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
+            'plugins/*/src/*.ts' 'vitest.config.ts' | grep -q .
+      # noEmit lives in tsconfig.json rather than on this line: the same
+      # invocation then means the same thing from an editor or a hook.
+      - name: Type-check the TypeScript
+        run: pnpm exec tsc -p tsconfig.json
+
+  biome:
+    name: biome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      # `biome ci`, the read-only verdict, never `check --write`: a gate that
+      # edits the tree to make itself pass reports on a tree nobody reviewed.
+      # --error-on-warnings because a recommended rule that only warns would
+      # otherwise be reported and passed.
+      - name: Lint and format-check with Biome
+        run: pnpm exec biome ci . --error-on-warnings
