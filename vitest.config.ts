@@ -41,10 +41,11 @@ export default defineConfig({
       // Test files are test code: measuring them would let an unused test
       // helper move the number without any shipped or shared code changing.
       exclude: ['**/*.test.ts', '**/fixtures/**'],
-      // Keeps a file with no test at all in the denominator at 0% rather than
-      // dropping it from the report entirely, so an untested file cannot hide
-      // by never being imported.
-      all: true,
+      // vitest 4 dropped the `all` option: coverage-v8 now includes every
+      // file matching `include` whenever the whole suite runs (a single-file
+      // rerun is the only case it narrows), which is the same "a file with
+      // no test at all still shows at 0%, rather than being dropped from the
+      // report entirely" property `all: true` used to state explicitly.
       // json-summary is what the CI guard below reads to refuse a report
       // naming no files. cobertura feeds actions/upload-code-coverage for the
       // enterprise Code Coverage ruleset -- the one divergence from the

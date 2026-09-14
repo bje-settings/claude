@@ -1,0 +1,42 @@
+{
+  // The type-check gate's whole configuration (ADR 001). Nothing here emits:
+  // the file a reviewer reads on the default branch is the file node runs,
+  // so `tsc` is a checker and never a build step.
+  "compilerOptions": {
+    // Node 22.18 is the runtime floor, so the language level is what that
+    // release supports rather than the newest the compiler knows.
+    "target": "es2023",
+    "lib": ["es2023"],
+    // nodenext on both, with explicit `.ts` on every import: that is what
+    // node's own resolver reads when it strips the types, and any other
+    // pairing would let `tsc` accept an import node refuses at launch.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    // The containment ADR 001 names: `enum`, parameter properties and
+    // namespaces have runtime meaning, so node rejects them with
+    // ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX at launch. This turns that into a
+    // failed gate on a pull request instead.
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    // Only node's own types. Every plugin's shipped TypeScript reaches
+    // outside its own tree only through the root lib (RFC 001 decision 12,
+    // ADR 001), so anything else in scope here would be a type that no
+    // shipped file is allowed to reach for.
+    "types": ["node"]
+  },
+  // The gate's inputs, named here and discovered the same way in the `types`
+  // job in .github/workflows/ci.yml, which refuses a run that finds no
+  // tracked `.ts` file under them: `tsc` with no inputs is an error, but a
+  // shrinking include set is the quieter failure this repository refuses
+  // everywhere. harness/, lib/ and plugins/*/src do not exist yet (#124,
+  // #125, and the plugin ports); they are named now so those issues do not
+  // have to edit this file.
+  "include": ["tests", "harness", "lib", "scripts", "plugins/*/src", "vitest.config.ts"]
+}

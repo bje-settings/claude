@@ -182,3 +182,21 @@ jobs:
           file: coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/vitest
+
+  types:
+    name: types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/node-pnpm
+      # `tsc` errors on no inputs, but a shrinking include set is the quieter
+      # failure this repository refuses everywhere: git pathspec `*` matches
+      # across directory separators, so `tests/*.ts` reaches nested files too.
+      - name: Refuse a run that finds no TypeScript
+        run: |
+          git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
+            'plugins/*/src/*.ts' 'vitest.config.ts' | grep -q .
+      # noEmit lives in tsconfig.json rather than on this line: the same
+      # invocation then means the same thing from an editor or a hook.
+      - name: Type-check the TypeScript
+        run: pnpm exec tsc -p tsconfig.json
