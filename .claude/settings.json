@@ -1,0 +1,11 @@
+{
+  "autoMemoryEnabled": false,
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  }
+}
