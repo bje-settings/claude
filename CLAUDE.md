@@ -237,6 +237,8 @@ descriptions (`attribution`), matching this repo's own git conventions.
 
 `ENTERPRISE_CLAUDE.md` is the `CLAUDE.md` for the `~/Code/@bje/` directory itself, symlinked there
 so enterprise-wide context lives here instead of in the personal dotfiles repo.
+`ENTERPRISE_REPO_MIGRATION.md` is symlinked alongside it as `~/Code/@bje/REPO-MIGRATION.md`: the
+plan for which `brianespinosa` repos move into which bje org.
 
 ## Records
 
