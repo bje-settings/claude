@@ -1,4 +1,4 @@
-# @bje: BJE Enterprise
+# @bje: bje Enterprise
 
 Repositories for the **bje** GitHub enterprise, which consolidates several personal orgs so policy
 and automation are managed once. Not an EMU: credentials and directory conventions are covered in
