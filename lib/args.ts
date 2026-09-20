@@ -68,10 +68,29 @@ export const parseArguments = <const S extends ArgSpec>(
 ): Envelope<Options<S>> => {
   const options: Record<string, { type: 'string' | 'boolean'; default: string | boolean }> = {}
   for (const [name, option] of Object.entries(spec)) {
-    options[name] =
-      option.type === 'boolean'
-        ? { type: 'boolean', default: false }
-        : { type: 'string', default: option.default }
+    if (option.type === 'boolean') {
+      options[name] = { type: 'boolean', default: false }
+      continue
+    }
+    // A default outside the option's own choices is `failed` and not
+    // `refused`, because `parseArgs` fills the default in whenever the flag is
+    // absent: such a spec refuses every command line, naming a flag the caller
+    // never typed and cannot correct. `envelope.ts` states the split this
+    // keeps, that a refusal is the caller's input to fix and a failure is this
+    // code's.
+    //
+    // Audited here, over the spec alone and before the command line is parsed,
+    // so the verdict does not depend on argv. Asked from the loop below it
+    // would lose to whatever returned first: an unparsable command line, or an
+    // earlier option's bad value, would answer `refused` and leave the broken
+    // spec unreported for as long as anyone kept mistyping.
+    if (option.choices !== undefined && !option.choices.includes(option.default)) {
+      return failed(
+        `--${name} declares a default of "${option.default}", ` +
+          `which is not one of ${option.choices.join(', ')}`,
+      )
+    }
+    options[name] = { type: 'string', default: option.default }
   }
 
   let values: Record<string, unknown>
@@ -87,18 +106,6 @@ export const parseArguments = <const S extends ArgSpec>(
 
   for (const [name, option] of Object.entries(spec)) {
     if (option.type !== 'string' || option.choices === undefined) continue
-    // A default outside the option's own choices is `failed` and not
-    // `refused`, because `parseArgs` fills the default in whenever the flag
-    // is absent: without this the command would refuse every command line
-    // that leaves the flag off, naming a flag the user never typed and
-    // cannot correct. `envelope.ts` states the split this keeps, that a
-    // refusal is the caller's input to fix and a failure is this code's.
-    if (!option.choices.includes(option.default)) {
-      return failed(
-        `--${name} declares a default of "${option.default}", ` +
-          `which is not one of ${option.choices.join(', ')}`,
-      )
-    }
     // Every declared option has a default, so this is a string by
     // construction; the cast is erased and adds no branch.
     const value = values[name] as string

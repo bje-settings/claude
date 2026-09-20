@@ -123,6 +123,28 @@ describe('parseArguments', () => {
     })
   })
 
+  it('reports a bad default whatever the command line says', () => {
+    // The verdict is a fact about the spec, so nothing in argv may hide it.
+    // Three command lines that each answer before the values are looked at:
+    // one that uses the flag correctly, one node cannot parse at all, and one
+    // whose earlier option is itself wrong. A `failed` that only surfaces on a
+    // clean command line is a programming error a caller can suppress by
+    // mistyping, and it is the one verdict they cannot act on themselves.
+    const BAD = { type: 'string', default: 'ink-pdf', choices: ['edit', 'view'] } as const
+    const badDefault = {
+      outcome: 'failed',
+      error: '--route declares a default of "ink-pdf", which is not one of edit, view',
+    }
+    expect(parseArguments(['--route', 'edit'], { route: BAD })).toEqual(badDefault)
+    expect(parseArguments(['--nope'], { route: BAD })).toEqual(badDefault)
+    expect(
+      parseArguments(['--theme', 'nonsense'], {
+        theme: { type: 'string', default: 'default', choices: ['default', 'forest'] },
+        route: BAD,
+      }),
+    ).toEqual(badDefault)
+  })
+
   it('checks choices on a spec that declares only a boolean', () => {
     // The loop over the spec has to skip a boolean rather than read a
     // `choices` it cannot have.
