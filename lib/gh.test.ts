@@ -367,12 +367,64 @@ describe('the checks watch', () => {
   it('still throws when the watch failed to answer at all', async () => {
     // Exit 4 is gh asking to be authenticated, which is not a fact about the
     // checks, so it fails like every other endpoint rather than being read as
-    // a rollup nobody looked at.
-    const { gh } = clientAnswering({
-      error: failing(4, 'Command failed'),
-      stderr: 'gh: To get started with GitHub CLI, please run: gh auth login\n',
-    })
-    await expect(gh.watchChecks({ pullRequest: 7 })).rejects.toThrow(/gh auth login$/)
+    // a rollup nobody looked at. Answered in turn, with the read left able to
+    // succeed, so the failure that surfaces names `--watch`: given to both
+    // calls it would surface from the parser instead and point a reader at
+    // the wrong half of the endpoint.
+    const { gh } = clientAnsweringInTurn([
+      {
+        error: failing(4, 'Command failed'),
+        stderr: 'gh: To get started with GitHub CLI, please run: gh auth login\n',
+      },
+      { stdout: '[]' },
+    ])
+    await expect(gh.watchChecks({ pullRequest: 7 })).rejects.toThrow(
+      /^gh pr checks 7 --watch failed: .*gh auth login$/,
+    )
+  })
+
+  it('throws when the read that follows the watch failed', async () => {
+    // The read is the call whose rows become the answer, so its statuses are
+    // not the watch's: none of them is a fact about the checks. A read that
+    // fails while the watch succeeded has to fail here, because the
+    // alternative is an empty rollup that a caller reads as "nothing is
+    // wrong", which is the found-nothing-is-a-pass shape `rows` refuses.
+    const { gh } = clientAnsweringInTurn([
+      { stdout: '' },
+      {
+        error: failing(4, 'Command failed'),
+        stderr: 'gh: To get started with GitHub CLI, please run: gh auth login\n',
+      },
+    ])
+    await expect(gh.watchChecks({ pullRequest: 7 })).rejects.toThrow(
+      /^gh pr checks 7 --json name,state,bucket,link,workflow failed: .*gh auth login$/,
+    )
+  })
+
+  it('reads the checks only once the watch has returned', async () => {
+    // The ordering assertions above are made by a stand-in that calls back
+    // synchronously, so they hold the order the calls are issued in and not
+    // the waiting, which is the whole of what makes this endpoint a watch.
+    // Here the watch answers on a later turn and the read records whether it
+    // had settled, so a version that started both calls together and awaited
+    // them afterwards is red: against the real gh that one reads the rollup
+    // at the moment the watch begins, which is the stale answer the two
+    // invocations exist to avoid.
+    let watchSettled = false
+    const when: string[] = []
+    const execFile: ExecFile = (_file, args, _options, callback) => {
+      if (args.includes('--watch')) {
+        setTimeout(() => {
+          watchSettled = true
+          callback(null, '', '')
+        }, 5)
+        return
+      }
+      when.push(watchSettled ? 'after the watch' : 'before the watch')
+      callback(null, '[]', '')
+    }
+    await createGhClient({ execFile }).watchChecks({ pullRequest: 7 })
+    expect(when).toEqual(['after the watch'])
   })
 })
 

@@ -60,7 +60,7 @@ export interface GhResults {
   updateBranch: string
   /** Whatever posting the comment printed. */
   addComment: string
-  /** The checks as they stood when the watch returned. */
+  /** The checks, read once the watch has returned. */
   watchChecks: unknown[]
 }
 
@@ -164,11 +164,21 @@ const CHECK_FIELDS = 'name,state,bucket,link,workflow'
 
 /**
  * The exit statuses `gh pr checks` uses to report on the checks rather than
- * on itself: 1 a check failed, 8 still pending (`gh pr checks --help`, and
- * the same table at `plugins/gh/scripts/gh-shepherd-pr.py` lines 172 to 178).
- * Reading them as transport failures is how a red rollup gets reported as a
- * broken token. Every other status from that subcommand, and every status
- * from every other one, stays a failure.
+ * on itself: 1 a check failed, 8 still pending. This is
+ * `plugins/gh/scripts/gh-shepherd-pr.py` line 177's `WATCHER_CODES` without
+ * 0, which is not an error at all here, and without 124, which is that
+ * script's own bound. Reading them as transport failures is how a red rollup
+ * gets reported as a broken token. Every other status from that subcommand,
+ * and every status from every other one, stays a failure.
+ *
+ * 1 is also gh's generic non-zero, so an unresolvable pull request or a
+ * transient error during the watch is accepted here too (measured against gh
+ * 2.98.0: `gh pr checks <absent> --watch` exits 1). Nothing is lost by that
+ * today, because the read below carries no accepted statuses and repeats a
+ * real failure with gh's own words. What it cannot catch is a watch that
+ * fails early while the read then succeeds, which reads as a rollup nobody
+ * waited for. Telling those apart needs the status in this endpoint's answer,
+ * and that lands with the caller that branches on it (#127).
  */
 const CHECK_ANSWERS = [1, 8]
 
@@ -185,7 +195,8 @@ const filter = (name: string, value: string | number | undefined): string[] =>
  * the reasoning `gh-sync-repo.py` already carries.
  *
  * Any other `code` is node's failure to report rather than gh's: gh never
- * started, or the child was killed for overrunning `maxBuffer`. Whatever gh
+ * started, or the child was killed, whether for overrunning `maxBuffer` or by
+ * a signal, which is the `null` {@link ExecFileFailure} admits. Whatever gh
  * had already written to stderr is not an account of that, so node's message
  * leads instead of being replaced by a warning with nothing to do with the
  * failure. Replacing it is how a truncated reply gets reported as a
@@ -316,10 +327,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     // Two invocations, because gh has no single one that does both: it
     // refuses `--watch` together with `--json` ("cannot use `--watch` with
     // `--json` flag") and refuses `--interval` without `--watch`, both
-    // verified against gh 2.98.0. That is also the shape
-    // `plugins/gh/scripts/gh-shepherd-pr.py` lines 645 to 673 uses, and it is
-    // what makes this endpoint answer what it promises: the watch blocks, and
-    // the read that follows is the checks as they stood when it returned.
+    // verified against gh 2.98.0. The watch blocks, and the read that follows
+    // is what the caller is answered with.
+    //
+    // `plugins/gh/scripts/gh-shepherd-pr.py` lines 668 to 672 settles the
+    // half of that which is a judgement rather than a flag: it re-reads after
+    // the watch and decides "from the rollup rather than the watcher's exit
+    // code". Its second read is `gh pr view`, because that script already
+    // holds a pull request; here the endpoint is about the checks, so the
+    // second read is the checks. The two bounds it also carries, watching
+    // only an already-pending rollup and `--fail-fast`, belong with the
+    // command that decides to watch (#127), not with the transport.
     //
     // The watch answers through its exit status, so {@link CHECK_ANSWERS} is
     // passed to it. The read carries `--json`, which gh exits 0 from whatever
