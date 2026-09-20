@@ -95,14 +95,18 @@ export const LIB_LINK_TARGET = path.join('..', '..', '..', 'lib')
 // comment or a string is read as an import here, which is a false positive a
 // contributor can see and rephrase, where a parser-shaped miss would be a
 // rule that silently stopped holding.
-const IMPORT = /\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g
+// All three delimiters, with a backreference so the closing one matches the
+// opening one: a template literal is how `await import(`...`)` is often
+// written, and reading only the two quote characters would be exactly the
+// parser-shaped miss this comment says the lexical trade avoids.
+const IMPORT = /\b(?:from|import)\s*\(?\s*(['"`])([^'"`]+)\1/g
 
 function relativeImports(file: string): string[] {
   const found: string[] = []
   for (const match of readFileSync(file, 'utf8').matchAll(IMPORT)) {
-    // One mandatory capturing group in a matching regular expression always
-    // populates position 1; the cast is erased and adds no branch.
-    const specifier = match[1] as string
+    // Two mandatory capturing groups in a matching regular expression always
+    // populate both positions; the cast is erased and adds no branch.
+    const specifier = match[2] as string
     // A bare specifier is `node:fs` or a dev dependency, neither of which can
     // reach across a plugin boundary.
     if (specifier.startsWith('.')) found.push(specifier)
@@ -188,7 +192,12 @@ export function libLinkViolations(root: string = PLUGINS): string[] {
   for (const plugin of pluginDirs(root)) {
     const where = path.relative(root, plugin)
     const src = childEntry(plugin, 'src')
-    if (src?.isDirectory() !== true) continue
+    // Present, and not a plain file where the directory should be. A `src`
+    // that is itself a symlink answers `isDirectory()` with false, because a
+    // listing entry answers from `lstat`, and skipping it would let a plugin
+    // hide a real copy of the shared library behind one link. That is the
+    // case `childEntry` exists for, a few lines above.
+    if (src === undefined || src.isFile()) continue
     const lib = childEntry(path.join(plugin, 'src'), 'lib')
     if (lib === undefined) continue
     if (!lib.isSymbolicLink()) {

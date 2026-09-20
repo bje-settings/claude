@@ -93,17 +93,23 @@ describe('pluginDirs filtering', () => {
   })
 
   it('filters directories to the ones that actually carry a plugin manifest', () => {
-    // Coverage of pluginDirs' three filter branches that the real plugins/
-    // tree never exercises, because every directory in it today is a
-    // well-formed plugin: a stray tracked file directly under the root, a
-    // directory with no .claude-plugin/ at all, and a directory whose
-    // .claude-plugin entry exists but is a file rather than a directory.
+    // Coverage of pluginDirs' filter branches that the real plugins/ tree
+    // never exercises, because every directory in it today is a well-formed
+    // plugin: a stray tracked file directly under the root, a directory with
+    // no .claude-plugin/ at all, a directory whose .claude-plugin entry is a
+    // file rather than a directory, and a symlink pointing at a plugin.
+    //
+    // The symlink is the one that makes the isDirectory() guard load-bearing.
+    // A listing entry answers from lstat, so a link reports false there,
+    // while existsSync follows it and finds the manifest: without the guard
+    // the same plugin would be counted twice, once under each name.
     scratch = mkdtempSync(path.join(tmpdir(), 'bje-plugins-'))
     writeFileSync(path.join(scratch, 'README.md'), 'not a plugin directory\n')
     mkdirSync(path.join(scratch, 'no-manifest'), { recursive: true })
     mkdirSync(path.join(scratch, 'manifest-is-a-file'), { recursive: true })
     writeFileSync(path.join(scratch, 'manifest-is-a-file', '.claude-plugin'), '')
     mkdirSync(path.join(scratch, 'valid-plugin', '.claude-plugin'), { recursive: true })
+    symlinkSync('valid-plugin', path.join(scratch, 'linked-plugin'))
     const found = pluginDirs(scratch).map((p) => path.relative(scratch, p))
     expect(found).toEqual(['valid-plugin'])
   })
@@ -249,10 +255,12 @@ describe('the plugin boundary', () => {
           "import '../../b/src/side.ts'",
           "export { thing } from '../../b/src/named.ts'",
           "const mod = await import('../../b/src/dynamic.ts')",
+          'const tpl = await import(`../../b/src/backtick.ts`)',
         ].join('\n'),
       },
     })
     expect(crossPluginImports(plugins)).toEqual([
+      'a/src/url.ts: imports ../../b/src/backtick.ts, which resolves outside the plugin',
       'a/src/url.ts: imports ../../b/src/dynamic.ts, which resolves outside the plugin',
       'a/src/url.ts: imports ../../b/src/named.ts, which resolves outside the plugin',
       'a/src/url.ts: imports ../../b/src/side.ts, which resolves outside the plugin',
@@ -271,26 +279,50 @@ describe('the plugin boundary', () => {
       },
       links: { 'a/src/lib': LIB_LINK_TARGET },
     })
+    // Three levels up, not two: walked as `plugins/a/src/lib/outward.ts` the
+    // specifier resolves to `plugins/elsewhere.ts`, outside the plugin, so
+    // this arm goes red the moment the walk starts descending the link. Two
+    // levels would land back inside `plugins/a` and pass either way, which
+    // would make the test an illustration rather than a proof.
     writeFileSync(
       path.join(scratch, 'lib', 'outward.ts'),
-      "import { x } from '../../elsewhere.ts'\n",
+      "import { x } from '../../../elsewhere.ts'\n",
     )
     expect(crossPluginImports(plugins)).toEqual([])
   })
 
   it('accepts the committed symlink and nothing else in its place', () => {
+    // `equivalent` is the arm that says the target is compared as a string
+    // and not resolved: `../../../lib/` reaches the same directory from the
+    // same place, and is still a violation, because the string is what Claude
+    // Code's installer classifies.
     const plugins = build({
-      plugins: ['linked', 'copied', 'misaimed', 'plain'],
+      plugins: ['linked', 'copied', 'misaimed', 'equivalent', 'plain'],
       files: { 'copied/src/lib/gh.ts': '', 'plain/src/url.ts': '' },
       links: {
         'linked/src/lib': LIB_LINK_TARGET,
         'misaimed/src/lib': path.join('..', '..', 'lib'),
+        'equivalent/src/lib': `${LIB_LINK_TARGET}${path.sep}`,
       },
     })
     expect(libLinkViolations(plugins)).toEqual([
       'copied/src/lib is not a symlink',
+      `equivalent/src/lib points at ${LIB_LINK_TARGET}${path.sep}, not ${LIB_LINK_TARGET}`,
       `misaimed/src/lib points at ../../lib, not ${LIB_LINK_TARGET}`,
     ])
+  })
+
+  it('looks through a src that is itself a symlink', () => {
+    // A listing entry answers from lstat, so a linked `src` reports itself as
+    // neither a directory nor a file. Skipping it would be a plugin hiding a
+    // real copy of the shared library one link away from where the rule
+    // looks, which is the copy libLinkViolations exists to refuse.
+    const plugins = build({
+      plugins: ['behind'],
+      files: { 'elsewhere/lib/gh.ts': '' },
+      links: { 'behind/src': path.join('..', 'elsewhere') },
+    })
+    expect(libLinkViolations(plugins)).toEqual(['behind/src/lib is not a symlink'])
   })
 
   it('asks nothing of a plugin that has no src directory, or a file where it would be', () => {
