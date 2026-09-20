@@ -11,7 +11,7 @@ the one cleanup hook.
 | Module | What it gives a test |
 | --- | --- |
 | `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, and an `env` object to hand to children. |
-| `gh.ts` | `GhClient` and `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. |
+| `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle. |
 | `spawn.ts` | One `bin/` entry point run as its own process: argv in, status and streams out. |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
@@ -69,11 +69,13 @@ after the operation rather than after gh's argv, so the interface survives gh ch
 - There is no request log, no call counter, and no call-order assertion. Counting calls pins an
   implementation detail and turns a refactor red.
 
-`GhClient` is declared in `gh.ts` for now and moves to the root `lib/` at
-[#125](https://github.com/bje-settings/claude/issues/125), where the real client is written against
-it; this file then imports it. Its inputs and outputs are plain JSON values on purpose: #125 and
-[#127](https://github.com/bje-settings/claude/issues/127) refine them against the commands that
-consume them.
+`GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery` and `RunQuery` moved to `lib/gh.ts` at
+[#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
+against them; `gh.ts` imports them back and re-exports them, so a test reaches the double and the
+interface it implements through one module. What stays in the harness is what does not ship: the
+double, its reply map and its fail switch. Inputs and outputs are still plain JSON values on
+purpose, and [#127](https://github.com/bje-settings/claude/issues/127) refines them against the
+commands that consume them.
 
 ## The git builders
 
