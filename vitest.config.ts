@@ -23,7 +23,19 @@ export default defineConfig({
     // worktree workflow): without this exclusion every test in the tree
     // would be collected twice, once from the root and once from whichever
     // worktree happens to exist when the suite runs.
-    exclude: ['**/node_modules/**', '.claude/worktrees/**', '**/fixtures/**'],
+    //
+    // plugins/*/src/lib/** is the root lib/ a second time, through each
+    // plugin's committed src/lib symlink (ADR 001, RFC 001 decision 4).
+    // Confirmed on #126: without this, `pnpm exec vitest list` shows
+    // lib/args.test.ts and plugins/mermaid/src/lib/args.test.ts as two
+    // separate test files, running lib's own suite twice. The link is
+    // already collected and measured at its real path, lib/.
+    exclude: [
+      '**/node_modules/**',
+      '.claude/worktrees/**',
+      '**/fixtures/**',
+      'plugins/*/src/lib/**',
+    ],
     // A run that collects nothing is not a pass.
     passWithNoTests: false,
     coverage: {
@@ -40,7 +52,10 @@ export default defineConfig({
       ],
       // Test files are test code: measuring them would let an unused test
       // helper move the number without any shipped or shared code changing.
-      exclude: ['**/*.test.ts', '**/fixtures/**'],
+      // plugins/*/src/lib/** is the same root-lib-through-the-symlink
+      // exclusion as test.exclude above, for the same reason: lib/ is
+      // already measured at its real path.
+      exclude: ['**/*.test.ts', '**/fixtures/**', 'plugins/*/src/lib/**'],
       // vitest 4 dropped the `all` option: coverage-v8 now includes every
       // file matching `include` whenever the whole suite runs (a single-file
       // rerun is the only case it narrows), which is the same "a file with

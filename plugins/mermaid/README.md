@@ -5,11 +5,14 @@ Mermaid diagram previews.
 ## `/mermaid:view`
 
 Model-invoked: whenever a Mermaid diagram is written, edited, or reviewed, shares a
-mermaid.live or mermaid.ink preview link built by `scripts/mermaid-url.py` — never
-constructed by hand.
+mermaid.live or mermaid.ink preview link built by `bin/mermaid.ts`, never constructed by hand.
 
 The diagram source, plus a Mermaid config, is JSON-encoded, zlib-compressed, and
 base64url-encoded into the URL fragment, the same format mermaid.live's own editor uses.
+
+### Requirements
+
+Node 22.18 or newer.
 
 ### Routes
 
@@ -31,7 +34,7 @@ base64url-encoded into the URL fragment, the same format mermaid.live's own edit
 From an installed copy of the plugin, `<plugin>` below is the plugin's own directory:
 
 ```bash
-python3 <plugin>/scripts/mermaid-url.py --route view <<'EOF'
+node <plugin>/bin/mermaid.ts --route view <<'EOF'
 graph TD; A-->B
 EOF
 ```

@@ -4,7 +4,7 @@
 flowchart TD
     A{Mermaid diagram written,<br/>edited, or reviewed?}
     A -->|No| Z([Skill does not fire]):::stop
-    A -->|Yes| B[Run mermaid-url.py with the<br/>diagram source on stdin]
+    A -->|Yes| B[Run mermaid.ts with the<br/>diagram source on stdin]
 
     B --> C{User asked for<br/>an editable link?}
     C -->|Yes| D[--route edit]
