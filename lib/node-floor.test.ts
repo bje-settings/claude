@@ -91,6 +91,11 @@ describe('assertNodeFloor', () => {
     const error = thrown as NodeFloorError
     expect(error.message).toContain('22.18.0')
     expect(error.message).toContain('22.17.1')
+    // And what to do about it. ADR 001's Consequences make the remedy the
+    // reason this message exists at all, so a message that named only the
+    // two versions would leave a user knowing they are stuck without knowing
+    // what to change.
+    expect(error.message).toContain('Upgrade node')
     // Named explicitly rather than inherited: a refusal reported as a plain
     // `Error` tells a reader nothing about which guard refused.
     expect(error.name).toBe('NodeFloorError')

@@ -12,8 +12,10 @@ is also why the link target is compared as the exact string `../../../lib` by
 `tests/repo-layout.test.ts` rather than resolved: a different spelling that happens to resolve here
 installs differently.
 
-Everything here **ships**. Each file imports nothing outside this directory, takes no dependency,
-and stays inside the erasable subset node's type stripping handles (no `enum`, no parameter
+Everything here **ships**. Each file takes no dependency and imports nothing outside this
+directory but node's own built-ins, which today is `node:util` in `args.ts` and
+`node:child_process` in `gh.ts`; `node-floor.ts` and `envelope.ts` import nothing at all. Each
+stays inside the erasable subset node's type stripping handles (no `enum`, no parameter
 properties, no namespaces). Tests are co-located, and `lib/**/*.ts` is measured at 100 on lines,
 branches, functions and statements, minus the test files.
 
@@ -59,6 +61,13 @@ grows a fallback branch for a flag nobody passed. A bad flag, a missing value, a
 or a value outside `choices` all come back as `refused`, which is exit 2: the status Python's
 `argparse` already uses, so a caller branching on it keeps branching on it.
 
+An option that declares `choices` parses to those choices as a type rather than to a bare
+`string`, so a command reads `parsed.value.route` without re-proving what the parser already
+refused. Annotating the spec `: ArgSpec` throws that away, so a spec is written inline or
+`as const`. A default outside its own option's choices is `failed` and not `refused`: it is this
+code's mistake, and it would otherwise refuse every command line that left the flag off while
+naming a flag the caller never typed.
+
 Three outcomes, because the scripts being ported have three:
 
 | Outcome | Status | Means |
@@ -84,6 +93,12 @@ gh changing a flag, and a command takes a `GhClient` as an argument rather than 
 which is what makes it swappable for `createGhMock` in the harness (ADR 001, RFC 001 decision 3).
 Failure is a thrown `Error` carrying gh's own words, never a result envelope and never an empty
 list: "nothing matched" and "the answer could not be read" are different facts.
+
+`watchChecks` runs `gh` twice, because gh refuses `--watch` together with `--json` and refuses
+`--interval` without `--watch`: the watch blocks, and the read that follows is the checks as they
+stood when it returned. The watch's exit status is an answer there (1 a check failed, 8 still
+pending) rather than a failure. Nothing bounds the watch yet; the timeout lands with the command
+that needs one (#127).
 
 `createGhClient` takes node's `execFile` as an option, which is the seam this directory's own suite
 substitutes so that every endpoint and the adapter itself are exercised in-process, with nothing
