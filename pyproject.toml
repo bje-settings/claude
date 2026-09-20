@@ -35,6 +35,17 @@ extend-include = ["tests/*/bin/gh"]
 # module carries `from __future__ import annotations`. FA102 is that check.
 select = ["E", "F", "W", "I", "UP", "B", "FA"]
 
+[tool.ruff.lint.isort]
+# `lib` is third-party to this repository's Python, and stays that way. The four
+# tests/gh/ modules that write `from lib import ...` mean the gh plugin's own
+# scripts/lib/, which the tests put on sys.path; nothing at the repository root
+# is that package. isort infers first-party from the directories at the root, so
+# the moment the TypeScript shared library appears as root lib/ (#125, ADR 001)
+# it reclassifies the name and I001 fires on four files no one touched. Pinning
+# it here keeps the import blocks as they are; the whole section retires with the
+# Python toolchain at #138.
+known-third-party = ["lib"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
