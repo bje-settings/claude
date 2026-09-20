@@ -98,8 +98,13 @@ export const LIB_LINK_TARGET = path.join('..', '..', '..', 'lib')
 // All three delimiters, with a backreference so the closing one matches the
 // opening one: a template literal is how `await import(`...`)` is often
 // written, and reading only the two quote characters would be exactly the
-// parser-shaped miss this comment says the lexical trade avoids.
-const IMPORT = /\b(?:from|import)\s*\(?\s*(['"`])([^'"`]+)\1/g
+// parser-shaped miss this comment says the lexical trade avoids. `require` is
+// in the alternation for the same reason: reached through `createRequire` it
+// loads a module out of the plugin exactly as `import` does. `\b` keeps
+// `createRequire` itself out, and `import.meta.resolve` and
+// `new URL(..., import.meta.url)` stay out on purpose, since they compute a
+// path and load nothing, and no lexical rule can follow path arithmetic.
+const IMPORT = /\b(?:from|import|require)\s*\(?\s*(['"`])([^'"`]+)\1/g
 
 function relativeImports(file: string): string[] {
   const found: string[] = []

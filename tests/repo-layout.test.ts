@@ -103,6 +103,13 @@ describe('pluginDirs filtering', () => {
     // A listing entry answers from lstat, so a link reports false there,
     // while existsSync follows it and finds the manifest: without the guard
     // the same plugin would be counted twice, once under each name.
+    //
+    // So a link is looked through at `src` and dropped here, which reads as a
+    // contradiction and is not one: `pluginDirs` is pre-existing code that
+    // `tests/skills.test.ts` also walks, and what a plugin *is* is not this
+    // layer's question. What is this layer's question, whether a plugin
+    // reaches the shared library the one way the convention allows, is asked
+    // of every plugin the existing filter admits.
     scratch = mkdtempSync(path.join(tmpdir(), 'bje-plugins-'))
     writeFileSync(path.join(scratch, 'README.md'), 'not a plugin directory\n')
     mkdirSync(path.join(scratch, 'no-manifest'), { recursive: true })
@@ -256,6 +263,8 @@ describe('the plugin boundary', () => {
           "export { thing } from '../../b/src/named.ts'",
           "const mod = await import('../../b/src/dynamic.ts')",
           'const tpl = await import(`../../b/src/backtick.ts`)',
+          'const require = createRequire(import.meta.url)',
+          "const legacy = require('../../b/src/required.ts')",
         ].join('\n'),
       },
     })
@@ -263,7 +272,30 @@ describe('the plugin boundary', () => {
       'a/src/url.ts: imports ../../b/src/backtick.ts, which resolves outside the plugin',
       'a/src/url.ts: imports ../../b/src/dynamic.ts, which resolves outside the plugin',
       'a/src/url.ts: imports ../../b/src/named.ts, which resolves outside the plugin',
+      'a/src/url.ts: imports ../../b/src/required.ts, which resolves outside the plugin',
       'a/src/url.ts: imports ../../b/src/side.ts, which resolves outside the plugin',
+    ])
+  })
+
+  it('reads a plugin name as a whole name, and checks every plugin', () => {
+    // Two properties one tree can hold, both of them invisible to the names
+    // the other fixtures use. `plugins/gh-security` starts with the string
+    // `plugins/gh`, so without the separator the containment test appends,
+    // `gh` importing into `gh-security` would read as staying inside itself
+    // and the rule would stop holding for that pair. This repository has `gh`
+    // today and is one plugin away from a `gh-*` sibling. The second
+    // violation is written in the plugin that sorts last, so a scan that
+    // stopped after the first plugin would report only one of the two.
+    const plugins = build({
+      plugins: ['gh', 'gh-security'],
+      files: {
+        'gh/src/url.ts': "import { thing } from '../../gh-security/src/thing.ts'\n",
+        'gh-security/src/thing.ts': "import { url } from '../../gh/src/url.ts'\n",
+      },
+    })
+    expect(crossPluginImports(plugins)).toEqual([
+      'gh-security/src/thing.ts: imports ../../gh/src/url.ts, which resolves outside the plugin',
+      'gh/src/url.ts: imports ../../gh-security/src/thing.ts, which resolves outside the plugin',
     ])
   })
 
