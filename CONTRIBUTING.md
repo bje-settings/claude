@@ -3,22 +3,30 @@
 ## Tests
 
 ```bash
-uv sync --locked                      # create .venv and install the dev toolchain
-uv run --locked pytest -n auto --cov  # the whole suite, with coverage
+pnpm install                          # the TypeScript toolchain (and the git hooks, below)
+uv sync --locked                      # create .venv and install the Python toolchain
+pnpm test                             # the TypeScript suite, with coverage
+uv run --locked pytest -n auto --cov  # the Python suite, with coverage
+pnpm exec biome check . --error-on-warnings && pnpm exec tsc -p tsconfig.json
 uv run --locked ruff check . && uv run --locked ruff format --check .
 ```
 
-That is the whole of it. Every plugin script is Python and pytest is the only harness, so `uv` is
-the only requirement for the suite; tests that need `jq` or a package manager skip themselves
+New plugin code is TypeScript, run directly by node 22.18 (`.claude/rules/type-ts.md`), and the
+Python that remains retires with #138. Tests that need `jq` or a package manager skip themselves
 without it (the `gh` stubs shell out to `jq` for `--jq`), and the git hooks' own steps
 additionally need `claude` and `uv`, and warn to stderr without them rather than failing the commit.
 
-Tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub `gh`
-under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module basenames
-are unique across the suite, so a new one gets its plugin in the name. Tests that span plugins, or
-that cover the repo's own tooling under `scripts/`, sit at the root of `tests/`.
+TypeScript tests are co-located with the code they cover, at `plugins/<plugin>/src/**/*.test.ts`
+with fixtures beside them; the shared harness is `harness/` at the repository root, imported only
+from test files. See `harness/README.md`.
 
-Coverage is gated at 95%, the same threshold CI enforces:
+Python tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub
+`gh` under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module
+basenames are unique across the suite, so a new one gets its plugin in the name. Tests that span
+plugins, or that cover the repo's own tooling under `scripts/`, sit at the root of `tests/`.
+
+vitest's thresholds gate TypeScript at 100 on lines, branches, functions and statements, and
+`pnpm test` enforces them. Python coverage is gated at 95%, the same threshold CI enforces:
 
 ```bash
 uv run --locked pytest -n auto --cov --cov-report=xml
@@ -29,8 +37,19 @@ python3 tests/coverage_check.py coverage/python.xml 95
 `pyproject.toml` has moved, and the versions you tested are not the ones anyone reviewed. Drop it
 only when you mean to update the lock, and commit the result.
 
-`uv sync` builds the environment on Python 3.9, the floor every plugin script targets, because
-that is what macOS ships at `/usr/bin/python3`.
+`uv sync` builds the environment on Python 3.9, the floor the remaining Python scripts target,
+because that is what macOS ships at `/usr/bin/python3`.
+
+## Language server
+
+Sessions on this checkout run the TypeScript language server, which expects the server on `PATH`.
+Install it once per machine:
+
+```bash
+npm install -g typescript-language-server typescript
+```
+
+`CLAUDE.md`'s "Language server" section has the rest.
 
 ## Git hooks
 

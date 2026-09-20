@@ -16,27 +16,24 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 
 ### Plugins
 
-Plugins are listed in `README.md`; each has its own README.
+Plugins are listed in `README.md`; each has its own README. New `gh` skills belong in the `gh`
+plugin, and repo discovery shared by `gh`'s skills is `scripts/lib/discover.py`.
 
-New `gh` skills belong in the `gh` plugin. Repo discovery shared by skills is
-`scripts/lib/discover.py`.
+New plugin code is TypeScript, run directly by node 22.18; `.claude/rules/type-ts.md` has the
+rules. A command is an exported function at `plugins/<plugin>/src/commands/*.ts` behind a thin
+adapter at `plugins/<plugin>/bin/<command>.ts`, a hook goes at `plugins/<plugin>/hooks/*.ts`, and
+code shared between plugins is the root `lib/`, reached through the committed symlink
+`plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
 
-Plugin scripts are Python, stdlib only -- nothing under `plugins/` is bash, and an end user never
-needs `uv` or a virtualenv to run a plugin:
+The Python layer is retiring and is not the pattern to copy. `gh` (#127) and `field-test` (#136)
+still run scripts at `plugins/<plugin>/scripts/*.py` and hooks at `plugins/<plugin>/hooks/*.py`,
+stdlib only on a Python 3.9 floor, sharing code inside one plugin at
+`plugins/<plugin>/scripts/lib/` via `sys.path.insert(0, HERE)`. Do not change how such a script
+imports `lib`: the root `tests/conftest.py` resets `sys.modules`/`sys.path` between tests so each
+plugin's `lib` resolves independently. `.claude/rules/type-py.md` has the rest.
 
-- A script goes at `plugins/<plugin>/scripts/*.py`, a hook at `plugins/<plugin>/hooks/*.py`, and
-  code shared within one plugin goes in `plugins/<plugin>/scripts/lib/`, imported via
-  `sys.path.insert(0, HERE)`.
-- Nothing imports across plugins, and nothing under one plugin's `lib/` imports another `lib/`
-  module -- `plugins/gh/scripts/lib/` and `plugins/field-test/scripts/lib/` are the worked
-  examples.
-- Do not change how a plugin script imports `lib`: the root `tests/conftest.py` resets
-  `sys.modules`/`sys.path` between tests so each plugin's `lib` resolves independently, which
-  means an in-process test loader must not cache a script module across tests either.
-- The floor is Python 3.9 (what a Mac's Command Line Tools ships at `/usr/bin/python3`); ruff's
-  `target-version` catches most syntax issues, but library surface added after 3.9 only the
-  `pytest-floor` CI job catches.
-- A script's exit codes and stdout are a contract with the skills/agents that call it.
+In either language nothing under `plugins/` is bash, a plugin takes no dependency and carries no
+`package.json`, and a command's exit codes and stdout are a contract with its callers.
 
 Cross-plugin dependencies, declared through a preflight script rather than vendored:
 
@@ -118,8 +115,8 @@ anyway, because they can change other repositories.
 Three things differ from a plugin (`.claude/rules/type-py.md` has the detail):
 
 - A root script is one self-contained module, with no `lib/` and no `sys.path.insert`. Enforced by
-  `tests/test_repo_layout.py`, since a violation's failure mode is a confusing error in an
-  unrelated plugin's tests.
+  `tests/test_repo_layout.py` until #138, since a violation's failure mode is a confusing error in
+  an unrelated plugin's tests; `tests/repo-layout.test.ts` holds the TypeScript layout rules.
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
 
@@ -132,7 +129,8 @@ This repo is internal to the `bje` enterprise, so a team that cannot read it can
 it either. Until it is published, a plugin is mirrored into a repository that team can read, and
 that repository carries its own marketplace manifest.
 
-- `/publish <plugin> <dest>` is the skill; `scripts/publish-plugin.py` is the deterministic half.
+- `/publish <plugin> <dest>` is the skill; `scripts/publish-plugin.py` is its deterministic half,
+  Python until #128.
 - The mirror enumerates `git ls-files`, so what gets published is what is committed, and it writes
   only `<dest>/plugins/<name>/`.
 - It never commits; the destination repo reviews the result as a pull request.
@@ -146,19 +144,21 @@ teammates there install with `/plugin install gh@lab`.
 
 ### Tests
 
-One harness, one command: `uv run --locked pytest -n auto --cov`. `--locked` everywhere, as in CI,
-so a stale `uv.lock` fails instead of being rewritten under you.
+One command per language: `pnpm test` for TypeScript, `uv run --locked pytest -n auto --cov` for
+Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than being rewritten.
 
 #### Layout and fixtures
 
-- A plugin's tests live in `tests/<plugin>/`; tests that span plugins or cover the harness itself
-  sit at the root of `tests/`.
-- A test module's basename is unique across the whole suite, because pytest imports them into one
-  namespace -- hence `test_gh_fixtures.py` and `test_ft_fixtures.py` rather than two
-  `test_fixtures.py`.
-- `run_script` drives a script black-box, as its own process under `sys.executable`, the way
-  Claude Code runs it; decision logic that's awkward to provoke from the outside gets direct unit
-  tests beside that.
+- TypeScript tests are co-located at `plugins/<plugin>/src/**/*.test.ts` with fixtures beside them.
+  The shared harness is `harness/` at the repository root (`harness/README.md`), imported only from
+  test files so it never ships; `tests/` holds this repository's own checks.
+- A plugin's Python tests live in `tests/<plugin>/`, with tests that span plugins or cover the
+  harness itself at the root of `tests/`. A module's basename is unique across the whole suite,
+  because pytest imports them into one namespace: `test_gh_fixtures.py` and `test_ft_fixtures.py`,
+  never two `test_fixtures.py`.
+- In the Python suite, `run_script` drives a script black-box as its own process under
+  `sys.executable`, the way Claude Code runs it; decision logic that's awkward to provoke from the
+  outside gets direct unit tests beside that.
 - `sandbox` is a private temp dir with `HOME` inside it and `CLAUDE_PLUGIN_DATA` unset. Its
   `stub_path` method puts a directory ahead of everything on `PATH` (for stubs); its `path_without`
   method builds a `PATH` holding the real tools minus the named ones (for "tool is not installed"
@@ -168,13 +168,14 @@ so a stale `uv.lock` fails instead of being rewritten under you.
 
 #### Coverage
 
-- coverage.py, with `branch = true` and `patch = ["subprocess"]`, so a script exercised black-box
-  in a child process is still measured. Stub tools under `tests/<plugin>/bin/` are omitted from
-  the config. See `.claude/rules/type-py.md`.
-- `tests/coverage_check.py` is the gate, at 95% (the enterprise Code Coverage ruleset's threshold),
-  and is itself in the denominator. It's deliberately stdlib-only and 3.9-compatible since CI runs
-  it with the runner's system `python3`, outside the uv environment.
-- Reproduce a CI coverage run with `uv run --locked pytest -n auto --cov --cov-report=xml`
+- TypeScript: `vitest.config.ts`'s thresholds are the gate, 100 on lines, branches, functions and
+  statements over a named source set, with `cobertura` feeding the enterprise Code Coverage ruleset.
+- Python, until #138: coverage.py with `branch = true` and `patch = ["subprocess"]`, so a script
+  run black-box in a child process is still measured; stub tools under `tests/<plugin>/bin/` are
+  omitted. `tests/coverage_check.py` is that gate, at 95% (the enterprise ruleset's threshold), and
+  is itself in the denominator; it is stdlib-only and 3.9-compatible because CI runs it with the
+  runner's system `python3`, outside the uv environment.
+- Reproduce a CI Python coverage run with `uv run --locked pytest -n auto --cov --cov-report=xml`
   followed by `python3 tests/coverage_check.py coverage/python.xml 95`.
 
 #### CI required checks
@@ -222,9 +223,8 @@ per machine:
 npm install -g typescript-language-server typescript
 ```
 
-Once the repository pins `typescript` in `devDependencies`, the server will resolve that version,
-so `tsc` and the editor answer from the same version; until then it resolves whichever
-`typescript` the global install above puts on `PATH`.
+`package.json` pins `typescript` 7.0.2, so in a checkout that has run `pnpm install` the server
+resolves that copy and `tsc` and the editor answer from the same version.
 
 `.claude/settings.json` is SurveyMonkey/skills' settings verbatim, so it also turns off auto
 memory (`autoMemoryEnabled`) and strips the Claude Code attribution trailer from commits and PR

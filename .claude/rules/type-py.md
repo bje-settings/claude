@@ -7,9 +7,12 @@ paths:
 
 # Plugin Python
 
-Every plugin script here is Python: stdlib only, driven black-box by pytest, measured by
-coverage.py. The rules below are what the shell harness that preceded it taught, kept because they
-still apply.
+**This is the retiring layer.** New plugin code is TypeScript: see `.claude/rules/type-ts.md` and
+`docs/rfc/001-typescript-port.md`. What is still Python is `gh` (#127), `field-test` (#136),
+`scripts/publish-plugin.py` (#128) and this repository's own test tooling (#138). It is stdlib
+only, driven black-box by pytest, measured by coverage.py, and these rules hold for as long as it
+is in the tree. They are what the shell harness that preceded it taught, kept because they still
+apply.
 
 ## A test per decision arm
 

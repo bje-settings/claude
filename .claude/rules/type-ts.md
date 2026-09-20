@@ -1,0 +1,103 @@
+---
+paths:
+  - "lib/**/*.ts"
+  - "harness/**/*.ts"
+  - "plugins/**/*.ts"
+  - "scripts/**/*.ts"
+  - "tests/**/*.ts"
+---
+
+# Plugin TypeScript
+
+New plugin code is TypeScript, executed directly by node 22.18 with type stripping and no build
+step. `docs/rfc/001-typescript-port.md` is the record ("Shape", "The testing seam", the thirteen
+decisions), with `docs/adr/001-typescript-on-node-22-18.md` for the runtime and the shared `lib/`
+and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is the rules.
+
+## Shape
+
+```
+lib/                       # shared across plugins; the only thing that crosses a plugin boundary
+plugins/<plugin>/
+  bin/<command>.ts         # thin adapter
+  src/
+    lib -> ../../../lib    # committed symlink
+    commands/*.ts          # one exported function per command: the seam
+    commands/*.test.ts     # co-located with the code it covers
+    fixtures/              # co-located with the tests that load them
+  hooks/*.ts
+```
+
+## The command function is the seam
+
+Parsed arguments and injected clients in, an envelope out. Everything a command decides is then
+reachable in-process, with nothing spawned and no stub binary on `PATH`.
+
+`lib/envelope.ts` has three outcomes and they are the exit statuses: `ok` is 0 and the payload is
+the answer, `failed` is 1 and means this code went wrong, `refused` is 2 and means the request
+cannot be carried out as asked. A failure writes nothing to stdout and the reason to stderr, so a
+caller parsing stdout can never parse a refusal into a result. `renderJson` and `renderText` turn
+an envelope into stdout, stderr and a status; the entry point writes the trailing newline.
+
+Arguments come from `lib/args.ts` `parseArguments`. Every declared string option carries a default,
+so a parsed command line is never partial and no command grows a branch for a flag nobody passed.
+A bad flag, a missing value or a value outside `choices` is `refused`, exit 2, which is the status
+`argparse` already used, so a caller branching on it keeps branching on it.
+
+## `bin/` is an adapter
+
+It turns `process.argv` into the command function's arguments, constructs the real clients, calls,
+and maps the result onto an exit code and a stream. It holds no decisions, which is what lets one
+spawned contract test per command (`harness/spawn.ts` `runScript`) cover all of it.
+
+It carries exactly one static import, `../src/lib/node-floor.ts`, calls
+`assertNodeFloor(process.version)`, and reaches everything else by `await import` after the check.
+Import declarations are hoisted and evaluated before any statement runs, so a second static import
+would load its whole module graph on the runtime the guard exists to refuse.
+
+A hook takes the other half: it runs on every tool call in a session, so it asks `meetsNodeFloor`
+and exits quietly rather than writing a refusal into someone's transcript.
+
+## Tests
+
+- Tests are co-located at `src/**/*.test.ts` with fixtures beside them. vitest collects
+  `plugins/*/src/**/*.test.ts`; the shared harness is `harness/` at the repository root, imported
+  only from test files so it never ships (`harness/README.md`).
+- `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
+  `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
+  and names itself, which is the property a stub binary cannot give: a command that reached for
+  `gh` where the test expected no call fails instead of reading an empty reply as an answer.
+- git is not mocked. `harness/git.ts` builds real temporary repositories with real local bare
+  origins, so fetch, merge, ancestry and worktree operations behave as they do in production.
+- No call-count, call-order or request-log assertions. Assert the verdict the command reached and
+  the effect it had; counting calls pins an implementation detail and turns a refactor red.
+
+## Boundaries
+
+- The committed symlink `plugins/<p>/src/lib -> ../../../lib` is the only path out of a plugin. A
+  test file may additionally import `harness/`. `tests/repo-layout.test.ts` enforces both
+  (`crossPluginImports`, `libLinkViolations`).
+- The link target is compared as the exact string `../../../lib` rather than resolved, because the
+  string is what Claude Code's installer classifies: a link elsewhere in the same marketplace is
+  dereferenced into the cache copy, and another spelling that resolves here installs differently.
+- Reaching the root `lib/` around the link, as `../../../lib` from a plugin file, resolves in this
+  checkout and for nobody who installed the plugin.
+- Shipped code takes no dependency: node's own built-ins and its own tree, nothing else at run
+  time.
+- No plugin-level `package.json`. Claude Code runs a dependency install inside the cache copy when
+  it finds one with an npm or bun lockfile, which turns installing a plugin into a network fetch on
+  someone else's machine. Dependencies are declared once, at the repository root.
+
+## Language level
+
+Erasable syntax only: no `enum`, no parameter properties, no namespaces. Node strips types rather
+than compiling them and rejects all three at launch with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`;
+`erasableSyntaxOnly` in `tsconfig.json` turns that into a failed gate on a pull request instead.
+Every import names the `.ts` extension explicitly, which is what node's own resolver reads.
+
+## Coverage
+
+`vitest.config.ts`'s thresholds are the gate: 100 on lines, branches, functions and statements,
+over a source set that is named rather than discovered. The threshold is never lowered, because a
+lowered number hides every other file's regression behind the one file that earned the exception,
+and an exclusion is never added to move the number. Restructure so the branch does not exist.
