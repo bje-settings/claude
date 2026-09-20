@@ -1,0 +1,8 @@
+{
+  "name": "whitespace-only",
+  "args": ["--route", "view"],
+  "stdinBytes": [32, 32, 32, 10, 9],
+  "outcome": "refused",
+  "status": 2,
+  "stderr": "mermaid-url.py: no diagram source on stdin\n"
+}
