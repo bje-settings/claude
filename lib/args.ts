@@ -64,7 +64,17 @@ export type Options<S extends ArgSpec> = { readonly [K in keyof S]: ValueOf<S[K]
  */
 export const parseArguments = <const S extends ArgSpec>(
   argv: readonly string[],
-  spec: S,
+  // The intersection is what makes {@link Options}'s promise above true
+  // rather than merely written down. `const S` fixes literal types at the
+  // argument *expression*, so an inline spec or one declared `as const` keeps
+  // its keys and its `choices`; a spec that arrives already annotated
+  // `: ArgSpec` does not, and `Options<S>` silently degrades to an index
+  // signature, where every value gains `| undefined` and an option nobody
+  // declared reads clean. `string extends keyof S` is true of exactly that
+  // degraded spec and of nothing else, so it is refused at the call site with
+  // the type of the argument named, rather than surfacing later as a missing
+  // narrowing the caller works around.
+  spec: S & (string extends keyof S ? never : unknown),
 ): Envelope<Options<S>> => {
   const options: Record<string, { type: 'string' | 'boolean'; default: string | boolean }> = {}
   for (const [name, option] of Object.entries(spec)) {

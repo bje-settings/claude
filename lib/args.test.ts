@@ -3,28 +3,36 @@
 // `argparse` answers today rather than invented ones.
 import { describe, expect, it } from 'vitest'
 
-import { type Options, parseArguments } from './args.ts'
+import { type ArgSpec, type Options, parseArguments } from './args.ts'
 
 // Deliberately not annotated `: ArgSpec`. The annotation widens every key to
 // `string` and every value to `OptionSpec`, which collapses `Options<S>` to an
 // index signature and quietly throws away both properties the type exists to
 // give: one property per declared option, and a value narrowed to the choices
-// the option declared.
+// the option declared. `satisfies ArgSpec` is not the safe alternative it
+// looks like: it types `choices` against `readonly string[]`, the literals
+// widen, and the narrowing is gone again with nothing refused. Inline, or
+// `as const`, and nothing else.
 const MERMAID = {
   route: { type: 'string', default: 'view', choices: ['edit', 'ink-img', 'ink-svg', 'view'] },
   theme: { type: 'string', default: 'default' },
   help: { type: 'boolean' },
 } as const
 
-// A compile-time assertion, which is the only venue this property has: the
-// declaration below does not compile unless `--route` parses to exactly the
-// union its `choices` named, and `--theme`, which declares none, to `string`.
-// Nothing here runs, so it adds no branch; `expect` below only makes the
-// constants used.
+// Compile-time assertions, which is the only venue these properties have.
+// They run the refusing direction on purpose: a positive declaration like
+// `const r: ParsedRoute = 'ink-svg'` compiles whether `ParsedRoute` is the
+// union or a bare `string`, so it proves nothing. `@ts-expect-error` fails
+// the `types` job when the error it names stops happening, which is exactly
+// what would happen if the narrowing were lost. `expect` below only makes the
+// constants used; nothing here adds a branch.
 type ParsedRoute = Options<typeof MERMAID>['route']
 type ParsedTheme = Options<typeof MERMAID>['theme']
 const ROUTE: ParsedRoute = 'ink-svg'
 const THEME: ParsedTheme = 'forest'
+// @ts-expect-error `--route` parses to the choices it declared, so a route it
+// never declared is not one of them.
+const NOT_A_ROUTE: ParsedRoute = 'ink-pdf'
 
 describe('parseArguments', () => {
   it('answers with every declared option, even on an empty command line', () => {
@@ -102,11 +110,24 @@ describe('parseArguments', () => {
   })
 
   it('narrows a value to the choices its option declared, and leaves the rest as text', () => {
-    // The assertion is the pair of declarations above, made by `tsc`. A
-    // `route` typed `string` would compile there and then force every command
-    // to re-prove what this parser already refused.
+    // The assertions are the declarations above, made by `tsc`. A `route`
+    // typed `string` would leave the directive on `NOT_A_ROUTE` unused, which
+    // `tsc` reports as an error of its own, and would otherwise force every
+    // command to re-prove what this parser already refused.
     expect(ROUTE).toBe('ink-svg')
     expect(THEME).toBe('forest')
+    expect(NOT_A_ROUTE).toBe('ink-pdf')
+  })
+
+  it('refuses a spec that arrives with its literal types already widened', () => {
+    // The other half of the same property, and the reason `MERMAID` above is
+    // written the way it is. An annotated spec cannot give `Options<S>` one
+    // property per option or a narrowed value, so the signature refuses it
+    // here rather than handing back a result that silently promises neither.
+    const annotated: ArgSpec = { route: { type: 'string', default: 'view' } }
+    // @ts-expect-error a widened spec is not assignable to the parameter.
+    const parsed = parseArguments([], annotated)
+    expect(parsed).toEqual({ outcome: 'ok', value: { route: 'view' } })
   })
 
   it('reports a default outside its own choices as this code going wrong', () => {
