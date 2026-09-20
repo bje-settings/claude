@@ -81,16 +81,38 @@ export interface GhClient {
 }
 
 /**
+ * What node hands the callback when the child did not succeed.
+ *
+ * `code` is the whole reason this is not narrowed to a bare `Error`: node
+ * sets it to gh's own exit status when gh ran, and to an error name when gh
+ * never produced one (`ENOENT` for a `gh` that is not on PATH or a working
+ * directory that is gone, `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` for a reply
+ * that overran {@link MAX_OUTPUT_BYTES}). Narrowing it away would leave the
+ * adapter unable to tell an answer gh gives through its status from a failure
+ * to answer at all, and unable to say which of the two it is reporting.
+ * node's `ExecFileException` carries it as `string | number | null`, spelled
+ * the same way here so the real `execFile` still satisfies this type; `null`
+ * is what a child killed by a signal carries in place of a status.
+ */
+export type ExecFileFailure = Error & { readonly code?: string | number | null }
+
+/**
  * `node:child_process`'s own `execFile`, narrowed to the four arguments the
  * adapter passes it.
  *
  * It is a parameter rather than a hardcoded import so that the adapter, the
  * only thing here that would start a process, is exercised in this suite by
- * driving it with a stand-in: every endpoint, and both arms of the failure
+ * driving it with a stand-in: every endpoint, and every arm of the failure
  * the adapter reports, are covered in-process with nothing spawned and no
  * `gh` on PATH. The alternative, a default nothing can substitute, is a file
  * that can only reach 100% by spawning a binary a machine may not have, or by
  * an exclusion the coverage rule does not offer.
+ *
+ * `encoding: 'utf8'` is a literal rather than a `string` because it is what
+ * selects node's string-returning overload: without it the real `execFile`
+ * would only match the overload whose `stdout` is `string | Buffer`, which
+ * this type refuses, so the type check is what holds "stdout is text" rather
+ * than a convention.
  */
 export type ExecFile = (
   file: string,
@@ -100,14 +122,17 @@ export type ExecFile = (
     readonly maxBuffer: number
     readonly cwd: string | undefined
   },
-  callback: (error: Error | null, stdout: string, stderr: string) => void,
+  callback: (error: ExecFileFailure | null, stdout: string, stderr: string) => void,
 ) => void
 
 export interface GhClientOptions {
   /**
-   * Where `gh` runs. `gh` reads the repository from the working directory and
-   * none of the endpoints above carries a repository, which is how the
-   * scripts being ported address a repository they did not start in.
+   * Where `gh` runs. `gh` resolves the repository from the working directory,
+   * and none of the endpoints above carries one, so this is the only way a
+   * caller addresses a repository the process did not start in. The scripts
+   * being ported name it with `--repo` instead; adding that as a second
+   * option belongs with the command that needs it (#127), since an optional
+   * option can be added later without breaking a caller.
    */
   readonly cwd?: string
   /** The spawn seam. Defaults to node's own `execFile`. */
@@ -137,20 +162,54 @@ const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
 const CHECK_FIELDS = 'name,state,bucket,link,workflow'
 
+/**
+ * The exit statuses `gh pr checks` uses to report on the checks rather than
+ * on itself: 1 a check failed, 8 still pending (`gh pr checks --help`, and
+ * the same table at `plugins/gh/scripts/gh-shepherd-pr.py` lines 172 to 178).
+ * Reading them as transport failures is how a red rollup gets reported as a
+ * broken token. Every other status from that subcommand, and every status
+ * from every other one, stays a failure.
+ */
+const CHECK_ANSWERS = [1, 8]
+
 /** An optional filter, as the two argv words gh wants or as nothing at all. */
 const filter = (name: string, value: string | number | undefined): string[] =>
   value === undefined ? [] : [`--${name}`, String(value)]
 
 /**
- * Run `gh` and answer with its stdout, throwing gh's own words when it exits
- * non-zero. gh's wording travels with the failure because a caller cannot
- * tell an expired token from a repository that does not exist without it,
- * which is the reasoning `gh-sync-repo.py` already carries.
+ * What to say about a failure, chosen between the two accounts of it.
+ *
+ * A numeric `code` is gh's own exit status: gh ran, and gh says why on
+ * stderr. That wording travels with the failure because a caller cannot tell
+ * an expired token from a repository that does not exist without it, which is
+ * the reasoning `gh-sync-repo.py` already carries.
+ *
+ * Any other `code` is node's failure to report rather than gh's: gh never
+ * started, or the child was killed for overrunning `maxBuffer`. Whatever gh
+ * had already written to stderr is not an account of that, so node's message
+ * leads instead of being replaced by a warning with nothing to do with the
+ * failure. Replacing it is how a truncated reply gets reported as a
+ * deprecation notice, which is the defect class {@link MAX_OUTPUT_BYTES}
+ * exists to close.
+ */
+const accountOf = (error: ExecFileFailure, stderr: string): string => {
+  const said = stderr.trim()
+  if (typeof error.code === 'number') return said === '' ? error.message : said
+  return said === '' ? error.message : `${error.message}: ${said}`
+}
+
+/**
+ * Run `gh` and answer with its stdout, throwing when it fails.
+ *
+ * `answering` names the non-zero exit statuses that are an answer rather than
+ * a failure. It is empty for every endpoint but the checks watch, which is
+ * the one subcommand that reports through its status (see `watchChecks`).
  */
 const runGh = (
   spawn: ExecFile,
   cwd: string | undefined,
   args: readonly string[],
+  answering: readonly number[] = [],
 ): Promise<string> =>
   new Promise((resolve, reject) => {
     // No shell: every argument reaches `gh` as written, so a branch name or a
@@ -161,15 +220,11 @@ const runGh = (
       args,
       { encoding: 'utf8', maxBuffer: MAX_OUTPUT_BYTES, cwd },
       (error, stdout, stderr) => {
-        if (error === null) {
+        if (error === null || (typeof error.code === 'number' && answering.includes(error.code))) {
           resolve(stdout)
           return
         }
-        // gh that exited non-zero says why on stderr; gh that never started at
-        // all (not on PATH, cwd gone) leaves stderr empty and node's own
-        // message is the only account of it.
-        const detail = stderr.trim() || error.message
-        reject(new Error(`gh ${args.join(' ')} failed: ${detail}`))
+        reject(new Error(`gh ${args.join(' ')} failed: ${accountOf(error, stderr)}`))
       },
     )
   })
@@ -207,7 +262,8 @@ const record = (text: string, what: string): Record<string, unknown> => {
 /** A `GhClient` that runs the real `gh`. */
 export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const spawn = options.execFile ?? execFile
-  const gh = (args: readonly string[]): Promise<string> => runGh(spawn, options.cwd, args)
+  const gh = (args: readonly string[], answering?: readonly number[]): Promise<string> =>
+    runGh(spawn, options.cwd, args, answering)
 
   return {
     listPullRequests: async (query = {}) =>
@@ -257,18 +313,30 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     addComment: (comment) =>
       gh(['pr', 'comment', String(comment.pullRequest), '--body', comment.body]),
 
-    watchChecks: async (pull) =>
-      rows(
-        await gh([
-          'pr',
-          'checks',
-          String(pull.pullRequest),
-          '--watch',
-          ...filter('interval', pull.interval),
-          '--json',
-          CHECK_FIELDS,
-        ]),
-        'gh pr checks',
-      ),
+    // Two invocations, because gh has no single one that does both: it
+    // refuses `--watch` together with `--json` ("cannot use `--watch` with
+    // `--json` flag") and refuses `--interval` without `--watch`, both
+    // verified against gh 2.98.0. That is also the shape
+    // `plugins/gh/scripts/gh-shepherd-pr.py` lines 645 to 673 uses, and it is
+    // what makes this endpoint answer what it promises: the watch blocks, and
+    // the read that follows is the checks as they stood when it returned.
+    //
+    // The watch answers through its exit status, so {@link CHECK_ANSWERS} is
+    // passed to it. The read carries `--json`, which gh exits 0 from whatever
+    // the checks say (verified against a pull request with failing checks),
+    // so its rows are the answer either way and it needs none.
+    //
+    // Nothing bounds the watch. The Python wraps it in `run_bounded` for
+    // reasons it records at `gh-shepherd-pr.py` lines 633 to 637, and a
+    // timeout on the seam lands with the command that needs one (#127),
+    // rather than as an option no caller in this round passes.
+    watchChecks: async (pull) => {
+      const pullRequest = String(pull.pullRequest)
+      await gh(
+        ['pr', 'checks', pullRequest, '--watch', ...filter('interval', pull.interval)],
+        CHECK_ANSWERS,
+      )
+      return rows(await gh(['pr', 'checks', pullRequest, '--json', CHECK_FIELDS]), 'gh pr checks')
+    },
   }
 }
