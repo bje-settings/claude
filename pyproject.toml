@@ -20,10 +20,6 @@ dev = [
   # through subprocess, so without the patch the coverage denominator is empty.
   "coverage>=7.10.7,<7.11",
   "ruff>=0.14",
-  # Runs the hooks in .pre-commit-config.yaml. Not pinned below 4.4 on purpose:
-  # uv.lock forks on requires-python, so 3.9 resolves 4.3.0 (the last release
-  # that runs there) while 3.10+ takes the newest.
-  "pre-commit>=4.3",
 ]
 
 [tool.ruff]
@@ -48,10 +44,12 @@ markers = [
   # marker is for -- not speed. Against a warm corepack cache they cost about
   # three seconds apiece, which puts them beside the ordinary sync examples
   # rather than ahead of them; against a cold one the shim downloads the manager
-  # first and they cost closer to a minute. The pre-commit hook deselects them
-  # with -m "not slow"; CI runs the whole suite, marker and all, so nothing is
-  # only ever checked locally.
-  "slow: runs a real package-manager install (deselected by the pre-commit hook)",
+  # first and they cost closer to a minute. No hook deselects them: lefthook's
+  # pre-commit gates are staged-only and never run this suite at all (ADR 002),
+  # so nothing here is only ever checked locally. CI always runs the whole
+  # suite, marker and all. -m "not slow" is for a hand run on a machine with no
+  # package manager installed.
+  "slow: runs a real package-manager install",
 ]
 
 [tool.coverage.run]

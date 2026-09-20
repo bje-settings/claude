@@ -12,25 +12,22 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# THESE JOB NAMES ARE A CONTRACT: ruff, pytest, pytest-floor and coverage here,
-# plus plugin-validate in plugin-validate.yml, are required by the repo ruleset
-# Require CI (22359720), which matches them by exact string. Renaming one does
-# not fail the build: the required check simply never reports and every pull
-# request waits forever for something that will not arrive. Keep them short and
-# stable, and put descriptive text in step names, where it helps in logs without
-# becoming load-bearing.
+# THESE JOB NAMES ARE A CONTRACT: ruff, pytest, pytest-floor, coverage, vitest,
+# vitest-floor, types and biome here, plus plugin-validate in
+# plugin-validate.yml, are required by the repo ruleset Require CI (22359720),
+# which matches them by exact string. Renaming one does not fail the build: the
+# required check simply never reports and every pull request waits forever for
+# something that will not arrive. Keep them short and stable, and put
+# descriptive text in step names, where it helps in logs without becoming
+# load-bearing.
 #
 # A new job name becomes a required check only after it has reported on main,
 # for the same reason; add it to the ruleset right after the pull request that
 # introduces it merges.
 #
-# vitest, types and biome report on every run starting at #119, #117 and #118,
-# but are not required checks yet: they join ruleset 22359720 at #122, once
-# each has reported green on main at least once (ADR 002). vitest-floor also
-# reports on every run as of #119's review round 1, but #122's scope
-# (docs/rfc/001-typescript-port.md T8, ADR 002) names only biome, types and
-# vitest; whether vitest-floor should join the ruleset too, matching
-# pytest-floor's required status, is unresolved and belongs to #122.
+# vitest, vitest-floor, types and biome, the four TypeScript jobs, joined the
+# ruleset at #122 on 2026-09-13, after each had reported green on main at
+# least once (ADR 002).
 jobs:
   # ruff's target-version is py39, so syntax newer than the floor is a lint
   # failure rather than something a user on the Python macOS ships discovers at
@@ -165,6 +162,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/node-pnpm
+
+      # A config lefthook rejects is a hook that silently never runs: nothing
+      # else in CI would catch a malformed lefthook.yml before it reached a
+      # contributor's next commit. This job already has node_modules, and the
+      # postinstall that would otherwise sync the hooks here is a no-op:
+      # Actions sets CI for every step, which lefthook's postinstall treats
+      # as a skip.
+      - name: Validate lefthook.yml
+        run: pnpm exec lefthook validate
+
       - name: Run the vitest suite with coverage at 100
         run: pnpm test
 

@@ -135,9 +135,9 @@ def test_the_repo_local_skills_declare_their_frontmatter():
     """gives every repo-local skill a name, a description, and no model invocation
 
     `claude plugin validate --strict` covers the plugin skills' frontmatter and
-    never sees these: CI and the pre-commit hook both point it at `.` and
-    `plugins/*/` only. So the checks a plugin skill gets for free are made here
-    instead.
+    never sees these: CI and the lefthook `plugin-validate` step both point it
+    at `.` and `plugins/*/` only. So the checks a plugin skill gets for free
+    are made here instead.
 
     disable-model-invocation is not optional for these. Repo tooling acts on the
     repository, and a skill with side effects that the model can reach on its own

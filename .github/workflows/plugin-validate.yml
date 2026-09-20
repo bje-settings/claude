@@ -19,7 +19,8 @@ env:
   # `claude --version` on a machine with the version you want, put that exact
   # string here, and confirm `claude plugin validate . --strict` still passes
   # locally before pushing. Keep it close to what contributors run, since the
-  # pre-commit hook uses whatever `claude` is on their PATH.
+  # lefthook `plugin-validate` step uses whatever `claude` is on the
+  # contributor's PATH.
   CLAUDE_CODE_VERSION: "2.1.263"
 
 jobs:

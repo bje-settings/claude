@@ -5,8 +5,9 @@ resolution fallbacks, a failing remote, and the real dependency install.
 
 The install examples are marked `slow`: each writes a lock file with the real
 package manager and then installs from it, which makes them the only ones that
-need a package manager installed. The marker is that dependency, not speed. The
-pre-commit hook deselects them; CI runs them.
+need a package manager installed. The marker is that dependency, not speed. No
+hook deselects them: lefthook's pre-commit gates are staged-only and never run
+this suite at all (ADR 002). CI runs them.
 """
 
 from __future__ import annotations
