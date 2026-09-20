@@ -63,10 +63,13 @@ or a value outside `choices` all come back as `refused`, which is exit 2: the st
 
 An option that declares `choices` parses to those choices as a type rather than to a bare
 `string`, so a command reads `parsed.value.route` without re-proving what the parser already
-refused. Annotating the spec `: ArgSpec` throws that away, so a spec is written inline or
-`as const`. A default outside its own option's choices is `failed` and not `refused`: it is this
-code's mistake, and it would otherwise refuse every command line that left the flag off while
-naming a flag the caller never typed.
+refused. A spec is written inline or `as const`: annotating it `: ArgSpec`, or writing
+`satisfies ArgSpec`, widens the literals and throws that away, and the annotated form is refused
+at the call site rather than silently answering with an index signature. A default outside its
+own option's choices is `failed` and not `refused`: it is this code's mistake, and it would
+otherwise refuse every command line that left the flag off while naming a flag the caller never
+typed. The defaults are audited before the command line is parsed, so a broken spec is reported
+whatever the caller typed.
 
 Three outcomes, because the scripts being ported have three:
 
@@ -95,10 +98,13 @@ Failure is a thrown `Error` carrying gh's own words, never a result envelope and
 list: "nothing matched" and "the answer could not be read" are different facts.
 
 `watchChecks` runs `gh` twice, because gh refuses `--watch` together with `--json` and refuses
-`--interval` without `--watch`: the watch blocks, and the read that follows is the checks as they
-stood when it returned. The watch's exit status is an answer there (1 a check failed, 8 still
-pending) rather than a failure. Nothing bounds the watch yet; the timeout lands with the command
-that needs one (#127).
+`--interval` without `--watch`: the watch blocks, and the read that follows is what the caller is
+answered with. The watch's exit status is an answer there (1 a check failed, 8 still pending)
+rather than a failure, which is `gh-shepherd-pr.py`'s `WATCHER_CODES` without that script's own
+bound. 1 is also gh's generic non-zero, so a genuine failure at the watch is caught by the read
+repeating it rather than by the watch itself. Nothing bounds the watch yet, and neither the
+watch's status nor the failure's `code` reaches a caller; both land with the command that needs
+them (#127).
 
 `createGhClient` takes node's `execFile` as an option, which is the seam this directory's own suite
 substitutes so that every endpoint and the adapter itself are exercised in-process, with nothing
