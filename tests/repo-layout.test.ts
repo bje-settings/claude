@@ -329,6 +329,24 @@ describe('the plugin boundary', () => {
     const plugins = build({ plugins: ['bare', 'odd'], files: { 'odd/src': '' } })
     expect(libLinkViolations(plugins)).toEqual([])
   })
+
+  it('asks nothing of a src link that points at nothing, or at a file', () => {
+    // The two siblings of the case above, and the reason the probe follows the
+    // link rather than reading the listing entry: both of these report
+    // themselves as neither a directory nor a file, so a rule that only
+    // skipped a plain file would hand `readdirSync` a path it cannot list and
+    // die with ENOENT or ENOTDIR. A rule that aborts reports nothing, which is
+    // worse than the violation it was looking for.
+    const plugins = build({
+      plugins: ['dangling', 'at-a-file'],
+      files: { 'afile.ts': '' },
+      links: {
+        'dangling/src': path.join('..', 'nowhere'),
+        'at-a-file/src': path.join('..', 'afile.ts'),
+      },
+    })
+    expect(libLinkViolations(plugins)).toEqual([])
+  })
 })
 
 it('holds both rules over the real plugins tree', () => {

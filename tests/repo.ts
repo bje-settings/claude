@@ -191,13 +191,18 @@ export function libLinkViolations(root: string = PLUGINS): string[] {
   const violations: string[] = []
   for (const plugin of pluginDirs(root)) {
     const where = path.relative(root, plugin)
-    const src = childEntry(plugin, 'src')
-    // Present, and not a plain file where the directory should be. A `src`
-    // that is itself a symlink answers `isDirectory()` with false, because a
-    // listing entry answers from `lstat`, and skipping it would let a plugin
-    // hide a real copy of the shared library behind one link. That is the
-    // case `childEntry` exists for, a few lines above.
-    if (src === undefined || src.isFile()) continue
+    // Followed rather than read from the listing, which is the one place in
+    // this file that wants `stat` semantics: a `src` that is itself a symlink
+    // must be looked through, since skipping it would let a plugin hide a real
+    // copy of the shared library one link away from where the rule looks. A
+    // listing entry answers from `lstat` and would report such a `src` as
+    // neither a directory nor a file. Everything that is not a directory once
+    // followed, including a link pointing at nothing or at a file, is the same
+    // "no src here" as a plugin that has none: asking `readdirSync` about it
+    // would abort the whole rule with an fs error instead of reporting.
+    if (statSync(path.join(plugin, 'src'), { throwIfNoEntry: false })?.isDirectory() !== true) {
+      continue
+    }
     const lib = childEntry(path.join(plugin, 'src'), 'lib')
     if (lib === undefined) continue
     if (!lib.isSymbolicLink()) {
