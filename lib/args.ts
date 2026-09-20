@@ -23,7 +23,7 @@
 
 import { parseArgs } from 'node:util'
 
-import { type Envelope, ok, refused } from './envelope.ts'
+import { type Envelope, failed, ok, refused } from './envelope.ts'
 
 /**
  * One option. A string option carries a default, rather than admitting
@@ -38,7 +38,18 @@ export type OptionSpec =
 
 export type ArgSpec = Readonly<Record<string, OptionSpec>>
 
-type ValueOf<S extends OptionSpec> = S extends { type: 'boolean' } ? boolean : string
+/**
+ * What one option parses to. An option that declares `choices` parses to
+ * those choices and not to a bare `string`: the check below refuses anything
+ * else before the envelope is built, so the narrower type is a fact about the
+ * value rather than a hope, and a command switching on it does not re-prove
+ * what the parser already refused.
+ */
+type ValueOf<S extends OptionSpec> = S extends { type: 'boolean' }
+  ? boolean
+  : S extends { choices: readonly (infer C extends string)[] }
+    ? C
+    : string
 
 /** The parsed command line: one property per declared option, never partial. */
 export type Options<S extends ArgSpec> = { readonly [K in keyof S]: ValueOf<S[K]> }
@@ -51,7 +62,7 @@ export type Options<S extends ArgSpec> = { readonly [K in keyof S]: ValueOf<S[K]
  * rewritten: node names the offending token, which is what a caller needs,
  * and a tidied spelling would be one this repository then owns.
  */
-export const parseArguments = <S extends ArgSpec>(
+export const parseArguments = <const S extends ArgSpec>(
   argv: readonly string[],
   spec: S,
 ): Envelope<Options<S>> => {
@@ -76,6 +87,18 @@ export const parseArguments = <S extends ArgSpec>(
 
   for (const [name, option] of Object.entries(spec)) {
     if (option.type !== 'string' || option.choices === undefined) continue
+    // A default outside the option's own choices is `failed` and not
+    // `refused`, because `parseArgs` fills the default in whenever the flag
+    // is absent: without this the command would refuse every command line
+    // that leaves the flag off, naming a flag the user never typed and
+    // cannot correct. `envelope.ts` states the split this keeps, that a
+    // refusal is the caller's input to fix and a failure is this code's.
+    if (!option.choices.includes(option.default)) {
+      return failed(
+        `--${name} declares a default of "${option.default}", ` +
+          `which is not one of ${option.choices.join(', ')}`,
+      )
+    }
     // Every declared option has a default, so this is a string by
     // construction; the cast is erased and adds no branch.
     const value = values[name] as string

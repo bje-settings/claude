@@ -3,13 +3,28 @@
 // `argparse` answers today rather than invented ones.
 import { describe, expect, it } from 'vitest'
 
-import { type ArgSpec, parseArguments } from './args.ts'
+import { type Options, parseArguments } from './args.ts'
 
-const MERMAID: ArgSpec = {
+// Deliberately not annotated `: ArgSpec`. The annotation widens every key to
+// `string` and every value to `OptionSpec`, which collapses `Options<S>` to an
+// index signature and quietly throws away both properties the type exists to
+// give: one property per declared option, and a value narrowed to the choices
+// the option declared.
+const MERMAID = {
   route: { type: 'string', default: 'view', choices: ['edit', 'ink-img', 'ink-svg', 'view'] },
   theme: { type: 'string', default: 'default' },
   help: { type: 'boolean' },
-}
+} as const
+
+// A compile-time assertion, which is the only venue this property has: the
+// declaration below does not compile unless `--route` parses to exactly the
+// union its `choices` named, and `--theme`, which declares none, to `string`.
+// Nothing here runs, so it adds no branch; `expect` below only makes the
+// constants used.
+type ParsedRoute = Options<typeof MERMAID>['route']
+type ParsedTheme = Options<typeof MERMAID>['theme']
+const ROUTE: ParsedRoute = 'ink-svg'
+const THEME: ParsedTheme = 'forest'
 
 describe('parseArguments', () => {
   it('answers with every declared option, even on an empty command line', () => {
@@ -84,6 +99,28 @@ describe('parseArguments', () => {
     const argv = ['--route', 'edit']
     parseArguments(argv, MERMAID)
     expect(argv).toEqual(['--route', 'edit'])
+  })
+
+  it('narrows a value to the choices its option declared, and leaves the rest as text', () => {
+    // The assertion is the pair of declarations above, made by `tsc`. A
+    // `route` typed `string` would compile there and then force every command
+    // to re-prove what this parser already refused.
+    expect(ROUTE).toBe('ink-svg')
+    expect(THEME).toBe('forest')
+  })
+
+  it('reports a default outside its own choices as this code going wrong', () => {
+    // Exit 1, not 2. `parseArgs` fills the default in when the flag is
+    // absent, so a spec like this refuses every command line, and blaming the
+    // caller for a flag they never typed is a refusal they cannot act on.
+    expect(
+      parseArguments([], {
+        route: { type: 'string', default: 'ink-pdf', choices: ['edit', 'view'] },
+      }),
+    ).toEqual({
+      outcome: 'failed',
+      error: '--route declares a default of "ink-pdf", which is not one of edit, view',
+    })
   })
 
   it('checks choices on a spec that declares only a boolean', () => {
