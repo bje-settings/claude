@@ -81,6 +81,16 @@ describe('renderText', () => {
     const url = 'https://mermaid.live/view#pako:eNpLy8'
     expect(renderText(ok(url))).toEqual({ stdout: url, stderr: '', exitCode: 0 })
   })
+
+  it('differs from renderJson on the one payload type both accept', () => {
+    // The sentence above is a claim about `renderJson` too, and a string is
+    // the only payload both renderers take, so it is the only place the two
+    // could quietly become the same function. Asserted on the same value, so
+    // what the test shows is the difference and not two unrelated examples.
+    const url = 'https://mermaid.live/view#pako:eNpLy8'
+    expect(renderJson(ok(url)).stdout).toBe(`"${url}"`)
+    expect(renderText(ok(url)).stdout).toBe(url)
+  })
 })
 
 describe.each([
