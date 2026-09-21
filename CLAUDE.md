@@ -17,7 +17,7 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 ### Plugins
 
 Plugins are listed in `README.md`; each has its own README. New `gh` skills belong in the `gh`
-plugin, and repo discovery shared by its skills is `plugins/gh/scripts/lib/discover.py`.
+plugin, and repo discovery shared by its skills is `plugins/gh/scripts/lib/discover.py` until #127.
 
 New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
 has the rules. A command is an exported function at `plugins/<plugin>/src/commands/<command>.ts`
@@ -99,9 +99,9 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 ### Skills
 
 Every skill directory carries a `FLOW.md` beside its `SKILL.md`, holding a mermaid flow diagram.
-The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforced by
-`tests/test_skills.py` across the plugins **and** `.claude/skills/`; see
-`.claude/rules/file-skill-md.md`.
+The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforced across the
+plugins **and** `.claude/skills/` by `tests/skills.test.ts`, with `tests/test_skills.py` its
+Python original until #138; see `.claude/rules/file-skill-md.md`.
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 
@@ -119,7 +119,7 @@ Three things differ from a plugin (`.claude/rules/type-py.md` has the detail):
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
 
-Repo-local skills are checked by `tests/test_skills.py`, including the frontmatter that `--strict`
+Repo-local skills are checked by those same tests, including the frontmatter that `--strict`
 would otherwise have covered.
 
 ### Publishing a plugin downstream
@@ -162,8 +162,8 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
   `CLAUDE_PLUGIN_DATA` unset. `stub_path` puts a directory ahead of everything on `PATH` (for
   stubs); `path_without` builds a `PATH` of the real tools minus the named ones (for "tool is not
   installed" branches). Each plugin adds its own stub `gh` and canned data.
-- The Python suite runs in parallel under `pytest-xdist` (`-n auto`), so every test builds its
-  state in its own temp dir (the `sandbox` fixture) and nothing writes to the checkout.
+- The Python suite runs in parallel under `pytest-xdist` (`-n auto`): every test must build its
+  state in its own temp dir (the `sandbox` fixture), and write to no fixed path or the checkout.
 
 #### Coverage
 
@@ -197,7 +197,7 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
 - lefthook, staged-only, never a suite (ADR 002).
 - `lefthook.yml` holds the steps; `CONTRIBUTING.md` says how they install.
 - A worktree without its own `pnpm install` still runs the hooks, borrowed from whichever checkout
-  installed them; each step warns and skips there until the worktree gets its own `node_modules`.
+  installed them; each pnpm-based step warns and skips until that worktree runs `pnpm install`.
 
 #### Fixture quality
 
