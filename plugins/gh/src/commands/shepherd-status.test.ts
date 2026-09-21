@@ -85,8 +85,12 @@ const runRow = (spec: string): Record<string, unknown> => {
 const completedOnMain = (...specs: string[]): Record<string, unknown>[] =>
   specs.map(runRow).filter((row) => row.headBranch === 'main' && row.status === 'completed')
 
-/** The pair of writers a command reports through, over two buffers. */
-const capture = () => {
+/** The pair of writers a command reports through, over two buffers.
+ *
+ *  `reader` replaces the stdout stream, which is how the reader that walked
+ *  away is given to the command: the writer's own EPIPE guard is
+ *  `lib/streams.ts`'s, and what is asserted here is the half above it. */
+const capture = (reader?: (into: string[]) => OutputStream) => {
   const out: string[] = []
   const err: string[] = []
   const stream = (into: string[]): OutputStream => ({
@@ -99,9 +103,26 @@ const capture = () => {
     },
   })
   return {
-    output: createOutput(stream(out), stream(err)),
+    output: createOutput((reader ?? stream)(out), stream(err)),
     stdout: () => out.join(''),
     stderr: () => err.join(''),
+  }
+}
+
+/** stdout whose reader leaves on the first line, the way `| head` does: the
+ *  failure arrives as an event rather than at the call. */
+const closedPipe = (into: string[]): OutputStream => {
+  let listener: ((error: NodeJS.ErrnoException) => void) | undefined
+  return {
+    write(text: string) {
+      listener?.(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+      into.push(text)
+      return true
+    },
+    on(_event: 'error', handler: (error: NodeJS.ErrnoException) => void) {
+      listener = handler
+      return undefined
+    },
   }
 }
 
@@ -120,6 +141,8 @@ interface RunOptions {
   readonly gh?: GhClient
   readonly env?: NodeJS.ProcessEnv
   readonly now?: () => number
+  /** A stdout stream of the caller's own, for the reader that went away. */
+  readonly reader?: (into: string[]) => OutputStream
 }
 
 /** A sandbox holding one repository at the path the capture used, and the
@@ -142,7 +165,7 @@ const drive = async (
   const sandbox = createSandbox()
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
   const options = build(sandbox, repo)
-  const writers = capture()
+  const writers = capture(options.reader)
   const ghOptions: unknown[] = []
   const context: ShepherdContext = {
     cwd: repo,
@@ -543,4 +566,21 @@ it('lets a failure that is not gh’s out of the run listing’s fallback', asyn
 
   expect(result.status).toBe(3)
   expect(result.stderr).toContain('internal error: TypeError: not an array')
+})
+
+// --- a reader that walked away ----------------------------------------------------------
+
+it('lets a reader that left stop the report, and nothing else', async () => {
+  // `test_shepherd_status.py:263` asserted the composite for this command too:
+  // the one document it exists to print is cut off and that is not an error.
+  // Round 1 pinned the pair for `shepherd-pr` and left this one retired; it is
+  // the same retirement and it is in process here, so it costs one writer.
+  const result = await drive(() => ({
+    argv: [],
+    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+    reader: closedPipe,
+  }))
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
 })

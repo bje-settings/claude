@@ -279,6 +279,11 @@ describe('missingField', () => {
 
   it('names labels when they are not a list', () => {
     expect(missingField(readable({ labels: null }))).toBe('labels')
+    // `isinstance(pull.get("labels"), list)` (`lib/shepherd.py:177`) is a
+    // shape check, not a null one: a gh answer whose `labels` is a number or
+    // an object is an answer the loop cannot decide from either.
+    expect(missingField(readable({ labels: 42 }))).toBe('labels')
+    expect(missingField(readable({ labels: { name: 'dependencies' } }))).toBe('labels')
   })
 
   it('refuses the empty object summary would have shaped', () => {
@@ -413,6 +418,9 @@ describe('ciSeconds', () => {
 
   it('falls back on a listing that is not a list at all', () => {
     expect(ciSeconds(null)).toBe(300)
+    // Not a list AND not null, which a `??` fold keeps: `for ... of 42` then
+    // throws out of the command as exit 3 instead of falling back.
+    expect(ciSeconds(42)).toBe(300)
   })
 
   it('falls back on an unparseable stamp', () => {
@@ -593,6 +601,9 @@ describe('statusDocument', () => {
 
   it('reads a listing that is not a list at all as no pull requests', () => {
     expect(statusDocument(null, 'acme/widgets', 'main', 300).targets).toEqual([])
+    // Not a list AND not null: a `??` fold keeps it and `.filter` then throws
+    // out of the command as exit 3 rather than reporting no targets.
+    expect(statusDocument(42, 'acme/widgets', 'main', 300).targets).toEqual([])
   })
 })
 
