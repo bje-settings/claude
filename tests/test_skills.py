@@ -10,7 +10,9 @@ this repo's own tooling, which is subject to the same rules and is checked by
 nothing else: `claude plugin validate --strict` only ever sees `.` and
 `plugins/*/`, so without this file the repo-local skills have no validation at
 all. Hence the frontmatter check at the bottom, which the plugin skills get from
-validate and these do not.
+validate and these do not. `.claude/skills/` holds no skill today (#128 removed
+its only one, /publish); the convention and these checks stay for when one
+exists again.
 """
 
 from __future__ import annotations
@@ -74,19 +76,18 @@ def test_finds_skills_to_check():
     assert skill_files()
 
 
-def test_finds_skills_under_every_root():
-    """finds skills under each root it claims to check
+def test_finds_skills_under_the_plugin_root():
+    """finds skills under the plugin root
 
-    The guard above stops protecting a root the moment there are two of them:
-    plugins/ alone keeps the combined list non-empty, so a typo in the second
-    path would leave this file green while enforcing nothing on the skills it
-    was extended to cover. Each root is asserted on its own.
-
-    If a root legitimately empties out, delete it from SKILL_ROOTS rather than
-    loosening this.
+    The guard above stops protecting plugins/ the moment a second root joins
+    it: plugins/ alone keeps the combined list non-empty, so a typo in the
+    second path would leave this file green while enforcing nothing on the
+    skills it was extended to cover. plugins/ is asserted on its own for that
+    reason. `.claude/skills/` is not asserted the same way: it is allowed to
+    be legitimately empty, as #128 leaves it, since `skills_under` on a
+    missing directory yields nothing rather than raising.
     """
-    empty = [str(root.relative_to(ROOT)) for root in SKILL_ROOTS if not skills_under(root)]
-    assert empty == []
+    assert skills_under(PLUGINS)
 
 
 def test_every_skill_has_a_flow_md():
