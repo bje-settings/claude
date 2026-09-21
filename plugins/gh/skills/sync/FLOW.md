@@ -49,5 +49,5 @@ Every path that keeps a branch says which of the four reasons applied. The disti
 did not establish.
 
 The `discover` subgraph is shared with `/gh:shepherd`, byte for byte: both skills resolve their
-scope by the same rule, `scripts/lib/discover.py`, so the two diagrams must describe it
+scope by the same rule, `src/discover.ts`, so the two diagrams must describe it
 identically.

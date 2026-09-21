@@ -23,6 +23,11 @@
 // gh's answer may be missing a field, or carry a null where an object was
 // asked for, and a declared pull-request type would be a promise this module
 // is written not to trust.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; every file and line reference below is to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 
 import { accessSync, constants, statSync } from 'node:fs'
 import type { GhClient } from './lib/gh.ts'

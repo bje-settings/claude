@@ -1,7 +1,7 @@
 {
   "name": "gh",
   "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed. /gh:shepherd merges a repo's auto-merge-enabled dependencies PRs one at a time, rebasing and waiting on CI, and skips anything that needs a logic change.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "author": {
     "name": "Brian Espinosa",

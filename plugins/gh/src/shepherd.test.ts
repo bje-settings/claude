@@ -5,6 +5,11 @@
 // jq it replaced was one line however many outcomes it decided between. Each
 // test here was checked by mutation: change that arm in `shepherd.ts` and the
 // test named for it goes red on its own.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; every file and line reference below is to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { describe, expect, it } from 'vitest'
 import {
   checkLink,

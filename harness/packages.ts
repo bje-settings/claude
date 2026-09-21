@@ -20,6 +20,10 @@
 //
 // Nothing here reaches the network: the only dependency any of these projects
 // declares is a directory inside the repository itself.
+//
+// The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
+// `tests/gh/bin/gh`, was deleted at #127; the references below are to what
+// it held, kept because they say where each rule came from.
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'

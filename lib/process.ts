@@ -31,6 +31,12 @@
 // This file ships. It imports nothing outside the root lib and nothing from
 // node beyond `child_process`, and stays inside the erasable subset (ADR 001).
 
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; every
+// file and line reference below is to what they held at `cd0d515`, kept
+// because each says where a rule came from. Nothing here changed with the
+// deletion.
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { type StreamFailure, streamFailures } from './streams.ts'
 

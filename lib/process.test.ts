@@ -16,6 +16,12 @@
 //
 // Every bound is generous where the test says it did NOT fire and tiny where
 // it says it did, so a loaded CI runner can be slow without being wrong.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; every
+// file and line reference below is to what they held at `cd0d515`, kept
+// because each says where a rule came from. Nothing here changed with the
+// deletion.
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'

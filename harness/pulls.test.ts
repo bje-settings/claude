@@ -2,6 +2,10 @@
 // `tests/gh/test_gh_fixtures.py` asserts the Python fixtures': a builder that
 // quietly stopped producing its state, or a filter that quietly stopped
 // filtering, would make every test built on it pass for the wrong reason.
+//
+// The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
+// `tests/gh/bin/gh`, was deleted at #127; the references below are to what
+// it held, kept because they say where each rule came from.
 import { expect, it } from 'vitest'
 import { createGhMock, GhError, ghFails } from './gh.ts'
 import {

@@ -14,6 +14,11 @@
 // reachable for exactly one state: a pull that DELETES `pnpm-lock.yaml`
 // (`gh-sync-repo.py:438`, and the follow-up ruling says it is ported for that
 // case alone).
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; every file and line reference below is to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 

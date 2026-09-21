@@ -1,5 +1,5 @@
 // Real git repositories in known states: the port of the pure-git half of
-// tests/gh/conftest.py.
+// the gh plugin's Python conftest, deleted at #127.
 //
 // git is not mocked (ADR 001, RFC 001 "The testing seam"). Every fixture here
 // is an actual repository with an actual (local, bare) origin, so `git fetch`,

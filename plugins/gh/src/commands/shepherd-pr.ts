@@ -18,6 +18,11 @@
 // The command function is the seam (ADR 001): arguments, the environment, an
 // injected `gh`, the clock, the sleep and the output writers in, an exit
 // status out. Nothing is spawned and no `gh` is on PATH.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; every file and line reference below is to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { GhError } from '../lib/gh.ts'

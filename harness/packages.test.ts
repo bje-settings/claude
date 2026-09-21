@@ -6,6 +6,10 @@
 // These run the real pnpm from PATH. That is the point: the port's install
 // path is `pnpm install --frozen-lockfile` against a lock file pnpm wrote, and
 // a hand-written lock file would prove neither half of it.
+//
+// The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
+// `tests/gh/bin/gh`, was deleted at #127; the references below are to what
+// it held, kept because they say where each rule came from.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'

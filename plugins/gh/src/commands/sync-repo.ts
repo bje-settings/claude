@@ -24,6 +24,11 @@
 //  3. *pnpm only* (the maintainer's ruling, 2026-09-20). `install.ts` knows
 //     one lock file and one command; the arm that says no recognised lock file
 //     remains is kept for the pull that deletes `pnpm-lock.yaml`.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; every file and line reference below is to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { statSync } from 'node:fs'
 import path from 'node:path'
 

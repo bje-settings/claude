@@ -15,18 +15,21 @@ Sync the current checkout, or every checkout one level down.
 ## Step 1 — Run
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gh-sync.py" $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" sync $ARGUMENTS
 ```
 
-The script detects its own scope, so do not inspect the directory or classify it first.
+The command detects its own scope, so do not inspect the directory or classify it first.
 Pass the user's arguments straight through. Supported flags: `--dry-run`, `--no-install`,
 `-j N`.
+
+Only pnpm is installed for. A checkout whose lock file is `yarn.lock` or `package-lock.json`
+is synced as a repository with no dependencies to install; those are installed by hand.
 
 If the user asked to preview rather than apply, add `--dry-run`.
 
 ## Step 2 — Report
 
-Print the script output verbatim. Then, and only if there were any, list the repositories
+Print the command output verbatim. Then, and only if there were any, list the repositories
 that were skipped along with the reason given for each. Do not re-run git commands to
 verify or expand on the report.
 

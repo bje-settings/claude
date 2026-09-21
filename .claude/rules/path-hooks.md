@@ -1,5 +1,6 @@
 ---
 paths:
+  - "**/hooks/**/*.ts"
   - "**/hooks/**/*.py"
   - "**/hooks/*.json"
 ---
@@ -23,6 +24,11 @@ Reach for `additionalContext` for anything meant only to inform the model's reas
 paraphrased or silently dropped is acceptable.
 
 Reference: [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
+
+## Both languages
+
+`gh`'s hook is TypeScript (`plugins/gh/hooks/hook-io.ts`, #127); `field-test`'s is still Python
+until #136. The rule above is about what a hook writes, so it holds for either.
 
 ## Scope: terminal CLI only
 

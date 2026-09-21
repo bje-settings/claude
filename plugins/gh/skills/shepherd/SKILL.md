@@ -19,19 +19,18 @@ level down, to merge. Serial within a repo, parallel across repos.
 ## Step 1 — Discover
 
 ```bash
-S="${CLAUDE_PLUGIN_ROOT}/scripts"
-python3 "$S/lib/discover.py" "$PWD"
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" discover "$PWD"
 ```
 
 One path per line. If there are none, say "No git repositories directly inside <cwd>" and
-stop. Do not classify the directory yourself; the library already did.
+stop. Do not classify the directory yourself; the command already did.
 
 ## Step 2 — Status
 
 For each path:
 
 ```bash
-python3 "$S/gh-shepherd-status.py" <path>
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" shepherd-status <path>
 ```
 
 Read `targets` and `skipped_no_automerge`. A repo with no targets gets no agent; report it in
@@ -56,7 +55,7 @@ the worker's last read and its report. One `blocked` shape is that race's signat
 it. For each such entry, once:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/gh-shepherd-pr.py" <path> <n> merged
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" shepherd-pr <path> <n> merged
 ```
 
 `merged: true` moves the entry to `merged` with its `mergeCommit`; anything else leaves it

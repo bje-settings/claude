@@ -13,6 +13,12 @@
 // `env` as well as `cwd` for that reason, so this is the compiler's rule here
 // and not the suite's habit, and the `GIT_DIR` test below proves it against
 // two real checkouts rather than asserting it in prose.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; every
+// file and line reference below is to what they held at `cd0d515`, kept
+// because each says where a rule came from. Nothing here changed with the
+// deletion.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'

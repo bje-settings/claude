@@ -15,6 +15,11 @@
 // advances the clock by exactly what each sleep was asked for, so a 90 second
 // settle bound is driven to its end in no time at all and `waited` is a number
 // this file decided rather than a number the machine happened to measure.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; every file and line reference below is to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import {
   chmodSync,
   mkdirSync,

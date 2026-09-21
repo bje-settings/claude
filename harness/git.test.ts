@@ -1,6 +1,6 @@
 // One test per claim a builder makes, asserted against the repository it
-// actually built, the way tests/gh/test_gh_fixtures.py does for the Python
-// fixtures. Every other test in the suite is only meaningful if these hold: a
+// actually built, the way the gh plugin's Python fixture test did for the
+// Python fixtures before it was deleted at #127. Every other test in the suite is only meaningful if these hold: a
 // builder that quietly stopped producing its state would make them pass for
 // the wrong reason.
 import { spawnSync } from 'node:child_process'

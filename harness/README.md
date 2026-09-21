@@ -1,8 +1,9 @@
 # harness
 
 The shared test harness for the TypeScript side of the repository: an isolated sandbox, an
-in-process `gh` mock, real git repositories, and a spawn helper. It is the port of what the Python
-suite gets from `tests/conftest.py` and `tests/gh/conftest.py`.
+in-process `gh` mock, real git repositories, and a spawn helper. It is the port of what the
+Python suite gets from `tests/conftest.py`, and of what it got from `tests/gh/conftest.py` before
+the gh plugin's Python was deleted at #127.
 
 It lives at the repository root and is imported **only from test files**, so it never sits inside a
 plugin and never ships (ADR 001). Nothing here has a dependency: node built-ins, plus `vitest` for
@@ -15,12 +16,13 @@ the one cleanup hook.
 | `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
-| `spawn.ts` | One `bin/` entry point run as its own process: argv in, status and streams out. |
+| `spawn.ts` | One `bin/` or `hooks/` entry point run as its own process: argv in, status and streams out (`runScript`), or started with its pipes still open so a test can take the reader away (`startScript`). |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
 
 Each module's own claims are asserted in the `*.test.ts` beside it, the way
-`tests/gh/test_gh_fixtures.py` asserts the Python fixtures'. Without that, a builder that quietly
-stopped producing its state would make every test built on it pass for the wrong reason.
+`tests/field-test/test_ft_fixtures.py` asserts the remaining Python fixtures'. Without that, a
+builder that quietly stopped producing its state would make every test built on it pass for the
+wrong reason.
 
 ## Sandbox
 
@@ -102,7 +104,7 @@ const gh = createGhServer({
 
 `createGhMock` answers each endpoint with one registered reply, by design, and that is the right
 double for a command that asks a question once. Two things the ported commands do are not that,
-and both are what the stub `gh` in `tests/gh/bin/gh` gave the Python suite:
+and both are what the stub `gh` the Python suite carried gave it:
 
 - **One endpoint, two questions.** `sync-repo` asks for a window of merged pull requests and then,
   if that window saturated, about one branch; both are `gh pr list`. A double that cannot tell them
@@ -128,7 +130,8 @@ command decides. The one property of `createGhMock` it gives up is stated in its
 with `prs` given, the three pull-request endpoints are always answered, so a test that means "this
 must not be called" registers no set (or registers a failure for that endpoint).
 
-The row builders are the port of the pull-request half of `tests/gh/conftest.py`. `pr` and
+The row builders are the port of the pull-request half of the gh plugin's Python conftest
+(deleted at #127). `pr` and
 `manyPrs` build the merged rows the sync layer reads; `depPr(number, keys)` builds one
 `dependencies` pull request carrying every field `PR_FIELDS` asks gh for, with the same keys and
 the same defaults the Python's had (`state`, `merge`, `checks`, `auto`, `bot`, `draft`, `review`,

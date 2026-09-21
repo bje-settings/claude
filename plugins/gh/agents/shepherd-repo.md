@@ -25,10 +25,9 @@ from the diagnosis: verify the hypothesis before acting on it, and record in you
 it held.
 
 ```bash
-S="${CLAUDE_PLUGIN_ROOT}/scripts"
-python3 "$S/gh-shepherd-status.py" <path>               # the work list
-python3 "$S/gh-shepherd-pr.py" <path> <n> state|rebase|recreate|wait|settle|merged
-python3 "$S/gh-shepherd-pr.py" <path> <n> skip <reason-file>
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" shepherd-status <path>               # the work list
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" shepherd-pr <path> <n> state|rebase|recreate|wait|settle|merged
+node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" shepherd-pr <path> <n> skip <reason-file>
 ```
 
 ## Hard rules
