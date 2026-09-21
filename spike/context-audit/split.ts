@@ -231,7 +231,13 @@ const stripBlockquote = (line: string): string => {
   return m ? (m[2] ?? '') : line
 }
 
-const isHtmlCommentFull = (line: string): boolean => /^<!--.*-->$/.test(line.trim())
+// A line that is one comment and nothing else: the first `-->` is the end of
+// the line. Plain string tests rather than a pattern, so a line carrying prose
+// between two comments (`<!-- a --> text <!-- b -->`) is not swallowed whole.
+const isHtmlCommentFull = (line: string): boolean => {
+  const trimmed = line.trim()
+  return trimmed.startsWith('<!--') && trimmed.indexOf('-->', 4) === trimmed.length - 3
+}
 
 const isHtmlCommentOpen = (line: string): boolean =>
   line.trim().startsWith('<!--') && !line.includes('-->')

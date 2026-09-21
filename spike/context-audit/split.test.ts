@@ -333,3 +333,13 @@ test('splitting the real CLAUDE.md: every unit obeys the line-number invariant a
     )
   }
 })
+
+test('prose between two comments on one line is kept, not skipped as a comment', () => {
+  const { units } = splitMarkdown('a.md', '<!-- a --> Kept text here. <!-- b -->\n')
+  assert.equal(units.length, 1)
+  assert.ok(units[0]?.text.includes('Kept text here.'))
+})
+
+test('a comment holding only its markers is still a full comment', () => {
+  assert.equal(splitMarkdown('a.md', '<!---->\n<!-- -->\n').units.length, 0)
+})
