@@ -6,9 +6,10 @@
 // from Python's. So a fixture is never compared to a URL string: every "ok"
 // case is inflated back to the state object and compared at two levels, the
 // outer object and its `mermaid` value, which is JSON inside JSON; every
-// "refused" case is compared by exit status, since the wording is this
-// port's own (the args.ts refusal path is Python's `argparse` wording, and
-// this one is not, and neither is required to match it).
+// "refused" case is compared by exit status, since only the status (2)
+// matches Python's `argparse` convention (lib/args.ts, lib/README.md); the
+// message text is this port's own throughout and is never required to match
+// argparse's wording.
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
