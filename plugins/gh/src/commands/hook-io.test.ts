@@ -1447,6 +1447,15 @@ it('counts a gone upstream and a merged branch once each', () => {
   )
 })
 
+it('never counts a branch whose upstream is still there', () => {
+  // The gone half is about a branch left behind by a `fetch --prune`, not
+  // about every branch that tracks one: without the ref test, every tracking
+  // branch in the repository would be reported as prunable.
+  const locals = ['side\t', 'tracked\trefs/remotes/origin/tracked']
+
+  expect(countCandidates(locals, ['refs/remotes/origin/tracked'], [], 'side', 'main')).toBe(0)
+})
+
 it('never counts the branch the session is on, nor the default branch', () => {
   const locals = ['main\trefs/remotes/origin/main', 'side\t']
 
