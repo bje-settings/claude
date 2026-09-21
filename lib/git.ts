@@ -61,6 +61,16 @@ export const runGit = (args: readonly string[], options: GitOptions = {}): Promi
  * git's stderr is dropped, as the Python drops it: every caller below already
  * reports "git said no" in its own words, and the one caller that needs git's
  * own account uses {@link runGit}.
+ *
+ * What `null` does NOT separate: a bound that fired, a git that is not on
+ * PATH, a git that would not run, and a pipe that failed part-way
+ * ({@link RunResult.streamErrors}) all arrive here as `null` or, for the
+ * pipe on an otherwise successful run, as the short text that did get
+ * through. `lib/gh.ts` can tell those apart because it takes its runner as a
+ * parameter; this file calls {@link run} directly, so a branch here would be
+ * an arm only a real failing pipe could reach, and the coverage rule refuses
+ * a branch no test can reach rather than excusing it. A caller that needs the
+ * distinction uses {@link runGit}, which hands back the whole result.
  */
 export const gitOut = async (
   args: readonly string[],

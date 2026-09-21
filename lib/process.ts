@@ -32,12 +32,25 @@
 // node beyond `child_process`, and stays inside the erasable subset (ADR 001).
 
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { type StreamFailure, streamFailures } from './streams.ts'
 
 /** Why a child never ran at all. */
 export interface StartFailure {
-  /** node's own error code: `ENOENT` for a command that is not on PATH or a
-   *  `cwd` that is gone, `EACCES` for a file that is there and not
-   *  executable. */
+  /** node's own error code. Two vocabularies reach this field and only the
+   *  first is worth branching on:
+   *
+   *   - a libuv errno, for a child node tried to start: `ENOENT` for a command
+   *     that is not on PATH or a `cwd` that is gone, `EACCES` for a file that
+   *     is there and not executable.
+   *   - a node `ERR_*` code, `ERR_INVALID_ARG_VALUE` today, for an argv node
+   *     refused before any child existed (a NUL byte in the command, an
+   *     argument, `cwd` or the environment). Nothing was asked of the command
+   *     at all, so a caller that reads "not ENOENT" as "it is on PATH and
+   *     still would not run" (`gh-sync-repo.py:196` to `205` prints exactly
+   *     that sentence) would send its reader to inspect an install over a bug
+   *     in the argv this process built. Branch on `code.startsWith('ERR_')`
+   *     for that case, and on `ENOENT` for the other.
+   */
   readonly code: string
   /** node's message, which names the command and the code. */
   readonly message: string
@@ -90,6 +103,20 @@ export interface RunResult {
   /** Set only when the child never ran. `null` means the child ran, whatever
    *  it then exited with. */
   readonly startFailure: StartFailure | null
+  /** Every error one of the child's three pipes reported that was not a
+   *  broken pipe, in the order they arrived. Empty is the ordinary case.
+   *
+   *  A broken pipe is left out because it is the reader leaving rather than
+   *  the write failing, which is what `communicate()` swallows too. Anything
+   *  else is a write that did not land or a read that did not finish, so the
+   *  output beside it may be short and {@link status} may still be 0: a child
+   *  handed half its stdin exits happily on what it got. This is the only
+   *  place that fact is recorded, which is why it is a field and not a throw
+   *  (the runner never rejects) and not a listener that swallows (round 5's
+   *  #156 finding: registering a listener at all silences node's own crash for
+   *  every code on that stream). `lib/gh.ts` turns a non-empty list into a
+   *  `GhError`; `lib/git.ts` cannot, and says so. */
+  readonly streamErrors: readonly StreamFailure[]
 }
 
 /** The shape of {@link run}, for a caller that takes it as an injected seam
@@ -127,8 +154,12 @@ export const killGroup = (pid: number): void => {
     // SIGTERM is exactly the child this exists for.
     process.kill(-pid, 'SIGKILL')
   } catch {
-    // Already gone, or no group to signal. Nothing to report and nothing to
-    // do: the direct kill in `run` follows unconditionally.
+    // Already gone, no group to signal, or a signal this process is not
+    // allowed to send (EPERM, which means the group survived and only the one
+    // child below will die). Nothing to report and nothing to do here either
+    // way: the direct kill in `run` follows unconditionally, and after it a
+    // refused kill arrives as a {@link RunResult.streamErrors} entry rather
+    // than as silence.
   }
 }
 
@@ -147,8 +178,9 @@ const refusedToStart = (failure: StartFailure, startedAt: number): RunResult => 
   stderr: '',
   combined: '',
   timedOut: false,
-  elapsedMs: Date.now() - startedAt,
+  elapsedMs: Math.round(performance.now() - startedAt),
   startFailure: failure,
+  streamErrors: [],
 })
 
 /**
@@ -162,7 +194,13 @@ const refusedToStart = (failure: StartFailure, startedAt: number): RunResult => 
  */
 export const run: Runner = (command, args = [], options = {}) =>
   new Promise<RunResult>((resolve) => {
-    const startedAt = Date.now()
+    // `performance.now()` and not `Date.now()`: the Python measures this with
+    // `time.monotonic()` on purpose (`gh-shepherd-pr.py:266`, "the elapsed
+    // time is measured rather than assumed"), and a wall clock that steps
+    // during a ninety second watch would hand a caller sizing its next wait a
+    // number that is wrong or negative. It is a node global, so this file
+    // still imports nothing from node beyond `child_process`.
+    const startedAt = performance.now()
     // `spawn` reports most failures asynchronously, on the `error` event
     // below, but it validates argv **synchronously** and throws for a NUL
     // byte in the command or in any argument (`ERR_INVALID_ARG_VALUE`,
@@ -210,12 +248,28 @@ export const run: Runner = (command, args = [], options = {}) =>
       both.push(chunk)
     })
 
-    // A child that exits before it has read what it was given makes this
-    // write fail with EPIPE, which with no listener is an uncaught exception
-    // that takes the whole process down while the child's own status and
-    // output are already in hand. `communicate()` swallows the same
-    // BrokenPipeError for the same reason.
-    child.stdin.on('error', () => {})
+    // All three pipes, one listener, no branch. A child that exits before it
+    // has read what it was given makes the stdin write fail with EPIPE, which
+    // with no listener is an uncaught exception that takes the whole process
+    // down while the child's own status and output are already in hand;
+    // `communicate()` swallows the same BrokenPipeError for the same reason.
+    // stdout and stderr need the listener just as much, for the opposite
+    // failure: with none, an error there is an uncaught exception out of the
+    // event loop.
+    //
+    // What is NOT swallowed is every other code. An empty listener would
+    // silence an ENOSPC or an EIO on all three, and a child handed half its
+    // stdin exits 0 on what it got, so the result would say success for a run
+    // that was short. {@link streamFailures} is the one place that rule lives
+    // and it returns the account rather than a verdict, so attaching it here
+    // carries no arm a real child cannot reach.
+    const streamErrors: StreamFailure[] = []
+    const noteStreamError = (error: NodeJS.ErrnoException): void => {
+      streamErrors.push(...streamFailures(error))
+    }
+    child.stdin.on('error', noteStreamError)
+    child.stdout.on('error', noteStreamError)
+    child.stderr.on('error', noteStreamError)
     child.stdin.end(options.stdin)
 
     let timedOut = false
@@ -238,15 +292,32 @@ export const run: Runner = (command, args = [], options = {}) =>
           }, options.timeoutMs)
 
     let startFailure: StartFailure | null = null
-    child.on('error', (error) => {
+    // node emits `error` on a child for four different things, not one: a
+    // child that could not be spawned, a child that could not be KILLED, a
+    // message send that failed, and an abort. Only the first is a failure to
+    // start, and the bound's own `child.kill('SIGKILL')` above is a live
+    // source of the second (EPERM). Recording that as a `startFailure` would
+    // replace a ninety second gh's real status with 126 and report "cannot run
+    // gh" for a child that ran to completion, against a field whose documented
+    // meaning is that the child never ran.
+    //
+    // node emits `spawn` only for a child that actually started, so swapping
+    // the reporter there separates the two with no branch and no flag to read.
+    let report = (error: NodeJS.ErrnoException): void => {
       // The assertion rather than a `?? error.name` fallback: every failure
-      // node reports on a child process comes from libuv and carries an
-      // errno code (ENOENT and EACCES both verified here), so the fallback
-      // would be an arm no test could produce an input for. Asserting it is
-      // erased at runtime and adds no branch, which is the same trade
-      // `node-floor.ts` makes on its own match groups.
+      // node reports for a child that could not be started comes from libuv
+      // and carries an errno code (ENOENT and EACCES both verified here), so
+      // the fallback would be an arm no test could produce an input for.
+      // Asserting it is erased at runtime and adds no branch, which is the
+      // same trade `node-floor.ts` makes on its own match groups.
       const failed = error as NodeJS.ErrnoException & { code: string }
       startFailure = { code: failed.code, message: failed.message }
+    }
+    child.on('error', (error) => {
+      report(error)
+    })
+    child.once('spawn', () => {
+      report = noteStreamError
     })
 
     // `close` and not `exit`: it fires once the child has ended **and** its
@@ -266,8 +337,9 @@ export const run: Runner = (command, args = [], options = {}) =>
         stderr: Buffer.concat(err).toString('utf8'),
         combined: Buffer.concat(both).toString('utf8'),
         timedOut,
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs: Math.round(performance.now() - startedAt),
         startFailure: failure,
+        streamErrors,
       })
     })
   })

@@ -119,6 +119,12 @@ are the reason this exists rather than `execFile`:
   on PATH and still would not run".
 - **No output ceiling.** `spawn` reads a pipe until it ends, so there is no `maxBuffer` to size and
   no truncated answer to mistake for a complete one.
+- **A pipe that failed is reported, not swallowed.** All three of the child's pipes carry the same
+  listener, and `streamErrors` holds every error that was not a broken pipe. A broken pipe is the
+  reader leaving; anything else means the bytes in hand may be fewer than the bytes written, and a
+  child handed half its stdin still exits 0. `gh.ts` turns a non-empty list into a `GhError`;
+  `git.ts` folds it into `null` like every other failure and says so, because it calls `run`
+  directly and a branch it could not reach is not a branch this repository writes.
 
 `git.ts` sits on top of it with the calls the ported scripts make more than once: `gitOut` (stdout
 without its trailing newlines, or `null` when git failed), `gitOk`, `gitLines`, `toplevel`,
@@ -148,7 +154,10 @@ only lose the account of it. stdout and stderr are guarded independently, so a l
 not take the channel a real failure still has to reach.
 
 **Only EPIPE is swallowed.** Registering a listener at all silences node's default crash for every
-code on that stream, so `ENOSPC` and `EIO` are re-thrown.
+code on that stream, so `ENOSPC` and `EIO` are re-thrown. `streamFailures` is that rule as one
+exported pure function, so the writer here and the three child pipes in `process.ts` decide it the
+same way: it answers with the account of the error, zero entries for a broken pipe and one for
+everything else, which is what lets `process.ts` attach it with no arm a real child cannot reach.
 
 Two of `streams.py`'s three duties have no counterpart here, and `streams.test.ts` pins each
 against a real child rather than asserting it in prose: node writes strings as UTF-8 whatever the

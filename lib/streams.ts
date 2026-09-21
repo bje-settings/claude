@@ -41,6 +41,30 @@
 // This file ships. It imports nothing at all, and stays inside the erasable
 // subset (ADR 001).
 
+/** One stream error worth reporting: node's code and node's message. */
+export interface StreamFailure {
+  /** node's own code, or the error's name for the rare error that carries
+   *  none. Only `EPIPE` is ever absent from this account, because only a
+   *  broken pipe is a reader that left rather than a write that failed. */
+  readonly code: string
+  readonly message: string
+}
+
+/**
+ * A stream `error` event as the zero or one failure to report.
+ *
+ * The one place the rule "only EPIPE is swallowed" is written down, so the
+ * writer below and `process.ts`'s three child pipes decide it the same way
+ * rather than twice. It is a pure function taking the error and returning the
+ * account of it, which is what lets `process.ts` attach it to stdin, stdout
+ * and stderr with no branch of its own: a caller that asked "is this EPIPE"
+ * would need an `if` whose non-EPIPE arm nothing can produce on a real child,
+ * and an arm no test can reach is the branch the coverage rule says to
+ * restructure away rather than exclude.
+ */
+export const streamFailures = (error: NodeJS.ErrnoException): readonly StreamFailure[] =>
+  error.code === 'EPIPE' ? [] : [{ code: error.code ?? error.name, message: error.message }]
+
 /**
  * As much of a writable stream as this file uses.
  *
@@ -78,7 +102,8 @@ export interface Writer {
 export const createWriter = (stream: OutputStream): Writer => {
   let silenced = false
   stream.on('error', (error) => {
-    if (error.code === 'EPIPE') {
+    // {@link streamFailures} is the rule; an empty account is the broken pipe.
+    if (streamFailures(error).length === 0) {
       silenced = true
       return
     }

@@ -31,6 +31,7 @@ interface Reply {
   readonly timedOut?: boolean
   readonly elapsedMs?: number
   readonly startFailure?: { code: string; message: string }
+  readonly streamErrors?: Array<{ code: string; message: string }>
 }
 
 const asResult = (reply: Reply): RunResult => ({
@@ -42,6 +43,7 @@ const asResult = (reply: Reply): RunResult => ({
   timedOut: reply.timedOut ?? false,
   elapsedMs: reply.elapsedMs ?? 0,
   startFailure: reply.startFailure ?? null,
+  streamErrors: reply.streamErrors ?? [],
 })
 
 /** A runner that answers with `reply` and records the call. */
@@ -461,6 +463,22 @@ describe('refusals', () => {
     expect((error as GhError).status).toBe(127)
   })
 
+  it("throws when one of gh's pipes failed, even though gh exited 0", async () => {
+    // gh exits happily on the bytes it wrote; the bytes that arrived here are
+    // the ones that got through. Parsing a short answer would read a truncated
+    // list as a complete one, which is the fact `rows` refuses to default.
+    const { gh } = clientAnswering({
+      stdout: '[{"number":1}]',
+      streamErrors: [{ code: 'EIO', message: 'read EIO' }],
+    })
+    const error = await gh.listRuns().catch((thrown: unknown) => thrown)
+
+    expect((error as GhError).message).toMatch(
+      /failed: gh's output could not be read: EIO, read EIO$/,
+    )
+    expect((error as GhError).status).toBe(0)
+  })
+
   it('throws when gh answered with something that is not JSON', async () => {
     const { gh } = clientAnswering({ stdout: 'not json at all' })
     await expect(gh.listPullRequests()).rejects.toThrow(
@@ -553,8 +571,28 @@ describe('the checks watch', () => {
       signal: 'SIGTERM',
       stderr: 'could not reach api.github.com\n',
     })
+    // Whole, with its newline: `problem` is documented as what the watch said
+    // on stderr entire, and the caller does the tailing. Before this the
+    // signal arm alone went through `accountOf`, which trims, so the same
+    // field came back with a trailing newline or without one depending on
+    // whether a signal happened to arrive.
     await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
-      problem: 'could not reach api.github.com',
+      problem: 'could not reach api.github.com\n',
+    })
+  })
+
+  it('reports a pipe that failed rather than the words that got through', async () => {
+    // A watch must not throw, so the account of the broken pipe goes where
+    // gh's own words would have gone. Answering with the partial stderr would
+    // hand the caller a confident half-sentence.
+    const { gh } = clientAnswering({
+      status: 1,
+      stderr: 'Some checks were not su',
+      streamErrors: [{ code: 'EIO', message: 'read EIO' }],
+    })
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
+      status: 1,
+      problem: "gh's output could not be read: EIO, read EIO",
     })
   })
 

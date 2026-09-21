@@ -283,6 +283,11 @@ const flag = (name: string, value: boolean | undefined): string[] =>
  * `gh-shepherd-status.py:85` all print, kept so a reader who has seen the
  * Python's line sees the same one.
  *
+ * A child whose pipes failed is a third case: the account of the pipe leads,
+ * because what reached this process through it is not the whole of what gh
+ * wrote and answering with a short transcript as though it were complete is
+ * the silence this file exists to refuse.
+ *
  * A child that ran says why on stderr, and that wording travels with the
  * failure because a caller cannot tell an expired token from a repository
  * that does not exist without it. With stderr empty the status is all there
@@ -291,6 +296,11 @@ const flag = (name: string, value: boolean | undefined): string[] =>
  */
 const accountOf = (result: RunResult): string => {
   if (result.startFailure !== null) return `cannot run gh: ${result.startFailure.message}`
+  // A pipe that failed outranks whatever gh managed to say through it: the
+  // words in hand may be half the words gh wrote, and a reader given only
+  // those would be told a truncated answer confidently.
+  const broke = result.streamErrors[0]
+  if (broke !== undefined) return `gh's output could not be read: ${broke.code}, ${broke.message}`
   const said = result.stderr.trim()
   if (said !== '') return said
   if (result.status === null) return `gh was killed by ${result.signal}`
@@ -359,7 +369,11 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    *  status and gh's own words. */
   const succeeded = async (args: readonly string[]): Promise<RunResult> => {
     const result = await invoke(args)
-    if (result.status !== 0) {
+    // A pipe error is a failure even on status 0: gh exits happily on the
+    // bytes it wrote, and the bytes that arrived here are the ones that got
+    // through. Parsing a short answer would be reading a truncated list as a
+    // complete one, which is the fact `rows` and `record` refuse to default.
+    if (result.status !== 0 || result.streamErrors.length !== 0) {
       throw new GhError(`gh ${args.join(' ')} failed: ${accountOf(result)}`, result.status, {
         cause: result,
       })
@@ -525,8 +539,19 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         // `timedOut`, which is what the caller at `gh-shepherd-pr.py:644`
         // reads, and because `accountOf` would otherwise put this process's
         // own SIGKILL where gh's words belong.
+        //
+        // `result.stderr` WHOLE in the first arm, never `accountOf`'s trimmed
+        // copy: the field's own contract two screens up is "what the watch
+        // said on stderr, whole", with the tailing left to the caller. A watch
+        // that died with something already on stderr keeps those words for the
+        // same reason, which is the `result.stderr !== ''` clause.
+        //
+        // A pipe that failed disqualifies the whole transcript, so it falls
+        // through to `accountOf` with everything else that is not gh speaking.
         problem:
-          result.startFailure === null && (result.signal === null || result.timedOut)
+          result.startFailure === null &&
+          result.streamErrors.length === 0 &&
+          (result.signal === null || result.timedOut || result.stderr !== '')
             ? result.stderr
             : accountOf(result),
       }

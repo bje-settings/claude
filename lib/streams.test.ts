@@ -6,7 +6,7 @@
 import { expect, it } from 'vitest'
 import { createSandbox } from '../harness/sandbox.ts'
 import { run } from './process.ts'
-import { createOutput, createWriter, readStdinText } from './streams.ts'
+import { createOutput, createWriter, readStdinText, streamFailures } from './streams.ts'
 
 const HARNESS_FIXTURES = `${import.meta.dirname}/../harness/fixtures`
 
@@ -154,4 +154,24 @@ it('survives a descriptor that was closed before it started, so `bind_closed_str
   expect(result.status).toBe(0)
   expect(result.stderr).toBe('')
   expect(result.stdout).toBe('')
+})
+
+it('reports every stream error that is not a broken pipe, and none that is', () => {
+  // The one place "only EPIPE is swallowed" is decided, tested directly rather
+  // than through a child, which is what lets `process.ts` attach it to stdin,
+  // stdout and stderr without an arm no real child can reach.
+  const broken: NodeJS.ErrnoException = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })
+  const full: NodeJS.ErrnoException = Object.assign(new Error('write ENOSPC'), { code: 'ENOSPC' })
+
+  expect(streamFailures(broken)).toEqual([])
+  expect(streamFailures(full)).toEqual([{ code: 'ENOSPC', message: 'write ENOSPC' }])
+})
+
+it('falls back to the name for a stream error carrying no code', () => {
+  // Node's own stream errors all carry one, but a stream is an interface here
+  // and a caller's own can emit anything. An account with an empty `code` would
+  // read as "no error", so the name stands in.
+  expect(streamFailures(new Error('something went wrong'))).toEqual([
+    { code: 'Error', message: 'something went wrong' },
+  ])
 })
