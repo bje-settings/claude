@@ -44,5 +44,10 @@ first into its own examples and `commands/sync.test.ts` reads the second, which 
 divergence, or a change to one of these, has to be recorded here before the suite goes green. Each
 `ghVocabulary` line carries both halves of the failure the real client throws: `message` is the
 whole of it, and `account` is `GhError.detail`, the part without the `gh <argv> failed: ` prefix,
-which is what the report quotes. `ghVocabulary.closed` records the two lines that stopped being
-divergences when `lib/gh.ts` added that field, so the table cannot quietly grow them back.
+which is what the report quotes.
+
+`ghVocabulary.closed` lists the two lines that stopped being divergences when `lib/gh.ts` added
+that field. They are a list and not a sentence because an example is driven from them too, asserting
+that each state now reads in the Python's own words AND that the line it used to print appears
+nowhere in the report. That is what stops the table quietly growing them back; the sentence this
+replaced claimed as much and nothing enforced it.

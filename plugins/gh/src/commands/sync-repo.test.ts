@@ -46,6 +46,7 @@ const DIVERGENCES: {
   'bash-output.json': Record<string, { was: string; now: string }>
   ghVocabulary: {
     lines: { state: string; was: string; now: string; account: string; message: string }[]
+    closed: { lines: { state: string; was: string; account: string; message: string }[] }
   }
 } = JSON.parse(read('divergences.json'))
 
@@ -1008,21 +1009,22 @@ describe('merge proof', () => {
   })
 
   it('names every other way gh can fail, in the words the failure arrived with', async () => {
-    // The Python spells four of these itself (a silent non-zero exit, a gh
-    // that is there and will not run, an answer that is not JSON, and one
-    // that is JSON but not a list). `lib/gh.ts` owns that vocabulary now and
+    // The Python spells its own sentence for each of these states (a gh that
+    // is there and will not run, an answer that is not JSON, one that is JSON
+    // but not a list, and a gh a signal ended, which it reports as a negative
+    // exit status). `lib/gh.ts` owns that vocabulary now and
     // puts it in the error's message, so the port reports the last line of
     // whatever arrived rather than re-deciding it. Each still reaches the
     // reader as its own sentence, which is what the Python's `gh_json`
     // comment asks for: three failures that send the reader to three
     // different places.
-    // Read from `fixtures/divergences.json` rather than restated here: these
-    // four lines are what the report says INSTEAD of what the Python said for
-    // the same state, and a divergence asserted only in a test is not
-    // countable. Adding a fifth, or changing one, has to be recorded there
-    // before this goes green.
+    // Read from `fixtures/divergences.json` rather than restated here: each
+    // line is what the report says INSTEAD of what the Python said for the
+    // same state, and a divergence asserted only in a test is not countable.
+    // Adding one, or changing one, has to be recorded there before this goes
+    // green.
     const lines = DIVERGENCES.ghVocabulary.lines
-    expect(lines).toHaveLength(3)
+    expect(lines).toHaveLength(4)
     for (const { account, message } of lines) {
       const f = fixture()
       f.git.branchWithWork(f.repo, 'landed')
@@ -1041,6 +1043,34 @@ describe('merge proof', () => {
       const result = await run(f, [f.repo], { gh })
 
       expect(result.stdout).toContain(`could not read merged pull requests (${account});`)
+      // The degraded path is the point: ancestry still proves this branch.
+      expect(result.stdout).toContain('deleted landed')
+    }
+  })
+
+  it("reads the two closed divergences in the Python's own words, not in lib/gh.ts's", async () => {
+    // `ghVocabulary.closed` records the lines that STOPPED diverging when
+    // `lib/gh.ts` gave `GhError` a `detail` field. It was prose, and prose is
+    // not a check: the table said these could not quietly come back and
+    // nothing stopped them. Driven from the table now, so a `reasonFor` that
+    // tailed `message` again would put `was` back in the report and redden
+    // this, and moving a line out of `lines` without earning it fails here
+    // rather than silently.
+    for (const { was, account, message } of DIVERGENCES.ghVocabulary.closed.lines) {
+      const f = fixture()
+      f.git.branchWithWork(f.repo, 'landed')
+      f.git.mergeCommit(f.repo, 'landed')
+      const gh = {
+        ...ghDouble(),
+        listMergedPullRequests: async () => {
+          throw new GhError(message, 1, { cause: 'test', detail: account })
+        },
+      }
+
+      const result = await run(f, [f.repo], { gh })
+
+      expect(result.stdout).toContain(`could not read merged pull requests (${account});`)
+      expect(result.stdout).not.toContain(was)
       // The degraded path is the point: ancestry still proves this branch.
       expect(result.stdout).toContain('deleted landed')
     }
