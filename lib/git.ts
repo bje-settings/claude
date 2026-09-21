@@ -34,10 +34,16 @@ export interface GitOptions {
  * First consumer: `gh-sync-repo.py:65` to `86`, whose preflight is the one
  * caller that needs more than "git said no". It reports "git is not on PATH"
  * (a {@link RunResult.startFailure} whose code is `ENOENT`) apart from "git
- * is on PATH and still would not run" (any other code) apart from "this is
- * not a git repository" (the child ran and exited non-zero), and gives the
- * reader a different sentence for each. Everything else in the port wants
+ * is on PATH and still would not run" apart from "this is not a git
+ * repository" (the child ran and exited non-zero), and gives the reader a
+ * different sentence for each. Everything else in the port wants
  * {@link gitOut} or {@link gitOk}.
+ *
+ * The middle sentence is "any other code" only for a libuv errno. A code
+ * beginning `ERR_` means node refused the argv this process built and git was
+ * never asked at all, so printing "git is on PATH and still would not run"
+ * there sends the reader to inspect an install over a bug in our own call.
+ * {@link StartFailure.code} has the two vocabularies.
  */
 export const runGit = (args: readonly string[], options: GitOptions = {}): Promise<RunResult> =>
   run('git', args, { cwd: options.cwd, env: options.env, timeoutMs: options.timeoutMs })
@@ -119,6 +125,23 @@ export const gitLines = async (
  * an optional `env` here is an invariant argued in a comment and enforced
  * nowhere: the caller that most needs to pin it is the one that would most
  * easily leave it out.
+ *
+ * **Requiring it buys the naming, not the scrubbing.** `env: process.env`
+ * satisfies this type and, inside the hook the paragraph above is about,
+ * carries `GIT_DIR` at full strength. Nothing here strips anything and nothing
+ * here can: this file calls {@link run} directly, so it has no seam, and a
+ * caller who chose an environment is entitled to the one it chose. What the
+ * required field does is put the environment at the call, where a reader sees
+ * which one is being used and a reviewer can ask whether it is the right one.
+ * Read it as "say which environment", never as "git is insulated from
+ * `GIT_DIR`".
+ *
+ * The port's own answer, for a caller with nothing to pin, is `process.env`:
+ * every ported call site inherits today (`grep GIT_DIR plugins/gh/` finds
+ * nothing) and passing `{}` would take `HOME` and `PATH` with it, so global
+ * config discovery and credential helpers would behave differently. Named here
+ * so layers 2 to 4 do not each invent a different one. `lib/README.md`'s
+ * "Decisions not taken" carries the scrubbing helper and what reopens it.
  *
  * The four helpers above keep `env` optional on purpose. They are the generic
  * escape hatch and the preflight that reports on git itself, and for those the

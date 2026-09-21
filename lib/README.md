@@ -139,6 +139,13 @@ did. git exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and 
 is one of the places this suite runs, so the environment is named at the call rather than left to
 whatever the process inherited.
 
+Requiring it buys the naming and not the scrubbing: `env: process.env` satisfies the type and
+inside a hook carries `GIT_DIR` at full strength. Nothing in `git.ts` strips anything, and it
+cannot, because it calls `run` directly and has no seam. Pass `process.env` when there is nothing
+to pin, which is what every ported call site inherits today; a caller that must be insulated builds
+an environment without the `GIT_*` keys, the way `harness/sandbox.ts` does for the suite. The
+scrubbing helper is below, under "Decisions not taken".
+
 ## Writing to a reader that may have gone
 
 ```ts
@@ -216,6 +223,15 @@ with nothing spawned and no `gh` on the machine.
 Recorded rather than fixed, each with the condition that reopens it. `lib/` gets what has a user
 now (round 5 ruling 2, round 6 ruling 4): a fix written before anything calls it is the argument
 RFC 001 decision 3 records against this whole directory.
+
+- **No helper builds an environment with the `GIT_*` and `GH_*` keys removed.** `RepoOptions`
+  requires an `env` and `GhClientOptions` accepts one, and both document that naming an environment
+  is not the same as scrubbing it. The only worked scrub in the tree is `harness/sandbox.ts`, which
+  is test code and does not ship, and no Python call site scrubs anything: every one of them
+  inherits. A helper written here would be a typed function with no caller, which is the argument
+  RFC 001 decision 3 records against this directory. **Reopens at** the `hook-io.py` port (#127
+  layer 4), which is the first consumer that genuinely must not answer about the hook's own
+  `GIT_DIR`, and which is therefore where such a helper earns its place and its tests.
 
 - **`OptionSpec` admits `choices` on a boolean, and an empty `choices`.** The union's boolean arm
   does not declare `choices`, but TypeScript's excess property check accepts a property that any

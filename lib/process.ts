@@ -70,7 +70,15 @@ export interface RunOptions {
   /** The bound, in milliseconds. When it fires, the child's whole process
    *  group is killed (see {@link killGroup}) and {@link RunResult.timedOut}
    *  says so. Left out, the child is waited for as long as it takes, which is
-   *  what an unbounded `subprocess.run` does. */
+   *  what an unbounded `subprocess.run` does.
+   *
+   *  Not checked here, and `number` admits more than a bound: `setTimeout`
+   *  treats `NaN` and a negative as 0 and clamps anything above 2^31-1 to
+   *  1 ms, so either way the child is killed on the next tick and the result
+   *  says `timedOut: true` after waiting nothing. A caller that COMPUTES a
+   *  bound (`gh-shepherd-pr.py:214` to `228` reads one out of the
+   *  environment) validates it there; a runtime check here would have to
+   *  throw, which is the one thing {@link run} promises not to do. */
   readonly timeoutMs?: number
 }
 

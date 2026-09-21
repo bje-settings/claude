@@ -27,16 +27,28 @@ const FIXTURES = `${import.meta.dirname}/fixtures`
 const GENEROUS_MS = 120_000
 /** A bound a child that sleeps for a minute always overruns. */
 const TINY_MS = 250
-/** The one bound that has to be long enough rather than short enough: it
- *  fires only after two nested cold node starts have written a marker, about
- *  120 ms idle, so it carries an order of magnitude over that. */
+/** The one bound that has to be long enough rather than short enough, and it
+ *  is bounded from BOTH sides.
+ *
+ *  Floor: it must not fire until two nested cold node starts have written the
+ *  marker, about 120 ms idle, so this carries an order of magnitude over that.
+ *  Ceiling: it must fire before the grandchild's own 5 s `.survived` write
+ *  (`fixtures/grandchild.ts`), because a bound that fired after it would find
+ *  the marker on disk and fail a correctly group-killed run. So the usable
+ *  window is roughly 0.2 s to 5 s and this cannot simply be raised: raising it
+ *  means raising the grandchild's timer in the same change. */
 const GROUP_MS = 4_000
 /** Past the grandchild's own 5 s write, so "it did not survive" is an
  *  observation and not just an early look. */
 const SURVIVAL_WINDOW_MS = 6_000
-/** What the two above cost, doubled. vitest's default is 5 s, and under it a
- *  missing group kill reports as a timeout rather than as the assertion that
- *  names it. */
+/** Comfortably past what the two above cost together, which is about 10 s.
+ *
+ *  It buys headroom on a loaded runner, and that is all it buys. It does NOT
+ *  turn a missing group kill into an assertion failure: the fixture hands the
+ *  grandchild the child's stdout on purpose, so a surviving group keeps the
+ *  pipe open, `close` never fires and `run` never resolves, and the test fails
+ *  as a timeout at this budget rather than at vitest's default. Later, not
+ *  different. */
 const GROUP_TEST_BUDGET_MS = 30_000
 
 const node = (fixture: string, args: string[] = [], options = {}) =>
@@ -155,7 +167,13 @@ it('answers rather than rejecting when node refuses the argv outright', async ()
   const result = await run('git', ['rev-parse\u0000--show-toplevel'])
 
   expect(result.startFailure?.code).toBe('ERR_INVALID_ARG_VALUE')
-  // 126, not 127: the command is on PATH, this is not a form of it that runs.
+  // 126, not 127, because the code is not `ENOENT` and `startStatus` maps
+  // everything else to the shell's "cannot execute". Nothing here established
+  // that `git` is on PATH: node validates the argv BEFORE any lookup, so the
+  // same code and the same 126 come back for a command that does not exist at
+  // all. What separates this case from a missing tool is the `ERR_` prefix on
+  // the code, which is what a caller printing "git is not on PATH" against
+  // "git is on PATH and still would not run" has to read.
   expect(result.status).toBe(126)
   expect(result.stdout).toBe('')
   expect(result.timedOut).toBe(false)
@@ -216,9 +234,10 @@ it(
     expect(result.timedOut).toBe(true)
     expect(result.stdout).toContain('spawned ')
     expect(existsSync(`${marker}.started`)).toBe(true)
-    // Past the grandchild's own 5 s write, measured from when it started
-    // rather than from now, so a grandchild that outlived the group kill has
-    // actually had its chance to say so.
+    // The wait starts here, after the bound has already fired at 4 s, so by
+    // the time it ends the grandchild's own 5 s deadline is long past and a
+    // grandchild that outlived the group kill has actually had its chance to
+    // say so.
     await new Promise((resolve) => setTimeout(resolve, SURVIVAL_WINDOW_MS))
     expect(existsSync(`${marker}.survived`)).toBe(false)
     expect(existsSync(`${marker}.started`)).toBe(true)

@@ -206,7 +206,9 @@ export interface GhClient {
      *  sets it: `gh-shepherd-pr.py:645` to `655` passes `--watch
      *  --fail-fast` and takes gh's default of 10. */
     interval?: number
-    /** The bound, in milliseconds. Required, because round 5's handoff fact 1
+    /** The bound, in milliseconds, and see {@link RunOptions.timeoutMs} for
+     *  what `number` admits that a bound does not. Required, because round 5's
+     *  handoff fact 1
      *  is that #154 left this call unbounded and "a watch that cannot return
      *  is worse than no watch": optional, it is that same defect one line
      *  away, and `process.ts` only detaches a bounded child, so an unbounded
