@@ -142,6 +142,17 @@ it('answers about the caller own directory when no path is given', async () => {
   expectParity(await runIn(sandbox, [], work), 'default_target')
 })
 
+it('reads an empty path as no path, the way the Python read it', async () => {
+  const sandbox = createSandbox()
+  const git = createGitFixtures(sandbox)
+  const work = git.create(sandbox.join('r'))
+
+  // `discover_repos` opens `if target is None or target == ""`, so
+  // `discover.py ""` answers about the caller's directory. With `??` this
+  // asks about a path named "" and refuses it as not a directory.
+  expectParity(await runIn(sandbox, [''], work), 'default_target')
+})
+
 it('prints every checkout one level down, in name order', async () => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)

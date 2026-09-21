@@ -74,9 +74,12 @@ export const runDiscover = async (
     return 2
   }
 
-  // The path as typed, or the caller's own directory. An empty argument is a
-  // path, not an absent one, which is what `argv[0] if argv else` says.
-  const target = first ?? context.cwd
+  // The path as typed, or the caller's own directory. `||` and not `??`:
+  // `discover.py`'s own two folds are `if target is None or target == "":
+  // target = os.getcwd()` and, in both of its error sentences,
+  // `target if target else os.getcwd()`, so an empty argument is an absent
+  // one to the Python and has to be one here.
+  const target = first || context.cwd
   const found = await discoverRepos(target, context.env)
 
   if (found.outcome === 'not-a-directory') {
