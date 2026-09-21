@@ -604,4 +604,24 @@ describe('tailLines', () => {
   it('answers the empty string for an empty log, never a bare newline', () => {
     expect(tailLines('', 60)).toBe('')
   })
+
+  it('counts a carriage return as a line break, as `splitlines` does', () => {
+    // A CI job's `--log-failed` output carries a bare `\r` wherever a tool
+    // redrew a progress bar. Splitting on `\n` alone makes the whole run one
+    // line, so `SHEPHERD_LOG_LINES` keeps far more than it was asked for.
+    expect(tailLines('a\rb\rc\r', 2)).toBe('b\nc')
+    expect(tailLines('a\r\nb\r\nc\r\n', 2)).toBe('b\nc')
+  })
+
+  it('counts the other terminators `splitlines` counts', () => {
+    // The whole of Python's set, so the bound this keeps is the bound the
+    // script it ports kept: form feed, vertical tab, the three file and
+    // record separators, and the three Unicode line breaks.
+    const breaks = [11, 12, 28, 29, 30, 0x85, 0x2028, 0x2029].map((code) =>
+      String.fromCharCode(code),
+    )
+    for (const [index, mark] of breaks.entries()) {
+      expect(tailLines(`a${mark}b${mark}c`, 2), String(index)).toBe('b\nc')
+    }
+  })
 })

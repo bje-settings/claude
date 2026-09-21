@@ -212,6 +212,15 @@ it('reads a row with no state at all as merged, the way the stub did', async () 
   expect(rows).toHaveLength(1)
 })
 
+it('reads a row whose state is the empty string as merged, the way `or` did', async () => {
+  // `r.get("state") or "MERGED"` in `tests/gh/bin/gh:212` is truthiness: a
+  // `??` here would answer the empty string and drop the row from every
+  // listing, which is a filter disagreeing with the gh it stands in for.
+  const gh = createGhServer({ prs: [{ headRefName: 'a', baseRefName: 'main', state: '' }] })
+
+  await expect(gh.listPullRequests({ state: 'merged' })).resolves.toHaveLength(1)
+})
+
 it('reads a row whose labels are missing as a row with no labels', async () => {
   const gh = createGhServer({ prs: [{ number: 1 }] })
 

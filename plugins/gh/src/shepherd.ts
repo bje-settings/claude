@@ -515,15 +515,37 @@ export const statusDocument = (
 export const oneLine = (text: string): string => text.split(/\s+/).filter(Boolean).join(' ')
 
 /**
+ * Everything `str.splitlines()` breaks a line on, which is what the Python
+ * counted (`gh-shepherd-pr.py:337`).
+ *
+ * Splitting on `\\n` alone is not the same bound: a CI job's `--log-failed`
+ * output carries bare carriage returns wherever a tool redrew a progress bar,
+ * and `SHEPHERD_LOG_LINES` would then keep 60 of those runs rather than 60
+ * lines, so the tail an agent reads is far longer than the one that was asked
+ * for.
+ *
+ * Built rather than written as a literal for the same reason as `ANSI_RE`
+ * above: most of these are control characters, which a regular expression
+ * literal is linted against carrying.
+ */
+const BREAKS = [10, 11, 12, 13, 28, 29, 30, 0x85, 0x2028, 0x2029]
+  .map((code) => String.fromCharCode(code))
+  .join('')
+const PATTERN = `${String.fromCharCode(13, 10)}|[${BREAKS}]`
+const LINE_BREAK = new RegExp(PATTERN)
+/** The same, anchored: only a terminator at the very end is dropped. */
+const LAST_BREAK = new RegExp(`(?:${PATTERN})$`)
+
+/**
  * The last `count` lines, joined by newlines, as `tail -n` into `$(...)` gave.
  *
  * Command substitution stripped the trailing newline, so the result never ends
  * in one and an empty log is the empty string rather than a newline.
  */
 export const tailLines = (text: string, count: number): string => {
-  // `splitlines()`: a trailing newline does not make a final empty line, and
-  // the empty string is no lines at all rather than one empty one.
-  const lines = text === '' ? [] : text.replace(/\n$/, '').split('\n')
+  // `splitlines()`: a trailing line terminator does not make a final empty
+  // line, and the empty string is no lines at all rather than one empty one.
+  const lines = text === '' ? [] : text.replace(LAST_BREAK, '').split(LINE_BREAK)
   return lines.slice(Math.max(lines.length - count, 0)).join('\n')
 }
 

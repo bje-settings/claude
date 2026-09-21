@@ -270,7 +270,12 @@ export interface GhServerOptions {
 
 /** The names of the endpoints, one filter each, as gh applies them. */
 const matchesQuery = (row: PullRequestRow, query: PullRequestQuery): boolean => {
-  if (query.state !== undefined && (row.state ?? 'MERGED') !== query.state.toUpperCase()) {
+  // `r.get("state") or "MERGED"` (`tests/gh/bin/gh:212`): truthiness, not
+  // `??`, so a row whose state is the empty string is a merged row to this
+  // filter exactly as it is to the stub it ports.
+  const state =
+    row.state === undefined || row.state === null || row.state === '' ? 'MERGED' : row.state
+  if (query.state !== undefined && state !== query.state.toUpperCase()) {
     return false
   }
   if (query.base !== undefined && row.baseRefName !== query.base) return false

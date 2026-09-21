@@ -174,6 +174,41 @@ const shepherdEnv = (sandbox: Sandbox, env: Record<string, string>): NodeJS.Proc
   ...Object.fromEntries(Object.entries(env).filter(([name]) => name.startsWith('SHEPHERD_'))),
 })
 
+/**
+ * A server that keeps what each write was actually asked to send.
+ *
+ * The three writes this command makes are its whole reason to exist, and a
+ * captured run cannot show their arguments: the capture records what the
+ * Python's stub `gh` was given, and the port reaches `gh` through the injected
+ * client instead. So the request is asserted here, whole, the way
+ * `shepherd-status.test.ts` asserts the two listings it sends. What was sent,
+ * never how often: the Python asserted the posted text positively in seven of
+ * its own examples (`test_shepherd_pr.py:371`, `:402`, `:417`, `:466`, `:483`,
+ * `:1011`, `:1162`).
+ */
+const recording = (
+  options: GhServerOptions,
+): { gh: GhClient; comments: unknown[]; updates: unknown[] } => {
+  const server = createGhServer(options)
+  const comments: unknown[] = []
+  const updates: unknown[] = []
+  return {
+    comments,
+    updates,
+    gh: {
+      ...server,
+      addComment: async (comment) => {
+        comments.push(comment)
+        return server.addComment(comment)
+      },
+      updateBranch: async (pull) => {
+        updates.push(pull)
+        return server.updateBranch(pull)
+      },
+    },
+  }
+}
+
 // --- parity with the Python ----------------------------------------------------
 
 /** What each case needs beyond its captured pull-request set: the stub `gh`
@@ -455,6 +490,20 @@ it('reads a head gh answered as an empty string as no head at all', async () => 
   expect(result.document.after).toBe('')
 })
 
+it('asks for a rebase of the pull request it was given, and never a merge', async () => {
+  // Omitting `rebase` writes a merge commit onto someone else's branch, and
+  // the number is the one the caller named: both are the whole request, which
+  // is what `gh-shepherd-pr.py:483` sends.
+  const record = recording({
+    replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
+    sequences: { viewPullRequest: [depPr(7, { merge: 'BEHIND' })] },
+  })
+
+  await drive((_sandbox, repo) => ({ argv: [repo, '7', 'rebase'], gh: record.gh }))
+
+  expect(record.updates).toEqual([{ pullRequest: 7, rebase: true }])
+})
+
 // --- recreate ----------------------------------------------------------------------
 
 const recreateEnv = (sandbox: Sandbox): NodeJS.ProcessEnv => ({
@@ -482,6 +531,27 @@ it('comments and returns once the head moves', async () => {
   expect(result.document.detail).toBe('recreated')
   expect(result.document.before).toBe('sha1')
   expect(result.document.after).toBe('recreated')
+})
+
+it('posts the words Dependabot answers, on the pull request it was given', async () => {
+  // `@dependabot recreate` is answered by one bot and by nothing else: any
+  // other text is a comment that will sit on a stranger's pull request
+  // forever. `gh-shepherd-pr.py:533` to `:541`.
+  const record = recording({
+    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
+    sequences: {
+      viewPullRequest: [depPr(7, { merge: 'DIRTY' }), depPr(7, { merge: 'DIRTY', head: 'new' })],
+    },
+  })
+
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '7', 'recreate'],
+    env: recreateEnv(sandbox),
+    gh: record.gh,
+  }))
+
+  expect(result.document.detail).toBe('recreated')
+  expect(record.comments).toEqual([{ pullRequest: 7, body: '@dependabot recreate' }])
 })
 
 it('reports a moved head as recreated even when the merge landed with it', async () => {
@@ -1106,6 +1176,45 @@ it('refuses a reason file that is a directory', async () => {
 
   expect(result.document.ok).toBe(false)
   expect(result.document.detail).toContain('reason file is missing or empty')
+})
+
+it('posts the reason file it was given, as the body of the comment', async () => {
+  // `--body-file`, never `--body`: the reason is a file the caller wrote, and
+  // a literal here would post something nobody reviewed
+  // (`gh-shepherd-pr.py:928`). The number is the one the caller named.
+  const record = recording({
+    prs: [depPr(4)],
+    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
+  })
+  let reason = ''
+
+  await drive((sandbox, repo) => {
+    reason = PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''
+    return { argv: [repo, '4', 'skip', reason], gh: record.gh }
+  })
+
+  expect(record.comments).toEqual([{ pullRequest: 4, bodyFile: reason }])
+})
+
+it('vets the reason file gh will read, not one beside this process', async () => {
+  // The Python `os.chdir`'d to the target before both the check and the
+  // comment (`gh-shepherd-pr.py:1007`, `:920`, `:928`), so a relative path
+  // named one file to both. Nothing here changes directory and gh is spawned
+  // with the target as its own, so the path has to be resolved against the
+  // target or the file vetted is not the file posted.
+  const record = recording({
+    prs: [depPr(1)],
+    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
+  })
+
+  const result = await drive((_sandbox, repo) => {
+    writeFileSync(path.join(repo, 'why.md'), 'not a mechanical fix\n')
+    return { argv: [repo, '1', 'skip', 'why.md'], gh: record.gh }
+  })
+
+  expect(result.document.ok).toBe(true)
+  expect(result.document.detail).toBe('skip comment posted')
+  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: 'why.md' }])
 })
 
 it('reports no comment url when gh printed none', async () => {

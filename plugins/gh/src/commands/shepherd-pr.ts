@@ -19,6 +19,7 @@
 // injected `gh`, the clock, the sleep and the output writers in, an exit
 // status out. Nothing is spawned and no `gh` is on PATH.
 import { statSync } from 'node:fs'
+import path from 'node:path'
 import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import type { Writer } from '../lib/streams.ts'
@@ -258,6 +259,12 @@ const seconds = (milliseconds: number): number => Math.floor(milliseconds / 1000
 
 interface WorkerOptions {
   readonly repo: string
+  /** The checkout every `git` and `gh` call names, and the directory a
+   *  relative path on the command line is resolved against. The Python
+   *  `os.chdir`'d to it (`gh-shepherd-pr.py:1007`); nothing here changes
+   *  directory, so the resolution is done by hand at the one place that
+   *  needs it. */
+  readonly target: string
   readonly number: number
   readonly action: string
   readonly ciSeconds: number
@@ -847,7 +854,16 @@ class Shepherd {
   }
 
   async skip(reasonFile: string): Promise<void> {
-    if (!usableReason(reasonFile)) {
+    // Resolved against the target, because the Python `os.chdir`'d to it
+    // before this check ran (`gh-shepherd-pr.py:1007`, then `:920`) AND
+    // before gh read the same relative path through `--body-file`
+    // (`:928`). Here the two would otherwise be different directories: the
+    // check runs in this process, whose directory nothing changes, while gh
+    // is spawned with the target as its own (`lib/gh.ts` is handed
+    // `cwd: target`). A relative reason file would then be vetted at one path
+    // and posted from another. The refusal below prints the path as the
+    // caller wrote it, as the Python's did.
+    if (!usableReason(path.resolve(this.options.target, reasonFile))) {
       this.emit(false, `refused: reason file is missing or empty: ${reasonFile}`)
       return
     }
@@ -947,6 +963,7 @@ const shepherdPr = async (
   await handler(
     new Shepherd({
       repo: String(name),
+      target,
       number: Number(number),
       action,
       ciSeconds,
