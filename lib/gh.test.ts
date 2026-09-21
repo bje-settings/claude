@@ -486,6 +486,24 @@ describe('refusals', () => {
     )
   })
 
+  it('carries the whole run as the cause of an answer it could not read, too', async () => {
+    // One shape for everything that goes wrong: the four throw sites in this
+    // file report the same `cause`, so a caller reading `cause.stderr` gets
+    // gh's own words whichever of them it caught. The offending value goes in
+    // the message, where it is read, rather than in the cause, where it would
+    // displace the run. `status` is 0 here on purpose: gh succeeded and its
+    // answer could not be read, which is a different fact from gh failing.
+    const { gh } = clientAnswering({ stdout: 'not json at all', stderr: 'a note\n' })
+    const error = await gh.listPullRequests().catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(GhError)
+    expect((error as GhError).status).toBe(0)
+    expect((error as GhError).cause).toMatchObject({
+      stdout: 'not json at all',
+      stderr: 'a note\n',
+    })
+  })
+
   it('throws when a list endpoint answered with something else', async () => {
     // Never defaulted to an empty list: "nothing matched" and "the answer was
     // not a list" are different facts, and folding them together is how a

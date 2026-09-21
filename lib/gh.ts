@@ -203,7 +203,12 @@ export interface GhClient {
  * public property and is set through `super`.
  */
 export class GhError extends Error {
-  /** gh's exit status, or `null` when a signal ended it. */
+  /** gh's exit status, or `null` when a signal ended it. `0` is its own case
+   *  and a real one: gh succeeded and its answer could not be read, either
+   *  because it was not JSON or because it was not the shape the endpoint
+   *  promises. A caller reading `status !== 0` as "gh failed" would take a
+   *  malformed answer for a good one, so branch on the error reaching you at
+   *  all and use `status` to say which failure it was. */
   readonly status: number | null
 
   constructor(message: string, status: number | null, options: { cause: unknown }) {
@@ -313,27 +318,35 @@ const accountOf = (result: RunResult): string => {
  * answer that is not what it claims is a failure here rather than an empty
  * list a caller reads as "nothing matched".
  *
- * The whole {@link RunResult} is carried in rather than just its stdout, so
- * that the {@link GhError} thrown here reports the same `status` and `cause`
- * as one thrown for a non-zero exit. A caller catching one shape gets one
- * shape.
+ * The whole {@link RunResult} is carried in rather than just its stdout, and
+ * it is what the {@link GhError} thrown here reports as its `cause`, exactly
+ * as one thrown for a non-zero exit does. A caller catching one shape gets one
+ * shape, so `error.cause.stderr` and `error.cause.elapsedMs` mean the same
+ * thing whichever of the four throw sites it came from. What gh actually said
+ * is the part a reader needs and it would be lost if the cause were the
+ * `SyntaxError` or the decoded value instead, so those go into the message,
+ * where they are read.
  */
 const parse = (result: RunResult, what: string): unknown => {
   try {
     return JSON.parse(result.stdout)
   } catch (error) {
-    throw new GhError(`gh answered ${what} with something that is not JSON`, result.status, {
-      cause: error,
-    })
+    throw new GhError(
+      `gh answered ${what} with something that is not JSON: ${(error as Error).message}`,
+      result.status,
+      { cause: result },
+    )
   }
 }
 
 const rows = (result: RunResult, what: string): unknown[] => {
   const value = parse(result, what)
   if (!Array.isArray(value)) {
-    throw new GhError(`gh answered ${what} with something that is not a list`, result.status, {
-      cause: value,
-    })
+    throw new GhError(
+      `gh answered ${what} with something that is not a list: ${JSON.stringify(value)}`,
+      result.status,
+      { cause: result },
+    )
   }
   return value
 }
@@ -341,9 +354,11 @@ const rows = (result: RunResult, what: string): unknown[] => {
 const record = (result: RunResult, what: string): Record<string, unknown> => {
   const value = parse(result, what)
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new GhError(`gh answered ${what} with something that is not an object`, result.status, {
-      cause: value,
-    })
+    throw new GhError(
+      `gh answered ${what} with something that is not an object: ${JSON.stringify(value)}`,
+      result.status,
+      { cause: result },
+    )
   }
   return value as Record<string, unknown>
 }
