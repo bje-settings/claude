@@ -13,7 +13,10 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
     'listPullRequests',
     (client) => client.listPullRequests({ state: 'open', label: 'dependencies' }),
   ],
-  ['listMergedPullRequests', (client) => client.listMergedPullRequests({ base: 'main' })],
+  [
+    'listMergedPullRequests',
+    (client) => client.listMergedPullRequests({ base: 'main', limit: 200 }),
+  ],
   ['viewPullRequest', (client) => client.viewPullRequest({ pullRequest: 7 })],
   ['viewRepository', (client) => client.viewRepository()],
   ['listRuns', (client) => client.listRuns({ branch: 'main', status: 'completed' })],

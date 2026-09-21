@@ -38,6 +38,12 @@ export interface PullRequestQuery {
   head?: string
   /** `gh-shepherd-status.py:172` asks for the `dependencies` label. */
   label?: string
+  /** Omitted, gh substitutes 30. Optional here and required on
+   *  {@link MergedPullRequestQuery} because neither consumer of this query
+   *  compares the row count against the window
+   *  (`gh-shepherd-status.py:173` passes one and reads the rows), so there is
+   *  no saturation reader to protect. Revisit if layer 2's port of that
+   *  script grows one. */
   limit?: number
 }
 
@@ -48,19 +54,36 @@ export interface PullRequestQuery {
  * the query: a pull request that merged into some other branch is not proof
  * that a local branch landed on the default one, and `lib/prs.py` says so in
  * its header. `head` narrows it to one branch, which is the single-branch
- * fallback at `gh-sync-repo.py:493`, and `limit` is the window the caller
- * then compares the row count against to find out whether it saturated.
+ * fallback at `gh-sync-repo.py:493`.
+ *
+ * `limit` is required for the same reason `watchChecks.boundMs` is (round 5's
+ * handoff fact 1, one field over): it is the number the caller compares the
+ * row count against to find out whether the window saturated, and omitted it
+ * is gh's own default of 30 with nothing saying so, which is a truncated list
+ * read as a complete one. Both Python call sites pass one and both compare
+ * against it: `gh-sync-repo.py:35` `PR_LIMIT = 200` with
+ * `pr_bulk_saturated = len(rows) >= PR_LIMIT` at `:463` ("a saturated window
+ * is a window, not an answer"), and `gh-sync-repo.py:41`
+ * `PR_BRANCH_LIMIT = 100` with `if len(rows) >= PR_BRANCH_LIMIT: return
+ * False, "crowded"` at `:503` ("concluding 'none at this commit' from a
+ * truncated list is the mistake this guard exists to fix"). The saturation
+ * flag is also what turns the per-branch fallback on at all (`:577`), so a
+ * caller that lost it would lose the fallback with it. Nothing is being asked
+ * for that a caller does not already have.
  */
 export interface MergedPullRequestQuery {
   base: string
   head?: string
-  limit?: number
+  limit: number
 }
 
 /** Filters `gh run list` applies server-side. */
 export interface RunQuery {
   branch?: string
   status?: string
+  /** Omitted, gh substitutes 30. Optional for the reason given on
+   *  {@link PullRequestQuery.limit}: `gh-shepherd-status.py:195` passes a
+   *  sample size and reads the rows rather than measuring the window. */
   limit?: number
 }
 
@@ -161,7 +184,18 @@ export interface GhClient {
     run: string | number
     job?: string | number
   }): Promise<GhResults['readFailedRunLog']>
-  updateBranch(pull: { pullRequest: number; rebase?: boolean }): Promise<GhResults['updateBranch']>
+  updateBranch(pull: {
+    pullRequest: number
+    /** Required, and not defaulted: `gh pr update-branch` with no `--rebase`
+     *  writes a MERGE COMMIT onto someone's head branch, so an omitted flag
+     *  here is a write nobody asked for. The one ported call site passes it
+     *  unconditionally (`gh-shepherd-pr.py:483`, and `:19` names the whole
+     *  subcommand "rebase    gh pr update-branch --rebase"), so `false` is
+     *  still available and nothing is being asked for that a caller does not
+     *  already have. Same shape as `watchChecks.boundMs`: an optional field
+     *  whose omission selects the behaviour no consumer wants. */
+    rebase: boolean
+  }): Promise<GhResults['updateBranch']>
   addComment(comment: { pullRequest: number } & CommentText): Promise<GhResults['addComment']>
   watchChecks(pull: {
     pullRequest: number

@@ -187,6 +187,14 @@ run), so a caller branches on a value rather than on prose. Every member is publ
 reachable under two paths through the `src/lib` symlink, and a `private` or `protected` member
 would make the class nominal per declaration and the two identities no longer assignable.
 
+Three inputs are required where an optional one would re-admit a defect the layer exists to close:
+`watchChecks`'s `boundMs` (round 5's handoff fact 1), `listMergedPullRequests`'s `limit` (omitted,
+gh substitutes 30 and the caller has no number to judge saturation against, so a truncated window
+reads as a complete answer) and `updateBranch`'s `rebase` (omitted, gh writes a merge commit onto
+someone's head branch). Every ported call site already passes all three, so nothing is being asked
+for that a caller does not have. The two remaining `limit` filters stay optional because neither
+consumer measures its window.
+
 `watchChecks` is the one blocking call and the one exception to "non-zero is a failure". Its
 bound is required rather than optional, because an optional one is #154's unbounded watch a line
 away and `process.ts` detaches only a bounded child, so an unbounded watch could not be

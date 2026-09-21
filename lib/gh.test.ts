@@ -85,8 +85,12 @@ describe('argv', () => {
     // `gh-shepherd-status.py:166` to `178` is this call: open, labelled
     // `dependencies`, one window of 100.
     const { gh, calls } = clientAnswering({ stdout: '[]' })
+    // The whole list, not a prefix: a slice pins the filters that were passed
+    // and leaves a stray trailing flag free to appear, which is the defect the
+    // `pr view` assertion was changed for. `--head` and `--base` being absent
+    // is now part of the same expectation rather than two notes beside it.
     await gh.listPullRequests({ state: 'open', label: 'dependencies', limit: 100 })
-    expect(calls[0]?.args.slice(0, 8)).toEqual([
+    expect(calls[0]?.args).toEqual([
       'pr',
       'list',
       '--state',
@@ -95,9 +99,10 @@ describe('argv', () => {
       'dependencies',
       '--limit',
       '100',
+      '--json',
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision',
     ])
-    expect(calls[0]?.args).not.toContain('--head')
-    expect(calls[0]?.args).not.toContain('--base')
   })
 
   it('asks gh pr list for the merged window with the fields prs.py reads', async () => {
@@ -122,19 +127,28 @@ describe('argv', () => {
 
   it('narrows the merged window to one branch when asked', async () => {
     // The single-branch fallback at `gh-sync-repo.py:493`, for a bulk window
-    // that saturated.
+    // that saturated. 100 is that script's own `PR_BRANCH_LIMIT`, and it is
+    // passed rather than omitted because the caller compares the row count
+    // against it to find out whether this window saturated too.
+    //
+    // The whole list, not a prefix: a slice leaves a stray trailing flag free
+    // to appear, which is the defect the `pr view` assertion was changed for.
     const { gh, calls } = clientAnswering({ stdout: '[]' })
-    await gh.listMergedPullRequests({ base: 'main', head: 'feature-a' })
-    expect(calls[0]?.args.slice(0, 6)).toEqual([
+    await gh.listMergedPullRequests({ base: 'main', head: 'feature-a', limit: 100 })
+    expect(calls[0]?.args).toEqual([
       'pr',
       'list',
       '--state',
       'merged',
       '--base',
       'main',
+      '--head',
+      'feature-a',
+      '--limit',
+      '100',
+      '--json',
+      'headRefName,headRefOid,isCrossRepository',
     ])
-    expect(calls[0]?.args).toContain('--head')
-    expect(calls[0]?.args).not.toContain('--limit')
   })
 
   it('asks gh pr view for one pull request, with the shepherd field list', async () => {
@@ -280,12 +294,12 @@ describe('argv', () => {
     const log = clientAnswering({ stdout: '' }, { repository: 'acme/widgets' })
 
     await rows.gh.listPullRequests()
-    await rows.gh.listMergedPullRequests({ base: 'main' })
+    await rows.gh.listMergedPullRequests({ base: 'main', limit: 200 })
     await rows.gh.listRuns()
     await gh.viewPullRequest({ pullRequest: 7 })
     await gh.viewRepository()
     await log.gh.readFailedRunLog({ run: 1234 })
-    await log.gh.updateBranch({ pullRequest: 7 })
+    await log.gh.updateBranch({ pullRequest: 7, rebase: false })
     await log.gh.addComment({ pullRequest: 7, body: 'hi' })
     await log.gh.watchChecks({ pullRequest: 7, boundMs: 1_000 })
 
@@ -302,6 +316,8 @@ describe('argv', () => {
         'merged',
         '--base',
         'main',
+        '--limit',
+        '200',
         '--json',
         'headRefName,headRefOid,isCrossRepository',
       ],
@@ -314,7 +330,10 @@ describe('argv', () => {
         'databaseId,status,conclusion,createdAt,updatedAt',
       ],
     ])
-    expect(calls[0]?.args).toEqual(['pr', 'view', '7', '--repo', 'acme/widgets', '--json', fields])
+    expect(calls.map((call) => call.args)).toEqual([
+      ['pr', 'view', '7', '--repo', 'acme/widgets', '--json', fields],
+      ['repo', 'view', 'acme/widgets', '--json', 'nameWithOwner,defaultBranchRef'],
+    ])
     expect(log.calls.map((call) => call.args)).toEqual([
       ['run', 'view', '1234', '--repo', 'acme/widgets', '--log-failed'],
       ['pr', 'update-branch', '7', '--repo', 'acme/widgets'],
@@ -364,7 +383,7 @@ describe('answers', () => {
   it('hands back the rows gh printed', async () => {
     const { gh } = clientAnswering({ stdout: '[{"number":1},{"number":2}]' })
     await expect(gh.listPullRequests()).resolves.toEqual([{ number: 1 }, { number: 2 }])
-    await expect(gh.listMergedPullRequests({ base: 'main' })).resolves.toHaveLength(2)
+    await expect(gh.listMergedPullRequests({ base: 'main', limit: 200 })).resolves.toHaveLength(2)
   })
 
   it('hands back the objects gh printed', async () => {
@@ -391,7 +410,9 @@ describe('answers', () => {
     // matches because the stand-in answers every call the same way says
     // nothing about the endpoint it names.
     const updated = clientAnswering({ stdout: 'Updated branch main\n' })
-    await expect(updated.gh.updateBranch({ pullRequest: 7 })).resolves.toBe('Updated branch main\n')
+    await expect(updated.gh.updateBranch({ pullRequest: 7, rebase: true })).resolves.toBe(
+      'Updated branch main\n',
+    )
     const commented = clientAnswering({ stdout: 'https://github.com/a/b/pull/7#issue-1\n' })
     await expect(commented.gh.addComment({ pullRequest: 7, body: 'hi' })).resolves.toBe(
       'https://github.com/a/b/pull/7#issue-1\n',
