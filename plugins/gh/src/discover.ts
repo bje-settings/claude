@@ -54,8 +54,14 @@ export type Discovery =
  * here would turn a degraded environment into a crash" (`discover.py:48`).
  * {@link gitUnavailable} is where a caller that does care asks instead.
  */
-export const toplevel = (target: string, env: NodeJS.ProcessEnv): Promise<string | null> =>
-  gitToplevel({ cwd: target, env })
+export const toplevel = async (target: string, env: NodeJS.ProcessEnv): Promise<string | null> => {
+  const root = await gitToplevel({ cwd: target, env })
+  // `discover.py:66` writes this as `return top or None`: a git that exits 0
+  // and prints nothing has not named a checkout root, and reading `""` as one
+  // puts an empty path in the caller's list. Real git answers with a status
+  // instead, but a `git` on PATH is something a caller can choose.
+  return root === '' ? null : root
+}
 
 /**
  * Why git cannot be run at all, or `null` when it can.

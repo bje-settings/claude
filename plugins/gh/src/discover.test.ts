@@ -246,19 +246,38 @@ describe('gitUnavailable', () => {
   })
 
   it("names a git that is on PATH and will not run, with node's own account", async () => {
-    // An empty file with the execute bit set passes a PATH lookup and then
-    // fails to exec, which is the shape of a broken install, a bad interpreter
-    // line, or a binary for another architecture.
+    // A file on PATH without the execute bit: the PATH lookup finds it and the
+    // exec then fails, which is the shape of a broken install. Deliberately
+    // NOT an empty file with the bit set, and deliberately the only entry on
+    // PATH: on Linux an empty executable is ENOEXEC, which execvp re-runs
+    // through /bin/sh, so it "succeeds" and prints nothing, and EACCES on one
+    // PATH entry makes execvp keep searching rather than fail. A missing
+    // execute bit with nowhere else to look answers EACCES on both platforms,
+    // which is the 126 this reports.
     const { sandbox, env } = fixtures()
     const stubs = sandbox.join('broken-git')
     mkdirSync(stubs)
-    const stub = path.join(stubs, 'git')
-    writeFileSync(stub, '')
-    chmodSync(stub, 0o755)
+    writeFileSync(path.join(stubs, 'git'), '', { mode: 0o644 })
 
     const reason = await gitUnavailable({ ...env, PATH: stubs })
 
     expect(reason).not.toBeNull()
     expect(reason).not.toBe('not on PATH')
+  })
+
+  it('answers no root for a git that exits 0 and prints nothing', async () => {
+    // `discover.py` folds an empty answer into None (`top or None`). Real git
+    // answers with a status instead, but a `git` on PATH is something a caller
+    // can choose, and reading "" as a checkout root puts an empty path in the
+    // list.
+    const { sandbox, git, env } = fixtures()
+    const work = git.create(sandbox.join('r'))
+    const stubs = sandbox.join('silent-git')
+    mkdirSync(stubs)
+    writeFileSync(path.join(stubs, 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    const silent = { ...env, PATH: `${stubs}${path.delimiter}${env.PATH ?? ''}` }
+
+    expect(await toplevel(work, silent)).toBeNull()
+    expect(roots(await discoverRepos(work, silent))).toEqual([])
   })
 })

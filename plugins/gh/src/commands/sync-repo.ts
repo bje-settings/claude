@@ -300,12 +300,15 @@ class SyncRepoRun {
         ? 'git is not on PATH'
         : `cannot run git: ${probe.startFailure.message}`
     }
-    // No arm for an empty answer beside this one: git refuses `rev-parse
-    // --show-toplevel` outside a work tree with status 128 rather than
-    // answering empty (`lib/git.ts` says the same about its own `toplevel`),
-    // so a branch for it is one no test could reach.
-    if (probe.status !== 0) return 'not a git repository'
-    this.top = probe.stdout.replace(/\n+$/, '')
+    const top = probe.stdout.replace(/\n+$/, '')
+    // Both halves, as `gh-sync-repo.py:210` has them. Real git refuses
+    // `rev-parse --show-toplevel` outside a work tree with a status rather
+    // than by answering empty, but a `git` on PATH that exits 0 and prints
+    // nothing is a shape a caller can arrange and CI reached: without the
+    // second half the run carries on with no checkout root at all and reports
+    // "already up to date ()" about a repository it never found.
+    if (probe.status !== 0 || top === '') return 'not a git repository'
+    this.top = top
     this.name = path.basename(this.top)
 
     if (!(await gitOk(['remote', 'get-url', 'origin'], this.here))) return "no 'origin' remote"

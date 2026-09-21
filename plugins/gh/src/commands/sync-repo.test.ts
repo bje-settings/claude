@@ -15,15 +15,7 @@
 // stub `gh` does and what the per-branch fallback needs to be exercised at
 // all: `createGhMock` answers every call with one registered reply, by
 // design, so it cannot tell a bulk window from a per-branch query.
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -555,22 +547,41 @@ describe('the preflight', () => {
   })
 
   it('names a git that is present and will not run as its own reason', async () => {
-    // An empty file with the execute bit set passes a PATH lookup and then
-    // fails to exec, which is the shape of a broken install, a bad interpreter
-    // line, or a binary for an architecture this machine cannot load.
+    // A file on PATH without the execute bit, and nothing else on PATH: the
+    // lookup finds it and the exec fails with EACCES on both platforms. An
+    // empty file WITH the bit set is not the same test: on Linux that is
+    // ENOEXEC, which execvp re-runs through /bin/sh, so the fake git exits 0
+    // and prints nothing (which the example below is about instead), and
+    // EACCES on one entry of a longer PATH makes execvp keep searching.
     const f = fixture()
     const broken = f.sandbox.join('broken-git')
     mkdirSync(broken)
-    writeFileSync(path.join(broken, 'git'), '')
-    chmodSync(path.join(broken, 'git'), 0o755)
+    writeFileSync(path.join(broken, 'git'), '', { mode: 0o644 })
 
-    const result = await run(f, [f.repo], {
-      env: { ...f.env, PATH: `${broken}${path.delimiter}${f.sandbox.pathWithout('git')}` },
-    })
+    const result = await run(f, [f.repo], { env: { ...f.env, PATH: broken } })
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('skipped: cannot run git: ')
     expect(result.stdout).not.toContain('not a git repository')
+  })
+
+  it('skips a git that exits 0 and prints nothing, rather than syncing nowhere', async () => {
+    // `gh-sync-repo.py:210` reads an empty `rev-parse --show-toplevel` as "not
+    // a git repository" beside a non-zero status. Real git answers with a
+    // status, but a `git` on PATH that exits 0 in silence is something a
+    // caller can arrange: without the guard the run carries on with no
+    // checkout root and reports "already up to date ()" about a repository it
+    // never found.
+    const f = fixture()
+    const stubs = f.sandbox.join('silent-git')
+    mkdirSync(stubs)
+    writeFileSync(path.join(stubs, 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+
+    const result = await run(f, [f.repo], { env: { ...f.env, PATH: stubs } })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('skipped: not a git repository')
+    expect(result.stdout).not.toContain('already up to date')
   })
 
   it('skips a repository whose path is a file rather than a directory', async () => {
@@ -801,6 +812,40 @@ describe('merge proof', () => {
       'could not read merged pull requests (gh: API rate limit exceeded)',
     )
     expect(result.stdout).not.toContain('warming up')
+  })
+
+  it('names every other way gh can fail, in the words the failure arrived with', async () => {
+    // The Python spells four of these itself (a silent non-zero exit, a gh
+    // that is there and will not run, an answer that is not JSON, and one
+    // that is JSON but not a list). `lib/gh.ts` owns that vocabulary now and
+    // puts it in the error's message, so the port reports the last line of
+    // whatever arrived rather than re-deciding it. Each still reaches the
+    // reader as its own sentence, which is what the Python's `gh_json`
+    // comment asks for: three failures that send the reader to three
+    // different places.
+    const accounts = [
+      'gh pr list --state merged failed: gh exited 4',
+      'gh pr list --state merged failed: cannot run gh: spawn gh EACCES',
+      'gh answered the merged pull requests with something that is not JSON: unexpected token',
+      'gh answered the merged pull requests with something that is not a list: {"message":"Not Found"}',
+    ]
+    for (const account of accounts) {
+      const f = fixture()
+      f.git.branchWithWork(f.repo, 'landed')
+      f.git.mergeCommit(f.repo, 'landed')
+      const gh = {
+        ...ghDouble(),
+        listMergedPullRequests: async () => {
+          throw new GhError(account, 1, { cause: 'test' })
+        },
+      }
+
+      const result = await run(f, [f.repo], { gh })
+
+      expect(result.stdout).toContain(`could not read merged pull requests (${account});`)
+      // The degraded path is the point: ancestry still proves this branch.
+      expect(result.stdout).toContain('deleted landed')
+    }
   })
 
   it('treats a list of things that are not pull requests as unreadable', async () => {
