@@ -472,7 +472,12 @@ describe('the fan-out', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('a\n')
     expect(result.stdout).toContain('c\n')
-    expect(result.stdout).toContain(failed('boom'))
+    // The WHOLE section, not just the line: `b` threw before writing a
+    // heading of its own, and a bare cross line would sit under `a`'s
+    // heading and blame a repository that synced cleanly. `gh-sync.py:135`
+    // puts the basename in the same string for the child that never ran.
+    expect(result.stdout).toContain(`b\n${failed('boom')}`)
+    expect(result.stdout).not.toContain(`a\n${failed('boom')}`)
   })
 
   it('puts a failure that arrived mid-line on a line of its own', async () => {

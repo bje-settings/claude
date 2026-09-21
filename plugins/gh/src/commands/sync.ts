@@ -19,6 +19,7 @@
 // started, a child that exited non-zero, and a child a signal killed were all
 // reported in the job's own section. A direct call has no exit status of its
 // own and cannot fail to start.
+import path from 'node:path'
 import { discoverRepos, gitUnavailable, toplevel } from '../discover.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { createWriter } from '../lib/streams.ts'
@@ -235,8 +236,18 @@ export const createSyncCommand =
         //
         // A job that threw mid-line would otherwise have this appended to the
         // end of that line, as `gh-sync.py:171` to `:173` has it.
+        //
+        // A job that threw before its FIRST line has written no heading, and
+        // a bare cross line then sits under the PREVIOUS repository's, so the
+        // report blames a repository that synced cleanly. `gh-sync.py:135`
+        // answers that by putting the basename in the string it builds for a
+        // child that never ran, and this does the same: the name is the one
+        // `sync-repo.ts` would have written itself
+        // (`path.basename` of the checkout root, which is what discovery
+        // hands in), so a section written either way reads alike.
         const written = chunks.join('')
-        if (written !== '' && !written.endsWith('\n')) chunks.push('\n')
+        if (written === '') chunks.push(`${path.basename(repo)}\n`)
+        else if (!written.endsWith('\n')) chunks.push('\n')
         chunks.push(failureLine(error))
       }
       return chunks.join('')
