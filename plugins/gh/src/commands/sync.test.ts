@@ -504,6 +504,29 @@ describe('the fan-out', () => {
     expect(result.stdout).toContain(`half a line\n${failed('boom')}`)
   })
 
+  it('adds no blank line when the job threw on a line boundary', async () => {
+    // The third arm of `gh-sync.py:172`'s `if output and not
+    // output.endswith("\n")`: a section that already ends in a newline takes
+    // neither the heading (it has one) nor the separator (it needs none), and
+    // a blank line between the last report line and the failure would be a
+    // gap the Python never printed.
+    const f = fixture()
+    f.git.createAt(f.sandbox.join('fan'), 'a')
+    f.git.createAt(f.sandbox.join('fan'), 'b')
+
+    const result = await run(f, [f.sandbox.join('fan')], {
+      job: async (options: SyncRepoOptions): Promise<number> => {
+        const name = path.basename(options.repo)
+        options.report.write(`${name}\n`)
+        if (name === 'a') throw new Error('boom')
+        return 0
+      },
+    })
+
+    expect(result.stdout).toContain(`a\n${failed('boom')}`)
+    expect(result.stdout).not.toContain(`a\n\n${failed('boom')}`)
+  })
+
   it('says so on the single-repository path too, rather than crashing the run', async () => {
     // That path has no section to fold the failure into, as `gh-sync.py:245`
     // to `:251` has it for a child it could not start, and the status still
