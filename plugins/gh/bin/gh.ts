@@ -12,10 +12,16 @@
 // through `harness/spawn.ts`, is the one spawned test, on the paths that need
 // no `gh` at all.
 //
-// **The dispatch is `load` below and nothing else.** Layers 3 and 4 add
-// `shepherd-pr`, `shepherd-status` and the hook's command by adding one line
-// each to it. The import inside each arm is dynamic, so a command nobody asked
-// for is never loaded, and a new one changes no other line in this file.
+// **The dispatch is `run` below and nothing else.** Layer 4 adds the hook's
+// command by adding one line to it. The import inside each arm is dynamic, so
+// a command nobody asked for is never loaded, and a new one changes no other
+// line in this file.
+//
+// The two shepherd commands answer with an exit status rather than an
+// envelope, because they have a fourth one (3, an internal error) that
+// `lib/envelope.ts` deliberately does not know, and they write their own JSON
+// document through the writers handed to them. That is why `run` answers with
+// a number and the envelope commands are rendered inside their own arm.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
@@ -31,15 +37,12 @@ commands:
   sync [--dry-run] [--no-install] [-j N] [path]   sync a checkout, or every
                                                   checkout one level down
   sync-repo [--dry-run] [--no-install] <path>     sync one checkout
+  shepherd-status [path]                          what /gh:shepherd would work
+                                                  on in one repository
+  shepherd-pr <path> <number> <action> [reason]   one deterministic step
+                                                  against one pull request
 
 gh.ts <command> --help prints that command's own usage.`
-
-/** The command `name` asks for, or `null` when nothing answers to it. */
-const load = async (name: string) => {
-  if (name === 'sync') return (await import('../src/commands/sync.ts')).runSync
-  if (name === 'sync-repo') return (await import('../src/commands/sync-repo.ts')).runSyncRepo
-  return null
-}
 
 // Both streams are guarded here rather than at each write: a reader that
 // closed the pipe (`gh.ts sync | head`) makes the write fail asynchronously,
@@ -50,32 +53,68 @@ const load = async (name: string) => {
 // reader does not take the channel a real failure still has to reach.
 const output = createOutput(process.stdout, process.stderr)
 
+/** What a command that answers with an envelope writes, and its status. The
+ *  renderer adds no trailing newline, so that the entry point decides it; a
+ *  report the command already wrote through `output` leaves an empty string
+ *  here and adds nothing. */
+const write = (envelope: Parameters<typeof renderText>[0]): number => {
+  const rendered = renderText(envelope)
+  if (rendered.stdout !== '') output.out.write(`${rendered.stdout}\n`)
+  if (rendered.stderr !== '') output.err.write(`${rendered.stderr}\n`)
+  return rendered.exitCode
+}
+
+/** The process's edges, as the command functions take them. */
+const edges = { cwd: process.cwd(), env: process.env, output }
+
+// One client per repository, each scoped to that checkout, because the sync
+// fan-out syncs several in this one process. `gh` resolves the repository from
+// its working directory, which is what the ported scripts rely on after they
+// have changed into the checkout.
+const repositoryClient = (cwd: string) => createGhClient({ cwd, env: process.env })
+
+// The shepherd commands name the repository with `--repo` on every call but
+// the one that resolves it, so their client takes both; and they poll, so the
+// clock and the sleep are arguments rather than imports. These are the real
+// ones, constructed here with every other edge of the process: `performance`
+// is node's monotonic clock, which is what `time.monotonic()` was, and the
+// timer is the one `time.sleep` used.
+const shepherdEdges = {
+  createGh: (target: { cwd?: string; repository?: string }) =>
+    createGhClient({ ...target, env: process.env }),
+  now: () => performance.now(),
+  sleep: (milliseconds: number) =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, milliseconds)
+    }),
+}
+
+/** The command `name` asks for, run, or `null` when nothing answers to it. */
+const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
+  if (name === 'sync') {
+    const { runSync } = await import('../src/commands/sync.ts')
+    return write(await runSync(argv, { ...edges, createGh: repositoryClient }))
+  }
+  if (name === 'sync-repo') {
+    const { runSyncRepo } = await import('../src/commands/sync-repo.ts')
+    return write(await runSyncRepo(argv, { ...edges, createGh: repositoryClient }))
+  }
+  if (name === 'shepherd-status') {
+    const { runShepherdStatus } = await import('../src/commands/shepherd-status.ts')
+    return runShepherdStatus(argv, { ...edges, ...shepherdEdges })
+  }
+  if (name === 'shepherd-pr') {
+    const { runShepherdPr } = await import('../src/commands/shepherd-pr.ts')
+    return runShepherdPr(argv, { ...edges, ...shepherdEdges })
+  }
+  return null
+}
+
 const [name = '', ...rest] = process.argv.slice(2)
 
 // Asked before anything is loaded, and answered with a status of 0: a caller
 // asking what this can do has not made a mistake. An unknown command has, and
 // is exit 2 with the same list on stderr.
 const wantsUsage = name === '' || name === '-h' || name === '--help'
-const command = wantsUsage ? null : await load(name)
-const envelope = wantsUsage
-  ? ok(USAGE)
-  : command === null
-    ? refused(`unknown command: ${name}\n\n${USAGE}`)
-    : await command(rest, {
-        cwd: process.cwd(),
-        env: process.env,
-        output,
-        // One client per repository, each scoped to that checkout, because
-        // the fan-out syncs several in this one process. `gh` resolves the
-        // repository from its working directory, which is what the ported
-        // scripts rely on after they have changed into the checkout.
-        createGh: (cwd: string) => createGhClient({ cwd, env: process.env }),
-      })
-
-const rendered = renderText(envelope)
-// The renderer adds no trailing newline, so that the entry point decides it;
-// a report the command already wrote through `output` leaves an empty string
-// here and adds nothing.
-if (rendered.stdout !== '') output.out.write(`${rendered.stdout}\n`)
-if (rendered.stderr !== '') output.err.write(`${rendered.stderr}\n`)
-process.exitCode = rendered.exitCode
+const status = wantsUsage ? write(ok(USAGE)) : await run(name, rest)
+process.exitCode = status === null ? write(refused(`unknown command: ${name}\n\n${USAGE}`)) : status

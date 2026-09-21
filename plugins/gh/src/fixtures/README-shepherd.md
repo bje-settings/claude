@@ -80,6 +80,13 @@ port reaches differently. The parity test knows about each; none is a silent rew
 | `gh_is_not_on_path` | `gh is required`, from a `shutil.which` preflight | the same line, off the first `gh` call's start failure (status 127). No preflight is ported (#158). |
 | every case where `gh` answered something unreadable | `gh answered with something that is not JSON` | `gh answered gh pr view with something that is not JSON: ...`, which is `GhError.detail` and names the call that could not be read. |
 | `wait_answers_failed_*` with a log `gh` refused | `could not read the failed job's log: <words>` for a refusal, and a bare `cannot run gh: ...` for a `gh` that never started | one prefix for both, because the two are one `GhError` now and telling them apart would mean branching on prose. |
+| `help`, `usage_with_too_few_arguments`, `an_unknown_action` | the script's own docstring, which opens `gh-shepherd-pr.py — ...` and spells `gh-shepherd-pr.py <path> <number> <action>` | the command's own usage, which opens with the same sentence and spells `gh.ts shepherd-pr <path> <number> <action>`. The line in FRONT of the usage (`unknown action: dance`) is compared against the Python's; the usage itself is compared against this command's, and every action it advertises is asserted to be accepted. |
+| `an_internal_error` | `gh-shepherd-pr.py: internal error: <type>: <message>` | `gh.ts shepherd-pr: internal error: <name>: <message>`. The file is `bin/gh.ts` for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged. |
+
+One sentence deliberately did NOT change, though it names a script that is now a command:
+`settle`'s `there is nothing to settle, and this script never enables it`. It is inside the JSON
+document, which an agent copies into its report, so it is output rather than prose, and output is
+what this layer keeps byte for byte.
 
 `ghCalls` is compared as the endpoints and filters the port asks for, not as gh argv: the port
 reaches `gh` through the injected `GhClient`, so the argv is `lib/gh.ts`'s and is pinned by its own
