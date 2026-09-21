@@ -391,6 +391,42 @@ it('refuses the subcommands the shim is told to fail and forwards the rest', () 
   expect(forwarded.stdout.trim()).toBe(git.headSha(work))
 })
 
+it('answers the subcommands the shim is told to silence with nothing at all', () => {
+  // The other shape a `git` on PATH can take, and the one CI reached on Linux:
+  // exit 0 and print nothing. Real git answers these questions with a status,
+  // so a port that only guards `null` reads the silence as an answer. Separate
+  // from GIT_STUB_FAIL because a refusal and a silent success send a caller to
+  // different arms, and both have to be reachable in the same run.
+  const { git, work, sandbox } = repository()
+
+  const shim = git.gitShim()
+
+  const env = {
+    ...sandbox.env,
+    GIT_STUB_SILENT: 'symbolic-ref,rev-parse --short',
+    PATH: `${shim.directory}${path.delimiter}${sandbox.env.PATH}`,
+  }
+  const silenced = spawnSync('git', ['-C', work, 'symbolic-ref', '--quiet', 'HEAD'], {
+    env,
+    encoding: 'utf8',
+  })
+  expect(silenced.status).toBe(0)
+  expect(silenced.stdout).toBe('')
+  expect(silenced.stderr).toBe('')
+
+  // The prefix match is on the whole subcommand line, so the longer form is
+  // silenced and the bare one still forwards.
+  const alsoSilenced = spawnSync('git', ['-C', work, 'rev-parse', '--short', 'HEAD'], {
+    env,
+    encoding: 'utf8',
+  })
+  expect(alsoSilenced.stdout).toBe('')
+
+  const forwarded = spawnSync('git', ['-C', work, 'rev-parse', 'HEAD'], { env, encoding: 'utf8' })
+  expect(forwarded.status).toBe(0)
+  expect(forwarded.stdout.trim()).toBe(git.headSha(work))
+})
+
 it('walks past a -c option and its value before reading the subcommand', () => {
   // `-c key=value` carries its value in the next argument, so a shim that read
   // it as an ordinary option would take `key=value` for the subcommand: every

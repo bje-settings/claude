@@ -205,6 +205,18 @@ function shimmed(f: Fixture, ...failing: string[]): NodeJS.ProcessEnv {
   }
 }
 
+/** A PATH whose git answers the named subcommands with exit 0 and nothing at
+ *  all, and forwards the rest. The shape CI reached, and the one the Python
+ *  guards against with `or`/`if not` at six call sites. */
+function silenced(f: Fixture, ...quiet: string[]): NodeJS.ProcessEnv {
+  const shim = f.git.gitShim()
+  return {
+    ...f.env,
+    PATH: `${shim.directory}${path.delimiter}${f.env.PATH ?? ''}`,
+    GIT_STUB_SILENT: quiet.join(','),
+  }
+}
+
 // The scenarios of `tests/gh/scenarios.py`, one for one. The three lock-file
 // ones build a `pnpm-lock.yaml` where the Python builds a `package-lock.json`:
 // the port watches one lock file (the pnpm-only ruling), the state being
@@ -582,6 +594,26 @@ describe('the preflight', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('skipped: not a git repository')
     expect(result.stdout).not.toContain('already up to date')
+  })
+
+  it('asks the fallbacks when a git that exits 0 and prints nothing names no default branch', async () => {
+    // The sibling of the example above, one guard further on.
+    // `gh-sync-repo.py:241` and `:247` are `if not ref` and `if ref:`, so an
+    // empty `symbolic-ref` answer falls through to the repair, then to gh,
+    // then to origin/main and origin/master. Read as an answer instead, the
+    // default branch becomes the empty string and the run reports
+    // `origin/ does not exist locally` about a repository whose default
+    // branch either fallback would have found.
+    const f = fixture()
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ defaultBranch: 'main' }),
+      env: silenced(f, 'symbolic-ref'),
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('main already up to date')
+    expect(result.stdout).not.toContain('origin/ does not exist locally')
   })
 
   it('skips a repository whose path is a file rather than a directory', async () => {

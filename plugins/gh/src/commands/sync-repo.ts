@@ -331,14 +331,20 @@ class SyncRepoRun {
 
   private async resolveDefaultBranch(): Promise<string | null> {
     let named = await readDefaultBranch(this.here)
-    if (named === null && !this.dryRun) {
+    // Truthiness, not a null test, because `gh-sync-repo.py:241` and `:247`
+    // are `if not ref` and `if ref:`. A `git` that exits 0 and prints nothing
+    // has named no default branch, and reading `""` as one skips the repair,
+    // the gh fallback AND the main/master fallback, then reports about a
+    // branch called nothing: `skipped: origin/ does not exist locally`. The
+    // same shape as the empty checkout root CI reached (`discover.py:66`).
+    if (!named && !this.dryRun) {
       // Repairing origin/HEAD writes a ref, so it is skipped in --dry-run; the
       // fallbacks below answer the same question without touching the
       // repository.
       await gitOk(['remote', 'set-head', 'origin', '--auto'], this.here)
       named = await readDefaultBranch(this.here)
     }
-    if (named !== null) return named
+    if (named) return named
 
     const view = await this.ask(() => this.gh.viewRepository())
     if ('value' in view) {
@@ -418,7 +424,10 @@ class SyncRepoRun {
     // An unborn HEAD, or a probe that could not run at all, has no branch name
     // to report. "HEAD" is what git itself echoes there and what the shell
     // version printed, and it keeps a null out of the "switched from ..." line.
-    const current = (await gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], this.here)) ?? 'HEAD'
+    // `||`, not `??`: `gh-sync-repo.py:349` is `or "HEAD"`, so an empty
+    // answer is no answer here too, and `""` would name no branch in the line
+    // below.
+    const current = (await gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], this.here)) || 'HEAD'
 
     if (current !== branch) {
       if (this.dryRun) {
@@ -436,7 +445,7 @@ class SyncRepoRun {
     // name for a commit is a convenience, and printing null instead would be a
     // lie in every line that quotes it.
     const target =
-      (await gitOut(['rev-parse', '--short', `origin/${branch}`], this.here)) ?? this.tip
+      (await gitOut(['rev-parse', '--short', `origin/${branch}`], this.here)) || this.tip
     if (!(await hasRef(`refs/heads/${branch}`, this.here))) {
       // Only reachable in --dry-run, where the checkout above was not
       // performed.
@@ -449,8 +458,12 @@ class SyncRepoRun {
     // on. Same fallback as `target`: the branch was just verified to exist, so
     // an unreadable abbreviation still has a full SHA behind it, and this value
     // is both printed and used as the left end of the lock-file diff.
+    // `||`, not `??`, matching `gh-sync-repo.py:381`'s `or`: an empty
+    // abbreviation falls through to the full form. The null test below is
+    // unchanged, because Python's `or` answers with the SECOND value whatever
+    // it is, so only a second failure is "no left end".
     const before =
-      (await gitOut(['rev-parse', '--short', branch], this.here)) ??
+      (await gitOut(['rev-parse', '--short', branch], this.here)) ||
       (await gitOut(['rev-parse', branch], this.here))
     let moved: string
     if (before === null) {
@@ -625,7 +638,10 @@ class SyncRepoRun {
         ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
         this.here,
       )
-      if (sha === null) {
+      // `gh-sync-repo.py:546` is `if not sha`. An empty answer is no tip:
+      // without this the branch reaches `pruneBranch` and is force-deleted on
+      // a tip that was never read.
+      if (!sha) {
         this.bad(`kept ${branch} (cannot resolve its tip)`)
         continue
       }
@@ -731,7 +747,7 @@ class SyncRepoRun {
     // The full SHA is already in hand from the caller, so an unreadable
     // abbreviation costs legibility rather than the recoverability the line
     // exists for.
-    const short = (await gitOut(['rev-parse', '--short', branch], this.here)) ?? sha
+    const short = (await gitOut(['rev-parse', '--short', branch], this.here)) || sha
 
     if (linked) {
       if (this.dryRun) {
@@ -778,11 +794,19 @@ class SyncRepoRun {
       ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
       this.here,
     )
-    if (tip === null) return `origin/${branch} does not exist locally; nothing to compare against`
+    // `gh-sync-repo.py:673` is `if not self.tip`. An empty answer read as a
+    // tip is the silent no-op the comment above warns about: nothing would
+    // ever equal it, so `kept ... nothing to prune` never fires and a branch
+    // sitting exactly on the default tip is deleted instead of kept.
+    if (!tip) return `origin/${branch} does not exist locally; nothing to compare against`
     this.tip = tip
 
     const advanced = await this.advance()
-    if (advanced.canAdvance && !this.noInstall && advanced.advancedFrom !== null) {
+    // Truthiness, as `gh-sync-repo.py:664` has it: an empty left end is no
+    // range to diff a lock file over, and passing it on asks git for
+    // `diff --name-only "" <target>`, which fails and reports a lock-file diff
+    // it could not read where the Python installed nothing and said nothing.
+    if (advanced.canAdvance && !this.noInstall && advanced.advancedFrom) {
       await this.install(advanced.advancedFrom, advanced.target)
     }
 
