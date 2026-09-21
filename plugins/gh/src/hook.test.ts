@@ -6,7 +6,7 @@
 // itself: the floor guard in front of it, argv, stdin, both streams and the
 // exit status, plus the one run that starts the real `bin/gh.ts` child rather
 // than an injected one.
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -192,6 +192,27 @@ it('exits 0 in silence when the payload cannot be read at all', () => {
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
+})
+
+it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
+  const sandbox = createSandbox()
+  const doomed = sandbox.join('doomed')
+  mkdirSync(doomed, { recursive: true })
+
+  // The fixture enters `doomed`, removes it, and then runs the hook, so
+  // `process.cwd()` raises where the payload has no cwd to use instead.
+  const result = runScript(path.join(FIXTURES, 'deleted-cwd.ts'), {
+    args: [doomed, HOOK],
+    stdin: '{"session_id":"s1"}',
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  // node's own account, where `claude --debug` keeps it, as the Python's
+  // traceback went.
+  expect(result.stderr).toContain('ENOENT')
+  expect(result.stderr).toMatch(/\n {4}at /)
 })
 
 // --- the wiring hooks.json carries -------------------------------------------
