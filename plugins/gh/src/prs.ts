@@ -18,6 +18,11 @@
 // here. Forks are dropped by {@link ownRows} rather than by the query, so the
 // row count the caller checks against the lookup limit stays the real number
 // of pull requests the window returned.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 
 /**
  * One row, as far as this file reads it.

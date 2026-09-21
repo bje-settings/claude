@@ -1,7 +1,8 @@
-// The sandbox's own claims, asserted the way tests/gh/test_gh_fixtures.py
-// asserts the Python fixtures': a sandbox that quietly stopped isolating HOME,
-// or a pathWithout that quietly stopped removing anything, would make every
-// test built on it pass for the wrong reason.
+// The sandbox's own claims, asserted the way the gh plugin's Python fixture
+// test asserted the Python fixtures' before it was deleted at #127: a sandbox
+// that quietly stopped isolating HOME, or a pathWithout that quietly stopped
+// removing anything, would make every test built on it pass for the wrong
+// reason.
 import { existsSync, lstatSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

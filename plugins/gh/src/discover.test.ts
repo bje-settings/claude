@@ -6,6 +6,11 @@
 // this existed. The list this module answers with is what that script printed
 // one path per line, so the two are the same contract seen from either side of
 // the `print` (the script form itself lands with the entry point in layer 4).
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import {
   chmodSync,
   mkdirSync,

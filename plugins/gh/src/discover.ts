@@ -24,6 +24,11 @@
 // answering the second question when the first one was asked is how an
 // unreadable directory came back as 'No git repositories directly inside' and
 // exit 0."
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { readdirSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 

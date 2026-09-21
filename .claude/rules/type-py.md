@@ -32,8 +32,11 @@ a *specific* test goes red. If the suite stays green, the fixtures are the gap.
 This is not theoretical. Three mutations of one check-state fold (narrowing the fail set so
 `CANCELLED` and `TIMED_OUT` stopped counting, dropping `NEUTRAL` from the pass set, inverting the
 `COMPLETED` arm) each left a 219-example suite green with coverage unmoved. The first would have
-reported a cancelled build as pending and polled it forever. That fold is now
-`plugins/gh/scripts/lib/shepherd.py`, one plain function per arm with its own named test.
+reported a cancelled build as pending and polled it forever. That fold was
+`plugins/gh/scripts/lib/shepherd.py`, one plain function per arm with its own named test; the
+file went with the gh plugin's Python at #127, and the pattern went with it to
+`plugins/gh/src/shepherd.ts`, which is where to read it now. The rule is unchanged for the
+Python that is left.
 
 ### One fixture per branch, not per input
 
@@ -57,8 +60,8 @@ either. The by-path loader is also why nothing under `lib/` imports another `lib
 loaded by path sits outside any package, where a sibling import would not resolve.
 
 Test module basenames are unique across the whole suite for the same reason: pytest imports them
-into one namespace, so `test_gh_fixtures.py` and `test_ft_fixtures.py`, never two
-`test_fixtures.py`.
+into one namespace, so `test_ft_fixtures.py` carries its plugin in the name rather than being a
+second `test_fixtures.py`.
 
 ## Repo tooling: `scripts/`
 

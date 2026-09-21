@@ -14,6 +14,11 @@
 // git is real (`harness/git.ts`), `gh` is the injected client
 // (`harness/pulls.ts`), and the sandbox's repository is built at the same path
 // the capture ran in, so the two sets of paths line up with no rewriting.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

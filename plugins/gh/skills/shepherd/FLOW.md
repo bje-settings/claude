@@ -56,5 +56,5 @@ flowchart TD
 ```
 
 The `discover` subgraph is shared with `/gh:sync`, byte for byte: both skills resolve their
-scope by the same rule, `scripts/lib/discover.py`, so the two diagrams must describe it
+scope by the same rule, `src/discover.ts`, so the two diagrams must describe it
 identically.

@@ -12,6 +12,11 @@
 // fan-out in-process that stand-in is a function, and `createSyncCommand`
 // takes it; the throttle, the section order and the dropped status are
 // asserted exactly as they were.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

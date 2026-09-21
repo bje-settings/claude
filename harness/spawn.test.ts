@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { createSandbox } from './sandbox.ts'
-import { runScript } from './spawn.ts'
+import { runScript, startScript } from './spawn.ts'
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const fixture = (name: string): string => path.join(FIXTURES, name)
@@ -70,4 +70,94 @@ it('throws when the child could not be started', () => {
   const sandbox = createSandbox()
 
   expect(() => runScript(fixture('echo-argv.ts'), { cwd: sandbox.join('gone') })).toThrow(/ENOENT/)
+})
+
+// --- startScript, the variant whose pipes are still open ----------------------
+//
+// `runScript` is `spawnSync` and drains both streams before it returns, so
+// nothing run through it can have its reader taken away part-way: the EPIPE
+// guard every entry point carries is unpinnable through it (round 5's handoff
+// note from #156). These four examples are the variant's own claims; the
+// guards themselves are pinned beside the entry points that carry them.
+
+it('hands back the first line a running child writes', async () => {
+  const sandbox = createSandbox()
+  const running = startScript(fixture('where.ts'), { env: sandbox.env, cwd: sandbox.path })
+
+  const first = await running.firstLine()
+
+  expect(first).toBe(realpathSync(sandbox.path))
+  expect((await running.ended()).status).toBe(0)
+})
+
+it('hands back everything a child wrote when it never wrote a newline', async () => {
+  const running = startScript(fixture('echo-argv.ts'), { args: ['--repo', 'acme/widgets'] })
+
+  const first = await running.firstLine()
+
+  expect(JSON.parse(first)).toEqual(['--repo', 'acme/widgets'])
+})
+
+it('runs with no options at all, and reports the status and stderr', async () => {
+  const running = startScript(fixture('fail.ts'))
+
+  expect(await running.firstLine()).toBe('partial')
+  expect(await running.ended()).toEqual({ status: 3, signal: null, stderr: 'boom\n' })
+})
+
+it('reports a child that could not be started, when it is waited on', async () => {
+  const sandbox = createSandbox()
+  const running = startScript(fixture('echo-argv.ts'), { cwd: sandbox.join('gone') })
+
+  // `spawn` reports this as an event rather than a throw, so without a
+  // listener it is an uncaught exception vitest attributes to whichever
+  // example is in flight. Rejecting here, and not answering with the status of
+  // -2 that follows a failed spawn, is the same refusal `runScript` makes: a
+  // result full of empty strings would read as a command that ran and said
+  // nothing.
+  await expect(running.ended()).rejects.toThrow(/ENOENT/)
+})
+
+it('answers the same thing however late, and however often, it is asked', async () => {
+  const running = startScript(fixture('fail.ts'))
+
+  const first = await running.ended()
+
+  expect(first).toEqual({ status: 3, signal: null, stderr: 'boom\n' })
+  // `close` has already fired by now. A wait that subscribed to it at this
+  // point would never settle, which presents as a bare suite timeout with
+  // nothing pointing at the helper.
+  expect(await running.ended()).toEqual(first)
+})
+
+it('survives a child that exits before it reads its stdin', async () => {
+  // Past the pipe buffer, so the write is still in flight when the child goes
+  // and this end takes an EPIPE. Unlistened that is an uncaught exception,
+  // where what it means is only that the reader left.
+  const running = startScript(fixture('fail.ts'), { stdin: 'x'.repeat(1 << 20) })
+
+  expect((await running.ended()).status).toBe(3)
+})
+
+it('closes this end of the child stdout without losing the child', async () => {
+  const running = startScript(fixture('fail.ts'))
+
+  // What `| head -1` leaves behind. The child itself is still reachable, and
+  // the channel a real failure has to reach is untouched.
+  running.closeStdout()
+
+  expect(running.child.pid).toBeGreaterThan(0)
+  expect((await running.ended()).stderr).toContain('boom')
+})
+
+it('answers a line asked for after this end of stdout was closed', async () => {
+  const running = startScript(fixture('fail.ts'))
+
+  running.closeStdout()
+
+  // A destroyed stream never emits `end`, so a wait that listened only for
+  // that one would sit here until the suite timed out rather than saying the
+  // reader had already gone.
+  expect(await running.firstLine()).toBe('')
+  expect((await running.ended()).status).toBe(3)
 })

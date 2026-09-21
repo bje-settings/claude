@@ -1,0 +1,40 @@
+{
+  "text": [
+    {
+      "name": "the usage line names the file that carries it",
+      "python": "usage: hook-io.py",
+      "port": "usage: hook-io.ts",
+      "why": "The subcommand list, the stream it goes to, the exit status 2 and the silence on stdout are all unchanged; only the name of the file a reader is being pointed at moved with the port, and it is applied to every captured usage row rather than asserted once."
+    }
+  ],
+  "paths": [
+    {
+      "name": "fan-out/missing-entry-point",
+      "python": "scripts/gh-sync.py",
+      "port": "bin/gh.ts",
+      "why": "The note a broken install leaves on stderr names the file that is missing, and the file moved with the port: the fan-out is now a subcommand of bin/gh.ts rather than a script of its own. The sentence, the stream it goes to and the silence on stdout are unchanged."
+    }
+  ],
+  "syncTimeout": [
+    {
+      "raw": "２",
+      "python": "2",
+      "port": "50",
+      "why": "Python's float() accepts any Unicode decimal digit, so a fullwidth two is two. The port's grammar stops at ASCII digits, because deriving a digit's value from its code point needs the per-block zero for all sixty Nd blocks and no runtime API hands it over. The value is an operator-set bound on one child, a non-ASCII digit in it is a typo either way, and both readings end in a bound a session never sees unless the fan-out also runs over."
+    }
+  ],
+  "notes": [
+    {
+      "name": "the scrubbed environment",
+      "why": "The Python inherited the whole environment for its git calls and its child. The port removes the variables git itself calls repository-local (git rev-parse --local-env-vars) plus GH_REPO, because GIT_DIR outranks both cwd and git -C and a session started from inside a git hook would otherwise be told about the hook's own repository. lib/README.md records this under Decisions not taken as the helper that reopens at this port. It changes no captured row, because none of those variables is set in the states the capture was built in."
+    },
+    {
+      "name": "a PATH that is not set at all",
+      "why": "shutil.which with no PATH in the environment falls back to os.confstr(CS_PATH), which is /usr/bin:/bin on macOS and /bin:/usr/bin on Linux, so the Python's own answer is platform-dependent there. The port reads an absent PATH as an empty one and therefore finds no git, which is the silent arm. Claude Code always sets PATH for a hook, so no captured row reaches either reading."
+    },
+    {
+      "name": "a child detached only when it is bounded",
+      "why": "hook-io.py passed start_new_session=True to every Popen, whatever the timeout was. lib/process.ts makes the child a session leader only when timeoutMs is given, so the one state where the port's child is not one is an override of GH_HOOK_SYNC_TIMEOUT above the setTimeout ceiling, where the port passes no bound at all. With no bound there is no group kill that depends on the group existing, so what is lost is only that a signal sent to the session's own group would reach the child too. It changes no captured row: every captured fan-out runs with a bound."
+    }
+  ]
+}

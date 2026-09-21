@@ -40,6 +40,12 @@
 //
 // This file ships. It imports nothing at all, and stays inside the erasable
 // subset (ADR 001).
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; the
+// file and line references below are to what they held at `cd0d515`, kept
+// because each says where a rule came from. Nothing here changed with the
+// deletion.
 
 /** One stream error worth reporting: node's code and node's message. */
 export interface StreamFailure {

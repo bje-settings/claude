@@ -19,6 +19,11 @@
 // started, a child that exited non-zero, and a child a signal killed were all
 // reported in the job's own section. A direct call has no exit status of its
 // own and cannot fail to start.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import path from 'node:path'
 import { discoverRepos, gitUnavailable, toplevel } from '../discover.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'

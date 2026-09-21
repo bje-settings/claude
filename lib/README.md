@@ -12,6 +12,11 @@ is also why the link target is compared as the exact string `../../../lib` by
 `tests/repo-layout.test.ts` rather than resolved: a different spelling that happens to resolve here
 installs differently.
 
+**The Python this directory ports was deleted at #127.** `plugins/gh/scripts/*.py`, its `lib/`,
+and `plugins/gh/hooks/hook-io.py` are gone from the tree; the file and line references below are
+to what they held at `cd0d515`, kept because each says where a rule came from. Nothing here
+changed with the deletion.
+
 Everything here **ships**. Each file takes no dependency and imports nothing outside this
 directory but node's own built-ins, which today is `node:util` in `args.ts` and
 `node:child_process` in `process.ts`; `node-floor.ts`, `envelope.ts` and `streams.ts` import

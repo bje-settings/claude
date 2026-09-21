@@ -17,7 +17,8 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 ### Plugins
 
 Plugins are listed in `README.md`; each has its own README. New `gh` skills belong in the `gh`
-plugin, and repo discovery shared by its skills is `plugins/gh/scripts/lib/discover.py` until #127.
+plugin, and repo discovery shared by its skills is `plugins/gh/src/discover.ts`, reachable from a
+skill as `node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" discover <path>`.
 
 New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
 has the rules. A command is an exported function at `plugins/<plugin>/src/commands/<command>.ts`
@@ -25,10 +26,11 @@ behind a thin adapter at `plugins/<plugin>/bin/<command>.ts`, a hook goes at
 `plugins/<plugin>/hooks/*.ts`, and code shared between plugins is the root `lib/`, reached through
 the committed symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
 
-The Python layer is retiring and is not the pattern to copy. `gh` (#127) and `field-test` (#136)
-still run scripts at `plugins/<plugin>/scripts/*.py` and hooks at `plugins/<plugin>/hooks/*.py`,
-stdlib only on a Python 3.9 floor. `.claude/rules/type-py.md` has the layout, the import rules and
-the rest, and loads whenever a session opens one of those files.
+The Python layer is retiring and is not the pattern to copy. `field-test` (#136) is the last
+plugin that runs scripts at `plugins/<plugin>/scripts/*.py` and a hook at
+`plugins/<plugin>/hooks/*.py`, stdlib only on a Python 3.9 floor.
+`.claude/rules/type-py.md` has the layout, the import rules and the rest, and
+loads whenever a session opens one of those files.
 
 In either language nothing under `plugins/` is bash, a plugin takes no dependency and carries no
 `package.json`, and a command's exit codes and stdout are a contract with its callers.
@@ -153,8 +155,8 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
   imported only from test files so it never ships; `tests/` holds this repository's own checks.
 - A plugin's Python tests live in `tests/<plugin>/`, with tests that span plugins or cover the
   harness itself at the root of `tests/`. A module's basename is unique across the whole suite,
-  because pytest imports them into one namespace: `test_gh_fixtures.py` and `test_ft_fixtures.py`,
-  never two `test_fixtures.py`.
+  because pytest imports them into one namespace: `test_ft_fixtures.py` carries its plugin in the
+  name rather than being a second `test_fixtures.py`.
 - In the Python suite, `run_script` drives a script black-box as its own process under
   `sys.executable`, the way Claude Code runs it; logic awkward to provoke from the outside gets
   direct unit tests beside that.
@@ -203,10 +205,10 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
 
 - Any script that can delete or overwrite something needs a test proving both that it acts when
   it should and that it refuses when it should. Assert against real repositories built by the
-  fixtures rather than mocking git; see `tests/gh/README.md`.
-- When a fixture makes a claim about the state it produces, assert that claim in the plugin's own
-  fixture test too (`tests/gh/test_gh_fixtures.py`, `tests/field-test/test_ft_fixtures.py`), so
-  the other tests cannot pass for the wrong reason.
+  fixtures rather than mocking git; `harness/git.ts` builds them.
+- When a fixture makes a claim about the state it produces, assert that claim in the fixture's
+  own test too (`harness/*.test.ts`, `tests/field-test/test_ft_fixtures.py`), so the other tests
+  cannot pass for the wrong reason.
 - Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
   repos outside the `bje` enterprise into this repo; reconstruct the shape of the case instead.
 - Test the non-deterministic parts too. For a skill or agent, run realistic prompts in fresh

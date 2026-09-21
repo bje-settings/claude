@@ -37,10 +37,10 @@ inside it is a no-op, so running this somewhere unexpected costs nothing.
 2. `git fetch --prune origin`.
 3. Checkout of the default branch, then `git merge --ff-only`. Fast-forward only, so a
    diverged branch is reported for manual handling rather than merged automatically.
-4. Dependency install, but only if the pull actually changed a lock file. Detected from
-   `pnpm-lock.yaml`, `yarn.lock`, or `package-lock.json`, and run with pnpm, Yarn Berry, or
-   npm respectively. Yarn 1 and bun are deliberately out of scope: a repo on either gets the
-   lock-file notice and installs by hand.
+4. Dependency install, but only if the pull actually changed a lock file. **pnpm only**: the
+   one lock file watched is `pnpm-lock.yaml`, and the one command run is
+   `pnpm install --frozen-lockfile`. A checkout on any other package manager is synced as a
+   repository with no dependencies to install, and is installed by hand.
 5. Branch and worktree pruning.
 
 ### How a branch is proven merged
@@ -199,17 +199,17 @@ not the clock.
 Merge by hand, enable or disable auto-merge, bypass or re-run a required check, edit labels,
 resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
 
-### Scripts
+### Commands
 
-The deterministic parts are two scripts; the agent only decides between their results.
+The deterministic parts are two commands; the agent only decides between their results.
 
 ```bash
-python3 <plugin>/scripts/gh-shepherd-status.py <path>               # the work list, as JSON
-python3 <plugin>/scripts/gh-shepherd-pr.py <path> <n> state|rebase|recreate|wait|settle|merged
-python3 <plugin>/scripts/gh-shepherd-pr.py <path> <n> skip <reason-file>
+node <plugin>/bin/gh.ts shepherd-status <path>               # the work list, as JSON
+node <plugin>/bin/gh.ts shepherd-pr <path> <n> state|rebase|recreate|wait|settle|merged
+node <plugin>/bin/gh.ts shepherd-pr <path> <n> skip <reason-file>
 ```
 
-`status` changes nothing. `gh-shepherd-pr.py` writes only through `rebase` (the branch update),
+`shepherd-status` changes nothing. `shepherd-pr` writes only through `rebase` (the branch update),
 `recreate` and `skip` (one comment each), and refuses each of those when its precondition does
 not hold: a pull request that is not open, a `recreate` on a branch Dependabot did not author, a
 `skip` with an empty reason. Every action prints one JSON object with `ok` and `detail`, and
@@ -238,11 +238,15 @@ waiting out a bound on a question nobody asked; a pull request that has already 
 answered rather than refused, since that is the answer `settle` is asked for.
 
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
-`SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`) are documented at the top
-of the script.
+`SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`) are listed by
+`node <plugin>/bin/gh.ts shepherd-pr --help`.
 
 Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
-rule, `scripts/lib/discover.py`, which each script imports.
+rule, and `node <plugin>/bin/gh.ts discover <path>` is that rule on its own, one checkout root
+per line. A directory with no checkouts in it prints nothing and exits **0**: that is an answer,
+not a failure. Exit **1** means the target could not be read at all, with the reason on stderr;
+exit **2** means the arguments were refused. `sync` answers 2 where `discover` answers 1 on the
+same two states, so a skill running both reads each status against its own command.
 
 ## Session start hook
 
@@ -254,25 +258,27 @@ check and, if there is anything worth acting on, asks whether to run `/gh:sync`.
   purely local and does not hit the network.
 - Otherwise it stays silent.
 
-The whole hook is `hooks/hook-io.py`, run as `hook-io.py session-start`: it reads the payload,
+The whole hook is `hooks/hook-io.ts`, run as `hook-io.ts session-start`: it reads the payload,
 picks the branch the payload's directory calls for, and writes the response. Its `cwd`, `branch`
 and `report` subcommands are the pieces that decision is built from, kept as seams for the tests
 and for debugging the hook by hand.
 
 The hook never changes a branch, worktree, or working tree, and every path through
 `session-start` exits 0, so it cannot block a session from starting or surprise you with a change
-you did not ask for. `hooks.json` wraps it in `command -v python3 ... ; exit 0`, which holds that
-guarantee even for the cases the file is never reached in at all: no python3 on PATH, or a hooks
-directory this file was never installed into. In fan-out mode it does fetch, which updates
+you did not ask for. `hooks.json` wraps it in `command -v node ... ; exit 0`, which holds that
+guarantee even for the cases the file is never reached in at all: no node on PATH, or a hooks
+directory this file was never installed into. A node below the floor is the same silence: the
+hook checks the running version first and exits 0 without writing anything, because a hook that
+explains itself on stderr writes into the session. In fan-out mode it does fetch, which updates
 remote-tracking refs, and that is one network round trip per repository against the hook's 60
 second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
-out. A degraded run -- a missing `gh-sync.py`, no git on PATH, a fan-out that failed or timed out
--- leaves a line on stderr for `claude --debug`, and says so in the session only when there is
+out. A degraded run (a missing `bin/gh.ts`, no git on PATH, a fan-out that failed or timed out)
+leaves a line on stderr for `claude --debug`, and says so in the session only when there is
 something to act on.
 
 ## Credentials
 
-These scripts shell out to `gh` and `git` and inherit the environment of the directory they
+These commands shell out to `gh` and `git` and inherit the environment of the directory they
 were invoked from. If you use a per-directory credential switcher such as `direnv` to select a
 GitHub account (`GH_CONFIG_DIR`), run the command from inside the tree it applies to, so the
 right account is active.
@@ -284,36 +290,45 @@ all but one.
 
 ## Running outside Claude Code
 
-The scripts have no dependency on the plugin runtime:
+The commands have no dependency on the plugin runtime:
 
 From an installed copy of the plugin, `<plugin>` below is the plugin's own directory; inside
 Claude Code the skills use `${CLAUDE_PLUGIN_ROOT}` for it.
 
 ```bash
-python3 <plugin>/scripts/gh-sync.py --dry-run /path/to/a/directory-of-repos
-python3 <plugin>/scripts/gh-sync-repo.py --dry-run /path/to/a/repo
-python3 <plugin>/scripts/gh-shepherd-status.py /path/to/a/repo
-python3 <plugin>/scripts/gh-shepherd-pr.py /path/to/a/repo 12 state
+node <plugin>/bin/gh.ts sync --dry-run /path/to/a/directory-of-repos
+node <plugin>/bin/gh.ts sync-repo --dry-run /path/to/a/repo
+node <plugin>/bin/gh.ts discover /path/to/a/directory-of-repos
+node <plugin>/bin/gh.ts shepherd-status /path/to/a/repo
+node <plugin>/bin/gh.ts shepherd-pr /path/to/a/repo 12 state
 ```
 
-Every script in this plugin is Python: stdlib-only, targeting Python 3.9, which is what
-`/usr/bin/python3` is on a Mac with the Command Line Tools.
+`node <plugin>/bin/gh.ts` with no command prints the list, and each command prints its own usage
+for `--help`.
+
+Everything in this plugin is TypeScript, run directly by node with no build step, and it needs
+**node 22.18 or newer**: that is the release whose type stripping runs a `.ts` file as it stands.
+The plugin takes no dependency of its own and carries no `package.json`, so nothing is installed
+to use it. Every entry point checks the running version before it loads anything else; the
+session-start hook does it in silence, and a command says which version it found.
 
 ## Tests
 
-The tests for this plugin live in the repository that owns it, `bje-settings/claude`, under
-`tests/gh/`, and are not distributed with the plugin: a read-only copy of this directory carries
-the code and not the harness. If you are reading this in such a copy, `UPSTREAM.json` beside this
-file names the source repository and the commit the copy was taken from.
+The tests for this plugin live beside the code, as `src/**/*.test.ts`, in the repository that
+owns it, `bje-settings/claude`. They are not distributed: a read-only copy of this directory
+carries the code and not the tests or their fixtures. If you are reading this in such a copy,
+`UPSTREAM.json` beside this file names the source repository and the commit the copy was taken
+from.
 
 Because these skills delete branches and remove worktrees, their behaviour is asserted against
 real git repositories rather than mocks. Covered in particular: every path that can delete
 something (each merge signal, a reused branch name, a fork's pull request, a pull request merged
 into another base, worktrees clean and dirty), every preflight refusal, and the guarantee that
-`--dry-run` changes nothing it says it would change. `gh-sync-repo.py` and `gh-sync.py` are each
-asserted against the report their shell predecessors printed, captured scenario by scenario
-before those versions were deleted.
+`--dry-run` changes nothing it says it would change. Every command is asserted against the report
+its predecessor printed, captured scenario by scenario before that version was deleted, and the
+session-start hook's response is compared byte for byte: it is a JSON document Claude Code
+parses, so its shape is a contract and not a rendering.
 
-All three supported package managers have an install test. The uncovered remainder is defensive
-branches guarding states that cannot be provoked, such as a ref that resolves during enumeration
-and fails immediately after.
+pnpm's install path has a test that runs a real `pnpm install`. The uncovered remainder is
+defensive branches guarding states that cannot be provoked, such as a ref that resolves during
+enumeration and fails immediately after.

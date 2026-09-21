@@ -2,6 +2,11 @@
 // reach these through the sync report, but a filter that quietly stopped
 // excluding forks would be a force delete of somebody's branch, so each arm is
 // asserted here too.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { describe, expect, it } from 'vitest'
 
 import { hasMatch, isPullRequestRow, namesBranch, ownRows } from './prs.ts'

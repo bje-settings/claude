@@ -9,6 +9,11 @@
 // The command function is the seam (ADR 001): arguments, the environment, an
 // injected `gh` and the output writers in, an exit status out. Nothing is
 // spawned and no `gh` is on PATH.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import {

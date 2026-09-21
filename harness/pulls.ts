@@ -30,6 +30,11 @@
 // registered still throws and names itself.
 //
 // This is test code and does not ship.
+//
+// The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
+// `tests/gh/bin/gh`, was deleted at #127; the file and line references below
+// are to what they held at `cd0d515`, kept because they say where each rule
+// came from.
 
 import {
   createGhMock,

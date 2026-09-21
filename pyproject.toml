@@ -35,33 +35,8 @@ extend-include = ["tests/*/bin/gh"]
 # module carries `from __future__ import annotations`. FA102 is that check.
 select = ["E", "F", "W", "I", "UP", "B", "FA"]
 
-[tool.ruff.lint.isort]
-# `lib` is third-party to this repository's Python, and stays that way. The four
-# tests/gh/ modules that write `from lib import ...` mean the gh plugin's own
-# scripts/lib/, which the tests put on sys.path; nothing at the repository root
-# is that package. isort infers first-party from the directories at the root, so
-# the moment the TypeScript shared library appears as root lib/ (#125, ADR 001)
-# it reclassifies the name and I001 fires on four files no one touched. Pinning
-# it here keeps the import blocks as they are; the whole section retires with the
-# Python toolchain at #138.
-known-third-party = ["lib"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-  # The examples that shell out to a real package manager, twice each: once to
-  # write the lock file, once to install from it. They are the only ones that
-  # need a package manager installed at all, and that dependency is what the
-  # marker is for -- not speed. Against a warm corepack cache they cost about
-  # three seconds apiece, which puts them beside the ordinary sync examples
-  # rather than ahead of them; against a cold one the shim downloads the manager
-  # first and they cost closer to a minute. No hook deselects them: lefthook's
-  # pre-commit gates are staged-only and never run this suite at all (ADR 002),
-  # so nothing here is only ever checked locally. CI always runs the whole
-  # suite, marker and all. -m "not slow" is for a hand run on a machine with no
-  # package manager installed.
-  "slow: runs a real package-manager install",
-]
 
 [tool.coverage.run]
 # plugins/ is what people install. scripts/ is this repo's own tooling, which is

@@ -15,6 +15,11 @@
 // stub `gh` does and what the per-branch fallback needs to be exercised at
 // all: `createGhMock` answers every call with one registered reply, by
 // design, so it cannot tell a bulk window from a per-branch query.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

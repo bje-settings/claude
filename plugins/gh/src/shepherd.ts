@@ -23,6 +23,11 @@
 // gh's answer may be missing a field, or carry a null where an object was
 // asked for, and a declared pull-request type would be a promise this module
 // is written not to trust.
+//
+// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree; the file and line references below are to what they held at
+// `cd0d515`, kept because each says where a rule came from.
 
 import { accessSync, constants, statSync } from 'node:fs'
 import type { GhClient } from './lib/gh.ts'
@@ -595,7 +600,7 @@ export const directoryRefusal = (target: string): string | null => {
  * The run and the job a failing check's link names, or `null` for a link that
  * names neither.
  *
- * The port of `JOB_LINK_RE` (`gh-shepherd-pr.py:112`). Only an Actions job
+ * The port of `JOB_LINK_RE` (`gh-shepherd-pr.py:107`). Only an Actions job
  * reports under `.../actions/runs/<run>/job/<job>`, and only that link has a
  * log gh can be asked for; a StatusContext links to its own service, so the
  * caller walks past it rather than stopping at the first failing row.
