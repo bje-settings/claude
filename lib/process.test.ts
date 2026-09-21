@@ -27,6 +27,17 @@ const FIXTURES = `${import.meta.dirname}/fixtures`
 const GENEROUS_MS = 120_000
 /** A bound a child that sleeps for a minute always overruns. */
 const TINY_MS = 250
+/** The one bound that has to be long enough rather than short enough: it
+ *  fires only after two nested cold node starts have written a marker, about
+ *  120 ms idle, so it carries an order of magnitude over that. */
+const GROUP_MS = 4_000
+/** Past the grandchild's own 5 s write, so "it did not survive" is an
+ *  observation and not just an early look. */
+const SURVIVAL_WINDOW_MS = 6_000
+/** What the two above cost, doubled. vitest's default is 5 s, and under it a
+ *  missing group kill reports as a timeout rather than as the assertion that
+ *  names it. */
+const GROUP_TEST_BUDGET_MS = 30_000
 
 const node = (fixture: string, args: string[] = [], options = {}) =>
   run(process.execPath, [fixture, ...args], options)
@@ -179,25 +190,41 @@ it('kills a child that outlives its bound and says the bound fired', async () =>
   expect(result.stdout).toBe('')
 })
 
-it('kills the whole process group, not only the child it holds', async () => {
-  // `hook-io.py:226`: the fan-out starts a child per repository, and killing
-  // the child alone leaves those running against the network long after the
-  // session moved on. The grandchild here inherits the child's stdout, so a
-  // group that survived would also keep this run from ever closing.
-  const sandbox = createSandbox()
-  const marker = sandbox.join('grandchild')
+it(
+  'kills the whole process group, not only the child it holds',
+  async () => {
+    // `hook-io.py:236`: the fan-out starts a child per repository, and
+    // killing the child alone leaves those running against the network long
+    // after the session moved on. The grandchild here inherits the child's
+    // stdout, so a group that survived would also keep this run from ever
+    // closing.
+    //
+    // This is the one bound in the file that has to be long ENOUGH rather
+    // than short enough: it must not fire until two nested cold node starts
+    // with type stripping have written the marker, which is about 120 ms on
+    // an idle machine. GROUP_MS gives that an order of magnitude, and the
+    // survival window outlasts the grandchild's own 5 s write, so the
+    // assertion says something rather than merely arriving early. Both cost
+    // wall clock, which is why this one test names its own budget instead of
+    // running on vitest's 5 s default, where a loaded runner would report a
+    // missing group kill as a timeout rather than as the assertion it is.
+    const sandbox = createSandbox()
+    const marker = sandbox.join('grandchild')
 
-  const result = await node(`${FIXTURES}/spawn-sleeper.ts`, [marker], { timeoutMs: 1_000 })
+    const result = await node(`${FIXTURES}/spawn-sleeper.ts`, [marker], { timeoutMs: GROUP_MS })
 
-  expect(result.timedOut).toBe(true)
-  expect(result.stdout).toContain('spawned ')
-  expect(existsSync(`${marker}.started`)).toBe(true)
-  // Generous: the grandchild writes this 5 s after it starts, and the run
-  // above returned inside 1 s.
-  await new Promise((resolve) => setTimeout(resolve, 2_000))
-  expect(existsSync(`${marker}.survived`)).toBe(false)
-  expect(existsSync(`${marker}.started`)).toBe(true)
-})
+    expect(result.timedOut).toBe(true)
+    expect(result.stdout).toContain('spawned ')
+    expect(existsSync(`${marker}.started`)).toBe(true)
+    // Past the grandchild's own 5 s write, measured from when it started
+    // rather than from now, so a grandchild that outlived the group kill has
+    // actually had its chance to say so.
+    await new Promise((resolve) => setTimeout(resolve, SURVIVAL_WINDOW_MS))
+    expect(existsSync(`${marker}.survived`)).toBe(false)
+    expect(existsSync(`${marker}.started`)).toBe(true)
+  },
+  GROUP_TEST_BUDGET_MS,
+)
 
 it('measures how long the child actually took', async () => {
   // Only the floor is asserted. A loaded runner makes a child slower, never

@@ -106,7 +106,7 @@ export type Runner = (
 /**
  * Kill `pid`'s whole process group.
  *
- * The port of `kill_group` (`hook-io.py:233`, `gh-shepherd-pr.py:234`), and
+ * The port of `kill_group` (`hook-io.py:236`, `gh-shepherd-pr.py:234`), and
  * the reason {@link run} starts a bounded child detached: `gh pr checks
  * --watch` polls in a loop and the sync fan-out starts a child per
  * repository, so killing the one child this process holds would leave its

@@ -1,6 +1,6 @@
 // Starts a grandchild and then waits: the shape `gh-sync.py` and
 // `gh pr checks --watch` have, where killing the one child this process holds
-// would leave its own children running (hook-io.py:233, the comment on
+// would leave its own children running (hook-io.py:236, the comment on
 // `kill_group`).
 //
 // The grandchild inherits this child's stdout, so if the process group is not
