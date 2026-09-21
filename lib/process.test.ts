@@ -8,9 +8,10 @@
 // `harness/spawn.ts` makes and for the same reason: the interpreter running
 // this suite is the interpreter under test, so a run on the 22.18 leg
 // genuinely exercises 22.18. `harness/fixtures/` supplies the four that
-// already exist; `lib/fixtures/` supplies the three it has no equivalent of
-// (a child that sleeps, a child that starts a child, a child that exits
-// before reading its stdin), because `harness/fixtures/` is outside this
+// already exist; `lib/fixtures/` supplies the ones it has no equivalent of
+// (a child that sleeps, a child that starts a child, the grandchild it
+// starts, a child that exits before reading its stdin, and a child that
+// prints its own process group), because `harness/fixtures/` is outside this
 // layer's allowed file set.
 //
 // Every bound is generous where the test says it did NOT fire and tiny where
@@ -48,8 +49,11 @@ const SURVIVAL_WINDOW_MS = 6_000
  *  turn a missing group kill into an assertion failure: the fixture hands the
  *  grandchild the child's stdout on purpose, so a surviving group keeps the
  *  pipe open, `close` never fires and `run` never resolves, and the test fails
- *  as a timeout at this budget rather than at vitest's default. Later, not
- *  different. */
+ *  as a timeout rather than as the assertion. Later, not different.
+ *
+ *  Named here even though `vitest.config.ts` now sets the same number as the
+ *  suite default, because this test is the reason the number is what it is and
+ *  a config that moved should not silently take this one with it. */
 const GROUP_TEST_BUDGET_MS = 30_000
 
 const node = (fixture: string, args: string[] = [], options = {}) =>
@@ -224,9 +228,8 @@ it(
     // an idle machine. GROUP_MS gives that an order of magnitude, and the
     // survival window outlasts the grandchild's own 5 s write, so the
     // assertion says something rather than merely arriving early. Both cost
-    // wall clock, which is why this one test names its own budget instead of
-    // running on vitest's 5 s default, where a loaded runner would report a
-    // missing group kill as a timeout rather than as the assertion it is.
+    // wall clock, which is why this one test names its own budget rather than
+    // inheriting whatever the suite default happens to be.
     const sandbox = createSandbox()
     const marker = sandbox.join('grandchild')
 
