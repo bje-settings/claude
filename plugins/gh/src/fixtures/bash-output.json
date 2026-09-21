@@ -1,0 +1,162 @@
+{
+  "already_up_to_date": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n"
+  },
+  "cannot_determine_the_default_branch": {
+    "status": 0,
+    "stdout": "work\n  \u2717 skipped: cannot determine the default branch\n"
+  },
+  "cannot_enter_directory": {
+    "status": 0,
+    "stdout": "nowhere\n  \u2717 skipped: cannot enter directory\n"
+  },
+  "cannot_list_local_branches": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2717 skipped: cannot list local branches\n"
+  },
+  "cannot_read_the_working_tree": {
+    "status": 0,
+    "stdout": "work\n  \u2717 skipped: cannot read the working tree state\n"
+  },
+  "cannot_switch_pruning_only": {
+    "status": 0,
+    "stdout": "work\n  \u2717 cannot switch to main (checked out elsewhere?); pruning only\n  \u2713 deleted gone (<sha>, merged into main)\n  \u00b7 kept side (already at origin/main, nothing to prune)\n"
+  },
+  "could_not_delete_a_branch": {
+    "status": 0,
+    "stdout": "work\n  \u2717 cannot switch to main (checked out elsewhere?); pruning only\n  \u2717 could not delete side\n"
+  },
+  "could_not_fast_forward": {
+    "status": 0,
+    "stdout": "work\n  \u2717 could not fast-forward main\n"
+  },
+  "delete_on_ancestry": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2713 deleted ff-done (<sha>, merged into main)\n"
+  },
+  "delete_on_pull_request_proof": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2713 deleted squashed (<sha>, merged PR)\n"
+  },
+  "diverged": {
+    "status": 0,
+    "stdout": "work\n  \u2717 main has diverged from origin/main; needs a manual merge\n"
+  },
+  "dry_run": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 would switch from side to main\n  \u00b7 main already up to date (<sha>)\n  \u00b7 would delete ff-done (<sha>, merged into main)\n  \u00b7 kept side (already at origin/main, nothing to prune)\n"
+  },
+  "dry_run_worktree_removal": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 would remove worktree <sandbox>/wt and delete wt (<sha>, merged into main)\n"
+  },
+  "fast_forward": {
+    "status": 0,
+    "stdout": "work\n  \u2713 fast-forwarded main <sha>..<sha>\n"
+  },
+  "fetch_failed": {
+    "status": 0,
+    "stdout": "work\n  \u2717 fetch failed; nothing changed\n"
+  },
+  "ignore_a_fork_pull_request": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept patch-1 (no merge proof)\n"
+  },
+  "ignore_another_base": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept for-release (no merge proof)\n"
+  },
+  "keep_a_branch_on_the_tip": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept fresh (already at origin/main, nothing to prune)\n"
+  },
+  "keep_a_branch_whose_tip_has_moved": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept reused (merged PRs used this name; none at this commit)\n"
+  },
+  "keep_a_dirty_worktree": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2717 kept wt-dirty and its worktree <sandbox>/wt (uncommitted changes)\n"
+  },
+  "keep_a_worktree_that_cannot_be_removed": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2717 kept wt (could not remove worktree <sandbox>/wt)\n"
+  },
+  "keep_an_unreadable_worktree": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2717 kept wt (cannot read worktree <sandbox>/wt)\n"
+  },
+  "keep_without_merge_proof": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept wip (no merge proof)\n"
+  },
+  "lock_file_changed": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 would fast-forward main <sha>..<sha>\n  \u00b7 lock file changed in that range; would run install\n"
+  },
+  "lock_file_untouched": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 would fast-forward main <sha>..<sha>\n"
+  },
+  "no_install": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 would fast-forward main <sha>..<sha>\n"
+  },
+  "no_origin_remote": {
+    "status": 0,
+    "stdout": "work\n  \u2717 skipped: no 'origin' remote\n"
+  },
+  "not_a_git_repository": {
+    "status": 0,
+    "stdout": "plain\n  \u2717 skipped: not a git repository\n"
+  },
+  "operation_in_progress": {
+    "status": 0,
+    "stdout": "work\n  \u2717 skipped: git operation in progress (rebase-merge)\n"
+  },
+  "operation_in_progress_in_a_linked_worktree": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2717 skipped: git operation in progress in <sandbox>/wt (rebase-merge)\n"
+  },
+  "origin_default_missing": {
+    "status": 0,
+    "stdout": "work\n  \u2717 skipped: origin/trunk does not exist locally; nothing to compare against\n"
+  },
+  "past_the_bulk_window": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2713 deleted landed (<sha>, merged PR)\n"
+  },
+  "per_branch_query_failed": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2717 kept first (could not ask about this branch; unproven, not disproven)\n  \u2717 kept second (could not ask about this branch; unproven, not disproven)\n  \u2717 2 branch(es) were never checked against pull requests; this run is incomplete\n"
+  },
+  "per_branch_tip_moved": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept moved (merged PRs used this name; none at this commit)\n"
+  },
+  "per_branch_window_crowded": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept busy (too many merged PRs used this name to tell)\n"
+  },
+  "pull_request_lookup_failed": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u00b7 could not read merged pull requests; using ancestry alone\n  \u2713 deleted ff-done (<sha>, merged into main)\n"
+  },
+  "remove_a_clean_worktree": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 main already up to date (<sha>)\n  \u2713 removed worktree <sandbox>/wt\n  \u2713 deleted wt-clean (<sha>, merged into main)\n"
+  },
+  "switch_to_the_default_branch": {
+    "status": 0,
+    "stdout": "work\n  \u2713 switched from side to main\n  \u00b7 main already up to date (<sha>)\n  \u00b7 kept side (already at origin/main, nothing to prune)\n"
+  },
+  "uncommitted_changes": {
+    "status": 0,
+    "stdout": "work\n  \u2717 skipped: uncommitted changes\n"
+  },
+  "would_create_the_default_branch": {
+    "status": 0,
+    "stdout": "work\n  \u00b7 would switch from side to main\n  \u00b7 would create main from origin/main (<sha>)\n  \u00b7 kept side (already at origin/main, nothing to prune)\n"
+  }
+}

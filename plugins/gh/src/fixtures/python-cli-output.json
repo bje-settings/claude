@@ -1,0 +1,128 @@
+{
+  "discover": {
+    "default_target": {
+      "argv": [],
+      "status": 0,
+      "stderr": "",
+      "stdout": "<sandbox>/r/work\n"
+    },
+    "fan_out": {
+      "argv": ["<sandbox>/fan"],
+      "status": 0,
+      "stderr": "",
+      "stdout": "<sandbox>/fan/aaa\n<sandbox>/fan/bbb\n"
+    },
+    "hidden_directory": {
+      "argv": ["<sandbox>/hidden"],
+      "status": 0,
+      "stderr": "",
+      "stdout": "<sandbox>/hidden/visible\n"
+    },
+    "missing_git": {
+      "argv": ["<sandbox>/r/work"],
+      "status": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    "no_repositories": {
+      "argv": ["<sandbox>/empty"],
+      "status": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    "not_a_directory": {
+      "argv": ["<sandbox>/nope"],
+      "status": 1,
+      "stderr": "not a directory: <sandbox>/nope\n",
+      "stdout": ""
+    },
+    "not_recursive": {
+      "argv": ["<sandbox>/deep"],
+      "status": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    "repository": {
+      "argv": ["<sandbox>/r/work"],
+      "status": 0,
+      "stderr": "",
+      "stdout": "<sandbox>/r/work\n"
+    },
+    "subdirectory": {
+      "argv": ["<sandbox>/r/work/src/deep"],
+      "status": 0,
+      "stderr": "",
+      "stdout": "<sandbox>/r/work\n"
+    },
+    "unreadable_target": {
+      "argv": ["<sandbox>/blocked"],
+      "status": 1,
+      "stderr": "could not read <sandbox>/blocked: [Errno 13] Permission denied: '<sandbox>/blocked'\n",
+      "stdout": ""
+    }
+  },
+  "sync": {
+    "help": {
+      "argv": ["--help"],
+      "status": 0,
+      "stderr": "",
+      "stdout": "gh-sync.py — sync the current checkout, or every checkout one level down.\n\nUsage:\n  gh-sync.py [--dry-run] [--no-install] [-j N] [path]\n\nScope comes from the target directory, so no caller has to classify it:\n  - the directory is a git repo     -> sync that repo\n  - the directory is not a git repo -> sync every immediate subdirectory that\n                                       is a git repo, non-recursively\n\nSubdirectories that are not git repos are skipped without comment. Nothing is\never cloned: only checkouts that already exist locally are touched.\n\nThe per-repo work is gh-sync-repo.py, one subprocess per repository, at most\n`-j N` at a time. Its output is collected per repo and printed in directory\norder, never in the order the jobs happened to finish.\n"
+    },
+    "missing_git": {
+      "argv": ["<sandbox>/fan"],
+      "status": 2,
+      "stderr": "missing git: not on PATH\n",
+      "stdout": ""
+    },
+    "non_numeric_jobs": {
+      "argv": ["-j", "four", "<sandbox>"],
+      "status": 2,
+      "stderr": "invalid -j value: four\n",
+      "stdout": ""
+    },
+    "not_a_directory": {
+      "argv": ["<sandbox>/nothing-here"],
+      "status": 2,
+      "stderr": "not a directory: <sandbox>/nothing-here\n",
+      "stdout": ""
+    },
+    "unknown_flag": {
+      "argv": ["--nope", "<sandbox>"],
+      "status": 2,
+      "stderr": "unknown flag: --nope\n",
+      "stdout": ""
+    },
+    "unreadable_target": {
+      "argv": ["--dry-run", "<sandbox>/blocked"],
+      "status": 2,
+      "stderr": "could not read <sandbox>/blocked: [Errno 13] Permission denied: '<sandbox>/blocked'\n",
+      "stdout": ""
+    },
+    "zero_jobs": {
+      "argv": ["-j", "0", "<sandbox>"],
+      "status": 2,
+      "stderr": "invalid -j value: 0\n",
+      "stdout": ""
+    }
+  },
+  "sync-repo": {
+    "help": {
+      "argv": ["--help"],
+      "status": 0,
+      "stderr": "",
+      "stdout": "gh-sync-repo.py — sync one checkout: move to the default branch, fast-forward,\ninstall if a lock file changed, and prune branches whose work has landed.\n\nUsage:\n  gh-sync-repo.py [--dry-run] [--no-install] <repo-path>\n\nFlags may also arrive as GH_SYNC_DRY_RUN=1 / GH_SYNC_NO_INSTALL=1, which is how\ngh-sync.py passes them to the jobs it runs one per repository.\n\nExit status is 0 for a synced repo AND for a skipped one: skipping is a normal\noutcome, not a failure. Non-zero means the script itself broke.\n"
+    },
+    "no_path": {
+      "argv": [],
+      "status": 2,
+      "stderr": "usage: gh-sync-repo.py [--dry-run] [--no-install] <repo-path>\n",
+      "stdout": ""
+    },
+    "unknown_flag": {
+      "argv": ["--wat", "<sandbox>/r/work"],
+      "status": 2,
+      "stderr": "unknown flag: --wat\n",
+      "stdout": ""
+    }
+  }
+}

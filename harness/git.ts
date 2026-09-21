@@ -67,6 +67,20 @@ for failing in \${GIT_STUB_FAIL:-}; do
       ;;
   esac
 done
+# GIT_STUB_SILENT is the other shape a git on PATH can take, and the one CI
+# reached: exit 0 and print nothing. Real git answers these questions with a
+# status, but the Python guards an empty answer at every one of them
+# (\`discover.py:66\`, \`gh-sync-repo.py:210\`, \`:241\`, \`:349\`, \`:546\`, \`:673\`),
+# so the port has to be exercised against it. Separate from GIT_STUB_FAIL
+# because a refusal and a silent success send a caller to different arms.
+for silent in \${GIT_STUB_SILENT:-}; do
+  [ -n "$silent" ] || continue
+  case "$tail " in
+    "$silent "*)
+      exit 0
+      ;;
+  esac
+done
 exec "$real" "$@"
 `
 
@@ -133,7 +147,14 @@ export interface GitFixtures {
    *  missing from PATH, or `GIT_STUB_FAIL` unset, or a typo in a subcommand,
    *  the shim forwards to the real git and says nothing. Assert on the
    *  `git stub: refusing ` line, not merely on a non-zero status, or a test
-   *  that meant to exercise the failure passes on the success path. */
+   *  that meant to exercise the failure passes on the success path.
+   *
+   *  The same shim also reads `GIT_STUB_SILENT`, a comma-separated list of
+   *  subcommands it answers with exit 0 and no output at all. That is the
+   *  other shape a `git` on PATH can take, the one CI reached, and the one
+   *  the Python guards against at six call sites; pass it in the environment
+   *  beside the directory, with or without `GIT_STUB_FAIL`. Assert on the
+   *  report line the guard produces, never merely on a status. */
   gitShim(...failing: string[]): { directory: string; failing: string }
 }
 
