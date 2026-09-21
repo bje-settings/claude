@@ -7,14 +7,18 @@ pnpm install                          # the TypeScript toolchain (and the git ho
 uv sync --locked                      # create .venv and install the Python toolchain
 pnpm test                             # the TypeScript suite, with coverage
 uv run --locked pytest -n auto --cov  # the Python suite, with coverage
-pnpm exec biome check . --error-on-warnings && pnpm exec tsc -p tsconfig.json
+pnpm exec biome ci . --error-on-warnings && pnpm exec tsc -p tsconfig.json
 uv run --locked ruff check . && uv run --locked ruff format --check .
 ```
 
-New plugin code is TypeScript, run directly by node 22.18 (`.claude/rules/type-ts.md`), and the
-Python that remains retires with #138. Tests that need `jq` or a package manager skip themselves
-without it (the `gh` stubs shell out to `jq` for `--jq`), and the git hooks' own steps
-additionally need `claude` and `uv`, and warn to stderr without them rather than failing the commit.
+Two toolchains, two prerequisites: Node with corepack enabled (`package.json` pins the pnpm
+version, and `.npmrc` pins the 22.x release pnpm runs everything on), and `uv`. New plugin code
+is TypeScript, run directly by node (`.claude/rules/type-ts.md`), and the Python that remains
+retires piece by piece, each against its own issue (`.claude/rules/type-py.md` names them).
+
+Tests that need `jq` or a package manager skip themselves without it (the `gh` stubs shell out to
+`jq` for `--jq`), and the git hooks' own steps additionally need `node_modules`, `claude` and
+`uv`, and warn to stderr without them rather than failing the commit.
 
 TypeScript tests are co-located with the code they cover, at `plugins/<plugin>/src/**/*.test.ts`
 with fixtures beside them; the shared harness is `harness/` at the repository root, imported only
@@ -42,14 +46,12 @@ because that is what macOS ships at `/usr/bin/python3`.
 
 ## Language server
 
-Sessions on this checkout run the TypeScript language server, which expects the server on `PATH`.
-Install it once per machine:
+Sessions on this checkout run the TypeScript language server, which expects it on `PATH`.
+Install it once per machine (`CLAUDE.md`'s "Language server" section has the why):
 
 ```bash
 npm install -g typescript-language-server typescript
 ```
-
-`CLAUDE.md`'s "Language server" section has the rest.
 
 ## Git hooks
 
