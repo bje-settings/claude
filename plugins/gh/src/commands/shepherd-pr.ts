@@ -18,7 +18,7 @@
 // The command function is the seam (ADR 001): arguments, the environment, an
 // injected `gh`, the clock, the sleep and the output writers in, an exit
 // status out. Nothing is spawned and no `gh` is on PATH.
-import { statSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
@@ -854,16 +854,23 @@ class Shepherd {
   }
 
   async skip(reasonFile: string): Promise<void> {
-    // Resolved against the target, because the Python `os.chdir`'d to it
-    // before this check ran (`gh-shepherd-pr.py:1007`, then `:920`) AND
-    // before gh read the same relative path through `--body-file`
-    // (`:928`). Here the two would otherwise be different directories: the
-    // check runs in this process, whose directory nothing changes, while gh
-    // is spawned with the target as its own (`lib/gh.ts` is handed
-    // `cwd: target`). A relative reason file would then be vetted at one path
-    // and posted from another. The refusal below prints the path as the
-    // caller wrote it, as the Python's did.
-    if (!usableReason(path.resolve(this.options.target, reasonFile))) {
+    // Resolved ONCE, and then both vetted and sent, because the Python
+    // `os.chdir`'d to the target before this check ran
+    // (`gh-shepherd-pr.py:1007`, then `:920`) AND before gh read the same
+    // relative path through `--body-file` (`:928`), so one directory decided
+    // both. Nothing here changes directory: the check runs in this process,
+    // whose directory nothing changes, while gh is spawned with the target as
+    // its own (`lib/gh.ts` is handed `cwd: target`). Deriving the path twice,
+    // lexically here and by the kernel there, is what let them disagree:
+    // `chdir` resolves symbolic links and `path.resolve` does not, so for a
+    // target that is a symlink and a reason file that climbs out of it with
+    // `..` the guard stats one file and gh comments the other. Resolving
+    // against `realpathSync(target)` is the path `chdir` gave the Python, and
+    // handing gh that same value means the two cannot be derived apart.
+    // The refusal still prints the path as the caller wrote it, as the
+    // Python's did (`:921`).
+    const resolved = path.resolve(realpathSync(this.options.target), reasonFile)
+    if (!usableReason(resolved)) {
       this.emit(false, `refused: reason file is missing or empty: ${reasonFile}`)
       return
     }
@@ -871,7 +878,7 @@ class Shepherd {
     if (pull === null) return this.unreadable()
     if (pull.state !== 'OPEN') return this.refuseNotOpen(pull)
     const [posted, out] = await this.ghText(
-      this.options.gh.addComment({ pullRequest: this.options.number, bodyFile: reasonFile }),
+      this.options.gh.addComment({ pullRequest: this.options.number, bodyFile: resolved }),
     )
     if (!posted) {
       this.emit(false, `could not post the skip comment: ${out}`)

@@ -15,7 +15,14 @@
 // advances the clock by exactly what each sleep was asked for, so a 90 second
 // settle bound is driven to its end in no time at all and `waited` is a number
 // this file decided rather than a number the machine happened to measure.
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -1326,15 +1333,50 @@ it('vets the reason file gh will read, not one beside this process', async () =>
     prs: [depPr(1)],
     replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
   })
+  let expected = ''
 
   const result = await drive((_sandbox, repo) => {
     writeFileSync(path.join(repo, 'why.md'), 'not a mechanical fix\n')
+    expected = path.join(realpathSync(repo), 'why.md')
     return { argv: [repo, '1', 'skip', 'why.md'], gh: record.gh }
   })
 
   expect(result.document.ok).toBe(true)
   expect(result.document.detail).toBe('skip comment posted')
-  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: 'why.md' }])
+  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: expected }])
+})
+
+it('posts the file it vetted, even when the target is a symbolic link', async () => {
+  // The two derivations of the path have to be one value. `chdir` resolved
+  // symbolic links for the Python, `path.resolve` does not, and gh is spawned
+  // with the target as its working directory: so a target that is a link and
+  // a reason file that climbs out of it with `..` named `<link>/../why.md` to
+  // the guard and `<real>/../why.md` to gh. Two different files, one of them
+  // never looked at, posted on someone else's pull request.
+  const record = recording({
+    prs: [depPr(1)],
+    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
+  })
+  let posted = ''
+  let vetted = ''
+
+  const result = await drive((sandbox, repo) => {
+    // The file gh reaches through the link, and the one a lexical resolution
+    // would reach instead. Only the first is ever stat'd.
+    vetted = path.join(realpathSync(repo), '..', 'why.md')
+    writeFileSync(vetted, 'the reason that was vetted\n')
+    mkdirSync(sandbox.join('elsewhere'), { recursive: true })
+    posted = sandbox.join('elsewhere', 'link')
+    symlinkSync(repo, posted)
+    // The decoy, so the lexical answer is a file that EXISTS: without it the
+    // guard simply refuses, and the case this is about is the one where both
+    // are there and the wrong one goes out.
+    writeFileSync(sandbox.join('elsewhere', 'why.md'), 'never looked at\n')
+    return { argv: [posted, '1', 'skip', path.join('..', 'why.md')], gh: record.gh }
+  })
+
+  expect(result.document.ok).toBe(true)
+  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: path.resolve(vetted) }])
 })
 
 it('reports no comment url when gh printed none', async () => {
