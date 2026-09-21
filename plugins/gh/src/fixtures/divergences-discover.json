@@ -1,0 +1,10 @@
+{
+  "stderr": [
+    {
+      "name": "unreadable_target",
+      "python": "[Errno 13] Permission denied:",
+      "port": "EACCES: permission denied",
+      "why": "The sentence is the Python's, byte for byte, up to the colon: 'could not read <target>: '. What follows is the runtime's own account of the same errno, and node writes it as 'EACCES: permission denied, scandir <path>' where CPython writes '[Errno 13] Permission denied: <path>'. Both name the code and the path, neither is this port's prose, and gh.ts sync diverges the same way on the same state because it reports the same reason from the same discovery."
+    }
+  ]
+}

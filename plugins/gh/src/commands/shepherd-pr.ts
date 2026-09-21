@@ -148,8 +148,10 @@ cannot make it act on the wrong pull request.
             when the merge state moved to BEHIND or DIRTY, so the caller
             decides again; \`open\` when the bound passed with GitHub saying
             nothing either way. \`waited\` is measured, and \`reads_ok\`,
-            \`read_failures\` and \`read_error\` say how the reading itself went;
-            every poll after the first failing is \`ok: false\`, not \`open\`.
+            \`read_failures\` and \`read_error\` say how the reading itself went.
+            The LAST read decides: a bound that arrives on a read that failed
+            is \`ok: false\` rather than \`open\`, while a failure that a later
+            successful read followed is counted and nothing more.
             Refuses a pull request that is CLOSED, has no auto-merge, or whose
             checks are neither passed nor absent; an already MERGED one is
             answered, not refused. Never watches checks (that is \`wait\`),

@@ -12,16 +12,26 @@
 // through `harness/spawn.ts`, is the one spawned test, on the paths that need
 // no `gh` at all.
 //
-// **The dispatch is `run` below and nothing else.** Layer 4 adds the hook's
-// command by adding one line to it. The import inside each arm is dynamic, so
-// a command nobody asked for is never loaded, and a new one changes no other
-// line in this file.
+// **The dispatch is `run` below and nothing else.** The import inside each
+// arm is dynamic, so a command nobody asked for is never loaded, and a new one
+// changes no other line in this file. `discover` was added by #127 layer 4:
+// the `/gh:shepherd` skill's first step resolves its scope by running
+// discovery and reading one path per line, and that step ran
+// `python3 "$S/lib/discover.py" "$PWD"` until the Python was deleted, so the
+// port owed it a node form. It answers with a status of its own rather than
+// an envelope, because its two refusals are exit 1 in the contract
+// `fixtures/python-cli-output.json` captured.
+//
+// The hook is not here: `hooks/hook-io.ts` is its own entry point, the way
+// `hooks/hook-io.py` was, so `hooks.json` runs one file and the three seams
+// the hook is built from stay reachable by hand.
 //
 // The two shepherd commands answer with an exit status rather than an
 // envelope, because they have a fourth one (3, an internal error) that
 // `lib/envelope.ts` deliberately does not know, and they write their own JSON
-// document through the writers handed to them. That is why `run` answers with
-// a number and the envelope commands are rendered inside their own arm.
+// document through the writers handed to them. `discover` answers with a
+// status for its own reason, given in its file. That is why `run` answers
+// with a number and the envelope commands are rendered inside their own arm.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
@@ -34,6 +44,8 @@ const { createOutput } = await import('../src/lib/streams.ts')
 const USAGE = `usage: gh.ts <command> [options]
 
 commands:
+  discover [path]                                 the checkout roots in scope
+                                                  for a directory, one a line
   sync [--dry-run] [--no-install] [-j N] [path]   sync a checkout, or every
                                                   checkout one level down
   sync-repo [--dry-run] [--no-install] <path>     sync one checkout
@@ -91,6 +103,10 @@ const shepherdEdges = {
 
 /** The command `name` asks for, run, or `null` when nothing answers to it. */
 const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
+  if (name === 'discover') {
+    const { runDiscover } = await import('../src/commands/discover.ts')
+    return runDiscover(argv, edges)
+  }
   if (name === 'sync') {
     const { runSync } = await import('../src/commands/sync.ts')
     return write(await runSync(argv, { ...edges, createGh: repositoryClient }))
