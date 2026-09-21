@@ -1,0 +1,6 @@
+{
+  // The spike sits outside the root gate's include set on purpose (#164): it
+  // is measured by hand, not by CI. Same compiler options, its own inputs.
+  "extends": "../../tsconfig.json",
+  "include": ["."]
+}
