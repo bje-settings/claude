@@ -468,6 +468,25 @@ describe('refusals', () => {
     )
   })
 
+  it("carries gh's account without the argv in front of it", async () => {
+    // The field a report quotes. The Python prints `last_line(stderr)` and the
+    // ordinary refusal is ONE line, so tailing the message would hand a
+    // reader the whole argv: `plugins/gh/src/commands/sync-repo.ts` put forty
+    // characters of `--json` fields inside a rate-limit line before this
+    // existed.
+    const { gh } = clientAnswering({
+      status: 1,
+      stderr: 'gh: API rate limit exceeded\n',
+    })
+    const error = await gh
+      .listMergedPullRequests({ base: 'main', limit: 200 })
+      .catch((thrown: unknown) => thrown)
+
+    expect((error as GhError).detail).toBe('gh: API rate limit exceeded')
+    expect((error as GhError).message).toContain('gh pr list')
+    expect((error as GhError).message).toMatch(/failed: gh: API rate limit exceeded$/)
+  })
+
   it('carries the status and the whole run on the error it throws', async () => {
     const { gh } = clientAnswering({ status: 4, stderr: 'gh auth login\n' })
     const error = await gh.listRuns().catch((thrown: unknown) => thrown)
@@ -502,6 +521,7 @@ describe('refusals', () => {
     const error = await gh.listRuns().catch((thrown: unknown) => thrown)
 
     expect((error as GhError).message).toMatch(/failed: cannot run gh: spawn gh ENOENT$/)
+    expect((error as GhError).detail).toBe('cannot run gh: spawn gh ENOENT')
     expect((error as GhError).status).toBe(127)
   })
 
@@ -518,6 +538,7 @@ describe('refusals', () => {
     expect((error as GhError).message).toMatch(
       /failed: gh's output could not be read: EIO, read EIO$/,
     )
+    expect((error as GhError).detail).toBe("gh's output could not be read: EIO, read EIO")
     expect((error as GhError).status).toBe(0)
   })
 
@@ -544,6 +565,10 @@ describe('refusals', () => {
       stdout: 'not json at all',
       stderr: 'a note\n',
     })
+    // An answer that could not be read has no argv prefix to strip, so the
+    // account and the message are the same string. A caller reading `detail`
+    // gets a whole sentence whichever throw site it caught.
+    expect((error as GhError).detail).toBe((error as GhError).message)
   })
 
   it('throws when a list endpoint answered with something else', async () => {
@@ -551,9 +576,12 @@ describe('refusals', () => {
     // not a list" are different facts, and folding them together is how a
     // caller acts on a repository it could not read.
     const { gh } = clientAnswering({ stdout: '{"message":"Not Found"}' })
-    await expect(gh.listRuns()).rejects.toThrow(
+    const error = await gh.listRuns().catch((thrown: unknown) => thrown)
+
+    expect((error as GhError).message).toContain(
       'gh answered gh run list with something that is not a list',
     )
+    expect((error as GhError).detail).toBe((error as GhError).message)
   })
 
   it.each([
@@ -562,9 +590,12 @@ describe('refusals', () => {
     ['a list', '[{"nameWithOwner":"acme/widgets"}]'],
   ])('throws when the repository answer is %s', async (_shape, stdout) => {
     const { gh } = clientAnswering({ stdout })
-    await expect(gh.viewRepository()).rejects.toThrow(
+    const error = await gh.viewRepository().catch((thrown: unknown) => thrown)
+
+    expect((error as GhError).message).toContain(
       'gh answered gh repo view with something that is not an object',
     )
+    expect((error as GhError).detail).toBe((error as GhError).message)
   })
 })
 

@@ -201,8 +201,11 @@ pass no `--repo`.
 
 Failure is a thrown `GhError` carrying gh's own words, never a result envelope and never an empty
 list: "nothing matched" and "the answer could not be read" are different facts. The error carries
-`status` (gh's exit status, or 127 and 126 when gh could not be started) and `cause` (the whole
-run), so a caller branches on a value rather than on prose. Every member is public: `lib/` is
+`status` (gh's exit status, or 127 and 126 when gh could not be started), `cause` (the whole
+run) and `detail`, so a caller branches on a value rather than on prose. `detail` is gh's own
+account WITHOUT the `gh <argv> failed: ` prefix the message carries, and it is the field a command
+quotes in a one-line reason: the ordinary refusal is a single line of stderr
+("gh: API rate limit exceeded"), so tailing `message` would put the whole argv inside the report. Every member is public: `lib/` is
 reachable under two paths through the `src/lib` symlink, and a `private` or `protected` member
 would make the class nominal per declaration and the two identities no longer assignable.
 

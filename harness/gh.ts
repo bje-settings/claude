@@ -57,9 +57,16 @@ export type GhReplies = { [K in GhEndpoint]?: GhResults[K] | Error }
  * `cause` is the message: the real client puts the whole `RunResult` there and
  * there is no run here, so it carries the one fact there is rather than
  * `undefined`.
+ *
+ * `detail` is the message too. On a real failure it is gh's own account
+ * without the `gh <argv> failed: ` prefix, and a command reads it rather than
+ * `message` for a one-line reason. A test writes the message it wants that
+ * command to print, so here the two are the same string: a double whose
+ * `detail` was empty, or absent, would make a command that reads it look
+ * broken for a reason the real client never produces.
  */
 export function ghFails(message: string, status: number | null = 1): GhError {
-  return new GhError(message, status, { cause: message })
+  return new GhError(message, status, { cause: message, detail: message })
 }
 
 /** The reply registered for one endpoint, or the failure it stands for.

@@ -66,7 +66,10 @@ checks through its own exit status and a test about a red rollup has to be able 
   logic, so what a command does with the reply is the only thing a test can be measuring.
 - `ghFails(message, status = 1)` is the per-endpoint fail switch, and only that endpoint fails. It
   produces a `GhError` carrying that status, which is what the real client throws, so a command's
-  own `error instanceof GhError && error.status === ...` arm is reachable from its tests.
+  own `error instanceof GhError && error.status === ...` arm is reachable from its tests. Its
+  `detail` is the message: on a real failure `detail` is gh's own account without the
+  `gh <argv> failed: ` prefix the message carries, and a command reads it rather than `message`
+  for the one-line reason it prints, so the message a test writes is the line it should expect.
 - An endpoint with **no** registration throws and names itself. That is the property a stub binary
   cannot give: a command that reached for gh where the test expected no call fails, instead of
   reading an empty reply as an answer.

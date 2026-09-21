@@ -86,6 +86,12 @@ it('fails with the error type the real client throws, carrying the status it was
   expect(listed).toBeInstanceOf(GhError)
   expect((listed as GhError).status).toBe(4)
   expect((listed as GhError).message).toBe('gh: HTTP 403')
+  // `detail` is the real client's "gh's own account, without the
+  // `gh <argv> failed: ` prefix", and it is what a command reads for a
+  // one-line reason. The double has no argv, so the message it was given IS
+  // that account: a `detail` left empty here would make a command that reads
+  // it print nothing, for a reason the real client never produces.
+  expect((listed as GhError).detail).toBe('gh: HTTP 403')
 
   // 1 by default: gh's own generic non-zero, so a test that does not care
   // about the number does not have to name one.

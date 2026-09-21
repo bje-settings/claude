@@ -247,13 +247,35 @@ export class GhError extends Error {
    *  all and use `status` to say which failure it was. */
   readonly status: number | null
 
-  constructor(message: string, status: number | null, options: { cause: unknown }) {
-    super(message, options)
+  /**
+   * The account of the failure WITHOUT the `gh <argv> failed: ` prefix the
+   * message carries, so a report that quotes gh quotes gh alone.
+   *
+   * A caller printing a one-line reason reads this, never `message`. The
+   * Python's `gh_json` prints `last_line(stderr)`, and stderr for the
+   * ordinary refusal is a single line ("gh: API rate limit exceeded"), so
+   * tailing `message` returns the WHOLE message, argv and all, and only a
+   * MULTI-line stderr happens to reduce to the Python's wording. That is the
+   * defect `plugins/gh/src/commands/sync-repo.ts` found at #159: a rate limit
+   * put forty characters of `--json` fields inside a report line.
+   *
+   * It is the same string for every throw site: {@link accountOf} for a gh
+   * that exited non-zero or could not be started, and the message itself
+   * where the message is already gh's account alone (an answer that is not
+   * JSON, or not the shape the endpoint promises).
+   *
+   * Public like every other member, for the double identity rule above.
+   */
+  readonly detail: string
+
+  constructor(message: string, status: number | null, options: { cause: unknown; detail: string }) {
+    super(message, { cause: options.cause })
     // Set explicitly rather than inherited: `Error` names itself after its
     // own constructor, so without this a caught failure reports as a plain
     // `Error`.
     this.name = 'GhError'
     this.status = status
+    this.detail = options.detail
   }
 }
 
@@ -386,22 +408,19 @@ const parse = (result: RunResult, what: string): unknown => {
   try {
     return JSON.parse(result.stdout)
   } catch (error) {
-    throw new GhError(
-      `gh answered ${what} with something that is not JSON: ${(error as Error).message}`,
-      result.status,
-      { cause: result },
-    )
+    // The message is already gh's account with no argv in front of it, so it
+    // is its own `detail`. Every throw site here carries one, so a caller
+    // reads the same field whichever it caught.
+    const said = `gh answered ${what} with something that is not JSON: ${(error as Error).message}`
+    throw new GhError(said, result.status, { cause: result, detail: said })
   }
 }
 
 const rows = (result: RunResult, what: string): unknown[] => {
   const value = parse(result, what)
   if (!Array.isArray(value)) {
-    throw new GhError(
-      `gh answered ${what} with something that is not a list: ${JSON.stringify(value)}`,
-      result.status,
-      { cause: result },
-    )
+    const said = `gh answered ${what} with something that is not a list: ${JSON.stringify(value)}`
+    throw new GhError(said, result.status, { cause: result, detail: said })
   }
   return value
 }
@@ -409,11 +428,8 @@ const rows = (result: RunResult, what: string): unknown[] => {
 const record = (result: RunResult, what: string): Record<string, unknown> => {
   const value = parse(result, what)
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new GhError(
-      `gh answered ${what} with something that is not an object: ${JSON.stringify(value)}`,
-      result.status,
-      { cause: result },
-    )
+    const said = `gh answered ${what} with something that is not an object: ${JSON.stringify(value)}`
+    throw new GhError(said, result.status, { cause: result, detail: said })
   }
   return value as Record<string, unknown>
 }
@@ -444,8 +460,13 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     // through. Parsing a short answer would be reading a truncated list as a
     // complete one, which is the fact `rows` and `record` refuse to default.
     if (result.status !== 0 || result.streamErrors.length !== 0) {
-      throw new GhError(`gh ${args.join(' ')} failed: ${accountOf(result)}`, result.status, {
+      // The account goes on the error as well as into the message: a caller
+      // printing a one-line reason wants gh's words alone, and tailing the
+      // message would hand it this argv (`GhError.detail`).
+      const detail = accountOf(result)
+      throw new GhError(`gh ${args.join(' ')} failed: ${detail}`, result.status, {
         cause: result,
+        detail,
       })
     }
     return result
