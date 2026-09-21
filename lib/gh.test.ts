@@ -139,11 +139,19 @@ describe('argv', () => {
     // `gh-shepherd-pr.py:399`, the read every subcommand there begins with.
     const { gh, calls } = clientAnswering({ stdout: '{}' })
     await gh.viewPullRequest({ pullRequest: 7 })
-    expect(calls[0]?.args.slice(0, 4)).toEqual(['pr', 'view', '7', '--json'])
-    // The same list `shepherd.py`'s PR_FIELDS holds: `summary` shapes
+    // The whole argv, not a prefix: a slice leaves a stray trailing flag
+    // free to appear. The field list is the same one `shepherd.py`'s
+    // PR_FIELDS holds, and it is spelled out because `summary` shapes
     // whatever it is given, so a missing field comes back as a pull request
     // whose checks are `none`, which `wait` reads as passed.
-    expect(calls[0]?.args[4]).toContain('statusCheckRollup')
+    expect(calls[0]?.args).toEqual([
+      'pr',
+      'view',
+      '7',
+      '--json',
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision',
+    ])
   })
 
   it('asks gh repo view for the name and the default branch', async () => {
@@ -208,6 +216,18 @@ describe('argv', () => {
     await gh.addComment({ pullRequest: 7, bodyFile: '/tmp/reason.md' })
     expect(calls[0]?.args).toEqual(['pr', 'comment', '7', '--body', 'done; `rm -rf /`'])
     expect(calls[1]?.args).toEqual(['pr', 'comment', '7', '--body-file', '/tmp/reason.md'])
+
+    // Round 5's handoff fact 5 is that this is exactly one of the two, and
+    // the enforcement is the type rather than a runtime check, so the two
+    // refusals are pinned the way `args.test.ts` pins its own: by compiling.
+    // Without these, `CommentText` could be loosened to a bare optional-both
+    // shape and nothing in the suite would go red, while `gh` itself refuses
+    // `--body` with `--body-file` and a call carrying neither would reach gh
+    // with no body at all.
+    // @ts-expect-error a comment carrying both a body and a body file
+    await gh.addComment({ pullRequest: 7, body: 'both', bodyFile: '/tmp/reason.md' })
+    // @ts-expect-error a comment carrying neither
+    await gh.addComment({ pullRequest: 7 })
   })
 
   it('watches the checks under a bound, with the flags it was given', async () => {
@@ -215,19 +235,20 @@ describe('argv', () => {
     // without `--watch`, so this call carries no `--json` at all; the caller
     // reads the rollup afterwards with `viewPullRequest`, as
     // `gh-shepherd-pr.py:668` does. `--fail-fast` is what that script passes.
+    // Asserted over EVERY call rather than over the first one plus a count:
+    // the contract is that the watch is the only round trip this endpoint
+    // makes (no second `gh pr checks --json` read, which the one consumer
+    // never looks at and which fails outright on a pull request with no
+    // checks), and an assertion over the whole list pins the argv and the
+    // absence of a second call together. A count would pin a number and name
+    // nothing when it broke, which is the call counting `harness/README.md`
+    // refuses.
     const { gh, calls } = clientAnswering({ stdout: '' })
     await gh.watchChecks({ pullRequest: 7, interval: 30, failFast: true, boundMs: 90_000 })
-    expect(calls[0]?.args).toEqual([
-      'pr',
-      'checks',
-      '7',
-      '--watch',
-      '--fail-fast',
-      '--interval',
-      '30',
+    expect(calls.map((call) => call.args)).toEqual([
+      ['pr', 'checks', '7', '--watch', '--fail-fast', '--interval', '30'],
     ])
     expect(calls[0]?.timeoutMs).toBe(90_000)
-    expect(calls).toHaveLength(1)
   })
 
   it('watches with only the bound when it was given no flags', async () => {
