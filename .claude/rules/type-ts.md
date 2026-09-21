@@ -9,8 +9,9 @@ paths:
 
 # Plugin TypeScript
 
-New plugin code is TypeScript, executed directly by node 22.18 with type stripping and no build
-step. `docs/rfc/001-typescript-port.md` is the record ("Shape", "The testing seam", the thirteen
+New plugin code is TypeScript, executed directly by node with type stripping and no build step.
+The floor is node 22.18; `.npmrc` pins the 22.x release everything here runs on.
+`docs/rfc/001-typescript-port.md` is the record ("Shape", "The testing seam", the thirteen
 decisions), with `docs/adr/001-typescript-on-node-22-18.md` for the runtime and the shared `lib/`
 and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is the rules.
 
@@ -22,8 +23,8 @@ plugins/<plugin>/
   bin/<command>.ts         # thin adapter
   src/
     lib -> ../../../lib    # committed symlink
-    commands/*.ts          # one exported function per command: the seam
-    commands/*.test.ts     # co-located with the code it covers
+    <command>.ts           # one exported function per command: the seam
+    <command>.test.ts      # co-located with the code it covers
     fixtures/              # co-located with the tests that load them
   hooks/*.ts
 ```
@@ -41,8 +42,8 @@ an envelope into stdout, stderr and a status; the entry point writes the trailin
 
 Arguments come from `lib/args.ts` `parseArguments`. Every declared string option carries a default,
 so a parsed command line is never partial and no command grows a branch for a flag nobody passed.
-A bad flag, a missing value or a value outside `choices` is `refused`, exit 2, which is the status
-`argparse` already used, so a caller branching on it keeps branching on it.
+A bad flag, a missing value, a stray positional or a value outside `choices` is `refused`, exit 2.
+`lib/README.md` has the worked examples and the rest of the contract.
 
 ## `bin/` is an adapter
 
@@ -60,9 +61,11 @@ and exits quietly rather than writing a refusal into someone's transcript.
 
 ## Tests
 
-- Tests are co-located at `src/**/*.test.ts` with fixtures beside them. vitest collects
-  `plugins/*/src/**/*.test.ts`; the shared harness is `harness/` at the repository root, imported
-  only from test files so it never ships (`harness/README.md`).
+- A test sits beside the code it covers, with fixtures beside it: `lib/args.test.ts` next to
+  `lib/args.ts`, `plugins/<p>/src/<command>.test.ts` next to the command. `vitest.config.ts` names
+  the collected globs rather than discovering them, so a new source directory is added there
+  deliberately. The shared harness is `harness/` at the repository root, imported only from test
+  files so it never ships (`harness/README.md`, which has the rest of the test side).
 - `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
   `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
   and names itself, which is the property a stub binary cannot give: a command that reached for
@@ -80,8 +83,8 @@ and exits quietly rather than writing a refusal into someone's transcript.
 - The link target is compared as the exact string `../../../lib` rather than resolved, because the
   string is what Claude Code's installer classifies: a link elsewhere in the same marketplace is
   dereferenced into the cache copy, and another spelling that resolves here installs differently.
-- Reaching the root `lib/` around the link, as `../../../lib` from a plugin file, resolves in this
-  checkout and for nobody who installed the plugin.
+- Never reach the root `lib/` around the link. A `../../../lib` import from a plugin file
+  resolves in this checkout and for nobody who installed the plugin, so it is refused.
 - Shipped code takes no dependency: node's own built-ins and its own tree, nothing else at run
   time.
 - No plugin-level `package.json`. Claude Code runs a dependency install inside the cache copy when
@@ -98,6 +101,13 @@ Every import names the `.ts` extension explicitly, which is what node's own reso
 ## Coverage
 
 `vitest.config.ts`'s thresholds are the gate: 100 on lines, branches, functions and statements,
-over a source set that is named rather than discovered. The threshold is never lowered, because a
-lowered number hides every other file's regression behind the one file that earned the exception,
-and an exclusion is never added to move the number. Restructure so the branch does not exist.
+over a source set that is named rather than discovered.
+
+The gate does not move to fit the code. Do not lower a threshold, and do not add a name to
+`coverage.exclude`, including for a file you judge to be a process boundary or a platform branch.
+The remedy for a branch no test can reach is to restructure until the branch does not exist: lift
+the decision into a function that takes what it depended on as an argument.
+
+`docs/adr/002-quality-gate-venues.md` describes exclusion by name with a stated reason as the
+relief valve. Opening it is a maintainer decision argued on its own pull request, never a step in
+someone else's change.
