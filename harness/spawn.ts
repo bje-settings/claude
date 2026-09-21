@@ -163,11 +163,18 @@ export function startScript(entry: string, options: SpawnOptions = {}): SpawnedS
           child.stdout.off('data', take)
           resolve(seen.slice(0, newline))
         }
-        child.stdout.on('data', take)
-        child.stdout.once('end', () => {
+        const stop = (): void => {
           child.stdout.off('data', take)
           resolve(seen)
-        })
+        }
+        child.stdout.on('data', take)
+        child.stdout.once('end', stop)
+        // `close` as well as `end`, because a stream that was destroyed never
+        // emits `end`: without this, a line asked for after `closeStdout`, or
+        // after a child that never started, waits out the suite timeout. Both
+        // may fire; resolving twice is the first answer, which is the one that
+        // read something.
+        child.stdout.once('close', stop)
       })
     },
 

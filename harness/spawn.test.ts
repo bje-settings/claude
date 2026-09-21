@@ -149,3 +149,15 @@ it('closes this end of the child stdout without losing the child', async () => {
   expect(running.child.pid).toBeGreaterThan(0)
   expect((await running.ended()).stderr).toContain('boom')
 })
+
+it('answers a line asked for after this end of stdout was closed', async () => {
+  const running = startScript(fixture('fail.ts'))
+
+  running.closeStdout()
+
+  // A destroyed stream never emits `end`, so a wait that listened only for
+  // that one would sit here until the suite timed out rather than saying the
+  // reader had already gone.
+  expect(await running.firstLine()).toBe('')
+  expect((await running.ended()).status).toBe(3)
+})
