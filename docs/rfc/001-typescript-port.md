@@ -190,11 +190,14 @@ not ship. A spike confirmed both halves of what that requires: Node resolves `.t
 the symlink and through the dereferenced copy identically, and `claude plugin validate --strict`
 passes on a plugin carrying the symlink.
 
-`publish-plugin` must apply the same three-way rule when it mirrors a plugin downstream. It refuses
-symlinks outright today, on the reasoning that following one would inline foreign content and
-preserving one could point outside the destination. Both halves of that reasoning are answered by
-classifying the target the way the installer does, and
-[#128](https://github.com/bje-settings/claude/issues/128) is where that lands.
+~~`publish-plugin` must apply the same three-way rule when it mirrors a plugin downstream. It
+refuses symlinks outright today, on the reasoning that following one would inline foreign content
+and preserving one could point outside the destination. Both halves of that reasoning are answered
+by classifying the target the way the installer does, and
+[#128](https://github.com/bje-settings/claude/issues/128) is where that lands.~~ **Revised at
+#128** (see the Publishing section below and Decisions & Follow-ups 14): `publish-plugin` is
+removed rather than ported, so this question does not arise for it; the three-way rule below
+governs the install path only.
 
 **Divergence from `SurveyMonkey/skills` RFC 002:** that repository is one plugin, so its `src/lib`
 is a directory and the question never arises. A marketplace of four plugins has to answer it, and
@@ -204,9 +207,10 @@ the answer has to survive both the install path and the mirror.
 tests that load them. The consequence is stated plainly because it cannot be avoided: Claude Code
 copies the whole plugin directory into its cache with no exclusion mechanism, no ignore file and no
 manifest field, so tests and fixtures ship into the cache copy, inert. They are never imported by
-anything a session runs, and nothing executes them there. What the downstream mirror ships is a
+anything a session runs, and nothing executes them there. ~~What the downstream mirror ships is a
 different question, and `publish-plugin` filters `*.test.ts`, fixtures and `evals/` out of it,
-because that copy is read by another team as the plugin's source.
+because that copy is read by another team as the plugin's source.~~ **Revised at #128:**
+`publish-plugin` is removed rather than ported, so there is no mirror-side filter to build.
 
 **The shared test harness lives at the repository root** and is imported only from test files, so
 it is never inside a plugin and never reaches a cache copy. It carries a sandbox, an in-process
@@ -257,16 +261,21 @@ the field than on the bench, the hook is the one thing small enough to reconside
 
 ### Publishing
 
-`publish-plugin` ports in [#128](https://github.com/bje-settings/claude/issues/128) and keeps every
-property it has: the file list comes from `git ls-files`, so what ships is what is committed; it
-writes only `<dest>/plugins/<name>/`; it never commits; its exit codes stay a contract. It gains
-two rules. The symlink classification above replaces the blanket refusal, and the mirror filters
-`*.test.ts`, fixture directories and `evals/` so the downstream copy is the plugin rather than the
-plugin plus its test corpus.
+~~`publish-plugin` ports in [#128](https://github.com/bje-settings/claude/issues/128) and keeps
+every property it has: the file list comes from `git ls-files`, so what ships is what is
+committed; it writes only `<dest>/plugins/<name>/`; it never commits; its exit codes stay a
+contract. It gains two rules. The symlink classification above replaces the blanket refusal, and
+the mirror filters `*.test.ts`, fixture directories and `evals/` so the downstream copy is the
+plugin rather than the plugin plus its test corpus.~~ **Revised at #128** (see Decisions &
+Follow-ups): the maintainer re-scoped #128 from a port to a deletion on 2026-09-21, once this
+repository's move to public was decided, since a downstream mirror has no further use once anyone
+can read the repository directly. `scripts/publish-plugin.py` and the `/publish` skill are
+removed rather than ported; the symlink classification and mirror filter described above were
+never built.
 
-The `gh` plugin is the one mirrored today, into `sm-incubator/org-claude` as `gh@lab`, which is why
-it is the plugin the root `lib` convention is proven on and why `publish-plugin` ports immediately
-after it.
+The `gh` plugin was the one mirrored, into `sm-incubator/org-claude` as `gh@lab`. That copy stays
+at the version it was taken from, unmaintained, until this repository is public, at which point
+that marketplace points here instead.
 
 ### CI
 
@@ -404,7 +413,7 @@ parity port.
 | P2 | [#125](https://github.com/bje-settings/claude/issues/125) | The root `lib/` and the symlink convention |
 | P3 | [#126](https://github.com/bje-settings/claude/issues/126) | Port `mermaid` (tracer bullet) |
 | P4 | [#127](https://github.com/bje-settings/claude/issues/127) | Port `gh` (sync, shepherd, hook) onto the root lib |
-| P5 | [#128](https://github.com/bje-settings/claude/issues/128) | `publish-plugin` in TypeScript, with the symlink rule and the test filter |
+| P5 | [#128](https://github.com/bje-settings/claude/issues/128) | ~~`publish-plugin` in TypeScript, with the symlink rule and the test filter~~ Delete `publish-plugin` and the downstream mirror instead (Decisions & Follow-ups 14) |
 
 This milestone absorbs three open `gh` defects, each fixed as part of the port rather than fixed
 twice: [#81](https://github.com/bje-settings/claude/issues/81) (the single-repo path drops the
@@ -472,7 +481,7 @@ It absorbs six `field-test` issues: [#93](https://github.com/bje-settings/claude
 
 ## Decisions & Follow-ups
 
-Thirteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
+Fourteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
 and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions 1, 6, 7 and
 13 by [ADR 002](../adr/002-quality-gate-venues.md).
 
@@ -498,10 +507,12 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    every `gh` endpoint the plugins touch needs a typed function written up front rather than a
    command string assembled where it is used.
 4. **One root `lib/`, shared by a committed symlink** at `plugins/<p>/src/lib`, dereferenced into
-   the cache copy on install, with `publish-plugin` applying the same three-way rule for the
-   downstream mirror. *Against:* every plugin sees the whole library, so a change to `lib/` is a
-   change to every plugin's shipped code at once, and nothing in the layout stops a helper that
-   only `field-test` needs from landing where `mermaid` also carries it.
+   the cache copy on install, ~~with `publish-plugin` applying the same three-way rule for the
+   downstream mirror~~. **Revised at #128:** `publish-plugin` is removed rather than ported (the
+   repository is going public, so the downstream mirror has no future); the symlink rule applies
+   only to the install path now. *Against:* every plugin sees the whole library, so a change to
+   `lib/` is a change to every plugin's shipped code at once, and nothing in the layout stops a
+   helper that only `field-test` needs from landing where `mermaid` also carries it.
 5. **Both hook scripts port to TypeScript**, with a silent Node floor guard replacing
    `command -v python3`. *Against:* the measured cost is about +50 ms on every Bash tool call in a
    session with `field-test` installed, and `SurveyMonkey/skills` kept its per-call hook in bash for
@@ -524,12 +535,13 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    *Against:* #111 is the work actually wanted, and this order puts it behind a 3,406 line parity
    port of a plugin that already works.
 10. **Tests and fixtures are co-located** at `src/**/*.test.ts`, the shared harness lives at the
-    repository root and is imported only from test files, and `publish-plugin` filters `*.test.ts`,
-    fixtures and `evals/` out of the downstream mirror. Claude Code copies the whole plugin
-    directory into the cache with no exclusion mechanism, so tests and fixtures ship inertly.
-    *Against:* the cache copy carries fixture trees for no one's benefit, and the mirror filter is
-    one more rule that has to stay in sync with the layout, enforced by a test rather than by the
-    structure.
+    repository root and is imported only from test files. ~~`publish-plugin` filters `*.test.ts`,
+    fixtures and `evals/` out of the downstream mirror.~~ **Revised at #128:** there is no mirror
+    left to filter for; `publish-plugin` is removed rather than ported. Claude Code copies the
+    whole plugin directory into the cache with no exclusion mechanism, so tests and fixtures ship
+    inertly. *Against:* the cache copy carries fixture trees for no one's benefit~~, and the mirror
+    filter is one more rule that has to stay in sync with the layout, enforced by a test rather
+    than by the structure~~.
 11. **The records live in `docs/rfc/` and `docs/adr/`**, under the `path-docs`, `path-docs-adr` and
     `path-docs-rfc` rules copied from `SurveyMonkey/skills` unchanged. *Against:* it is a docs tree
     to maintain, with an index to keep current on every landing, in a repository that has managed
@@ -546,6 +558,15 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     which is most of what the current hook is for, so a contributor can commit something CI will
     fail on; and stating it as a rule rather than as a budget forecloses running a suite locally
     even at a size where it would still be cheap.
+
+14. **#128 is re-scoped from a port to a deletion.** The maintainer decided on 2026-09-21 (round 7
+    RULINGS, ruling 1) that this repository is going public once the TypeScript port finishes, so
+    the downstream mirror `publish-plugin` served has no future. `scripts/publish-plugin.py`, its
+    tests and the `/publish` skill are deleted rather than ported; the publish halves of decisions
+    4 and 10 above and the Publishing section under Proposed Approach are struck through
+    accordingly. *Against:* the downstream mirror still has one dependent,
+    `sm-incubator/org-claude`, which is left on `gh` 0.3.0 and unmaintained until this repository is
+    public and that marketplace points here directly instead.
 
 **The fresh slate is literal.** #129 removes `plugins/workstreams` and `tests/workstreams` as soon
 as this RFC merges; the primitives are written into an empty directory.
