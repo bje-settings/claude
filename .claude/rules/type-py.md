@@ -64,12 +64,12 @@ second `test_fixtures.py`.
 
 ## Repo tooling: `scripts/`
 
-`scripts/*.py` at the repo root is this repo's own tooling. It is **not** a plugin: nobody
-installs it, it is not in the marketplace manifest, and `claude plugin validate` never sees it.
-It is held to everything else on this page anyway, coverage gate included, because it can delete
-and overwrite files in another repository.
+A `scripts/*.py` script at the repo root would be this repo's own tooling. It would not be a
+plugin: nobody installs it, it is not in the marketplace manifest, and `claude plugin validate`
+never sees it. It would be held to everything else on this page anyway, coverage gate included.
+Nothing exists there today: #128 deleted the only one there was, `publish-plugin.py`.
 
-Three things differ from a plugin script:
+Three things would differ from a plugin script:
 
 - **No `lib/`, and no `sys.path.insert`.** A plugin reaches its shared code that way, and the root
   `tests/conftest.py` cleans up after it by stripping leftover `sys.path` entries -- but only ones
