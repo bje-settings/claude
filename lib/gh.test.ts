@@ -504,6 +504,34 @@ describe('the checks watch', () => {
     })
   })
 
+  it('names the signal when something other than the bound killed the watch', async () => {
+    // The OOM killer, a SIGHUP when the terminal went away, a supervisor's
+    // SIGTERM. `status` is null, so it is not one of WATCHER_CODES, and
+    // `timedOut` is false, so the caller is told it did not time out either.
+    // With `problem` empty as well the shepherd would print a blank reason
+    // for a watch that died, which is the silence the field exists to
+    // prevent. The Python never has it: `run_bounded` drains stderr a second
+    // time after the kill (`gh-shepherd-pr.py:286` to `291`).
+    const { gh } = clientAnswering({ status: null, signal: 'SIGKILL', elapsedMs: 340 })
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toEqual({
+      status: null,
+      timedOut: false,
+      waitedMs: 340,
+      problem: 'gh was killed by SIGKILL',
+    })
+  })
+
+  it("keeps gh's own words when a signal ended a watch that had already said something", async () => {
+    const { gh } = clientAnswering({
+      status: null,
+      signal: 'SIGTERM',
+      stderr: 'could not reach api.github.com\n',
+    })
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
+      problem: 'could not reach api.github.com',
+    })
+  })
+
   it('reports a gh that could not be started at all, without throwing', async () => {
     // `run_bounded` answers 127 here rather than raising, because its caller
     // reports it as a refusal carrying what gh printed

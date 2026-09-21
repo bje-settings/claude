@@ -493,7 +493,29 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         status: result.status,
         timedOut: result.timedOut,
         waitedMs: result.elapsedMs,
-        problem: result.startFailure === null ? result.stderr : accountOf(result),
+        // gh's own words when gh got to say any, and an account of what
+        // happened to it when it did not.
+        //
+        // A watch a signal ended has no status to report and, unlike the
+        // Python, nothing on stderr either: `run_bounded` calls
+        // `communicate()` a second time after the kill specifically to drain
+        // it (`gh-shepherd-pr.py:286` to `291`) and this transport does not.
+        // So a watch killed by anything that is not this process's own bound
+        // (the OOM killer, a SIGHUP when the terminal went away, a
+        // supervisor) used to arrive as `{ status: null, timedOut: false,
+        // problem: '' }`: no status the caller recognises, nothing saying it
+        // did not time out either, and silence in the one field whose
+        // contract is to be "the only place a watcher that could not reach
+        // GitHub says so".
+        //
+        // The bound firing is exempt because it already says so in
+        // `timedOut`, which is what the caller at `gh-shepherd-pr.py:644`
+        // reads, and because `accountOf` would otherwise put this process's
+        // own SIGKILL where gh's words belong.
+        problem:
+          result.startFailure === null && (result.signal === null || result.timedOut)
+            ? result.stderr
+            : accountOf(result),
       }
     },
   }
