@@ -13,6 +13,7 @@ the one cleanup hook.
 | `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, and an `env` object to hand to children. |
 | `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle. |
+| `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
 | `spawn.ts` | One `bin/` entry point run as its own process: argv in, status and streams out. |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
 
@@ -151,15 +152,34 @@ live API call rather than a failure.
 The distinction between the three merge builders is load-bearing, and `git.test.ts` asserts each of
 those claims directly.
 
-### Deferred to #127
+## The package-manager builders
 
-The package-manager builders (`js_project`, `remote_update_lock`, `remote_break_lock`,
-`remote_drop_lockfile`, `corepack_cache`) and the pull-request data (`pr`, `write_prs`, `no_prs`,
-`many_prs`, `dep_pr`) are **not** ported here. They land with
-[#127](https://github.com/bje-settings/claude/issues/127), the port whose tests consume them:
-building them ahead of any consumer would be a horizontal slice, and the package-manager ones would
-skip on a machine without all three managers, leaving this directory below its own coverage floor
-locally.
+```ts
+const packages = createPackageFixtures(sandbox, git)
+packages.jsProject(work)        // package.json + the pnpm-lock.yaml pnpm wrote, committed
+packages.remoteUpdateLock(work) // origin regenerates the lock file, so a pull moves it
+```
+
+pnpm only (the maintainer's ruling on #127, 2026-09-20): the port watches one lock file and runs
+one command, so the `manager` argument the Python's builders take has nothing to select. Yarn
+Berry and npm, `YARN_VERSION` and `has_yarn_berry` are not ported, and neither is the
+`packageManager` field they existed to drive, which is what corepack reads.
+
+The lock file is written by the real pnpm on PATH rather than by hand, so that a lock-file diff and
+a real `pnpm install --frozen-lockfile` are both exercised against the same file. CI has pnpm from
+`pnpm/action-setup`, which the vitest jobs already run, and needs no corepack step.
+
+`COREPACK_HOME` is the one dependency on the machine, and `corepackHome` is that resolution as a
+pure function. On a machine whose `pnpm` is a corepack shim rather than a binary, corepack's cache
+lives under `HOME` and the sandbox moves `HOME`, so without carrying the real cache in every
+install example downloads a package manager over the network. A test that runs an install passes
+it in its own `env`; a test that needs no package manager must not quietly acquire one.
+
+### Still deferred to #127 layer 3
+
+The pull-request data builders (`pr`, `write_prs`, `no_prs`, `many_prs`, `dep_pr`) are **not**
+ported here. They land with the shepherd layer, the port whose tests consume them: building them
+ahead of any consumer would be a horizontal slice.
 
 ## The spawn helper
 
