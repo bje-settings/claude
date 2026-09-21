@@ -9,8 +9,10 @@
 // the repository the call named: git exports both into every child of a git
 // hook, a pre-commit hook is one of the places this suite runs
 // (`harness/README.md`, "The git builders"), and `GIT_DIR` outranks both
-// `cwd` and `git -C`. `RepoOptions` requires `env` as well as `cwd` for that
-// reason, so this is the compiler's rule here and not the suite's habit.
+// `cwd` and `git -C` for every ref and object lookup. `RepoOptions` requires
+// `env` as well as `cwd` for that reason, so this is the compiler's rule here
+// and not the suite's habit, and the `GIT_DIR` test below proves it against
+// two real checkouts rather than asserting it in prose.
 import { mkdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createGitFixtures } from '../harness/git.ts'
@@ -180,4 +182,39 @@ it('says whether a ref exists, in either namespace', async () => {
   expect(await hasRef('refs/heads/main', { cwd: work, env })).toBe(true)
   expect(await hasRef('refs/remotes/origin/main', { cwd: work, env })).toBe(true)
   expect(await hasRef('refs/heads/never-created', { cwd: work, env })).toBe(false)
+})
+
+it('reads the refs of the repository GIT_DIR names, not the one the call named', async () => {
+  // The hazard `RepoOptions` requires `env` for, proven rather than argued.
+  // `GIT_DIR` outranks both `cwd` and `git -C` for everything the git
+  // directory holds, so a helper called from inside a hook with the ambient
+  // environment answers about the hook's repository. Two real checkouts, one
+  // branch that exists in only one of them, and the environment is the only
+  // thing that differs between the two calls.
+  const { sandbox, git, work, env } = repository()
+  const other = git.create(sandbox.join('other'))
+  git.branch(other, 'only-over-there')
+
+  await expect(hasRef('refs/heads/only-over-there', { cwd: work, env })).resolves.toBe(false)
+  await expect(
+    hasRef('refs/heads/only-over-there', { cwd: work, env: { ...env, GIT_DIR: `${other}/.git` } }),
+  ).resolves.toBe(true)
+})
+
+it('strips every trailing newline from what git printed, not just the last', async () => {
+  // `%B` is the whole commit message, which git ends with its own newline on
+  // top of the message's, so a single-newline strip would leave one behind
+  // and every caller comparing against a subject would miss.
+  const { work, env } = repository()
+
+  await expect(gitOut(['log', '-1', '--format=%B'], { cwd: work, env })).resolves.not.toMatch(/\n$/)
+})
+
+it('answers null rather than rejecting when node refuses the argv outright', async () => {
+  // The caller-level half of the runner's "never rejects" contract: no helper
+  // here has a `try`, so a rejection would surface as a node-internals stack
+  // trace out of a function whose whole documented answer is `null`.
+  const { work, env } = repository()
+
+  await expect(gitOut(['rev-parse\u0000--show-toplevel'], { cwd: work, env })).resolves.toBeNull()
 })

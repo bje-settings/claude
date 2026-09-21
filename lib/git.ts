@@ -118,13 +118,18 @@ export const gitLines = async (
  * `cwd` is the obvious half: a call that named no directory would be asking
  * about wherever the process happens to sit. `env` is the half that actually
  * bites, and it is required rather than optional because `GIT_DIR` outranks
- * both `cwd` and `git -C` outright: with it set, `rev-parse --show-toplevel`
- * answers about the repository it names and not about `cwd` at all. git
- * exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and a
- * pre-commit hook is one of the places this suite runs (`lefthook.yml`), so
- * an optional `env` here is an invariant argued in a comment and enforced
- * nowhere: the caller that most needs to pin it is the one that would most
- * easily leave it out.
+ * both `cwd` and `git -C` for everything the git directory holds. With it
+ * set, {@link currentBranch} reads the named repository's HEAD,
+ * {@link defaultBranch} reads its `origin/HEAD`, and {@link hasRef} reads its
+ * refs, whatever directory the call gave. ({@link toplevel} is the exception
+ * and is worth knowing: `GIT_DIR` with no `GIT_WORK_TREE` makes the CURRENT
+ * DIRECTORY the top of the work tree, so `rev-parse --show-toplevel` still
+ * answers about `cwd`. `GIT_WORK_TREE` is what displaces that one, and it is
+ * exported into a hook's children beside the others.) git exports `GIT_DIR`
+ * and `GIT_INDEX_FILE` into every child of a hook, and a pre-commit hook is
+ * one of the places this suite runs (`lefthook.yml`), so an optional `env`
+ * here is an invariant argued in a comment and enforced nowhere: the caller
+ * that most needs to pin it is the one that would most easily leave it out.
  *
  * **Requiring it buys the naming, not the scrubbing.** `env: process.env`
  * satisfies this type and, inside the hook the paragraph above is about,

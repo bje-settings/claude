@@ -15,6 +15,7 @@
 //
 // Every bound is generous where the test says it did NOT fire and tiny where
 // it says it did, so a loaded CI runner can be slow without being wrong.
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createSandbox } from '../harness/sandbox.ts'
@@ -258,4 +259,37 @@ it('says nothing about a process group that is already gone', async () => {
   // kernel hands out has no group to signal, and this must not throw: the
   // caller's next act is to signal the child directly in any case.
   expect(() => killGroup(2 ** 30)).not.toThrow()
+})
+
+it("detaches a bounded child and leaves an unbounded one in this process's group", async () => {
+  // The claim the whole group kill rests on, and it is not a branch, so 100%
+  // coverage never touches it: `detached: true` on every child would pass
+  // every other test in this file. A bounded child is detached so its group
+  // can be signalled without reaching this process or the session that started
+  // it, which is what `start_new_session=True` buys the two bounded Python
+  // calls; an unbounded one stays here so a Ctrl-C in the terminal reaches it,
+  // which is what the unbounded `subprocess.run` calls get.
+  const mine = execFileSync('ps', ['-o', 'pgid=', '-p', String(process.pid)])
+    .toString()
+    .trim()
+
+  const unbounded = await node(`${FIXTURES}/pgid.ts`)
+  const bounded = await node(`${FIXTURES}/pgid.ts`, [], { timeoutMs: GENEROUS_MS })
+
+  expect(unbounded.stdout).toBe(mine)
+  expect(bounded.stdout).not.toBe(mine)
+})
+
+it('reports a bounded command that is not there as a start failure, not as a timeout', async () => {
+  // Every production `watchChecks` call is bounded, so on a machine with no
+  // `gh` this is the shape the shepherd meets first. `timedOut` is the
+  // assertion that matters: true beside a `startFailure` would have
+  // `lib/gh.ts` read `problem` from an empty stderr and report a missing gh as
+  // silence.
+  const result = await run('definitely-not-a-command-127', [], { timeoutMs: TINY_MS })
+
+  expect(result.startFailure?.code).toBe('ENOENT')
+  expect(result.status).toBe(127)
+  expect(result.timedOut).toBe(false)
+  expect(result.signal).toBeNull()
 })

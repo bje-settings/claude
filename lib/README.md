@@ -134,10 +134,13 @@ succeeds with no output, and a `git status` that could not be run is not a clean
 
 The four that ask about one repository (`toplevel`, `currentBranch`, `defaultBranch`, `hasRef`)
 take a required `cwd` **and** a required `env`, because `GIT_DIR` outranks both `cwd` and
-`git -C`: with it set, git answers about the repository it names and not about the one the call
-did. git exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and a pre-commit hook
-is one of the places this suite runs, so the environment is named at the call rather than left to
-whatever the process inherited.
+`git -C` for everything the git directory holds: with it set, git reads that repository's HEAD,
+its `origin/HEAD` and its refs whatever directory the call named. (`toplevel` is the exception:
+`GIT_DIR` with no `GIT_WORK_TREE` makes the current directory the top of the work tree, so
+`--show-toplevel` still answers about `cwd`, and `GIT_WORK_TREE` is what displaces that one.) git
+exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and a pre-commit hook is one of
+the places this suite runs, so the environment is named at the call rather than left to whatever
+the process inherited.
 
 Requiring it buys the naming and not the scrubbing: `env: process.env` satisfies the type and
 inside a hook carries `GIT_DIR` at full strength. Nothing in `git.ts` strips anything, and it
