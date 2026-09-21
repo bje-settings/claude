@@ -338,6 +338,11 @@ describe('isBot and isDependabot', () => {
 
   it('reads a login that is not text as no login', () => {
     expect(isBot({ author: { login: 7 } })).toBe(false)
+    // The fold is `x or ""`, which keeps the value only when it is a string:
+    // a `String()` here would read `["dependabot"]` as the login Dependabot
+    // answers to, and `recreate` posts a comment on that answer alone.
+    expect(isDependabot({ author: { login: ['dependabot'] } })).toBe(false)
+    expect(isBot({ author: { login: ['x[bot]'] } })).toBe(false)
   })
 })
 
@@ -362,6 +367,10 @@ describe('rank', () => {
   it('reads a label with no name, and labels that are not a list, as unlabelled', () => {
     expect(rank({ labels: [{}] })).toBe(1)
     expect(rank({ labels: null })).toBe(1)
+    // Something that is not a list AND is not null: `??` keeps it and the
+    // loop then walks whatever it is, which is what the name says is refused.
+    expect(rank({ labels: 42 })).toBe(1)
+    expect(rank({ labels: { name: 'merge-risk:high' } })).toBe(1)
   })
 })
 
@@ -490,6 +499,10 @@ describe('summary', () => {
     // that as "keep waiting" rather than as a missing field.
     expect(summary({}).reviewDecision).toBe('')
     expect(summary({ reviewDecision: null }).reviewDecision).toBe('')
+    // `or ""` is truthiness: every falsy answer is no review requirement,
+    // and a null guard would carry `false` into the document instead.
+    expect(summary({ reviewDecision: false }).reviewDecision).toBe('')
+    expect(summary({ reviewDecision: 0 }).reviewDecision).toBe('')
   })
 
   it('reports no auto-merge request as no auto-merge', () => {
@@ -499,6 +512,10 @@ describe('summary', () => {
   it('reads labels that are not a list as no labels, and a label with no name as null', () => {
     expect(summary({ labels: null }).labels).toEqual([])
     expect(summary({ labels: [{}] }).labels).toEqual([null])
+    // Not a list and not null, which a null guard would hand straight to
+    // `map`.
+    expect(summary({ labels: 42 }).labels).toEqual([])
+    expect(summary({ labels: 'dependencies' }).labels).toEqual([])
   })
 })
 

@@ -313,13 +313,15 @@ it('asks for the completed runs on the default branch, with the sample size', as
   expect(queries).toEqual([{ branch: 'trunk', status: 'completed', limit: 20 }])
 })
 
-it('refuses a repository gh answered without a name', async () => {
+it.each([
+  ['answered without one at all', { defaultBranchRef: { name: 'm' } }],
+  // `view.get("nameWithOwner") or None` (`gh-shepherd-status.py:107`): a
+  // repository named `""` is gh answering nothing, and a null guard takes it.
+  ['named the empty string', { nameWithOwner: '', defaultBranchRef: { name: 'm' } }],
+])('refuses a repository gh %s', async (_name, view) => {
   const result = await drive(() => ({
     argv: [],
-    gh: createGhServer({
-      prs: [],
-      replies: { viewRepository: { defaultBranchRef: { name: 'm' } } },
-    }),
+    gh: createGhServer({ prs: [], replies: { viewRepository: view } }),
   }))
 
   expect(result.status).toBe(1)
@@ -329,11 +331,17 @@ it('refuses a repository gh answered without a name', async () => {
   expect(result.stdout).toBe('')
 })
 
-it('refuses a repository gh answered without a default branch', async () => {
+it.each([
+  ['answered without one', { nameWithOwner: 'acme/widgets' }],
+  // `(view.get("defaultBranchRef") or {}).get("name") or None`
+  // (`gh-shepherd-status.py:108`): a branch named `""` is no branch, and the
+  // run listing would go out with `--branch ""`.
+  ['named the empty string', { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: '' } }],
+])('refuses a repository whose default branch gh %s', async (_name, view) => {
   // Half an answer is not an answer: the run listing needs the branch name.
   const result = await drive(() => ({
     argv: [],
-    gh: createGhServer({ prs: [], replies: { viewRepository: { nameWithOwner: 'acme/widgets' } } }),
+    gh: createGhServer({ prs: [], replies: { viewRepository: view } }),
   }))
 
   expect(result.status).toBe(1)

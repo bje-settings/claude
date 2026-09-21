@@ -1289,10 +1289,16 @@ it('accepts a CI estimate of zero, which is a number even though it is not posit
   expect(result.stderr).toBe('')
 })
 
-it('refuses a repository gh answered without a name', async () => {
+it.each([
+  ['answered without one at all', { defaultBranchRef: { name: 'main' } }],
+  // `view.get("nameWithOwner") or None` (`gh-shepherd-pr.py:973`): a
+  // repository named `""` is gh answering nothing. A null guard takes it, and
+  // every later call then carries `--repo ""`.
+  ['named the empty string', { nameWithOwner: '', defaultBranchRef: { name: 'main' } }],
+])('refuses a repository gh %s', async (_name, view) => {
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'state'],
-    gh: createGhServer({ replies: { viewRepository: { defaultBranchRef: { name: 'main' } } } }),
+    gh: createGhServer({ replies: { viewRepository: view } }),
   }))
 
   expect(result.status).toBe(1)
