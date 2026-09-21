@@ -1,7 +1,8 @@
-// The row builders' and the server's own claims, asserted here the way
-// `tests/gh/test_gh_fixtures.py` asserts the Python fixtures': a builder that
-// quietly stopped producing its state, or a filter that quietly stopped
-// filtering, would make every test built on it pass for the wrong reason.
+// The row builders' and the server's own claims, asserted here the way the gh
+// plugin's Python fixture test asserted the Python fixtures' before it was
+// deleted at #127: a builder that quietly stopped producing its state, or a
+// filter that quietly stopped filtering, would make every test built on it
+// pass for the wrong reason.
 //
 // The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
 // `tests/gh/bin/gh`, was deleted at #127; the file and line references below

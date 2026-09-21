@@ -323,11 +323,12 @@ export const returnCode = (status: number | null, signal: NodeJS.Signals | null)
 const SEPARATORS = '\\u001c-\\u001e'
 
 /** Python's line boundaries for `str.splitlines`, which is what `last_line`
- *  split on: `\r\n` as one, then the five other ASCII ones and the four above
- *  them. Splitting on `\n` alone would keep a carriage return inside a line,
- *  and the text this reads is a child's stderr, where git and gh write their
- *  progress with one. `\u001f` is whitespace to Python and not a line
- *  boundary, so it is absent here and present below. */
+ *  split on: `\r\n` as one, then the five other ASCII ones and the three
+ *  above them (`\u0085`, `\u2028`, `\u2029`). Splitting on `\n` alone would
+ *  keep a carriage return inside a line, and the text this reads is a child's
+ *  stderr, where git and gh write their progress with one. `\u001f` is
+ *  whitespace to Python and not a line boundary, so it is absent here and
+ *  present below. */
 const PYTHON_LINES = new RegExp(`\\r\\n|[\\n\\r\\v\\f${SEPARATORS}\\u0085\\u2028\\u2029]`)
 
 /** Python's `str.strip()` set. `str.isspace()` is JavaScript's whitespace plus
@@ -448,12 +449,13 @@ const TIMEOUT_LINE = (seconds: string, count: number, cwd: string): string =>
  * `hook-io.py:264` catches every exception discovery can raise for that;
  * discovery mostly answers with an outcome here instead, and every outcome
  * but `ok` is the same zero. NOT every one: `src/discover.ts` calls
- * `realpathSync` unguarded after its own directory test, and node's throws
- * where Python's non-strict `os.path.realpath` never did, so a target removed
- * between the two still escapes as a rejection. The guard belongs at
- * discovery's edge rather than here, and is recorded as a follow-up on
- * `src/discover.ts`; the outermost handler in `hooks/hook-io.ts` keeps the
- * session safe meanwhile.
+ * `realpathSync` unguarded after its own directory test in BOTH of its two
+ * places, for the target and again for each subdirectory it walks, and
+ * node's throws where Python's non-strict `os.path.realpath` never did, so a
+ * directory removed between the two calls still escapes as a rejection. The
+ * guard belongs at discovery's edge rather than here, at both sites, and is
+ * recorded as a follow-up on `src/discover.ts`; the outermost handler in
+ * `hooks/hook-io.ts` keeps the session safe meanwhile.
  */
 export const repoCount = async (cwd: string, env: NodeJS.ProcessEnv): Promise<number> => {
   const discovered = await discoverRepos(cwd, env)
@@ -581,13 +583,19 @@ const branchMessage = async (options: {
  * (ValueError, AttributeError, OSError, UnicodeDecodeError)` sits around
  * `json.load(sys.stdin)`, and `OSError` there is the descriptor failing
  * rather than the document being malformed. A hook whose stdin is something
- * a read fails on (a descriptor opened on a directory, a pipe whose writer
- * errored) answered `""` there and went on to run the whole check from
- * `os.getcwd()`; without this it loses the check to a rejection instead.
+ * a read fails on answered `""` there and went on to run the whole check
+ * from `os.getcwd()`; without this it loses the check to a rejection
+ * instead. The state to construct it with is a descriptor 0 opened for
+ * writing, which `hook-io.ts session-start 0>/dev/null` leaves and a read of
+ * answers `EBADF`. A descriptor on a directory is `EISDIR` on Linux and
+ * reads as zero bytes on macOS, so it reaches the same fallback by the other
+ * route and is not the example to reason from.
  *
- * `report` deliberately does not come through here. The Python's
- * `sys.stdin.read()` in that arm was unguarded too, and there is no fallback
- * report to write.
+ * `report` deliberately does not come through here: the Python's
+ * `sys.stdin.read()` in that arm is not guarded the way the payload read is,
+ * and there is no fallback report to write. It is still inside `main`'s
+ * `except BrokenPipeError` and the outermost handler, as this arm is inside
+ * the entry point's, so a failure there is an account on stderr and exit 0.
  */
 const readPayload = async (edges: HookEdges): Promise<string> => {
   try {

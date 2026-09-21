@@ -198,7 +198,7 @@ it('starts the real bin/gh.ts child for a directory of checkouts', () => {
   }).toEqual(before)
 })
 
-it('exits 0 in silence when the payload cannot be read at all', () => {
+it('exits 0 in silence when the payload is not a document at all', () => {
   const sandbox = createSandbox()
 
   // The fallback is the process's own directory, which here holds no

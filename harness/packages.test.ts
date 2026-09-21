@@ -1,16 +1,17 @@
 // What the package-manager builders actually build, asserted the way
-// `git.test.ts` asserts the git ones and `tests/gh/test_gh_fixtures.py`
-// asserts the Python originals: a builder that quietly stopped producing its
-// state would make every install test built on it pass for the wrong reason.
+// `git.test.ts` asserts the git ones and the gh plugin's Python fixture test
+// asserted the Python originals before it was deleted at #127: a builder that
+// quietly stopped producing its state would make every install test built on
+// it pass for the wrong reason.
 //
 // These run the real pnpm from PATH. That is the point: the port's install
 // path is `pnpm install --frozen-lockfile` against a lock file pnpm wrote, and
 // a hand-written lock file would prove neither half of it.
 //
 // The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
-// `tests/gh/bin/gh`, was deleted at #127; the file and line references below
-// are to what they held at `cd0d515`, kept because they say where each rule
-// came from.
+// `tests/gh/bin/gh`, was deleted at #127. It is named below anyway, without
+// line numbers, because saying where each rule came from is what makes the
+// rule arguable.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'

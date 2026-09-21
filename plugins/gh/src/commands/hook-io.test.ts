@@ -655,7 +655,7 @@ it('still runs the whole check when stdin itself cannot be read', async () => {
   const status = await runHookIo(['session-start'], {
     cwd: () => repository,
     env: harnessed.sandbox.env,
-    stdin: () => Promise.reject(new Error('EISDIR: illegal operation on a directory, read')),
+    stdin: () => Promise.reject(new Error('EBADF: bad file descriptor, read')),
     output,
     run: () => Promise.resolve(runResult()),
     nodePath: '/usr/bin/node',
@@ -674,7 +674,7 @@ it('prints the empty line the Python printed for a cwd read that failed', async 
   const status = await runHookIo(['cwd'], {
     cwd: () => harnessed.sandbox.path,
     env: harnessed.sandbox.env,
-    stdin: () => Promise.reject(new Error('EISDIR: illegal operation on a directory, read')),
+    stdin: () => Promise.reject(new Error('EBADF: bad file descriptor, read')),
     output,
     run: () => Promise.resolve(runResult()),
     nodePath: '/usr/bin/node',

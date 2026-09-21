@@ -18,14 +18,16 @@
 // **Nothing that happens in here may be the reason a session stops.**
 // Anything unforeseen inside the `try` below leaves its account on stderr,
 // where Claude Code's debug log keeps it, and the status is 0 all the same.
-// Two things are outside it and answered by `hooks.json` instead: the usage
-// error, which returns 2, and a failure in the four `await import`s or in
-// `createOutput`, which is an unhandled top-level rejection and a non-zero
-// status from node itself. `hooks.json`'s `; exit 0` absorbs both, and
-// neither writes a byte to stdout, so the session is unaffected either way.
-// They are left outside because bringing them in needs a fallback writer for
-// the case where `createOutput` is what failed, and that arm cannot be
-// reached by a test.
+// Two statuses are not 0, and `hooks.json`'s `; exit 0` absorbs both.
+// The first is the usage error, which is a deliberate `return 2` from inside
+// the try rather than anything escaping it: a typo in the wiring is worth a
+// diagnostic. The second is a failure in the four `await import`s or in
+// `createOutput`, which are the only statements outside the try; there it is
+// an unhandled top-level rejection and a non-zero status from node itself.
+// Neither writes a byte to stdout, so the session is unaffected either way.
+// The imports are left outside because bringing them in needs a fallback
+// writer for the case where `createOutput` is what failed, and that arm
+// cannot be reached by a test.
 import { meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
