@@ -42,13 +42,8 @@ it('finds plugins to check', () => {
 
 it('keeps one LICENSE, copied identically into every plugin', () => {
   // Each plugin directory carries its own so it is self-describing when it
-  // is distributed on its own, and so a mirror copies it as an ordinary
-  // tracked file with no special case. Several copies that must agree is
-  // exactly the drift shape the inlined-copy comments in
-  // scripts/publish-plugin.py warn about, so it is asserted rather than
-  // trusted. (Those comments name plugins/gh/scripts/lib/streams.py, which
-  // went with the gh plugin's Python at #127; they are #128's and #138's to
-  // repoint.)
+  // is distributed on its own. Several copies that must agree is a drift
+  // shape worth asserting rather than trusting.
   const canonical = readFileSync(path.join(ROOT, 'LICENSE'))
   expect(canonical.toString('utf8')).toContain('MIT License')
 

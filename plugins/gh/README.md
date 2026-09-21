@@ -315,10 +315,7 @@ session-start hook does it in silence, and a command says which version it found
 ## Tests
 
 The tests for this plugin live beside the code, as `src/**/*.test.ts`, in the repository that
-owns it, `bje-settings/claude`. They are not distributed: a read-only copy of this directory
-carries the code and not the tests or their fixtures. If you are reading this in such a copy,
-`UPSTREAM.json` beside this file names the source repository and the commit the copy was taken
-from.
+owns it, `bje-settings/claude`. They are not distributed with the plugin.
 
 Because these skills delete branches and remove worktrees, their behaviour is asserted against
 real git repositories rather than mocks. Covered in particular: every path that can delete

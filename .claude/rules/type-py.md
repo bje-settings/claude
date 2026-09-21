@@ -8,11 +8,10 @@ paths:
 # Plugin Python
 
 **This is the retiring layer.** New plugin code is TypeScript: see `.claude/rules/type-ts.md` and
-`docs/rfc/001-typescript-port.md`. What is still Python is `gh` (#127), `field-test` (#136),
-`scripts/publish-plugin.py` (#128) and this repository's own test tooling (#138). It is stdlib
-only, driven black-box by pytest, measured by coverage.py, and these rules hold for as long as it
-is in the tree. They are what the shell harness that preceded it taught, kept because they still
-apply.
+`docs/rfc/001-typescript-port.md`. What is still Python is `gh` (#127), `field-test` (#136), and
+this repository's own test tooling (#138). It is stdlib only, driven black-box by pytest, measured
+by coverage.py, and these rules hold for as long as it is in the tree. They are what the shell
+harness that preceded it taught, kept because they still apply.
 
 ## A test per decision arm
 
@@ -86,8 +85,7 @@ Three things differ from a plugin script:
 - **Tests may drive it in-process.** A script that derives its own repository root from `__file__`
   cannot be pointed at a fixture by copying it, because a copy is a different file and coverage's
   relative `source` would not measure it. Load the real module by path and set its root, and keep
-  a few `run_script` examples for the contracts that only exist at the process boundary. See the
-  docstring in `tests/test_publish.py`.
+  a few `run_script` examples for the contracts that only exist at the process boundary.
 
 ## The 3.9 floor
 

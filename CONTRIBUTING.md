@@ -99,16 +99,6 @@ related` runs the whole suite rather than a related subset, and `plugin-validate
 plugin in the tree rather than only the ones with staged files. Run
 `pnpm exec biome check . --error-on-warnings` to check every file with Biome directly.
 
-## Publishing a plugin downstream
-
-`/publish <plugin> <dest>` mirrors one plugin into a repository that cannot read this one, as a
-read-only copy. It runs the suite and manifest validation first, then
-`scripts/publish-plugin.py`, then opens a pull request in the destination.
-
-Run `python3 scripts/publish-plugin.py <plugin> <dest> --check` on its own any time to see whether
-a copy is current; it writes nothing and exits 1 if there is drift. Bump the plugin's `version`
-before publishing a content change, since downstream that is how one copy is told from another.
-
 ## Local install
 
 Add the marketplace locally for testing:
