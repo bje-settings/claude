@@ -15,8 +15,8 @@
 // which is JSON inside JSON.
 import { deflateSync } from 'node:zlib'
 
-import { parseArguments } from './lib/args.ts'
-import { type Envelope, ok, refused } from './lib/envelope.ts'
+import { parseArguments } from '../lib/args.ts'
+import { type Envelope, ok, refused } from '../lib/envelope.ts'
 
 /**
  * The four routes `mermaid-url.py` supports, alphabetised: the same order

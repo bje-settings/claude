@@ -5,7 +5,7 @@
 // (lib/README.md, lib/node-floor.ts). Everything else is reached by `await
 // import` after the check has passed.
 //
-// This file ships. It holds no decisions: `src/url.ts` is the seam a test
+// This file ships. It holds no decisions: `src/commands/url.ts` is the seam a test
 // reaches without a process, and this adapter only turns `process.argv` and
 // stdin into its arguments, and its envelope into an exit code and a
 // stream, the way `spawn.ts`'s one contract test exercises it.
@@ -16,7 +16,7 @@ assertNodeFloor(process.version)
 
 const { readFileSync } = await import('node:fs')
 const { renderText } = await import('../src/lib/envelope.ts')
-const { runMermaidUrl } = await import('../src/url.ts')
+const { runMermaidUrl } = await import('../src/commands/url.ts')
 
 // A reader that closes stdout early (`| head`, a tool call that abandons its
 // child) makes the write below fail with EPIPE. With no listener, node

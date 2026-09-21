@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url'
 import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 
-import { exitCodeFor } from './lib/envelope.ts'
+import { exitCodeFor } from '../lib/envelope.ts'
 import { runMermaidUrl } from './url.ts'
 
-const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
 
 interface OkFixture {
   readonly name: string
