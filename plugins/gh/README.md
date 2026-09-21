@@ -259,11 +259,22 @@ same two states, so a skill running both reads each status against its own comma
 ## Session start hook
 
 On session start only (not on resume, `/clear`, or compaction) the plugin runs a **report-only**
-check and, if there is anything worth acting on, asks whether to run `/gh:sync`.
+check and, if there is anything worth acting on, writes a status line about it. Everything it
+says is computed by the script, and it ends by naming the command that acts on it once, as a
+fact, rather than asking anyone to offer anything.
 
-- Outside a git repository it runs the fan-out check in `--dry-run` and reports the findings.
-- Inside a git repository, if HEAD is not on the default branch, it says so. This branch is
-  purely local and does not hit the network.
+- Outside a git repository it runs the fan-out check in `--dry-run` and reports the findings, led
+  by one line counting them: how many repositories were checked, and how many have upstream
+  changes, have prunable branches, were skipped, or could not be fully checked. There is no such
+  line above a run that produced no report, because it counted nothing.
+- Inside a git repository, if HEAD is not on the default branch, it says so, and adds how far the
+  default branch is behind the cached `origin/<default>` and how many local branches are prunable
+  candidates, each only when the number is above zero. This branch is purely local and does not
+  hit the network, so the numbers are as of the last fetch and the message says so; `/gh:sync
+  --dry-run` is what reports the current answer. Prunable candidates are candidates: they are
+  local branches with a gone upstream or already merged into the default branch, and ancestry
+  cannot see a squash merge, which is what `/gh:sync` asks the merged pull request list about.
+  A lookup that cannot be made leaves its line out rather than reporting a zero.
 - Otherwise it stays silent.
 
 The whole hook is `hooks/hook-io.ts`, run as `hook-io.ts session-start`: it reads the payload,
