@@ -3,7 +3,7 @@
 // answered every endpoint from the first registration, would make them pass
 // for the wrong reason.
 import { expect, it } from 'vitest'
-import { createGhMock, type GhClient, type GhEndpoint, ghFails } from './gh.ts'
+import { createGhMock, type GhClient, type GhEndpoint, GhError, ghFails } from './gh.ts'
 
 // One call per endpoint, written out rather than derived: a table built from
 // the interface would go on passing after an endpoint was renamed, and these
@@ -69,6 +69,28 @@ it('fails only the endpoint the fail switch was registered for', async () => {
 
   await expect(client.listPullRequests()).rejects.toThrow('gh: could not resolve to a Repository')
   await expect(client.viewRepository()).resolves.toEqual({ nameWithOwner: 'acme/widgets' })
+})
+
+it('fails with the error type the real client throws, carrying the status it was given', async () => {
+  // Round 5's handoff fact 3: failure from `lib/gh.ts` is a `GhError` carrying
+  // gh's own exit status, so a command branches on a value rather than on
+  // prose. A double that threw a plain `Error` would leave that branch
+  // unreachable from every command's own suite while the command looked
+  // covered.
+  const client = createGhMock({
+    listPullRequests: ghFails('gh: HTTP 403', 4),
+    viewRepository: ghFails('gh: could not resolve to a Repository'),
+  })
+
+  const listed = await client.listPullRequests().catch((thrown: unknown) => thrown)
+  expect(listed).toBeInstanceOf(GhError)
+  expect((listed as GhError).status).toBe(4)
+  expect((listed as GhError).message).toBe('gh: HTTP 403')
+
+  // 1 by default: gh's own generic non-zero, so a test that does not care
+  // about the number does not have to name one.
+  const viewed = await client.viewRepository().catch((thrown: unknown) => thrown)
+  expect((viewed as GhError).status).toBe(1)
 })
 
 it('throws and names the endpoint when nothing is registered for it', async () => {

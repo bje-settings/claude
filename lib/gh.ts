@@ -277,6 +277,25 @@ export interface GhClientOptions {
    * are the only two of the ten that pass no `--repo`.
    */
   readonly repository?: string
+  /**
+   * The child's whole environment. Left out, `gh` inherits this process's,
+   * which is what every ported call site gets today.
+   *
+   * It is here because `GH_REPO` does to `cwd` exactly what `GIT_DIR` does
+   * (`gh help environment`: "specify the GitHub repository in the
+   * `[HOST/]OWNER/REPO` format for commands that otherwise operate on a local
+   * repository"), and the mode it displaces is the one `gh-sync-repo.py:250`
+   * uses: no `repository`, chdir'd into the checkout, letting gh resolve.
+   * `GH_HOST`, `GH_TOKEN` and `GH_CONFIG_DIR` are the same class, which is why
+   * `harness/sandbox.ts` strips every `GH_` key before a test runs anything.
+   *
+   * Optional rather than required, unlike `RepoOptions.env` next door: the
+   * other two fields here are optional, no ported call site pins an
+   * environment, and as with that one naming it buys the naming and not the
+   * scrubbing. A caller inside a hook, or anywhere else that inherited a
+   * `GH_REPO` it did not choose, passes an environment without it.
+   */
+  readonly env?: NodeJS.ProcessEnv
   /** The spawn seam. Defaults to the root lib's own process runner.
    *
    *  It is a parameter rather than a hardcoded import so that this file's
@@ -411,7 +430,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    *  whether that is a failure: the watch reports through its status and the
    *  others do not, so each endpoint says so for itself. */
   const invoke = (args: readonly string[], boundMs?: number): Promise<RunResult> =>
-    spawn('gh', args, { cwd: options.cwd, timeoutMs: boundMs })
+    spawn('gh', args, { cwd: options.cwd, env: options.env, timeoutMs: boundMs })
 
   /** What gh did, once it has been established that gh succeeded. A non-zero
    *  exit, or a gh that never started, is a {@link GhError} carrying the

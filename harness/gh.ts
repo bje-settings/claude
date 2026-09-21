@@ -23,9 +23,10 @@
 // deliberately: counting calls pins an implementation detail and turns a
 // refactor red (ADR 001, RFC 001 "The testing seam").
 
-import type { GhClient, GhEndpoint, GhResults } from '../lib/gh.ts'
+import { type GhClient, type GhEndpoint, GhError, type GhResults } from '../lib/gh.ts'
 
 export type {
+  CommentText,
   GhClient,
   GhEndpoint,
   GhResults,
@@ -40,10 +41,25 @@ export { GhError } from '../lib/gh.ts'
  *  an endpoint is how a test says "this must not be called". */
 export type GhReplies = { [K in GhEndpoint]?: GhResults[K] | Error }
 
-/** The fail switch: register it in place of an endpoint's reply and that
- *  endpoint, and only that endpoint, fails with this message. */
-export function ghFails(message: string): Error {
-  return new Error(message)
+/**
+ * The fail switch: register it in place of an endpoint's reply and that
+ * endpoint, and only that endpoint, fails with this message.
+ *
+ * A `GhError` and not a plain one, because that is what the real client throws
+ * and the whole point of round 5's handoff fact 3 is that it carries gh's exit
+ * status so a caller branches on a value rather than on prose. A command whose
+ * test registered a plain `Error` could never reach its own
+ * `error instanceof GhError && error.status === ...` arm, so the double would
+ * make the command look covered while the branch that matters was unreachable.
+ *
+ * `status` defaults to 1, which is gh's own generic non-zero and the status a
+ * test that does not care about the number should not have to name. The
+ * `cause` is the message: the real client puts the whole `RunResult` there and
+ * there is no run here, so it carries the one fact there is rather than
+ * `undefined`.
+ */
+export function ghFails(message: string, status: number | null = 1): GhError {
+  return new GhError(message, status, { cause: message })
 }
 
 /** The reply registered for one endpoint, or the failure it stands for.

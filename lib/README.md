@@ -175,7 +175,9 @@ The endpoints are named after the operation rather than after gh's argv, so the 
 gh changing a flag, and a command takes a `GhClient` as an argument rather than constructing one,
 which is what makes it swappable for `createGhMock` in the harness (ADR 001, RFC 001 decision 3).
 `repository` names the repository on every call, for the commands that run from wherever the agent
-started; `cwd` is for the ones that have already changed into the checkout. It reaches gh as
+started; `cwd` is for the ones that have already changed into the checkout, and `env` is for a
+caller with an environment to pin, because `GH_REPO` displaces `cwd` the way `GIT_DIR` does. Left
+out, the child inherits this process's, which is what every ported call site gets today. It reaches gh as
 `--repo` everywhere except `gh repo view`, which has no such flag and takes the repository as its
 positional argument, which is why the two `repo view` calls in the Python are the only ones that
 pass no `--repo`.

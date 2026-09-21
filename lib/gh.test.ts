@@ -18,6 +18,7 @@ interface Call {
   readonly command: string
   readonly args: readonly string[]
   readonly cwd: string | undefined
+  readonly env: NodeJS.ProcessEnv | undefined
   readonly timeoutMs: number | undefined
 }
 
@@ -50,7 +51,13 @@ const asResult = (reply: Reply): RunResult => ({
 const answering =
   (reply: Reply, calls: Call[]): Runner =>
   async (command, args, options) => {
-    calls.push({ command, args: args ?? [], cwd: options?.cwd, timeoutMs: options?.timeoutMs })
+    calls.push({
+      command,
+      args: args ?? [],
+      cwd: options?.cwd,
+      env: options?.env,
+      timeoutMs: options?.timeoutMs,
+    })
     return asResult(reply)
   }
 
@@ -61,7 +68,7 @@ interface Harness {
 
 const clientAnswering = (
   reply: Reply,
-  options: { cwd?: string; repository?: string } = {},
+  options: { cwd?: string; repository?: string; env?: NodeJS.ProcessEnv } = {},
 ): Harness => {
   const calls: Call[] = []
   return { gh: createGhClient({ ...options, run: answering(reply, calls) }), calls }
@@ -340,6 +347,20 @@ describe('argv', () => {
       ['pr', 'comment', '7', '--repo', 'acme/widgets', '--body', 'hi'],
       ['pr', 'checks', '7', '--repo', 'acme/widgets', '--watch'],
     ])
+  })
+
+  it('hands gh the environment it was built with, and nothing when it was built with none', async () => {
+    // `GH_REPO` displaces `cwd` the way `GIT_DIR` does (`gh help
+    // environment`), so a client that has an environment to pin must be able
+    // to, and one that does not must leave the child inheriting this
+    // process's, which is what every ported call site gets today.
+    const pinned = clientAnswering({ stdout: '[]' }, { env: { PATH: '/usr/bin' } })
+    await pinned.gh.listPullRequests()
+    expect(pinned.calls[0]?.env).toEqual({ PATH: '/usr/bin' })
+
+    const ambient = clientAnswering({ stdout: '[]' })
+    await ambient.gh.listPullRequests()
+    expect(ambient.calls[0]?.env).toBeUndefined()
   })
 
   it('names the repository to gh repo view positionally, because it has no --repo flag', async () => {
