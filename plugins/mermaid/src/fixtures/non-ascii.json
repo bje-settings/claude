@@ -1,0 +1,17 @@
+{
+  "name": "non-ascii",
+  "args": ["--route", "view"],
+  "stdinBytes": [
+    103, 114, 97, 112, 104, 32, 84, 68, 59, 32, 65, 91, 99, 97, 102, 195, 169, 93, 45, 45, 62, 66,
+    91, 226, 152, 131, 93
+  ],
+  "outcome": "ok",
+  "urlPrefix": "https://mermaid.live/view#pako:",
+  "outerState": {
+    "code": "graph TD; A[café]-->B[☃]",
+    "mermaid": "{\"theme\": \"default\"}"
+  },
+  "mermaidConfig": {
+    "theme": "default"
+  }
+}

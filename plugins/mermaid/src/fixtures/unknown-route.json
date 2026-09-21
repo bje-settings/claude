@@ -1,0 +1,8 @@
+{
+  "name": "unknown-route",
+  "args": ["--route", "bogus"],
+  "stdinBytes": [103, 114, 97, 112, 104, 32, 84, 68, 59, 32, 65, 45, 45, 62, 66],
+  "outcome": "refused",
+  "status": 2,
+  "stderr": "usage: mermaid-url.py [-h] [--route {edit,ink-img,ink-svg,view}]\n                      [--theme THEME]\nmermaid-url.py: error: argument --route: invalid choice: 'bogus' (choose from 'edit', 'ink-img', 'ink-svg', 'view')\n"
+}

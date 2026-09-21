@@ -37,6 +37,19 @@
   // shrinking include set is the quieter failure this repository refuses
   // everywhere. harness/, lib/ and plugins/*/src do not exist yet (#124,
   // #125, and the plugin ports); they are named now so those issues do not
-  // have to edit this file.
-  "include": ["tests", "harness", "lib", "scripts", "plugins/*/src", "vitest.config.ts"]
+  // have to edit this file. `plugins/*/bin` is a real exception: #126, the
+  // first plugin port, ships a `bin/` entry point, which lives outside
+  // `src/` and nothing named until now. `plugins/*/hooks` is named the same
+  // preemptive way `harness`, `lib` and `plugins/*/src` were above, since no
+  // plugin carries a hook yet.
+  "include": [
+    "tests",
+    "harness",
+    "lib",
+    "scripts",
+    "plugins/*/src",
+    "plugins/*/bin",
+    "plugins/*/hooks",
+    "vitest.config.ts"
+  ]
 }

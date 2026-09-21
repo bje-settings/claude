@@ -1,0 +1,8 @@
+{
+  "name": "empty-input",
+  "args": ["--route", "view"],
+  "stdinBytes": [],
+  "outcome": "refused",
+  "status": 2,
+  "stderr": "mermaid-url.py: no diagram source on stdin\n"
+}

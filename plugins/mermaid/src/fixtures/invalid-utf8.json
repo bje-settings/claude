@@ -1,0 +1,10 @@
+{
+  "name": "invalid-utf8",
+  "args": ["--route", "view"],
+  "stdinBytes": [
+    103, 114, 97, 112, 104, 32, 84, 68, 59, 32, 65, 91, 99, 97, 102, 233, 93, 45, 45, 62, 66
+  ],
+  "outcome": "refused",
+  "status": 2,
+  "stderr": "mermaid-url.py: diagram source is not valid UTF-8: 'utf-8' codec can't decode byte 0xe9 in position 15: invalid continuation byte\n"
+}

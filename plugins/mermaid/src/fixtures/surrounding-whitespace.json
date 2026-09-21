@@ -1,0 +1,16 @@
+{
+  "name": "surrounding-whitespace",
+  "args": ["--route", "view"],
+  "stdinBytes": [
+    32, 32, 10, 103, 114, 97, 112, 104, 32, 84, 68, 59, 32, 65, 45, 45, 62, 66, 10, 9, 32
+  ],
+  "outcome": "ok",
+  "urlPrefix": "https://mermaid.live/view#pako:",
+  "outerState": {
+    "code": "graph TD; A-->B",
+    "mermaid": "{\"theme\": \"default\"}"
+  },
+  "mermaidConfig": {
+    "theme": "default"
+  }
+}
