@@ -134,6 +134,22 @@ it('reports a command that is there and cannot be run as 126', async () => {
   expect(result.status).toBe(126)
 })
 
+it('answers rather than rejecting when node refuses the argv outright', async () => {
+  // `spawn` reports most failures on the `error` event, but it validates argv
+  // synchronously and throws a TypeError for a NUL byte. Thrown inside the
+  // promise executor that is a rejection, and "never rejects" is the contract
+  // every caller in `gh.ts` and `git.ts` is written against: not one of them
+  // has a `try`, so a rejection would surface as a node-internals stack trace
+  // out of a helper whose whole documented answer is `null`.
+  const result = await run('git', ['rev-parse\u0000--show-toplevel'])
+
+  expect(result.startFailure?.code).toBe('ERR_INVALID_ARG_VALUE')
+  // 126, not 127: the command is on PATH, this is not a form of it that runs.
+  expect(result.status).toBe(126)
+  expect(result.stdout).toBe('')
+  expect(result.timedOut).toBe(false)
+})
+
 it('reports a working directory that is not there as a failure to start', async () => {
   const sandbox = createSandbox()
 

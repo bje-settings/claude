@@ -31,7 +31,7 @@
 // This file ships. It imports nothing outside the root lib and nothing from
 // node beyond `child_process`, and stays inside the erasable subset (ADR 001).
 
-import { spawn } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 
 /** Why a child never ran at all. */
 export interface StartFailure {
@@ -138,32 +138,65 @@ export const killGroup = (pid: number): void => {
  *  reason a caller prints. */
 const startStatus = (failure: StartFailure): number => (failure.code === 'ENOENT' ? 127 : 126)
 
+/** A child that never ran, as an answer rather than a throw. There is no
+ *  output, no signal and no bound to have fired, because nothing started. */
+const refusedToStart = (failure: StartFailure, startedAt: number): RunResult => ({
+  status: startStatus(failure),
+  signal: null,
+  stdout: '',
+  stderr: '',
+  combined: '',
+  timedOut: false,
+  elapsedMs: Date.now() - startedAt,
+  startFailure: failure,
+})
+
 /**
  * Run `command` and answer with everything the child did.
  *
- * Never rejects. A child that fails, is killed, or never starts is an answer
- * here, because every ported call site already has a branch for each of those
- * and none of them wants a `try` around the call. `lib/gh.ts` is where a
- * failure becomes a thrown error, at the seam that has a caller who models
- * one.
+ * Never rejects, including for the argv node refuses to hand to a child at
+ * all. A child that fails, is killed, or never starts is an answer here,
+ * because every ported call site already has a branch for each of those and
+ * none of them wants a `try` around the call. `lib/gh.ts` is where a failure
+ * becomes a thrown error, at the seam that has a caller who models one.
  */
 export const run: Runner = (command, args = [], options = {}) =>
   new Promise<RunResult>((resolve) => {
     const startedAt = Date.now()
-    const child = spawn(command, [...args], {
-      cwd: options.cwd,
-      env: options.env,
-      // Only a bounded child is detached. An unbounded one stays in this
-      // process's group so that a Ctrl-C in the terminal reaches it, which is
-      // what the unbounded `subprocess.run` calls in the Python get; the
-      // bounded ones are the ones that set `start_new_session=True`.
-      detached: options.timeoutMs !== undefined,
-      // No `stdio` key: node's default is a pipe on all three, and passing
-      // the key selects the overload whose `stdout` and `stderr` are
-      // nullable, which would put a `?.` (and so a branch no test can fail)
-      // on every read below.
-      shell: false,
-    })
+    // `spawn` reports most failures asynchronously, on the `error` event
+    // below, but it validates argv **synchronously** and throws for a NUL
+    // byte in the command or in any argument (`ERR_INVALID_ARG_VALUE`,
+    // verified on node 24). Thrown in this executor that would be a
+    // rejection, which is the one thing the doc comment above promises
+    // cannot happen and which no caller in `gh.ts` or `git.ts` has a `try`
+    // for. It is a child that could not be run, so it is answered as one.
+    let child: ChildProcessWithoutNullStreams | null = null
+    try {
+      child = spawn(command, [...args], {
+        cwd: options.cwd,
+        env: options.env,
+        // Only a bounded child is detached. An unbounded one stays in this
+        // process's group so that a Ctrl-C in the terminal reaches it, which
+        // is what the unbounded `subprocess.run` calls in the Python get; the
+        // bounded ones are the ones that set `start_new_session=True`.
+        detached: options.timeoutMs !== undefined,
+        // No `stdio` key: node's default is a pipe on all three, and passing
+        // the key selects the overload whose `stdout` and `stderr` are
+        // nullable, which would put a `?.` (and so a branch no test can fail)
+        // on every read below.
+        shell: false,
+      })
+    } catch (error) {
+      // Asserted rather than defaulted, the same trade the `error` listener
+      // below makes and for the same reason: node's argv validation throws a
+      // `TypeError` that always carries an `ERR_*` code, so a fallback would
+      // be an arm no test could produce an input for. The code is not
+      // `ENOENT`, so `startStatus` answers 126: this is a command that could
+      // not be run rather than one that could not be found.
+      const rejected = error as NodeJS.ErrnoException & { code: string }
+      resolve(refusedToStart({ code: rejected.code, message: rejected.message }, startedAt))
+    }
+    if (child === null) return
 
     const out: Buffer[] = []
     const err: Buffer[] = []
