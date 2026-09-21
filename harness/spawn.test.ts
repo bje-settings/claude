@@ -105,6 +105,40 @@ it('runs with no options at all, and reports the status and stderr', async () =>
   expect(await running.ended()).toEqual({ status: 3, signal: null, stderr: 'boom\n' })
 })
 
+it('reports a child that could not be started, when it is waited on', async () => {
+  const sandbox = createSandbox()
+  const running = startScript(fixture('echo-argv.ts'), { cwd: sandbox.join('gone') })
+
+  // `spawn` reports this as an event rather than a throw, so without a
+  // listener it is an uncaught exception vitest attributes to whichever
+  // example is in flight. Rejecting here, and not answering with the status of
+  // -2 that follows a failed spawn, is the same refusal `runScript` makes: a
+  // result full of empty strings would read as a command that ran and said
+  // nothing.
+  await expect(running.ended()).rejects.toThrow(/ENOENT/)
+})
+
+it('answers the same thing however late, and however often, it is asked', async () => {
+  const running = startScript(fixture('fail.ts'))
+
+  const first = await running.ended()
+
+  expect(first).toEqual({ status: 3, signal: null, stderr: 'boom\n' })
+  // `close` has already fired by now. A wait that subscribed to it at this
+  // point would never settle, which presents as a bare suite timeout with
+  // nothing pointing at the helper.
+  expect(await running.ended()).toEqual(first)
+})
+
+it('survives a child that exits before it reads its stdin', async () => {
+  // Past the pipe buffer, so the write is still in flight when the child goes
+  // and this end takes an EPIPE. Unlistened that is an uncaught exception,
+  // where what it means is only that the reader left.
+  const running = startScript(fixture('fail.ts'), { stdin: 'x'.repeat(1 << 20) })
+
+  expect((await running.ended()).status).toBe(3)
+})
+
 it('closes this end of the child stdout without losing the child', async () => {
   const running = startScript(fixture('fail.ts'))
 

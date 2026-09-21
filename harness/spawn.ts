@@ -87,7 +87,13 @@ export interface SpawnedScript {
   closeStdout(): void
   /** status, signal and stderr, once the child has ended. stdout is not
    *  collected: the point of this variant is that the reader stops reading,
-   *  and a buffer of everything would be the thing that cannot happen. */
+   *  and a buffer of everything would be the thing that cannot happen.
+   *
+   *  Rejects, rather than answering, when the child could not be started at
+   *  all: `runScript` throws there for the reason its own docblock gives, and
+   *  the status of `-2` that follows a failed spawn would read here as a
+   *  command that ran and said nothing. The same answer every time it is
+   *  asked, whenever it is asked. */
   ended(): Promise<EndedResult>
 }
 
@@ -100,12 +106,48 @@ export interface EndedResult {
 /** Start `entry` under this same node binary and hand back its pipes.
  *
  *  Same argv, environment and working directory as {@link runScript}, and the
- *  same `process.execPath` for the same reason; what differs is only that the
- *  child is still running when this returns.
+ *  same `process.execPath` for the same reason. Two things differ: the child
+ *  is still running when this returns, and a start failure surfaces at
+ *  {@link SpawnedScript.ended} rather than as a throw from here, because
+ *  `spawn` reports it as an event several ticks later where `spawnSync` has
+ *  the answer before it returns.
  */
 export function startScript(entry: string, options: SpawnOptions = {}): SpawnedScript {
   const { args = [], stdin, env, cwd } = options
   const child = spawn(process.execPath, [entry, ...args], { env, cwd })
+
+  // Every listener below is registered here and not inside `ended()`, because
+  // `close` and `error` each fire once: one added after the fact hears
+  // nothing, so a wait started late, or a second wait, would never settle and
+  // would present as a bare suite timeout with nothing pointing at this file.
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString('utf8')
+  })
+  // A child that never started arrives as an `error` event rather than a throw
+  // from `spawn`, and `close` still follows it with a status of -2. With no
+  // listener node raises it as an uncaught exception, which vitest attributes
+  // to whichever example happens to be in flight and reports against the node
+  // binary rather than against the argument that was wrong. Held here and
+  // raised at `ended()`, where a caller is already waiting.
+  let failure: Error | null = null
+  const finished = new Promise<EndedResult>((resolve, reject) => {
+    child.on('error', (error: Error) => {
+      failure = error
+      reject(error)
+    })
+    child.on('close', (status, signal) => {
+      if (failure === null) resolve({ status, signal, stderr })
+    })
+  })
+  // Nobody has awaited it yet, and a rejection with no handler in the same
+  // tick is an unhandled rejection. The caller reaches it through `ended()`.
+  finished.catch(() => {})
+  // The child may exit before it reads its stdin, and a payload past the pipe
+  // buffer is then still in flight when the reader goes: EPIPE on this end.
+  // That is the reader leaving, which is the state this variant exists to
+  // stage, not a failure of the run.
+  child.stdin.on('error', () => {})
   child.stdin.end(stdin)
 
   return {
@@ -134,15 +176,7 @@ export function startScript(entry: string, options: SpawnOptions = {}): SpawnedS
     },
 
     ended(): Promise<EndedResult> {
-      let stderr = ''
-      child.stderr.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString('utf8')
-      })
-      return new Promise<EndedResult>((resolve) => {
-        child.on('close', (status, signal) => {
-          resolve({ status, signal, stderr })
-        })
-      })
+      return finished
     },
   }
 }
