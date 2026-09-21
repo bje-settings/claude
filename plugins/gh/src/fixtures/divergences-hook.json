@@ -1,10 +1,42 @@
 {
+  "placeholders": [
+    {
+      "name": "target",
+      "why": "The default branch the captured run named, which varies row by row (main, master, trunk, refs/heads/trunk). A row's python and port text is written with {target} where that name sits, and each parity example fills it with the name it built the repository to have, so one row covers every captured row rather than one row per branch name."
+    },
+    {
+      "name": "counts",
+      "why": "The count lines the in-repo message carries for THAT captured run's repository state, each ending in a newline, or the empty string when both counts are zero or neither could be read. The new message is computed, so a fixed was/now pair cannot express it: the expected text for a captured row is the row plus what its own state makes true. Of the captured in-repo states only in-repo/prefers-local-main has a non-zero count, a local master fully merged into main."
+    },
+    {
+      "name": "summary",
+      "why": "The fan-out summary line and its newline, or the empty string where there is no summary to write. Filled per captured fan-out row with the line the report under it makes true, so the table records the shape of the change and each example still proves the counts agree with its own report."
+    }
+  ],
   "text": [
     {
       "name": "the usage line names the file that carries it",
       "python": "usage: hook-io.py",
       "port": "usage: hook-io.ts",
       "why": "The subcommand list, the stream it goes to, the exit status 2 and the silence on stdout are all unchanged; only the name of the file a reader is being pointed at moved with the port, and it is applied to every captured usage row rather than asserted once."
+    },
+    {
+      "name": "the in-repo message states the status instead of instructing the agent",
+      "python": "Ask the user whether they would like to run /gh:sync to move to '{target}', fast-forward it,\nand prune branches whose work has already landed. Ask first. Do not run it unprompted, and do\nnot mention this if the user is clearly in the middle of something else.\n",
+      "port": "{counts}These are local refs, as of the last fetch. /gh:sync --dry-run reports the current state;\n/gh:sync moves to '{target}', fast-forwards it, and prunes branches whose work has landed.\n",
+      "why": "#110. The Python wrote three sentences addressed to the agent, and the same text goes out as systemMessage, where a user reads it as the agent speaking. The port states what is true of the checkout and then names, once and as a fact, the command that acts on it. The first line of the message, which carries the current branch and the default branch, is unchanged. The count lines the port adds are the {counts} placeholder, and they are local only (ruling 4): behind-by comes from the cached origin/<default> and prunable candidates from gone upstreams and ancestry, so session start still touches no network and the closing sentence says the numbers are as of the last fetch."
+    },
+    {
+      "name": "the fan-out message leads with a computed summary line",
+      "python": "was changed (it does fetch, so remote-tracking refs are current).\n",
+      "port": "was changed (it does fetch, so remote-tracking refs are current).\n{summary}",
+      "why": "#110. The Python pasted the dry-run report with nothing on top, so a directory of twenty checkouts reported twenty sections and no total. The port counts the sections of the report it just ran and writes one line above it: repositories checked, with upstream changes, with prunable branches, skipped, and not fully checked. The line is computed by the script from the marks sync-repo.ts exports, never written by a model. There is no summary above a body the fan-out did not produce (a timeout, or a sync that left no report), because the hook wrote that body itself and it counts nothing."
+    },
+    {
+      "name": "the fan-out message names how to act once, as a fact",
+      "python": "Offer to run /gh:sync to apply this for real. Ask first, and report the outcome plainly,\nincluding any repository that gets skipped and why.\n",
+      "port": "/gh:sync applies this for real.\n",
+      "why": "#110, the same change as the in-repo message's closing lines. The two sentences the Python ended with are instructions to the agent: offer, ask first, report the outcome. What a reader needs is the command, stated once. The report itself already names every repository that was skipped and why, so asking the agent to repeat it was asking for the report to be read out twice."
     }
   ],
   "paths": [
@@ -39,6 +71,26 @@
     {
       "name": "a non-zero sync exit with a report already on stdout",
       "why": "gh-sync.py's own single-repository path always answered 0 for a job that failed (the defect #81, round 7, fixed), so no captured run ever reached a non-zero child status with a report already on stdout: this branch of the hook has no Python behaviour to diverge from. #81 makes gh.ts sync exit 1 once its whole report is on stdout; the hook now reads that report rather than answering a strictly less true could-not-run line, gated on signal === null so a run an external signal cut short mid-report is not mistaken for one. It changes no captured row: the one captured child with a non-zero status (fan-out/child-exited-non-zero, status 2) has an empty stdout, so it already fell through to the could-not-run line before this branch existed and still does."
+    },
+    {
+      "name": "why the summary is counted out of the report rather than handed over as data",
+      "why": "#110 asked first whether sync could emit the counts itself, as a trailer or behind a flag, which would be facts rather than a reading of prose. It cannot serve this message. The hook's parity is pinned by 54 captured runs of the deleted Python, and a captured fan-out row carries only what gh-sync.py printed on stdout; counts arriving on a channel the capture never recorded could not be derived for a single captured row, so the summary would be untestable against exactly the runs it has to agree with. Counting the report the hook already receives is the only mechanism that answers for the captured runs and for a live one alike. The marks it counts by are named constants exported from sync-repo.ts, so a reworded report line is a compile-time reference rather than a regex quietly matching nothing."
+    },
+    {
+      "name": "what the summary counts, and what it does not claim",
+      "why": "A section is one repository: a line at the left margin opens it and the indented mark lines under it belong to it. Checked is the number of sections. With upstream changes and with prunable branches are the dry-run notes that say the default branch would move or a branch would go, which is the whole vocabulary the hook's own child can produce, because it always passes --dry-run. Skipped is a cross line carrying sync-repo.ts's skip prefix. Not fully checked is any other cross line, which includes the failure line sync.ts writes for a job that threw or answered non-zero (#81), plus a note that says a lookup could not be made, so a run that fell back to ancestry alone is never summarised as all clear. The buckets are not a partition and the line does not present them as one: a repository can be both skipped and not fully checked."
+    },
+    {
+      "name": "the report subcommand carries no summary",
+      "why": "hook-io.ts report wraps whatever is on its stdin, which is a debugging seam and not a fan-out this process ran. A summary is a statement about a run, so the seam writes none rather than counting sections in text it was handed and claiming the result. Every captured report row therefore fills the summary placeholder with the empty string, and the seam's captured bytes change only by the closing sentence above."
+    },
+    {
+      "name": "silence when both in-repo counts are zero",
+      "why": "The issue keeps silence when nothing is actionable as the rule, and being off the default branch is what has always triggered this message. Being off it is itself the status worth one line: work in this session is not landing where the repository's work lands. So the branch line and the closing line are written whenever the Python wrote a message, and a count line appears only when its count is above zero, which is why nine of the ten captured in-repo rows keep a two-line message and none of them grows padding."
+    },
+    {
+      "name": "a lookup that could not be made says nothing rather than zero",
+      "why": "Behind-by is null when the pair of refs cannot be counted (no cached origin/<default>, or a default branch name that is not a local branch at all, which is what the captured origin-head-wins and origin-head-outside-namespace rows are), and the candidate count is null when any of its three ref listings failed, because a count assembled from a partial answer would understate what it claims to have counted. A null and a zero both write no line, and they are kept apart in the data because only one of them is an answer."
     }
   ]
 }
