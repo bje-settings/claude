@@ -19,14 +19,28 @@ const DEFAULT_MAX_PER_UNIT = 5
 const MIN_TOKENS = 4
 
 /**
- * The document-frequency ceiling for a token to drive candidate lookup.
- * `candidatePairs` still WEIGHTS a token above this cap (its `idf` is just
- * small), it only stops using it to find OTHER units to compare against: a
- * token in a quarter of the corpus has a postings list nearly as long as the
- * corpus itself, and scanning it for every query unit is most of the way
- * back to the full O(n^2) comparison this module exists to avoid.
+ * The document-frequency ceiling for a token to drive candidate lookup, as
+ * an absolute number of units. `candidatePairs` still WEIGHTS a token above
+ * the ceiling (its `idf` is just small), it only stops using it to find
+ * OTHER units to compare against: scanning a postings list that holds a
+ * large share of the corpus, once per query unit, is most of the way back to
+ * the full O(n^2) comparison this module exists to avoid.
  */
 const POSTINGS_DF_CAP = 200
+
+/** The same ceiling as a share of the corpus, so the rule holds on a small
+ *  one too: a token in a quarter of 40 units is as unselective there as a
+ *  token in 200 of 20,000. */
+const POSTINGS_DF_SHARE = 0.25
+
+/** Below this the share rule would empty the index (a quarter of four units
+ *  is one, and every token two units share sits above that), so a corpus of
+ *  a handful of units keeps every token in the index; scanning it is free at
+ *  that size anyway. */
+const POSTINGS_DF_FLOOR = 8
+
+const postingsDfCap = (corpusSize: number): number =>
+  Math.max(POSTINGS_DF_FLOOR, Math.min(POSTINGS_DF_CAP, Math.floor(corpusSize * POSTINGS_DF_SHARE)))
 
 /** A short, generic list: articles, conjunctions and the like. Domain words
  *  ("plugin", "test", "issue") are left in on purpose, because `idf` already
@@ -91,8 +105,11 @@ const tokenize = (text: string): string[] => {
 /** A table_row unit's grouping key: same file, same heading path. Two rows
  *  with that key and identical text are the same column value repeated
  *  down a table, not duplicated content, so a pair between them is dropped
- *  regardless of similarity. Any other block kind (or two rows from
- *  different tables) gets `null`, which never equals another `null` here. */
+ *  regardless of similarity. Any other block kind gets `null`, which the
+ *  caller never treats as equal to another `null`. Two rows under DIFFERENT
+ *  headings get different keys and so still pair; two tables under ONE
+ *  heading share a key, so a value repeated across them is dropped as well
+ *  as a value repeated down one of them. */
 const tableGroup = (unit: Unit): string | null =>
   unit.block === 'table_row' ? `${unit.file}\u0000${unit.headingPath.join('>')}` : null
 
@@ -113,16 +130,18 @@ const pairKey = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `$
 
 /**
  * Candidate pairs of similar units, lexical only, chosen before any model
- * call. Built from an inverted index over tokens below {@link POSTINGS_DF_CAP},
+ * call. Built from an inverted index over tokens below {@link postingsDfCap},
  * so scoring stays proportional to the vocabulary actually shared between
  * units rather than to every pair in the corpus: for n = 5,000 short units
  * this compares each unit against its co-occurring neighbours, not against
  * the other 4,999.
  *
  * Never pairs a unit with itself, emits each pair once (`a < b` by id), skips
- * a unit under {@link MIN_TOKENS} tokens entirely, and drops a pair whose two
+ * a unit under {@link MIN_TOKENS} tokens entirely, drops a pair whose two
  * texts are identical AND both rows of the same table in the same file
- * ({@link tableGroup}) since a repeated cell value is not duplication.
+ * ({@link tableGroup}) since a repeated cell value is not duplication, and
+ * lets no unit appear in more than `maxPerUnit` pairs, whichever side of the
+ * pair it is on.
  */
 export const candidatePairs = (
   units: Unit[],
@@ -176,10 +195,11 @@ export const candidatePairs = (
     vectors.set(id, weights)
   }
 
+  const dfCap = postingsDfCap(corpusSize)
   const postings = new Map<string, string[]>()
   for (const [id, tokens] of tokensByUnit) {
     for (const token of new Set(tokens)) {
-      if ((documentFrequency.get(token) ?? 0) > POSTINGS_DF_CAP) continue
+      if ((documentFrequency.get(token) ?? 0) > dfCap) continue
       const list = postings.get(token)
       if (list === undefined) postings.set(token, [id])
       else list.push(id)
@@ -221,6 +241,10 @@ export const candidatePairs = (
     scored.sort((x, y) => y.similarity - x.similarity)
 
     for (const candidate of scored) {
+      // Both sides are capped, and both are re-read here rather than in
+      // `scored`: earlier iterations of this same loop change them. A unit
+      // that sorts last (`z-hub`) is reached as a candidate by every unit
+      // before it, so without the second check its own cap would never bind.
       if (countOf(unit.id) >= maxPerUnit) break
       if (countOf(candidate.id) >= maxPerUnit) continue
       const key = pairKey(unit.id, candidate.id)

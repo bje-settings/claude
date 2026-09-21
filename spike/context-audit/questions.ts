@@ -10,8 +10,11 @@
 //    confuse name each other: `instruction` against `repo_fact`, `history`
 //    against `repo_fact`.
 // 2. **Unrelated state costs accuracy** ("Large state full of irrelevant
-//    detail"). So `per_unit` sends one unit, and `per_section` sends the
-//    units of one heading path and no more. Neither shape ever sends a file.
+//    detail"). So `per_unit` sends one unit (plus its `prev` and `next`
+//    neighbours, dropped from `per_section` for the same reason), and
+//    `per_section` sends the units of one file's contiguous run under one
+//    heading path and no more, split further when the budget requires it.
+//    Neither shape ever sends a whole file.
 // 3. **Counting, arithmetic and date comparison are unreliable.** Nothing
 //    here asks for a count, a date order or a number. `multi_assertion` asks
 //    whether there is more than one claim, which is a boundary and not a
@@ -24,7 +27,17 @@
 // cookbook measures as an order of magnitude cheaper. They are built from one
 // set of option rubrics so the comparison is of the shape and nothing else.
 
-import { type AnyQuestion, choice, type Entry, noul, type QuestionMap } from './jev.ts'
+import {
+  type AnswerBag,
+  type AnyQuestion,
+  choice,
+  type Entry,
+  noul,
+  type QuestionMap,
+} from './jev.ts'
+
+export type { AnswerBag } from './jev.ts'
+
 import type {
   ChoiceAnswer,
   Classification,
@@ -161,12 +174,11 @@ const VOLATILE_CRITERIA = {
 } as const
 
 /**
- * Round A of the smoke iteration rewrote this. The first version asked
- * whether the statement could be "understood and checked on its own, without
- * the lead-in, the neighbours or the heading path", and every fixture came
- * back between 0.22 and 0.71: three conditions in one question, plus the word
- * "checked", which dragged in the evidence judgment. What is left is one
- * literal test, on words that are in the text or are not.
+ * An earlier version asked whether the statement could be "understood and
+ * checked on its own, without the lead-in, the neighbours or the heading
+ * path": three conditions folded into one question, plus the word "checked",
+ * which dragged the evidence judgment in alongside self-containedness. What
+ * is left is one literal test, on words that are in the text or are not.
  */
 const SELF_CONTAINED_CRITERIA = {
   true: {
@@ -286,7 +298,12 @@ function unitQuestions(at: string): Record<string, AnyQuestion> {
   }
 }
 
-/** `kind__u3`. The id never reaches the model, so it is for the parser alone. */
+/**
+ * `kind__u3`. This id is sent to the API, as the key the answer comes back
+ * under; it is not hidden from the request. TypeSafe's own docs say a
+ * question's id is for code to reference and is never shown to the model, so
+ * it is free to be shaped for the parser alone.
+ */
 function questionId(judgment: string, sid: string): string {
   return `${judgment}__${sid}`
 }
@@ -317,13 +334,32 @@ function sectionUnitState(unit: Unit) {
   return state
 }
 
-/** Units of one file under one heading path, in document order. */
+/**
+ * Units of one file under one heading path, in document order. `indexes` are
+ * positions in the `units` array `batchSections` was called with, and are
+ * always a contiguous run of that array: the scan below only ever extends the
+ * section it is currently building with the next array position, and starts
+ * a new section the moment the key changes, even if that key matches a
+ * section from earlier. So the same heading path recurring later in the
+ * array (a repeated section title, or two different parents that happen to
+ * share a leaf name) never reopens the earlier section and never merges
+ * units that are not one another's neighbours in `units`.
+ *
+ * That guarantee is about the array actually passed in, not about the source
+ * document: `batchSections` trusts `units` to already be in true document
+ * order. A caller that hands it a filtered or strided sample (say, every
+ * other unit) gets sections built over that sample's own adjacency, which is
+ * no longer the document's.
+ */
 export type Section = { file: string; headingPath: string[]; indexes: number[] }
 
 /**
  * Group units into sections, then split any section whose state would not fit
  * the budget. Splitting keeps document order, so a half section is still a
- * run of neighbours rather than a scatter.
+ * run of neighbours rather than a scatter. The token budgets below apply to
+ * one section's own state, never to the whole run: a single unit that alone
+ * exceeds `stateTokens` still becomes a one-unit section and is sent by
+ * itself rather than dropped or merged.
  */
 export function batchSections(
   units: Unit[],
@@ -353,6 +389,13 @@ export function batchSections(
       nextState <= stateTokens &&
       nextState + questionCost * nextCount <= requestTokens
     if (current !== null && fits) {
+      // Structural invariant, not a real-world case: this loop only ever
+      // reaches here on the array position right after the section's last
+      // one, so a gap would mean the scan itself broke, not bad input.
+      const last = current.indexes[current.indexes.length - 1]
+      if (last !== index - 1) {
+        throw new Error('batchSections: a section must be a contiguous run of the input array')
+      }
       current.indexes.push(index)
       stateSoFar += cost
       continue
@@ -404,61 +447,85 @@ export function classifyRequest(
   })
 }
 
-/** Every answer of a run, merged under the ids `classifyRequest` chose. */
-export type AnswerBag = Record<string, unknown>
-
+/**
+ * A Noul answer's `noul` is P(yes), so anything outside `[0, 1]` is not a
+ * probability and the response cannot be trusted. An array passes
+ * `typeof x === 'object'` in JavaScript, so it is excluded explicitly rather
+ * than accepted as a weird object with no `noul` property.
+ */
 function readNoul(bag: AnswerBag, id: string): number {
   const answer = bag[id]
-  if (
-    typeof answer !== 'object' ||
-    answer === null ||
-    typeof (answer as { noul?: unknown }).noul !== 'number'
-  ) {
+  if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) {
     throw new Error(`no noul answer under ${id}`)
   }
-  return (answer as { noul: number }).noul
+  const noul = (answer as { noul?: unknown }).noul
+  if (typeof noul !== 'number' || !Number.isFinite(noul) || noul < 0 || noul > 1) {
+    throw new Error(`no noul answer under ${id}`)
+  }
+  return noul
 }
 
+/**
+ * `criteria` is the record the question was built from, so its keys are the
+ * only options that could ever be chosen: nothing outside this function has
+ * to keep a separate options list in sync with it.
+ */
 function readChoice<T extends string>(
   bag: AnswerBag,
   id: string,
-  options: readonly T[],
+  criteria: Record<T, Entry>,
 ): ChoiceAnswer<T> {
-  const answer = bag[id] as
-    | { choice?: unknown; probabilities?: Record<string, number>; confidence?: unknown }
-    | undefined
+  const options = Object.keys(criteria) as T[]
+  const answer = bag[id]
+  if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) {
+    throw new Error(`no choice answer under ${id}`)
+  }
+  const raw = answer as { choice?: unknown; probabilities?: unknown; confidence?: unknown }
   if (
-    answer === undefined ||
-    typeof answer.choice !== 'string' ||
-    typeof answer.confidence !== 'number' ||
-    typeof answer.probabilities !== 'object' ||
-    answer.probabilities === null
+    typeof raw.choice !== 'string' ||
+    typeof raw.confidence !== 'number' ||
+    typeof raw.probabilities !== 'object' ||
+    raw.probabilities === null ||
+    Array.isArray(raw.probabilities)
   ) {
     throw new Error(`no choice answer under ${id}`)
   }
-  if (!options.includes(answer.choice as T)) {
-    throw new Error(`answer ${id} chose ${answer.choice}, which is not one of the options`)
+  if (!options.includes(raw.choice as T)) {
+    throw new Error(`answer ${id} chose ${raw.choice}, which is not one of the options`)
   }
-  // The distribution is rebuilt over the declared options rather than trusted
-  // as returned, so a missing option reads as 0 instead of undefined and the
-  // record is total the way the contract's type says it is.
+  const rawProbabilities = raw.probabilities as Record<string, unknown>
+  // Jev omits a zero-probability option from the map rather than sending an
+  // explicit 0, so an option missing from the response reads as 0, EXCEPT the
+  // chosen option itself: an answer that names its own choice but carries no
+  // probability for it (or a non-finite one) is not one this code can trust,
+  // so that case is refused rather than silently defaulted.
   const probabilities = {} as Record<T, number>
-  for (const option of options) probabilities[option] = answer.probabilities[option] ?? 0
-  return { choice: answer.choice as T, probabilities, confidence: answer.confidence }
+  for (const option of options) {
+    const value = rawProbabilities[option]
+    if (value === undefined) {
+      if (option === raw.choice) {
+        throw new Error(`answer ${id} has no probability for its own choice ${raw.choice}`)
+      }
+      probabilities[option] = 0
+      continue
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(`answer ${id} has a non-finite probability for ${option}`)
+    }
+    probabilities[option] = value
+  }
+  return { choice: raw.choice as T, probabilities, confidence: raw.confidence }
 }
-
-const KIND_OPTIONS = Object.keys(KIND_CRITERIA) as UnitKind[]
-const EVIDENCE_OPTIONS = Object.keys(EVIDENCE_CRITERIA) as EvidenceNeed[]
 
 export function parseClassification(units: Unit[], answers: AnswerBag): Classification[] {
   return units.map((unit, index) => {
     const sid = shortId(index)
     return {
       unitId: unit.id,
-      kind: readChoice(answers, questionId('kind', sid), KIND_OPTIONS),
+      kind: readChoice(answers, questionId('kind', sid), KIND_CRITERIA),
       volatile: readNoul(answers, questionId('volatile', sid)),
       selfContained: readNoul(answers, questionId('self_contained', sid)),
-      evidenceNeed: readChoice(answers, questionId('evidence', sid), EVIDENCE_OPTIONS),
+      evidenceNeed: readChoice(answers, questionId('evidence', sid), EVIDENCE_CRITERIA),
       multiAssertion: readNoul(answers, questionId('multi_assertion', sid)),
     }
   })
@@ -499,8 +566,6 @@ const PAIR_CRITERIA: Record<PairVerdict, Entry> = {
   },
 }
 
-const PAIR_OPTIONS = Object.keys(PAIR_CRITERIA) as PairVerdict[]
-
 /** The id of the pair question. One question, one request. */
 export const PAIR_QUESTION_ID = 'pair'
 
@@ -525,7 +590,7 @@ export function pairRequest(a: Unit, b: Unit): JevRequest {
 }
 
 export function parsePair(candidate: PairCandidate, answers: AnswerBag): PairJudgment {
-  return { ...candidate, verdict: readChoice(answers, PAIR_QUESTION_ID, PAIR_OPTIONS) }
+  return { ...candidate, verdict: readChoice(answers, PAIR_QUESTION_ID, PAIR_CRITERIA) }
 }
 
 //
@@ -542,8 +607,6 @@ const EVIDENCE_VERDICT_CRITERIA: Record<EvidenceVerdict, Entry> = {
   contradicts: 'The excerpt states the opposite of the claim, or implies that it is false.',
   says_nothing: 'The excerpt does not address what the claim asserts, either way.',
 }
-
-const EVIDENCE_VERDICT_OPTIONS = Object.keys(EVIDENCE_VERDICT_CRITERIA) as EvidenceVerdict[]
 
 export const EVIDENCE_QUESTION_ID = 'relation'
 
@@ -573,6 +636,6 @@ export function parseEvidence(
     unitId: unit.id,
     source,
     excerpt,
-    verdict: readChoice(answers, EVIDENCE_QUESTION_ID, EVIDENCE_VERDICT_OPTIONS),
+    verdict: readChoice(answers, EVIDENCE_QUESTION_ID, EVIDENCE_VERDICT_CRITERIA),
   }
 }

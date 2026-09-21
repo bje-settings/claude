@@ -3,11 +3,50 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { buildIssueQuery, extractRefs, parseIssueResponse, resolveRefs } from './refs.ts'
-import type { Ref } from './types.ts'
+import {
+  buildIssueQuery,
+  extractBlockRefs,
+  extractRefs,
+  type PackageJsonCache,
+  parseIssueChunkFailure,
+  parseIssueResponse,
+  type ResolveContext,
+  resolveRefs,
+} from './refs.ts'
+import type { IssueLookup, Ref } from './types.ts'
 
 const byKind = (refs: Ref[], kind: Ref['kind']) => refs.filter((r) => r.kind === kind)
 const values = (refs: Ref[]) => refs.map((r) => r.value)
+
+/** A `ResolveContext` with the fields a test does not care about filled in. */
+const context = (overrides: Partial<ResolveContext> & { root: string }): ResolveContext => ({
+  file: 'CLAUDE.md',
+  issueState: () => 'unavailable',
+  ...overrides,
+})
+
+const resolveOne = (ref: Ref, ctx: ResolveContext): Ref => {
+  const [resolved] = resolveRefs([ref], ctx)
+  return resolved as Ref
+}
+
+const pathRef = (value: string): Ref => ({
+  kind: 'path',
+  value,
+  resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+})
+
+const fileLineRef = (value: string): Ref => ({
+  kind: 'file_line',
+  value,
+  resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+})
+
+const scriptRef = (value: string): Ref => ({
+  kind: 'script',
+  value,
+  resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+})
 
 describe('extractRefs: path', () => {
   it('extracts a backticked path containing a slash', () => {
@@ -44,11 +83,25 @@ describe('extractRefs: path', () => {
     )
   })
 
-  it('extraction leaves resolved and detail null', () => {
-    for (const ref of extractRefs('see `lib/git.ts`')) {
-      assert.equal(ref.resolved, null)
-      assert.equal(ref.detail, null)
+  it('extraction leaves every ref unchecked, with the not-resolved reason', () => {
+    for (const ref of extractRefs('see `lib/git.ts` about #138')) {
+      assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'not_resolved_yet' })
     }
+  })
+
+  it('does not read a code span containing whitespace as a path', () => {
+    // The whitespace guard in `looksLikePath`: no existence check on the
+    // whole string could ever succeed, so the script is the only ref here.
+    const refs = extractRefs('run `pnpm test lib/git.ts` before pushing')
+    assert.deepEqual(values(byKind(refs, 'script')), ['pnpm test'])
+    assert.deepEqual(byKind(refs, 'path'), [])
+    // And with no script in it, a command line yields nothing at all rather
+    // than a "path" of the whole line.
+    assert.deepEqual(extractRefs('run `python3 tests/x.py out.xml 95`'), [])
+  })
+
+  it('does not read a URL in a code span as a path', () => {
+    assert.deepEqual(byKind(extractRefs('see `https://example.com/lib/git.ts`'), 'path'), [])
   })
 })
 
@@ -88,6 +141,37 @@ describe('extractRefs: issue', () => {
   it('does not extract a hex colour that contains a letter', () => {
     const refs = extractRefs('the accent colour is `#a1b2c3` and `#fff`')
     assert.deepEqual(byKind(refs, 'issue'), [])
+  })
+
+  it('does not extract a numeric hex colour in a mermaid classDef', () => {
+    const refs = extractRefs('classDef done fill:#dfd,stroke:#333,color:#000')
+    assert.deepEqual(byKind(refs, 'issue'), [])
+  })
+
+  it('does not extract a six-digit colour written after a colon', () => {
+    assert.deepEqual(byKind(extractRefs('style a fill:#112233'), 'issue'), [])
+  })
+
+  it('does not extract another repository’s issue', () => {
+    const refs = extractRefs(
+      'see [anthropics/claude-code#15344](https://github.com/anthropics/claude-code/issues/15344)',
+    )
+    assert.deepEqual(byKind(refs, 'issue'), [])
+  })
+
+  it('does not extract a number with a leading zero, or zero itself', () => {
+    assert.deepEqual(byKind(extractRefs('see #0 and #0138'), 'issue'), [])
+  })
+
+  it('still extracts a comma-separated list of three-digit issues', () => {
+    // The colour rule requires the `:` or `,` to touch the `#`; prose puts a
+    // space there, and these are issue numbers.
+    assert.deepEqual(values(byKind(extractRefs('#116, #129, #140; blocked by: #123'), 'issue')), [
+      '#116',
+      '#129',
+      '#140',
+      '#123',
+    ])
   })
 
   it('does not extract the "#" of an ATX heading', () => {
@@ -161,6 +245,82 @@ describe('extractRefs: command', () => {
     const text = '```bash\n\n# a comment\ngit status\n```'
     assert.deepEqual(values(byKind(extractRefs(text), 'command')), ['git'])
   })
+
+  it('does not close a fence on a line that has more after the backticks', () => {
+    // CommonMark allows nothing but blanks after a closing fence, so this
+    // block runs to the last line and `pnpm run build` is inside it.
+    const text = '```bash\ngit status\n``` still inside\npnpm run build\n```'
+    const refs = extractRefs(text)
+    assert.deepEqual(values(byKind(refs, 'script')), ['pnpm run build'])
+    assert.deepEqual(values(byKind(refs, 'command')), ['git', '```', 'pnpm'])
+  })
+})
+
+describe('extractRefs: order', () => {
+  it('emits refs in source order', () => {
+    const text = 'first `lib/a.ts`, then #138, then `pnpm test`, then `lib/b.ts`'
+    assert.deepEqual(values(extractRefs(text)), ['lib/a.ts', '#138', 'pnpm test', 'lib/b.ts'])
+  })
+
+  it('orders a fenced block against the prose around it', () => {
+    const text = 'before #1\n\n```bash\ngit status\n```\n\nafter `lib/z.ts`'
+    assert.deepEqual(values(extractRefs(text)), ['#1', 'git', 'lib/z.ts'])
+  })
+})
+
+describe('extractBlockRefs', () => {
+  it('extracts nothing from a mermaid block', () => {
+    const text = 'flowchart TD\n  A[Start] --> B[lib/git.ts]\n  classDef done color:#000\n'
+    assert.deepEqual(extractBlockRefs(text, 'mermaid', 'mermaid'), [])
+  })
+
+  it('extracts commands, scripts and paths from a shell block', () => {
+    const refs = extractBlockRefs('pnpm exec node lib/x.ts\npnpm test\n', 'bash', 'code')
+    assert.deepEqual(values(byKind(refs, 'command')), ['pnpm', 'pnpm'])
+    assert.deepEqual(values(byKind(refs, 'path')), ['lib/x.ts'])
+    assert.deepEqual(values(byKind(refs, 'script')), ['pnpm test'])
+  })
+
+  it('extracts paths but no commands from a non-shell block', () => {
+    const refs = extractBlockRefs("import { x } from './lib/x.ts'\n", 'ts', 'code')
+    assert.deepEqual(byKind(refs, 'command'), [])
+    assert.deepEqual(values(byKind(refs, 'path')), ['./lib/x.ts'])
+  })
+
+  it('reads a block whose info string is not a plain word', () => {
+    // The old caller re-wrapped the body in a fence, and `c++` as an info
+    // string did not match the fence pattern at all.
+    const refs = extractBlockRefs('#include "src/thing.h"\n', 'c++', 'code')
+    assert.deepEqual(values(byKind(refs, 'path')), ['src/thing.h'])
+  })
+
+  it('reads a block whose body contains a fence line', () => {
+    const refs = extractBlockRefs('```\nlib/inner.ts\n', null, 'code')
+    assert.deepEqual(values(byKind(refs, 'path')), ['lib/inner.ts'])
+  })
+
+  it('extracts paths from frontmatter', () => {
+    const refs = extractBlockRefs(
+      'allowed-tools: Bash\nscript: scripts/run.py\n',
+      null,
+      'frontmatter',
+    )
+    assert.deepEqual(values(byKind(refs, 'path')), ['scripts/run.py'])
+  })
+
+  it('ignores a slash-bearing token that is no path', () => {
+    const refs = extractBlockRefs(
+      'git remote add origin git@github.com:owner/repo\n',
+      'bash',
+      'code',
+    )
+    assert.deepEqual(byKind(refs, 'path'), [])
+  })
+
+  it('extracts a file:line reference written in a block', () => {
+    const refs = extractBlockRefs('# see CLAUDE.md:115 for the rule\n', 'ts', 'code')
+    assert.deepEqual(values(byKind(refs, 'file_line')), ['CLAUDE.md:115'])
+  })
 })
 
 describe('resolveRefs: path', () => {
@@ -176,261 +336,310 @@ describe('resolveRefs: path', () => {
   after(() => {
     for (const root of roots) rmSync(root, { recursive: true, force: true })
   })
-
-  it('resolves true relative to root', () => {
+  const freshRepo = () => {
     const root = repo()
     roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'path', value: 'lib/git.ts', resolved: null, detail: null }],
-      {
-        root,
-        file: 'CLAUDE.md',
-        issueState: () => undefined,
-      },
-    )
-    assert.equal(ref?.resolved, true)
-    assert.equal(ref?.detail, 'lib/git.ts')
+    return root
+  }
+
+  it('resolves found relative to root', () => {
+    const ref = resolveOne(pathRef('lib/git.ts'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'lib/git.ts' })
   })
 
-  it('resolves true relative to the referencing file’s directory', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'path', value: '../../lib/git.ts', resolved: null, detail: null }],
-      {
-        root,
-        file: 'plugins/gh/README.md',
-        issueState: () => undefined,
-      },
+  it('resolves found relative to the referencing file’s directory', () => {
+    const ref = resolveOne(
+      pathRef('../../lib/git.ts'),
+      context({ root: freshRepo(), file: 'plugins/gh/README.md' }),
     )
-    assert.equal(ref?.resolved, true)
-    assert.equal(ref?.detail, 'lib/git.ts')
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'lib/git.ts' })
   })
 
-  it('resolves false for a path that exists nowhere', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'path', value: 'lib/missing.ts', resolved: null, detail: null }],
-      {
-        root,
-        file: 'CLAUDE.md',
-        issueState: () => undefined,
-      },
-    )
-    assert.equal(ref?.resolved, false)
-    assert.equal(ref?.detail, null)
+  it('prefers the root candidate when a file-relative one also exists', () => {
+    const root = freshRepo()
+    // Both `lib/git.ts` (root) and `plugins/gh/lib/git.ts` (beside the file)
+    // exist and are different files; the root one is the one meant.
+    mkdirSync(join(root, 'plugins', 'gh', 'lib'), { recursive: true })
+    writeFileSync(join(root, 'plugins', 'gh', 'lib', 'git.ts'), 'a different file\n')
+    const ref = resolveOne(pathRef('lib/git.ts'), context({ root, file: 'plugins/gh/README.md' }))
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'lib/git.ts' })
   })
 
-  it('resolves a glob to null', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'path', value: 'plugins/*/src/commands/*.ts', resolved: null, detail: null }],
-      { root, file: 'CLAUDE.md', issueState: () => undefined },
-    )
-    assert.equal(ref?.resolved, null)
+  it('resolves absent for a path that exists nowhere', () => {
+    const ref = resolveOne(pathRef('lib/missing.ts'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'absent' })
   })
 
-  it('resolves an absolute path to null', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'path', value: '/etc/hosts', resolved: null, detail: null }],
-      {
-        root,
-        file: 'CLAUDE.md',
-        issueState: () => undefined,
-      },
-    )
-    assert.equal(ref?.resolved, null)
+  it('resolves a glob to unchecked, reason pattern', () => {
+    const ref = resolveOne(pathRef('plugins/*/src/commands/*.ts'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
   })
 
-  it('resolves a ~/ path to null', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'path', value: '~/notes.md', resolved: null, detail: null }],
-      {
-        root,
-        file: 'CLAUDE.md',
-        issueState: () => undefined,
-      },
+  it('resolves an NNN placeholder to unchecked, reason pattern', () => {
+    const ref = resolveOne(pathRef('docs/adr/NNN-title.md'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
+  })
+
+  it('resolves an ellipsis placeholder to unchecked, reason pattern', () => {
+    const ref = resolveOne(pathRef('docs/.../title.md'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
+  })
+
+  it('does not read a leading ../.. as the ellipsis placeholder', () => {
+    const ref = resolveOne(
+      pathRef('../../lib/git.ts'),
+      context({ root: freshRepo(), file: 'plugins/gh/README.md' }),
     )
-    assert.equal(ref?.resolved, null)
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'lib/git.ts' })
+  })
+
+  it('resolves an absolute path to unchecked, reason machine_specific', () => {
+    const ref = resolveOne(pathRef('/etc/hosts'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'machine_specific' })
+  })
+
+  it('resolves a ~/ path to unchecked, reason machine_specific', () => {
+    const ref = resolveOne(pathRef('~/notes.md'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'machine_specific' })
+  })
+})
+
+describe('resolveRefs: path, the tracked tail rule', () => {
+  const ctx = (tracked: string[]): ResolveContext =>
+    context({ root: join(tmpdir(), 'context-audit-nonexistent-root'), tracked })
+
+  it('resolves tail_match when the value ends a tracked path at a segment boundary', () => {
+    const ref = resolveOne(pathRef('fixtures/git.ts'), ctx(['plugins/gh/src/fixtures/git.ts']))
+    assert.deepEqual(ref.resolution, {
+      status: 'tail_match',
+      witness: 'plugins/gh/src/fixtures/git.ts',
+    })
+  })
+
+  it('resolves a directory reference against whole segments of a tracked path', () => {
+    const ref = resolveOne(pathRef('gh/src/'), ctx(['plugins/gh/src/commands/sync.ts']))
+    assert.deepEqual(ref.resolution, {
+      status: 'tail_match',
+      witness: 'plugins/gh/src/commands/sync.ts',
+    })
+  })
+
+  it('leaves a truly absent path absent even with tracked supplied', () => {
+    // `lib` is a PREFIX of `lib/git.ts`, not a tail of it: a file reference
+    // that names no tracked file is rot, whatever tracked paths start with.
+    const ref = resolveOne(pathRef('lib'), ctx(['lib/git.ts', 'plugins/gh/src/lib/git.ts']))
+    assert.deepEqual(ref.resolution, { status: 'absent' })
+  })
+
+  it('does not absolve a file reference that only appears mid-path', () => {
+    const ref = resolveOne(pathRef('src'), ctx(['plugins/gh/src/commands/sync.ts']))
+    assert.deepEqual(ref.resolution, { status: 'absent' })
+  })
+
+  it('does not match a partial segment', () => {
+    // `ixtures/git.ts` ends `src/fixtures/git.ts` as a STRING, but not at a
+    // segment boundary, so it names no tracked file.
+    const tracked = ['plugins/gh/src/fixtures/git.ts']
+    assert.deepEqual(resolveOne(pathRef('ixtures/git.ts'), ctx(tracked)).resolution, {
+      status: 'absent',
+    })
+    assert.deepEqual(resolveOne(pathRef('src/ixtures/'), ctx(tracked)).resolution, {
+      status: 'absent',
+    })
+  })
+
+  it('does not absolve a single-segment directory reference', () => {
+    // `skills/` names a directory a dozen trees have; matching it against a
+    // tracked path says nothing about the one the prose meant.
+    const ref = resolveOne(pathRef('skills/'), ctx(['plugins/gh/skills/sync/SKILL.md']))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
   })
 })
 
 describe('resolveRefs: file_line', () => {
-  const repo = () => {
-    const root = mkdtempSync(join(tmpdir(), 'context-audit-refs-fileline-'))
-    writeFileSync(
-      join(root, 'CLAUDE.md'),
-      Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n'),
-    )
-    return root
-  }
   const roots: string[] = []
   after(() => {
     for (const root of roots) rmSync(root, { recursive: true, force: true })
   })
-
-  it('resolves true when the file has at least that many lines', () => {
-    const root = repo()
+  /** A file of exactly `lines` lines as `wc -l` counts them: the last line
+   *  ends with a newline, as almost every file in a repository does. */
+  const repo = (lines: number) => {
+    const root = mkdtempSync(join(tmpdir(), 'context-audit-refs-fileline-'))
     roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'file_line', value: 'CLAUDE.md:15', resolved: null, detail: null }],
-      {
-        root,
-        file: 'README.md',
-        issueState: () => undefined,
-      },
+    writeFileSync(
+      join(root, 'CLAUDE.md'),
+      `${Array.from({ length: lines }, (_, i) => `line ${i + 1}`).join('\n')}\n`,
     )
-    assert.equal(ref?.resolved, true)
+    return root
+  }
+
+  it('resolves found for the last line of a file ending in a newline', () => {
+    const ref = resolveOne(fileLineRef('CLAUDE.md:20'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'CLAUDE.md' })
   })
 
-  it('resolves true for a range within the file', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'file_line', value: 'CLAUDE.md:5-15', resolved: null, detail: null }],
-      { root, file: 'README.md', issueState: () => undefined },
-    )
-    assert.equal(ref?.resolved, true)
+  it('resolves line_out_of_range one line past the end', () => {
+    // The trailing newline ends line 20; it does not start a line 21.
+    const ref = resolveOne(fileLineRef('CLAUDE.md:21'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, {
+      status: 'line_out_of_range',
+      repoPath: 'CLAUDE.md',
+      lines: 20,
+    })
   })
 
-  it('resolves false when the file has fewer lines than claimed', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'file_line', value: 'CLAUDE.md:9999', resolved: null, detail: null }],
-      { root, file: 'README.md', issueState: () => undefined },
-    )
-    assert.equal(ref?.resolved, false)
+  it('resolves found well inside the file', () => {
+    const ref = resolveOne(fileLineRef('CLAUDE.md:15'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'CLAUDE.md' })
   })
 
-  it('resolves false when the file does not exist', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'file_line', value: 'missing.md:1', resolved: null, detail: null }],
-      { root, file: 'README.md', issueState: () => undefined },
-    )
-    assert.equal(ref?.resolved, false)
+  it('resolves a range by its END line', () => {
+    const ref = resolveOne(fileLineRef('CLAUDE.md:15-25'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, {
+      status: 'line_out_of_range',
+      repoPath: 'CLAUDE.md',
+      lines: 20,
+    })
   })
 
-  it('resolves null when the path portion is unchecked (a glob)', () => {
-    const root = repo()
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'file_line', value: '*.md:1', resolved: null, detail: null }],
-      { root, file: 'README.md', issueState: () => undefined },
-    )
-    assert.equal(ref?.resolved, null)
+  it('resolves a range that fits', () => {
+    const ref = resolveOne(fileLineRef('CLAUDE.md:5-15'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: 'CLAUDE.md' })
+  })
+
+  it('resolves absent when the file does not exist', () => {
+    const ref = resolveOne(fileLineRef('missing.md:1'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, { status: 'absent' })
+  })
+
+  it('carries the path’s own unchecked reason when it is a glob', () => {
+    const ref = resolveOne(fileLineRef('*.md:1'), context({ root: repo(20) }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
+  })
+
+  it('resolves unchecked when the path exists but no line count can be taken', () => {
+    const root = repo(20)
+    mkdirSync(join(root, 'docs'), { recursive: true })
+    const ref = resolveOne(fileLineRef('docs:3'), context({ root }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'unavailable' })
   })
 })
 
 describe('resolveRefs: script', () => {
-  const repoWithPackageJson = (scripts: Record<string, string>) => {
-    const root = mkdtempSync(join(tmpdir(), 'context-audit-refs-script-'))
-    mkdirSync(join(root, 'nested'), { recursive: true })
-    writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts }))
-    writeFileSync(join(root, 'nested', 'README.md'), '# nested\n')
-    return root
-  }
   const roots: string[] = []
   after(() => {
     for (const root of roots) rmSync(root, { recursive: true, force: true })
   })
-
-  it('resolves true when the script exists in the nearest package.json', () => {
-    const root = repoWithPackageJson({ test: 'vitest run' })
+  const repo = (packageJson: string | null) => {
+    const root = mkdtempSync(join(tmpdir(), 'context-audit-refs-script-'))
     roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'script', value: 'pnpm test', resolved: null, detail: null }],
-      {
-        root,
-        file: 'nested/README.md',
-        issueState: () => undefined,
-      },
-    )
-    assert.equal(ref?.resolved, true)
+    mkdirSync(join(root, 'nested'), { recursive: true })
+    if (packageJson !== null) writeFileSync(join(root, 'package.json'), packageJson)
+    writeFileSync(join(root, 'nested', 'README.md'), '# nested\n')
+    return root
+  }
+
+  it('resolves found when the script exists in the nearest package.json', () => {
+    const root = repo(JSON.stringify({ scripts: { test: 'vitest run' } }))
+    const ref = resolveOne(scriptRef('pnpm test'), context({ root, file: 'nested/README.md' }))
+    assert.deepEqual(ref.resolution, { status: 'found', repoPath: null })
   })
 
-  it('resolves false when the script is absent from package.json', () => {
-    const root = repoWithPackageJson({ test: 'vitest run' })
-    roots.push(root)
-    const [ref] = resolveRefs(
-      [{ kind: 'script', value: 'pnpm build', resolved: null, detail: null }],
-      {
-        root,
-        file: 'nested/README.md',
-        issueState: () => undefined,
-      },
-    )
-    assert.equal(ref?.resolved, false)
+  it('resolves absent when the script is missing from package.json', () => {
+    const root = repo(JSON.stringify({ scripts: { test: 'vitest run' } }))
+    const ref = resolveOne(scriptRef('pnpm build'), context({ root, file: 'nested/README.md' }))
+    assert.deepEqual(ref.resolution, { status: 'absent' })
   })
 
-  it('resolves null when there is no package.json at all', () => {
-    const root = mkdtempSync(join(tmpdir(), 'context-audit-refs-noscript-'))
-    roots.push(root)
-    writeFileSync(join(root, 'README.md'), '# root\n')
-    const [ref] = resolveRefs(
-      [{ kind: 'script', value: 'pnpm test', resolved: null, detail: null }],
-      {
-        root,
-        file: 'README.md',
-        issueState: () => undefined,
-      },
+  it('resolves unchecked, reason no_resolver, when there is no package.json at all', () => {
+    const root = repo(null)
+    const ref = resolveOne(scriptRef('pnpm test'), context({ root, file: 'nested/README.md' }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'no_resolver' })
+  })
+
+  it('resolves unchecked, reason unavailable, when package.json does not parse', () => {
+    // Not "the script is missing": the question could not be asked.
+    const root = repo('{ "scripts": { "test": ')
+    const ref = resolveOne(scriptRef('pnpm test'), context({ root, file: 'nested/README.md' }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'unavailable' })
+  })
+
+  it('reads each package.json once when the caller shares a cache', () => {
+    const root = repo(JSON.stringify({ scripts: { test: 'vitest run' } }))
+    const packageJson: PackageJsonCache = new Map()
+    const first = resolveOne(
+      scriptRef('pnpm test'),
+      context({ root, file: 'nested/README.md', packageJson }),
     )
-    assert.equal(ref?.resolved, null)
+    assert.deepEqual(first.resolution, { status: 'found', repoPath: null })
+    // Both places the walk looked are remembered: the one that has no
+    // manifest as well as the one that has.
+    assert.deepEqual(
+      [...packageJson.keys()].sort(),
+      [join(root, 'package.json'), join(root, 'nested', 'package.json')].sort(),
+    )
+
+    // Delete the manifest: a second call that re-read the disk would now say
+    // no_resolver, and a call with no cache does exactly that.
+    rmSync(join(root, 'package.json'))
+    const cached = resolveOne(
+      scriptRef('pnpm test'),
+      context({ root, file: 'nested/README.md', packageJson }),
+    )
+    assert.deepEqual(cached.resolution, { status: 'found', repoPath: null })
+    const uncached = resolveOne(scriptRef('pnpm test'), context({ root, file: 'nested/README.md' }))
+    assert.deepEqual(uncached.resolution, { status: 'unchecked', reason: 'no_resolver' })
   })
 })
 
 describe('resolveRefs: issue', () => {
-  const ctx = (issueState: (n: number) => string | null | undefined) => ({
-    root: '/nonexistent',
-    file: 'CLAUDE.md',
-    issueState,
+  const ctx = (issueState: (n: number) => IssueLookup): ResolveContext =>
+    context({ root: '/nonexistent', issueState })
+
+  it('resolves to the state the lookup gives', () => {
+    const ref = resolveOne(
+      { kind: 'issue', value: '#138', resolution: { status: 'unchecked', reason: 'no_resolver' } },
+      ctx((n) => (n === 138 ? 'OPEN' : 'not_found')),
+    )
+    assert.deepEqual(ref.resolution, { status: 'issue', state: 'OPEN' })
   })
 
-  it('resolves true with the state as detail when found', () => {
-    const [ref] = resolveRefs(
-      [{ kind: 'issue', value: '#138', resolved: null, detail: null }],
-      ctx((n) => (n === 138 ? 'OPEN' : undefined)),
+  it('resolves absent when the lookup found nothing', () => {
+    const ref = resolveOne(
+      {
+        kind: 'issue',
+        value: '#9999',
+        resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+      },
+      ctx(() => 'not_found'),
     )
-    assert.equal(ref?.resolved, true)
-    assert.equal(ref?.detail, 'OPEN')
+    assert.deepEqual(ref.resolution, { status: 'absent' })
   })
 
-  it('resolves false when looked up and absent', () => {
-    const [ref] = resolveRefs(
-      [{ kind: 'issue', value: '#9999', resolved: null, detail: null }],
-      ctx(() => null),
+  it('resolves unchecked, reason unavailable, when the lookup could not be made', () => {
+    const ref = resolveOne(
+      {
+        kind: 'issue',
+        value: '#138',
+        resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+      },
+      ctx(() => 'unavailable'),
     )
-    assert.equal(ref?.resolved, false)
-    assert.equal(ref?.detail, null)
-  })
-
-  it('resolves null when the lookup is unavailable', () => {
-    const [ref] = resolveRefs(
-      [{ kind: 'issue', value: '#138', resolved: null, detail: null }],
-      ctx(() => undefined),
-    )
-    assert.equal(ref?.resolved, null)
-    assert.equal(ref?.detail, null)
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'unavailable' })
   })
 })
 
 describe('resolveRefs: command', () => {
-  it('never resolves a command ref', () => {
-    const [ref] = resolveRefs([{ kind: 'command', value: 'git', resolved: null, detail: null }], {
-      root: '/nonexistent',
-      file: 'CLAUDE.md',
-      issueState: () => 'OPEN',
-    })
-    assert.equal(ref?.resolved, null)
-    assert.equal(ref?.detail, null)
+  it('resolves a command to unchecked, reason no_resolver', () => {
+    const ref = resolveOne(
+      {
+        kind: 'command',
+        value: 'git',
+        resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+      },
+      context({ root: '/nonexistent', issueState: () => 'OPEN' }),
+    )
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'no_resolver' })
   })
 })
 
@@ -447,19 +656,12 @@ describe('buildIssueQuery', () => {
 
 describe('parseIssueResponse', () => {
   it('reads each alias back into a number-keyed map', () => {
-    const data = {
-      data: {
-        repository: {
-          i0: { state: 'OPEN' },
-          i1: { state: 'CLOSED' },
-        },
-      },
-    }
+    const data = { data: { repository: { i0: { state: 'OPEN' }, i1: { state: 'MERGED' } } } }
     assert.deepEqual(
       parseIssueResponse(data, [138, 164]),
       new Map([
         [138, 'OPEN'],
-        [164, 'CLOSED'],
+        [164, 'MERGED'],
       ]),
     )
   })
@@ -469,13 +671,96 @@ describe('parseIssueResponse', () => {
     assert.deepEqual(parseIssueResponse(data, [138]), new Map([[138, 'OPEN']]))
   })
 
-  it('reads a missing alias as null, not a throw', () => {
-    const data = { data: { repository: {} } }
-    assert.deepEqual(parseIssueResponse(data, [138]), new Map([[138, null]]))
+  it('reads a null alias as not_found', () => {
+    const data = { data: { repository: { i0: null } } }
+    assert.deepEqual(parseIssueResponse(data, [0]), new Map([[0, 'not_found']]))
   })
 
-  it('reads a malformed response as every number absent', () => {
-    assert.deepEqual(parseIssueResponse(null, [138]), new Map([[138, null]]))
-    assert.deepEqual(parseIssueResponse('not an object', [138]), new Map([[138, null]]))
+  it('reads a missing alias as not_found, not a throw', () => {
+    assert.deepEqual(
+      parseIssueResponse({ data: { repository: {} } }, [138]),
+      new Map([[138, 'not_found']]),
+    )
+  })
+
+  it('reads an unrecognised state as not_found', () => {
+    const data = { data: { repository: { i0: { state: 'DRAFT' } } } }
+    assert.deepEqual(parseIssueResponse(data, [138]), new Map([[138, 'not_found']]))
+  })
+
+  it('reads a malformed response as every number not_found', () => {
+    assert.deepEqual(parseIssueResponse(null, [138]), new Map([[138, 'not_found']]))
+    assert.deepEqual(parseIssueResponse('not an object', [138]), new Map([[138, 'not_found']]))
+  })
+})
+
+describe('parseIssueChunkFailure', () => {
+  /** What `gh api graphql` prints, and exits 1 with, when one alias in the
+   *  query names a number the repository has nothing for. Verified by hand
+   *  against this repository with #127 and #0. */
+  const partialFailure = {
+    status: 1,
+    stdout: JSON.stringify({
+      data: { repository: { i0: { state: 'CLOSED' }, i1: null } },
+      errors: [{ message: 'Could not resolve to an issue or pull request with the number of 0.' }],
+    }),
+    stderr: 'gh: Could not resolve to an issue or pull request with the number of 0.\n',
+    message: 'Command failed',
+  }
+
+  it('keeps every state a failed call still answered with', () => {
+    const outcome = parseIssueChunkFailure(partialFailure, [127, 0])
+    assert.equal(outcome.ok, true)
+    assert.deepEqual(
+      outcome.ok ? outcome.states : null,
+      new Map([
+        [127, 'CLOSED'],
+        [0, 'not_found'],
+      ]),
+    )
+  })
+
+  it('reports the GraphQL message when there is no usable body', () => {
+    const outcome = parseIssueChunkFailure(
+      {
+        stdout: JSON.stringify({
+          data: { repository: null },
+          errors: [{ message: 'Could not resolve to a Repository with the name x/y.' }],
+        }),
+      },
+      [1],
+    )
+    assert.deepEqual(outcome, {
+      ok: false,
+      reason: 'Could not resolve to a Repository with the name x/y.',
+    })
+  })
+
+  it('reports stderr when nothing was printed on stdout', () => {
+    const outcome = parseIssueChunkFailure(
+      { stdout: '', stderr: 'gh: not authenticated\n', message: 'Command failed' },
+      [1],
+    )
+    assert.deepEqual(outcome, { ok: false, reason: 'gh: not authenticated' })
+  })
+
+  it('reports the error message when there is no stderr either', () => {
+    const outcome = parseIssueChunkFailure(new Error('spawn gh ENOENT'), [1])
+    assert.deepEqual(outcome, { ok: false, reason: 'spawn gh ENOENT' })
+  })
+
+  it('reports a fallback when the error says nothing at all', () => {
+    assert.deepEqual(parseIssueChunkFailure({}, [1]), {
+      ok: false,
+      reason: 'gh api graphql failed',
+    })
+  })
+
+  it('reads a Buffer stdout as well as a string one', () => {
+    const outcome = parseIssueChunkFailure(
+      { stdout: Buffer.from(partialFailure.stdout, 'utf8') },
+      [127, 0],
+    )
+    assert.equal(outcome.ok, true)
   })
 })

@@ -4,12 +4,15 @@
 //   node bench.ts jev <dir> [per_unit]          judge the sample with Jev, timed
 //   node bench.ts compare <dir>                 agreement between every answer file
 // The subagent reads the same state and the same rubric Jev is sent, and
-// writes <dir>/<name>.json in the shape `jev` writes.
+// writes <dir>/<name>.json in the shape `jev` writes. `compare` reads every
+// answer file whose name starts with jev, sonnet or opus. Only the per_unit
+// run of `jev` sends Jev what the subagent read; the default per_section run
+// batches units and drops prev and next, so it is a different comparison.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createJev } from './jev.ts'
 import {
-  type AnswerBag,
   classifyRequest,
   EVIDENCE_QUESTION_ID,
   evidenceRequest,
@@ -42,7 +45,7 @@ const writeJson = (path: string, value: unknown): void =>
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 
 /** Every nth item, so the sample spans the files instead of taking the first one. */
-const stride = <T>(items: T[], count: number): T[] => {
+export const stride = <T>(items: T[], count: number): T[] => {
   if (items.length <= count) return items
   const step = items.length / count
   return Array.from({ length: count }, (_, i) => items[Math.floor(i * step)] as T)
@@ -51,13 +54,19 @@ const stride = <T>(items: T[], count: number): T[] => {
 const prepare = (reportPath: string, dir: string): void => {
   const report = readJson<Report>(reportPath)
   const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  const unit = (id: string): Unit => {
+    const found = byId.get(id)
+    // A stale report names units its own units array no longer has.
+    if (found === undefined) throw new Error(`report names unknown unit ${id}`)
+    return found
+  }
   const units = stride(report.units, SAMPLE.units)
   const pairs = stride(report.pairs, SAMPLE.pairs).map((pair) => ({
-    a: byId.get(pair.a) as Unit,
-    b: byId.get(pair.b) as Unit,
+    a: unit(pair.a),
+    b: unit(pair.b),
   }))
   const evidence = stride(report.evidence, SAMPLE.evidence).map((e) => ({
-    unit: byId.get(e.unitId) as Unit,
+    unit: unit(e.unitId),
     source: e.source,
     excerpt: e.excerpt,
   }))
@@ -121,9 +130,7 @@ const runJev = async (dir: string, shape: RequestShape): Promise<void> => {
 
   await stage('classify', async (jev) => {
     const requests = classifyRequest(sample.units, { shape })
-    const bags = await Promise.all(
-      requests.map((r) => jev.ask(r.state, r.questions) as Promise<AnswerBag>),
-    )
+    const bags = await Promise.all(requests.map((r) => jev.ask(r.state, r.questions)))
     for (const c of parseClassification(sample.units, Object.assign({}, ...bags))) {
       answers.units[c.unitId] = {
         kind: c.kind.choice,
@@ -138,7 +145,7 @@ const runJev = async (dir: string, shape: RequestShape): Promise<void> => {
     await Promise.all(
       sample.pairs.map(async ({ a, b }, i) => {
         const r = pairRequest(a, b)
-        const bag = (await jev.ask(r.state, r.questions)) as AnswerBag
+        const bag = await jev.ask(r.state, r.questions)
         if (bag[PAIR_QUESTION_ID] === undefined) throw new Error('no pair answer')
         answers.pairs[String(i)] = parsePair(
           { a: a.id, b: b.id, similarity: 0 },
@@ -151,7 +158,7 @@ const runJev = async (dir: string, shape: RequestShape): Promise<void> => {
     await Promise.all(
       sample.evidence.map(async ({ unit, source, excerpt }, i) => {
         const r = evidenceRequest(unit, source, excerpt)
-        const bag = (await jev.ask(r.state, r.questions)) as AnswerBag
+        const bag = await jev.ask(r.state, r.questions)
         if (bag[EVIDENCE_QUESTION_ID] === undefined) throw new Error('no evidence answer')
         answers.evidence[String(i)] = parseEvidence(unit, source, excerpt, bag).verdict.choice
       }),
@@ -165,6 +172,29 @@ const runJev = async (dir: string, shape: RequestShape): Promise<void> => {
   process.stdout.write(`${JSON.stringify(timings, null, 2)}\n`)
 }
 
+/** Agreement over the ids BOTH files answered, with the ids either side lacks counted, never hidden. */
+export const agreement = (
+  x: Record<string, unknown>,
+  y: Record<string, unknown>,
+  pick: (v: unknown) => unknown = (v) => v,
+): { same: number; both: number; onlyX: number; onlyY: number } => {
+  const keys = new Set([...Object.keys(x), ...Object.keys(y)])
+  let same = 0
+  let both = 0
+  let onlyX = 0
+  let onlyY = 0
+  for (const key of keys) {
+    const inX = key in x
+    const inY = key in y
+    if (inX && inY) {
+      both++
+      if (pick(x[key]) === pick(y[key])) same++
+    } else if (inX) onlyX++
+    else onlyY++
+  }
+  return { same, both, onlyX, onlyY }
+}
+
 const compare = (dir: string): void => {
   const names = readdirSync(dir)
     .filter((f) => /^(jev|sonnet|opus)[\w-]*\.json$/.test(f) && !f.includes('timings'))
@@ -175,29 +205,32 @@ const compare = (dir: string): void => {
     for (let j = i + 1; j < names.length; j++) {
       const x = loaded.get(names[i] as string) as Answers
       const y = loaded.get(names[j] as string) as Answers
-      const rate = (pairs: [unknown, unknown][]): string => {
-        const both = pairs.filter(([p, q]) => p !== undefined && q !== undefined)
-        const same = both.filter(([p, q]) => p === q).length
-        return `${same}/${both.length}`
-      }
+      const show = (a: ReturnType<typeof agreement>): string =>
+        a.onlyX + a.onlyY === 0
+          ? `${a.same}/${a.both}`
+          : `${a.same}/${a.both} (missing ${a.onlyX}|${a.onlyY})`
       const parts = fields.map(
         (field) =>
-          `${field} ${rate(Object.keys(x.units).map((id) => [x.units[id]?.[field], y.units[id]?.[field]]))}`,
+          `${field} ${show(agreement(x.units, y.units, (v) => (v as UnitAnswer | undefined)?.[field]))}`,
       )
-      parts.push(`pairs ${rate(Object.keys(x.pairs).map((id) => [x.pairs[id], y.pairs[id]]))}`)
-      parts.push(
-        `evidence ${rate(Object.keys(x.evidence).map((id) => [x.evidence[id], y.evidence[id]]))}`,
-      )
+      parts.push(`pairs ${show(agreement(x.pairs, y.pairs))}`)
+      parts.push(`evidence ${show(agreement(x.evidence, y.evidence))}`)
       process.stdout.write(`${names[i]} vs ${names[j]}: ${parts.join(', ')}\n`)
     }
   }
 }
 
-const [mode, first, second] = process.argv.slice(2)
-if (mode === 'prepare' && first !== undefined && second !== undefined) prepare(first, second)
-else if (mode === 'jev' && first !== undefined && existsSync(first))
+const invokedDirectly =
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const [mode, first, second] = invokedDirectly ? process.argv.slice(2) : []
+if (!invokedDirectly) {
+  // imported by a test
+} else if (mode === 'prepare' && first !== undefined && second !== undefined) prepare(first, second)
+else if (mode === 'jev' && first !== undefined) {
+  if (!existsSync(first)) throw new Error(`no such directory ${first}`)
+
   await runJev(first, second === 'per_unit' ? 'per_unit' : 'per_section')
-else if (mode === 'compare' && first !== undefined) compare(first)
+} else if (mode === 'compare' && first !== undefined) compare(first)
 else {
   process.stderr.write('usage: bench.ts prepare <report.json> <dir> | jev <dir> | compare <dir>\n')
   process.exitCode = 1

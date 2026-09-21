@@ -57,7 +57,13 @@ const ONE = unit({
   leadIn: null,
   prev: null,
   next: '`--locked` as in CI.',
-  refs: [{ kind: 'command', value: 'pnpm test', resolved: true, detail: null }],
+  refs: [
+    {
+      kind: 'command',
+      value: 'pnpm test',
+      resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+    },
+  ],
 })
 
 const TWO = unit({
@@ -218,6 +224,51 @@ test('batchSections splits when the repeated questions blow the request budget',
   )
 })
 
+test('the section key includes the file: a shared heading path across files still splits', () => {
+  const lastOfA = unit({
+    id: 'a.md:9-9',
+    file: 'a.md',
+    text: 'last unit of a.md',
+    headingPath: ['Setup'],
+  })
+  const firstOfB = unit({
+    id: 'b.md:1-1',
+    file: 'b.md',
+    text: 'first unit of b.md',
+    headingPath: ['Setup'],
+  })
+  const sections = batchSections([lastOfA, firstOfB])
+  assert.deepEqual(
+    sections.map((section) => ({ file: section.file, indexes: section.indexes })),
+    [
+      { file: 'a.md', indexes: [0] },
+      { file: 'b.md', indexes: [1] },
+    ],
+  )
+})
+
+test('units that share a key but are not neighbours in the array are not merged', () => {
+  // Two units under the same heading path, with a unit from a different
+  // heading path sitting between them: a caller could produce this by
+  // filtering or reordering a document's real unit list.
+  const first = unit({ id: 'a:1-1', text: 'first', headingPath: ['one'] })
+  const between = unit({ id: 'a:2-2', text: 'between', headingPath: ['two'] })
+  const later = unit({ id: 'a:3-3', text: 'later, same heading as first', headingPath: ['one'] })
+
+  const sections = batchSections([first, between, later])
+
+  assert.deepEqual(
+    sections.map((section) => section.indexes),
+    [[0], [1], [2]],
+  )
+})
+
+test('a single unit over budget is still sent alone, never dropped or merged', () => {
+  const oversized = unit({ id: 'a:1-1', text: 'x'.repeat(3_000), headingPath: ['one'] })
+  const sections = batchSections([oversized], { stateTokens: 10, requestTokens: 10 })
+  assert.deepEqual(sections, [{ file: 'CLAUDE.md', headingPath: ['one'], indexes: [0] }])
+})
+
 test('estimateTokens is conservative about prose', () => {
   assert.equal(estimateTokens('abc'), 1)
   assert.equal(estimateTokens('a'.repeat(300)), 100)
@@ -271,10 +322,20 @@ test('parseClassification reads a canned response into the contract type', () =>
 
 test('parseClassification refuses an answer of the wrong type or an unknown option', () => {
   const good = {
-    kind__u0: { type: 'choice', choice: 'repo_fact', probabilities: {}, confidence: 1 },
+    kind__u0: {
+      type: 'choice',
+      choice: 'repo_fact',
+      probabilities: { repo_fact: 1 },
+      confidence: 1,
+    },
     volatile__u0: { type: 'noul', noul: 0 },
     self_contained__u0: { type: 'noul', noul: 0 },
-    evidence__u0: { type: 'choice', choice: 'config_value', probabilities: {}, confidence: 1 },
+    evidence__u0: {
+      type: 'choice',
+      choice: 'config_value',
+      probabilities: { config_value: 1 },
+      confidence: 1,
+    },
     multi_assertion__u0: { type: 'noul', noul: 0 },
   }
   assert.throws(
@@ -289,6 +350,68 @@ test('parseClassification refuses an answer of the wrong type or an unknown opti
     () =>
       parseClassification([ONE], { ...good, kind__u0: { ...good.kind__u0, choice: 'invented' } }),
     /not one of the options/,
+  )
+})
+
+const GOOD_ANSWERS = {
+  kind__u0: { type: 'choice', choice: 'repo_fact', probabilities: { repo_fact: 1 }, confidence: 1 },
+  volatile__u0: { type: 'noul', noul: 0 },
+  self_contained__u0: { type: 'noul', noul: 0 },
+  evidence__u0: {
+    type: 'choice',
+    choice: 'config_value',
+    probabilities: { config_value: 1 },
+    confidence: 1,
+  },
+  multi_assertion__u0: { type: 'noul', noul: 0 },
+}
+
+test('a noul outside 0 to 1 is refused, not clamped', () => {
+  assert.throws(
+    () =>
+      parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: { type: 'noul', noul: 1.5 } }),
+    /no noul answer/,
+  )
+})
+
+test('an array does not pass readChoice as an object', () => {
+  assert.throws(
+    () => parseClassification([ONE], { ...GOOD_ANSWERS, kind__u0: ['repo_fact'] }),
+    /no choice answer/,
+  )
+})
+
+test('an array does not pass readNoul as an object', () => {
+  assert.throws(
+    () => parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: [0.5] }),
+    /no noul answer/,
+  )
+})
+
+test('a choice missing the probability for its own answer is refused, not defaulted to 0', () => {
+  assert.throws(
+    () =>
+      parseClassification([ONE], {
+        ...GOOD_ANSWERS,
+        kind__u0: { type: 'choice', choice: 'repo_fact', probabilities: {}, confidence: 1 },
+      }),
+    /no probability for its own choice repo_fact/,
+  )
+})
+
+test('a non-finite probability on a non-chosen option is refused', () => {
+  assert.throws(
+    () =>
+      parseClassification([ONE], {
+        ...GOOD_ANSWERS,
+        kind__u0: {
+          type: 'choice',
+          choice: 'repo_fact',
+          probabilities: { repo_fact: 1, instruction: Number.NaN },
+          confidence: 1,
+        },
+      }),
+    /non-finite probability for instruction/,
   )
 })
 

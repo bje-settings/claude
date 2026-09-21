@@ -2,44 +2,81 @@
 // shapes from here and from nowhere else, so the pieces can be written in
 // parallel. Types only: nothing in this file has runtime meaning.
 
-/** A reference found in a unit's text, and what the tree or GitHub says about it. */
 export type RefKind = 'path' | 'file_line' | 'issue' | 'script' | 'command'
 
+export type IssueState = 'OPEN' | 'CLOSED' | 'MERGED'
+
+/** What an issue lookup says about one number. `unavailable` is "could not ask", never "absent". */
+export type IssueLookup = IssueState | 'not_found' | 'unavailable'
+
+/**
+ * What the tree or GitHub says about a ref. One status field, so a reader can
+ * never pair a path with the wrong meaning of `null`.
+ */
+export type Resolution =
+  /** Never looked for, and why: a reader must be able to tell this from "fine". */
+  | {
+      status: 'unchecked'
+      reason: 'not_resolved_yet' | 'no_resolver' | 'machine_specific' | 'pattern' | 'unavailable'
+    }
+  /** Looked for and not there: the finding the audit exists to report. */
+  | { status: 'absent' }
+  /** Exists. `repoPath` is the path relative to the audited root, null for a script. */
+  | { status: 'found'; repoPath: string | null }
+  /**
+   * Not where it is written, but the written path is the tail of exactly the
+   * tracked paths named by `witness` (the first of them). Prose names paths
+   * relative to a context the reader supplies, so this is neither found nor absent.
+   */
+  | { status: 'tail_match'; witness: string }
+  /** The file exists and is shorter than the line the ref names. */
+  | { status: 'line_out_of_range'; repoPath: string; lines: number }
+  | { status: 'issue'; state: IssueState }
+
+/** A reference found in a unit's text. */
 export type Ref = {
   kind: RefKind
   /** The text as written, without backticks: `lib/git.ts`, `CLAUDE.md:115`, `#138`, `pnpm test`. */
   value: string
-  /**
-   * true: the target exists (path on disk, line within the file, script in
-   * package.json, issue found). false: looked for and absent. null: not
-   * checked (no resolver for this kind, or the lookup was unavailable).
-   */
-  resolved: boolean | null
-  /** For `issue`: OPEN or CLOSED. For `path`: the repo-relative path it resolved to. */
-  detail: string | null
+  resolution: Resolution
 }
 
 export type BlockKind = 'list_item' | 'sentence' | 'table_row'
 
-/** One checkable unit of a markdown file. Never rewritten: `text` is the source, verbatim. */
+/**
+ * One checkable unit of a markdown file. Never paraphrased: hard-wrapped lines
+ * are joined with one space and list, quote and table markers are removed, but
+ * the words are the source's own.
+ */
 export type Unit = {
-  /** `<file>:<startLine>-<endLine>`, 1-indexed, lines inclusive. */
+  /**
+   * Unique within a run. `<file>:<startLine>-<endLine>`, 1-indexed and
+   * inclusive, with `#<n>` appended (n from 2) for the second and later units
+   * that share one span, as two sentences on one source line do.
+   */
   id: string
-  /** Path relative to the audited repository's root. */
+  /** Path relative to the root the audit was given. */
   file: string
   startLine: number
   endLine: number
   block: BlockKind
   /** Headings above the unit, outermost first, without the `#` marks. */
   headingPath: string[]
-  /** The parent list item's text, or the line ending in `:` that introduces the list. */
+  /**
+   * For a nested list item, its parent item's text. For a top-level item, the
+   * whole paragraph ending in `:` that introduces the list. A lead-in paragraph
+   * is never a unit of its own.
+   */
   leadIn: string | null
-  /** The neighbouring units' text within the same section, for resolving "it" and "that". */
+  /**
+   * The text of the unit before and after this one in document order, when it
+   * shares this unit's `headingPath`; null at a section's edge.
+   */
   prev: string | null
   next: string | null
-  /** For a table row this is the JSON rendering `{header: cell}`; otherwise the markdown source. */
+  /** For a table row, the cells as `header: cell` lines; otherwise the normalised source. */
   text: string
-  /** Filled by tier 0; the splitter leaves it empty. */
+  /** Empty from the splitter; tier 0 fills it. */
   refs: Ref[]
 }
 
@@ -49,13 +86,20 @@ export type OpaqueBlock = {
   startLine: number
   endLine: number
   kind: 'code' | 'frontmatter' | 'mermaid'
-  /** The fence's info string (`bash`, `ts`), or null. */
+  /** The fence's info string's first word (`bash`, `ts`), or null. */
   lang: string | null
   text: string
   refs: Ref[]
 }
 
-export type SplitResult = { units: Unit[]; opaque: OpaqueBlock[] }
+/** Something the splitter could not read as written, so the file's unit count is not to be trusted. */
+export type SplitWarning = {
+  file: string
+  line: number
+  kind: 'unclosed_fence' | 'unclosed_comment'
+}
+
+export type SplitResult = { units: Unit[]; opaque: OpaqueBlock[]; warnings: SplitWarning[] }
 
 export type UnitKind =
   | 'repo_fact'
@@ -73,7 +117,7 @@ export type EvidenceNeed =
   | 'github_state'
   | 'nothing_local'
 
-/** A Choice answer in neutral form: the pick, its distribution, and the API's confidence. */
+/** A Choice answer in neutral form: the pick, its distribution over every option, and the API's confidence. */
 export type ChoiceAnswer<T extends string> = {
   choice: T
   probabilities: Record<T, number>
@@ -92,7 +136,7 @@ export type Classification = {
 
 export type PairVerdict = 'same_claim' | 'contradicts' | 'unrelated'
 
-/** Two units worth comparing, chosen by code before any model call. */
+/** Two units worth comparing, chosen by code before any model call. `a` and `b` are unit ids. */
 export type PairCandidate = { a: string; b: string; similarity: number }
 
 export type PairJudgment = PairCandidate & { verdict: ChoiceAnswer<PairVerdict> }
@@ -101,22 +145,50 @@ export type EvidenceVerdict = 'supports' | 'contradicts' | 'says_nothing'
 
 export type EvidenceJudgment = {
   unitId: string
-  /** The repo-relative file the excerpt came from, and the excerpt itself. */
+  /** The file the excerpt came from, relative to the audited root, and the excerpt itself. */
   source: string
   excerpt: string
   verdict: ChoiceAnswer<EvidenceVerdict>
 }
 
-/** What a run spent, so the spike can report cost and time. */
-export type Usage = { requests: number; inputTokens: number; outputTokens: number; ms: number }
+/** What the model calls of a run spent. */
+export type Usage = {
+  /** Logical calls: one per `ask`, however many times it was retried. */
+  requests: number
+  /** HTTP attempts, retries included. */
+  attempts: number
+  inputTokens: number
+  outputTokens: number
+  /**
+   * The sum of every call's own duration, backoff sleeps included and queue
+   * wait excluded. With calls running concurrently this exceeds wall clock.
+   */
+  requestMsSum: number
+}
+
+/** A model call that failed; the run carries on and reports it. */
+export type StageFailure = { stage: 'classify' | 'pairs' | 'evidence'; id: string; message: string }
+
+/** How much of a stage's work was done, so "0 found" can be told from "0 looked at". */
+export type Coverage = { judged: number; available: number }
 
 export type Report = {
   root: string
   files: string[]
   units: Unit[]
   opaque: OpaqueBlock[]
+  warnings: SplitWarning[]
+  /** `ok`, or why no issue state could be read. */
+  issueLookup: string
+  /** Stages that did not run at all, with the reason (`--no-jev`). */
+  skipped: string[]
   classifications: Classification[]
   pairs: PairJudgment[]
+  pairCoverage: Coverage
   evidence: EvidenceJudgment[]
+  /** `available` counts repo_fact units; those with no readable source file are in neither `judged` nor a failure. */
+  evidenceCoverage: Coverage
+  failures: StageFailure[]
   usage: Usage
+  wallClockMs: number
 }

@@ -21,6 +21,13 @@ const OK_BODY = {
 
 const Q = { q: { type: 'noul', instructions: 'Is this a test?' } } as const
 
+/** `answers.q` back into a number, without the cast a caller no longer needs to make. */
+function noulOf(answers: Record<string, unknown>, id: string): number {
+  const answer = answers[id] as { noul?: unknown }
+  assert.equal(typeof answer.noul, 'number')
+  return answer.noul as number
+}
+
 test('sends the documented request shape', async () => {
   const seen: { url?: string; init?: RequestInit } = {}
   const jev = createJev({
@@ -44,7 +51,7 @@ test('sends the documented request shape', async () => {
     model: 'jev-latest',
     questions: { q: { type: 'noul', instructions: 'Is this a test?' } },
   })
-  assert.equal(answers.q.noul, 0.75)
+  assert.equal(noulOf(answers, 'q'), 0.75)
 })
 
 test('the model is overridable', async () => {
@@ -78,7 +85,7 @@ test('retries a 429 and then succeeds', async () => {
   const answers = await jev.ask('s', Q)
 
   assert.equal(calls, 2)
-  assert.equal(answers.q.noul, 0.75)
+  assert.equal(noulOf(answers, 'q'), 0.75)
   assert.equal(slept.length, 1)
 })
 
@@ -99,6 +106,25 @@ test('honours Retry-After in seconds over the computed backoff', async () => {
   await jev.ask('s', Q)
 
   assert.deepEqual(slept, [7000])
+})
+
+test('a Retry-After above the ceiling is capped at 120s', async () => {
+  let calls = 0
+  const slept: number[] = []
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async (ms) => {
+      slept.push(ms)
+    },
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(429, 'slow down', { 'retry-after': '99999' }) : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+
+  assert.deepEqual(slept, [120_000])
 })
 
 test('retryAfterMs reads seconds, dates, and neither', () => {
@@ -145,6 +171,57 @@ test('a network error is retried', async () => {
   })
   await jev.ask('s', Q)
   assert.equal(calls, 2)
+})
+
+test('a stalled request is aborted by the timeout and retried as a transport failure', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    timeoutMs: 20,
+    sleep: async () => {},
+    fetch: (_url, init) => {
+      calls += 1
+      if (calls === 1) {
+        // A socket that never answers: the only way it ever settles is the
+        // abort signal firing when the timeout elapses.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'TimeoutError'))
+          })
+        })
+      }
+      return Promise.resolve(reply(200, OK_BODY))
+    },
+  })
+
+  const answers = await jev.ask('s', Q)
+  assert.equal(calls, 2)
+  assert.equal(noulOf(answers, 'q'), 0.75)
+})
+
+test('a body that is not valid JSON on a 2xx is not retried', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return reply(200, 'not json at all {')
+    },
+  })
+
+  await assert.rejects(
+    () => jev.ask('s', Q),
+    (error: unknown) => {
+      assert.ok(error instanceof JevError)
+      assert.equal(error.status, 200)
+      assert.match(error.message, /not valid JSON/)
+      assert.equal(error.body, 'not json at all {')
+      return true
+    },
+  )
+  // A billed 2xx must not be resent: exactly one attempt, not up to maxRetries + 1.
+  assert.equal(calls, 1)
 })
 
 test('gives up after maxRetries and reports the last status', async () => {
@@ -195,36 +272,87 @@ test('a 400 is not retried and carries its status and body', async () => {
   assert.equal(calls, 1)
 })
 
-test('the api key never reaches a thrown error', async () => {
+test('the api key is redacted from a server error body that echoes the auth header', async () => {
   const jev = createJev({
     apiKey: KEY,
     sleep: async () => {},
-    // A server that echoes the request back is the worst case for a leak.
-    fetch: async (_url, init) => reply(400, `rejected: ${String(init?.body)}`),
+    // The worst case for a header leak: a server that echoes the request
+    // headers back verbatim in its error body.
+    fetch: async (_url, init) => reply(400, JSON.stringify(init?.headers)),
   })
 
   const error = await jev.ask('s', Q).catch((e: unknown) => e)
   assert.ok(error instanceof JevError)
   const everything = `${error.message} ${error.stack ?? ''} ${error.body} ${JSON.stringify(error)}`
   assert.ok(!everything.includes(KEY))
+  assert.ok(error.body.includes('[redacted]'))
 })
 
-test('a body without answers is refused', async () => {
+test('the api key is redacted from a foreign error thrown by fetch itself', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    maxRetries: 0,
+    sleep: async () => {},
+    fetch: async (_url, init) => {
+      const headers = init?.headers as Record<string, string>
+      // A transport that fails badly enough to leak the header into its own
+      // exception message, the way a proxy or a broken client sometimes does.
+      throw new Error(String(headers.authorization))
+    },
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  assert.ok(error instanceof JevError)
+  assert.equal(error.status, 0)
+  const everything = `${error.message} ${error.stack ?? ''} ${error.body} ${String(error)} ${JSON.stringify(error)}`
+  assert.ok(!everything.includes(KEY))
+})
+
+test('a body without answers is refused as a JevError carrying the response status', async () => {
   const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, { model: 'jev-1.13.0' }) })
-  await assert.rejects(() => jev.ask('s', Q), /no answers/)
+  await assert.rejects(
+    () => jev.ask('s', Q),
+    (error: unknown) => {
+      assert.ok(error instanceof JevError)
+      assert.equal(error.status, 200)
+      assert.match(error.message, /no answers/)
+      return true
+    },
+  )
 })
 
-test('a missing answer for a question asked is refused', async () => {
+test('a missing answer for a question asked is refused as a JevError', async () => {
   const jev = createJev({
     apiKey: KEY,
     fetch: async () =>
       reply(200, { model: 'x', answers: { other: { type: 'noul', noul: 1 } }, usage: {} }),
   })
-  await assert.rejects(() => jev.ask('s', Q), /no answer for question q/)
+  await assert.rejects(
+    () => jev.ask('s', Q),
+    (error: unknown) => {
+      assert.ok(error instanceof JevError)
+      assert.equal(error.status, 200)
+      assert.match(error.message, /no answer for question q/)
+      return true
+    },
+  )
 })
 
-test('a non-object body is refused', async () => {
+test('a non-object body is refused as a JevError', async () => {
   const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, '"just a string"') })
+  await assert.rejects(
+    () => jev.ask('s', Q),
+    (error: unknown) => {
+      assert.ok(error instanceof JevError)
+      assert.equal(error.status, 200)
+      assert.match(error.message, /not an object/)
+      return true
+    },
+  )
+})
+
+test('an array body is refused, not treated as an object', async () => {
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, [1, 2, 3]) })
   await assert.rejects(() => jev.ask('s', Q), /not an object/)
 })
 
@@ -263,10 +391,10 @@ test('a rejected request still releases its slot', async () => {
 
   await assert.rejects(() => jev.ask('s', Q))
   const answers = await jev.ask('s', Q)
-  assert.equal(answers.q.noul, 0.75)
+  assert.equal(noulOf(answers, 'q'), 0.75)
 })
 
-test('usage accumulates requests, tokens and wall-clock ms', async () => {
+test('usage accumulates requests, attempts, tokens and request time', async () => {
   const jev = createJev({
     apiKey: KEY,
     fetch: async () => {
@@ -275,14 +403,38 @@ test('usage accumulates requests, tokens and wall-clock ms', async () => {
     },
   })
 
-  assert.deepEqual(jev.usage(), { requests: 0, inputTokens: 0, outputTokens: 0, ms: 0 })
+  assert.deepEqual(jev.usage(), {
+    requests: 0,
+    attempts: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    requestMsSum: 0,
+  })
   await jev.ask('s', Q)
   await jev.ask('s', Q)
   const usage = jev.usage()
   assert.equal(usage.requests, 2)
+  assert.equal(usage.attempts, 2)
   assert.equal(usage.inputTokens, 200)
   assert.equal(usage.outputTokens, 20)
-  assert.ok(usage.ms >= 2, `expected some elapsed time, got ${usage.ms}`)
+  assert.ok(usage.requestMsSum >= 2, `expected some elapsed time, got ${usage.requestMsSum}`)
+})
+
+test('a call retried twice reports one logical request and three attempts', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return calls < 3 ? reply(429, 'slow down') : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+  const usage = jev.usage()
+  assert.equal(usage.requests, 1)
+  assert.equal(usage.attempts, 3)
 })
 
 test('usage counts a failed request and a body with no usage field', async () => {

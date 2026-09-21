@@ -4,12 +4,12 @@
 // are simple to verify by hand against the fixtures in split.test.ts and
 // against this repository's own CLAUDE.md files.
 
-import type { OpaqueBlock, SplitResult, Unit } from './types.ts'
+import type { OpaqueBlock, SplitResult, SplitWarning, Unit } from './types.ts'
 
 type HeadingFrame = { level: number; text: string }
 
-// One line item under construction while a list block is being scanned. Kept
-// mutable until popped, at which point it becomes a frozen Unit.
+// One list item under construction while a list block is being scanned. Kept
+// mutable until the list block finishes, at which point it becomes a Unit.
 type OpenItem = {
   indent: number
   contentColumn: number
@@ -24,12 +24,13 @@ const ABBREVIATIONS = ['e.g.', 'i.e.', 'etc.', 'vs.']
 /** Splits `source` (the contents of `file`) into checkable units. */
 export const splitMarkdown = (file: string, source: string): SplitResult => {
   const lines = splitLines(source)
-  const units: Omit<Unit, 'prev' | 'next'>[] = []
+  const units: Omit<Unit, 'id' | 'prev' | 'next'>[] = []
   const opaque: OpaqueBlock[] = []
+  const warnings: SplitWarning[] = []
   const total = lines.length
 
   if (total === 0 || (total === 1 && lines[0] === '')) {
-    return { units: [], opaque: [] }
+    return { units: [], opaque: [], warnings: [] }
   }
 
   const headingStack: HeadingFrame[] = []
@@ -74,17 +75,42 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     }
 
     if (isHtmlCommentOpen(line)) {
-      i = skipHtmlComment(lines, i)
+      const closed = skipHtmlComment(lines, i)
+      if (closed.next < 0) {
+        // Unclosed: end the comment at its own line rather than swallowing
+        // everything after it, and say so.
+        warnings.push({ file, line: i, kind: 'unclosed_comment' })
+        i++
+        continue
+      }
+      if (closed.trailing !== null) {
+        // Prose after `-->` on the closing line is real content: rewrite that
+        // line in place so the outer loop parses it fresh, at its own line number.
+        lines[closed.next - 1] = closed.trailing
+        i = closed.next
+      } else {
+        i = closed.next + 1
+      }
       continue
     }
 
     const fence = matchFenceOpen(line)
     if (fence) {
-      const close = findFenceClose(lines, i + 1, fence)
+      const quoted = raw !== line
+      const close = findFenceClose(lines, i + 1, fence, quoted)
+      if (close < 0) {
+        warnings.push({ file, line: i, kind: 'unclosed_fence' })
+      }
       const endLine = close > 0 ? close : total
       const bodyStart = i + 1
       const bodyEnd = close > 0 ? close - 1 : total
-      const body = bodyEnd >= bodyStart ? lines.slice(bodyStart - 1, bodyEnd).join('\n') : ''
+      const body =
+        bodyEnd >= bodyStart
+          ? lines
+              .slice(bodyStart - 1, bodyEnd)
+              .map((l) => (quoted ? stripBlockquote(l) : l))
+              .join('\n')
+          : ''
       const info = fence.info.trim()
       const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
       opaque.push({
@@ -126,19 +152,20 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
         const rowLine = stripBlockquote(rowLineRaw)
         if (isBlank(rowLine) || !rowLine.includes('|')) break
         const cells = splitTableRow(rowLine)
-        const obj: Record<string, string> = {}
-        headerCells.forEach((header, idx) => {
-          obj[header] = cells[idx] ?? ''
-        })
+        const text = headerCells
+          .map((header, idx) => {
+            const name = header.trim() === '' ? `col${idx + 1}` : header.trim()
+            return `${name}: ${(cells[idx] ?? '').trim()}`
+          })
+          .join('\n')
         units.push({
-          id: makeId(file, i, i),
           file,
           startLine: i,
           endLine: i,
           block: 'table_row',
           headingPath: headingStack.map((h) => h.text),
           leadIn: null,
-          text: JSON.stringify(obj),
+          text,
           refs: [],
         })
         i++
@@ -147,7 +174,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     }
 
     if (matchListMarker(line)) {
-      i = parseListBlock(lines, i, headingStack, null, file, units, opaque)
+      i = parseListBlock(lines, i, headingStack, null, file, units, opaque, warnings)
       continue
     }
 
@@ -176,8 +203,9 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     for (let k = paraStart; k <= paraEnd; k++) paraLines.push(stripBlockquote(lines[k - 1] ?? ''))
     const joined = paraLines.join(' ').trim()
 
-    // "Directly before a list" tolerates the blank line CommonMark requires
-    // between a paragraph and the list that follows it.
+    // "Directly before a list" also matches across blank lines: CommonMark
+    // does not require a blank line between a paragraph and the list that
+    // follows it, but the code tolerates one (or several) being there anyway.
     let afterBlank = paraEnd + 1
     while (afterBlank <= total && isBlank(stripBlockquote(lines[afterBlank - 1] ?? '')))
       afterBlank++
@@ -187,7 +215,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     if (nextIsList && joined.endsWith(':')) {
       // A lead-in paragraph is never a unit; it becomes the leadIn for the
       // list that follows it.
-      i = parseListBlock(lines, afterBlank, headingStack, joined, file, units, opaque)
+      i = parseListBlock(lines, afterBlank, headingStack, joined, file, units, opaque, warnings)
       continue
     }
 
@@ -197,7 +225,6 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       const startLine = map[span.start] ?? paraStart
       const endLine = map[span.end - 1] ?? paraEnd
       units.push({
-        id: makeId(file, startLine, endLine),
         file,
         startLine,
         endLine,
@@ -211,11 +238,28 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     i = paraEnd + 1
   }
 
-  return { units: withNeighbours(units), opaque }
+  return { units: withNeighbours(assignIds(file, units)), opaque, warnings }
 }
 
-const makeId = (file: string, startLine: number, endLine: number): string =>
-  `${file}:${startLine}-${endLine}`
+/**
+ * Assigns ids in document order: `<file>:<start>-<end>` for the first unit on
+ * a span, `#2`, `#3`... for later units that share the same span (two
+ * sentences on one source line, for instance). Requires `units` to already be
+ * in document order.
+ */
+const assignIds = (
+  file: string,
+  units: Omit<Unit, 'id' | 'prev' | 'next'>[],
+): Omit<Unit, 'prev' | 'next'>[] => {
+  const seen = new Map<string, number>()
+  return units.map((unit) => {
+    const span = `${unit.startLine}-${unit.endLine}`
+    const count = (seen.get(span) ?? 0) + 1
+    seen.set(span, count)
+    const id = count === 1 ? `${file}:${span}` : `${file}:${span}#${count}`
+    return { ...unit, id }
+  })
+}
 
 /** Splits on \n, \r\n and bare \r, without dropping a trailing empty line's count. */
 const splitLines = (source: string): string[] => {
@@ -242,13 +286,21 @@ const isHtmlCommentFull = (line: string): boolean => {
 const isHtmlCommentOpen = (line: string): boolean =>
   line.trim().startsWith('<!--') && !line.includes('-->')
 
-const skipHtmlComment = (lines: string[], start: number): number => {
+type CommentClose = { next: number; trailing: string | null }
+
+/** `next < 0` means unclosed. `trailing` is non-blank prose after `-->` on the closing line, if any. */
+const skipHtmlComment = (lines: string[], start: number): CommentClose => {
   let i = start + 1
   while (i <= lines.length) {
-    if ((lines[i - 1] ?? '').includes('-->')) return i + 1
+    const raw = lines[i - 1] ?? ''
+    const idx = raw.indexOf('-->')
+    if (idx >= 0) {
+      const trailing = raw.slice(idx + 3)
+      return { next: i, trailing: trailing.trim() === '' ? null : trailing }
+    }
     i++
   }
-  return i
+  return { next: -1, trailing: null }
 }
 
 const isThematicBreak = (line: string): boolean =>
@@ -275,9 +327,20 @@ const matchFenceOpen = (line: string): FenceOpen | null => {
   return { char: marker[0] ?? '`', length: marker.length, info }
 }
 
-const findFenceClose = (lines: string[], start: number, fence: FenceOpen): number => {
+/**
+ * `quoted` is true when the fence opener was found on a blockquoted line: the
+ * closer is then matched on the stripped line too, since `>` still prefixes
+ * every line of the quoted fence body.
+ */
+const findFenceClose = (
+  lines: string[],
+  start: number,
+  fence: FenceOpen,
+  quoted = false,
+): number => {
   for (let i = start; i <= lines.length; i++) {
-    const line = (lines[i - 1] ?? '').trim()
+    const raw = lines[i - 1] ?? ''
+    const line = (quoted ? stripBlockquote(raw) : raw).trim()
     const re = fence.char === '`' ? /^`{3,}$/ : /^~{3,}$/
     if (re.test(line) && line.length >= fence.length) return i
   }
@@ -313,39 +376,27 @@ const parseListBlock = (
   headingStack: HeadingFrame[],
   topLeadIn: string | null,
   file: string,
-  units: Omit<Unit, 'prev' | 'next'>[],
+  units: Omit<Unit, 'id' | 'prev' | 'next'>[],
   opaque: OpaqueBlock[],
+  warnings: SplitWarning[],
 ): number => {
   const stack: OpenItem[] = []
+  // Items are finished (popped) in an order driven by list structure, not by
+  // where they started in the source: a sibling can close before its parent
+  // does. Collect them here and sort by startLine at the end, so units still
+  // come out in true document order regardless of pop order.
+  const finished: OpenItem[] = []
   const headingPath = headingStack.map((h) => h.text)
   const total = lines.length
   let i = start
 
   const finish = (item: OpenItem) => {
-    units.push({
-      id: makeId(file, item.startLine, item.endLine),
-      file,
-      startLine: item.startLine,
-      endLine: item.endLine,
-      block: 'list_item',
-      headingPath,
-      leadIn: item.leadIn,
-      text: item.text,
-      refs: [],
-    })
+    finished.push(item)
   }
 
   const popTo = (indent: number) => {
-    // Popped items come off deepest-first (LIFO); finish them in the reverse
-    // order so units still land in document order (shallower item started
-    // earlier in the source).
-    const popped: OpenItem[] = []
     while (stack.length > 0 && (stack[stack.length - 1]?.indent ?? -1) >= indent) {
       const item = stack.pop()
-      if (item) popped.push(item)
-    }
-    for (let k = popped.length - 1; k >= 0; k--) {
-      const item = popped[k]
       if (item) finish(item)
     }
   }
@@ -392,7 +443,11 @@ const parseListBlock = (
 
     const fence = matchFenceOpen(line)
     if (fence && stack.length > 0) {
-      const close = findFenceClose(lines, i + 1, fence)
+      const quoted = raw !== line
+      const close = findFenceClose(lines, i + 1, fence, quoted)
+      if (close < 0) {
+        warnings.push({ file, line: i, kind: 'unclosed_fence' })
+      }
       const endLine = close > 0 ? close : total
       const bodyStart = i + 1
       const bodyEnd = close > 0 ? close - 1 : total
@@ -440,6 +495,21 @@ const parseListBlock = (
   }
 
   popTo(0)
+
+  finished.sort((a, b) => a.startLine - b.startLine)
+  for (const item of finished) {
+    units.push({
+      file,
+      startLine: item.startLine,
+      endLine: item.endLine,
+      block: 'list_item',
+      headingPath,
+      leadIn: item.leadIn,
+      text: item.text,
+      refs: [],
+    })
+  }
+
   return i
 }
 
@@ -565,7 +635,12 @@ const isAbbreviation = (text: string, periodIndex: number): boolean =>
     (a) => text.slice(periodIndex - a.length + 1, periodIndex + 1).toLowerCase() === a,
   )
 
-/** Splits paragraph text into sentence spans per the spike's splitting rule. */
+/**
+ * Splits paragraph text into sentence spans. The rule: split at `.`, `?` or
+ * `!` followed by whitespace and then an uppercase letter, a backtick, or
+ * `[`, outside code spans and links, skipping the abbreviations in
+ * `ABBREVIATIONS` (`e.g.`, `i.e.`, `etc.`, `vs.`).
+ */
 const splitSentences = (text: string): Span[] => {
   if (text.trim() === '') return []
   const mask = computeProtectedMask(text)

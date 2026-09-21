@@ -6,22 +6,72 @@ import { splitMarkdown } from './split.ts'
 
 const FILE = 'CLAUDE.md'
 
-/** Every unit's claimed lines must actually contain its words, verbatim. */
+/** Strips markdown punctuation from the ends of a word, so "sentence." matches "sentence". */
+const stripMdPunct = (w: string): string => w.replace(/^[`*_"'([]+|[`*_"'.,!?:;)\]]+$/g, '')
+
+/**
+ * Every unit's claimed lines must actually contain its words, verbatim. Words
+ * under 4 characters are skipped for the whole-span containment check (too
+ * short to prove anything by coincidence), but the first and last word of the
+ * unit must additionally appear on its exact start/end line, so widening a
+ * range by one line cannot pass merely because the word occurs somewhere else
+ * in the wider span.
+ */
 const assertLineInvariant = (source: string, units: ReturnType<typeof splitMarkdown>['units']) => {
   const lines = source.split(/\r\n|\r|\n/)
   for (const unit of units) {
     assert.ok(unit.startLine >= 1 && unit.endLine >= unit.startLine, `${unit.id} has a sane range`)
     const span = lines.slice(unit.startLine - 1, unit.endLine).join('\n')
-    const words =
-      unit.block === 'table_row' ? Object.values(JSON.parse(unit.text)) : unit.text.split(/\s+/)
+
+    if (unit.block === 'table_row') {
+      const cells = unit.text.split('\n').map((line) => line.slice(line.indexOf(': ') + 2).trim())
+      for (const cell of cells) {
+        if (cell === '') continue
+        assert.ok(
+          span.includes(cell),
+          `${unit.id}: expected cell "${cell}" within line ${unit.startLine}`,
+        )
+      }
+      continue
+    }
+
+    const words = unit.text
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w !== '')
     for (const word of words) {
-      const w = String(word).trim()
-      if (w === '') continue
+      if (word.length < 4) continue
       assert.ok(
-        span.includes(w),
-        `${unit.id}: expected "${w}" within lines ${unit.startLine}-${unit.endLine}`,
+        span.includes(word),
+        `${unit.id}: expected "${word}" within lines ${unit.startLine}-${unit.endLine}`,
       )
     }
+
+    const firstWord = stripMdPunct(words[0] ?? '')
+    const lastWord = stripMdPunct(words[words.length - 1] ?? '')
+    const startLineText = lines[unit.startLine - 1] ?? ''
+    const endLineText = lines[unit.endLine - 1] ?? ''
+    if (firstWord !== '') {
+      assert.ok(
+        startLineText.includes(firstWord),
+        `${unit.id}: first word "${firstWord}" not found on start line ${unit.startLine}`,
+      )
+    }
+    if (lastWord !== '') {
+      assert.ok(
+        endLineText.includes(lastWord),
+        `${unit.id}: last word "${lastWord}" not found on end line ${unit.endLine}`,
+      )
+    }
+  }
+}
+
+/** Every unit's id must be unique within a run. */
+const assertUniqueIds = (units: ReturnType<typeof splitMarkdown>['units']) => {
+  const seen = new Set<string>()
+  for (const unit of units) {
+    assert.ok(!seen.has(unit.id), `duplicate id: ${unit.id}`)
+    seen.add(unit.id)
   }
 }
 
@@ -171,10 +221,22 @@ test('GFM table: header and separator are never units, escaped pipes and code-sp
   const { units } = splitMarkdown(FILE, source)
   assert.equal(units.length, 2)
   assert.ok(units.every((u) => u.block === 'table_row'))
-  assert.deepEqual(JSON.parse(units[0]?.text ?? '{}'), { Name: 'a|b', Note: 'plain' })
-  assert.deepEqual(JSON.parse(units[1]?.text ?? '{}'), { Name: '`x|y`', Note: 'code span' })
+  assert.equal(units[0]?.text, 'Name: a|b\nNote: plain')
+  assert.equal(units[1]?.text, 'Name: `x|y`\nNote: code span')
   assert.equal(units[0]?.startLine, 3)
   assert.equal(units[1]?.startLine, 4)
+})
+
+test('a table row is rendered as header: cell lines, not JSON, so a backslash or quote reaches later stages verbatim', () => {
+  const source = ['| Name | Note |', '| --- | --- |', '| a "quoted" \\value | plain |'].join('\n')
+  const { units } = splitMarkdown(FILE, source)
+  assert.equal(units[0]?.text, 'Name: a "quoted" \\value\nNote: plain')
+})
+
+test('an empty table header cell falls back to col<N>', () => {
+  const source = ['|  | Note |', '| --- | --- |', '| a | plain |'].join('\n')
+  const { units } = splitMarkdown(FILE, source)
+  assert.equal(units[0]?.text, 'col1: a\nNote: plain')
 })
 
 test('fenced code with backticks: closes on a fence of the same char and at least the same length', () => {
@@ -332,6 +394,14 @@ test('splitting the real CLAUDE.md: every unit obeys the line-number invariant a
       `${block.file} opaque block has a sane range`,
     )
   }
+  assertUniqueIds(units)
+
+  // path-docs-adr.md carries two sentences on one source line (its Context
+  // section), which used to collide on one id before ids were disambiguated.
+  const adrPath = '.claude/rules/path-docs-adr.md'
+  const adrSource = readFileSync(new URL(`../../${adrPath}`, import.meta.url), 'utf8')
+  const { units: adrUnits } = splitMarkdown(adrPath, adrSource)
+  assertUniqueIds(adrUnits)
 })
 
 test('prose between two comments on one line is kept, not skipped as a comment', () => {
@@ -342,4 +412,93 @@ test('prose between two comments on one line is kept, not skipped as a comment',
 
 test('a comment holding only its markers is still a full comment', () => {
   assert.equal(splitMarkdown('a.md', '<!---->\n<!-- -->\n').units.length, 0)
+})
+
+test('two sentences on the same source line get distinct ids, the second suffixed', () => {
+  const source = 'Foo bar. Baz qux!'
+  const { units } = splitMarkdown('a.md', source)
+  assert.equal(units.length, 2)
+  assert.equal(units[0]?.id, 'a.md:1-1')
+  assert.equal(units[1]?.id, 'a.md:1-1#2')
+})
+
+test('a third unit sharing a span gets #3', () => {
+  const source = 'One. Two. Three sentences here.'
+  const { units } = splitMarkdown('a.md', source)
+  assert.equal(units.length, 3)
+  assert.deepEqual(
+    units.map((u) => u.id),
+    ['a.md:1-1', 'a.md:1-1#2', 'a.md:1-1#3'],
+  )
+})
+
+test('list items come out in document order even when a sibling closes before its parent', () => {
+  const source = ['- A', '  - B', '  - C', '- D'].join('\n')
+  const { units } = splitMarkdown('a.md', source)
+  const items = units.filter((u) => u.block === 'list_item')
+  assert.deepEqual(
+    items.map((u) => u.text),
+    ['A', 'B', 'C', 'D'],
+  )
+  const a = items.find((u) => u.text === 'A')
+  const b = items.find((u) => u.text === 'B')
+  const d = items.find((u) => u.text === 'D')
+  assert.equal(a?.next, 'B')
+  assert.equal(b?.prev, 'A')
+  assert.equal(d?.prev, 'C')
+})
+
+test('three levels deep, nested lists also come out in document order', () => {
+  const source = ['- A', '  - B', '    - C', '    - D', '  - E', '- F'].join('\n')
+  const { units } = splitMarkdown('a.md', source)
+  const items = units.filter((u) => u.block === 'list_item')
+  assert.deepEqual(
+    items.map((u) => u.text),
+    ['A', 'B', 'C', 'D', 'E', 'F'],
+  )
+})
+
+test('a fenced block inside a blockquote closes on the quoted closing fence', () => {
+  const source = '# T\n\n> ```bash\n> ls\n> ```\n\nRule after quote.\n'
+  const { units, opaque } = splitMarkdown('a.md', source)
+  assert.equal(opaque.length, 1)
+  assert.equal(opaque[0]?.kind, 'code')
+  assert.equal(opaque[0]?.lang, 'bash')
+  assert.equal(opaque[0]?.text, 'ls')
+  assert.equal(opaque[0]?.startLine, 3)
+  assert.equal(opaque[0]?.endLine, 5)
+  assert.deepEqual(
+    units.map((u) => u.text),
+    ['Rule after quote.'],
+  )
+})
+
+test('an unclosed fence still runs to EOF and warns', () => {
+  const source = ['Intro.', '', '```ts', 'const x = 1'].join('\n')
+  const { opaque, warnings } = splitMarkdown('a.md', source)
+  assert.equal(opaque.length, 1)
+  assert.equal(opaque[0]?.endLine, 4)
+  assert.deepEqual(warnings, [{ file: 'a.md', line: 3, kind: 'unclosed_fence' }])
+})
+
+test('an unclosed HTML comment warns and does not swallow the rest of the file', () => {
+  const source = ['<!-- never closes', '', 'A sentence after.'].join('\n')
+  const { units, warnings } = splitMarkdown('a.md', source)
+  assert.deepEqual(warnings, [{ file: 'a.md', line: 1, kind: 'unclosed_comment' }])
+  assert.deepEqual(
+    units.map((u) => u.text),
+    ['A sentence after.'],
+  )
+})
+
+test('text after --> on a multi-line comment close line is kept as paragraph text', () => {
+  const source = ['<!-- comment', 'spans b --> Trailing rule.'].join('\n')
+  const { units, warnings } = splitMarkdown('a.md', source)
+  assert.equal(warnings.length, 0)
+  assert.deepEqual(
+    units.map((u) => u.text),
+    ['Trailing rule.'],
+  )
+  assert.equal(units[0]?.startLine, 2)
+  assert.equal(units[0]?.endLine, 2)
 })

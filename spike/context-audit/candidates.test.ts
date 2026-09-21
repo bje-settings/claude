@@ -94,6 +94,35 @@ describe('candidatePairs: maxPerUnit', () => {
     const hubPairs = pairs.filter((p) => p.a === 'hub' || p.b === 'hub')
     assert.equal(hubPairs.length, 2)
   })
+
+  it('caps a unit that is only ever the candidate side of a pair', () => {
+    // `z-hub` sorts after every partner, so it is never the query unit while
+    // its partners fill up: the cap has to bind on the candidate side too.
+    const maxPerUnit = 5
+    const hub = makeUnit({
+      id: 'z-hub',
+      text: 'retry policy backs off exponentially on network failure',
+    })
+    const partners = Array.from({ length: maxPerUnit + 1 }, (_, i) =>
+      makeUnit({
+        id: `p${i}`,
+        text: `retry policy backs off exponentially on network failure partner${i}`,
+      }),
+    )
+    const pairs = candidatePairs([hub, ...partners], { maxPerUnit })
+
+    const appearances = new Map<string, number>()
+    for (const pair of pairs) {
+      for (const id of [pair.a, pair.b]) appearances.set(id, (appearances.get(id) ?? 0) + 1)
+    }
+    assert.equal(appearances.get('z-hub'), maxPerUnit)
+    for (const [id, count] of appearances) {
+      assert.ok(
+        count <= maxPerUnit,
+        `${id} appears in ${count} pairs, over the cap of ${maxPerUnit}`,
+      )
+    }
+  })
 })
 
 describe('candidatePairs: repeated table cells', () => {

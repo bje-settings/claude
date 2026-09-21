@@ -1,19 +1,25 @@
 // File discovery for the context audit (#164). Tracked `.md` files only, via
 // `git ls-files`, so the audit sees what is actually version-controlled
 // rather than whatever an editor or a build left on disk. `execFileSync`
-// with an argv array and no shell, so a root path or a filter never runs
-// through a shell that would re-read it.
+// with an argv array and no shell, so a root path holding a space or a quote
+// reaches git as one argument instead of being re-read as shell words. The
+// filter never goes near git at all: it is a JavaScript predicate applied to
+// git's output.
 //
 // This is the spike's own tooling: node built-ins only, no dependency on the
 // rest of the repository.
 
 import { execFileSync } from 'node:child_process'
 
-/** A predicate a caller narrows discovery with, given a repo-relative path. */
+/** A predicate a caller narrows discovery with, given a path relative to the
+ *  `root` discovery was run on. */
 export type FileFilter = (relativePath: string) => boolean
 
 /**
- * Tracked `.md` files under `root`, repo-relative, sorted.
+ * Tracked `.md` files under `root`, sorted, each path relative to `root`
+ * itself. That is the same as repo-relative only when `root` is the top of
+ * the repository; run on a subdirectory, git answers relative to that
+ * subdirectory, and so does this.
  *
  * `-z` NUL-delimits the list, which is what makes a path containing a space
  * or a newline (rare, but git allows it) split correctly; a plain

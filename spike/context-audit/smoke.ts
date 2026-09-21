@@ -114,7 +114,13 @@ const FIXTURES: Fixture[] = [
       "- TypeScript: `vitest.config.ts`'s thresholds are the gate, 100 on lines, branches, functions and statements over a named source set, with `cobertura` feeding the enterprise Code Coverage ruleset.",
       {
         block: 'list_item',
-        refs: [{ kind: 'path', value: 'vitest.config.ts', resolved: true, detail: null }],
+        refs: [
+          {
+            kind: 'path',
+            value: 'vitest.config.ts',
+            resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+          },
+        ],
       },
     ),
     expected: {
@@ -572,7 +578,7 @@ async function main(): Promise<number> {
   const sorted = [...latencies].sort((a, b) => a - b)
   console.log(
     `\n## usage\n  ${usage.requests} requests, ${usage.inputTokens} input tokens, ` +
-      `${usage.outputTokens} output tokens, ${usage.ms} ms of request time`,
+      `${usage.outputTokens} output tokens, ${usage.requestMsSum} ms of request time`,
   )
   if (sorted.length > 0) {
     const median = sorted[Math.floor(sorted.length / 2)] as number
