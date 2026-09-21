@@ -29,9 +29,12 @@ export type {
   GhClient,
   GhEndpoint,
   GhResults,
+  MergedPullRequestQuery,
   PullRequestQuery,
   RunQuery,
+  WatchResult,
 } from '../lib/gh.ts'
+export { GhError } from '../lib/gh.ts'
 
 /** One reply per endpoint, or a failure in its place. Registering nothing for
  *  an endpoint is how a test says "this must not be called". */
@@ -74,6 +77,8 @@ function answer<K extends GhEndpoint>(replies: GhReplies, endpoint: K): GhResult
 export function createGhMock(replies: GhReplies = {}): GhClient {
   return {
     listPullRequests: async () => answer(replies, 'listPullRequests'),
+    listMergedPullRequests: async () => answer(replies, 'listMergedPullRequests'),
+    viewPullRequest: async () => answer(replies, 'viewPullRequest'),
     viewRepository: async () => answer(replies, 'viewRepository'),
     listRuns: async () => answer(replies, 'listRuns'),
     readFailedRunLog: async () => answer(replies, 'readFailedRunLog'),

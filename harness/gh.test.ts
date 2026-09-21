@@ -9,13 +9,18 @@ import { createGhMock, type GhClient, type GhEndpoint, ghFails } from './gh.ts'
 // the interface would go on passing after an endpoint was renamed, and these
 // are the argument shapes the plugins actually pass.
 const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
-  ['listPullRequests', (client) => client.listPullRequests({ state: 'merged', base: 'main' })],
+  [
+    'listPullRequests',
+    (client) => client.listPullRequests({ state: 'open', label: 'dependencies' }),
+  ],
+  ['listMergedPullRequests', (client) => client.listMergedPullRequests({ base: 'main' })],
+  ['viewPullRequest', (client) => client.viewPullRequest({ pullRequest: 7 })],
   ['viewRepository', (client) => client.viewRepository()],
   ['listRuns', (client) => client.listRuns({ branch: 'main', status: 'completed' })],
-  ['readFailedRunLog', (client) => client.readFailedRunLog({ run: 1234 })],
+  ['readFailedRunLog', (client) => client.readFailedRunLog({ run: 1234, job: 99 })],
   ['updateBranch', (client) => client.updateBranch({ pullRequest: 7, rebase: true })],
   ['addComment', (client) => client.addComment({ pullRequest: 7, body: 'hello' })],
-  ['watchChecks', (client) => client.watchChecks({ pullRequest: 7, interval: 30 })],
+  ['watchChecks', (client) => client.watchChecks({ pullRequest: 7, interval: 30, boundMs: 1_000 })],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -38,12 +43,14 @@ it('answers with the same reply on every call', async () => {
 it('answers every endpoint it declares', async () => {
   const client = createGhMock({
     listPullRequests: [{ number: 1 }],
+    listMergedPullRequests: [{ headRefName: 'feature-a' }],
+    viewPullRequest: { number: 7, state: 'OPEN' },
     viewRepository: { defaultBranchRef: { name: 'main' }, nameWithOwner: 'acme/widgets' },
     listRuns: [{ databaseId: 10 }],
     readFailedRunLog: 'FAIL tests/thing\n',
     updateBranch: 'Updated branch\n',
     addComment: 'https://github.com/acme/widgets/pull/7#issuecomment-1\n',
-    watchChecks: [{ name: 'vitest', state: 'SUCCESS' }],
+    watchChecks: { status: 0, timedOut: false, waitedMs: 12, problem: '' },
   })
 
   for (const [endpoint, call] of CALLS) {

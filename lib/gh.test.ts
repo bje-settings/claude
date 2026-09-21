@@ -1,89 +1,75 @@
-// The real `gh` client. Nothing here spawns anything: the client takes node's
-// `execFile` as a parameter, so the adapter that would start `gh` is driven
-// by a stand-in and every endpoint is exercised against the argv it builds
-// and the output shape gh answers with. A suite that spawned `gh` would be
-// asserting against a machine's login rather than against this code.
+// The real `gh` client. Nothing here spawns anything: the client takes the
+// root lib's process runner as a parameter, so the one thing that would start
+// `gh` is driven by a stand-in and every endpoint is exercised against the
+// argv it builds and the output shape gh answers with. A suite that spawned
+// `gh` would be asserting against a machine's login rather than against this
+// code. The runner itself is the file tested against real children
+// (`process.test.ts`).
 //
 // The argv rows are written out one endpoint at a time rather than derived
 // from the client, because a table built from the implementation would go on
 // passing after the implementation changed.
 import { describe, expect, it } from 'vitest'
 
-import { createGhClient, type ExecFile, type ExecFileFailure, type GhClient } from './gh.ts'
+import { createGhClient, type GhClient, GhError } from './gh.ts'
+import type { Runner, RunResult } from './process.ts'
 
 interface Call {
-  readonly file: string
+  readonly command: string
   readonly args: readonly string[]
   readonly cwd: string | undefined
-  readonly maxBuffer: number
+  readonly timeoutMs: number | undefined
 }
 
+/** What the runner is to answer with. Everything not named is what a child
+ *  that succeeded and said nothing would report. */
 interface Reply {
   readonly stdout?: string
   readonly stderr?: string
-  readonly error?: ExecFileFailure
+  readonly status?: number | null
+  readonly signal?: NodeJS.Signals
+  readonly timedOut?: boolean
+  readonly elapsedMs?: number
+  readonly startFailure?: { code: string; message: string }
 }
 
-/**
- * node's own failure shape: an `Error` carrying `code`, which is gh's exit
- * status when gh ran and an error name when it never did.
- */
-const failing = (code: string | number, message: string): ExecFileFailure =>
-  Object.assign(new Error(message), { code })
+const asResult = (reply: Reply): RunResult => ({
+  status: reply.status === undefined ? 0 : reply.status,
+  signal: reply.signal ?? null,
+  stdout: reply.stdout ?? '',
+  stderr: reply.stderr ?? '',
+  combined: `${reply.stdout ?? ''}${reply.stderr ?? ''}`,
+  timedOut: reply.timedOut ?? false,
+  elapsedMs: reply.elapsedMs ?? 0,
+  startFailure: reply.startFailure ?? null,
+})
 
-/**
- * A stand-in for node's `execFile` that answers with `reply` and records the
- * call.
- *
- * It is freer than the real thing in one way the type cannot express: it
- * calls back synchronously, where node never does. Nothing in the adapter
- * depends on when the callback arrives, since it settles a promise either
- * way, and that latitude is what buys the whole file a spawn-free suite.
- */
+/** A runner that answers with `reply` and records the call. */
 const answering =
-  (reply: Reply, calls: Call[]): ExecFile =>
-  (file, args, options, callback) => {
-    calls.push({ file, args, cwd: options.cwd, maxBuffer: options.maxBuffer })
-    callback(reply.error ?? null, reply.stdout ?? '', reply.stderr ?? '')
+  (reply: Reply, calls: Call[]): Runner =>
+  async (command, args, options) => {
+    calls.push({ command, args: args ?? [], cwd: options?.cwd, timeoutMs: options?.timeoutMs })
+    return asResult(reply)
   }
-
-/**
- * The same, answering each call from `replies` in turn and repeating the
- * last. `watchChecks` is the one endpoint that runs `gh` twice, so it is the
- * one that needs a different answer per call.
- */
-const answeringInTurn = (replies: readonly Reply[], calls: Call[]): ExecFile => {
-  let seen = 0
-  return (file, args, options, callback) => {
-    calls.push({ file, args, cwd: options.cwd, maxBuffer: options.maxBuffer })
-    // Clamped rather than guarded: a call past the end repeats the last
-    // reply, which is one expression instead of an arm no test reaches.
-    const reply = replies[Math.min(seen, replies.length - 1)] as Reply
-    seen += 1
-    callback(reply.error ?? null, reply.stdout ?? '', reply.stderr ?? '')
-  }
-}
 
 interface Harness {
   readonly gh: GhClient
   readonly calls: Call[]
 }
 
-const clientAnswering = (reply: Reply, cwd?: string): Harness => {
+const clientAnswering = (
+  reply: Reply,
+  options: { cwd?: string; repository?: string } = {},
+): Harness => {
   const calls: Call[] = []
-  return { gh: createGhClient({ execFile: answering(reply, calls), cwd }), calls }
-}
-
-const clientAnsweringInTurn = (replies: readonly Reply[]): Harness => {
-  const calls: Call[] = []
-  return { gh: createGhClient({ execFile: answeringInTurn(replies, calls) }), calls }
+  return { gh: createGhClient({ ...options, run: answering(reply, calls) }), calls }
 }
 
 describe('argv', () => {
   it('asks gh pr list for the fields the shepherd reads, with no filters by default', async () => {
     const { gh, calls } = clientAnswering({ stdout: '[]' })
     await gh.listPullRequests()
-    expect(calls[0]?.file).toBe('gh')
+    expect(calls[0]?.command).toBe('gh')
     expect(calls[0]?.args).toEqual([
       'pr',
       'list',
@@ -94,9 +80,31 @@ describe('argv', () => {
   })
 
   it('passes each pull-request filter it was given, and omits the ones it was not', async () => {
+    // `gh-shepherd-status.py:166` to `178` is this call: open, labelled
+    // `dependencies`, one window of 100.
     const { gh, calls } = clientAnswering({ stdout: '[]' })
-    await gh.listPullRequests({ state: 'merged', base: 'main', limit: 100 })
+    await gh.listPullRequests({ state: 'open', label: 'dependencies', limit: 100 })
     expect(calls[0]?.args.slice(0, 8)).toEqual([
+      'pr',
+      'list',
+      '--state',
+      'open',
+      '--label',
+      'dependencies',
+      '--limit',
+      '100',
+    ])
+    expect(calls[0]?.args).not.toContain('--head')
+    expect(calls[0]?.args).not.toContain('--base')
+  })
+
+  it('asks gh pr list for the merged window with the fields prs.py reads', async () => {
+    // `gh-sync-repo.py:292`. The base is filtered server-side because a pull
+    // request that merged into another branch is not proof that a local
+    // branch landed on the default one.
+    const { gh, calls } = clientAnswering({ stdout: '[]' })
+    await gh.listMergedPullRequests({ base: 'main', limit: 200 })
+    expect(calls[0]?.args).toEqual([
       'pr',
       'list',
       '--state',
@@ -104,15 +112,38 @@ describe('argv', () => {
       '--base',
       'main',
       '--limit',
-      '100',
+      '200',
+      '--json',
+      'headRefName,headRefOid,isCrossRepository',
     ])
-    expect(calls[0]?.args).not.toContain('--head')
   })
 
-  it('asks gh pr list for a head branch', async () => {
+  it('narrows the merged window to one branch when asked', async () => {
+    // The single-branch fallback at `gh-sync-repo.py:493`, for a bulk window
+    // that saturated.
     const { gh, calls } = clientAnswering({ stdout: '[]' })
-    await gh.listPullRequests({ head: 'feature-a' })
-    expect(calls[0]?.args.slice(0, 4)).toEqual(['pr', 'list', '--head', 'feature-a'])
+    await gh.listMergedPullRequests({ base: 'main', head: 'feature-a' })
+    expect(calls[0]?.args.slice(0, 6)).toEqual([
+      'pr',
+      'list',
+      '--state',
+      'merged',
+      '--base',
+      'main',
+    ])
+    expect(calls[0]?.args).toContain('--head')
+    expect(calls[0]?.args).not.toContain('--limit')
+  })
+
+  it('asks gh pr view for one pull request, with the shepherd field list', async () => {
+    // `gh-shepherd-pr.py:399`, the read every subcommand there begins with.
+    const { gh, calls } = clientAnswering({ stdout: '{}' })
+    await gh.viewPullRequest({ pullRequest: 7 })
+    expect(calls[0]?.args.slice(0, 4)).toEqual(['pr', 'view', '7', '--json'])
+    // The same list `shepherd.py`'s PR_FIELDS holds: `summary` shapes
+    // whatever it is given, so a missing field comes back as a pull request
+    // whose checks are `none`, which `wait` reads as passed.
+    expect(calls[0]?.args[4]).toContain('statusCheckRollup')
   })
 
   it('asks gh repo view for the name and the default branch', async () => {
@@ -149,72 +180,85 @@ describe('argv', () => {
     ])
   })
 
-  it('asks gh run view for the failed steps of a run named either way', async () => {
+  it('asks gh run view for the failed steps, of one job when it was given one', async () => {
+    // `gh-shepherd-pr.py:726` has followed a check's link to a run and a job,
+    // so the whole run's failed steps would be a different question.
     const { gh, calls } = clientAnswering({ stdout: 'FAIL tests/thing\n' })
-    await gh.readFailedRunLog({ run: 1234 })
+    await gh.readFailedRunLog({ run: 1234, job: '99' })
     await gh.readFailedRunLog({ run: '5678' })
-    expect(calls[0]?.args).toEqual(['run', 'view', '1234', '--log-failed'])
+    expect(calls[0]?.args).toEqual(['run', 'view', '1234', '--job', '99', '--log-failed'])
     expect(calls[1]?.args).toEqual(['run', 'view', '5678', '--log-failed'])
   })
 
   it('asks gh to update a branch, rebasing only when asked', async () => {
     const { gh, calls } = clientAnswering({ stdout: 'Updated branch\n' })
     await gh.updateBranch({ pullRequest: 7, rebase: true })
-    await gh.updateBranch({ pullRequest: 7 })
+    await gh.updateBranch({ pullRequest: 7, rebase: false })
     expect(calls[0]?.args).toEqual(['pr', 'update-branch', '7', '--rebase'])
     expect(calls[1]?.args).toEqual(['pr', 'update-branch', '7'])
   })
 
-  it('passes a comment body as one argument', async () => {
+  it('passes a comment body as one argument, or names the file holding it', async () => {
     // As an argument and never through a shell: a body carrying backticks or
-    // a semicolon is text, not something a shell gets to re-read.
+    // a semicolon is text, not something a shell gets to re-read. The file
+    // form is `gh-shepherd-pr.py:928`, where the reason is a file the agent
+    // wrote and the body would otherwise be a command line of its own.
     const { gh, calls } = clientAnswering({ stdout: 'https://github.com/a/b/pull/7#issue-1\n' })
     await gh.addComment({ pullRequest: 7, body: 'done; `rm -rf /`' })
+    await gh.addComment({ pullRequest: 7, bodyFile: '/tmp/reason.md' })
     expect(calls[0]?.args).toEqual(['pr', 'comment', '7', '--body', 'done; `rm -rf /`'])
+    expect(calls[1]?.args).toEqual(['pr', 'comment', '7', '--body-file', '/tmp/reason.md'])
   })
 
-  it('watches the checks and then reads them, because gh has no one call that does both', async () => {
-    // gh 2.98.0 refuses `--watch` with `--json`, and refuses `--interval`
-    // without `--watch`, so a single call carrying all three is argv gh never
-    // accepts. Spelled out here rather than derived, because this is exactly
-    // the mistake a stand-in that answers any argv cannot notice.
-    const { gh, calls } = clientAnswering({ stdout: '[]' })
-    await gh.watchChecks({ pullRequest: 7, interval: 30 })
-    expect(calls[0]?.args).toEqual(['pr', 'checks', '7', '--watch', '--interval', '30'])
-    expect(calls[1]?.args).toEqual([
+  it('watches the checks under a bound, with the flags it was given', async () => {
+    // gh 2.98.0 refuses `--watch` with `--json` and refuses `--interval`
+    // without `--watch`, so this call carries no `--json` at all; the caller
+    // reads the rollup afterwards with `viewPullRequest`, as
+    // `gh-shepherd-pr.py:668` does. `--fail-fast` is what that script passes.
+    const { gh, calls } = clientAnswering({ stdout: '' })
+    await gh.watchChecks({ pullRequest: 7, interval: 30, failFast: true, boundMs: 90_000 })
+    expect(calls[0]?.args).toEqual([
       'pr',
       'checks',
       '7',
-      '--json',
-      'name,state,bucket,link,workflow',
+      '--watch',
+      '--fail-fast',
+      '--interval',
+      '30',
     ])
+    expect(calls[0]?.timeoutMs).toBe(90_000)
+    expect(calls).toHaveLength(1)
   })
 
-  it('watches without an interval when it was given none', async () => {
-    const { gh, calls } = clientAnswering({ stdout: '[]' })
-    await gh.watchChecks({ pullRequest: 7 })
+  it('watches unbounded and without flags when it was given none', async () => {
+    const { gh, calls } = clientAnswering({ stdout: '' })
+    await gh.watchChecks({ pullRequest: 7, failFast: false })
     expect(calls[0]?.args).toEqual(['pr', 'checks', '7', '--watch'])
+    expect(calls[0]?.timeoutMs).toBeUndefined()
+  })
+
+  it('names the repository on every call when it was given one', async () => {
+    // Round 5's handoff fact 4: the shepherd scripts run from wherever the
+    // agent started, not from the checkout, so they pass `--repo` on every
+    // call they make.
+    const { gh, calls } = clientAnswering({ stdout: '{}' }, { repository: 'acme/widgets' })
+    await gh.viewRepository()
+    await gh.viewPullRequest({ pullRequest: 7 })
+    expect(calls[0]?.args.slice(0, 4)).toEqual(['repo', 'view', '--repo', 'acme/widgets'])
+    expect(calls[1]?.args.slice(0, 5)).toEqual(['pr', 'view', '7', '--repo', 'acme/widgets'])
   })
 
   it('runs gh where it was told to, and in the current directory otherwise', async () => {
-    // None of the endpoints carries a repository, so the working directory is
-    // how a caller addresses one it did not start in.
-    const here = clientAnswering({ stdout: '{}' }, '/tmp/acme-widgets')
+    // `gh-sync-repo.py` names no repository and relies on this: it has
+    // already chdir'd into the checkout.
+    const here = clientAnswering({ stdout: '{}' }, { cwd: '/tmp/acme-widgets' })
     await here.gh.viewRepository()
     expect(here.calls[0]?.cwd).toBe('/tmp/acme-widgets')
+    expect(here.calls[0]?.args).not.toContain('--repo')
 
     const anywhere = clientAnswering({ stdout: '{}' })
     await anywhere.gh.viewRepository()
     expect(anywhere.calls[0]?.cwd).toBeUndefined()
-  })
-
-  it('reads more than node would by default', async () => {
-    // One `gh pr list --limit 100` carrying `statusCheckRollup` per row
-    // passes node's 1 MiB default, and the failure that produces is a
-    // truncated answer read as a complete one.
-    const { gh, calls } = clientAnswering({ stdout: '[]' })
-    await gh.listPullRequests()
-    expect(calls[0]?.maxBuffer).toBe(64 * 1024 * 1024)
   })
 })
 
@@ -222,11 +266,19 @@ describe('answers', () => {
   it('hands back the rows gh printed', async () => {
     const { gh } = clientAnswering({ stdout: '[{"number":1},{"number":2}]' })
     await expect(gh.listPullRequests()).resolves.toEqual([{ number: 1 }, { number: 2 }])
+    await expect(gh.listMergedPullRequests({ base: 'main' })).resolves.toHaveLength(2)
   })
 
-  it('hands back the repository object gh printed', async () => {
-    const { gh } = clientAnswering({ stdout: '{"nameWithOwner":"acme/widgets"}' })
-    await expect(gh.viewRepository()).resolves.toEqual({ nameWithOwner: 'acme/widgets' })
+  it('hands back the objects gh printed', async () => {
+    const repository = clientAnswering({ stdout: '{"nameWithOwner":"acme/widgets"}' })
+    await expect(repository.gh.viewRepository()).resolves.toEqual({
+      nameWithOwner: 'acme/widgets',
+    })
+    const pull = clientAnswering({ stdout: '{"number":7,"state":"OPEN"}' })
+    await expect(pull.gh.viewPullRequest({ pullRequest: 7 })).resolves.toEqual({
+      number: 7,
+      state: 'OPEN',
+    })
   })
 
   it('hands back a log as the text it is', async () => {
@@ -258,22 +310,16 @@ describe('answers', () => {
     const log = clientAnswering({ stdout: 'FAIL tests/thing\n', stderr: 'gh: a new release\n' })
     await expect(log.gh.readFailedRunLog({ run: 1 })).resolves.toBe('FAIL tests/thing\n')
   })
-
-  it('hands back the checks as rows', async () => {
-    const { gh } = clientAnswering({ stdout: '[{"name":"vitest","state":"SUCCESS"}]' })
-    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toEqual([
-      { name: 'vitest', state: 'SUCCESS' },
-    ])
-  })
 })
 
 describe('refusals', () => {
-  it("throws gh's own words when gh exits non-zero", async () => {
+  it("throws gh's own words, and its status, when gh exits non-zero", async () => {
     // gh's wording travels with the failure because a caller cannot tell an
-    // expired token from a repository that does not exist without it. A
-    // numeric code is how the adapter knows gh ran far enough to say so.
+    // expired token from a repository that does not exist without it. The
+    // status travels with it because round 5's handoff fact 3 is that a
+    // caller could otherwise only branch on prose.
     const { gh } = clientAnswering({
-      error: failing(1, 'Command failed'),
+      status: 1,
       stderr: 'gh: could not resolve to a Repository\n',
     })
     await expect(gh.viewRepository()).rejects.toThrow(
@@ -282,31 +328,41 @@ describe('refusals', () => {
     )
   })
 
-  it("throws node's message when gh exited non-zero and said nothing", async () => {
-    const { gh } = clientAnswering({ error: failing(1, 'Command failed: gh run list') })
-    await expect(gh.listRuns()).rejects.toThrow(/failed: Command failed: gh run list$/)
+  it('carries the status and the whole run on the error it throws', async () => {
+    const { gh } = clientAnswering({ status: 4, stderr: 'gh auth login\n' })
+    const error = await gh.listRuns().catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(GhError)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as GhError).name).toBe('GhError')
+    expect((error as GhError).status).toBe(4)
+    expect((error as GhError).cause).toMatchObject({ status: 4, stderr: 'gh auth login\n' })
   })
 
-  it("throws node's message when gh never started at all", async () => {
-    // Not on PATH, or a working directory that is gone: there is no stderr to
-    // quote, and an empty quote would read as a failure with no account of
-    // itself.
-    const { gh } = clientAnswering({ error: failing('ENOENT', 'spawn gh ENOENT') })
-    await expect(gh.listRuns()).rejects.toThrow(/failed: spawn gh ENOENT$/)
+  it('names the status when gh exited non-zero and said nothing', async () => {
+    const { gh } = clientAnswering({ status: 1 })
+    await expect(gh.listRuns()).rejects.toThrow(/failed: gh exited 1$/)
   })
 
-  it('reports an overrun reply as the overrun, not as whatever gh last warned about', async () => {
-    // The failure the 64 MiB ceiling exists to turn into an error rather than
-    // a truncated answer. gh had written an unrelated notice to stderr first,
-    // and letting that stand in for node's account is how a truncation gets
-    // reported as a release announcement.
+  it('names the signal when something killed gh', async () => {
+    // A child a signal ended has no status of its own to report, and "gh
+    // exited null" is not an account of anything.
+    const { gh } = clientAnswering({ status: null, signal: 'SIGKILL' })
+    await expect(gh.listRuns()).rejects.toThrow(/failed: gh was killed by SIGKILL$/)
+  })
+
+  it("reports a gh that never started as node's account of it, not as gh's", async () => {
+    // Not on PATH, or a working directory that is gone. Whatever gh had
+    // written to stderr before is not an account of that, and 127 is the
+    // shell's own "command not found", which `lib/install.py:58` keeps.
     const { gh } = clientAnswering({
-      error: failing('ERR_CHILD_PROCESS_STDIO_MAXBUFFER', 'stdout maxBuffer length exceeded'),
-      stderr: 'gh: a new release of gh is available\n',
+      status: 127,
+      startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' },
     })
-    await expect(gh.listPullRequests()).rejects.toThrow(
-      /failed: stdout maxBuffer length exceeded: gh: a new release of gh is available$/,
-    )
+    const error = await gh.listRuns().catch((thrown: unknown) => thrown)
+
+    expect((error as GhError).message).toMatch(/failed: cannot run gh: spawn gh ENOENT$/)
+    expect((error as GhError).status).toBe(127)
   })
 
   it('throws when gh answered with something that is not JSON', async () => {
@@ -339,100 +395,66 @@ describe('refusals', () => {
 })
 
 describe('the checks watch', () => {
-  it('answers with the rows even when the watch exited on a failed check', async () => {
+  it('answers with the status when a check failed, rather than throwing', async () => {
     // `gh pr checks --watch` reports through its exit status: 1 a check
-    // failed, 8 still pending. Those are answers about the checks, so the
-    // read that follows still runs and its rows are what the caller wanted.
-    // Reading them as transport failures is how a red rollup arrives as a
-    // broken token.
-    const { gh } = clientAnsweringInTurn([
-      { error: failing(1, 'Command failed'), stderr: 'Some checks were not successful\n' },
-      { stdout: '[{"name":"vitest","bucket":"fail"}]' },
-    ])
-    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toEqual([
-      { name: 'vitest', bucket: 'fail' },
-    ])
+    // failed, 8 still pending. Reading those as transport failures is how a
+    // red rollup arrives as a broken token.
+    const { gh } = clientAnswering({ status: 1, stderr: 'Some checks were not successful\n' })
+    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toEqual({
+      status: 1,
+      timedOut: false,
+      waitedMs: 0,
+      problem: 'Some checks were not successful\n',
+    })
   })
 
-  it('answers with the rows when the watch exited still pending', async () => {
-    const { gh } = clientAnsweringInTurn([
-      { error: failing(8, 'Command failed') },
-      { stdout: '[{"name":"vitest","bucket":"pending"}]' },
-    ])
-    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toEqual([
-      { name: 'vitest', bucket: 'pending' },
-    ])
+  it('answers with the status when the checks are still pending', async () => {
+    const { gh } = clientAnswering({ status: 8, elapsedMs: 12_000 })
+    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toMatchObject({
+      status: 8,
+      waitedMs: 12_000,
+      problem: '',
+    })
   })
 
-  it('still throws when the watch failed to answer at all', async () => {
-    // Exit 4 is gh asking to be authenticated, which is not a fact about the
-    // checks, so it fails like every other endpoint rather than being read as
-    // a rollup nobody looked at. Answered in turn, with the read left able to
-    // succeed, so the failure that surfaces names `--watch`: given to both
-    // calls it would surface from the parser instead and point a reader at
-    // the wrong half of the endpoint.
-    const { gh } = clientAnsweringInTurn([
-      {
-        error: failing(4, 'Command failed'),
-        stderr: 'gh: To get started with GitHub CLI, please run: gh auth login\n',
-      },
-      { stdout: '[]' },
-    ])
-    await expect(gh.watchChecks({ pullRequest: 7 })).rejects.toThrow(
-      /^gh pr checks 7 --watch failed: .*gh auth login$/,
-    )
+  it('says the bound fired, and how long it actually waited', async () => {
+    // Round 5's handoff fact 1. The Python publishes this as 124, the way
+    // coreutils `timeout` does, and that translation is the caller's.
+    const { gh } = clientAnswering({
+      status: null,
+      signal: 'SIGKILL',
+      timedOut: true,
+      elapsedMs: 90_012,
+    })
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toEqual({
+      status: null,
+      timedOut: true,
+      waitedMs: 90_012,
+      problem: '',
+    })
   })
 
-  it('throws when the read that follows the watch failed', async () => {
-    // The read is the call whose rows become the answer, so its statuses are
-    // not the watch's: none of them is a fact about the checks. A read that
-    // fails while the watch succeeded has to fail here, because the
-    // alternative is an empty rollup that a caller reads as "nothing is
-    // wrong", which is the found-nothing-is-a-pass shape `rows` refuses.
-    const { gh } = clientAnsweringInTurn([
-      { stdout: '' },
-      {
-        error: failing(4, 'Command failed'),
-        stderr: 'gh: To get started with GitHub CLI, please run: gh auth login\n',
-      },
-    ])
-    await expect(gh.watchChecks({ pullRequest: 7 })).rejects.toThrow(
-      /^gh pr checks 7 --json name,state,bucket,link,workflow failed: .*gh auth login$/,
-    )
-  })
-
-  it('reads the checks only once the watch has returned', async () => {
-    // The ordering assertions above are made by a stand-in that calls back
-    // synchronously, so they hold the order the calls are issued in and not
-    // the waiting, which is the whole of what makes this endpoint a watch.
-    // Here the watch answers on a later turn and the read records whether it
-    // had settled, so a version that started both calls together and awaited
-    // them afterwards is red: against the real gh that one reads the rollup
-    // at the moment the watch begins, which is the stale answer the two
-    // invocations exist to avoid.
-    let watchSettled = false
-    const when: string[] = []
-    const execFile: ExecFile = (_file, args, _options, callback) => {
-      if (args.includes('--watch')) {
-        setTimeout(() => {
-          watchSettled = true
-          callback(null, '', '')
-        }, 5)
-        return
-      }
-      when.push(watchSettled ? 'after the watch' : 'before the watch')
-      callback(null, '[]', '')
-    }
-    await createGhClient({ execFile }).watchChecks({ pullRequest: 7 })
-    expect(when).toEqual(['after the watch'])
+  it('reports a gh that could not be started at all, without throwing', async () => {
+    // `run_bounded` answers 127 here rather than raising, because its caller
+    // reports it as a refusal carrying what gh printed
+    // (`gh-shepherd-pr.py:279` to `284`). Handing some outcomes back as
+    // values and the rest as exceptions is what that caller cannot use.
+    const { gh } = clientAnswering({
+      status: 127,
+      startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' },
+    })
+    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toMatchObject({
+      status: 127,
+      problem: 'cannot run gh: spawn gh ENOENT',
+    })
   })
 })
 
-it("defaults to node's own execFile", () => {
+it("defaults to the root lib's own process runner", () => {
   // Constructed, not called: calling it would start the real `gh`, which is
   // what every other example here avoids. What this pins is that a client
   // built with no options is a whole client, every endpoint present. That the
-  // transport it falls back to is node's own `execFile` is held by the
+  // transport it falls back to is `process.ts`'s `run` is held by the
   // compiler rather than by an assertion: driving it would spawn, and
   // exporting the fallback so a test could compare identities would add a
   // shipped export whose only caller is this file.
@@ -440,10 +462,12 @@ it("defaults to node's own execFile", () => {
   const endpoints = Object.keys(gh).sort()
   expect(endpoints).toEqual([
     'addComment',
+    'listMergedPullRequests',
     'listPullRequests',
     'listRuns',
     'readFailedRunLog',
     'updateBranch',
+    'viewPullRequest',
     'viewRepository',
     'watchChecks',
   ])

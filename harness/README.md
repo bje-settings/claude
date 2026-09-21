@@ -55,8 +55,12 @@ const gh = createGhMock({
 
 `gh` is an injected mock rather than a stub binary on `PATH` (ADR 001). The endpoints are named
 after the operation rather than after gh's argv, so the interface survives gh changing a flag:
-`listPullRequests`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
-`watchChecks`.
+`listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`, `listRuns`,
+`readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`.
+
+`watchChecks` is the one endpoint whose reply is a record rather than a list or a string: the
+bounded watch answers with `{ status, timedOut, waitedMs, problem }`, because gh reports on the
+checks through its own exit status and a test about a red rollup has to be able to register one.
 
 - A registered reply comes back on **every** call. The mock holds no state and has no conditional
   logic, so what a command does with the reply is the only thing a test can be measuring.
@@ -69,13 +73,15 @@ after the operation rather than after gh's argv, so the interface survives gh ch
 - There is no request log, no call counter, and no call-order assertion. Counting calls pins an
   implementation detail and turns a refactor red.
 
-`GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery` and `RunQuery` moved to `lib/gh.ts` at
+`GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`
+and `WatchResult` moved to `lib/gh.ts` at
 [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
 against them; `gh.ts` imports them back and re-exports them, so a test reaches the double and the
 interface it implements through one module. What stays in the harness is what does not ship: the
-double, its reply map and its fail switch. Inputs and outputs are still plain JSON values on
-purpose, and [#127](https://github.com/bje-settings/claude/issues/127) refines them against the
-commands that consume them.
+double, its reply map and its fail switch. `GhError`, the failure the real client throws, is
+re-exported beside them so a test reaches the double, the interface and the error through one
+module. Inputs and outputs are still plain JSON values on purpose: the commands that consume them
+(#127 layers 2 and 3) shape them with their own types.
 
 ## The git builders
 
