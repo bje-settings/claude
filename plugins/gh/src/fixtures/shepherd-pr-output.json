@@ -1,0 +1,2845 @@
+{
+  "a_directory_that_cannot_be_entered": {
+    "argv": ["<sandbox>/closed", "1", "state"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "cannot enter <sandbox>/closed: [Errno 13] Permission denied: '<sandbox>/closed'\n",
+    "ghCalls": []
+  },
+  "a_directory_that_is_not_a_git_repository": {
+    "argv": ["<sandbox>/plain", "1", "state"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "not a git repository: <sandbox>/plain\n",
+    "ghCalls": []
+  },
+  "a_number_that_is_not_a_number": {
+    "argv": ["<sandbox>/r/work", "abc", "state"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "not a pull request number: abc\n",
+    "ghCalls": []
+  },
+  "a_path_that_is_not_a_directory": {
+    "argv": ["<sandbox>/nope", "1", "state"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "not a directory: <sandbox>/nope\n",
+    "ghCalls": []
+  },
+  "an_internal_error": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {},
+    "prs": null,
+    "status": 3,
+    "stdout": "",
+    "stderr": "gh-shepherd-pr.py: internal error: RuntimeError: boom\n",
+    "note": "driven in-process with os.path.isdir raising: no argv reaches exit 3",
+    "ghCalls": []
+  },
+  "an_unknown_action": {
+    "argv": ["<sandbox>/r/work", "1", "dance"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "unknown action: dance\ngh-shepherd-pr.py — the deterministic per-pull-request steps of /gh:shepherd.\n\nUsage:\n  gh-shepherd-pr.py <path> <number> state\n  gh-shepherd-pr.py <path> <number> rebase\n  gh-shepherd-pr.py <path> <number> recreate\n  gh-shepherd-pr.py <path> <number> wait\n  gh-shepherd-pr.py <path> <number> settle\n  gh-shepherd-pr.py <path> <number> skip <reason-file>\n  gh-shepherd-pr.py <path> <number> merged\n\nEvery action prints one JSON object: {\"action\", \"ok\", \"detail\", ...}. The\nagent running the loop decides which action comes next; this script only\ndoes the step, and refuses steps whose preconditions do not hold, so a\nconfused caller cannot make it act on the wrong pull request.\n\n  state     the pull request as `summary` shapes it (see lib/shepherd.py)\n  rebase    gh pr update-branch --rebase. Refuses unless the pull request is\n            open. Reports the head SHA before and after.\n  recreate  comments `@dependabot recreate`, then polls until the head SHA\n            changes (`recreated`). If the pull request leaves OPEN with the\n            head unmoved, returns `result: closed` or `merged` at once; a\n            closed one was usually superseded by another pull request.\n            Refuses on a pull request Dependabot did not author.\n  wait      gh pr checks --watch --fail-fast, bounded (see below). Result is\n            one of passed, failed, pending, merged; `failing` lists the\n            failed checks and `log_tail` carries the failed steps' log, with\n            `log_error` beside it when gh would not hand the log over. A\n            watcher that failed for a reason of its own (a 502, an expired\n            token) is `ok: false`, never `pending`.\n  settle    the grace between \"checks passed\" and \"auto-merge did not fire\".\n            Reads the pull request until GitHub answers one way or the other:\n            `merged`; `closed` when it was closed while settling; `blocked`\n            when a read proves auto-merge cannot fire (a BLOCKED merge state\n            seen on two reads, or a reviewDecision of REVIEW_REQUIRED or\n            CHANGES_REQUESTED on one), naming the fields it read; `changed`\n            when the merge state moved to BEHIND or DIRTY, so the caller\n            decides again; `open` when the bound passed with GitHub saying\n            nothing either way. `waited` is measured, and `reads_ok`,\n            `read_failures` and `read_error` say how the reading itself went;\n            every poll after the first failing is `ok: false`, not `open`.\n            Refuses a pull request that is CLOSED, has no auto-merge, or whose\n            checks are neither passed nor absent -- an already MERGED one is\n            answered, not refused. Never watches checks (that is `wait`), never\n            comments, and never merges.\n  skip      posts the comment in <reason-file> and reports its URL. Refuses\n            an empty file: a skip without a reason is not a skip.\n  merged    whether the pull request is MERGED, and its merge commit.\n\nThe script never merges, never enables or disables auto-merge, never edits a\nlabel, and never bypasses a check. The only writes are the rebase, the two\ncomments, and nothing else.\n\nEnvironment:\n  SHEPHERD_CI_SECONDS    typical CI wall time, from gh-shepherd-status.py\n                         (default 300). The wait bound is twice this, clamped\n                         to [120, 540] so it fits inside a ten-minute tool\n                         call; the caller re-invokes `wait` on `pending`.\n  SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default: a\n                         quarter of SHEPHERD_CI_SECONDS, no lower than 15; an\n                         explicit value is honoured down to 1).\n  SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).\n  SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For\n                         tests and for repos whose CI is far from typical.\n  SHEPHERD_SETTLE_BOUND  how long `settle` waits with no evidence either way,\n                         in seconds (default 90). See SETTLE_BOUND_DEFAULT.\n  SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).\n\nExits 0 when the action ran and reported (including ok:false refusals), 2 on\na usage error, 1 when gh could not answer at all, and 3 on an internal error,\nwhich is outside the documented set so a caller cannot mistake it for an answer.\n",
+    "ghCalls": ["repo view --json nameWithOwner"]
+  },
+  "gh_cannot_resolve_the_repository": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {
+      "GH_FIXTURE_FAIL": "1"
+    },
+    "prs": [],
+    "status": 1,
+    "stdout": "",
+    "stderr": "could not resolve the repository with gh: gh: simulated failure\n",
+    "ghCalls": ["repo view --json nameWithOwner"]
+  },
+  "gh_is_not_on_path": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {
+      "PATH": "<a PATH with no gh on it>"
+    },
+    "prs": [],
+    "status": 1,
+    "stdout": "",
+    "stderr": "gh is required\n",
+    "ghCalls": []
+  },
+  "help": {
+    "argv": ["--help"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "gh-shepherd-pr.py — the deterministic per-pull-request steps of /gh:shepherd.\n\nUsage:\n  gh-shepherd-pr.py <path> <number> state\n  gh-shepherd-pr.py <path> <number> rebase\n  gh-shepherd-pr.py <path> <number> recreate\n  gh-shepherd-pr.py <path> <number> wait\n  gh-shepherd-pr.py <path> <number> settle\n  gh-shepherd-pr.py <path> <number> skip <reason-file>\n  gh-shepherd-pr.py <path> <number> merged\n\nEvery action prints one JSON object: {\"action\", \"ok\", \"detail\", ...}. The\nagent running the loop decides which action comes next; this script only\ndoes the step, and refuses steps whose preconditions do not hold, so a\nconfused caller cannot make it act on the wrong pull request.\n\n  state     the pull request as `summary` shapes it (see lib/shepherd.py)\n  rebase    gh pr update-branch --rebase. Refuses unless the pull request is\n            open. Reports the head SHA before and after.\n  recreate  comments `@dependabot recreate`, then polls until the head SHA\n            changes (`recreated`). If the pull request leaves OPEN with the\n            head unmoved, returns `result: closed` or `merged` at once; a\n            closed one was usually superseded by another pull request.\n            Refuses on a pull request Dependabot did not author.\n  wait      gh pr checks --watch --fail-fast, bounded (see below). Result is\n            one of passed, failed, pending, merged; `failing` lists the\n            failed checks and `log_tail` carries the failed steps' log, with\n            `log_error` beside it when gh would not hand the log over. A\n            watcher that failed for a reason of its own (a 502, an expired\n            token) is `ok: false`, never `pending`.\n  settle    the grace between \"checks passed\" and \"auto-merge did not fire\".\n            Reads the pull request until GitHub answers one way or the other:\n            `merged`; `closed` when it was closed while settling; `blocked`\n            when a read proves auto-merge cannot fire (a BLOCKED merge state\n            seen on two reads, or a reviewDecision of REVIEW_REQUIRED or\n            CHANGES_REQUESTED on one), naming the fields it read; `changed`\n            when the merge state moved to BEHIND or DIRTY, so the caller\n            decides again; `open` when the bound passed with GitHub saying\n            nothing either way. `waited` is measured, and `reads_ok`,\n            `read_failures` and `read_error` say how the reading itself went;\n            every poll after the first failing is `ok: false`, not `open`.\n            Refuses a pull request that is CLOSED, has no auto-merge, or whose\n            checks are neither passed nor absent -- an already MERGED one is\n            answered, not refused. Never watches checks (that is `wait`), never\n            comments, and never merges.\n  skip      posts the comment in <reason-file> and reports its URL. Refuses\n            an empty file: a skip without a reason is not a skip.\n  merged    whether the pull request is MERGED, and its merge commit.\n\nThe script never merges, never enables or disables auto-merge, never edits a\nlabel, and never bypasses a check. The only writes are the rebase, the two\ncomments, and nothing else.\n\nEnvironment:\n  SHEPHERD_CI_SECONDS    typical CI wall time, from gh-shepherd-status.py\n                         (default 300). The wait bound is twice this, clamped\n                         to [120, 540] so it fits inside a ten-minute tool\n                         call; the caller re-invokes `wait` on `pending`.\n  SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default: a\n                         quarter of SHEPHERD_CI_SECONDS, no lower than 15; an\n                         explicit value is honoured down to 1).\n  SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).\n  SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For\n                         tests and for repos whose CI is far from typical.\n  SHEPHERD_SETTLE_BOUND  how long `settle` waits with no evidence either way,\n                         in seconds (default 90). See SETTLE_BOUND_DEFAULT.\n  SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).\n\nExits 0 when the action ran and reported (including ok:false refusals), 2 on\na usage error, 1 when gh could not answer at all, and 3 on an internal error,\nwhich is outside the documented set so a caller cannot mistake it for an answer.\n",
+    "stderr": "",
+    "ghCalls": []
+  },
+  "merged_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "merged"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"merged\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "merged_reports_an_open_pull_request_as_not_merged": {
+    "argv": ["<sandbox>/r/work", "1", "merged"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"merged\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"not merged: OPEN\",\n  \"merged\": false\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "merged_reports_the_merge_commit": {
+    "argv": ["<sandbox>/r/work", "1", "merged"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "MERGED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": {
+          "oid": "merged1"
+        },
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"merged\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"merged\",\n  \"merged\": true,\n  \"mergeCommit\": \"merged1\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "rebase_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "rebase"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"rebase\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "rebase_moves_the_head": {
+    "argv": ["<sandbox>/r/work", "1", "rebase"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BEHIND",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"rebase\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"rebased\",\n  \"before\": \"sha1\",\n  \"after\": \"rebased-sha1\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BLOCKED\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"rebased-sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"output\": \"✓ Pull request #1 branch has been updated\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr update-branch 1 --repo acme/widgets --rebase",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "rebase_refuses_a_pull_request_that_is_not_open": {
+    "argv": ["<sandbox>/r/work", "1", "rebase"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "MERGED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": {
+          "oid": "merged1"
+        },
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"rebase\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: pull request is MERGED, not OPEN\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"MERGED\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": \"merged1\",\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "rebase_reports_a_branch_that_was_already_up_to_date": {
+    "argv": ["<sandbox>/r/work", "1", "rebase"],
+    "env": {
+      "GH_FIXTURE_REBASE_UPTODATE": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BEHIND",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"rebase\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"update-branch reported success and the head has not moved: the update is still queued, or the branch was already up to date\",\n  \"before\": \"sha1\",\n  \"after\": \"sha1\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BEHIND\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"output\": \"✓ Pull request #1 already up-to-date with base branch\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr update-branch 1 --repo acme/widgets --rebase",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "rebase_reports_a_failure_without_a_new_head": {
+    "argv": ["<sandbox>/r/work", "1", "rebase"],
+    "env": {
+      "GH_FIXTURE_FAIL_REBASE": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "DIRTY",
+        "reviewDecision": "",
+        "mergeable": "CONFLICTING",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"rebase\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"rebase failed: GraphQL: merge conflict between base and head (updatePullRequestBranch)\",\n  \"before\": \"sha1\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr update-branch 1 --repo acme/widgets --rebase"
+    ]
+  },
+  "rebase_reports_an_update_that_has_only_been_queued": {
+    "argv": ["<sandbox>/r/work", "1", "rebase"],
+    "env": {
+      "GH_FIXTURE_REBASE_ASYNC": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BEHIND",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"rebase\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"update-branch reported success and the head has not moved: the update is still queued, or the branch was already up to date\",\n  \"before\": \"sha1\",\n  \"after\": \"sha1\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BEHIND\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"output\": \"✓ Pull request #1 branch has been updated\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr update-branch 1 --repo acme/widgets --rebase",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "recreate_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "recreate"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"recreate\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "recreate_gives_up_when_the_head_never_moves": {
+    "argv": ["<sandbox>/r/work", "1", "recreate"],
+    "env": {
+      "SHEPHERD_CI_SECONDS": "1",
+      "SHEPHERD_POLL_SECONDS": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "DIRTY",
+        "reviewDecision": "",
+        "mergeable": "CONFLICTING",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"recreate\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"recreate requested but the head did not change within 2s\",\n  \"before\": \"sha1\",\n  \"read_failures\": 0,\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"DIRTY\",\n    \"mergeable\": \"CONFLICTING\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr comment 1 --repo acme/widgets --body @dependabot recreate",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "recreate_polls_at_least_once_when_the_ci_estimate_is_zero": {
+    "argv": ["<sandbox>/r/work", "1", "recreate"],
+    "env": {
+      "SHEPHERD_CI_SECONDS": "0",
+      "SHEPHERD_POLL_SECONDS": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "DIRTY",
+        "reviewDecision": "",
+        "mergeable": "CONFLICTING",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"recreate\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"recreate requested but the head did not change within 1s\",\n  \"before\": \"sha1\",\n  \"read_failures\": 0,\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"DIRTY\",\n    \"mergeable\": \"CONFLICTING\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr comment 1 --repo acme/widgets --body @dependabot recreate",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "recreate_refuses_a_pull_request_dependabot_did_not_author": {
+    "argv": ["<sandbox>/r/work", "1", "recreate"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "someone",
+          "is_bot": false
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "DIRTY",
+        "reviewDecision": "",
+        "mergeable": "CONFLICTING",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"recreate\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: #1 was not authored by Dependabot; recreate only works for its own pull requests\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"someone\",\n    \"is_bot\": false,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"DIRTY\",\n    \"mergeable\": \"CONFLICTING\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": false,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "recreate_refuses_a_pull_request_that_is_not_open": {
+    "argv": ["<sandbox>/r/work", "1", "recreate"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "CLOSED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"recreate\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: pull request is CLOSED, not OPEN\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"CLOSED\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "recreate_reports_a_comment_it_could_not_post": {
+    "argv": ["<sandbox>/r/work", "1", "recreate"],
+    "env": {
+      "GH_FIXTURE_FAIL_COMMENT": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "DIRTY",
+        "reviewDecision": "",
+        "mergeable": "CONFLICTING",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"recreate\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"could not post the recreate comment: HTTP 403: Resource not accessible by integration\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr comment 1 --repo acme/widgets --body @dependabot recreate"
+    ]
+  },
+  "settle_accepts_a_head_that_reported_no_checks": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": []
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"still open after 3s with auto-merge enabled and nothing reported against it\",\n  \"result\": \"open\",\n  \"waited\": 3,\n  \"reads_ok\": 4,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"none\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "settle"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_keeps_waiting_on_an_approved_review": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "APPROVED",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"still open after 3s with auto-merge enabled and nothing reported against it\",\n  \"result\": \"open\",\n  \"waited\": 3,\n  \"reads_ok\": 4,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"APPROVED\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_keeps_waiting_through_a_merge_state_github_has_not_computed": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "UNKNOWN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"still open after 3s with auto-merge enabled and nothing reported against it\",\n  \"result\": \"open\",\n  \"waited\": 3,\n  \"reads_ok\": 4,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"UNKNOWN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_names_both_causes_when_both_are_blocking": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED and reviewDecision is CHANGES_REQUESTED\",\n  \"result\": \"blocked\",\n  \"waited\": 0,\n  \"reads_ok\": 1,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BLOCKED\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"CHANGES_REQUESTED\"\n  },\n  \"reason\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED and reviewDecision is CHANGES_REQUESTED\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_refuses_a_pull_request_that_is_closed": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "CLOSED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": null,
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: pull request is CLOSED, not OPEN\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"CLOSED\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": false,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_refuses_checks_that_are_pending": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "IN_PROGRESS",
+            "conclusion": null,
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: checks are pending; settle acts on passed or none, and `wait` is what watches a run\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"pending\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_refuses_checks_that_failed": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: checks are failed; settle acts on passed or none, and `wait` is what watches a run\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"failed\",\n      \"failing\": [\n        {\n          \"name\": \"build\",\n          \"link\": \"https://github.com/acme/widgets/actions/runs/11/job/21\"\n        }\n      ]\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_refuses_without_auto_merge": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": null,
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: auto-merge is not enabled on #1; there is nothing to settle, and this script never enables it\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": false,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_reports_blocked_naming_the_merge_state": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED\",\n  \"result\": \"blocked\",\n  \"waited\": 1,\n  \"reads_ok\": 2,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BLOCKED\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"reason\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_reports_blocked_naming_the_review_decision": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "REVIEW_REQUIRED",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"auto-merge cannot fire: reviewDecision is REVIEW_REQUIRED\",\n  \"result\": \"blocked\",\n  \"waited\": 0,\n  \"reads_ok\": 1,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"REVIEW_REQUIRED\"\n  },\n  \"reason\": \"auto-merge cannot fire: reviewDecision is REVIEW_REQUIRED\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_reports_changed_on_a_dirty_base": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "DIRTY",
+        "reviewDecision": "",
+        "mergeable": "CONFLICTING",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"mergeStateStatus is now DIRTY; the base moved while settling\",\n  \"result\": \"changed\",\n  \"waited\": 0,\n  \"reads_ok\": 1,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"DIRTY\",\n    \"mergeable\": \"CONFLICTING\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_reports_changed_when_the_base_moved": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BEHIND",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"mergeStateStatus is now BEHIND; the base moved while settling\",\n  \"result\": \"changed\",\n  \"waited\": 0,\n  \"reads_ok\": 1,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BEHIND\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_reports_merged_at_once": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "MERGED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": null,
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": {
+          "oid": "merged1"
+        },
+        "statusCheckRollup": []
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"merged\",\n  \"result\": \"merged\",\n  \"mergeCommit\": \"merged1\",\n  \"waited\": 0,\n  \"reads_ok\": 1,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"MERGED\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": false,\n    \"mergeCommit\": \"merged1\",\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"none\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_reports_open_when_auto_merge_never_fires": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"still open after 3s with auto-merge enabled and nothing reported against it\",\n  \"result\": \"open\",\n  \"waited\": 3,\n  \"reads_ok\": 4,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_says_a_bound_override_was_ignored": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "soon",
+      "SHEPHERD_SETTLE_POLL": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED\",\n  \"result\": \"blocked\",\n  \"waited\": 1,\n  \"reads_ok\": 2,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BLOCKED\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"reason\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED\"\n}\n",
+    "stderr": "SHEPHERD_SETTLE_BOUND=soon ignored; using 90\n",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "settle_says_a_poll_override_was_ignored": {
+    "argv": ["<sandbox>/r/work", "1", "settle"],
+    "env": {
+      "SHEPHERD_SETTLE_BOUND": "3",
+      "SHEPHERD_SETTLE_POLL": "often"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"settle\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED\",\n  \"result\": \"blocked\",\n  \"waited\": 5,\n  \"reads_ok\": 2,\n  \"read_failures\": 0,\n  \"read_error\": \"\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BLOCKED\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"reason\": \"auto-merge cannot fire: mergeStateStatus is BLOCKED\"\n}\n",
+    "stderr": "SHEPHERD_SETTLE_POLL=often ignored; using 5\n",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "skip_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "skip", "<sandbox>/reason.md"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"skip\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "skip_posts_the_reason": {
+    "argv": ["<sandbox>/r/work", "1", "skip", "<sandbox>/reason.md"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"skip\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"skip comment posted\",\n  \"comment_url\": \"https://github.com/acme/widgets/pull/1#issuecomment-1\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr comment 1 --repo acme/widgets --body-file <sandbox>/reason.md"
+    ]
+  },
+  "skip_refuses_a_pull_request_that_is_not_open": {
+    "argv": ["<sandbox>/r/work", "1", "skip", "<sandbox>/reason.md"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "MERGED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": {
+          "oid": "merged1"
+        },
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"skip\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: pull request is MERGED, not OPEN\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"MERGED\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": \"merged1\",\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "skip_refuses_an_empty_reason_file": {
+    "argv": ["<sandbox>/r/work", "1", "skip", "<sandbox>/reason.md"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"skip\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"refused: reason file is missing or empty: <sandbox>/reason.md\"\n}\n",
+    "stderr": "",
+    "ghCalls": ["repo view --json nameWithOwner"]
+  },
+  "skip_reports_a_comment_it_could_not_post": {
+    "argv": ["<sandbox>/r/work", "1", "skip", "<sandbox>/reason.md"],
+    "env": {
+      "GH_FIXTURE_FAIL_COMMENT": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"skip\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": false,\n  \"detail\": \"could not post the skip comment: HTTP 403: Resource not accessible by integration\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr comment 1 --repo acme/widgets --body-file <sandbox>/reason.md"
+    ]
+  },
+  "skip_with_an_empty_reason_file_argument": {
+    "argv": ["<sandbox>/r/work", "1", "skip", ""],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "skip needs a reason file\n",
+    "ghCalls": ["repo view --json nameWithOwner"]
+  },
+  "skip_without_a_reason_file": {
+    "argv": ["<sandbox>/r/work", "1", "skip"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "skip needs a reason file\n",
+    "ghCalls": ["repo view --json nameWithOwner"]
+  },
+  "state_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "state"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"state\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "state_carries_a_non_ascii_title": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump café — 1.0.0",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"state\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"read\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump café — 1.0.0\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "state_reads_a_rollup_holding_a_null_row": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [null]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"state\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"read\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"pending\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "state_reads_the_pull_request": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "BEHIND",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"state\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"read\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"BEHIND\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "state_says_a_log_line_override_was_ignored": {
+    "argv": ["<sandbox>/r/work", "1", "state"],
+    "env": {
+      "SHEPHERD_LOG_LINES": "lots"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"state\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"read\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "SHEPHERD_LOG_LINES=lots ignored; using 60\n",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "usage_with_too_few_arguments": {
+    "argv": ["<sandbox>/r/work", "1"],
+    "env": {},
+    "prs": [],
+    "status": 2,
+    "stdout": "",
+    "stderr": "gh-shepherd-pr.py — the deterministic per-pull-request steps of /gh:shepherd.\n\nUsage:\n  gh-shepherd-pr.py <path> <number> state\n  gh-shepherd-pr.py <path> <number> rebase\n  gh-shepherd-pr.py <path> <number> recreate\n  gh-shepherd-pr.py <path> <number> wait\n  gh-shepherd-pr.py <path> <number> settle\n  gh-shepherd-pr.py <path> <number> skip <reason-file>\n  gh-shepherd-pr.py <path> <number> merged\n\nEvery action prints one JSON object: {\"action\", \"ok\", \"detail\", ...}. The\nagent running the loop decides which action comes next; this script only\ndoes the step, and refuses steps whose preconditions do not hold, so a\nconfused caller cannot make it act on the wrong pull request.\n\n  state     the pull request as `summary` shapes it (see lib/shepherd.py)\n  rebase    gh pr update-branch --rebase. Refuses unless the pull request is\n            open. Reports the head SHA before and after.\n  recreate  comments `@dependabot recreate`, then polls until the head SHA\n            changes (`recreated`). If the pull request leaves OPEN with the\n            head unmoved, returns `result: closed` or `merged` at once; a\n            closed one was usually superseded by another pull request.\n            Refuses on a pull request Dependabot did not author.\n  wait      gh pr checks --watch --fail-fast, bounded (see below). Result is\n            one of passed, failed, pending, merged; `failing` lists the\n            failed checks and `log_tail` carries the failed steps' log, with\n            `log_error` beside it when gh would not hand the log over. A\n            watcher that failed for a reason of its own (a 502, an expired\n            token) is `ok: false`, never `pending`.\n  settle    the grace between \"checks passed\" and \"auto-merge did not fire\".\n            Reads the pull request until GitHub answers one way or the other:\n            `merged`; `closed` when it was closed while settling; `blocked`\n            when a read proves auto-merge cannot fire (a BLOCKED merge state\n            seen on two reads, or a reviewDecision of REVIEW_REQUIRED or\n            CHANGES_REQUESTED on one), naming the fields it read; `changed`\n            when the merge state moved to BEHIND or DIRTY, so the caller\n            decides again; `open` when the bound passed with GitHub saying\n            nothing either way. `waited` is measured, and `reads_ok`,\n            `read_failures` and `read_error` say how the reading itself went;\n            every poll after the first failing is `ok: false`, not `open`.\n            Refuses a pull request that is CLOSED, has no auto-merge, or whose\n            checks are neither passed nor absent -- an already MERGED one is\n            answered, not refused. Never watches checks (that is `wait`), never\n            comments, and never merges.\n  skip      posts the comment in <reason-file> and reports its URL. Refuses\n            an empty file: a skip without a reason is not a skip.\n  merged    whether the pull request is MERGED, and its merge commit.\n\nThe script never merges, never enables or disables auto-merge, never edits a\nlabel, and never bypasses a check. The only writes are the rebase, the two\ncomments, and nothing else.\n\nEnvironment:\n  SHEPHERD_CI_SECONDS    typical CI wall time, from gh-shepherd-status.py\n                         (default 300). The wait bound is twice this, clamped\n                         to [120, 540] so it fits inside a ten-minute tool\n                         call; the caller re-invokes `wait` on `pending`.\n  SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default: a\n                         quarter of SHEPHERD_CI_SECONDS, no lower than 15; an\n                         explicit value is honoured down to 1).\n  SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).\n  SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For\n                         tests and for repos whose CI is far from typical.\n  SHEPHERD_SETTLE_BOUND  how long `settle` waits with no evidence either way,\n                         in seconds (default 90). See SETTLE_BOUND_DEFAULT.\n  SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).\n\nExits 0 when the action ran and reported (including ok:false refusals), 2 on\na usage error, 1 when gh could not answer at all, and 3 on an internal error,\nwhich is outside the documented set so a caller cannot mistake it for an answer.\n",
+    "ghCalls": []
+  },
+  "wait_answers_failed_and_carries_the_log_tail": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "GH_FIXTURE_RUN_LOG": "<sandbox>/log.txt"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks failed\",\n  \"result\": \"failed\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"failed\",\n      \"failing\": [\n        {\n          \"name\": \"build\",\n          \"link\": \"https://github.com/acme/widgets/actions/runs/11/job/21\"\n        }\n      ]\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"log_tail\": \"line 1\\nline 2\\nline 3\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "run view 11 --repo acme/widgets --job 21 --log-failed"
+    ]
+  },
+  "wait_answers_failed_with_no_log_for_a_status_context": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "StatusContext",
+            "context": "ci/legacy",
+            "state": "FAILURE",
+            "targetUrl": "https://ci.example/1"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks failed\",\n  \"result\": \"failed\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"failed\",\n      \"failing\": [\n        {\n          \"name\": \"ci/legacy\",\n          \"link\": \"https://ci.example/1\"\n        }\n      ]\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"log_tail\": \"\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_answers_merged_without_watching": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "MERGED",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": {
+          "oid": "merged1"
+        },
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"merged\",\n  \"result\": \"merged\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"MERGED\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": \"merged1\",\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_answers_passed_from_a_green_rollup": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "lint",
+            "status": "COMPLETED",
+            "conclusion": "SKIPPED",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks passed\",\n  \"result\": \"passed\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"passed\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_answers_passed_when_nothing_reported_a_check": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {},
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": []
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"no checks reported on this head\",\n  \"result\": \"passed\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"none\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  }\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_cannot_read_an_unknown_pull_request": {
+    "argv": ["<sandbox>/r/work", "99", "wait"],
+    "env": {},
+    "prs": [],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 99,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #99: GraphQL: Could not resolve to a PullRequest with the number of 99.\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 99 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_clamps_the_bound_to_the_maximum": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "SHEPHERD_CI_SECONDS": "1000"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "IN_PROGRESS",
+            "conclusion": null,
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks still running after 0s\",\n  \"result\": \"pending\",\n  \"bound\": 540,\n  \"watcher_rc\": 8,\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"pending\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"waited\": 0\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr checks 1 --repo acme/widgets --watch --fail-fast",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_keeps_only_the_requested_number_of_log_lines": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "GH_FIXTURE_RUN_LOG": "<sandbox>/log.txt",
+      "SHEPHERD_LOG_LINES": "2"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks failed\",\n  \"result\": \"failed\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"failed\",\n      \"failing\": [\n        {\n          \"name\": \"build\",\n          \"link\": \"https://github.com/acme/widgets/actions/runs/11/job/21\"\n        }\n      ]\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"log_tail\": \"line 2\\nline 3\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "run view 11 --repo acme/widgets --job 21 --log-failed"
+    ]
+  },
+  "wait_refuses_an_answer_without_the_fields_the_loop_reads": {
+    "argv": ["<sandbox>/r/work", "7", "wait"],
+    "env": {},
+    "prs": [
+      {
+        "number": 7
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 7,\n  \"ok\": false,\n  \"detail\": \"could not read pull request #7: gh answered without state\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 7 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_reports_pending_when_its_bound_is_hit": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "GH_FIXTURE_WATCH_HANG": "1",
+      "SHEPHERD_WAIT_BOUND": "1"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "IN_PROGRESS",
+            "conclusion": null,
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks still running after 1s\",\n  \"result\": \"pending\",\n  \"bound\": 1,\n  \"watcher_rc\": 124,\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"pending\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"waited\": 1\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr checks 1 --repo acme/widgets --watch --fail-fast",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_reports_the_rollup_once_the_watcher_returns": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "SHEPHERD_WAIT_BOUND": "5"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "IN_PROGRESS",
+            "conclusion": null,
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks still running after 0s\",\n  \"result\": \"pending\",\n  \"bound\": 5,\n  \"watcher_rc\": 8,\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"pending\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"waited\": 0\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr checks 1 --repo acme/widgets --watch --fail-fast",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_says_a_bound_override_was_ignored": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "SHEPHERD_WAIT_BOUND": "abc"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "CheckRun",
+            "name": "test",
+            "status": "COMPLETED",
+            "conclusion": "SUCCESS",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "IN_PROGRESS",
+            "conclusion": null,
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks still running after 0s\",\n  \"result\": \"pending\",\n  \"bound\": 540,\n  \"watcher_rc\": 8,\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"pending\",\n      \"failing\": []\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"waited\": 0\n}\n",
+    "stderr": "SHEPHERD_WAIT_BOUND=abc ignored; using 540\n",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr checks 1 --repo acme/widgets --watch --fail-fast",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision"
+    ]
+  },
+  "wait_walks_past_a_failing_row_that_is_not_an_actions_job": {
+    "argv": ["<sandbox>/r/work", "1", "wait"],
+    "env": {
+      "GH_FIXTURE_RUN_LOG": "<sandbox>/log.txt"
+    },
+    "prs": [
+      {
+        "number": 1,
+        "title": "build(deps): bump dep-1",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "app/dependabot",
+          "is_bot": true
+        },
+        "labels": [
+          {
+            "name": "dependencies"
+          }
+        ],
+        "autoMergeRequest": {
+          "mergeMethod": "MERGE"
+        },
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": "",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "sha1",
+        "headRefName": "dependabot/npm/dep-1",
+        "baseRefName": "main",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "mergeCommit": null,
+        "statusCheckRollup": [
+          {
+            "__typename": "StatusContext",
+            "context": "ci/legacy",
+            "state": "FAILURE",
+            "targetUrl": "https://ci.example/1"
+          },
+          {
+            "__typename": "CheckRun",
+            "name": "build",
+            "status": "COMPLETED",
+            "conclusion": "FAILURE",
+            "detailsUrl": "https://github.com/acme/widgets/actions/runs/11/job/21"
+          }
+        ]
+      }
+    ],
+    "status": 0,
+    "stdout": "{\n  \"action\": \"wait\",\n  \"repo\": \"acme/widgets\",\n  \"number\": 1,\n  \"ok\": true,\n  \"detail\": \"checks failed\",\n  \"result\": \"failed\",\n  \"pr\": {\n    \"number\": 1,\n    \"title\": \"build(deps): bump dep-1\",\n    \"author\": \"app/dependabot\",\n    \"is_bot\": true,\n    \"state\": \"OPEN\",\n    \"mergeStateStatus\": \"CLEAN\",\n    \"mergeable\": \"MERGEABLE\",\n    \"headRefOid\": \"sha1\",\n    \"autoMerge\": true,\n    \"mergeCommit\": null,\n    \"labels\": [\n      \"dependencies\"\n    ],\n    \"createdAt\": \"2026-01-01T00:00:00Z\",\n    \"checks\": {\n      \"state\": \"failed\",\n      \"failing\": [\n        {\n          \"name\": \"ci/legacy\",\n          \"link\": \"https://ci.example/1\"\n        },\n        {\n          \"name\": \"build\",\n          \"link\": \"https://github.com/acme/widgets/actions/runs/11/job/21\"\n        }\n      ]\n    },\n    \"is_dependabot\": true,\n    \"reviewDecision\": \"\"\n  },\n  \"log_tail\": \"the failing step\"\n}\n",
+    "stderr": "",
+    "ghCalls": [
+      "repo view --json nameWithOwner",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "pr view 1 --repo acme/widgets --json number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision",
+      "run view 11 --repo acme/widgets --job 21 --log-failed"
+    ]
+  }
+}
