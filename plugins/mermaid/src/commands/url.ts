@@ -37,11 +37,19 @@ export type Route = keyof typeof ROUTE_PREFIXES
 // widens `choices` to `readonly string[]` and every key to `string`, which
 // collapses `Options<typeof ARG_SPEC>` to an index signature (lib/README.md,
 // lib/args.test.ts). This is the same spec lib/args.test.ts writes as
-// mermaid's own command line, the first caller `parseArguments` has.
+// mermaid's own command line, the first caller `parseArguments` has, and
+// `lib/args.test.ts`'s own spec already includes `help`: `args.ts` declares
+// no `--help` handling of its own on purpose ("a command declares a `help`
+// boolean and prints its own"), so this is that one line.
 const ARG_SPEC = {
   route: { type: 'string', default: 'view', choices: ['edit', 'ink-img', 'ink-svg', 'view'] },
   theme: { type: 'string', default: 'default' },
+  help: { type: 'boolean' },
 } as const
+
+const USAGE =
+  'mermaid.ts --route {view,edit,ink-svg,ink-img} [--theme NAME], diagram source on ' +
+  'stdin: prints a mermaid.live or mermaid.ink preview URL.'
 
 /**
  * Encode `diagram` the way mermaid.live's own editor does: pako in the URL.
@@ -102,6 +110,10 @@ function decodeAndTrim(bytes: Uint8Array): string {
 export function runMermaidUrl(argv: readonly string[], stdinBytes: Uint8Array): Envelope<string> {
   const parsed = parseArguments(argv, ARG_SPEC)
   if (parsed.outcome !== 'ok') return parsed
+  // Checked before stdin is even touched, the way argparse's `-h` answers
+  // before looking at anything else: a caller asking for usage should not
+  // have to supply a diagram to get it.
+  if (parsed.value.help) return ok(USAGE)
 
   let diagram: string
   try {

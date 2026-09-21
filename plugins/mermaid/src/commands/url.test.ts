@@ -118,3 +118,13 @@ it('reports exit 2 for a refused argv, and never runs the encoder', () => {
   expect(envelope.outcome).toBe('refused')
   expect(exitCodeFor(envelope)).toBe(2)
 })
+
+it('answers --help with a usage line and never looks at stdin', () => {
+  // Invalid UTF-8 on stdin would refuse if decodeAndTrim ran at all, so a
+  // passing 'ok' here also proves --help is checked before stdin is touched.
+  const envelope = runMermaidUrl(['--help'], Uint8Array.from([0x61, 0xff, 0x62]))
+
+  expect(envelope.outcome).toBe('ok')
+  if (envelope.outcome !== 'ok') return
+  expect(envelope.value).toMatch(/^mermaid\.ts --route /)
+})
