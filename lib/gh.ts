@@ -211,11 +211,18 @@ export interface GhClientOptions {
    */
   readonly cwd?: string
   /**
-   * `owner/name`, added to every call as `--repo`. Round 5's handoff fact 4:
-   * the ported scripts name the repository at eight call sites
-   * (`gh-shepherd-pr.py` and `gh-shepherd-status.py` pass `--repo` on every
-   * call they make) because they run from wherever the agent started, not
-   * from the checkout.
+   * `owner/name`, named on every call. Round 5's handoff fact 4: the ported
+   * scripts name the repository at eight call sites (`gh-shepherd-pr.py:399`,
+   * `:483`, `:533`, `:647`, `:726`, `:928` and `gh-shepherd-status.py:163`,
+   * `:185`) because they run from wherever the agent started, not from the
+   * checkout.
+   *
+   * It reaches gh as `--repo` everywhere except `gh repo view`, which has no
+   * such flag and takes the repository as its positional argument instead
+   * (`gh repo view [<repository>]`, verified against gh 2.98.0: the flag form
+   * is refused with "unknown flag: --repo"). That is also why the two Python
+   * `repo view` calls, `gh-shepherd-pr.py:959` and `gh-shepherd-status.py:104`,
+   * are the only two of the ten that pass no `--repo`.
    */
   readonly repository?: string
   /** The spawn seam. Defaults to the root lib's own process runner.
@@ -322,6 +329,11 @@ const record = (result: RunResult, what: string): Record<string, unknown> => {
 export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const spawn = options.run ?? run
   const repository = filter('repo', options.repository)
+  // `gh repo view` is the one command here with no `--repo`: its inherited
+  // flags are `--help` alone and the repository is its positional argument.
+  // Passing the flag form is refused outright ("unknown flag: --repo", gh
+  // 2.98.0), so that endpoint spells the same fact the other way.
+  const repositoryArgument = options.repository === undefined ? [] : [options.repository]
 
   /** Run gh, and answer with everything the child did. Nothing here decides
    *  whether that is a failure: the watch reports through its status and the
@@ -395,7 +407,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
 
     viewRepository: async () =>
       record(
-        await succeeded(['repo', 'view', ...repository, '--json', REPOSITORY_FIELDS]),
+        await succeeded(['repo', 'view', ...repositoryArgument, '--json', REPOSITORY_FIELDS]),
         'gh repo view',
       ),
 

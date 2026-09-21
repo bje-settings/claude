@@ -239,13 +239,83 @@ describe('argv', () => {
 
   it('names the repository on every call when it was given one', async () => {
     // Round 5's handoff fact 4: the shepherd scripts run from wherever the
-    // agent started, not from the checkout, so they pass `--repo` on every
-    // call they make.
+    // agent started, not from the checkout, so they name the repository on
+    // every call they make. Every endpoint is driven here rather than a
+    // sample of two, because an endpoint that dropped the name would resolve
+    // against the agent's own directory and act on the wrong repository, and
+    // the argv is the only place that is visible.
+    const { gh, calls } = clientAnswering(
+      { stdout: '{}', status: 0 },
+      { repository: 'acme/widgets' },
+    )
+    const rows = clientAnswering({ stdout: '[]' }, { repository: 'acme/widgets' })
+    const log = clientAnswering({ stdout: '' }, { repository: 'acme/widgets' })
+
+    await rows.gh.listPullRequests()
+    await rows.gh.listMergedPullRequests({ base: 'main' })
+    await rows.gh.listRuns()
+    await gh.viewPullRequest({ pullRequest: 7 })
+    await gh.viewRepository()
+    await log.gh.readFailedRunLog({ run: 1234 })
+    await log.gh.updateBranch({ pullRequest: 7 })
+    await log.gh.addComment({ pullRequest: 7, body: 'hi' })
+    await log.gh.watchChecks({ pullRequest: 7, boundMs: 1_000 })
+
+    const fields =
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision'
+    expect(rows.calls.map((call) => call.args)).toEqual([
+      ['pr', 'list', '--repo', 'acme/widgets', '--json', fields],
+      [
+        'pr',
+        'list',
+        '--repo',
+        'acme/widgets',
+        '--state',
+        'merged',
+        '--base',
+        'main',
+        '--json',
+        'headRefName,headRefOid,isCrossRepository',
+      ],
+      [
+        'run',
+        'list',
+        '--repo',
+        'acme/widgets',
+        '--json',
+        'databaseId,status,conclusion,createdAt,updatedAt',
+      ],
+    ])
+    expect(calls[0]?.args).toEqual(['pr', 'view', '7', '--repo', 'acme/widgets', '--json', fields])
+    expect(log.calls.map((call) => call.args)).toEqual([
+      ['run', 'view', '1234', '--repo', 'acme/widgets', '--log-failed'],
+      ['pr', 'update-branch', '7', '--repo', 'acme/widgets'],
+      ['pr', 'comment', '7', '--repo', 'acme/widgets', '--body', 'hi'],
+      ['pr', 'checks', '7', '--repo', 'acme/widgets', '--watch'],
+    ])
+  })
+
+  it('names the repository to gh repo view positionally, because it has no --repo flag', async () => {
+    // `gh repo view` is the one command in this client with no `-R, --repo`:
+    // its inherited flags are `--help` alone and the repository is the
+    // positional argument (`gh repo view [<repository>]`). gh 2.98.0 refuses
+    // the flag form outright with "unknown flag: --repo", so building it
+    // would make every `viewRepository` call on a client that names a
+    // repository fail, which is the first call the shepherd path makes. The
+    // Python never had it either: `gh-shepherd-pr.py:959` and
+    // `gh-shepherd-status.py:104` are the only two of its ten gh calls that
+    // pass no `--repo`.
     const { gh, calls } = clientAnswering({ stdout: '{}' }, { repository: 'acme/widgets' })
     await gh.viewRepository()
-    await gh.viewPullRequest({ pullRequest: 7 })
-    expect(calls[0]?.args.slice(0, 4)).toEqual(['repo', 'view', '--repo', 'acme/widgets'])
-    expect(calls[1]?.args.slice(0, 5)).toEqual(['pr', 'view', '7', '--repo', 'acme/widgets'])
+
+    expect(calls[0]?.args).toEqual([
+      'repo',
+      'view',
+      'acme/widgets',
+      '--json',
+      'nameWithOwner,defaultBranchRef',
+    ])
+    expect(calls[0]?.args).not.toContain('--repo')
   })
 
   it('runs gh where it was told to, and in the current directory otherwise', async () => {

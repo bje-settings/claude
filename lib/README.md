@@ -158,8 +158,11 @@ const merged = await gh.listMergedPullRequests({ base: 'main', limit: 200 })
 The endpoints are named after the operation rather than after gh's argv, so the interface survives
 gh changing a flag, and a command takes a `GhClient` as an argument rather than constructing one,
 which is what makes it swappable for `createGhMock` in the harness (ADR 001, RFC 001 decision 3).
-`repository` adds `--repo` to every call, for the commands that run from wherever the agent
-started; `cwd` is for the ones that have already changed into the checkout.
+`repository` names the repository on every call, for the commands that run from wherever the agent
+started; `cwd` is for the ones that have already changed into the checkout. It reaches gh as
+`--repo` everywhere except `gh repo view`, which has no such flag and takes the repository as its
+positional argument, which is why the two `repo view` calls in the Python are the only ones that
+pass no `--repo`.
 
 Failure is a thrown `GhError` carrying gh's own words, never a result envelope and never an empty
 list: "nothing matched" and "the answer could not be read" are different facts. The error carries
