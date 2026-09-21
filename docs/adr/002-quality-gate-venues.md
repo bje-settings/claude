@@ -125,6 +125,9 @@ that already has several.
   not select. CI is where that is caught, which was already true for anything the hook's `-x` short
   circuited or its `-m "not slow"` deselected.
 - **The version-bump failure stays silent.** Until a gate exists, a plugin whose files changed
-  without a version bump simply does not update for anyone who has it installed, and the
-  `sm-incubator/org-claude` mirror means that can be someone outside this enterprise. Reversing this
-  decision costs one job and one ruleset edit, in that order.
+  without a version bump simply does not update for anyone who has it installed. ~~The
+  `sm-incubator/org-claude` mirror means that can be someone outside this enterprise.~~ **Deviation
+  ([#128](https://github.com/bje-settings/claude/issues/128)):** `publish-plugin` was removed rather
+  than ported, so that mirror is now frozen at the version it last received and this risk no longer
+  propagates to it; the remaining exposure is to whoever has installed a plugin directly from this
+  repository. Reversing this decision costs one job and one ruleset edit, in that order.
