@@ -28,6 +28,7 @@ Node 22.18 or newer.
 | Flag | Effect |
 | --- | --- |
 | `--theme` | Mermaid theme name, default `default`. Passed through verbatim; not validated against Mermaid's built-in theme set, since Mermaid also accepts custom themes. |
+| `--help`, `-h` | Prints usage and exits 0. Wins over every other flag, including an invalid `--route`, and never reads stdin: a diagram is never required to ask for help. |
 
 ### Example
 
