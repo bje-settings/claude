@@ -1600,6 +1600,30 @@ it('counts how far the default branch is behind the cached origin, with no fetch
   )
 })
 
+it('still counts a branch on a local default that is itself behind the cached origin', async () => {
+  const harnessed = harness()
+  const { git } = harnessed
+  const repository = git.create(harnessed.sandbox.join('r'))
+  git.commit(repository, 'second')
+  git.push(repository)
+  git.git(repository, 'checkout', '-q', '-b', 'side')
+  // The local default moves back, so `stale` sits on it and NOT on the commit
+  // the cached origin/main names.
+  git.git(repository, 'branch', '-f', 'main', 'main~1')
+  git.branch(repository, 'stale')
+
+  const message = await messageFor(harnessed, repository)
+
+  // Which tip the exclusion compares against is the whole question here.
+  // /gh:sync fast-forwards main onto origin/main and then finds `stale`
+  // strictly behind it, so it deletes it: excluding a branch by the LOCAL
+  // default's tip would drop a real candidate from the count.
+  expect(message).toContain("Local 'main' is 1 commit behind 'origin/main'.")
+  expect(message).toContain(
+    "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
+  )
+})
+
 it('counts a gone upstream and a landed branch as candidates', async () => {
   const harnessed = harness()
   const { git } = harnessed
