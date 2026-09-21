@@ -940,6 +940,21 @@ it('takes the last line with anything in it', () => {
   expect(lastLine('  only  ')).toBe('only')
 })
 
+it('splits the lines and strips the blanks the way Python does', () => {
+  // `str.splitlines`, not `split('\n')`: a child that redrew its progress
+  // leaves the carriage return inside the line, and the Python quoted only
+  // what came after it. This is the sentence the session is given.
+  expect(lastLine('fetching\rerror: repository is gone')).toBe('error: repository is gone')
+  expect(lastLine('a\u2028b')).toBe('b')
+  expect(lastLine('a\u0085b')).toBe('b')
+  expect(lastLine('a\x0cb')).toBe('b')
+  // `\r\n` is one boundary, so it leaves no empty line between the two.
+  expect(lastLine('first\r\nlast')).toBe('last')
+  // `str.strip()` counts the file separators as whitespace and `trim()` does
+  // not, so without the Python set this answers with a control character.
+  expect(lastLine('said something\n\x1c\x1f')).toBe('said something')
+})
+
 it('writes one response the way json.dump with ensure_ascii writes it', () => {
   expect(emit('hi')).toBe(
     '{"systemMessage": "hi", "hookSpecificOutput": ' +

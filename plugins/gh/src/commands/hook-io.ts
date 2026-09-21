@@ -290,13 +290,38 @@ export const returnCode = (status: number | null, signal: NodeJS.Signals | null)
   return 0
 }
 
+/** The characters Python counts as whitespace and as line boundaries above
+ *  the ones JavaScript agrees about. The file, group and record separators
+ *  are both: Python splits lines on them and strips them. The unit separator
+ *  and NEL are added where each belongs. Written as a string and composed
+ *  with `new RegExp` rather than put in a literal, because biome's
+ *  `suspicious/noControlCharactersInRegex` refuses the literal form, and the
+ *  rule is right about the usual case: these are here on purpose and the
+ *  answer is to say so, not to silence the rule. */
+const SEPARATORS = '\\u001c-\\u001e'
+
+/** Python's line boundaries for `str.splitlines`, which is what `last_line`
+ *  split on: `\r\n` as one, then the five other ASCII ones and the four above
+ *  them. Splitting on `\n` alone would keep a carriage return inside a line,
+ *  and the text this reads is a child's stderr, where git and gh write their
+ *  progress with one. `\u001f` is whitespace to Python and not a line
+ *  boundary, so it is absent here and present below. */
+const PYTHON_LINES = new RegExp(`\\r\\n|[\\n\\r\\v\\f${SEPARATORS}\\u0085\\u2028\\u2029]`)
+
+/** Python's `str.strip()` set. `str.isspace()` is JavaScript's whitespace plus
+ *  the four information separators and NEL, and minus `\ufeff`, so `trim()`
+ *  reads a line holding only a file separator as having something in it where
+ *  Python reads it as blank. */
+const PYTHON_SPACE_CLASS = `\\t\\n\\v\\f\\r ${SEPARATORS}\\u001f\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`
+const PYTHON_SPACE = new RegExp(`^[${PYTHON_SPACE_CLASS}]+|[${PYTHON_SPACE_CLASS}]+$`, 'g')
+
 /** The last line of `text` with anything in it, stripped, or `""`. */
 export const lastLine = (text: string): string => {
   // Reversed rather than walked by index: an index read is `string |
   // undefined` under `noUncheckedIndexedAccess`, and the fallback would be an
   // arm `split` can never produce.
-  for (const line of text.split('\n').reverse()) {
-    const trimmed = line.trim()
+  for (const line of text.split(PYTHON_LINES).reverse()) {
+    const trimmed = line.replace(PYTHON_SPACE, '')
     if (trimmed !== '') return trimmed
   }
   return ''
