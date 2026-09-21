@@ -160,6 +160,25 @@ export interface RepoOptions extends GitOptions {
 }
 
 /**
+ * An empty answer read as no answer, for the three questions below whose
+ * answer the empty string cannot be.
+ *
+ * A checkout root, the branch HEAD is on and the ref `origin/HEAD` points at
+ * are each either a name or nothing, so `""` is git saying nothing rather
+ * than git answering. The Python reads all three that way (`lib/discover.py`
+ * is `return top or None`; `gh-sync-repo.py:210`, `:241` and `:349` are `not
+ * top`, `not ref` and `or "HEAD"`), and every caller of these three was
+ * repeating the fold.
+ *
+ * {@link gitOut}, {@link gitOk}, {@link gitLines}, {@link hasRef} and
+ * {@link runGit} deliberately do NOT fold. `null` against `""` is load
+ * bearing there: `git status --porcelain` answering `""` is a clean tree
+ * while `null` is a probe that could not be run, and `show-ref --verify
+ * --quiet` succeeds with no output at all.
+ */
+const answered = (out: string | null): string | null => (out === '' ? null : out)
+
+/**
  * The checkout root containing `options.cwd`, or `null` when there is none.
  *
  * The port of `toplevel` (`lib/discover.py:50`), and the same question
@@ -169,18 +188,20 @@ export interface RepoOptions extends GitOptions {
  * with that distinction, and raising here would turn a degraded environment
  * into a crash.
  *
- * The Python reads an empty answer as no root as well. git 2.54 refuses
- * `rev-parse --show-toplevel` in a bare repository with status 128 rather
- * than answering empty, so that arm is `null` already and no branch is
- * written for it (the coverage rule: restructure until the branch is not
- * there, never exclude).
+ * The Python reads an empty answer as no root as well, and so does this,
+ * through {@link answered}. An earlier comment here said that arm could not
+ * be reached, because git 2.54 refuses `rev-parse --show-toplevel` in a bare
+ * repository with status 128 rather than answering empty. That is true of
+ * real git and false of the git a caller put on PATH, which is the only git
+ * this function has: CI on #159 reached the arm, and the callers were each
+ * folding the empty answer themselves.
  *
  * The path git prints is symlink-resolved, which is why `discover.py`
  * compares against `os.path.realpath`. Resolving the caller's own path is the
  * caller's business and stays there.
  */
-export const toplevel = (options: RepoOptions): Promise<string | null> =>
-  gitOut(['rev-parse', '--show-toplevel'], options)
+export const toplevel = async (options: RepoOptions): Promise<string | null> =>
+  answered(await gitOut(['rev-parse', '--show-toplevel'], options))
 
 /**
  * The branch HEAD is on, `"HEAD"` when it is detached, or `null` when git
@@ -189,10 +210,11 @@ export const toplevel = (options: RepoOptions): Promise<string | null> =>
  * The port of `gh-sync-repo.py:349` and `hook-io.py:210`. Both read `"HEAD"`
  * as "there is no branch to talk about" and it is git's own word for it, so
  * it is passed through rather than folded into `null`, which means something
- * else here.
+ * else here. An empty answer IS folded ({@link answered}): git naming no
+ * branch at all is not git naming one.
  */
-export const currentBranch = (options: RepoOptions): Promise<string | null> =>
-  gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], options)
+export const currentBranch = async (options: RepoOptions): Promise<string | null> =>
+  answered(await gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], options))
 
 const ORIGIN_HEAD = 'refs/remotes/origin/HEAD'
 const ORIGIN_PREFIX = 'refs/remotes/origin/'
@@ -203,7 +225,9 @@ const ORIGIN_PREFIX = 'refs/remotes/origin/'
  * The port of the first half of `default_branch` (`hook-io.py:184`) and of
  * `resolve_default_branch` (`gh-sync-repo.py:239`). Only the half both
  * callers share is here: reading the ref, with no network round trip and
- * nothing written.
+ * nothing written. A ref read as the empty string is no ref, through
+ * {@link answered}: a default branch that is `""` is the one answer neither
+ * caller can use, and both fall back on `null`.
  *
  * The rest is deliberately left with the callers, because they disagree about
  * it. `gh-sync-repo.py` repairs a missing `origin/HEAD` with `git remote
@@ -215,7 +239,7 @@ const ORIGIN_PREFIX = 'refs/remotes/origin/'
  * it.
  */
 export const defaultBranch = async (options: RepoOptions): Promise<string | null> => {
-  const ref = await gitOut(['symbolic-ref', '--quiet', ORIGIN_HEAD], options)
+  const ref = answered(await gitOut(['symbolic-ref', '--quiet', ORIGIN_HEAD], options))
   if (ref === null) return null
   // `hook-io.py:196` passes a ref that does not carry the prefix through
   // unchanged rather than mangling it, and so does this.

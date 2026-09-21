@@ -13,7 +13,8 @@
 // `env` as well as `cwd` for that reason, so this is the compiler's rule here
 // and not the suite's habit, and the `GIT_DIR` test below proves it against
 // two real checkouts rather than asserting it in prose.
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { createGitFixtures } from '../harness/git.ts'
 import { createSandbox } from '../harness/sandbox.ts'
@@ -174,6 +175,29 @@ it('passes a ref that does not carry the origin prefix through unchanged', async
   git.git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/heads/main')
 
   expect(await defaultBranch({ cwd: work, env })).toBe('refs/heads/main')
+})
+
+it('reads an empty answer as no answer for all three questions with a name for an answer', async () => {
+  // The arm a comment here used to call unreachable, and CI on #159 reached:
+  // real git refuses `rev-parse --show-toplevel` in a bare repository with
+  // status 128 rather than answering empty, but the git these helpers run is
+  // whatever the caller put on PATH. A checkout root, the branch HEAD is on
+  // and the ref `origin/HEAD` names are each a name or nothing, so `""` is
+  // git saying nothing and every caller was folding it by hand.
+  //
+  // The git is built here rather than in `harness/git.ts` because it is this
+  // file's own fixture, and it carries a `#!/bin/sh` line because an empty
+  // executable is ENOEXEC on Linux and is run by the shell on macOS, which
+  // are two different experiments.
+  const { sandbox, work } = repository()
+  const bin = sandbox.stubPath(sandbox.join('silent-git'))
+  writeFileSync(join(bin, 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  const env = sandbox.env
+
+  await expect(gitOut(['rev-parse', '--show-toplevel'], { cwd: work, env })).resolves.toBe('')
+  await expect(toplevel({ cwd: work, env })).resolves.toBeNull()
+  await expect(currentBranch({ cwd: work, env })).resolves.toBeNull()
+  await expect(defaultBranch({ cwd: work, env })).resolves.toBeNull()
 })
 
 it('says whether a ref exists, in either namespace', async () => {

@@ -132,6 +132,13 @@ without its trailing newlines, or `null` when git failed), `gitOk`, `gitLines`, 
 git's own words. `null` and `""` are different answers there and both are used: `show-ref --quiet`
 succeeds with no output, and a `git status` that could not be run is not a clean tree.
 
+The three that answer with a NAME (`toplevel`, `currentBranch`, `defaultBranch`) fold `""` into
+`null`, because a checkout root, the branch HEAD is on and the ref `origin/HEAD` points at are each
+a name or nothing, and the Python reads all three that way. A git that exits 0 and prints nothing
+is not a real git's behaviour for those questions, but it is the behaviour of a git a caller put on
+PATH, which is the only git these helpers have. `gitOut`, `gitOk`, `gitLines`, `hasRef` and
+`runGit` do not fold, for the reason in the paragraph above.
+
 The four that ask about one repository (`toplevel`, `currentBranch`, `defaultBranch`, `hasRef`)
 take a required `cwd` **and** a required `env`, because `GIT_DIR` outranks both `cwd` and
 `git -C` for everything the git directory holds: with it set, git reads that repository's HEAD,
