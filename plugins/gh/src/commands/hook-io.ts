@@ -386,7 +386,17 @@ const isReadable = (target: string): boolean => {
  * one named `git` would otherwise be found as git.
  */
 export const which = (tool: string, env: NodeJS.ProcessEnv): string | null => {
-  for (const directory of (env.PATH ?? '').split(path.delimiter)) {
+  const listed = env.PATH ?? ''
+  // `shutil.which`'s own `if not path: return None`. Without it the empty
+  // string splits to one entry that is the empty string, `path.join('', tool)`
+  // is the bare name, and `accessSync` resolves it against the process's own
+  // working directory: a session opened in a directory holding an executable
+  // named `git` would be told git is on PATH where the Python said it was not,
+  // and the silent arm would become a "could not" line. An empty entry INSIDE
+  // a non-empty PATH is a different question and is left alone, because
+  // `shutil.which` looks a bare name up in the working directory there too.
+  if (listed === '') return null
+  for (const directory of listed.split(path.delimiter)) {
     const candidate = path.join(directory, tool)
     try {
       accessSync(candidate, constants.X_OK)

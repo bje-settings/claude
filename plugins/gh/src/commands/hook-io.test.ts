@@ -19,7 +19,7 @@
 // says instead of the Python. It is data a test reads, never README prose:
 // the acceptance is byte-identical, so a divergence that is not in that file
 // and asserted from it is a defect.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -1078,6 +1078,32 @@ it('finds a tool the way shutil.which does, and refuses a directory named after 
   expect(which('git', { PATH: bin })).toBeNull()
   expect(which('git', {})).toBeNull()
   expect(which('git', sandbox.env)).not.toBeNull()
+})
+
+it('reads a PATH set to nothing as no PATH, and an empty entry as the cwd', () => {
+  const sandbox = createSandbox()
+  const bin = sandbox.join('bin')
+  mkdirSync(bin, { recursive: true })
+  const tool = path.join(bin, 'git')
+  writeFileSync(tool, '#!/bin/sh\nexit 0\n')
+  chmodSync(tool, 0o755)
+  // The only way to show what an empty PATH entry resolves against, because
+  // the walk asks the process's own directory and takes no `cwd`. Synchronous
+  // and restored in the same statement, so nothing else in this file can run
+  // between the two.
+  const before = process.cwd()
+  process.chdir(bin)
+  try {
+    // `shutil.which`'s `if not path: return None`. Without the fold this
+    // answers with the bare `git` beside us, and the hook takes the branch the
+    // Python kept silent about.
+    expect(which('git', { PATH: '' })).toBeNull()
+    // An empty entry inside a PATH is a different question, and Python looks a
+    // bare name up in the working directory there, so this one must be found.
+    expect(which('git', { PATH: `${path.delimiter}${sandbox.join('nowhere')}` })).toBe('git')
+  } finally {
+    process.chdir(before)
+  }
 })
 
 it('removes only the variables that displace the repository a call names', () => {
