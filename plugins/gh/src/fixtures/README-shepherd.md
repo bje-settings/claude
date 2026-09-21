@@ -56,23 +56,26 @@ other substitution is made, so a captured string is the Python's own bytes.
 exactly as the Python printed them, which means they are a measurement of the machine the capture
 ran on: `settle_reports_open_when_auto_merge_never_fires` reads `"waited": 3` because a 3 second
 bound with a 1 second poll took 3 seconds of real time there, and a loaded machine would have
-written 4.
+written 4. `wait`'s `watcher_rc` where the bound fired (the Python's own 124 for a killed watcher)
+and `recreate`'s `read_failures` are the same kind of number.
 
-The port takes its clock and its sleep as arguments and the tests pass a fake that advances
-instantly, so those numbers are reproducible on the TypeScript side and are not comparable with
-the Python's. The parity test therefore compares every other key of the document byte for byte and
-asserts the measured ones separately, against what the injected clock was told to do. The list of
-keys treated that way is in `MEASURED` in `commands/shepherd-pr.test.ts`; it is a named constant so
-that a key quietly joining it fails review rather than a test.
-
-Two further keys are a measurement rather than a contract and are asserted the same way:
-`wait`'s `watcher_rc` where the bound fired (the Python's own 124 for a killed watcher), and
-`recreate`'s `read_failures`.
+They are NOT skipped, and there is no list of them for the parity test to keep in step. The port
+takes its clock and its sleep as arguments and the tests pass a fake that advances instantly, so
+the injected clock is made to produce the numbers the Python's real one did, which is what an
+injected clock is for. The whole document is then compared byte for byte like every other key: a
+field that stopped being reproducible turns the comparison red rather than quietly joining a list.
 
 ## What the port deliberately says instead
 
 Every one of these is a sentence the Python owned that now belongs to `lib/gh.ts`, or a fact the
 port reaches differently. The parity test knows about each; none is a silent rewrite.
+
+They are also recorded AS DATA, in `divergences-shepherd.json` beside this file, which is layer 2's
+rule (`README.md`, "a divergence stays countable"): the two parity blocks read which cases are not
+replayed, and the two sentences they assert, out of that file rather than out of a literal, so a
+ninth divergence needs a row there. A separate file rather than a section of `divergences.json`
+because that one is layer 2's and this layer's file set allows new files here and no edits to what
+is already present. The table below is the same set, at length.
 
 | Case | The Python | The port |
 | --- | --- | --- |
@@ -88,9 +91,14 @@ One sentence deliberately did NOT change, though it names a script that is now a
 document, which an agent copies into its report, so it is output rather than prose, and output is
 what this layer keeps byte for byte.
 
-`ghCalls` is compared as the endpoints and filters the port asks for, not as gh argv: the port
-reaches `gh` through the injected `GhClient`, so the argv is `lib/gh.ts`'s and is pinned by its own
-suite. Where the two differ the difference is the client's and is recorded there.
+`ghCalls` is recorded and is NOT compared. The port reaches `gh` through the injected `GhClient`,
+so its argv is `lib/gh.ts`'s and is pinned by that module's own suite; comparing the stub's gh argv
+against it would be asserting the client's translation twice. What `ghCalls` was the only record of
+is what each WRITE was asked to send, and that is asserted directly instead, against the client's
+own request rather than against gh argv: `asks for a rebase of the pull request it was given, and
+never a merge`, `posts the words Dependabot answers, on the pull request it was given`, and `posts
+the reason file it was given, as the body of the comment` in `commands/shepherd-pr.test.ts`. The
+field is kept in the capture because it is the Python's record and the captures are never edited.
 
 ## The capture script
 

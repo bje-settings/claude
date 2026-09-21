@@ -49,16 +49,37 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
 )
 
 /**
- * The fields the capture recorded as a measurement rather than as a contract.
+ * Every place this port answers differently from the Python, as data.
  *
- * They are recorded as the Python printed them, which is what the machine the
- * capture ran on measured; here they are what the injected clock was told,
- * which is why the parity comparison keeps them and the fake clock is made to
- * produce the same numbers rather than the numbers being skipped. The name is
- * the list `fixtures/README-shepherd.md` points at: a key joining it has to be
- * argued for here rather than disappearing into a rewritten expectation.
+ * Layer 2's rule (`fixtures/README.md`): a divergence is recorded where a test
+ * reads it, so it stays countable and a ninth cannot appear by editing a
+ * literal in here. Which cases are not replayed, and the two sentences this
+ * file asserts, come from that file rather than from a constant beside them.
  */
-const MEASURED = ['waited', 'watcher_rc', 'reads_ok', 'read_failures']
+const DIVERGENCES: {
+  notReplayed: Record<string, Record<string, { why: string; pinnedBy: string }>>
+  sentences: { id: string; was: string; now: string; prefix?: string; cases: string[] }[]
+  unchanged: { line: string; cases: string[] }
+} = JSON.parse(readFileSync(path.join(FIXTURES, 'divergences-shepherd.json'), 'utf8'))
+
+/** One recorded divergence, by the name it carries in that file. */
+const divergence = (id: string): { was: string; now: string; prefix?: string; cases: string[] } => {
+  const row = DIVERGENCES.sentences.find((entry) => entry.id === id)
+  if (row === undefined) throw new Error(`no divergence recorded as ${id}`)
+  return row
+}
+
+/**
+ * The four fields the capture recorded as a measurement rather than as a
+ * contract: `waited`, `watcher_rc`, `reads_ok` and `read_failures`.
+ *
+ * They are NOT skipped and there is no list of them to keep in step. The
+ * Python measured them on the machine the capture ran on; here the injected
+ * clock is made to produce the same numbers, which is what an injected clock
+ * is for, so the whole document is compared byte for byte like every other
+ * key. A key that stopped being reproducible would turn the comparison red
+ * rather than quietly joining a list.
+ */
 
 /** What `gh repo view` answered with in the capture. */
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
@@ -94,8 +115,13 @@ const fakeTime = (): {
   }
 }
 
-/** The pair of writers a command reports through, over two buffers. */
-const capture = () => {
+/** The pair of writers a command reports through, over two buffers.
+ *
+ *  `reader` replaces the stdout stream, which is how the reader that walked
+ *  away is given to the command: the writer's own EPIPE guard is
+ *  `lib/streams.ts`'s, and what is asserted here is the half above it, that
+ *  the write the action already made still happened. */
+const capture = (reader?: (into: string[]) => OutputStream) => {
   const out: string[] = []
   const err: string[] = []
   const stream = (into: string[]): OutputStream => ({
@@ -108,7 +134,7 @@ const capture = () => {
     },
   })
   return {
-    output: createOutput(stream(out), stream(err)),
+    output: createOutput((reader ?? stream)(out), stream(err)),
     stdout: () => out.join(''),
     stderr: () => err.join(''),
   }
@@ -126,6 +152,8 @@ interface RunOptions {
   readonly argv: readonly string[]
   readonly gh?: GhClient
   readonly env?: NodeJS.ProcessEnv
+  /** A stdout stream of the caller's own, for the reader that went away. */
+  readonly reader?: (into: string[]) => OutputStream
 }
 
 interface RunResult {
@@ -143,7 +171,7 @@ const drive = async (build: (sandbox: Sandbox, repo: string) => RunOptions): Pro
   const sandbox = createSandbox()
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
   const options = build(sandbox, repo)
-  const writers = capture()
+  const writers = capture(options.reader)
   const time = fakeTime()
   const gh = options.gh ?? createGhServer({ replies: { viewRepository: REPOSITORY } })
   const context: ShepherdContext = {
@@ -276,14 +304,10 @@ const USAGE_TEXT = new Map([
   ['an_unknown_action', 'unknown action: dance\n'],
 ])
 
-/** The cases that cannot be replayed through the command function, and why. */
-const NOT_REPLAYED = new Set([
-  // The usage text is this command's own prose. Asserted below instead.
-  'help',
-  // Provoked in the Python by making `os.path.isdir` raise, which is not a
-  // seam here. Asserted below with a `createGh` that throws.
-  'an_internal_error',
-])
+/** The cases that cannot be replayed through the command function, read from
+ *  the divergence record rather than listed here: each carries why, and the
+ *  example that pins the contract another way. */
+const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-pr'] ?? {}))
 
 /** What the reason file held in each case that names one. Only its existence
  *  and its size decide anything. */
@@ -317,9 +341,22 @@ const asRoot = process.getuid?.() === 0
 
 const replayable = Object.keys(CAPTURE).filter((name) => !NOT_REPLAYED.has(name))
 
-it.each(replayable)('prints what the Python printed for %s', async (name) => {
+/** The one case a run as root cannot prove: root can enter a directory with
+ *  no permissions, so the refusal never happens. */
+const needsAUser = (name: string): boolean =>
+  (CAPTURE[name] as CapturedCase).argv[0] === '<sandbox>/closed'
+
+/** Split so that a root run REPORTS the case as skipped, which is what the
+ *  Python's own `skipif` did (`test_shepherd_edges.py:387`). A bare `return`
+ *  inside the example reported a pass with nothing asserted in it, which says
+ *  the access probe was checked when it was not. The hundred percent coverage
+ *  gate is the second line of defence: the refusal arm in `directoryRefusal`
+ *  then goes unreached and the gate fails. */
+const replayAlways = replayable.filter((name) => !needsAUser(name))
+const replayAsAUser = replayable.filter(needsAUser)
+
+const replay = async (name: string): Promise<void> => {
   const expected = CAPTURE[name] as CapturedCase
-  if (expected.argv[0] === '<sandbox>/closed' && asRoot) return
 
   const result = await drive((sandbox, repo) => ({
     argv: expected.argv.map((argument) =>
@@ -347,12 +384,29 @@ it.each(replayable)('prints what the Python printed for %s', async (name) => {
     expect(result.stderr).toBe(`${before}${HELP}\n`)
   } else if (expected.argv[0] === '<sandbox>/closed') {
     // node's account of the refused access where Python's was
-    // `[Errno 13] Permission denied`; the sentence in front of it is the same.
-    expect(normalise(result.stderr, result.sandbox)).toMatch(/^cannot enter <sandbox>\/closed: /)
+    // `[Errno 13] Permission denied`; the sentence in front of it is the same,
+    // and is read from the divergence record. One line, ending in a newline,
+    // saying something after the colon: everything the Python's byte
+    // comparison gave except the account itself.
+    expect(normalise(result.stderr, result.sandbox)).toBe(
+      `${divergence('cannotEnter').prefix}<sandbox>/closed: ${normalise(
+        result.stderr,
+        result.sandbox,
+      )
+        .split(': ')
+        .slice(1)
+        .join(': ')}`,
+    )
+    expect(normalise(result.stderr, result.sandbox)).toMatch(
+      new RegExp(`^${divergence('cannotEnter').prefix}<sandbox>/closed: [^\\n]+\\n$`),
+    )
   } else {
     expect(normalise(result.stderr, result.sandbox)).toBe(expected.stderr)
   }
-})
+}
+
+it.each(replayAlways)('prints what the Python printed for %s', replay)
+it.skipIf(asRoot).each(replayAsAUser)('prints what the Python printed for %s', replay)
 
 it('replays every captured case, and arranges only cases that exist', () => {
   expect(replayable.length + NOT_REPLAYED.size).toBe(Object.keys(CAPTURE).length)
@@ -363,9 +417,16 @@ it('replays every captured case, and arranges only cases that exist', () => {
   ]) {
     expect(Object.keys(CAPTURE)).toContain(name)
   }
-  // The measured keys are named so that one joining the list is a decision
-  // rather than an accident; every one of them is still compared above.
-  expect(MEASURED).toContain('waited')
+  // Every case a divergence names is a case the capture actually holds, so a
+  // row cannot be recorded against a run that is not there.
+  for (const row of [...DIVERGENCES.sentences, DIVERGENCES.unchanged]) {
+    for (const name of row.cases) expect(Object.keys(CAPTURE)).toContain(name)
+  }
+  // And the sentence that deliberately did not change is still in the
+  // document, because it is output rather than prose.
+  expect(CAPTURE[DIVERGENCES.unchanged.cases[0] ?? '']?.stdout).toContain(
+    DIVERGENCES.unchanged.line,
+  )
 })
 
 // --- usage and the preflight ----------------------------------------------------
@@ -379,6 +440,18 @@ it('prints its own usage for --help, naming every action it accepts', async () =
     expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
   }
   expect(result.stderr).toBe('')
+})
+
+it('opens its usage with the sentence the Python opened with', async () => {
+  // The divergence recorded for `help` is the command name, and nothing else:
+  // the sentence in front of it is read off the capture rather than restated,
+  // so a rewrite of the opening line is a divergence that has to be argued.
+  const opening = (CAPTURE.help?.stdout ?? '').split('\n')[0]?.split(' \u2014 ')[1] ?? ''
+
+  expect(opening).not.toBe('')
+  // The Python's docstring opened `gh-shepherd-pr.py \u2014 the ...`, so the
+  // sentence is the same one with a capital where the script name used to be.
+  expect(HELP.split('\n')[0]?.toLowerCase()).toBe(opening.toLowerCase())
 })
 
 it('answers -h the same way it answers --help', async () => {
@@ -531,6 +604,9 @@ it('comments and returns once the head moves', async () => {
   expect(result.document.detail).toBe('recreated')
   expect(result.document.before).toBe('sha1')
   expect(result.document.after).toBe('recreated')
+  // The snapshot reported is the one the moved head was read from, not the
+  // one the poll started with (`test_shepherd_pr.py:370`).
+  expect((result.document.pr as Record<string, unknown>).headRefOid).toBe('recreated')
 })
 
 it('posts the words Dependabot answers, on the pull request it was given', async () => {
@@ -633,6 +709,11 @@ it('keeps polling when gh cannot read the pull request for one poll', async () =
   }))
 
   expect(answer.document.result).toBe('closed')
+  // A poll that could not read the pull request says nothing about it, so the
+  // read that followed is the answer, and it is still `ok` (the recreate
+  // comment did go out). `test_shepherd_pr.py:437` and `:439`.
+  expect(answer.document.ok).toBe(true)
+  expect((answer.document.pr as Record<string, unknown>).state).toBe('CLOSED')
 })
 
 it('says the pull request could not be re-read rather than that the head did not move', async () => {
@@ -865,22 +946,54 @@ it('still decides from the rollup when the watcher reports a failed check', asyn
   expect(result.document.watcher_rc).toBe(1)
 })
 
-it('reports merged when auto-merge fires during the watch', async () => {
+it('clamps the wait bound up to the minimum for a repository with fast CI', async () => {
+  // The other end of `clamp(ciSeconds * 2, 120, 540)`. `Math.max` is not a
+  // branch, so the coverage gate never sees this one: a floor of 1 would go
+  // unnoticed, and a wait that returned after two seconds would report
+  // `pending` for a run that had barely started.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '2' },
+    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '10' },
     gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, watchChecks: WATCH_BOUND },
-      sequences: {
-        viewPullRequest: [
-          depPr(1, { checks: 'pending' }),
-          depPr(1, { checks: 'pending', state: 'MERGED' }),
-        ],
-      },
+      prs: [depPr(1, { checks: 'pending' })],
+      replies: { viewRepository: REPOSITORY, watchChecks: WATCH_PENDING },
     }),
   }))
 
+  expect(result.document.bound).toBe(120)
+})
+
+it('reports merged when auto-merge fires during the watch', async () => {
+  // The merge must land while the WATCHER is running, not before the first
+  // read: otherwise this passes through the answers-without-watching path and
+  // proves nothing. `test_shepherd_pr.py:623` says so in its own docstring
+  // and backs it by asserting the watch happened, so the watch's own request
+  // is asserted here, whole, rather than counted.
+  const watches: unknown[] = []
+  const server = createGhServer({
+    replies: { viewRepository: REPOSITORY, watchChecks: WATCH_BOUND },
+    sequences: {
+      viewPullRequest: [
+        depPr(1, { checks: 'pending' }),
+        depPr(1, { checks: 'pending', state: 'MERGED' }),
+      ],
+    },
+  })
+
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'wait'],
+    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '2' },
+    gh: {
+      ...server,
+      watchChecks: async (pull) => {
+        watches.push(pull)
+        return server.watchChecks(pull)
+      },
+    },
+  }))
+
   expect(result.document.result).toBe('merged')
+  expect(watches).toEqual([{ pullRequest: 1, boundMs: 2000, failFast: true }])
 })
 
 it('reports a pull request that became unreadable during the watch', async () => {
@@ -981,6 +1094,10 @@ it('does not block on a single read of BLOCKED', async () => {
   }))
 
   expect(result.document.result).toBe('merged')
+  // And the merge it read is the one reported: a BLOCKED sample that was
+  // never corroborated must not take the answer with it
+  // (`test_shepherd_pr.py:731`).
+  expect(result.document.mergeCommit).toBe('abc')
 })
 
 it('blocks on a merge state that turned BLOCKED mid-poll', async () => {
@@ -997,6 +1114,9 @@ it('blocks on a merge state that turned BLOCKED mid-poll', async () => {
 
   expect(result.document.result).toBe('blocked')
   expect(result.document.reason).toBe('auto-merge cannot fire: mergeStateStatus is BLOCKED')
+  // The snapshot reported is the blocking one, not the clean read the poll
+  // opened with (`test_shepherd_pr.py:800`).
+  expect((result.document.pr as Record<string, unknown>).mergeStateStatus).toBe('BLOCKED')
 })
 
 it('reports closed when the pull request is closed while it waits', async () => {
@@ -1246,6 +1366,70 @@ it('reports the last url gh printed as the comment url', async () => {
   expect(result.document.comment_url).toBe('https://github.com/last#issuecomment-2')
 })
 
+// --- a reader that walked away ----------------------------------------------------------
+
+/** stdout whose reader leaves on the first line, the way `| head` does: the
+ *  failure arrives as an event rather than at the call
+ *  (`commands/sync-repo.test.ts` uses the same shape). */
+const closedPipe = (into: string[]): OutputStream => {
+  let listener: ((error: NodeJS.ErrnoException) => void) | undefined
+  return {
+    write(text: string) {
+      listener?.(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+      into.push(text)
+      return true
+    },
+    on(_event: 'error', handler: (error: NodeJS.ErrnoException) => void) {
+      listener = handler
+      return undefined
+    },
+  }
+}
+
+it('lets a reader that left stop the report, never the rebase', async () => {
+  // `test_shepherd_pr.py:1135` asserted the composite: the reader is gone AND
+  // the branch was still updated AND the status is 0. The two halves are
+  // pinned apart (the writer's EPIPE guard by `lib/streams.test.ts`, the
+  // update by `reports an update that worked and a read that did not`); this
+  // is the composite itself, in process.
+  const record = recording({
+    replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
+    sequences: {
+      viewPullRequest: [depPr(1, { merge: 'BEHIND' }), depPr(1, { head: 'rebased' })],
+    },
+  })
+
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '1', 'rebase'],
+    gh: record.gh,
+    reader: closedPipe,
+  }))
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  expect(record.updates).toEqual([{ pullRequest: 1, rebase: true }])
+})
+
+it('lets a reader that left stop the report, never the skip comment', async () => {
+  // `test_shepherd_pr.py:1149`, the same composite for the other write. The
+  // comment is posted before the report is written, so a reader that goes
+  // away cannot take it with it.
+  const record = recording({
+    prs: [depPr(1)],
+    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
+  })
+  let reason = ''
+
+  const result = await drive((sandbox, repo) => {
+    reason = PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''
+    return { argv: [repo, '1', 'skip', reason], gh: record.gh, reader: closedPipe }
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: reason }])
+})
+
 // --- the environment overrides that were not used ----------------------------------------
 
 it('says nothing when no override was given', async () => {
@@ -1333,8 +1517,12 @@ it('reports an internal error rather than a stack trace, and exits 3', async () 
   }))
 
   expect(result.status).toBe(3)
-  expect(result.stderr).toBe('gh.ts shepherd-pr: internal error: RangeError: boom\n')
-  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(`${divergence('internalError').now}RangeError: boom\n`)
+  // The status and the silence on stdout are the Python's, unchanged: only
+  // the name in front of `internal error` differs.
+  expect(result.status).toBe(CAPTURE.an_internal_error?.status)
+  expect(result.stdout).toBe(CAPTURE.an_internal_error?.stdout)
+  expect(CAPTURE.an_internal_error?.stderr).toContain(divergence('internalError').was)
 })
 
 it('reports something that is not an Error at all as an internal error too', async () => {
@@ -1350,7 +1538,7 @@ it('reports something that is not an Error at all as an internal error too', asy
 
   expect(result.status).toBe(3)
   expect(result.stderr).toBe(
-    'gh.ts shepherd-pr: internal error: string: a string nobody should throw\n',
+    `${divergence('internalError').now}string: a string nobody should throw\n`,
   )
 })
 

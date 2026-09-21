@@ -47,6 +47,20 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
   readFileSync(path.join(FIXTURES, 'shepherd-status-output.json'), 'utf8'),
 )
 
+/** Every place this port answers differently from the Python, as data: layer
+ *  2's rule (`fixtures/README.md`), so a divergence stays countable and a
+ *  ninth cannot appear by editing a literal here. */
+const DIVERGENCES: {
+  notReplayed: Record<string, Record<string, { why: string; pinnedBy: string }>>
+  sentences: { id: string; was: string; now: string; prefix?: string; cases: string[] }[]
+} = JSON.parse(readFileSync(path.join(FIXTURES, 'divergences-shepherd.json'), 'utf8'))
+
+const divergence = (id: string): { was: string; now: string; prefix?: string; cases: string[] } => {
+  const row = DIVERGENCES.sentences.find((entry) => entry.id === id)
+  if (row === undefined) throw new Error(`no divergence recorded as ${id}`)
+  return row
+}
+
 /** What `gh repo view` answered with in the capture. */
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
 
@@ -164,15 +178,10 @@ const ARRANGEMENTS: Record<string, GhServerOptions> = {
   },
 }
 
-/** The cases that cannot be replayed through the command function, and why. */
-const NOT_REPLAYED = new Set([
-  // The usage text is this command's own prose, which names `gh.ts
-  // shepherd-status` rather than a script file. Asserted below instead.
-  'help',
-  // Provoked in the Python by making `os.path.isdir` raise, which is not a
-  // seam here. Asserted below with a `createGh` that throws.
-  'an_internal_error',
-])
+/** The cases that cannot be replayed through the command function, read from
+ *  the divergence record rather than listed here: each carries why, and the
+ *  example that pins the contract another way. */
+const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-status'] ?? {}))
 
 const PATHS: Record<string, (sandbox: Sandbox, repo: string) => string> = {
   '<sandbox>/r/work': (_sandbox, repo) => repo,
@@ -197,9 +206,22 @@ const asRoot = process.getuid?.() === 0
 
 const replayable = Object.keys(CAPTURE).filter((name) => !NOT_REPLAYED.has(name))
 
-it.each(replayable)('prints what the Python printed for %s', async (name) => {
+/** The one case a run as root cannot prove: root can enter a directory with
+ *  no permissions, so the refusal never happens. */
+const needsAUser = (name: string): boolean =>
+  (CAPTURE[name] as CapturedCase).argv[0] === '<sandbox>/closed'
+
+/** Split so that a root run REPORTS the case as skipped, which is what the
+ *  Python's own `skipif` did (`test_shepherd_edges.py:374`). A bare `return`
+ *  inside the example reported a pass with nothing asserted in it, which says
+ *  the access probe was checked when it was not. The hundred percent coverage
+ *  gate is the second line of defence: the refusal arm in `directoryRefusal`
+ *  then goes unreached and the gate fails. */
+const replayAlways = replayable.filter((name) => !needsAUser(name))
+const replayAsAUser = replayable.filter(needsAUser)
+
+const replay = async (name: string): Promise<void> => {
   const expected = CAPTURE[name] as CapturedCase
-  if (expected.argv[0] === '<sandbox>/closed' && asRoot) return
 
   const result = await drive((sandbox, repo) => ({
     argv: expected.argv.map((argument) => (PATHS[argument] ?? (() => argument))(sandbox, repo)),
@@ -221,12 +243,19 @@ it.each(replayable)('prints what the Python printed for %s', async (name) => {
   expect(normalise(result.stdout, result.sandbox)).toBe(expected.stdout)
   if (expected.argv[0] === '<sandbox>/closed') {
     // node's account of the refused access where Python's was
-    // `[Errno 13] Permission denied`; the sentence in front of it is the same.
-    expect(normalise(result.stderr, result.sandbox)).toMatch(/^cannot enter <sandbox>\/closed: /)
+    // `[Errno 13] Permission denied`; the sentence in front of it is the
+    // same, and is read from the divergence record. One line, ending in a
+    // newline, saying something after the colon.
+    expect(normalise(result.stderr, result.sandbox)).toMatch(
+      new RegExp(`^${divergence('cannotEnter').prefix}<sandbox>/closed: [^\\n]+\\n$`),
+    )
   } else {
     expect(normalise(result.stderr, result.sandbox)).toBe(expected.stderr)
   }
-})
+}
+
+it.each(replayAlways)('prints what the Python printed for %s', replay)
+it.skipIf(asRoot).each(replayAsAUser)('prints what the Python printed for %s', replay)
 
 it('has an arrangement for every case it replays, and replays every case', () => {
   // A case that lost its entry would otherwise be replayed against an empty
@@ -430,7 +459,10 @@ it('reports an internal error rather than a stack trace, and exits 3', async () 
   }))
 
   expect(result.status).toBe(3)
-  expect(result.stderr).toBe('gh.ts shepherd-status: internal error: RangeError: boom\n')
+  expect(result.stderr).toBe(`${divergence('internalErrorStatus').now}RangeError: boom\n`)
+  expect(result.status).toBe(CAPTURE.an_internal_error?.status)
+  expect(result.stdout).toBe(CAPTURE.an_internal_error?.stdout)
+  expect(CAPTURE.an_internal_error?.stderr).toContain(divergence('internalErrorStatus').was)
   expect(result.stdout).toBe('')
 })
 
@@ -447,7 +479,7 @@ it('reports something that is not an Error at all as an internal error too', asy
 
   expect(result.status).toBe(3)
   expect(result.stderr).toBe(
-    'gh.ts shepherd-status: internal error: string: a string nobody should throw\n',
+    `${divergence('internalErrorStatus').now}string: a string nobody should throw\n`,
   )
 })
 
