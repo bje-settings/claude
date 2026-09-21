@@ -31,6 +31,10 @@
     {
       "name": "a PATH that is not set at all",
       "why": "shutil.which with no PATH in the environment falls back to os.confstr(CS_PATH), which is /usr/bin:/bin on macOS and /bin:/usr/bin on Linux, so the Python's own answer is platform-dependent there. The port reads an absent PATH as an empty one and therefore finds no git, which is the silent arm. Claude Code always sets PATH for a hook, so no captured row reaches either reading."
+    },
+    {
+      "name": "a child detached only when it is bounded",
+      "why": "hook-io.py passed start_new_session=True to every Popen, whatever the timeout was. lib/process.ts makes the child a session leader only when timeoutMs is given, so the one state where the port's child is not one is an override of GH_HOOK_SYNC_TIMEOUT above the setTimeout ceiling, where the port passes no bound at all. With no bound there is no group kill that depends on the group existing, so what is lost is only that a signal sent to the session's own group would reach the child too. It changes no captured row: every captured fan-out runs with a bound."
     }
   ]
 }

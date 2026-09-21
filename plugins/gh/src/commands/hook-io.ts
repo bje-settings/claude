@@ -410,9 +410,15 @@ const TIMEOUT_LINE = (seconds: string, count: number, cwd: string): string =>
  * The same discovery `sync` does, so the number in the timeout message is the
  * one it was working from. Any failure answers 0: this is one detail inside a
  * message about a different failure, and it must not become a second one.
- * The Python catches every exception discovery can raise for that; discovery
- * answers with an outcome here instead, and every outcome but `ok` is the
- * same zero.
+ * `hook-io.py:264` catches every exception discovery can raise for that;
+ * discovery mostly answers with an outcome here instead, and every outcome
+ * but `ok` is the same zero. NOT every one: `src/discover.ts` calls
+ * `realpathSync` unguarded after its own directory test, and node's throws
+ * where Python's non-strict `os.path.realpath` never did, so a target removed
+ * between the two still escapes as a rejection. The guard belongs at
+ * discovery's edge rather than here, and is recorded as a follow-up on
+ * `src/discover.ts`; the outermost handler in `hooks/hook-io.ts` keeps the
+ * session safe meanwhile.
  */
 export const repoCount = async (cwd: string, env: NodeJS.ProcessEnv): Promise<number> => {
   const discovered = await discoverRepos(cwd, env)

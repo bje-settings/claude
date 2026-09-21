@@ -15,7 +15,7 @@
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; every file and line reference below is to what they held at
+// tree; the file and line references below are to what they held at
 // `cd0d515`, kept because each says where a rule came from.
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'

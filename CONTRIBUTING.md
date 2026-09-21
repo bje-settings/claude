@@ -26,8 +26,9 @@ repository root, imported only from test files. See `harness/README.md`.
 
 Python tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub
 `gh` under `bin/`, and any canned data the tests read. Only `field-test` still has any. Test
-module basenames are unique across the suite, so a new one gets its plugin in the name. Tests that span
-plugins, or that cover the repo's own tooling under `scripts/`, sit at the root of `tests/`.
+module basenames are unique across the suite, so a new one gets its plugin in the name. Tests
+that span plugins, or that cover the repo's own tooling under `scripts/`, sit at the root of
+`tests/`.
 
 vitest's thresholds gate TypeScript at 100 on lines, branches, functions and statements, and
 `pnpm test` enforces them. Python coverage is gated at 95%, the same threshold CI enforces:

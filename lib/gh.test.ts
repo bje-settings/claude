@@ -11,8 +11,8 @@
 // passing after the implementation changed.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; every
-// file and line reference below is to what they held at `cd0d515`, kept
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; the
+// file and line references below are to what they held at `cd0d515`, kept
 // because each says where a rule came from. Nothing here changed with the
 // deletion.
 import { describe, expect, it } from 'vitest'

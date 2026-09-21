@@ -243,7 +243,10 @@ Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_
 
 Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
 rule, and `node <plugin>/bin/gh.ts discover <path>` is that rule on its own, one checkout root
-per line.
+per line. A directory with no checkouts in it prints nothing and exits **0**: that is an answer,
+not a failure. Exit **1** means the target could not be read at all, with the reason on stderr;
+exit **2** means the arguments were refused. `sync` answers 2 where `discover` answers 1 on the
+same two states, so a skill running both reads each status against its own command.
 
 ## Session start hook
 

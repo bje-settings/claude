@@ -28,8 +28,9 @@ the committed symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path 
 
 The Python layer is retiring and is not the pattern to copy. `field-test` (#136) is the last
 plugin that runs scripts at `plugins/<plugin>/scripts/*.py` and a hook at
-`plugins/<plugin>/hooks/*.py`, stdlib only on a Python 3.9 floor. `.claude/rules/type-py.md` has the layout, the import rules and
-the rest, and loads whenever a session opens one of those files.
+`plugins/<plugin>/hooks/*.py`, stdlib only on a Python 3.9 floor.
+`.claude/rules/type-py.md` has the layout, the import rules and the rest, and
+loads whenever a session opens one of those files.
 
 In either language nothing under `plugins/` is bash, a plugin takes no dependency and carries no
 `package.json`, and a command's exit codes and stdout are a contract with its callers.
@@ -154,8 +155,8 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
   imported only from test files so it never ships; `tests/` holds this repository's own checks.
 - A plugin's Python tests live in `tests/<plugin>/`, with tests that span plugins or cover the
   harness itself at the root of `tests/`. A module's basename is unique across the whole suite,
-  because pytest imports them into one namespace: `test_gh_fixtures.py` and `test_ft_fixtures.py`,
-  never two `test_fixtures.py`.
+  because pytest imports them into one namespace: `test_ft_fixtures.py` carries its plugin in the
+  name rather than being a second `test_fixtures.py`.
 - In the Python suite, `run_script` drives a script black-box as its own process under
   `sys.executable`, the way Claude Code runs it; logic awkward to provoke from the outside gets
   direct unit tests beside that.

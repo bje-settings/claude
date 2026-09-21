@@ -45,7 +45,7 @@ const USAGE = `usage: gh.ts <command> [options]
 
 commands:
   discover [path]                                 the checkout roots in scope
-                                                  for a directory, one a line
+                                                  for a directory, one per line
   sync [--dry-run] [--no-install] [-j N] [path]   sync a checkout, or every
                                                   checkout one level down
   sync-repo [--dry-run] [--no-install] <path>     sync one checkout
