@@ -35,6 +35,10 @@
     {
       "name": "a child detached only when it is bounded",
       "why": "hook-io.py passed start_new_session=True to every Popen, whatever the timeout was. lib/process.ts makes the child a session leader only when timeoutMs is given, so the one state where the port's child is not one is an override of GH_HOOK_SYNC_TIMEOUT above the setTimeout ceiling, where the port passes no bound at all. With no bound there is no group kill that depends on the group existing, so what is lost is only that a signal sent to the session's own group would reach the child too. It changes no captured row: every captured fan-out runs with a bound."
+    },
+    {
+      "name": "a non-zero sync exit with a report already on stdout",
+      "why": "gh-sync.py's own single-repository path always answered 0 for a job that failed (the defect #81, round 7, fixed), so no captured run ever reached a non-zero child status with a report already on stdout: this branch of the hook has no Python behaviour to diverge from. #81 makes gh.ts sync exit 1 once its whole report is on stdout; the hook now reads that report rather than answering a strictly less true could-not-run line, gated on signal === null so a run an external signal cut short mid-report is not mistaken for one. It changes no captured row: the one captured child with a non-zero status (fan-out/child-exited-non-zero, status 2) has an empty stdout, so it already fell through to the could-not-run line before this branch existed and still does."
     }
   ]
 }
