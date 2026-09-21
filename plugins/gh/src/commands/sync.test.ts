@@ -160,8 +160,11 @@ describe('the command line', () => {
     const result = await run(f, ['-j', '0', f.sandbox.path])
 
     expect(result.status).toBe(2)
-    expect(result.stderr).toBe('invalid -j value: 0')
-    expect(PYTHON.sync?.zero_jobs?.stderr).toBe('invalid -j value: 0\n')
+    // The port's own line compared to the captured Python, not both compared
+    // to the same literal: an assertion that restates the string a third time
+    // can never go red from a change to the port. The newline is the Python
+    // script's; the envelope leaves it to the entry point.
+    expect(`${result.stderr}\n`).toBe(PYTHON.sync?.zero_jobs?.stderr)
   })
 
   it('rejects a non-numeric -j', async () => {
@@ -170,8 +173,7 @@ describe('the command line', () => {
     const result = await run(f, ['-j', 'four', f.sandbox.path])
 
     expect(result.status).toBe(2)
-    expect(result.stderr).toBe('invalid -j value: four')
-    expect(PYTHON.sync?.non_numeric_jobs?.stderr).toBe('invalid -j value: four\n')
+    expect(`${result.stderr}\n`).toBe(PYTHON.sync?.non_numeric_jobs?.stderr)
   })
 
   it('rejects an unknown flag', async () => {
@@ -180,8 +182,7 @@ describe('the command line', () => {
     const result = await run(f, ['--nope', f.sandbox.path])
 
     expect(result.status).toBe(2)
-    expect(result.stderr).toBe('unknown flag: --nope')
-    expect(PYTHON.sync?.unknown_flag?.stderr).toBe('unknown flag: --nope\n')
+    expect(`${result.stderr}\n`).toBe(PYTHON.sync?.unknown_flag?.stderr)
   })
 
   it('accepts the attached -j4 form as well as -j 4', () => {
@@ -309,9 +310,8 @@ describe('the scope', () => {
     const result = await run(withoutGit, [f.sandbox.join('fan')])
 
     expect(result.status).toBe(2)
-    expect(result.stderr).toBe('missing git: not on PATH')
     expect(result.stdout).not.toContain('No git repositories')
-    expect(PYTHON.sync?.missing_git?.stderr).toBe('missing git: not on PATH\n')
+    expect(`${result.stderr}\n`).toBe(PYTHON.sync?.missing_git?.stderr)
   })
 
   it('refuses a target it cannot read, which is not a target with nothing in it', async () => {

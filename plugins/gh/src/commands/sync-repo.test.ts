@@ -450,8 +450,9 @@ describe('the command line', () => {
     expect(result.status).toBe(0)
     expect(result.envelope.outcome === 'ok' && result.envelope.value).toContain('Usage:')
     expect(result.envelope.outcome === 'ok' && result.envelope.value).not.toContain('import')
-    // The Python answered the same question with the same status.
-    expect(PYTHON['sync-repo']?.help?.status).toBe(0)
+    // The Python answered the same question with the same status. Compared
+    // to the port's own answer, not to a literal beside it.
+    expect(result.status).toBe(PYTHON['sync-repo']?.help?.status)
     expect(PYTHON['sync-repo']?.help?.stdout).toContain('Usage:')
   })
 
@@ -461,8 +462,7 @@ describe('the command line', () => {
     const result = await run(f, ['--wat', f.repo])
 
     expect(result.status).toBe(2)
-    expect(result.stderr).toBe('unknown flag: --wat')
-    expect(PYTHON['sync-repo']?.unknown_flag?.stderr).toBe('unknown flag: --wat\n')
+    expect(`${result.stderr}\n`).toBe(PYTHON['sync-repo']?.unknown_flag?.stderr)
   })
 
   it('requires a repository path', async () => {
@@ -1419,6 +1419,19 @@ describe('a reader that goes away', () => {
       f.git.branchWithWork(f.repo, name)
       f.git.mergeCommit(f.repo, name)
     }
+    // A merged branch in a LIVE worktree and a worktree whose directory is
+    // gone, both as `test_finishes_the_prune_when_the_reader_closes_the_pipe`
+    // builds them. They are the half the field bug was: the run exited 0 with
+    // branches still there AND `git worktree prune` never called, and only the
+    // stale entry's absence afterwards proves the run reached the end rather
+    // than stopping at the first failed write. Asserting the branches alone
+    // leaves the prune unpinned on the one path where it regressed.
+    f.git.branchWithWork(f.repo, 'wt-landed')
+    f.git.mergeCommit(f.repo, 'wt-landed')
+    f.git.worktree(f.repo, f.sandbox.join('wt'), 'wt-landed')
+    f.git.branchWithWork(f.repo, 'open-work')
+    f.git.worktree(f.repo, f.sandbox.join('stale'), 'open-work')
+    rmSync(f.sandbox.join('stale'), { recursive: true, force: true })
     const written: string[] = []
     let listener: ((error: NodeJS.ErrnoException) => void) | undefined
     const closing: OutputStream = {
@@ -1451,12 +1464,17 @@ describe('a reader that goes away', () => {
     })
 
     expect(envelope.outcome).toBe('ok')
-    // One line reached the descriptor, and the writer went quiet after it.
-    expect(written).toHaveLength(1)
+    // One line reached the descriptor and the writer went quiet after it.
+    // Asserted as text rather than as a write count, which would pin how the
+    // report is chunked and go red for a re-chunking that changes nothing.
+    expect(written.join('')).toBe(`${path.basename(f.repo)}\n`)
     // The work finished anyway, which is the whole point.
-    for (const name of ['landed-a', 'landed-b', 'landed-c']) {
-      expect(f.git.branches(f.repo)).not.toContain(name)
+    const branches = f.git.branches(f.repo)
+    for (const name of ['landed-a', 'landed-b', 'landed-c', 'wt-landed']) {
+      expect(branches).not.toContain(name)
     }
+    expect(existsSync(f.sandbox.join('wt'))).toBe(false)
+    expect(f.git.git(f.repo, 'worktree', 'list')).not.toContain(f.sandbox.join('stale'))
   })
 })
 

@@ -82,6 +82,11 @@ export const corepackEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
 // is already going to be long.
 const LOCKFILE_ONLY = ['install', '--lockfile-only', '--silent']
 
+/** How long a fixture's pnpm may take before it is killed and the failure
+ *  reported. Only a network that swallows a connection gets anywhere near it:
+ *  nothing these builders install comes from a registry. */
+const FIXTURE_TIMEOUT_MS = 120_000
+
 export interface PackageFixtures {
   /** A committed, pushed pnpm project: a `package.json` with no dependencies
    *  and the `pnpm-lock.yaml` pnpm wrote for it. */
@@ -128,14 +133,26 @@ export function createPackageFixtures(sandbox: Sandbox, git: GitFixtures): Packa
     const result = spawnSync('pnpm', [...args], {
       cwd: directory,
       env: corepackEnv({ ...sandbox.env, NPM_CONFIG_USERCONFIG: '/dev/null' }),
+      // `spawnSync` blocks this worker's event loop, so vitest's own
+      // `testTimeout` cannot fire while it runs: a registry that swallows a
+      // connection rather than refusing it would hang the suite instead of
+      // failing it, and the run would end with no output from pnpm at all.
+      // The bound is well past a cold resolve and well under a wait nobody
+      // would sit through; exceeding it kills the child and sets
+      // `result.error`, which is rethrown below.
+      timeout: FIXTURE_TIMEOUT_MS,
     })
     if (result.error) {
       throw result.error
     }
     if (result.status !== 0) {
       const output = `${result.stdout.toString('utf8')}${result.stderr.toString('utf8')}`
+      // The signal is named beside the status, because a child a signal
+      // ended has no status at all and `exit null` names nothing a reader can
+      // act on. The bound above is the usual way to get one.
       throw new Error(
-        `fixture: pnpm ${args.join(' ')} failed in ${directory} (exit ${result.status})\n${output}`,
+        `fixture: pnpm ${args.join(' ')} failed in ${directory} ` +
+          `(exit ${result.status}, signal ${result.signal})\n${output}`,
       )
     }
   }
