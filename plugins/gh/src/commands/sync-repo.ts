@@ -134,13 +134,21 @@ const lastLine = (text: string): string => text.replace(/\n+$/, '').split('\n').
  * there, so that one case keeps the Python's own sentence, which a reader who
  * has seen it will recognise. Everything else, an unrunnable gh (126), a
  * refusal, a silent non-zero exit, an answer that is not JSON, reaches the
- * report through `GhError`'s message, whose last line is gh's own last line
- * when gh said anything at all. That is the same rule the Python applies to a
+ * report through `GhError.detail`, whose last line is gh's own last line when
+ * gh said anything at all. That is the same rule the Python applies to a
  * multi-line stderr, and it means the wording for those arms is now
- * `lib/gh.ts`'s rather than this file's: the PR body lists each one.
+ * `lib/gh.ts`'s rather than this file's: `fixtures/divergences.json` lists
+ * each one.
+ *
+ * `detail` and not `message`: the message carries a `gh <argv> failed: `
+ * prefix, and gh's ordinary refusal is a SINGLE line of stderr ("gh: API
+ * rate limit exceeded"), so tailing the message would put the whole argv
+ * inside this report line and only a multi-line stderr would happen to read
+ * as the Python's. `detail` is gh's account with no prefix, so the one-line
+ * case reads as the Python's too.
  */
 const reasonFor = (error: GhError): string =>
-  error.status === 127 ? 'gh is not on PATH' : lastLine(error.message)
+  error.status === 127 ? 'gh is not on PATH' : lastLine(error.detail)
 
 /** Whether `target` is a directory, which is as much of `os.chdir` as a port
  *  that never changes directory needs to ask. */

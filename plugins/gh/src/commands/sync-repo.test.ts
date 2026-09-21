@@ -44,7 +44,9 @@ const GOLDEN: Record<string, { status: number; stdout: string }> = JSON.parse(
 
 const DIVERGENCES: {
   'bash-output.json': Record<string, { was: string; now: string }>
-  ghVocabulary: { lines: { state: string; was: string; now: string; account: string }[] }
+  ghVocabulary: {
+    lines: { state: string; was: string; now: string; account: string; message: string }[]
+  }
 } = JSON.parse(read('divergences.json'))
 
 const PYTHON: Record<
@@ -118,9 +120,12 @@ function ghDouble(options: GhOptions = {}): GhClient {
   return {
     ...createGhMock(replies),
     listMergedPullRequests: async (query: MergedPullRequestQuery) => {
-      if (options.fail === 'all') throw new GhError('gh: simulated failure', 1, { cause: 'test' })
+      // `ghFails` rather than a hand-built `GhError`: it is the harness's own
+      // fail switch and it sets `detail`, which is the field the report
+      // quotes, so these doubles fail the way the real client does.
+      if (options.fail === 'all') throw ghFails('gh: simulated failure')
       if (options.fail === 'head' && query.head !== undefined) {
-        throw new GhError('gh: simulated per-branch failure', 1, { cause: 'test' })
+        throw ghFails('gh: simulated per-branch failure')
       }
       const matching = rows.filter(
         (row) =>
@@ -824,6 +829,7 @@ describe('merge proof', () => {
       listMergedPullRequests: async () => {
         throw new GhError('gh pr list failed: cannot run gh: spawn gh ENOENT', 127, {
           cause: 'test',
+          detail: 'cannot run gh: spawn gh ENOENT',
         })
       },
     }
@@ -836,24 +842,59 @@ describe('merge proof', () => {
     expect(result.stdout).toContain('deleted landed')
   })
 
-  it("carries gh's own last line into the report for every other failure", async () => {
+  it("carries gh's own last line into the report, and never the argv with it", async () => {
     // gh's last line is the useful half of a failure: an auth prompt, a rate
     // limit, a repository it cannot see.
+    //
+    // The error is the REAL client's shape, which is what round 1 could not
+    // assert: `lib/gh.ts` puts `gh <argv> failed: ` in front of gh's account
+    // in the message and carries the account alone as `detail`. A rate limit
+    // is ONE line of stderr, the usual shape, so a report that tailed the
+    // message would quote forty characters of `--json` fields at the reader.
     const f = fixture()
     f.git.branchWithWork(f.repo, 'landed')
     f.git.mergeCommit(f.repo, 'landed')
+    const argv =
+      'gh pr list --state merged --base main --limit 200 --json ' +
+      'headRefName,headRefOid,isCrossRepository'
     const gh = {
       ...ghDouble(),
       listMergedPullRequests: async () => {
-        throw new GhError('gh: warming up\ngh: API rate limit exceeded', 1, { cause: 'test' })
+        throw new GhError(`${argv} failed: gh: API rate limit exceeded`, 1, {
+          cause: 'test',
+          detail: 'gh: API rate limit exceeded',
+        })
       },
     }
 
     const result = await run(f, [f.repo], { gh })
 
     expect(result.stdout).toContain(
-      'could not read merged pull requests (gh: API rate limit exceeded)',
+      'could not read merged pull requests (gh: API rate limit exceeded); using ancestry alone',
     )
+    expect(result.stdout).not.toContain('--json')
+  })
+
+  it('tails a multi-line account, the way the Python tails a multi-line stderr', async () => {
+    // `gh_json` prints `last_line(stderr)`, so a warning gh wrote before the
+    // real complaint does not become the reason. `accountOf` hands the whole
+    // trimmed stderr over as `detail`, and the tailing is this file's.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'landed')
+    f.git.mergeCommit(f.repo, 'landed')
+    const gh = {
+      ...ghDouble(),
+      listMergedPullRequests: async () => {
+        throw new GhError('gh pr list failed: gh: warming up\ngh: HTTP 502', 1, {
+          cause: 'test',
+          detail: 'gh: warming up\ngh: HTTP 502',
+        })
+      },
+    }
+
+    const result = await run(f, [f.repo], { gh })
+
+    expect(result.stdout).toContain('could not read merged pull requests (gh: HTTP 502)')
     expect(result.stdout).not.toContain('warming up')
   })
 
@@ -871,16 +912,20 @@ describe('merge proof', () => {
     // the same state, and a divergence asserted only in a test is not
     // countable. Adding a fifth, or changing one, has to be recorded there
     // before this goes green.
-    const accounts = DIVERGENCES.ghVocabulary.lines.map((line) => line.account)
-    expect(accounts).toHaveLength(4)
-    for (const account of accounts) {
+    const lines = DIVERGENCES.ghVocabulary.lines
+    expect(lines).toHaveLength(3)
+    for (const { account, message } of lines) {
       const f = fixture()
       f.git.branchWithWork(f.repo, 'landed')
       f.git.mergeCommit(f.repo, 'landed')
       const gh = {
         ...ghDouble(),
         listMergedPullRequests: async () => {
-          throw new GhError(account, 1, { cause: 'test' })
+          // Both halves come from the table: `message` is what the real
+          // client's error says, `account` is the part of it a report may
+          // quote. They are the same string where there is no argv prefix to
+          // strip, and different where there is.
+          throw new GhError(message, 1, { cause: 'test', detail: account })
         },
       }
 
