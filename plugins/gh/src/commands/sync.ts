@@ -53,6 +53,20 @@ The per-repo work runs in this process, at most -j N repositories at a time.
 Each repository's output is collected on its own and printed in directory
 order, never in the order the jobs happened to finish.`
 
+/**
+ * What a job that threw says, in this repository's own section.
+ *
+ * The in-process counterpart of the three lines `gh-sync.py` prints about a
+ * child that failed (`:135`, `:174`, and the newline at `:171`). A direct call
+ * cannot fail to start and has no exit status of its own, but it can throw,
+ * and `syncRepo` deliberately lets anything that is not a `GhError` out. The
+ * wording is this file's rather than the Python's, because the Python's names
+ * a script and a status that no longer exist;
+ * `fixtures/divergences.json` records it against the line it replaces.
+ */
+export const failureLine = (error: unknown): string =>
+  `  ✗ the sync failed: ${error instanceof Error ? error.message : String(error)}\n`
+
 /** One repository's job, as the fan-out calls it. The seam the Python reaches
  *  by copying a stand-in script beside the orchestrator (`TIMED_JOB`,
  *  `SPLIT_JOB` in `tests/gh/test_gh_sync.py`): with the fan-out in-process,
@@ -202,14 +216,29 @@ export const createSyncCommand =
           return undefined
         },
       })
-      await job({
-        repo,
-        dryRun,
-        noInstall,
-        env: context.env,
-        createGh: context.createGh,
-        report,
-      })
+      try {
+        await job({
+          repo,
+          dryRun,
+          noInstall,
+          env: context.env,
+          createGh: context.createGh,
+          report,
+        })
+      } catch (error) {
+        // `gh-sync.py:123` to `:135` states the rule: a job that raises "would
+        // otherwise raise out of the pool and take every other repository's
+        // report with it. It is this repo's answer, not the run's." Left
+        // uncaught, `Promise.all` rejects, the header and every finished
+        // section are discarded after the work has already been done, and the
+        // process dies with a stack trace naming no repository.
+        //
+        // A job that threw mid-line would otherwise have this appended to the
+        // end of that line, as `gh-sync.py:171` to `:173` has it.
+        const written = chunks.join('')
+        if (written !== '' && !written.endsWith('\n')) chunks.push('\n')
+        chunks.push(failureLine(error))
+      }
       return chunks.join('')
     }
 
@@ -221,14 +250,22 @@ export const createSyncCommand =
       // The status is deliberately dropped, as the shell version dropped it at
       // its lines 72 to 73: a skipped repo and a broken script both answer 0
       // here today. Tracked as issue #81, which lands after this port.
-      await job({
-        repo: only,
-        dryRun,
-        noInstall,
-        env: context.env,
-        createGh: context.createGh,
-        report: context.output.out,
-      })
+      try {
+        await job({
+          repo: only,
+          dryRun,
+          noInstall,
+          env: context.env,
+          createGh: context.createGh,
+          report: context.output.out,
+        })
+      } catch (error) {
+        // The same account on the path with no section to fold it into, which
+        // is what `gh-sync.py:245` to `:251` does with a child it could not
+        // start: it is said, and the status still does not change, "which is
+        // the same reason this is not a `return 2`".
+        context.output.out.write(failureLine(error))
+      }
       return ok('')
     }
 

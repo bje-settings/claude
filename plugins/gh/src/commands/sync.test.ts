@@ -37,6 +37,15 @@ const PYTHON: Record<
   Record<string, { status: number; stdout: string; stderr: string }>
 > = JSON.parse(read('python-cli-output.json'))
 
+/** The recorded divergences, read rather than restated: a line this port says
+ *  instead of what the Python said has to be in the table to be asserted. */
+const DIVERGENCES: { inProcessFanOut: { now: string } } = JSON.parse(read('divergences.json'))
+
+/** The recorded line for a job that threw, with its placeholder filled in.
+ *  The table names a line; the report writes it with a newline after it. */
+const failed = (message: string): string =>
+  `${DIVERGENCES.inProcessFanOut.now.replace('<message>', message)}\n`
+
 /** A `gh` with no merged pull requests, which is every scenario here: the
  *  reports these assert are about branches and discovery, not about pull
  *  requests. */
@@ -118,6 +127,19 @@ function timedJob(spans: { name: string; start: number; end: number }[], ms: num
     options.report.write(`${path.basename(options.repo)}\n`)
     return 0
   }
+}
+
+/** The most spans open at once, read off the spans themselves: at every
+ *  moment a job started, how many other jobs had started and not finished.
+ *  No call counting and no timer to outrun, because a span that has already
+ *  been recorded cannot be rescheduled. */
+function mostAtOnce(spans: { start: number; end: number }[]): number {
+  return Math.max(
+    0,
+    ...spans.map(
+      (span) => spans.filter((other) => other.start <= span.start && other.end > span.start).length,
+    ),
+  )
 }
 
 /** Do any two of these spans overlap in time? */
@@ -405,11 +427,90 @@ describe('the throttle', () => {
     expect(result.status).toBe(0)
     expect(overlapping(spans)).toBe(true)
   })
+
+  it('never runs more than -j at once, which is the half overlap does not prove', async () => {
+    // `overlapping` above says the throttle is not a queue. It does not say it
+    // is a throttle: a fan-out that ignored -j entirely and started every job
+    // would satisfy it. Both halves are needed, and the spans already recorded
+    // carry the answer, so this costs no new timing.
+    const f = fixture()
+    for (const name of ['a', 'b', 'c', 'd', 'e']) f.git.createAt(f.sandbox.join('fan'), name)
+    const spans: { name: string; start: number; end: number }[] = []
+
+    const result = await run(f, ['-j', '2', f.sandbox.join('fan')], {
+      job: timedJob(spans, 40),
+    })
+
+    expect(result.status).toBe(0)
+    expect(spans).toHaveLength(5)
+    expect(mostAtOnce(spans)).toBe(2)
+  })
 })
 
 // --- fan-out safety -------------------------------------------------------------------
 
 describe('the fan-out', () => {
+  it('keeps every other repository when one job throws', async () => {
+    // `gh-sync.py:123` to `:135` is the rule in as many words: a job that
+    // raises "would otherwise raise out of the pool and take every other
+    // repository's report with it. It is this repo's answer, not the run's."
+    // A direct call cannot fail to start, but it can throw, and `syncRepo`
+    // deliberately lets anything that is not a `GhError` out. Uncaught, the
+    // header and every finished section are discarded after the work is done.
+    const f = fixture()
+    for (const name of ['a', 'b', 'c']) f.git.createAt(f.sandbox.join('fan'), name)
+
+    const result = await run(f, [f.sandbox.join('fan')], {
+      job: async (options: SyncRepoOptions): Promise<number> => {
+        const name = path.basename(options.repo)
+        if (name === 'b') throw new Error('boom')
+        options.report.write(`${name}\n`)
+        return 0
+      },
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('a\n')
+    expect(result.stdout).toContain('c\n')
+    expect(result.stdout).toContain(failed('boom'))
+  })
+
+  it('puts a failure that arrived mid-line on a line of its own', async () => {
+    // `gh-sync.py:171` to `:173`: a section without a trailing newline would
+    // otherwise have the failure appended to the end of its last line.
+    const f = fixture()
+    f.git.createAt(f.sandbox.join('fan'), 'a')
+    f.git.createAt(f.sandbox.join('fan'), 'b')
+
+    const result = await run(f, [f.sandbox.join('fan')], {
+      job: async (options: SyncRepoOptions): Promise<number> => {
+        const name = path.basename(options.repo)
+        options.report.write(name === 'a' ? 'half a line' : `${name}\n`)
+        if (name === 'a') throw new Error('boom')
+        return 0
+      },
+    })
+
+    expect(result.stdout).toContain(`half a line\n${failed('boom')}`)
+  })
+
+  it('says so on the single-repository path too, rather than crashing the run', async () => {
+    // That path has no section to fold the failure into, as `gh-sync.py:245`
+    // to `:251` has it for a child it could not start, and the status still
+    // does not change: #81 is the dropped status and it stays as it is.
+    const f = fixture()
+    const work = f.git.createAt(f.sandbox.join('one'), 'only')
+
+    const result = await run(f, [work], {
+      job: async (): Promise<number> => {
+        throw new Error('boom')
+      },
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe(failed('boom'))
+  })
+
   it('mutates nothing in --dry-run', async () => {
     const f = fixture()
     const work = f.git.createAt(f.sandbox.join('fan'), 'a')
