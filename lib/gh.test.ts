@@ -500,7 +500,12 @@ describe('refusals', () => {
 
   it('names the status when gh exited non-zero and said nothing', async () => {
     const { gh } = clientAnswering({ status: 1 })
-    await expect(gh.listRuns()).rejects.toThrow(/failed: gh exited 1$/)
+    const error = await gh.listRuns().catch((thrown: unknown) => thrown)
+
+    expect((error as GhError).message).toMatch(/failed: gh exited 1$/)
+    // The sync report quotes `detail`, and "gh exited <n>" is the Python's own
+    // sentence (`gh-sync-repo.py` `gh_json`), so this string is a report line.
+    expect((error as GhError).detail).toBe('gh exited 1')
   })
 
   it('names the signal when something killed gh', async () => {
