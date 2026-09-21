@@ -84,5 +84,15 @@
       "  ✗ could not start the sync script: <error>"
     ],
     "now": "  ✗ the sync failed: <message>"
+  },
+  "exitStatus": {
+    "why": "#81 (round 7 ruling 2): a job that threw, or a RepoJob stand-in that answered a non-zero status without throwing, now makes gh.ts sync exit 1, on the single-repository path and the fan-out alike, once every report line has been written. The real job, syncRepo, always answers 0 for both a synced and a skipped repository (sync-repo.ts:843 to 851 is unchanged), so a skip is still exit 0 either way; only a thrown or non-zero job counts as a failure. gh-sync.sh dropped the single-repository path's status at its lines 72 to 73, and the port kept that for parity until now; the fan-out already reported each job's own line but still answered 0 regardless of what it said (gh-sync.py never summarised the fan-out's own exit status either, so there is no shell line this divergence replaces).",
+    "was": "always exits 0, whatever a job answered or threw",
+    "now": "exits 1 when any job threw or returned a non-zero status; a skipped repository still answers 0"
+  },
+  "failureSummary": {
+    "why": "The stderr line `failed(...)` carries once every report line is on stdout: how many repositories failed, of how many were tried. New with #81; there is no shell or Python line it replaces, so this is a statement of the new contract rather than a table of substitutions.",
+    "fanOut": "<n> of <total> repositories failed to sync",
+    "single": "the sync to <name> failed"
   }
 }
