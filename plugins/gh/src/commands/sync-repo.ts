@@ -120,6 +120,37 @@ export interface SyncRepoOptions {
   readonly report: Writer
 }
 
+/**
+ * The vocabulary of a report line, named rather than written out at the call
+ * sites that build one.
+ *
+ * The SessionStart hook classifies each section of a `--dry-run` report by
+ * these to compute the summary it leads with (#110,
+ * `commands/hook-io.ts` `fanOutSummary`), so the words are a contract with a
+ * second reader and not only prose. Naming them puts the hook's dependency
+ * where someone rewording a line will see it, and makes a rewording a
+ * reference that moves with the text rather than a match that quietly stops
+ * finding anything.
+ *
+ * `marks` are the three line prefixes, indent included, because the indent is
+ * what tells a repository's lines from the heading above them. The rest are
+ * the openings of the lines the hook counts, and they are the `--dry-run`
+ * forms: that is the only mode the hook's own child ever runs in.
+ */
+export const REPORT = {
+  ok: '  ✓ ',
+  bad: '  ✗ ',
+  note: '  · ',
+  /** What a skipped repository says, after the {@link REPORT.bad} mark. */
+  skipped: 'skipped: ',
+  /** The two notes that mean the default branch would move. */
+  wouldFastForward: 'would fast-forward ',
+  wouldCreate: 'would create ',
+  /** The two notes that mean a branch would go. */
+  wouldDelete: 'would delete ',
+  wouldRemoveWorktree: 'would remove worktree ',
+} as const
+
 /** An env flag as `sync` sets it: "1" on, "0" or unset off. */
 export const flagIsSet = (env: NodeJS.ProcessEnv, name: string): boolean => {
   const value = env[name] ?? '0'
@@ -238,17 +269,17 @@ class SyncRepoRun {
   // the fan-out prints one of these sections after another.
   private ok(text: string): void {
     this.ensureHeader()
-    this.emit(`  ✓ ${text}`)
+    this.emit(`${REPORT.ok}${text}`)
   }
 
   private bad(text: string): void {
     this.ensureHeader()
-    this.emit(`  ✗ ${text}`)
+    this.emit(`${REPORT.bad}${text}`)
   }
 
   private note(text: string): void {
     this.ensureHeader()
-    this.emit(`  · ${text}`)
+    this.emit(`${REPORT.note}${text}`)
   }
 
   private ensureHeader(): void {
@@ -462,7 +493,7 @@ class SyncRepoRun {
     if (!(await hasRef(`refs/heads/${branch}`, this.here))) {
       // Only reachable in --dry-run, where the checkout above was not
       // performed.
-      this.note(`would create ${branch} from origin/${branch} (${target})`)
+      this.note(`${REPORT.wouldCreate}${branch} from origin/${branch} (${target})`)
       return { canAdvance: true, target, advancedFrom: null }
     }
 
@@ -500,7 +531,7 @@ class SyncRepoRun {
     ) {
       this.bad(`${branch} has diverged from origin/${branch}; needs a manual merge`)
     } else if (this.dryRun) {
-      this.note(`would fast-forward ${moved}`)
+      this.note(`${REPORT.wouldFastForward}${moved}`)
       // `before` is null here only when it could not be read, and the caller
       // reads that as "no range to diff", which is exactly right.
       return { canAdvance: true, target, advancedFrom: before }
@@ -764,7 +795,9 @@ class SyncRepoRun {
 
     if (linked) {
       if (this.dryRun) {
-        this.note(`would remove worktree ${worktree} and delete ${branch} (${short}, ${proof})`)
+        this.note(
+          `${REPORT.wouldRemoveWorktree}${worktree} and delete ${branch} (${short}, ${proof})`,
+        )
         return
       }
       if (!(await gitOk(['worktree', 'remove', worktree], this.here))) {
@@ -775,7 +808,7 @@ class SyncRepoRun {
     }
 
     if (this.dryRun) {
-      this.note(`would delete ${branch} (${short}, ${proof})`)
+      this.note(`${REPORT.wouldDelete}${branch} (${short}, ${proof})`)
     } else if (await gitOk(['branch', '-D', branch], this.here)) {
       // -D rather than -d because a squash-merged branch is not an ancestor of
       // the default branch. The SHA makes it recoverable: git branch <name>
@@ -846,7 +879,7 @@ class SyncRepoRun {
       // A skipped repository prints its reason and ends cleanly. The preflight
       // skips all fire before anything is written; the later ones (a missing
       // origin/<default>, an unreadable ref list) can follow a fetch.
-      this.bad(`skipped: ${skipped}`)
+      this.bad(`${REPORT.skipped}${skipped}`)
     }
     return 0
   }
