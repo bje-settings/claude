@@ -112,6 +112,9 @@ sandbox back in before comparing.
 
 ## The capture script, verbatim
 
+Verbatim but for line wrapping: `ruff format` reaches Python inside a fenced block in a markdown
+file, and the `ruff` job in CI checks this one. It is the same program either way.
+
 ```python
 """Capture what `plugins/gh/hooks/hook-io.py` writes, one JSON row per case.
 
@@ -453,8 +456,12 @@ def test_capture_payloads(run_script, gh, elsewhere):
     payload_case(run_script, gh, "payload/not-json", "not json at all", elsewhere)
     payload_case(run_script, gh, "payload/empty-stdin", "", elsewhere)
     payload_case(run_script, gh, "payload/not-an-object", '["a","b"]', elsewhere)
-    payload_case(run_script, gh, "payload/cwd-not-a-string", '{"session_id":"s1","cwd":3}', elsewhere)
-    payload_case(run_script, gh, "payload/cwd-empty-string", '{"session_id":"s1","cwd":""}', elsewhere)
+    payload_case(
+        run_script, gh, "payload/cwd-not-a-string", '{"session_id":"s1","cwd":3}', elsewhere
+    )
+    payload_case(
+        run_script, gh, "payload/cwd-empty-string", '{"session_id":"s1","cwd":""}', elsewhere
+    )
     payload_case(run_script, gh, "payload/no-cwd-key", '{"session_id":"s1"}', elsewhere)
     payload_case(
         run_script,

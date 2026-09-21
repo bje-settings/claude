@@ -66,17 +66,12 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
-      # The tests that exercise the dependency-install path need real package
-      # managers. corepack is what makes a project's packageManager field
-      # authoritative, which is how the Yarn Berry fixture pins its version; the
-      # runner images ship yarn 1 globally, and yarn 1 ignores that field. No
-      # version input to pnpm/action-setup: the pnpm version comes from this
-      # repo's own package.json packageManager field now, and the action
-      # refuses two sources of the version.
+      # No version input to pnpm/action-setup: the pnpm version comes from this
+      # repo's own package.json packageManager field, and the action refuses
+      # two sources of the version.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: corepack enable
       - uses: pnpm/action-setup@v6
       - name: Run the Python suite on the newest 3.x
         run: uv run --locked --python "${{ steps.python.outputs.python-path }}" pytest -n auto
@@ -89,17 +84,12 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
-      # The tests that exercise the dependency-install path need real package
-      # managers. corepack is what makes a project's packageManager field
-      # authoritative, which is how the Yarn Berry fixture pins its version; the
-      # runner images ship yarn 1 globally, and yarn 1 ignores that field. No
-      # version input to pnpm/action-setup: the pnpm version comes from this
-      # repo's own package.json packageManager field now, and the action
-      # refuses two sources of the version.
+      # No version input to pnpm/action-setup: the pnpm version comes from this
+      # repo's own package.json packageManager field, and the action refuses
+      # two sources of the version.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: corepack enable
       - uses: pnpm/action-setup@v6
       # No --python here on purpose: .python-version pins 3.9, which is what
       # /usr/bin/python3 is on a Mac with the Command Line Tools, and therefore
@@ -116,15 +106,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # As in the pytest jobs: corepack makes the packageManager field
-      # authoritative for the Yarn Berry fixture, and pnpm is the branch checked
-      # first. No version input to pnpm/action-setup: the pnpm version comes
-      # from this repo's own package.json packageManager field now, and the
-      # action refuses two sources of the version.
+      # As in the pytest jobs: no version input to pnpm/action-setup, because
+      # the pnpm version comes from this repo's own package.json packageManager
+      # field and the action refuses two sources of the version.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: corepack enable
       - uses: pnpm/action-setup@v6
 
       - uses: astral-sh/setup-uv@v10.0.1

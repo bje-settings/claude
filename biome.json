@@ -11,7 +11,6 @@
       "**/*.mjs",
       "**/*.ts",
       "!.claude/worktrees",
-      "!tests/gh/golden",
       "!tests/field-test/hook-inputs"
     ]
   },
