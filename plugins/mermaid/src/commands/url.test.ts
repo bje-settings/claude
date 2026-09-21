@@ -127,7 +127,40 @@ it('answers --help with a usage line and never looks at stdin', () => {
 
   expect(envelope.outcome).toBe('ok')
   if (envelope.outcome !== 'ok') return
-  expect(envelope.value).toMatch(/^mermaid\.ts --route /)
+  expect(envelope.value).toMatch(/^mermaid\.ts \[--route /)
+})
+
+it('recognizes -h as well as --help, the way argparse auto-adds both', () => {
+  const envelope = runMermaidUrl(['-h'], new TextEncoder().encode('x'))
+
+  expect(envelope.outcome).toBe('ok')
+  if (envelope.outcome !== 'ok') return
+  expect(envelope.value).toMatch(/^mermaid\.ts \[--route /)
+})
+
+it('answers --help even with a --route parseArguments would refuse, and never parses argv at all', () => {
+  // Without the wantsHelp pre-scan, parseArguments would see --route bogus
+  // first and refuse with exit 2 before --help was ever read off parsed
+  // values: usage must win, the way argparse resolves -h the instant it
+  // sees it, before validating anything else on the line.
+  const envelope = runMermaidUrl(['--help', '--route', 'bogus'], new TextEncoder().encode('x'))
+
+  expect(envelope.outcome).toBe('ok')
+  if (envelope.outcome !== 'ok') return
+  expect(envelope.value).toMatch(/^mermaid\.ts \[--route /)
+})
+
+it('names the four routes alphabetised in a bad --route refusal', () => {
+  // Pins url.ts's own comment claim (ROUTE_PREFIXES is "alphabetised: the
+  // same order Python's argparse reports them in"): the message text is
+  // this port's own (see the divergence note), but the order the routes
+  // are named in is not incidental.
+  const envelope = runMermaidUrl(['--route', 'bogus'], new TextEncoder().encode('x'))
+
+  expect(envelope).toEqual({
+    outcome: 'refused',
+    error: '--route must be one of edit, ink-img, ink-svg, view, not "bogus"',
+  })
 })
 
 it('defaults to --route view when no route is given at all', () => {

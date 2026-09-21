@@ -22,7 +22,13 @@ import { type Envelope, ok, refused } from '../lib/envelope.ts'
  * The four routes `mermaid-url.py` supports, alphabetised: the same order
  * Python's `argparse` reports them in (`choices=sorted(ROUTES)`), so a
  * refusal naming them reads the same even though the wording around it does
- * not (see the PR body).
+ * not (see the PR body). `ARG_SPEC.route.choices` and `USAGE` both read
+ * their route list from this object's own keys rather than repeating it by
+ * hand, so a route added here later cannot go silently undocumented or
+ * silently unreachable in either place (a route added to `choices` alone
+ * without a prefix here still fails `tsc` at the index expression in
+ * `buildUrl`; a route added here alone, the direction that previously had
+ * no check at all, now updates both the spec and the help text for free).
  */
 const ROUTE_PREFIXES = {
   edit: 'https://mermaid.live/edit#pako:',
@@ -33,22 +39,25 @@ const ROUTE_PREFIXES = {
 
 export type Route = keyof typeof ROUTE_PREFIXES
 
+const ROUTE_CHOICES = Object.keys(ROUTE_PREFIXES) as Route[]
+
 // `as const`, not `: ArgSpec` and not `satisfies ArgSpec`: either annotation
 // widens `choices` to `readonly string[]` and every key to `string`, which
 // collapses `Options<typeof ARG_SPEC>` to an index signature (lib/README.md,
-// lib/args.test.ts). This is the same spec lib/args.test.ts writes as
-// mermaid's own command line, the first caller `parseArguments` has, and
-// `lib/args.test.ts`'s own spec already includes `help`: `args.ts` declares
-// no `--help` handling of its own on purpose ("a command declares a `help`
-// boolean and prints its own"), so this is that one line.
+// lib/args.test.ts). This is the same shape lib/args.test.ts writes as
+// mermaid's own command line, the first caller `parseArguments` has, minus
+// `help`: `-h`/`--help` is resolved by `wantsHelp` below, before `argv` ever
+// reaches `parseArguments`, the way argparse resolves `-h` the instant it
+// sees it and before validating anything else on the line. A `help` field
+// here would only become true *after* `--route` had already been validated,
+// which is what let a bad `--route` beat `--help` to the answer.
 const ARG_SPEC = {
-  route: { type: 'string', default: 'view', choices: ['edit', 'ink-img', 'ink-svg', 'view'] },
+  route: { type: 'string', default: 'view', choices: ROUTE_CHOICES },
   theme: { type: 'string', default: 'default' },
-  help: { type: 'boolean' },
 } as const
 
 const USAGE =
-  'mermaid.ts --route {view,edit,ink-svg,ink-img} [--theme NAME], diagram source on ' +
+  `mermaid.ts [--route {${ROUTE_CHOICES.join(',')}}] [--theme NAME], diagram source on ` +
   'stdin: prints a mermaid.live or mermaid.ink preview URL.'
 
 /**
@@ -102,18 +111,34 @@ function decodeAndTrim(bytes: Uint8Array): string {
 }
 
 /**
+ * True when `argv` asks for help. A raw scan of the tokens themselves,
+ * checked before anything is parsed, the way argparse resolves `-h` the
+ * instant it sees it and before validating anything else on the command
+ * line: usage wins over a bad `--route` rather than losing to it.
+ * `bin/mermaid.ts` calls this too, before it touches descriptor 0, so a
+ * session asking for `--help` is answered without blocking on a diagram
+ * that was never going to be read: the decision of what help means and
+ * what it prints stays here, in the seam a test reaches without a
+ * process; `bin.ts` only asks whether it still needs to read stdin at all.
+ */
+export function wantsHelp(argv: readonly string[]): boolean {
+  return argv.includes('-h') || argv.includes('--help')
+}
+
+/**
  * The command function. `argv` is `process.argv.slice(2)`; `stdinBytes` is
  * the diagram source, read whole. Reading stdin and writing the result are
  * the adapter's job; every decision is here, which is what makes this
  * reachable from a test with no process at all.
  */
 export function runMermaidUrl(argv: readonly string[], stdinBytes: Uint8Array): Envelope<string> {
+  // Checked before argv is parsed, let alone stdin touched: a caller asking
+  // for usage should not have to supply a diagram, or a valid --route, to
+  // get it.
+  if (wantsHelp(argv)) return ok(USAGE)
+
   const parsed = parseArguments(argv, ARG_SPEC)
   if (parsed.outcome !== 'ok') return parsed
-  // Checked before stdin is even touched, the way argparse's `-h` answers
-  // before looking at anything else: a caller asking for usage should not
-  // have to supply a diagram to get it.
-  if (parsed.value.help) return ok(USAGE)
 
   let diagram: string
   try {

@@ -38,3 +38,43 @@ it('exits 2 for invalid UTF-8 on stdin, read as bytes rather than decoded text',
   expect(result.stdout).toBe('')
   expect(result.stderr).toBe('diagram source is not valid UTF-8\n')
 })
+
+it('defaults to --route view with no --route flag at all, as a real process', () => {
+  const result = runScript(BIN, { args: [], stdin: DIAGRAM })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^https:\/\/mermaid\.live\/view#pako:.+\n$/)
+})
+
+it('answers --help as a real process, exit 0, and never decodes stdin', () => {
+  // Invalid UTF-8 on stdin would exit 2 if bin.ts read and url.ts decoded
+  // it, so a clean exit 0 here also proves the adapter's own stdin read is
+  // skipped for --help, not only url.ts's decode step (the in-process
+  // version of this test in url.test.ts cannot see that half, since it
+  // never touches bin.ts's readFileSync(0) at all).
+  const invalid = Uint8Array.from([0x61, 0xff, 0x62])
+
+  const result = runScript(BIN, { args: ['--help'], stdin: invalid })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^mermaid\.ts \[--route /)
+  expect(result.stderr).toBe('')
+})
+
+it('answers -h the same way --help does, as a real process', () => {
+  const result = runScript(BIN, { args: ['-h'], stdin: '' })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^mermaid\.ts \[--route /)
+})
+
+it('answers --help over a bad --route, as a real process, not the route refusal', () => {
+  // Pins the ordering at the process boundary: without the wantsHelp
+  // pre-scan in both bin.ts and url.ts, this would exit 2 with the --route
+  // refusal instead, the way it did before this round.
+  const result = runScript(BIN, { args: ['--help', '--route', 'bogus'], stdin: '' })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^mermaid\.ts \[--route /)
+  expect(result.stderr).toBe('')
+})
