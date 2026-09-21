@@ -55,7 +55,7 @@ import {
   USAGE,
   which,
 } from './hook-io.ts'
-import { runSync as runSyncCommand } from './sync.ts'
+import { failureLine, runSync as runSyncCommand, statusLine } from './sync.ts'
 import { REPORT } from './sync-repo.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -1387,7 +1387,7 @@ it('names prunable candidates as candidates, never as branches that will go', ()
   ])
 })
 
-it('keeps the branch line first, the counts in order, and one closing line', () => {
+it('keeps the branch line first, the counts in order, and the two closing lines', () => {
   expect(branchMessageText(status({ behind: 2, candidates: 1 }))).toBe(
     `This session started on branch 'side'; the repository's default branch is 'main'.
 Local 'main' is 2 commits behind 'origin/main'.
@@ -1454,6 +1454,25 @@ it('never counts a branch whose upstream is still there', () => {
   const locals = ['side\t', 'tracked\trefs/remotes/origin/tracked']
 
   expect(countCandidates(locals, ['refs/remotes/origin/tracked'], [], 'side', 'main')).toBe(0)
+})
+
+it('never counts a branch that tracks a local branch that is still there', () => {
+  // `%(upstream)` answers with a local ref for a branch set to track one, and
+  // a live local upstream is no more gone than a live remote one. A set built
+  // from the remote-tracking refs alone would not hold `refs/heads/main` and
+  // would report every such branch as a candidate.
+  const locals = ['side\t', 'stacked\trefs/heads/main', 'main\trefs/remotes/origin/main']
+  const refs = [
+    'refs/heads/main',
+    'refs/heads/side',
+    'refs/heads/stacked',
+    'refs/remotes/origin/main',
+  ]
+
+  expect(countCandidates(locals, refs, [], 'side', 'main')).toBe(0)
+  // The other half of the same test: a local upstream that HAS gone still
+  // counts, so the fix is not just "never look at a local upstream".
+  expect(countCandidates(locals, ['refs/remotes/origin/main'], [], 'side', 'main')).toBe(1)
 })
 
 it('never counts the branch the session is on, nor the default branch', () => {
@@ -1548,6 +1567,22 @@ it('counts a gone upstream and a landed branch as candidates', async () => {
   expect(message).not.toContain('behind')
 })
 
+it('does not count a branch tracking a live local branch, in a real checkout', async () => {
+  const harnessed = harness()
+  const { git } = harnessed
+  const repository = git.create(harnessed.sandbox.join('r'))
+  // Its own commit, so ancestry does not reach it, and an upstream that is a
+  // local branch and still exists. `gh stack` sets branches up this way.
+  git.branchWithWork(repository, 'stacked')
+  git.git(repository, 'branch', '--set-upstream-to=main', 'stacked')
+  git.git(repository, 'checkout', '-q', '-b', 'side')
+
+  const message = await messageFor(harnessed, repository)
+
+  expect(message).toContain("default branch is 'main'")
+  expect(message).not.toContain('Prunable candidates')
+})
+
 it('leaves the behind line out when the count cannot be read at all', async () => {
   const harnessed = harness()
   const repository = harnessed.git.create(harnessed.sandbox.join('r'))
@@ -1633,10 +1668,14 @@ it('counts each bucket from the marks sync-repo exports', () => {
         unchecked: 1,
       },
     ],
-    // The line `sync.ts` writes for a job that threw or answered non-zero
-    // (#81). It is a repository the run could not finish, and it is counted
-    // rather than lost between the report and the summary above it.
-    [`${REPORT.bad}the sync failed: boom`, { unchecked: 1 }],
+    // The lines `sync.ts` writes for a job that threw or answered non-zero
+    // (#81), taken from its own producers rather than spelled again here: a
+    // repository the run could not finish is counted, rather than lost
+    // between the report and the summary above it. Asking `sync.ts` for the
+    // text is what pins the two files to one mark. Spelled out, this case
+    // stayed green when `sync.ts` wrote a mark of its own (review round 1).
+    [failureLine(new Error('boom')).trimEnd(), { unchecked: 1 }],
+    [statusLine(3).trimEnd(), { unchecked: 1 }],
   ]
 
   for (const [line, expectedCounts] of cases) {

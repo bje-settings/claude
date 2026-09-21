@@ -127,8 +127,9 @@ export const scrubRepositoryEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
 /** The word a lookup `sync` could not make opens with, in `sync-repo.ts`'s
  *  own vocabulary. Not a new dependency on its prose: it is {@link ACTIONABLE}'s
  *  third marker, which has decided whether this hook speaks at all since the
- *  Python, read here with the trailing space so it is an opening and not a
- *  substring of a branch name. */
+ *  Python. The trailing space is carried so the opening is the whole word and
+ *  not the start of a longer one; it is matched with `startsWith` against a
+ *  note line, never searched for inside one. */
 const COULD_NOT = 'could not '
 
 /** What one repository is worth saying about its checkout, all of it read from
@@ -186,8 +187,9 @@ export const countLines = (status: BranchStatus): string[] => {
  * reads to them as a question they have to answer.
  *
  * The first line is the Python's, unchanged. What follows it is a count line
- * per count that is above zero, and one closing line that names both the
- * dry run and the command, as facts, once.
+ * per count that is above zero, and two closing lines that name the dry run
+ * and the command, as facts, once each. With neither count above zero the
+ * message is those three lines.
  */
 export const branchMessageText = (status: BranchStatus): string =>
   `${[
@@ -819,12 +821,17 @@ const behindCount = async (target: string, options: RepoOptions): Promise<number
  * way this can end is reachable without arranging a git that fails one call
  * and answers the next two.
  *
- * `locals` is `name<tab>upstream` per local branch, `remotes` is every
- * remote-tracking ref in full, and `merged` is the local branches already
+ * `locals` is `name<tab>upstream` per local branch, `refs` is every ref an
+ * upstream can name that exists, and `merged` is the local branches already
  * reachable from the default branch. A branch counts when its upstream is
  * configured and no longer exists, or when its work is already in the default
  * branch. Neither the default branch nor the branch the session is on ever
  * counts: one is where the work lands and the other is where the session is.
+ *
+ * `refs` spans both namespaces because `%(upstream)` does: a branch set to
+ * track another LOCAL branch answers `refs/heads/<name>`, and a set built from
+ * the remote-tracking refs alone would call that live upstream gone and count
+ * every such branch as a candidate.
  *
  * `null` when ANY listing failed rather than a count of what the rest hold:
  * the line states a number of candidates, and a number assembled from a
@@ -832,13 +839,13 @@ const behindCount = async (target: string, options: RepoOptions): Promise<number
  */
 export const countCandidates = (
   locals: readonly string[] | null,
-  remotes: readonly string[] | null,
+  refs: readonly string[] | null,
   merged: readonly string[] | null,
   current: string,
   target: string,
 ): number | null => {
-  if (locals === null || remotes === null || merged === null) return null
-  const existing = new Set(remotes)
+  if (locals === null || refs === null || merged === null) return null
+  const existing = new Set(refs)
   const candidates = new Set(merged)
   for (const line of locals) {
     const separator = line.indexOf(FIELD)
@@ -867,12 +874,16 @@ const prunableCandidates = async (
   // Asked as refs rather than as `%(upstream:track)`, whose `[gone]` is a
   // translated string: a session in a French locale would report no gone
   // upstreams at all, silently.
-  const remotes = await gitLines(['for-each-ref', '--format=%(refname)', REMOTES], options)
+  //
+  // Both namespaces in one listing, because an upstream may name either. git
+  // writes `refs/heads/<name>` for a branch tracking a local branch, and a
+  // set of remote-tracking refs alone would not hold it.
+  const refs = await gitLines(['for-each-ref', '--format=%(refname)', HEADS, REMOTES], options)
   const merged = await gitLines(
     ['for-each-ref', '--format=%(refname:short)', '--merged', `${HEADS}${target}`, HEADS],
     options,
   )
-  return countCandidates(locals, remotes, merged, current, target)
+  return countCandidates(locals, refs, merged, current, target)
 }
 
 /**
