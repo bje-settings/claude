@@ -604,6 +604,48 @@ it('treats a cwd that names a directory that is not there as no cwd at all', asy
   expect(replayed.calls[0]?.args).toContain(elsewhere)
 })
 
+it('still runs the whole check when stdin itself cannot be read', async () => {
+  // `hook-io.py:144` catches `OSError` from `json.load(sys.stdin)`, which is
+  // the descriptor failing rather than the document being malformed: a hook
+  // whose stdin is a directory answered "" and went on from `os.getcwd()`.
+  const harnessed = harness()
+  const repository = harnessed.git.create(harnessed.sandbox.join('r'))
+  harnessed.git.git(repository, 'checkout', '-q', '-b', 'side')
+  const output = createOutputPair()
+
+  const status = await runHookIo(['session-start'], {
+    cwd: () => repository,
+    env: harnessed.sandbox.env,
+    stdin: () => Promise.reject(new Error('EISDIR: illegal operation on a directory, read')),
+    output,
+    run: () => Promise.resolve(runResult()),
+    nodePath: '/usr/bin/node',
+    entry: harnessed.entry,
+  })
+
+  expect(status).toBe(0)
+  expect(output.stdout()).toContain("default branch is 'main'")
+  expect(output.stderr()).toBe('')
+})
+
+it('prints the empty line the Python printed for a cwd read that failed', async () => {
+  const harnessed = harness()
+  const output = createOutputPair()
+
+  const status = await runHookIo(['cwd'], {
+    cwd: () => harnessed.sandbox.path,
+    env: harnessed.sandbox.env,
+    stdin: () => Promise.reject(new Error('EISDIR: illegal operation on a directory, read')),
+    output,
+    run: () => Promise.resolve(runResult()),
+    nodePath: '/usr/bin/node',
+    entry: harnessed.entry,
+  })
+
+  expect(status).toBe(0)
+  expect(output.stdout()).toBe('\n')
+})
+
 it('answers from the process cwd when the payload carries none, and still speaks', async () => {
   const harnessed = harness()
   const repository = harnessed.git.create(harnessed.sandbox.join('r'))

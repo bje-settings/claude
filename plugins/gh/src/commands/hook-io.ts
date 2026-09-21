@@ -533,10 +533,33 @@ const branchMessage = async (options: {
   return branchMessageText(current, target)
 }
 
+/**
+ * Everything on stdin, or `""` when it cannot be read at all.
+ *
+ * `hook-io.py:144` guards the READ and not only the parse: the `except
+ * (ValueError, AttributeError, OSError, UnicodeDecodeError)` sits around
+ * `json.load(sys.stdin)`, and `OSError` there is the descriptor failing
+ * rather than the document being malformed. A hook whose stdin is something
+ * a read fails on (a descriptor opened on a directory, a pipe whose writer
+ * errored) answered `""` there and went on to run the whole check from
+ * `os.getcwd()`; without this it loses the check to a rejection instead.
+ *
+ * `report` deliberately does not come through here. The Python's
+ * `sys.stdin.read()` in that arm was unguarded too, and there is no fallback
+ * report to write.
+ */
+const readPayload = async (edges: HookEdges): Promise<string> => {
+  try {
+    return await edges.stdin()
+  } catch {
+    return ''
+  }
+}
+
 /** The whole hook: pick the branch the payload's directory calls for, or stay
  *  quiet. */
 const sessionStart = async (edges: HookEdges): Promise<string | null> => {
-  const stated = payloadCwd(await edges.stdin())
+  const stated = payloadCwd(await readPayload(edges))
   // `if not cwd or not os.path.isdir(cwd)`: the empty string is a payload
   // with no usable cwd, not a directory named "".
   const cwd = stated !== '' && isDirectory(stated) ? stated : edges.cwd()
@@ -576,7 +599,7 @@ export const runHookIo = async (argv: readonly string[], edges: HookEdges): Prom
     return 0
   }
   if (mode === 'cwd') {
-    edges.output.out.write(`${payloadCwd(await edges.stdin())}\n`)
+    edges.output.out.write(`${payloadCwd(await readPayload(edges))}\n`)
     return 0
   }
   // The two `typeof` guards come before the length check so each is asked of
