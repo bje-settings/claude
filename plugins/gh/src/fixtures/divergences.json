@@ -1,0 +1,29 @@
+{
+  "bash-output.json": {
+    "pull_request_lookup_failed": {
+      "was": "could not read merged pull requests; using ancestry alone",
+      "now": "could not read merged pull requests (gh: simulated failure); using ancestry alone",
+      "why": "The port names why the lookup failed, which the shell version never did. Carried over from tests/gh/test_output_parity.py's DIVERGENCES table unchanged: the reason now reaches the line from GhError rather than from the Python's gh_json, and reads the same."
+    }
+  },
+  "scenarioSubstitutions": {
+    "lock_file_changed": {
+      "was": "package-lock.json",
+      "now": "pnpm-lock.yaml",
+      "why": "pnpm only (ruling, 2026-09-20). The scenario's subject is a lock file the pull touched; the port watches one lock file, so the scenario builds that one. The reported line is unchanged, which is why the golden still applies."
+    },
+    "lock_file_untouched": {
+      "was": "package-lock.json",
+      "now": "pnpm-lock.yaml",
+      "why": "Same substitution. The state being asserted is a pull that did NOT touch the watched lock file, which needs the watched lock file to exist to mean anything."
+    },
+    "no_install": {
+      "was": "package-lock.json",
+      "now": "pnpm-lock.yaml",
+      "why": "Same substitution, with --no-install."
+    }
+  },
+  "notInTheTable": {
+    "cannot list worktrees": "tests/gh/test_output_parity.py records it: `git worktree list` failing left the shell version with an empty branch-to-worktree map, so it never printed a skip. The Python raises the skip the shell version meant to and the port keeps the Python's behaviour. There is no scenario for it in bash-output.json at all."
+  }
+}
