@@ -498,12 +498,18 @@ describe('the fan-out', () => {
     // That path has no section to fold the failure into, as `gh-sync.py:245`
     // to `:251` has it for a child it could not start, and the status still
     // does not change: #81 is the dropped status and it stays as it is.
+    //
+    // Thrown as a bare value rather than an `Error`, which a rejected promise
+    // may carry and which the Python never had to think about: `str(error)`
+    // there always had something to print, so the port says what arrived
+    // instead of `undefined`.
     const f = fixture()
     const work = f.git.createAt(f.sandbox.join('one'), 'only')
+    const notAnError: unknown = 'boom'
 
     const result = await run(f, [work], {
       job: async (): Promise<number> => {
-        throw new Error('boom')
+        throw notAnError
       },
     })
 
