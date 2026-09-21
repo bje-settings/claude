@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { inflateSync } from 'node:zlib'
+import { deflateSync, inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 
 import { exitCodeFor } from '../lib/envelope.ts'
@@ -127,4 +127,53 @@ it('answers --help with a usage line and never looks at stdin', () => {
   expect(envelope.outcome).toBe('ok')
   if (envelope.outcome !== 'ok') return
   expect(envelope.value).toMatch(/^mermaid\.ts --route /)
+})
+
+it('defaults to --route view when no route is given at all', () => {
+  const envelope = runMermaidUrl([], new TextEncoder().encode('graph TD; A-->B'))
+
+  expect(envelope.outcome).toBe('ok')
+  if (envelope.outcome !== 'ok') return
+  expect(envelope.value.startsWith('https://mermaid.live/view#pako:')).toBe(true)
+})
+
+it('strips a leading and trailing BOM, the one direction trim() goes further than Python', () => {
+  // The other direction (\x1c-\x1f) is pinned above; this is the other half
+  // of the same divergence (url.ts's decodeAndTrim comment): trim() treats
+  // U+FEFF as whitespace, so a BOM at either edge is gone by the time this
+  // reaches the encoder, unlike Python's `strip()`.
+  const diagram = '﻿graph TD; A-->B﻿'
+  const envelope = runMermaidUrl(['--route', 'view'], new TextEncoder().encode(diagram))
+
+  expect(envelope.outcome).toBe('ok')
+  if (envelope.outcome !== 'ok') return
+  const decoded = decodePayload(envelope.value, 'https://mermaid.live/view#pako:')
+  expect(decoded.code).toBe('graph TD; A-->B')
+})
+
+it('compresses at zlib level 9, not whatever node defaults to', () => {
+  // A fixture cannot pin this: every fixture assertion inflates and compares
+  // parsed values, which are identical at any compression level. Computed
+  // fresh in this test, against whatever node/zlib build runs it (rather
+  // than a hardcoded byte count), so this holds on the floor leg's node
+  // 22.18.0 too, which may carry a different zlib build than the machine
+  // that wrote this test.
+  const diagram = `graph TD; ${'A-->B; '.repeat(80)}`
+  const envelope = runMermaidUrl(['--route', 'view'], new TextEncoder().encode(diagram))
+
+  expect(envelope.outcome).toBe('ok')
+  if (envelope.outcome !== 'ok') return
+  const prefix = 'https://mermaid.live/view#pako:'
+  expect(envelope.value.startsWith(prefix)).toBe(true)
+  const actualLength = Buffer.from(envelope.value.slice(prefix.length), 'base64url').length
+
+  const state = JSON.stringify({ code: diagram, mermaid: JSON.stringify({ theme: 'default' }) })
+  const stateBytes = Buffer.from(state, 'utf8')
+  const level1Length = deflateSync(stateBytes, { level: 1 }).length
+  const level9Length = deflateSync(stateBytes, { level: 9 }).length
+  // Sanity check that this diagram is repetitive enough for the level to
+  // actually matter; a diagram short enough to compress identically at
+  // every level would make the assertion below pass for the wrong reason.
+  expect(level1Length).toBeGreaterThan(level9Length)
+  expect(actualLength).toBe(level9Length)
 })
