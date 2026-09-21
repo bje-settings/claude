@@ -466,13 +466,9 @@ function reportClassifications(
 type Options = { shapes: RequestShape[]; probe: boolean }
 
 function parseArgv(argv: string[]): Options {
-  const shapeArg = argv.includes('--shape') ? argv[argv.indexOf('--shape') + 1] : 'both'
+  const asked = argv.includes('--shape') ? argv[argv.indexOf('--shape') + 1] : 'both'
   const shapes: RequestShape[] =
-    shapeArg === 'per_unit'
-      ? ['per_unit']
-      : shapeArg === 'per_section'
-        ? ['per_section']
-        : ['per_unit', 'per_section']
+    asked === 'per_unit' || asked === 'per_section' ? [asked] : ['per_unit', 'per_section']
   return { shapes, probe: argv.includes('--probe') }
 }
 
@@ -559,7 +555,7 @@ async function main(): Promise<number> {
   }
 
   if (options.probe) {
-    await determinism(jev, ask)
+    await determinism(ask)
     await ceiling(jev)
   }
 
@@ -595,7 +591,6 @@ async function main(): Promise<number> {
  * request, compared field by field.
  */
 async function determinism(
-  _jev: ReturnType<typeof createJev>,
   ask: (request: JevRequest) => Promise<Record<string, unknown>>,
 ): Promise<void> {
   console.log('\n## determinism: the same request, three times')

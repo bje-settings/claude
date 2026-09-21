@@ -261,6 +261,11 @@ export function createJev(opts: JevOptions): Jev {
   const sleep = opts.sleep ?? defaultSleep
   const limit = createLimiter(opts.concurrency ?? DEFAULT_CONCURRENCY)
 
+  /** Everything that reaches `JevError.body` goes through here: redacted, then capped. */
+  const asBody = (text: string): string => redact(text, opts.apiKey).slice(0, BODY_LIMIT)
+  const messageOf = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error)
+
   const totals: Usage = {
     requests: 0,
     attempts: 0,
@@ -313,10 +318,7 @@ export function createJev(opts: JevOptions): Jev {
             } catch (error) {
               throw new JevError(
                 response.status,
-                redact(error instanceof Error ? error.message : String(error), opts.apiKey).slice(
-                  0,
-                  BODY_LIMIT,
-                ),
+                asBody(messageOf(error)),
                 `TypeSafe returned HTTP ${response.status} but the body could not be read`,
               )
             }
@@ -328,7 +330,7 @@ export function createJev(opts: JevOptions): Jev {
             } catch {
               throw new JevError(
                 response.status,
-                redact(text, opts.apiKey).slice(0, BODY_LIMIT),
+                asBody(text),
                 `TypeSafe returned HTTP ${response.status} with a body that is not valid JSON`,
               )
             }
@@ -337,10 +339,7 @@ export function createJev(opts: JevOptions): Jev {
           // discarded as an empty string: an empty body and an unreadable one
           // are different failures, and folding them together would hide a
           // read failure as if the server had said nothing.
-          const text = redact(
-            await response.text().catch(() => '(body unreadable)'),
-            opts.apiKey,
-          ).slice(0, BODY_LIMIT)
+          const text = asBody(await response.text().catch(() => '(body unreadable)'))
           if (!RETRYABLE.has(response.status)) throw new JevError(response.status, text)
           lastStatus = response.status
           lastBody = text
@@ -349,7 +348,7 @@ export function createJev(opts: JevOptions): Jev {
         } catch (error) {
           if (error instanceof JevError) throw error
           lastStatus = 0
-          lastBody = redact(error instanceof Error ? error.message : String(error), opts.apiKey)
+          lastBody = redact(messageOf(error), opts.apiKey)
         }
         if (attempt >= maxRetries) {
           const what = lastStatus === 0 ? 'a transport failure' : `HTTP ${lastStatus}`
@@ -370,12 +369,10 @@ export function createJev(opts: JevOptions): Jev {
   async function ask<Q extends QuestionMap>(state: unknown, questions: Q): Promise<AnswerBag> {
     const body = JSON.stringify({ state, model, questions })
     const { status, payload } = await limit(() => request(body))
+    const refuse = (why: string): JevError =>
+      new JevError(status, asBody(safeStringify(payload)), why)
     if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
-      throw new JevError(
-        status,
-        redact(safeStringify(payload), opts.apiKey).slice(0, BODY_LIMIT),
-        'TypeSafe returned a body that is not an object',
-      )
+      throw refuse('TypeSafe returned a body that is not an object')
     }
     const record = payload as {
       answers?: unknown
@@ -386,22 +383,14 @@ export function createJev(opts: JevOptions): Jev {
       record.answers === null ||
       Array.isArray(record.answers)
     ) {
-      throw new JevError(
-        status,
-        redact(safeStringify(payload), opts.apiKey).slice(0, BODY_LIMIT),
-        'TypeSafe returned no answers',
-      )
+      throw refuse('TypeSafe returned no answers')
     }
     totals.inputTokens += record.usage?.input_tokens ?? 0
     totals.outputTokens += record.usage?.output_tokens ?? 0
     const answers = record.answers as AnswerBag
     for (const id of Object.keys(questions)) {
       if (!(id in answers)) {
-        throw new JevError(
-          status,
-          redact(safeStringify(payload), opts.apiKey).slice(0, BODY_LIMIT),
-          `TypeSafe returned no answer for question ${id}`,
-        )
+        throw refuse(`TypeSafe returned no answer for question ${id}`)
       }
     }
     return answers

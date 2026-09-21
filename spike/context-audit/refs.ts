@@ -277,14 +277,7 @@ const locateCommands = (blockContent: string): Located[] => {
     if (rest.startsWith('$ ')) rest = rest.slice(2).trim()
     else if (rest === '$') continue
 
-    for (
-      let assignment = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/.exec(rest);
-      assignment !== null;
-      assignment = /^[A-Za-z_][A-Za-z0-9_]*=\S*\s+/.exec(rest)
-    ) {
-      rest = rest.slice(assignment[0].length)
-    }
-    rest = rest.replace(/^sudo\s+/, '')
+    rest = rest.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').replace(/^sudo\s+/, '')
 
     const firstWord = /^(\S+)/.exec(rest)
     if (firstWord === null) continue
@@ -852,6 +845,16 @@ const firstLine = (value: string): string | null => {
   return line === undefined ? null : line.trim()
 }
 
+/** What a thrown `execFileSync` error said: its stderr first, then its own
+ *  message, or null when neither carries a line. */
+const errorLine = (error: unknown): string | null => {
+  const record = asRecord(error)
+  return (
+    firstLine(textOf(record?.stderr)) ??
+    firstLine(typeof record?.message === 'string' ? record.message : '')
+  )
+}
+
 /**
  * One reply body, whatever exit code carried it: an answer when it has a
  * `data.repository` object to align aliases against, a failure otherwise.
@@ -879,8 +882,7 @@ export const parseIssueChunkBody = (body: unknown, numbers: number[]): IssueChun
  * `error` is the shape `execFileSync` throws (`stdout`, `stderr`, `message`).
  */
 export const parseIssueChunkFailure = (error: unknown, numbers: number[]): IssueChunkOutcome => {
-  const record = asRecord(error)
-  const stdout = textOf(record?.stdout)
+  const stdout = textOf(asRecord(error)?.stdout)
   let body: unknown
   try {
     body = stdout.trim() === '' ? undefined : JSON.parse(stdout)
@@ -889,12 +891,10 @@ export const parseIssueChunkFailure = (error: unknown, numbers: number[]): Issue
   }
   const outcome = parseIssueChunkBody(body, numbers)
   if (outcome.ok) return outcome
-  const reason =
-    graphqlErrors(body) ??
-    firstLine(textOf(record?.stderr)) ??
-    firstLine(typeof record?.message === 'string' ? record.message : '') ??
-    'gh api graphql failed'
-  return { ok: false, reason }
+  return {
+    ok: false,
+    reason: graphqlErrors(body) ?? errorLine(error) ?? 'gh api graphql failed',
+  }
 }
 
 /** Every number's state, with the reason when a chunk could not be read, or
@@ -939,11 +939,7 @@ export const ghIssueStates = (root: string, numbers: number[]): IssueStates => {
     owner = repoInfo.owner?.login
     name = repoInfo.name
   } catch (error) {
-    const record = asRecord(error)
-    const reason =
-      firstLine(textOf(record?.stderr)) ??
-      firstLine(typeof record?.message === 'string' ? record.message : '') ??
-      'gh repo view failed'
+    const reason = errorLine(error) ?? 'gh repo view failed'
     return { states: new Map(), unavailable: `gh repo view failed: ${reason}` }
   }
   if (owner === undefined || name === undefined) {

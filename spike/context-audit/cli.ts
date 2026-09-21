@@ -43,6 +43,7 @@ import type {
   Stage,
   StageFailure,
   Unit,
+  UnitKind,
   Usage,
 } from './types.ts'
 
@@ -209,12 +210,11 @@ const short = (text: string): string => {
   return flat.length > 110 ? `${flat.slice(0, 107)}...` : flat
 }
 
-const failureMessage = (e: unknown): string =>
-  e instanceof JevError
-    ? `HTTP ${e.status}: ${e.message} ${e.body}`.trim()
-    : e instanceof Error
-      ? e.message
-      : String(e)
+const failureMessage = (e: unknown): string => {
+  if (e instanceof JevError) return `HTTP ${e.status}: ${e.message} ${e.body}`.trim()
+  if (e instanceof Error) return e.message
+  return String(e)
+}
 
 const settle = async <T, R>(
   stage: Stage,
@@ -232,15 +232,30 @@ const settle = async <T, R>(
   return out
 }
 
-export const printFindings = (report: Report, write: (line: string) => void): void => {
-  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
-  const classOf = new Map(report.classifications.map((c) => [c.unitId, c]))
-  const skippedLine = (stage: Stage): string | null => {
-    const found = report.skipped.find((s) => s.stage === stage)
-    if (found === undefined) return null
-    return found.reason === 'no_jev' ? '  skipped (--no-jev)' : '  skipped: classify failed'
-  }
+type Write = (line: string) => void
 
+/** The one line a stage that never ran prints in place of its findings, or null. */
+const skippedLine = (report: Report, stage: Stage): string | null => {
+  const found = report.skipped.find((s) => s.stage === stage)
+  if (found === undefined) return null
+  return found.reason === 'no_jev' ? '  skipped (--no-jev)' : '  skipped: classify failed'
+}
+
+const cov = (c: Coverage): string => `${c.judged} of ${c.available} judged`
+
+/** How a ref tier 0 did not settle is tallied, or null for one it did. */
+const uncheckedKey = (ref: Ref): string | null => {
+  switch (ref.resolution.status) {
+    case 'unchecked':
+      return `${ref.kind} ${ref.resolution.reason}`
+    case 'tail_match':
+      return `${ref.kind} tail_match`
+    default:
+      return null
+  }
+}
+
+const printRefFindings = (report: Report, write: Write): void => {
   write(
     `${report.files.length} files, ${report.units.length} units, ${report.opaque.length} opaque`,
   )
@@ -269,19 +284,16 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
   const unchecked = new Map<string, number>()
   for (const block of blocks) {
     for (const ref of block.refs) {
-      const r = ref.resolution
-      const key =
-        r.status === 'unchecked'
-          ? `${ref.kind} ${r.reason}`
-          : r.status === 'tail_match'
-            ? `${ref.kind} tail_match`
-            : null
+      const key = uncheckedKey(ref)
       if (key !== null) unchecked.set(key, (unchecked.get(key) ?? 0) + 1)
     }
   }
   write('\n## tier 0: refs not checked')
   for (const [key, n] of [...unchecked].sort()) write(`  ${n}  ${key}`)
+}
 
+const printExpiredFindings = (report: Report, write: Write): void => {
+  const classOf = new Map(report.classifications.map((c) => [c.unitId, c]))
   // A unit with any unavailable issue ref is not judged either way, since the
   // closed one may be the wrong one; the rest are judged on what did resolve.
   const unavailableIssue = (u: Unit): boolean =>
@@ -300,38 +312,49 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
   write(
     `\n## volatile and the issue it names is closed (${expired.length}${notJudged > 0 ? `; ${notJudged} volatile units not judged, issue lookup unavailable` : ''})`,
   )
-  const classifySkipped = skippedLine('classify')
-  if (classifySkipped !== null) write(classifySkipped)
+  const skipped = skippedLine(report, 'classify')
+  if (skipped !== null) write(skipped)
   else if (report.failures.some((f) => f.stage === 'classify' && f.id === '*'))
     write('  not judged: classify failed')
   else for (const unit of expired) write(`  ${unit.id}  ${short(unit.text)}`)
+}
 
+const printPairFindings = (report: Report, byId: Map<string, Unit>, write: Write): void => {
   const pairs = (verdict: string): PairJudgment[] =>
     report.pairs
       .filter((pair) => pair.verdict.choice === verdict)
       .sort((x, y) => y.verdict.confidence - x.verdict.confidence)
-  const cov = (c: Coverage): string => `${c.judged} of ${c.available} judged`
   for (const verdict of ['contradicts', 'same_claim']) {
     write(`\n## pairs: ${verdict} (${pairs(verdict).length}; ${cov(report.pairCoverage)})`)
-    const line = skippedLine('pairs')
-    if (line !== null) write(line)
+    const skipped = skippedLine(report, 'pairs')
+    if (skipped !== null) write(skipped)
     for (const pair of pairs(verdict)) {
       write(`  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`)
       write(`    a: ${short(byId.get(pair.a)?.text ?? '')}`)
       write(`    b: ${short(byId.get(pair.b)?.text ?? '')}`)
     }
   }
+}
 
+const printEvidenceFindings = (report: Report, byId: Map<string, Unit>, write: Write): void => {
   const refuted = report.evidence
     .filter((e) => e.verdict.choice === 'contradicts')
     .sort((x, y) => y.verdict.confidence - x.verdict.confidence)
   write(`\n## evidence: contradicts (${refuted.length}; ${cov(report.evidenceCoverage)})`)
-  const evidenceSkipped = skippedLine('evidence')
-  if (evidenceSkipped !== null) write(evidenceSkipped)
+  const skipped = skippedLine(report, 'evidence')
+  if (skipped !== null) write(skipped)
   for (const e of refuted) {
     write(`  conf ${e.verdict.confidence.toFixed(2)}  ${e.unitId}  against ${e.source}`)
     write(`    ${short(byId.get(e.unitId)?.text ?? '')}`)
   }
+}
+
+export const printFindings = (report: Report, write: Write): void => {
+  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  printRefFindings(report, write)
+  printExpiredFindings(report, write)
+  printPairFindings(report, byId, write)
+  printEvidenceFindings(report, byId, write)
 
   write(`\n## failures (${report.failures.length})`)
   for (const f of report.failures) write(`  ${f.stage} ${f.id}: ${f.message}`)
@@ -343,74 +366,158 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
   )
 }
 
-/** `deps.jev` lets a test inject a client; the CLI builds a real one from the environment. */
-export const runAudit = async (options: Options, deps: { jev?: Jev } = {}): Promise<Report> => {
-  const started = Date.now()
-  const files = discoverFiles(options.root, options.scope === 'context' ? scopeFilter : undefined)
-
+/** Every file's blocks, in file order. */
+const splitAll = (
+  root: string,
+  files: string[],
+): { units: Unit[]; opaque: OpaqueBlock[]; warnings: SplitWarning[] } => {
   const units: Unit[] = []
   const opaque: OpaqueBlock[] = []
   const warnings: SplitWarning[] = []
   for (const file of files) {
-    const split = splitMarkdown(file, readFileSync(join(options.root, file), 'utf8'))
+    const split = splitMarkdown(file, readFileSync(join(root, file), 'utf8'))
     units.push(...split.units)
     opaque.push(...split.opaque)
     warnings.push(...split.warnings)
   }
-  const ids = new Set(units.map((u) => u.id))
-  if (ids.size !== units.length) throw new Error('splitter produced duplicate unit ids')
+  // Every later stage looks units up by id, so a collision would silently
+  // merge two of them.
+  if (new Set(units.map((u) => u.id)).size !== units.length) {
+    throw new Error('splitter produced duplicate unit ids')
+  }
+  return { units, opaque, warnings }
+}
+
+/**
+ * Tier 1's per-unit judgments. Each request classifies a run of units; a
+ * failed request loses only its own run, and the units it covered are left
+ * unclassified rather than the whole stage being discarded.
+ */
+const classifyUnits = async (
+  jev: Jev,
+  units: Unit[],
+  shape: RequestShape,
+  failures: StageFailure[],
+): Promise<Classification[]> => {
+  const requests = classifyRequest(units, { shape })
+  const results = await Promise.allSettled(requests.map((r) => jev.ask(r.state, r.questions)))
+  const bag: Record<string, unknown> = {}
+  results.forEach((result, i) => {
+    if (result.status === 'fulfilled') Object.assign(bag, result.value)
+    else
+      failures.push({
+        stage: 'classify',
+        id: `request ${i}`,
+        message: failureMessage(result.reason),
+      })
+  })
+  // parseClassification reads every unit by its global index, so a unit whose
+  // request failed is parsed alone with its answers moved under u0.
+  const classifications: Classification[] = []
+  units.forEach((unit, i) => {
+    if (!(`kind__u${i}` in bag)) return
+    const own: Record<string, unknown> = {}
+    for (const j of ['kind', 'volatile', 'self_contained', 'evidence', 'multi_assertion']) {
+      own[`${j}__u0`] = bag[`${j}__u${i}`]
+    }
+    try {
+      classifications.push(...parseClassification([unit], own))
+    } catch (e) {
+      failures.push({ stage: 'classify', id: unit.id, message: failureMessage(e) })
+    }
+  })
+  return classifications
+}
+
+const judgePairs = async (
+  jev: Jev,
+  units: Unit[],
+  kindOf: Map<string, UnitKind>,
+  options: Options,
+  failures: StageFailure[],
+): Promise<{ pairs: PairJudgment[]; coverage: Coverage }> => {
+  // History is a record of the past and structural text asserts nothing, so
+  // neither can be a duplicate worth removing or a claim worth refuting.
+  const comparable = units.filter((unit) => {
+    const kind = kindOf.get(unit.id)
+    return kind !== 'history' && kind !== 'structural'
+  })
+  const byId = new Map(units.map((unit) => [unit.id, unit]))
+  const allCandidates = candidatePairs(comparable, { threshold: options.pairThreshold }).sort(
+    (x, y) => y.similarity - x.similarity,
+  )
+  const pairs = await settle(
+    'pairs',
+    allCandidates.slice(0, options.maxPairs),
+    (c) => `${c.a} <> ${c.b}`,
+    async (candidate) => {
+      const a = byId.get(candidate.a)
+      const b = byId.get(candidate.b)
+      if (a === undefined || b === undefined) throw new Error('candidate names an unknown unit')
+      const r = pairRequest(a, b)
+      // jev.ask throws when a question asked has no answer.
+      return parsePair(candidate, await jev.ask(r.state, r.questions))
+    },
+    failures,
+  )
+  return { pairs, coverage: { judged: pairs.length, available: allCandidates.length } }
+}
+
+const judgeEvidence = async (
+  jev: Jev,
+  units: Unit[],
+  kindOf: Map<string, UnitKind>,
+  options: Options,
+  failures: StageFailure[],
+): Promise<{ evidence: EvidenceJudgment[]; coverage: Coverage }> => {
+  const repoFacts = units.filter((unit) => kindOf.get(unit.id) === 'repo_fact')
+  const checkable = repoFacts
+    .flatMap((unit) => {
+      const found = evidenceSource(options.root, unit)
+      return found === null ? [] : [{ unit, ...found }]
+    })
+    .slice(0, options.maxEvidence)
+  const evidence = await settle(
+    'evidence',
+    checkable,
+    (c) => c.unit.id,
+    async ({ unit, source, excerpt }) => {
+      const r = evidenceRequest(unit, source, excerpt)
+      return parseEvidence(unit, source, excerpt, await jev.ask(r.state, r.questions))
+    },
+    failures,
+  )
+  return { evidence, coverage: { judged: evidence.length, available: repoFacts.length } }
+}
+
+const jevFromEnv = (): Jev => {
+  const apiKey = process.env.TYPESAFE_API_KEY
+  if (apiKey === undefined || apiKey === '') throw new Error('TYPESAFE_API_KEY is not set')
+  return createJev({ apiKey })
+}
+
+/** `deps.jev` lets a test inject a client; the CLI builds a real one from the environment. */
+export const runAudit = async (options: Options, deps: { jev?: Jev } = {}): Promise<Report> => {
+  const started = Date.now()
+  const files = discoverFiles(options.root, options.scope === 'context' ? scopeFilter : undefined)
+  const { units, opaque, warnings } = splitAll(options.root, files)
   const unavailable = tierZero(options.root, units, opaque)
 
   const failures: StageFailure[] = []
-  const classifications: Classification[] = []
+  const skipped: SkippedStage[] = []
+  let classifications: Classification[] = []
   let pairs: PairJudgment[] = []
   let evidence: EvidenceJudgment[] = []
   let pairCoverage: Coverage = { judged: 0, available: 0 }
   let evidenceCoverage: Coverage = { judged: 0, available: 0 }
   let usage: Usage = { requests: 0, attempts: 0, inputTokens: 0, outputTokens: 0, requestMsSum: 0 }
-  const skipped: SkippedStage[] = []
 
   if (!options.jev) {
     for (const stage of ['classify', 'pairs', 'evidence'] as const)
       skipped.push({ stage, reason: 'no_jev' })
   } else {
-    let jev = deps.jev
-    if (jev === undefined) {
-      const apiKey = process.env.TYPESAFE_API_KEY
-      if (apiKey === undefined || apiKey === '') throw new Error('TYPESAFE_API_KEY is not set')
-      jev = createJev({ apiKey })
-    }
-    const byId = new Map(units.map((unit) => [unit.id, unit]))
-
-    // Each request classifies a run of units; a failed request loses only its
-    // own run, and the units it covered are left unclassified rather than the
-    // whole stage being discarded.
-    const requests = classifyRequest(units, { shape: options.shape })
-    const results = await Promise.allSettled(requests.map((r) => jev.ask(r.state, r.questions)))
-    const bag: Record<string, unknown> = {}
-    results.forEach((result, i) => {
-      if (result.status === 'fulfilled') Object.assign(bag, result.value)
-      else
-        failures.push({
-          stage: 'classify',
-          id: `request ${i}`,
-          message: failureMessage(result.reason),
-        })
-    })
-    // parseClassification reads every unit by its global index, so a unit
-    // whose request failed is parsed alone with its answers moved under u0.
-    units.forEach((unit, i) => {
-      if (!(`kind__u${i}` in bag)) return
-      const own: Record<string, unknown> = {}
-      for (const j of ['kind', 'volatile', 'self_contained', 'evidence', 'multi_assertion']) {
-        own[`${j}__u0`] = bag[`${j}__u${i}`]
-      }
-      try {
-        classifications.push(...parseClassification([unit], own))
-      } catch (e) {
-        failures.push({ stage: 'classify', id: unit.id, message: failureMessage(e) })
-      }
-    })
+    const jev = deps.jev ?? jevFromEnv()
+    classifications = await classifyUnits(jev, units, options.shape, failures)
     if (classifications.length === 0) {
       // Without any label nothing downstream can be routed.
       if (failures.every((f) => f.stage !== 'classify'))
@@ -419,54 +526,14 @@ export const runAudit = async (options: Options, deps: { jev?: Jev } = {}): Prom
         { stage: 'pairs', reason: 'classify_failed' },
         { stage: 'evidence', reason: 'classify_failed' },
       )
-    }
-
-    if (classifications.length > 0) {
+    } else {
       const kindOf = new Map(classifications.map((c) => [c.unitId, c.kind.choice]))
-      // History is a record of the past and structural text asserts nothing, so
-      // neither can be a duplicate worth removing or a claim worth refuting.
-      const comparable = units.filter((unit) => {
-        const kind = kindOf.get(unit.id)
-        return kind !== 'history' && kind !== 'structural'
-      })
-      const allCandidates = candidatePairs(comparable, { threshold: options.pairThreshold }).sort(
-        (x, y) => y.similarity - x.similarity,
-      )
-      const candidates = allCandidates.slice(0, options.maxPairs)
-      pairs = await settle(
-        'pairs',
-        candidates,
-        (c) => `${c.a} <> ${c.b}`,
-        async (candidate) => {
-          const a = byId.get(candidate.a)
-          const b = byId.get(candidate.b)
-          if (a === undefined || b === undefined) throw new Error('candidate names an unknown unit')
-          const r = pairRequest(a, b)
-          // jev.ask throws when a question asked has no answer.
-          return parsePair(candidate, await jev.ask(r.state, r.questions))
-        },
-        failures,
-      )
-      pairCoverage = { judged: pairs.length, available: allCandidates.length }
-
-      const repoFacts = units.filter((unit) => kindOf.get(unit.id) === 'repo_fact')
-      const checkable = repoFacts
-        .flatMap((unit) => {
-          const found = evidenceSource(options.root, unit)
-          return found === null ? [] : [{ unit, ...found }]
-        })
-        .slice(0, options.maxEvidence)
-      evidence = await settle(
-        'evidence',
-        checkable,
-        (c) => c.unit.id,
-        async ({ unit, source, excerpt }) => {
-          const r = evidenceRequest(unit, source, excerpt)
-          return parseEvidence(unit, source, excerpt, await jev.ask(r.state, r.questions))
-        },
-        failures,
-      )
-      evidenceCoverage = { judged: evidence.length, available: repoFacts.length }
+      const paired = await judgePairs(jev, units, kindOf, options, failures)
+      pairs = paired.pairs
+      pairCoverage = paired.coverage
+      const checked = await judgeEvidence(jev, units, kindOf, options, failures)
+      evidence = checked.evidence
+      evidenceCoverage = checked.coverage
     }
     usage = jev.usage()
   }
@@ -514,6 +581,12 @@ const invokedDirectly = (): boolean => {
   }
 }
 if (invokedDirectly()) {
+  // A reader piping the findings into `head` closes stdout early; that is not
+  // an error in the audit.
+  process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE') process.exit(0)
+    throw error
+  })
   main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     process.exitCode = 1

@@ -432,8 +432,8 @@ export function classifyRequest(
     const unitsById: Record<string, unknown> = {}
     const questions: Record<string, AnyQuestion> = {}
     for (const index of section.indexes) {
-      const unit = units[index]
-      if (unit === undefined) continue
+      // batchSections only ever emits positions of this same array.
+      const unit = units[index] as Unit
       const sid = shortId(index)
       unitsById[sid] = sectionUnitState(unit)
       for (const [judgment, question] of Object.entries(unitQuestions(`units.${sid}.text`))) {

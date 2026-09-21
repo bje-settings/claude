@@ -208,16 +208,16 @@ const compare = (dir: string): void => {
       `compare needs two or more answer files named jev*.json, sonnet*.json or opus*.json in ${dir}; found: ${names.join(', ') || 'none'}`,
     )
   }
-  const loaded = new Map(names.map((name) => [name, readJson<Answers>(join(dir, `${name}.json`))]))
+  const loaded = names.map((name) => readJson<Answers>(join(dir, `${name}.json`)))
   const fields = ['kind', 'volatile', 'self_contained', 'evidence', 'multi_assertion'] as const
+  const show = (a: ReturnType<typeof agreement>): string =>
+    a.onlyX + a.onlyY === 0
+      ? `${a.same}/${a.both}`
+      : `${a.same}/${a.both} (missing ${a.onlyX}|${a.onlyY})`
   for (let i = 0; i < names.length; i++) {
     for (let j = i + 1; j < names.length; j++) {
-      const x = loaded.get(names[i] as string) as Answers
-      const y = loaded.get(names[j] as string) as Answers
-      const show = (a: ReturnType<typeof agreement>): string =>
-        a.onlyX + a.onlyY === 0
-          ? `${a.same}/${a.both}`
-          : `${a.same}/${a.both} (missing ${a.onlyX}|${a.onlyY})`
+      const x = loaded[i] as Answers
+      const y = loaded[j] as Answers
       const parts = fields.map(
         (field) =>
           `${field} ${show(agreement(x.units, y.units, (v) => (v as UnitAnswer | undefined)?.[field]))}`,
@@ -230,7 +230,7 @@ const compare = (dir: string): void => {
 }
 
 // import.meta.url is the real path; argv[1] may reach this file through a symlink.
-const invokedDirectly = ((): boolean => {
+const invokedDirectly = (): boolean => {
   const script = process.argv[1]
   if (script === undefined) return false
   try {
@@ -238,17 +238,20 @@ const invokedDirectly = ((): boolean => {
   } catch {
     return false
   }
-})()
-const [mode, first, second] = invokedDirectly ? process.argv.slice(2) : []
-if (!invokedDirectly) {
-  // imported by a test
-} else if (mode === 'prepare' && first !== undefined && second !== undefined) prepare(first, second)
-else if (mode === 'jev' && first !== undefined) {
-  if (!existsSync(first)) throw new Error(`no such directory ${first}`)
+}
 
-  await runJev(first, second === 'per_unit' ? 'per_unit' : 'per_section')
-} else if (mode === 'compare' && first !== undefined) compare(first)
-else {
-  process.stderr.write('usage: bench.ts prepare <report.json> <dir> | jev <dir> | compare <dir>\n')
-  process.exitCode = 1
+// Nothing runs on import, so a test drives the exported helpers directly.
+if (invokedDirectly()) {
+  const [mode, first, second] = process.argv.slice(2)
+  if (mode === 'prepare' && first !== undefined && second !== undefined) prepare(first, second)
+  else if (mode === 'jev' && first !== undefined) {
+    if (!existsSync(first)) throw new Error(`no such directory ${first}`)
+    await runJev(first, second === 'per_unit' ? 'per_unit' : 'per_section')
+  } else if (mode === 'compare' && first !== undefined) compare(first)
+  else {
+    process.stderr.write(
+      'usage: bench.ts prepare <report.json> <dir> | jev <dir> | compare <dir>\n',
+    )
+    process.exitCode = 1
+  }
 }

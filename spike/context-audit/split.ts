@@ -36,28 +36,10 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
   const headingStack: HeadingFrame[] = []
   let i = 1
 
-  // YAML frontmatter only counts on line 1, closed by the next bare `---`.
-  const first = lines[0] ?? ''
-  if (first.trim() === '---') {
-    let close = -1
-    for (let j = 2; j <= total; j++) {
-      if ((lines[j - 1] ?? '').trim() === '---') {
-        close = j
-        break
-      }
-    }
-    if (close > 0) {
-      opaque.push({
-        file,
-        startLine: 1,
-        endLine: close,
-        kind: 'frontmatter',
-        lang: null,
-        text: lines.slice(1, close - 1).join('\n'),
-        refs: [],
-      })
-      i = close + 1
-    }
+  const frontmatter = readFrontmatter(lines, file)
+  if (frontmatter !== null) {
+    opaque.push(frontmatter)
+    i = frontmatter.endLine + 1
   }
 
   while (i <= total) {
@@ -96,33 +78,10 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const fence = matchFenceOpen(line)
     if (fence) {
-      const quoted = raw !== line
-      const close = findFenceClose(lines, i + 1, fence, quoted)
-      if (close < 0) {
-        warnings.push({ file, line: i, kind: 'unclosed_fence' })
-      }
-      const endLine = close > 0 ? close : total
-      const bodyStart = i + 1
-      const bodyEnd = close > 0 ? close - 1 : total
-      const body =
-        bodyEnd >= bodyStart
-          ? lines
-              .slice(bodyStart - 1, bodyEnd)
-              .map((l) => (quoted ? stripBlockquote(l) : l))
-              .join('\n')
-          : ''
-      const info = fence.info.trim()
-      const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
-      opaque.push({
-        file,
-        startLine: i,
-        endLine,
-        kind: lang?.toLowerCase() === 'mermaid' ? 'mermaid' : 'code',
-        lang,
-        text: body,
-        refs: [],
-      })
-      i = endLine + 1
+      const read = readFence(lines, i, fence, raw !== line, file, 0)
+      if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
+      opaque.push(read.block)
+      i = read.endLine + 1
       continue
     }
 
@@ -146,30 +105,10 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const headerCells = matchTableHeader(line, lines[i] ? stripBlockquote(lines[i] ?? '') : null)
     if (headerCells) {
-      i += 2
-      while (i <= total) {
-        const rowLineRaw = lines[i - 1] ?? ''
-        const rowLine = stripBlockquote(rowLineRaw)
-        if (isBlank(rowLine) || !rowLine.includes('|')) break
-        const cells = splitTableRow(rowLine)
-        const text = headerCells
-          .map((header, idx) => {
-            const name = header.trim() === '' ? `col${idx + 1}` : header.trim()
-            return `${name}: ${(cells[idx] ?? '').trim()}`
-          })
-          .join('\n')
-        units.push({
-          file,
-          startLine: i,
-          endLine: i,
-          block: 'table_row',
-          headingPath: headingStack.map((h) => h.text),
-          leadIn: null,
-          text,
-          refs: [],
-        })
-        i++
-      }
+      // The header's own line and the separator under it are not units.
+      const table = readTableRows(lines, i + 2, headerCells, file, headingStack)
+      units.push(...table.units)
+      i = table.next
       continue
     }
 
@@ -178,26 +117,8 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       continue
     }
 
-    // Paragraph: accumulate hard-wrapped lines until a line that starts a
-    // different kind of block, or EOF.
     const paraStart = i
-    let paraEnd = i
-    while (paraEnd + 1 <= total) {
-      const nextRaw = lines[paraEnd] ?? ''
-      const next = stripBlockquote(nextRaw)
-      if (
-        isBlank(next) ||
-        matchHeading(next) ||
-        matchFenceOpen(next) ||
-        matchListMarker(next) ||
-        isThematicBreak(next) ||
-        isHtmlCommentOpen(next) ||
-        isHtmlCommentFull(next)
-      ) {
-        break
-      }
-      paraEnd++
-    }
+    const paraEnd = paragraphEnd(lines, i)
 
     const paraLines: string[] = []
     for (let k = paraStart; k <= paraEnd; k++) paraLines.push(stripBlockquote(lines[k - 1] ?? ''))
@@ -239,6 +160,84 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
   }
 
   return { units: withNeighbours(assignIds(file, units)), opaque, warnings }
+}
+
+/** YAML frontmatter, which counts only when line 1 is a bare `---` and some
+ *  later line closes it with another. */
+const readFrontmatter = (lines: string[], file: string): OpaqueBlock | null => {
+  if ((lines[0] ?? '').trim() !== '---') return null
+  for (let close = 2; close <= lines.length; close++) {
+    if ((lines[close - 1] ?? '').trim() !== '---') continue
+    return {
+      file,
+      startLine: 1,
+      endLine: close,
+      kind: 'frontmatter',
+      lang: null,
+      text: lines.slice(1, close - 1).join('\n'),
+      refs: [],
+    }
+  }
+  return null
+}
+
+/** One unit per body row of a table, from `start` to the first line that is
+ *  blank or carries no pipe. Each row's text is the header's own cell names
+ *  paired with the row's values. */
+const readTableRows = (
+  lines: string[],
+  start: number,
+  headerCells: string[],
+  file: string,
+  headingStack: HeadingFrame[],
+): { units: Omit<Unit, 'id' | 'prev' | 'next'>[]; next: number } => {
+  const units: Omit<Unit, 'id' | 'prev' | 'next'>[] = []
+  let i = start
+  while (i <= lines.length) {
+    const rowLine = stripBlockquote(lines[i - 1] ?? '')
+    if (isBlank(rowLine) || !rowLine.includes('|')) break
+    const cells = splitTableRow(rowLine)
+    const text = headerCells
+      .map((header, idx) => {
+        const name = header.trim() === '' ? `col${idx + 1}` : header.trim()
+        return `${name}: ${(cells[idx] ?? '').trim()}`
+      })
+      .join('\n')
+    units.push({
+      file,
+      startLine: i,
+      endLine: i,
+      block: 'table_row',
+      headingPath: headingStack.map((h) => h.text),
+      leadIn: null,
+      text,
+      refs: [],
+    })
+    i++
+  }
+  return { units, next: i }
+}
+
+/** The last line of the hard-wrapped paragraph starting at `start`: the scan
+ *  stops before the first line that opens a different kind of block, or at EOF. */
+const paragraphEnd = (lines: string[], start: number): number => {
+  let end = start
+  while (end + 1 <= lines.length) {
+    const next = stripBlockquote(lines[end] ?? '')
+    if (
+      isBlank(next) ||
+      matchHeading(next) ||
+      matchFenceOpen(next) ||
+      matchListMarker(next) ||
+      isThematicBreak(next) ||
+      isHtmlCommentOpen(next) ||
+      isHtmlCommentFull(next)
+    ) {
+      break
+    }
+    end++
+  }
+  return end
 }
 
 /**
@@ -347,6 +346,47 @@ const findFenceClose = (
   return -1
 }
 
+/**
+ * The opaque block a fence opener on line `start` produces, and the line it
+ * ends on (the last line of the file when nothing closes it, which
+ * `closed: false` reports so the caller can warn).
+ *
+ * `strip` undoes a containing list item's own indentation, so a nested
+ * block's text reads the way it would unnested. The `>` comes off first:
+ * inside a blockquote it sits before that indentation, so stripping spaces
+ * alone would leave the marker in the block's text.
+ */
+const readFence = (
+  lines: string[],
+  start: number,
+  fence: FenceOpen,
+  quoted: boolean,
+  file: string,
+  strip: number,
+): { block: OpaqueBlock; endLine: number; closed: boolean } => {
+  const close = findFenceClose(lines, start + 1, fence, quoted)
+  const endLine = close > 0 ? close : lines.length
+  const body = lines
+    .slice(start, close > 0 ? close - 1 : lines.length)
+    .map((l) => stripLeading(quoted ? stripBlockquote(l) : l, strip))
+    .join('\n')
+  const info = fence.info.trim()
+  const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
+  return {
+    block: {
+      file,
+      startLine: start,
+      endLine,
+      kind: lang?.toLowerCase() === 'mermaid' ? 'mermaid' : 'code',
+      lang,
+      text: body,
+      refs: [],
+    },
+    endLine,
+    closed: close > 0,
+  }
+}
+
 /** Removes up to `n` leading spaces, never more than the line actually has. */
 const stripLeading = (line: string, n: number): string => {
   let cut = 0
@@ -390,14 +430,10 @@ const parseListBlock = (
   const total = lines.length
   let i = start
 
-  const finish = (item: OpenItem) => {
-    finished.push(item)
-  }
-
   const popTo = (indent: number) => {
     while (stack.length > 0 && (stack[stack.length - 1]?.indent ?? -1) >= indent) {
       const item = stack.pop()
-      if (item) finish(item)
+      if (item) finished.push(item)
     }
   }
 
@@ -443,41 +479,14 @@ const parseListBlock = (
 
     const fence = matchFenceOpen(line)
     if (fence && stack.length > 0) {
-      const quoted = raw !== line
-      const close = findFenceClose(lines, i + 1, fence, quoted)
-      if (close < 0) {
-        warnings.push({ file, line: i, kind: 'unclosed_fence' })
-      }
-      const endLine = close > 0 ? close : total
-      const bodyStart = i + 1
-      const bodyEnd = close > 0 ? close - 1 : total
-      // Undo the list item's own indentation, so the block's text reads the
-      // way it would if the fence were not nested. The `>` comes off first:
-      // inside a blockquote it sits before that indentation, so stripping
-      // spaces alone would leave the marker in the block's text.
       const strip = stack[stack.length - 1]?.contentColumn ?? 0
-      const body =
-        bodyEnd >= bodyStart
-          ? lines
-              .slice(bodyStart - 1, bodyEnd)
-              .map((l) => stripLeading(quoted ? stripBlockquote(l) : l, strip))
-              .join('\n')
-          : ''
-      const info = fence.info.trim()
-      const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
-      opaque.push({
-        file,
-        startLine: i,
-        endLine,
-        kind: lang?.toLowerCase() === 'mermaid' ? 'mermaid' : 'code',
-        lang,
-        text: body,
-        refs: [],
-      })
+      const read = readFence(lines, i, fence, raw !== line, file, strip)
+      if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
+      opaque.push(read.block)
       // The fence closes whatever item held it: continuation resumes as a
       // new paragraph rather than being folded back into the item's text.
       popTo(0)
-      i = endLine + 1
+      i = read.endLine + 1
       continue
     }
 
