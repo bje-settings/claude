@@ -8,6 +8,7 @@ import {
   extractBlockRefs,
   extractRefs,
   type PackageJsonCache,
+  parseIssueChunkBody,
   parseIssueChunkFailure,
   parseIssueResponse,
   type ResolveContext,
@@ -321,6 +322,44 @@ describe('extractBlockRefs', () => {
     const refs = extractBlockRefs('# see CLAUDE.md:115 for the rule\n', 'ts', 'code')
     assert.deepEqual(values(byKind(refs, 'file_line')), ['CLAUDE.md:115'])
   })
+
+  it('ignores a path wrapped in call syntax', () => {
+    // Trimming the edges alone left `import('../src/run.ts`, which is no path
+    // anybody wrote, and the audit then reported it absent.
+    const refs = extractBlockRefs("const m = await import('../src/run.ts')\n", 'ts', 'code')
+    assert.deepEqual(byKind(refs, 'path'), [])
+  })
+
+  it('ignores a token carrying an = sign', () => {
+    const refs = extractBlockRefs('gh pr list --repo=owner/name.git\n', 'bash', 'code')
+    assert.deepEqual(byKind(refs, 'path'), [])
+  })
+
+  it('resolves an env-templated block path as a pattern rather than absent', () => {
+    // biome-ignore-start lint/suspicious/noTemplateCurlyInString: the shell's own ${} is the fixture
+    const refs = extractBlockRefs('node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" sync\n', 'bash', 'code')
+    const root = join(tmpdir(), 'context-audit-nonexistent-root', 'deeper')
+    const resolved = resolveRefs(refs, context({ root }))
+    assert.deepEqual(values(byKind(resolved, 'path')), ['${CLAUDE_PLUGIN_ROOT}/bin/gh.ts'])
+    // biome-ignore-end lint/suspicious/noTemplateCurlyInString: the shell's own ${} is the fixture
+    assert.deepEqual(byKind(resolved, 'path')[0]?.resolution, {
+      status: 'unchecked',
+      reason: 'pattern',
+    })
+  })
+
+  it('resolves a ../-rooted block path as a pattern rather than absent', () => {
+    // Inside a fence, `../` is relative to whatever directory the example runs
+    // from, which is not the referencing file's, so there is nowhere to look.
+    const refs = extractBlockRefs('node ../scripts/run.ts\n', 'bash', 'code')
+    const root = join(tmpdir(), 'context-audit-nonexistent-root', 'deeper')
+    const resolved = resolveRefs(refs, context({ root }))
+    assert.deepEqual(values(byKind(resolved, 'path')), ['../scripts/run.ts'])
+    assert.deepEqual(byKind(resolved, 'path')[0]?.resolution, {
+      status: 'unchecked',
+      reason: 'pattern',
+    })
+  })
 })
 
 describe('resolveRefs: path', () => {
@@ -377,6 +416,17 @@ describe('resolveRefs: path', () => {
 
   it('resolves an NNN placeholder to unchecked, reason pattern', () => {
     const ref = resolveOne(pathRef('docs/adr/NNN-title.md'), context({ root: freshRepo() }))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
+  })
+
+  it('resolves an env-templated path to unchecked, reason pattern', () => {
+    // A skill writes `${CLAUDE_PLUGIN_ROOT}/scripts/x.py` because the prefix
+    // is only known at run time; it was reported absent.
+    const ref = resolveOne(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the skill's own ${} is the fixture
+      pathRef('${CLAUDE_PLUGIN_ROOT}/scripts/x.py'),
+      context({ root: freshRepo() }),
+    )
     assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
   })
 
@@ -448,10 +498,32 @@ describe('resolveRefs: path, the tracked tail rule', () => {
     })
   })
 
+  it('does not match a partial segment at the start of a directory reference', () => {
+    // `h/src/` ends the segment `gh`, so it occurs in `plugins/gh/src/...` as
+    // a string. The `/` before the tail is the whole boundary rule; without
+    // it any suffix of any segment absolves a path that names no directory.
+    const ref = resolveOne(pathRef('h/src/'), ctx(['plugins/gh/src/commands/sync.ts']))
+    assert.deepEqual(ref.resolution, { status: 'absent' })
+  })
+
   it('does not absolve a single-segment directory reference', () => {
     // `skills/` names a directory a dozen trees have; matching it against a
     // tracked path says nothing about the one the prose meant.
     const ref = resolveOne(pathRef('skills/'), ctx(['plugins/gh/skills/sync/SKILL.md']))
+    assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
+  })
+})
+
+describe('resolveRefs: a ref that already carries a resolution', () => {
+  it('keeps it, so extraction can settle what only extraction can see', () => {
+    const ref = resolveOne(
+      {
+        kind: 'path',
+        value: '../scripts/run.ts',
+        resolution: { status: 'unchecked', reason: 'pattern' },
+      },
+      context({ root: join(tmpdir(), 'context-audit-nonexistent-root', 'deeper') }),
+    )
     assert.deepEqual(ref.resolution, { status: 'unchecked', reason: 'pattern' })
   })
 })
@@ -598,7 +670,11 @@ describe('resolveRefs: issue', () => {
 
   it('resolves to the state the lookup gives', () => {
     const ref = resolveOne(
-      { kind: 'issue', value: '#138', resolution: { status: 'unchecked', reason: 'no_resolver' } },
+      {
+        kind: 'issue',
+        value: '#138',
+        resolution: { status: 'unchecked', reason: 'not_resolved_yet' },
+      },
       ctx((n) => (n === 138 ? 'OPEN' : 'not_found')),
     )
     assert.deepEqual(ref.resolution, { status: 'issue', state: 'OPEN' })
@@ -654,11 +730,23 @@ describe('buildIssueQuery', () => {
   })
 })
 
+/** A GraphQL `errors` entry the way GitHub writes one. Verified by hand:
+ *  `gh api graphql` on this repository with a real number and 999999 returns
+ *  `{"type":"NOT_FOUND","path":["repository","i1"],"locations":[...],
+ *  "message":"Could not resolve to an issue or pull request with the number
+ *  of 999999."}`. */
+const notFoundError = (alias: string, message = 'Could not resolve to an issue.') => ({
+  type: 'NOT_FOUND',
+  path: ['repository', alias],
+  locations: [{ line: 1, column: 153 }],
+  message,
+})
+
 describe('parseIssueResponse', () => {
   it('reads each alias back into a number-keyed map', () => {
     const data = { data: { repository: { i0: { state: 'OPEN' }, i1: { state: 'MERGED' } } } }
     assert.deepEqual(
-      parseIssueResponse(data, [138, 164]),
+      parseIssueResponse(data, [138, 164]).states,
       new Map([
         [138, 'OPEN'],
         [164, 'MERGED'],
@@ -668,41 +756,112 @@ describe('parseIssueResponse', () => {
 
   it('reads a response with no top-level "data" wrapper', () => {
     const data = { repository: { i0: { state: 'OPEN' } } }
-    assert.deepEqual(parseIssueResponse(data, [138]), new Map([[138, 'OPEN']]))
+    assert.deepEqual(parseIssueResponse(data, [138]).states, new Map([[138, 'OPEN']]))
   })
 
-  it('reads a null alias as not_found', () => {
-    const data = { data: { repository: { i0: null } } }
-    assert.deepEqual(parseIssueResponse(data, [0]), new Map([[0, 'not_found']]))
+  it('reads a null alias as not_found when a NOT_FOUND error names it', () => {
+    const data = { data: { repository: { i0: null } }, errors: [notFoundError('i0')] }
+    assert.deepEqual(parseIssueResponse(data, [0]).states, new Map([[0, 'not_found']]))
   })
 
-  it('reads a missing alias as not_found, not a throw', () => {
-    assert.deepEqual(
-      parseIssueResponse({ data: { repository: {} } }, [138]),
-      new Map([[138, 'not_found']]),
-    )
+  it('leaves a FORBIDDEN alias out rather than calling it absent', () => {
+    // The defect this rule exists for: a permissions error beside a perfectly
+    // good answer used to read as "issue #164 does not exist".
+    const data = {
+      data: { repository: { i0: { state: 'OPEN' }, i1: null } },
+      errors: [
+        {
+          type: 'FORBIDDEN',
+          path: ['repository', 'i1'],
+          message: 'Resource not accessible by integration',
+        },
+      ],
+    }
+    assert.deepEqual(parseIssueResponse(data, [138, 164]).states, new Map([[138, 'OPEN']]))
   })
 
-  it('reads an unrecognised state as not_found', () => {
+  it('leaves every null alias out for a timeout error, which carries no path', () => {
+    const data = {
+      data: { repository: { i0: null, i1: null } },
+      errors: [{ message: 'Something went wrong while executing your query.' }],
+    }
+    assert.deepEqual(parseIssueResponse(data, [138, 164]).states, new Map())
+  })
+
+  it('leaves a null alias out when nothing in errors names it', () => {
+    const data = { data: { repository: { i0: null, i1: null } }, errors: [notFoundError('i1')] }
+    assert.deepEqual(parseIssueResponse(data, [138, 164]).states, new Map([[164, 'not_found']]))
+  })
+
+  it('leaves a missing alias out, and does not throw', () => {
+    assert.deepEqual(parseIssueResponse({ data: { repository: {} } }, [138]).states, new Map())
+  })
+
+  it('leaves an unrecognised state out: the node exists, so it is not absent', () => {
     const data = { data: { repository: { i0: { state: 'DRAFT' } } } }
-    assert.deepEqual(parseIssueResponse(data, [138]), new Map([[138, 'not_found']]))
+    assert.deepEqual(parseIssueResponse(data, [138]).states, new Map())
   })
 
-  it('reads a malformed response as every number not_found', () => {
-    assert.deepEqual(parseIssueResponse(null, [138]), new Map([[138, 'not_found']]))
-    assert.deepEqual(parseIssueResponse('not an object', [138]), new Map([[138, 'not_found']]))
+  it('leaves every number out for a malformed response', () => {
+    assert.deepEqual(parseIssueResponse(null, [138]).states, new Map())
+    assert.deepEqual(parseIssueResponse('not an object', [138]).states, new Map())
+  })
+
+  it('returns the unexplained error messages beside the states', () => {
+    const data = {
+      data: { repository: { i0: { state: 'OPEN' } } },
+      errors: [{ message: 'first' }, { message: 'second' }],
+    }
+    assert.equal(parseIssueResponse(data, [138]).errors, 'first; second')
+    assert.equal(parseIssueResponse({ data: { repository: {} } }, [138]).errors, null)
+  })
+
+  it('reports no error for a NOT_FOUND, which the not_found state already says', () => {
+    // Otherwise every run naming one dead issue number would report the whole
+    // issue lookup as unavailable, on a lookup that worked perfectly.
+    const data = { data: { repository: { i0: null } }, errors: [notFoundError('i0')] }
+    const parsed = parseIssueResponse(data, [0])
+    assert.deepEqual(parsed.states, new Map([[0, 'not_found']]))
+    assert.equal(parsed.errors, null)
+  })
+})
+
+describe('parseIssueChunkBody', () => {
+  it('reads an exit-0 body carrying errors by the same rule', () => {
+    const body = {
+      data: { repository: { i0: { state: 'CLOSED' }, i1: null } },
+      errors: [{ type: 'RATE_LIMITED', path: ['repository', 'i1'], message: 'API rate limit' }],
+    }
+    const outcome = parseIssueChunkBody(body, [127, 164])
+    assert.equal(outcome.ok, true)
+    assert.deepEqual(outcome.ok ? outcome.states : null, new Map([[127, 'CLOSED']]))
+    assert.equal(outcome.ok ? outcome.errors : null, 'API rate limit')
+  })
+
+  it('fails an exit-0 body whose repository is null', () => {
+    const body = { data: { repository: null }, errors: [{ message: 'Bad credentials' }] }
+    assert.deepEqual(parseIssueChunkBody(body, [1]), { ok: false, reason: 'Bad credentials' })
+  })
+
+  it('fails a body with no repository and no errors, with a reason of its own', () => {
+    assert.deepEqual(parseIssueChunkBody({ data: {} }, [1]), {
+      ok: false,
+      reason: 'gh api graphql returned no repository',
+    })
   })
 })
 
 describe('parseIssueChunkFailure', () => {
   /** What `gh api graphql` prints, and exits 1 with, when one alias in the
    *  query names a number the repository has nothing for. Verified by hand
-   *  against this repository with #127 and #0. */
+   *  against this repository with #127 and #999999. */
   const partialFailure = {
     status: 1,
     stdout: JSON.stringify({
       data: { repository: { i0: { state: 'CLOSED' }, i1: null } },
-      errors: [{ message: 'Could not resolve to an issue or pull request with the number of 0.' }],
+      errors: [
+        notFoundError('i1', 'Could not resolve to an issue or pull request with the number of 0.'),
+      ],
     }),
     stderr: 'gh: Could not resolve to an issue or pull request with the number of 0.\n',
     message: 'Command failed',
@@ -718,6 +877,22 @@ describe('parseIssueChunkFailure', () => {
         [0, 'not_found'],
       ]),
     )
+  })
+
+  it('leaves a forbidden alias out of a partial answer', () => {
+    const outcome = parseIssueChunkFailure(
+      {
+        status: 1,
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'CLOSED' }, i1: null } },
+          errors: [{ type: 'FORBIDDEN', path: ['repository', 'i1'], message: 'no access' }],
+        }),
+      },
+      [127, 164],
+    )
+    assert.equal(outcome.ok, true)
+    assert.deepEqual(outcome.ok ? outcome.states : null, new Map([[127, 'CLOSED']]))
+    assert.equal(outcome.ok ? outcome.errors : null, 'no access')
   })
 
   it('reports the GraphQL message when there is no usable body', () => {

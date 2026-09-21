@@ -452,13 +452,15 @@ const parseListBlock = (
       const bodyStart = i + 1
       const bodyEnd = close > 0 ? close - 1 : total
       // Undo the list item's own indentation, so the block's text reads the
-      // way it would if the fence were not nested.
+      // way it would if the fence were not nested. The `>` comes off first:
+      // inside a blockquote it sits before that indentation, so stripping
+      // spaces alone would leave the marker in the block's text.
       const strip = stack[stack.length - 1]?.contentColumn ?? 0
       const body =
         bodyEnd >= bodyStart
           ? lines
               .slice(bodyStart - 1, bodyEnd)
-              .map((l) => stripLeading(l, strip))
+              .map((l) => stripLeading(quoted ? stripBlockquote(l) : l, strip))
               .join('\n')
           : ''
       const info = fence.info.trim()
@@ -483,6 +485,13 @@ const parseListBlock = (
     if (innermost && !matchHeading(line) && !isThematicBreak(line)) {
       const lineIndent = (line.match(/^\s*/)?.[0] ?? '').length
       if (lineIndent >= innermost.contentColumn) {
+        if (isHtmlCommentOpen(line) && skipHtmlComment(lines, i).next < 0) {
+          // Unclosed: end it at its own line rather than folding the rest of
+          // the file into the item's text, and say so, as the top level does.
+          warnings.push({ file, line: i, kind: 'unclosed_comment' })
+          i++
+          continue
+        }
         innermost.text += ` ${line.trim()}`
         innermost.endLine = i
         i++

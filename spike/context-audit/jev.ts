@@ -142,8 +142,14 @@ export type Jev = {
   usage(): Usage
 }
 
-/** Statuses the API reference names as "back off and retry". A transport failure is retried too. */
-const RETRYABLE = new Set([429, 529])
+/**
+ * Statuses the API reference names as "back off and retry", plus the
+ * standard proxy-layer statuses (500, 502, 503, 504): a proxy sitting in
+ * front of the API can produce these even when the API itself would not, and
+ * they mean the same thing as a 429 or 529 here. A transport failure is
+ * retried too.
+ */
+const RETRYABLE = new Set([429, 500, 502, 503, 504, 529])
 
 const DEFAULT_CONCURRENCY = 8
 const DEFAULT_MAX_RETRIES = 4
@@ -296,8 +302,24 @@ export function createJev(opts: JevOptions): Jev {
           const response = await send(body)
           if (response.ok) {
             // Read once as text, then parse, so a malformed body is caught
-            // here rather than inside the retry machinery below.
-            const text = await response.text()
+            // here rather than inside the retry machinery below. A read
+            // failure here (a timeout partway through the body) is thrown as
+            // a JevError, not left to the transport-failure branch below: the
+            // response was already received and billed, so retrying would
+            // only re-bill a request that already succeeded.
+            let text: string
+            try {
+              text = await response.text()
+            } catch (error) {
+              throw new JevError(
+                response.status,
+                redact(error instanceof Error ? error.message : String(error), opts.apiKey).slice(
+                  0,
+                  BODY_LIMIT,
+                ),
+                `TypeSafe returned HTTP ${response.status} but the body could not be read`,
+              )
+            }
             try {
               return {
                 status: response.status,
@@ -311,10 +333,14 @@ export function createJev(opts: JevOptions): Jev {
               )
             }
           }
-          const text = redact(await response.text().catch(() => ''), opts.apiKey).slice(
-            0,
-            BODY_LIMIT,
-          )
+          // Unlike the JSON body above, an unreadable non-OK body is not
+          // discarded as an empty string: an empty body and an unreadable one
+          // are different failures, and folding them together would hide a
+          // read failure as if the server had said nothing.
+          const text = redact(
+            await response.text().catch(() => '(body unreadable)'),
+            opts.apiKey,
+          ).slice(0, BODY_LIMIT)
           if (!RETRYABLE.has(response.status)) throw new JevError(response.status, text)
           lastStatus = response.status
           lastBody = text

@@ -473,6 +473,30 @@ test('a fenced block inside a blockquote closes on the quoted closing fence', ()
   )
 })
 
+test('a fenced block inside a list item inside a blockquote loses its > markers', () => {
+  const source = '> - item\n>   ```bash\n>   pnpm test\n>   ```\n> - next\n'
+  const { units, opaque } = splitMarkdown('a.md', source)
+  assert.equal(opaque.length, 1)
+  assert.equal(opaque[0]?.lang, 'bash')
+  // The quote marker sits before the list indentation, so stripping spaces
+  // alone left `>   pnpm test` as the block's opaque text.
+  assert.equal(opaque[0]?.text, 'pnpm test')
+  assert.deepEqual(
+    units.map((u) => u.text),
+    ['item', 'next'],
+  )
+})
+
+test('an unclosed HTML comment in a list continuation warns and ends at its line', () => {
+  const source = ['- item', '  <!-- never closes', '', 'A sentence after.'].join('\n')
+  const { units, warnings } = splitMarkdown('a.md', source)
+  assert.deepEqual(warnings, [{ file: 'a.md', line: 2, kind: 'unclosed_comment' }])
+  assert.deepEqual(
+    units.map((u) => u.text),
+    ['item', 'A sentence after.'],
+  )
+})
+
 test('an unclosed fence still runs to EOF and warns', () => {
   const source = ['Intro.', '', '```ts', 'const x = 1'].join('\n')
   const { opaque, warnings } = splitMarkdown('a.md', source)

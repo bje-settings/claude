@@ -224,6 +224,77 @@ test('a body that is not valid JSON on a 2xx is not retried', async () => {
   assert.equal(calls, 1)
 })
 
+test('a 2xx whose body read throws is a non-retryable JevError with the real status', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return {
+        ok: true,
+        status: 200,
+        text: async () => {
+          throw new Error('body read timed out')
+        },
+      } as unknown as Response
+    },
+  })
+
+  await assert.rejects(
+    () => jev.ask('s', Q),
+    (error: unknown) => {
+      assert.ok(error instanceof JevError)
+      assert.equal(error.status, 200)
+      assert.match(error.message, /body could not be read/)
+      return true
+    },
+  )
+  // A received, billed 2xx must not be resent just because its body read failed.
+  assert.equal(calls, 1)
+})
+
+test('an unreadable body on a non-OK response is reported with a marker, not as empty', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () =>
+      ({
+        ok: false,
+        status: 400,
+        headers: new Headers(),
+        text: async () => {
+          throw new Error('read failed')
+        },
+      }) as unknown as Response,
+  })
+
+  await assert.rejects(
+    () => jev.ask('s', Q),
+    (error: unknown) => {
+      assert.ok(error instanceof JevError)
+      assert.equal(error.status, 400)
+      assert.equal(error.body, '(body unreadable)')
+      return true
+    },
+  )
+})
+
+test('a 503 is retried like a 429', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(503, 'unavailable') : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+  assert.equal(calls, 2)
+})
+
 test('gives up after maxRetries and reports the last status', async () => {
   let calls = 0
   const jev = createJev({
@@ -306,6 +377,49 @@ test('the api key is redacted from a foreign error thrown by fetch itself', asyn
   assert.equal(error.status, 0)
   const everything = `${error.message} ${error.stack ?? ''} ${error.body} ${String(error)} ${JSON.stringify(error)}`
   assert.ok(!everything.includes(KEY))
+})
+
+test('the api key is redacted from a server body that echoes the bare key, not just Bearer <key>', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    // No `Bearer` prefix this time: some servers echo the raw credential
+    // value alone, which is a different code path in `redact` than the
+    // `Bearer <key>` case the other tests exercise.
+    fetch: async () => reply(400, JSON.stringify({ error: `key ${KEY} rejected` })),
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  assert.ok(error instanceof JevError)
+  assert.ok(!error.body.includes(KEY))
+  assert.ok(error.body.includes('[redacted]'))
+})
+
+test('the api key is redacted from a malformed 2xx body that happens to contain it', async () => {
+  // Pins the redact() call on the not-valid-JSON call site, which no other
+  // test exercises with the bare key present in the body.
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, `not json ${KEY}`) })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  assert.ok(error instanceof JevError)
+  assert.match(error.message, /not valid JSON/)
+  assert.ok(!error.body.includes(KEY))
+  assert.ok(error.body.includes('[redacted]'))
+})
+
+test('the api key is redacted from a 2xx body with no answers that happens to contain it', async () => {
+  // Pins one of the three ask()-level safeStringify(payload) call sites: a
+  // 2xx that parses as JSON but fails the `answers` shape check.
+  const jev = createJev({
+    apiKey: KEY,
+    fetch: async () => reply(200, { model: 'x', note: `leaked key ${KEY}` }),
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  assert.ok(error instanceof JevError)
+  assert.match(error.message, /no answers/)
+  assert.ok(!error.body.includes(KEY))
+  assert.ok(error.body.includes('[redacted]'))
 })
 
 test('a body without answers is refused as a JevError carrying the response status', async () => {

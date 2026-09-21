@@ -7,17 +7,15 @@
 // between them. The functions are exported so tests can drive them; main runs
 // only when this file is the script node was given.
 import { execFileSync } from 'node:child_process'
-import { readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { closeSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { candidatePairs } from './candidates.ts'
 import { discoverFiles, scopeFilter } from './discover.ts'
 import { createJev, type Jev, JevError } from './jev.ts'
 import {
   classifyRequest,
-  EVIDENCE_QUESTION_ID,
   evidenceRequest,
-  PAIR_QUESTION_ID,
   pairRequest,
   parseClassification,
   parseEvidence,
@@ -40,7 +38,9 @@ import type {
   PairJudgment,
   Ref,
   Report,
+  SkippedStage,
   SplitWarning,
+  Stage,
   StageFailure,
   Unit,
   Usage,
@@ -209,8 +209,15 @@ const short = (text: string): string => {
   return flat.length > 110 ? `${flat.slice(0, 107)}...` : flat
 }
 
+const failureMessage = (e: unknown): string =>
+  e instanceof JevError
+    ? `HTTP ${e.status}: ${e.message} ${e.body}`.trim()
+    : e instanceof Error
+      ? e.message
+      : String(e)
+
 const settle = async <T, R>(
-  stage: StageFailure['stage'],
+  stage: Stage,
   items: T[],
   id: (item: T) => string,
   work: (item: T) => Promise<R>,
@@ -220,16 +227,7 @@ const settle = async <T, R>(
   const out: R[] = []
   results.forEach((result, i) => {
     if (result.status === 'fulfilled') out.push(result.value)
-    else {
-      const e: unknown = result.reason
-      const message =
-        e instanceof JevError
-          ? `HTTP ${e.status}: ${e.message} ${e.body}`.trim()
-          : e instanceof Error
-            ? e.message
-            : String(e)
-      failures.push({ stage, id: id(items[i] as T), message })
-    }
+    else failures.push({ stage, id: id(items[i] as T), message: failureMessage(result.reason) })
   })
   return out
 }
@@ -237,7 +235,11 @@ const settle = async <T, R>(
 export const printFindings = (report: Report, write: (line: string) => void): void => {
   const byId = new Map(report.units.map((unit) => [unit.id, unit]))
   const classOf = new Map(report.classifications.map((c) => [c.unitId, c]))
-  const skipped = (stage: string): boolean => report.skipped.includes(stage)
+  const skippedLine = (stage: Stage): string | null => {
+    const found = report.skipped.find((s) => s.stage === stage)
+    if (found === undefined) return null
+    return found.reason === 'no_jev' ? '  skipped (--no-jev)' : '  skipped: classify failed'
+  }
 
   write(
     `${report.files.length} files, ${report.units.length} units, ${report.opaque.length} opaque`,
@@ -280,12 +282,29 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
   write('\n## tier 0: refs not checked')
   for (const [key, n] of [...unchecked].sort()) write(`  ${n}  ${key}`)
 
-  write('\n## volatile and the issue it names is closed')
-  if (skipped('classify')) write('  skipped (--no-jev)')
-  else if (report.issueLookup !== 'ok') write('  not checked: issue lookup unavailable')
-  else
-    for (const unit of report.units.filter((u) => isExpired(u, classOf.get(u.id))))
-      write(`  ${unit.id}  ${short(unit.text)}`)
+  // A unit with any unavailable issue ref is not judged either way, since the
+  // closed one may be the wrong one; the rest are judged on what did resolve.
+  const unavailableIssue = (u: Unit): boolean =>
+    u.refs.some(
+      (r) =>
+        r.kind === 'issue' &&
+        r.resolution.status === 'unchecked' &&
+        r.resolution.reason === 'unavailable',
+    )
+  const expired = report.units.filter(
+    (u) => !unavailableIssue(u) && isExpired(u, classOf.get(u.id)),
+  )
+  const notJudged = report.units.filter(
+    (u) => unavailableIssue(u) && (classOf.get(u.id)?.volatile ?? 0) >= 0.8,
+  ).length
+  write(
+    `\n## volatile and the issue it names is closed (${expired.length}${notJudged > 0 ? `; ${notJudged} volatile units not judged, issue lookup unavailable` : ''})`,
+  )
+  const classifySkipped = skippedLine('classify')
+  if (classifySkipped !== null) write(classifySkipped)
+  else if (report.failures.some((f) => f.stage === 'classify' && f.id === '*'))
+    write('  not judged: classify failed')
+  else for (const unit of expired) write(`  ${unit.id}  ${short(unit.text)}`)
 
   const pairs = (verdict: string): PairJudgment[] =>
     report.pairs
@@ -294,7 +313,8 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
   const cov = (c: Coverage): string => `${c.judged} of ${c.available} judged`
   for (const verdict of ['contradicts', 'same_claim']) {
     write(`\n## pairs: ${verdict} (${pairs(verdict).length}; ${cov(report.pairCoverage)})`)
-    if (skipped('pairs')) write('  skipped (--no-jev)')
+    const line = skippedLine('pairs')
+    if (line !== null) write(line)
     for (const pair of pairs(verdict)) {
       write(`  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`)
       write(`    a: ${short(byId.get(pair.a)?.text ?? '')}`)
@@ -306,7 +326,8 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
     .filter((e) => e.verdict.choice === 'contradicts')
     .sort((x, y) => y.verdict.confidence - x.verdict.confidence)
   write(`\n## evidence: contradicts (${refuted.length}; ${cov(report.evidenceCoverage)})`)
-  if (skipped('evidence')) write('  skipped (--no-jev)')
+  const evidenceSkipped = skippedLine('evidence')
+  if (evidenceSkipped !== null) write(evidenceSkipped)
   for (const e of refuted) {
     write(`  conf ${e.verdict.confidence.toFixed(2)}  ${e.unitId}  against ${e.source}`)
     write(`    ${short(byId.get(e.unitId)?.text ?? '')}`)
@@ -322,7 +343,8 @@ export const printFindings = (report: Report, write: (line: string) => void): vo
   )
 }
 
-export const runAudit = async (options: Options): Promise<Report> => {
+/** `deps.jev` lets a test inject a client; the CLI builds a real one from the environment. */
+export const runAudit = async (options: Options, deps: { jev?: Jev } = {}): Promise<Report> => {
   const started = Date.now()
   const files = discoverFiles(options.root, options.scope === 'context' ? scopeFilter : undefined)
 
@@ -340,35 +362,63 @@ export const runAudit = async (options: Options): Promise<Report> => {
   const unavailable = tierZero(options.root, units, opaque)
 
   const failures: StageFailure[] = []
-  let classifications: Classification[] = []
+  const classifications: Classification[] = []
   let pairs: PairJudgment[] = []
   let evidence: EvidenceJudgment[] = []
   let pairCoverage: Coverage = { judged: 0, available: 0 }
   let evidenceCoverage: Coverage = { judged: 0, available: 0 }
   let usage: Usage = { requests: 0, attempts: 0, inputTokens: 0, outputTokens: 0, requestMsSum: 0 }
-  const skipped: string[] = []
+  const skipped: SkippedStage[] = []
 
-  if (!options.jev) skipped.push('classify', 'pairs', 'evidence')
-  else {
-    const apiKey = process.env.TYPESAFE_API_KEY
-    if (apiKey === undefined || apiKey === '') throw new Error('TYPESAFE_API_KEY is not set')
-    const jev: Jev = createJev({ apiKey })
+  if (!options.jev) {
+    for (const stage of ['classify', 'pairs', 'evidence'] as const)
+      skipped.push({ stage, reason: 'no_jev' })
+  } else {
+    let jev = deps.jev
+    if (jev === undefined) {
+      const apiKey = process.env.TYPESAFE_API_KEY
+      if (apiKey === undefined || apiKey === '') throw new Error('TYPESAFE_API_KEY is not set')
+      jev = createJev({ apiKey })
+    }
     const byId = new Map(units.map((unit) => [unit.id, unit]))
 
-    try {
-      const bags = await Promise.all(
-        classifyRequest(units, { shape: options.shape }).map((r) => jev.ask(r.state, r.questions)),
+    // Each request classifies a run of units; a failed request loses only its
+    // own run, and the units it covered are left unclassified rather than the
+    // whole stage being discarded.
+    const requests = classifyRequest(units, { shape: options.shape })
+    const results = await Promise.allSettled(requests.map((r) => jev.ask(r.state, r.questions)))
+    const bag: Record<string, unknown> = {}
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') Object.assign(bag, result.value)
+      else
+        failures.push({
+          stage: 'classify',
+          id: `request ${i}`,
+          message: failureMessage(result.reason),
+        })
+    })
+    // parseClassification reads every unit by its global index, so a unit
+    // whose request failed is parsed alone with its answers moved under u0.
+    units.forEach((unit, i) => {
+      if (!(`kind__u${i}` in bag)) return
+      const own: Record<string, unknown> = {}
+      for (const j of ['kind', 'volatile', 'self_contained', 'evidence', 'multi_assertion']) {
+        own[`${j}__u0`] = bag[`${j}__u${i}`]
+      }
+      try {
+        classifications.push(...parseClassification([unit], own))
+      } catch (e) {
+        failures.push({ stage: 'classify', id: unit.id, message: failureMessage(e) })
+      }
+    })
+    if (classifications.length === 0) {
+      // Without any label nothing downstream can be routed.
+      if (failures.every((f) => f.stage !== 'classify'))
+        failures.push({ stage: 'classify', id: '*', message: 'no unit was classified' })
+      skipped.push(
+        { stage: 'pairs', reason: 'classify_failed' },
+        { stage: 'evidence', reason: 'classify_failed' },
       )
-      classifications = parseClassification(units, Object.assign({}, ...bags))
-    } catch (e) {
-      // Without the labels nothing downstream can be routed, so the run stops
-      // here and still writes what it has.
-      failures.push({
-        stage: 'classify',
-        id: '*',
-        message: e instanceof Error ? e.message : String(e),
-      })
-      skipped.push('pairs', 'evidence')
     }
 
     if (classifications.length > 0) {
@@ -391,9 +441,9 @@ export const runAudit = async (options: Options): Promise<Report> => {
           const a = byId.get(candidate.a)
           const b = byId.get(candidate.b)
           if (a === undefined || b === undefined) throw new Error('candidate names an unknown unit')
-          const bag = await jev.ask(pairRequest(a, b).state, pairRequest(a, b).questions)
-          if (bag[PAIR_QUESTION_ID] === undefined) throw new Error('no pair answer')
-          return parsePair(candidate, bag)
+          const r = pairRequest(a, b)
+          // jev.ask throws when a question asked has no answer.
+          return parsePair(candidate, await jev.ask(r.state, r.questions))
         },
         failures,
       )
@@ -412,9 +462,7 @@ export const runAudit = async (options: Options): Promise<Report> => {
         (c) => c.unit.id,
         async ({ unit, source, excerpt }) => {
           const r = evidenceRequest(unit, source, excerpt)
-          const bag = await jev.ask(r.state, r.questions)
-          if (bag[EVIDENCE_QUESTION_ID] === undefined) throw new Error('no evidence answer')
-          return parseEvidence(unit, source, excerpt, bag)
+          return parseEvidence(unit, source, excerpt, await jev.ask(r.state, r.questions))
         },
         failures,
       )
@@ -444,19 +492,28 @@ export const runAudit = async (options: Options): Promise<Report> => {
 
 const main = async (): Promise<void> => {
   const options = parseArgs(process.argv.slice(2))
-  // Paid stages run before the write, so a bad path must fail before them.
-  if (options.out !== null && !statSync(dirname(options.out)).isDirectory()) {
-    throw new Error(`--out: not a directory: ${dirname(options.out)}`)
-  }
+  // Paid stages run before the write, so the file must be writable before
+  // them: opening it catches a missing directory, a directory in its place
+  // and a read-only file alike.
+  if (options.out !== null) closeSync(openSync(options.out, 'w'))
   const report = await runAudit(options)
-  if (options.out !== null) writeFileSync(options.out, `${JSON.stringify(report, null, 2)}\n`)
   printFindings(report, (line) => process.stdout.write(`${line}\n`))
+  if (options.out !== null) writeFileSync(options.out, `${JSON.stringify(report, null, 2)}\n`)
   if (report.failures.length > 0) process.exitCode = 1
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (invokedDirectly) {
+// import.meta.url is the real path; argv[1] is whatever the user typed, which
+// may reach this file through a symlink.
+const invokedDirectly = (): boolean => {
+  const script = process.argv[1]
+  if (script === undefined) return false
+  try {
+    return realpathSync(script) === fileURLToPath(import.meta.url)
+  } catch {
+    return false
+  }
+}
+if (invokedDirectly()) {
   main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     process.exitCode = 1

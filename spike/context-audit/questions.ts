@@ -459,8 +459,13 @@ function readNoul(bag: AnswerBag, id: string): number {
     throw new Error(`no noul answer under ${id}`)
   }
   const noul = (answer as { noul?: unknown }).noul
-  if (typeof noul !== 'number' || !Number.isFinite(noul) || noul < 0 || noul > 1) {
+  if (typeof noul !== 'number') {
     throw new Error(`no noul answer under ${id}`)
+  }
+  // A value is present, so a reader should be pointed at the value that is
+  // wrong, not sent looking for a key that is not actually missing.
+  if (!Number.isFinite(noul) || noul < 0 || noul > 1) {
+    throw new Error(`noul answer under ${id} is out of range: ${noul}`)
   }
   return noul
 }
@@ -484,6 +489,12 @@ function readChoice<T extends string>(
   if (
     typeof raw.choice !== 'string' ||
     typeof raw.confidence !== 'number' ||
+    // Same range check readNoul applies to `noul`: a probability is a
+    // probability whichever field carries it, so NaN or a value outside
+    // [0, 1] is no more trustworthy here than it is there.
+    !Number.isFinite(raw.confidence) ||
+    raw.confidence < 0 ||
+    raw.confidence > 1 ||
     typeof raw.probabilities !== 'object' ||
     raw.probabilities === null ||
     Array.isArray(raw.probabilities)
@@ -511,6 +522,9 @@ function readChoice<T extends string>(
     }
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new Error(`answer ${id} has a non-finite probability for ${option}`)
+    }
+    if (value < 0 || value > 1) {
+      throw new Error(`answer ${id} has a probability out of range for ${option}: ${value}`)
     }
     probabilities[option] = value
   }

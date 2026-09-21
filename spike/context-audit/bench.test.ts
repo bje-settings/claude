@@ -16,6 +16,23 @@ test('agreement counts ids missing on either side instead of hiding them', () =>
   const x = { a: 'k', b: 'k', c: 'k' }
   const y = { a: 'k', b: 'j', d: 'k' }
   assert.deepEqual(agreement(x, y), { same: 1, both: 2, onlyX: 1, onlyY: 1 })
+  // A field both files lack is missing, not agreed.
+  assert.deepEqual(
+    agreement(
+      { a: { kind: 'x' } },
+      { a: { kind: 'y' } },
+      (v) => (v as { volatile?: boolean }).volatile,
+    ),
+    { same: 0, both: 0, onlyX: 0, onlyY: 0 },
+  )
+  assert.deepEqual(
+    agreement(
+      { a: { kind: 'x', volatile: true } },
+      { a: { kind: 'y' } },
+      (v) => (v as { volatile?: boolean }).volatile,
+    ),
+    { same: 0, both: 0, onlyX: 1, onlyY: 0 },
+  )
   assert.deepEqual(
     agreement({ a: { kind: 'x' } }, { a: { kind: 'x' } }, (v) => (v as { kind: string }).kind),
     { same: 1, both: 1, onlyX: 0, onlyY: 0 },

@@ -8,8 +8,8 @@
 // answer file whose name starts with jev, sonnet or opus. Only the per_unit
 // run of `jev` sends Jev what the subagent read; the default per_section run
 // batches units and drops prev and next, so it is a different comparison.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createJev } from './jev.ts'
 import {
@@ -186,11 +186,15 @@ export const agreement = (
   for (const key of keys) {
     const inX = key in x
     const inY = key in y
-    if (inX && inY) {
+    // A field absent from an answer counts as missing on that side, so two
+    // files that both omit it cannot score as agreeing on it.
+    const vx = inX ? pick(x[key]) : undefined
+    const vy = inY ? pick(y[key]) : undefined
+    if (vx !== undefined && vy !== undefined) {
       both++
-      if (pick(x[key]) === pick(y[key])) same++
-    } else if (inX) onlyX++
-    else onlyY++
+      if (vx === vy) same++
+    } else if (vx !== undefined) onlyX++
+    else if (vy !== undefined) onlyY++
   }
   return { same, both, onlyX, onlyY }
 }
@@ -199,6 +203,11 @@ const compare = (dir: string): void => {
   const names = readdirSync(dir)
     .filter((f) => /^(jev|sonnet|opus)[\w-]*\.json$/.test(f) && !f.includes('timings'))
     .map((f) => f.replace('.json', ''))
+  if (names.length < 2) {
+    throw new Error(
+      `compare needs two or more answer files named jev*.json, sonnet*.json or opus*.json in ${dir}; found: ${names.join(', ') || 'none'}`,
+    )
+  }
   const loaded = new Map(names.map((name) => [name, readJson<Answers>(join(dir, `${name}.json`))]))
   const fields = ['kind', 'volatile', 'self_contained', 'evidence', 'multi_assertion'] as const
   for (let i = 0; i < names.length; i++) {
@@ -220,8 +229,16 @@ const compare = (dir: string): void => {
   }
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+// import.meta.url is the real path; argv[1] may reach this file through a symlink.
+const invokedDirectly = ((): boolean => {
+  const script = process.argv[1]
+  if (script === undefined) return false
+  try {
+    return realpathSync(script) === fileURLToPath(import.meta.url)
+  } catch {
+    return false
+  }
+})()
 const [mode, first, second] = invokedDirectly ? process.argv.slice(2) : []
 if (!invokedDirectly) {
   // imported by a test

@@ -304,6 +304,17 @@ const locateCommands = (blockContent: string): Located[] => {
 const TRIM_LEADING_RE = /^[('"[{`]+/
 const TRIM_TRAILING_RE = /[)'"\]},;:.`]+$/
 
+/** Syntax that survives the edge trims because it is not at an edge, and that
+ *  no bare path contains. `import('../src/run.ts')` trims to
+ *  `import('../src/run.ts`, which is not a path anybody wrote; the token is
+ *  code around a path rather than a path, so it yields no ref at all. */
+const CODE_TOKEN_SYNTAX_RE = /[()'"=`]/
+
+/** A `../`-rooted path inside a code block is written relative to whatever
+ *  directory the example runs from, which is not the referencing file's, so
+ *  there is nowhere to look for it. A shape, not an absence. */
+const RELATIVE_EXAMPLE: Resolution = { status: 'unchecked', reason: 'pattern' }
+
 /** Paths and file:line references written inside a code block, token by
  *  token. Narrower than the prose rule ({@link looksLikePathInCode}). */
 const locatePathsInCode = (content: string): Located[] => {
@@ -311,15 +322,14 @@ const locatePathsInCode = (content: string): Located[] => {
   for (const match of content.matchAll(/\S+/g)) {
     const token = (match[0] as string).replace(TRIM_LEADING_RE, '').replace(TRIM_TRAILING_RE, '')
     if (token === '') continue
+    if (CODE_TOKEN_SYNTAX_RE.test(token)) continue
+    const resolution = token.startsWith('../') ? RELATIVE_EXAMPLE : UNRESOLVED
     if (isFileLineToken(token)) {
-      located.push({
-        at: match.index,
-        ref: { kind: 'file_line', value: token, resolution: UNRESOLVED },
-      })
+      located.push({ at: match.index, ref: { kind: 'file_line', value: token, resolution } })
       continue
     }
     if (looksLikePathInCode(token)) {
-      located.push({ at: match.index, ref: { kind: 'path', value: token, resolution: UNRESOLVED } })
+      located.push({ at: match.index, ref: { kind: 'path', value: token, resolution } })
     }
   }
   return located
@@ -348,7 +358,12 @@ const CROSS_REPO_RE = /[\w.-]+\/[\w.-]+$/
  *  prose writes "#116, #129, #140" and "blocked by: #123", and every one of
  *  those is an issue number of exactly the three digits a colour has. A
  *  style declaration writes no space there, so adjacency is what separates
- *  the two. */
+ *  the two.
+ *
+ *  The accepted cost is a deliberate false negative: prose written without
+ *  the space, "blocked by:#123", is dropped as a colour. Losing one issue
+ *  reference is the cheaper error, since tolerating adjacency would turn
+ *  every mermaid `color:#000` into a fabricated issue lookup. */
 const COLOUR_PREFIX_RE = /[:,]$/
 
 /** `#123` anywhere in `text`, in prose or inside a code span alike, with
@@ -499,9 +514,15 @@ const isMachineSpecific = (value: string): boolean => value.startsWith('~/') || 
 /** `true` for a glob or a placeholder: a path shape {@link extractRefs} keeps
  *  on purpose, but one an existence check would always fail, which is a
  *  different fact from "looked and absent". `*` and `<name>` are the literal
- *  spellings; `NNN` and `...` are the prose spellings of the same thing. */
+ *  spellings; `${VAR}` is the env-templated one a skill writes
+ *  (`${CLAUDE_PLUGIN_ROOT}/scripts/x.py`); `NNN` and `...` are the prose
+ *  spellings of the same thing. */
 const isPattern = (value: string): boolean =>
-  value.includes('*') || value.includes('<') || value.includes('NNN') || value.includes('...')
+  value.includes('*') ||
+  value.includes('<') ||
+  value.includes('${') ||
+  value.includes('NNN') ||
+  value.includes('...')
 
 const toRepoRelative = (root: string, absolutePath: string): string =>
   relative(root, absolutePath).split(sep).join('/')
@@ -678,6 +699,13 @@ export const resolveRefs = (refs: Ref[], ctx: ResolveContext): Ref[] => {
   const packageJson = ctx.packageJson ?? new Map<string, PackageJsonEntry>()
 
   return refs.map((ref) => {
+    // A ref that already carries a resolution keeps it. Extraction settles the
+    // one case only extraction can see: which side of a fence a path was
+    // written on ({@link RELATIVE_EXAMPLE}). `not_resolved_yet` is the sentinel
+    // for "nobody has looked yet".
+    if (ref.resolution.status !== 'unchecked' || ref.resolution.reason !== 'not_resolved_yet') {
+      return ref
+    }
     switch (ref.kind) {
       case 'path':
         return resolvePath(ref, ctx)
@@ -732,37 +760,86 @@ const ISSUE_STATES = new Set<string>(['OPEN', 'CLOSED', 'MERGED'])
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
 
-/**
- * `buildIssueQuery`'s response, aligned back to `numbers` by alias index.
- * A number the reply has no node for (a number nothing in this repository
- * uses, a deleted item, an alias missing from a malformed reply) reads as
- * `not_found`, the same as a node carrying no recognised `state`: both are
- * "asked, and this repository has nothing to say about it". `unavailable`
- * is never produced here, because a parsed reply IS an answer. Pure and
- * exported so parsing is tested without a network call.
- */
-export const parseIssueResponse = (
-  data: unknown,
-  numbers: number[],
-): Map<number, IssueState | 'not_found'> => {
-  const result = new Map<number, IssueState | 'not_found'>()
-  const repository = asRecord(asRecord(data)?.data ?? data)?.repository
-  const repositoryRecord = asRecord(repository)
-  numbers.forEach((n, index) => {
-    const state = asRecord(repositoryRecord?.[`i${index}`])?.state
-    result.set(
-      n,
-      typeof state === 'string' && ISSUE_STATES.has(state) ? (state as IssueState) : 'not_found',
-    )
-  })
-  return result
+const graphqlErrors = (body: unknown): string | null => {
+  const errors = asRecord(body)?.errors
+  if (!Array.isArray(errors)) return null
+  const messages = errors
+    .map((entry) => asRecord(entry)?.message)
+    .filter((message): message is string => typeof message === 'string')
+  return messages.length === 0 ? null : messages.join('; ')
 }
 
-/** One chunk's outcome: the states it answered with, or why it could not be
- *  read at all. */
-export type IssueChunkOutcome =
-  | { ok: true; states: Map<number, IssueState | 'not_found'> }
-  | { ok: false; reason: string }
+const errorEntries = (body: unknown): unknown[] => {
+  const errors = asRecord(body)?.errors
+  return Array.isArray(errors) ? errors : []
+}
+
+/**
+ * The alias one error says outright does not exist, or null for every other
+ * error.
+ *
+ * A GraphQL reply tags each error with a `type` and the `path` it happened on:
+ * a missing node is `{"type":"NOT_FOUND","path":["repository","i1"], ...}`.
+ * A `FORBIDDEN`, a `RATE_LIMITED` and a timeout are tagged differently, and a
+ * timeout carries no `path` at all, so none of them names an alias here. That
+ * is the whole point: only an alias this returns may be reported absent.
+ */
+const notFoundAlias = (entry: unknown): string | null => {
+  const record = asRecord(entry)
+  if (record?.type !== 'NOT_FOUND') return null
+  const path = record.path
+  if (!Array.isArray(path) || path.length === 0) return null
+  const last = path[path.length - 1]
+  return typeof last === 'string' ? last : null
+}
+
+/** What one reply said: the numbers it actually answered for, and whatever it
+ *  reported going wrong beside them. */
+export type IssueParse = {
+  /** ONLY the numbers the reply spoke to. A number left out is one the reply
+   *  gave no usable answer for; a caller reads that as `unavailable`, never as
+   *  absent. */
+  states: Map<number, IssueState | 'not_found'>
+  /** The messages of the errors NOT already accounted for by a `not_found`
+   *  state, joined; null when every error was. A `NOT_FOUND` on a named alias
+   *  is a complete answer about that number, so it is not also a reason the
+   *  lookup was unavailable. */
+  errors: string | null
+}
+
+/**
+ * `buildIssueQuery`'s response, aligned back to `numbers` by alias index.
+ *
+ * A number is `not_found` only when the reply says so in the one way that
+ * means it: an `errors` entry of type `NOT_FOUND` whose `path` ends in that
+ * number's alias. Every other null or missing alias is left OUT of `states`,
+ * because the reason it is null may be a `FORBIDDEN`, a rate limit or a
+ * timeout, and reporting any of those as "this issue does not exist" would
+ * fabricate a finding out of a failure to ask. Pure and exported so parsing is
+ * tested without a network call.
+ */
+export const parseIssueResponse = (data: unknown, numbers: number[]): IssueParse => {
+  const states = new Map<number, IssueState | 'not_found'>()
+  const repository = asRecord(asRecord(data)?.data ?? data)?.repository
+  const repositoryRecord = asRecord(repository)
+  const entries = errorEntries(data)
+  const absent = new Set(entries.map(notFoundAlias).filter((a): a is string => a !== null))
+  numbers.forEach((n, index) => {
+    const alias = `i${index}`
+    const state = asRecord(repositoryRecord?.[alias])?.state
+    if (typeof state === 'string' && ISSUE_STATES.has(state)) states.set(n, state as IssueState)
+    else if (absent.has(alias)) states.set(n, 'not_found')
+  })
+  const messages = entries
+    .filter((entry) => notFoundAlias(entry) === null)
+    .map((entry) => asRecord(entry)?.message)
+    .filter((message): message is string => typeof message === 'string')
+  return { states, errors: messages.length === 0 ? null : messages.join('; ') }
+}
+
+/** One chunk's outcome: what it answered with (and what it still reported
+ *  going wrong), or why it could not be read at all. */
+export type IssueChunkOutcome = ({ ok: true } & IssueParse) | { ok: false; reason: string }
 
 const textOf = (value: unknown): string => {
   if (typeof value === 'string') return value
@@ -775,14 +852,18 @@ const firstLine = (value: string): string | null => {
   return line === undefined ? null : line.trim()
 }
 
-const graphqlErrors = (body: unknown): string | null => {
-  const errors = asRecord(body)?.errors
-  if (!Array.isArray(errors)) return null
-  const messages = errors
-    .map((entry) => asRecord(entry)?.message)
-    .filter((message): message is string => typeof message === 'string')
-  return messages.length === 0 ? null : messages.join('; ')
-}
+/**
+ * One reply body, whatever exit code carried it: an answer when it has a
+ * `data.repository` object to align aliases against, a failure otherwise.
+ * `gh` can exit 0 on a body carrying `errors`, and can exit 1 on a body that
+ * is a perfectly good partial answer, so the body decides and the exit code
+ * does not. Pure and exported so both branches are tested without a network
+ * call.
+ */
+export const parseIssueChunkBody = (body: unknown, numbers: number[]): IssueChunkOutcome =>
+  asRecord(asRecord(asRecord(body)?.data)?.repository) === undefined
+    ? { ok: false, reason: graphqlErrors(body) ?? 'gh api graphql returned no repository' }
+    : { ok: true, ...parseIssueResponse(body, numbers) }
 
 /**
  * What a failed `gh api graphql` call actually said.
@@ -791,7 +872,8 @@ const graphqlErrors = (body: unknown): string | null => {
  * whose `data` carries every alias that did resolve, with the failed ones
  * `null`. One unusable number would otherwise discard the whole chunk, so a
  * body with a `repository` object in it is read as an answer, and only a
- * reply with no usable body at all is a failure.
+ * reply with no usable body at all is a failure. WHICH of the null aliases is
+ * genuinely absent is {@link parseIssueResponse}'s rule, not this one's.
  *
  * Pure and exported so both branches are tested without a network call:
  * `error` is the shape `execFileSync` throws (`stdout`, `stderr`, `message`).
@@ -805,9 +887,8 @@ export const parseIssueChunkFailure = (error: unknown, numbers: number[]): Issue
   } catch {
     body = undefined
   }
-  if (asRecord(asRecord(asRecord(body)?.data)?.repository) !== undefined) {
-    return { ok: true, states: parseIssueResponse(body, numbers) }
-  }
+  const outcome = parseIssueChunkBody(body, numbers)
+  if (outcome.ok) return outcome
   const reason =
     graphqlErrors(body) ??
     firstLine(textOf(record?.stderr)) ??
@@ -816,9 +897,11 @@ export const parseIssueChunkFailure = (error: unknown, numbers: number[]): Issue
   return { ok: false, reason }
 }
 
-/** Every number's state, with the reason when some chunk could not be read
- *  at all. `unavailable` is a sentence for the report, never a per-number
- *  verdict: a number missing from `states` was in a chunk that failed. */
+/** Every number's state, with the reason when a chunk could not be read, or
+ *  reported an error beside the answers it did give. `unavailable` is a
+ *  sentence for the report, never a per-number verdict: a number missing from
+ *  `states` was in a chunk that failed, or was an alias the reply gave no
+ *  usable answer for. */
 export type IssueStates = {
   states: Map<number, IssueState | 'not_found'>
   unavailable: string | null
@@ -882,12 +965,19 @@ export const ghIssueStates = (root: string, numbers: number[]): IssueStates => {
         // output and hands it to `parseIssueChunkFailure` instead.
         stdio: ['ignore', 'pipe', 'pipe'],
       })
-      outcome = { ok: true, states: parseIssueResponse(JSON.parse(output), chunk) }
+      // A body can carry `errors` with exit 0 too, and `data.repository` can
+      // be null in it, so the exit-0 path is read by the same rule as the
+      // failure path rather than trusting the exit code.
+      outcome = parseIssueChunkBody(JSON.parse(output), chunk)
     } catch (error) {
       outcome = parseIssueChunkFailure(error, chunk)
     }
-    if (outcome.ok) for (const [n, state] of outcome.states) states.set(n, state)
-    else failures.push(outcome.reason)
+    if (outcome.ok) {
+      for (const [n, state] of outcome.states) states.set(n, state)
+      // Errors beside a usable body name what did NOT answer. Those numbers
+      // are already out of `states`; the reason belongs in the report.
+      if (outcome.errors !== null) failures.push(outcome.errors)
+    } else failures.push(outcome.reason)
   }
   return { states, unavailable: failures.length === 0 ? null : failures.join('; ') }
 }

@@ -366,11 +366,24 @@ const GOOD_ANSWERS = {
   multi_assertion__u0: { type: 'noul', noul: 0 },
 }
 
-test('a noul outside 0 to 1 is refused, not clamped', () => {
+test('a noul outside 0 to 1 is refused, not clamped, and reported as out of range', () => {
   assert.throws(
     () =>
       parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: { type: 'noul', noul: 1.5 } }),
-    /no noul answer/,
+    // The value is present, so the message should point at the value being
+    // wrong, not read like the key is missing.
+    /out of range: 1\.5/,
+  )
+})
+
+test('a non-finite noul is reported as out of range too, not as missing', () => {
+  assert.throws(
+    () =>
+      parseClassification([ONE], {
+        ...GOOD_ANSWERS,
+        volatile__u0: { type: 'noul', noul: Number.NaN },
+      }),
+    /out of range/,
   )
 })
 
@@ -412,6 +425,33 @@ test('a non-finite probability on a non-chosen option is refused', () => {
         },
       }),
     /non-finite probability for instruction/,
+  )
+})
+
+test('a NaN confidence is refused, not passed through as a valid number', () => {
+  assert.throws(
+    () =>
+      parseClassification([ONE], {
+        ...GOOD_ANSWERS,
+        kind__u0: { ...GOOD_ANSWERS.kind__u0, confidence: Number.NaN },
+      }),
+    /no choice answer/,
+  )
+})
+
+test('a probability of 42 is refused, not accepted as a raw score', () => {
+  assert.throws(
+    () =>
+      parseClassification([ONE], {
+        ...GOOD_ANSWERS,
+        kind__u0: {
+          type: 'choice',
+          choice: 'repo_fact',
+          probabilities: { repo_fact: 42 },
+          confidence: 1,
+        },
+      }),
+    /probability out of range for repo_fact: 42/,
   )
 })
 

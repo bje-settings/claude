@@ -166,8 +166,12 @@ export type Usage = {
   requestMsSum: number
 }
 
+export type Stage = 'classify' | 'pairs' | 'evidence'
+
+export type SkippedStage = { stage: Stage; reason: 'no_jev' | 'classify_failed' }
+
 /** A model call that failed; the run carries on and reports it. */
-export type StageFailure = { stage: 'classify' | 'pairs' | 'evidence'; id: string; message: string }
+export type StageFailure = { stage: Stage; id: string; message: string }
 
 /** How much of a stage's work was done, so "0 found" can be told from "0 looked at". */
 export type Coverage = { judged: number; available: number }
@@ -180,8 +184,8 @@ export type Report = {
   warnings: SplitWarning[]
   /** `ok`, or why no issue state could be read. */
   issueLookup: string
-  /** Stages that did not run at all, with the reason (`--no-jev`). */
-  skipped: string[]
+  /** Stages that did not run at all, and why. */
+  skipped: SkippedStage[]
   classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
