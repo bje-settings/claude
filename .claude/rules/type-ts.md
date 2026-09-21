@@ -18,14 +18,14 @@ and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is
 ## Shape
 
 ```
-lib/                       # shared across plugins; the only thing that crosses a plugin boundary
+lib/                           # shared across plugins; the only thing that crosses a boundary
 plugins/<plugin>/
-  bin/<command>.ts         # thin adapter
+  bin/<command>.ts             # thin adapter
   src/
-    lib -> ../../../lib    # committed symlink
-    <command>.ts           # one exported function per command: the seam
-    <command>.test.ts      # co-located with the code it covers
-    fixtures/              # co-located with the tests that load them
+    lib -> ../../../lib        # committed symlink
+    commands/<command>.ts      # one exported function per command: the seam
+    commands/<command>.test.ts # co-located with the code it covers
+    fixtures/                  # for the tests under commands/
   hooks/*.ts
 ```
 
@@ -61,11 +61,12 @@ and exits quietly rather than writing a refusal into someone's transcript.
 
 ## Tests
 
-- A test sits beside the code it covers, with fixtures beside it: `lib/args.test.ts` next to
-  `lib/args.ts`, `plugins/<p>/src/<command>.test.ts` next to the command. `vitest.config.ts` names
-  the collected globs rather than discovering them, so a new source directory is added there
-  deliberately. The shared harness is `harness/` at the repository root, imported only from test
-  files so it never ships (`harness/README.md`, which has the rest of the test side).
+- A test sits beside the code it covers: `lib/args.test.ts` next to `lib/args.ts`,
+  `plugins/<p>/src/commands/<command>.test.ts` next to the command, with that plugin's fixtures at
+  `plugins/<p>/src/fixtures/`. `vitest.config.ts` names the collected globs rather than discovering
+  them, so a new source directory is added there deliberately. The shared harness is `harness/` at
+  the repository root, imported only from test files so it never ships (`harness/README.md`, which
+  has the rest of the test side).
 - `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
   `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
   and names itself, which is the property a stub binary cannot give: a command that reached for

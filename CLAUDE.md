@@ -20,10 +20,10 @@ Plugins are listed in `README.md`; each has its own README. New `gh` skills belo
 plugin, and repo discovery shared by its skills is `plugins/gh/scripts/lib/discover.py`.
 
 New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
-has the rules. A command is an exported function under `plugins/<plugin>/src/` behind a thin
-adapter at `plugins/<plugin>/bin/<command>.ts`, a hook goes at `plugins/<plugin>/hooks/*.ts`, and
-code shared between plugins is the root `lib/`, reached through the committed symlink
-`plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
+has the rules. A command is an exported function at `plugins/<plugin>/src/commands/<command>.ts`
+behind a thin adapter at `plugins/<plugin>/bin/<command>.ts`, a hook goes at
+`plugins/<plugin>/hooks/*.ts`, and code shared between plugins is the root `lib/`, reached through
+the committed symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
 
 The Python layer is retiring and is not the pattern to copy. `gh` (#127) and `field-test` (#136)
 still run scripts at `plugins/<plugin>/scripts/*.py` and hooks at `plugins/<plugin>/hooks/*.py`,
@@ -148,9 +148,9 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
 
 #### Layout and fixtures
 
-- TypeScript tests are co-located at `plugins/<plugin>/src/**/*.test.ts` with fixtures beside them.
-  The shared harness is `harness/` at the repository root (`harness/README.md`), imported only from
-  test files so it never ships; `tests/` holds this repository's own checks.
+- TypeScript tests are co-located at `plugins/<plugin>/src/**/*.test.ts`, with fixtures at
+  `src/fixtures/`. The shared harness is `harness/` at the repository root (`harness/README.md`),
+  imported only from test files so it never ships; `tests/` holds this repository's own checks.
 - A plugin's Python tests live in `tests/<plugin>/`, with tests that span plugins or cover the
   harness itself at the root of `tests/`. A module's basename is unique across the whole suite,
   because pytest imports them into one namespace: `test_gh_fixtures.py` and `test_ft_fixtures.py`,

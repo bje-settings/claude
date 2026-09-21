@@ -20,9 +20,9 @@ Tests that need `jq` or a package manager skip themselves without it (the `gh` s
 `jq` for `--jq`), and the git hooks' own steps additionally need `node_modules`, `claude` and
 `uv`, and warn to stderr without them rather than failing the commit.
 
-TypeScript tests are co-located with the code they cover, at `plugins/<plugin>/src/**/*.test.ts`
-with fixtures beside them; the shared harness is `harness/` at the repository root, imported only
-from test files. See `harness/README.md`.
+TypeScript tests are co-located with the code they cover, at `plugins/<plugin>/src/**/*.test.ts`,
+with fixtures at `plugins/<plugin>/src/fixtures/`; the shared harness is `harness/` at the
+repository root, imported only from test files. See `harness/README.md`.
 
 Python tests live in `tests/<plugin>/`, with their fixtures beside them: a `conftest.py`, a stub
 `gh` under `bin/`, and any canned data the tests read. See `tests/gh/README.md`. Test module
