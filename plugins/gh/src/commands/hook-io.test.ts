@@ -987,6 +987,25 @@ it('refuses the spellings Number() would have accepted', () => {
   expect(Number.isNaN(pythonFloat('NaN') as number)).toBe(true)
 })
 
+it('skips at each end exactly what float() skips, and nothing else', () => {
+  // `trim()` diverges from `float()` in both directions at once, and either
+  // one decides how long a session start waits for the fan-out.
+  // `python3 -c "float('\u00855')"` is 5.0, where `trim()` leaves the NEL and
+  // the grammar refuses the string.
+  expect(pythonFloat('\u00855')).toBe(5)
+  expect(syncTimeout({ [SYNC_TIMEOUT_ENV]: '\u00855' })).toBe(5)
+  // `python3 -c "float('\ufeff5')"` raises ValueError, where `trim()` eats the
+  // byte-order mark a pasted or generated value carries and the grammar then
+  // accepts it.
+  expect(pythonFloat('\ufeff5')).toBeNull()
+  expect(syncTimeout({ [SYNC_TIMEOUT_ENV]: '\ufeff5' })).toBe(SYNC_TIMEOUT)
+  // The four information separators are `str.strip()`'s and not `float()`'s,
+  // so the two classes cannot be the same one: `'\u001c5'.strip()` is `'5'`
+  // and `float('\u001c5')` raises.
+  expect(pythonFloat('\u001c5')).toBeNull()
+  expect(lastLine('\u001c5')).toBe('5')
+})
+
 it('formats the bound the way Python g does, on both sides of the exponent', () => {
   expect(formatG(50)).toBe('50')
   expect(formatG(0.5)).toBe('0.5')

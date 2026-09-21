@@ -220,8 +220,30 @@ const PYTHON_SPECIAL = /^[+-]?(?:inf(?:inity)?|nan)$/i
 const PYTHON_DECIMAL =
   /^[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$/
 
+/**
+ * What `float()` skips at each end, which is not what `str.strip()` strips and
+ * not what `trim()` trims.
+ *
+ * Three sets are in play in this file and no two of them are the same.
+ * `float()`'s is `str.strip()`'s (below) MINUS the four information separators,
+ * which `float` refuses: `float("\u001c5")` raises where `"\u001c5".strip()`
+ * is `"5"`. JavaScript's `trim()` is `float()`'s MINUS NEL PLUS `\ufeff`, so
+ * `trim()` diverges in both directions at once: `float("\u00855")` is 5.0
+ * where `trim` leaves the NEL and the grammar below refuses the string, and
+ * `float("\ufeff5")` raises where `trim` eats the byte-order mark and the
+ * grammar accepts it. Both readings decide how long a session start waits for
+ * the fan-out, and a byte-order mark is what a pasted or generated value
+ * carries, so the set is written out rather than borrowed.
+ */
+const PYTHON_FLOAT_SPACE_CLASS =
+  '\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000'
+const PYTHON_FLOAT_SPACE = new RegExp(
+  `^[${PYTHON_FLOAT_SPACE_CLASS}]+|[${PYTHON_FLOAT_SPACE_CLASS}]+$`,
+  'g',
+)
+
 export const pythonFloat = (raw: string): number | null => {
-  const text = raw.trim()
+  const text = raw.replace(PYTHON_FLOAT_SPACE, '')
   if (PYTHON_SPECIAL.test(text)) {
     const magnitude = text.toLowerCase().endsWith('nan') ? Number.NaN : Number.POSITIVE_INFINITY
     return text.startsWith('-') ? -magnitude : magnitude
@@ -311,8 +333,11 @@ const PYTHON_LINES = new RegExp(`\\r\\n|[\\n\\r\\v\\f${SEPARATORS}\\u0085\\u2028
 /** Python's `str.strip()` set. `str.isspace()` is JavaScript's whitespace plus
  *  the four information separators and NEL, and minus `\ufeff`, so `trim()`
  *  reads a line holding only a file separator as having something in it where
- *  Python reads it as blank. */
-const PYTHON_SPACE_CLASS = `\\t\\n\\v\\f\\r ${SEPARATORS}\\u001f\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000`
+ *  Python reads it as blank. Composed from {@link PYTHON_FLOAT_SPACE_CLASS}
+ *  rather than written out a second time: the only difference between what
+ *  `strip()` strips and what `float()` skips is the four separators and the
+ *  unit separator beside them. */
+const PYTHON_SPACE_CLASS = `${PYTHON_FLOAT_SPACE_CLASS}${SEPARATORS}\\u001f`
 const PYTHON_SPACE = new RegExp(`^[${PYTHON_SPACE_CLASS}]+|[${PYTHON_SPACE_CLASS}]+$`, 'g')
 
 /** The last line of `text` with anything in it, stripped, or `""`. */
