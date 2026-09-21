@@ -31,7 +31,7 @@ import path from 'node:path'
 import { discoverRepos, gitUnavailable, toplevel } from '../discover.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import { createWriter } from '../lib/streams.ts'
-import { type Command, type SyncRepoOptions, syncRepo } from './sync-repo.ts'
+import { type Command, REPORT, type SyncRepoOptions, syncRepo } from './sync-repo.ts'
 
 /** At most this many repositories are synced at a time when `-j` says
  *  nothing. */
@@ -72,9 +72,15 @@ order, never in the order the jobs happened to finish.`
  * wording is this file's rather than the Python's, because the Python's names
  * a script and a status that no longer exist;
  * `fixtures/divergences.json` records it against the line it replaces.
+ *
+ * The mark is {@link REPORT}'s rather than a literal, because this is a report
+ * line like any other and the SessionStart hook classifies it by that constant
+ * (#110, `commands/hook-io.ts` `fanOutSummary`, which counts this line as a
+ * repository that could not be fully checked). A literal here would let the
+ * mark be reworded in one place and leave the hook quietly counting nothing.
  */
 export const failureLine = (error: unknown): string =>
-  `  ✗ the sync failed: ${error instanceof Error ? error.message : String(error)}\n`
+  `${REPORT.bad}the sync failed: ${error instanceof Error ? error.message : String(error)}\n`
 
 /**
  * What a job that returned a non-zero status without throwing says, in the
@@ -85,7 +91,7 @@ export const failureLine = (error: unknown): string =>
  * itself is reachable through one that throws.
  */
 export const statusLine = (status: number): string =>
-  `  ✗ the sync failed: exited with status ${status}\n`
+  `${REPORT.bad}the sync failed: exited with status ${status}\n`
 
 /** The section a repository's job left, and whether that job counts as
  *  failed: a throw, or a non-zero status with no throw. Data, never a mark
