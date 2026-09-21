@@ -52,10 +52,13 @@ export default defineConfig({
       ],
       // Test files are test code: measuring them would let an unused test
       // helper move the number without any shipped or shared code changing.
-      // plugins/*/src/lib/** is the same root-lib-through-the-symlink
-      // exclusion as test.exclude above, for the same reason: lib/ is
-      // already measured at its real path.
-      exclude: ['**/*.test.ts', '**/fixtures/**', 'plugins/*/src/lib/**'],
+      // No plugins/*/src/lib/** entry here, unlike test.exclude above:
+      // coverage-v8 is keyed by the canonical (realpath) module URL node's
+      // ESM loader resolves a symlinked import to, so it already reports
+      // each lib/ file once, at its real path, with no duplicate entry to
+      // exclude. Confirmed on #126 by removing the entry and comparing the
+      // coverage summary with and without it: identical either way.
+      exclude: ['**/*.test.ts', '**/fixtures/**'],
       // vitest 4 dropped the `all` option: coverage-v8 now includes every
       // file matching `include` whenever the whole suite runs (a single-file
       // rerun is the only case it narrows), which is the same "a file with
