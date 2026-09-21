@@ -508,6 +508,17 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<string | null> =>
     // the session gets one line, because a person reads that one.
     const text = result.stderr
     edges.output.err.write(text.endsWith('\n') || text === '' ? text : `${text}\n`)
+    // #81 (found while reading this function for round 7 layer 2): `sync` now
+    // answers a non-zero status when one of its own repositories failed,
+    // AFTER writing the whole report to stdout, exactly as it does for a
+    // clean run. Falling straight to `FAILED_LINE` here would throw that
+    // report away and say something strictly less true: "could not run the
+    // sync check" about a check that ran to completion and found a real
+    // problem. So a non-zero status with a report still on stdout is read the
+    // same way a zero status is; only a run that left NO report at all (a
+    // crash before a byte reached stdout, or a refusal, whose stdout is empty
+    // by `lib/envelope.ts`'s own contract) falls through to the line below.
+    if (result.stdout !== '') return result.stdout
     // `or`, not `??`: a child that failed without a word leaves `""` here,
     // and `""` is what the exit-status fallback exists for.
     const detail = lastLine(text) || `exit status ${returnCode(result.status, result.signal)}`

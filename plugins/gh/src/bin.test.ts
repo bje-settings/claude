@@ -3,19 +3,30 @@
 // exercised in-process in `commands/*.test.ts`; this is the only place the
 // process boundary itself, and the floor guard in front of it, are real.
 //
-// Only the paths that need no `gh` and touch no repository: the usage, the
-// refusals, `--help`, and a subcommand nobody answers to. A spawned child
-// cannot be handed the injected `gh` client (ADR 001, and the reason the
-// fan-out is in-process at all), so a test that drove a real sync through here
-// would be reaching for the real `gh`.
+// Only the paths that need no `gh` and touch no real checkout: the usage, the
+// refusals, `--help`, a subcommand nobody answers to, and one case for #81's
+// exit-1 contract. A spawned child cannot be handed the injected `gh` client
+// (ADR 001, and the reason the fan-out is in-process at all), so a test that
+// drove `bin/gh.ts sync` itself through a real fan-out or a real merge-proof
+// lookup would be reaching for the real `gh`; the #81 case instead spawns
+// `fixtures/throwing-sync-entry.ts`, which wires the real `createSyncCommand`
+// the way `bin/gh.ts` does but with a throwing stand-in in place of the job,
+// because the real job cannot be made to throw at all (that fixture's own
+// header says why).
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
+import { createGitFixtures } from '../../../harness/git.ts'
 import { createSandbox } from '../../../harness/sandbox.ts'
 import { runScript } from '../../../harness/spawn.ts'
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'gh.ts')
+const THROWING_SYNC_ENTRY = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'fixtures',
+  'throwing-sync-entry.ts',
+)
 
 /** The sandbox's environment, so the child carries no `GIT_` or `GH_`
  *  variable this test did not choose. */
@@ -144,6 +155,22 @@ it('refuses a shepherd-status path that is not a directory', () => {
 
   expect(result.status).toBe(2)
   expect(result.stderr).toBe('not a directory: no-such-directory\n')
+})
+
+it('exits 1 with the report on stdout when a job fails, at the real process boundary', () => {
+  // #81: `syncRepo` cannot be driven into this state through the real `gh.ts`
+  // binary (see `fixtures/throwing-sync-entry.ts` and `fixtures/README.md`),
+  // so this proves the envelope-to-exit-code wiring the same way `bin/gh.ts`
+  // wires it, in a real spawned process rather than in-process.
+  const sandbox = createSandbox()
+  const git = createGitFixtures(sandbox)
+  const repo = git.create(sandbox.join('r'))
+
+  const result = runScript(THROWING_SYNC_ENTRY, { args: [repo], env: sandbox.env })
+
+  expect(result.status).toBe(1)
+  expect(result.stdout).toBe('  ✗ the sync failed: boom\n')
+  expect(result.stderr).toBe(`the sync to ${path.basename(repo)} failed\n`)
 })
 
 it('refuses a pull request number that is not one', () => {
