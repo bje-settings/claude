@@ -697,6 +697,28 @@ describe('the exit status', () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
 
+  it('leaves the report exactly as it would be with no failure, plus the one failure line', async () => {
+    // The core claim (PR body, fixtures/divergences.json "exitStatus"): stdout
+    // does not change by one byte; only `failed(...)` on stderr is new. The
+    // test above proves this with `toContain` per section plus an ordering
+    // check; this one proves it with an exact `toBe` of the WHOLE report, the
+    // way "keeps every repository's lines together..." does for a clean run.
+    const f = fixture()
+    for (const name of ['aaa', 'bbb', 'ccc']) f.git.createAt(f.sandbox.join('fan'), name)
+    const job = async (options: SyncRepoOptions): Promise<number> => {
+      const name = path.basename(options.repo)
+      if (name === 'bbb') throw new Error('boom')
+      options.report.write(`${name}\n`)
+      return 0
+    }
+
+    const result = await run(f, [f.sandbox.join('fan')], { job })
+
+    expect(result.stdout).toBe(
+      `${realpathSync(f.sandbox.join('fan'))} (3 repos)\n\naaa\nbbb\n${failed('boom')}ccc\n`,
+    )
+  })
+
   it('exits 1 in the fan-out when a job answers non-zero without throwing', async () => {
     const f = fixture()
     for (const name of ['aaa', 'bbb']) f.git.createAt(f.sandbox.join('fan'), name)
@@ -711,6 +733,29 @@ describe('the exit status', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toBe(fanOutFailed(1, 2))
     expect(result.stdout).toContain(`bbb\n  ✗ the sync failed: exited with status 3\n`)
+  })
+
+  it('puts a non-zero status that arrived mid-line on a line of its own too', async () => {
+    // appendFailure's mid-line branch (`puts a failure that arrived mid-line
+    // on a line of its own`, above, under "the fan-out") is exercised there
+    // only through the throw call site. It is the same shared helper at the
+    // new status-check call site, with no branch of its own on which caller
+    // sent it, but this proves the guarantee holds there too rather than
+    // only by the two call sites being textually identical.
+    const f = fixture()
+    f.git.createAt(f.sandbox.join('fan'), 'a')
+    f.git.createAt(f.sandbox.join('fan'), 'b')
+
+    const result = await run(f, [f.sandbox.join('fan')], {
+      job: async (options: SyncRepoOptions): Promise<number> => {
+        const name = path.basename(options.repo)
+        options.report.write(name === 'a' ? 'half a line' : `${name}\n`)
+        return name === 'a' ? 9 : 0
+      },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('half a line\n  ✗ the sync failed: exited with status 9\n')
   })
 
   it('counts every failed repository, not just whether any failed', async () => {
