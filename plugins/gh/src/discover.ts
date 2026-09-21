@@ -31,7 +31,16 @@ import { toplevel as gitToplevel, runGit } from './lib/git.ts'
 
 /** What discovery answers with. */
 export type Discovery =
-  | { readonly outcome: 'ok'; readonly roots: string[] }
+  | {
+      readonly outcome: 'ok'
+      readonly roots: string[]
+      /** The target itself, symlink-resolved. The caller prints it (the
+       *  fan-out header and the "No git repositories directly inside" line
+       *  both name it), and it has to be the spelling git reports rather than
+       *  the one the caller typed, which is what `gh-sync.py:207` resolves it
+       *  for. */
+      readonly resolved: string
+    }
   | { readonly outcome: 'not-a-directory' }
   /** The target exists, is a directory, and could not be listed. `reason` is
    *  node's own account, which names the code and the path. */
@@ -88,7 +97,7 @@ export const discoverRepos = async (target: string, env: NodeJS.ProcessEnv): Pro
   const realTarget = realpathSync(target)
 
   const top = await toplevel(realTarget, env)
-  if (top !== null) return { outcome: 'ok', roots: [top] }
+  if (top !== null) return { outcome: 'ok', roots: [top], resolved: realTarget }
 
   let names: string[]
   try {
@@ -110,5 +119,5 @@ export const discoverRepos = async (target: string, env: NodeJS.ProcessEnv): Pro
     // Only the checkout root counts, never a subdirectory of one.
     if (root === real) roots.push(real)
   }
-  return { outcome: 'ok', roots }
+  return { outcome: 'ok', roots, resolved: realTarget }
 }
