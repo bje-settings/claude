@@ -213,7 +213,15 @@ it('refuses a target that is not a directory, on stderr and with exit 1', async 
   expectParity(await runIn(sandbox, [sandbox.join('nope')]), 'not_a_directory')
 })
 
-it('says a target could not be read rather than that it held nothing', async () => {
+/** Root can enter a directory with no permissions, so this one case cannot be
+ *  produced as root. Split out rather than checked inside the example: a
+ *  chmod that root walks straight through makes `discoverRepos` succeed, and
+ *  the example then fails at its first parity assertion with "expected 0 to
+ *  be 1", which says the refusal was wrong rather than that it could not be
+ *  staged. `shepherd-status.test.ts:256` is the same split. */
+const asRoot = process.getuid?.() === 0
+
+it.skipIf(asRoot)('says a target could not be read rather than that it held nothing', async () => {
   const sandbox = createSandbox()
   const blocked = sandbox.join('blocked')
   mkdirSync(blocked, { recursive: true })
@@ -237,9 +245,6 @@ it('says a target could not be read rather than that it held nothing', async () 
   expect(row.stderr).toContain(recorded?.python)
   expect(ran.stderr).toContain(recorded?.port)
   expect(ran.stderr.startsWith('could not read <sandbox>/blocked: ')).toBe(true)
-  // A directory nobody can read cannot be produced as root, which is a
-  // reported skip rather than a silent pass.
-  expect(process.getuid?.()).not.toBe(0)
 })
 
 // --- what a command line of its own owes -------------------------------------

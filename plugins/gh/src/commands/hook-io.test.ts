@@ -340,6 +340,45 @@ it('asks about syncing off the default branch, byte for byte', async () => {
   expectParity(replayed, 'in-repo/off-default-branch')
 })
 
+it('writes the same bytes again, run twice against the same repository', async () => {
+  // `in-repo/off-default-branch-again` is the capture's own idempotency row:
+  // the Python ran the hook twice over one state and recorded both. It is the
+  // one row of the fifty-four with no replay otherwise.
+  const harnessed = harness()
+  const repository = harnessed.git.create(harnessed.sandbox.join('r'))
+  harnessed.git.git(repository, 'checkout', '-q', '-b', 'side')
+
+  const replays: Replayed[] = []
+  for (const name of ['in-repo/off-default-branch', 'in-repo/off-default-branch-again']) {
+    const output = createOutputPair()
+    const calls: RunCall[] = []
+    const status = await runHookIo(['session-start'], {
+      cwd: () => repository,
+      env: harnessed.sandbox.env,
+      stdin: () => Promise.resolve(JSON.stringify({ session_id: 's1', cwd: repository })),
+      output,
+      run: (command, args = [], options = {}) => {
+        calls.push({ command, args: [...args], options })
+        return Promise.resolve(runResult())
+      },
+      nodePath: '/usr/bin/node',
+      entry: harnessed.entry,
+    })
+    const replayed: Replayed = {
+      status,
+      stdout: normalise(output.stdout(), harnessed.sandbox.path),
+      stderr: normalise(output.stderr(), harnessed.sandbox.path),
+      calls,
+    }
+    expectParity(replayed, name)
+    replays.push(replayed)
+  }
+
+  // The second run read the same repository and said the same thing: nothing
+  // the first run did changed the answer.
+  expect(replays[1]?.stdout).toBe(replays[0]?.stdout)
+})
+
 it('falls back to a local main when origin/HEAD is not cached', async () => {
   const { replayed } = await inRepo('in-repo/local-main-fallback', ({ sandbox, git }) => {
     const repository = git.create(sandbox.join('r'))
@@ -896,7 +935,10 @@ it('reads a bound above the timer ceiling as no bound at all', async () => {
   })
 
   // No `timeoutMs`: above the ceiling node would clamp to 1 ms and kill the
-  // child on the next tick, where `communicate(timeout=inf)` waits.
+  // child on the next tick, where `communicate(timeout=inf)` waits. The
+  // length comes first, because `calls[0]?.` on an empty list is `undefined`
+  // too and would pass for a fan-out that never ran.
+  expect(calls).toHaveLength(1)
   expect(calls[0]?.options.timeoutMs).toBeUndefined()
 })
 

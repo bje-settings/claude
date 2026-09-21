@@ -152,6 +152,10 @@ it('stays silent in a checkout that is already on its default branch', () => {
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
+  // Asserted, because "exit 0 with an empty stdout" is also what the crash
+  // path answers with (see the outermost-handler example below): without
+  // this, a hook that threw before it decided anything would pass here.
+  expect(result.stderr).toBe('')
 })
 
 it('starts the real bin/gh.ts child for a directory of checkouts', () => {
@@ -166,6 +170,13 @@ it('starts the real bin/gh.ts child for a directory of checkouts', () => {
   // PATH).
   const env = { ...sandbox.env, PATH: sandbox.pathWithout('gh') }
 
+  const work = path.join(fan, 'a')
+  const before = {
+    branches: git.branches(work),
+    current: git.currentBranch(work),
+    head: git.headSha(work),
+  }
+
   const result = runScript(HOOK, {
     args: ['session-start'],
     stdin: JSON.stringify({ session_id: 's1', cwd: fan }),
@@ -176,6 +187,15 @@ it('starts the real bin/gh.ts child for a directory of checkouts', () => {
   const context = contextOf(result.stdout)
   expect(context).toContain('A read-only /gh:sync check ran for the repositories below')
   expect(context).toContain('could not')
+  // The sentence the hook writes is "No branch, worktree, or working tree was
+  // changed", and this is the one example in this layer that starts the real
+  // child, so it is the only place that claim can be checked
+  // (`test_reports_prunable_work_and_changes_nothing`).
+  expect({
+    branches: git.branches(work),
+    current: git.currentBranch(work),
+    head: git.headSha(work),
+  }).toEqual(before)
 })
 
 it('exits 0 in silence when the payload cannot be read at all', () => {
@@ -192,6 +212,8 @@ it('exits 0 in silence when the payload cannot be read at all', () => {
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
+  // As above: silence has to be the decision, not a crash before one.
+  expect(result.stderr).toBe('')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {

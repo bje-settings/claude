@@ -50,8 +50,15 @@ it('finishes clean when the reader of a sync report never reads at all', async (
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const fan = sandbox.join('fan')
+  const work = path.join(fan, 'a')
   git.createAt(fan, 'a')
-  git.branchWithWork(path.join(fan, 'a'), 'wip')
+  git.branchWithWork(work, 'wip')
+  // Origin moves before the run, so the fetch the fan-out does has something
+  // to bring back. That is the work this example claims still happens with
+  // nobody reading, and without something to compare against, the claim is
+  // only that the child exited 0.
+  git.remoteAdvance(work)
+  const before = git.sha(work, 'refs/remotes/origin/main')
   // No `gh`, so nothing here reaches the real GitHub; the fan-out still
   // fetches, syncs and writes its whole report, which is the work that must
   // be done whether or not anyone is listening.
@@ -66,6 +73,9 @@ it('finishes clean when the reader of a sync report never reads at all', async (
 
   expect(ended.status).toBe(0)
   expectNoCrash(ended.stderr)
+  // The fetch landed after the reader had gone: the run carried on to the end
+  // rather than dying at its first write.
+  expect(git.sha(work, 'refs/remotes/origin/main')).not.toBe(before)
 })
 
 it('finishes clean when the reader of shepherd-status --help leaves at once', async () => {
