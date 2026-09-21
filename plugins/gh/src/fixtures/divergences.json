@@ -25,5 +25,44 @@
   },
   "notInTheTable": {
     "cannot list worktrees": "tests/gh/test_output_parity.py records it: `git worktree list` failing left the shell version with an empty branch-to-worktree map, so it never printed a skip. The Python raises the skip the shell version meant to and the port keeps the Python's behaviour. There is no scenario for it in bash-output.json at all."
+  },
+  "ghVocabulary": {
+    "why": "gh-sync-repo.py:263 to 290 spells six reasons a gh call could not be read. The port keeps two of them in the Python's words, 'gh is not on PATH' (off status 127) and 'gh returned rows that are not pull requests' (its own check on the rows), and reads the other four off GhError's message, because lib/gh.ts owns that vocabulary now. Each line below is what the report says instead of what the Python said for the SAME state. They are recorded here rather than only in a test so that a change to the vocabulary has to be recorded to stay green; sync-repo.test.ts drives its example from this list.",
+    "lines": [
+      {
+        "state": "gh answered with something that is not JSON",
+        "was": "gh returned malformed JSON",
+        "now": "gh answered the merged pull requests with something that is not JSON: <parser message>",
+        "account": "gh answered the merged pull requests with something that is not JSON: unexpected token"
+      },
+      {
+        "state": "gh answered with a payload that is not a list",
+        "was": "gh returned no pull-request list",
+        "now": "gh answered the merged pull requests with something that is not a list: <payload>",
+        "account": "gh answered the merged pull requests with something that is not a list: {\"message\":\"Not Found\"}"
+      },
+      {
+        "state": "gh exited non-zero and said nothing",
+        "was": "gh exited <n>",
+        "now": "gh <argv> failed: gh exited <n>",
+        "account": "gh pr list --state merged failed: gh exited 4"
+      },
+      {
+        "state": "gh is present and cannot be run",
+        "was": "cannot run gh: <strerror>",
+        "now": "gh <argv> failed: cannot run gh: <node message>",
+        "account": "gh pr list --state merged failed: cannot run gh: spawn gh EACCES"
+      }
+    ],
+    "open": "For a refusal whose stderr is a SINGLE line, which is the usual shape ('gh: API rate limit exceeded'), the report carries lib/gh.ts's whole message including the argv, because reasonFor takes the last line of the message and the message is one line. The Python carried gh's stderr last line alone. Recovering it needs GhError to carry gh's own account beside the prefixed message, which is lib/gh.ts's to change and is reported as a lower-layer finding on this review."
+  },
+  "inProcessFanOut": {
+    "why": "The fan-out is in-process (the design ruling in the approved plan), so a job has no exit status of its own, cannot be killed by a signal and cannot fail to start. It can still throw. gh-sync.py:123 to 135 folds a child that raised into THAT repository's section so the other sections survive; the port does the same with the line below, which replaces the three the child process took with it.",
+    "was": [
+      "  ✗ sync script exited with status <n>",
+      "  ✗ sync script was killed by <SIGNAL>",
+      "  ✗ could not start the sync script: <error>"
+    ],
+    "now": "  ✗ the sync failed: <message>"
   }
 }

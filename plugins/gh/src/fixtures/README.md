@@ -1,9 +1,12 @@
 # plugins/gh/src/fixtures
 
 The captured contract the TypeScript sync commands are compared against. Everything here came out
-of the Python that is still in the tree at `plugins/gh/scripts/`, **before** any of it was ported,
-and nothing here is hand-written or edited afterwards: #127 layer 4 deletes that Python, and a
-fixture edited to fit the port would prove the port against itself.
+of the Python that is still in the tree at `plugins/gh/scripts/`, **before** any of it was ported:
+#127 layer 4 deletes that Python, and a fixture edited to fit the port would prove the port against
+itself. The three CAPTURES (`bash-output.json`, `bash-sync-output.json`, `python-cli-output.json`)
+are therefore never edited after the capture commit. `divergences.json` is not a capture: it is the
+table of what the port deliberately says instead, and it grows when a divergence is found, which is
+the only way a divergence stays countable rather than dissolving into a rewritten expectation.
 
 `vitest` and the coverage reporter both exclude `**/fixtures/**`, so these files are data the tests
 read and never code that runs.
@@ -12,7 +15,7 @@ read and never code that runs.
 | --- | --- |
 | `bash-output.json` | `tests/gh/golden/bash-output.json`, copied byte for byte at `02fadf3`. Captured from `gh-sync-repo.sh` before the shell script was deleted, over the scenarios in `tests/gh/scenarios.py`, with commit hashes and the sandbox path normalised out. |
 | `bash-sync-output.json` | `tests/gh/golden/bash-sync-output.json`, copied byte for byte at `62799d0`. The same capture for `gh-sync.sh`, over the scenarios in `tests/gh/test_gh_sync.py`. |
-| `divergences.json` | The divergence table of `tests/gh/test_output_parity.py`, ported as data, plus what the pnpm-only ruling does to three scenarios' inputs. |
+| `divergences.json` | The divergence table of `tests/gh/test_output_parity.py`, ported as data, plus what the pnpm-only ruling does to three scenarios' inputs, plus two tables the Python's had no need of: `ghVocabulary`, the four report lines that now read in `lib/gh.ts`'s words rather than `gh_json`'s, and `inProcessFanOut`, the one line that replaces the three the child process took with it. Every one is read by the test that asserts it. |
 | `python-cli-output.json` | Generated: `plugins/gh/scripts/gh-sync.py`, `gh-sync-repo.py` and `lib/discover.py` run over the states their own tests build, at `cb8fb06`, normalised the same way (and then formatted by biome, which touches whitespace only, because this directory is inside the formatter's scope while `tests/gh/golden` is excluded from it). It holds the contracts the two goldens do not: argument refusals, their exit statuses, the help text, and discovery's own stdout. |
 
 `commands/sync-repo.test.ts` reads `bash-output.json`, `commands/sync.test.ts` reads
@@ -34,3 +37,10 @@ else, `divergences.json` names the line that changed and why, so a divergence st
 rather than dissolving into a rewritten expectation. Three scenarios build a `package-lock.json` in
 the Python; under the pnpm-only ruling the port builds `pnpm-lock.yaml` for the same state, and the
 reported line is unchanged, which is why the golden still applies to them.
+
+The goldens also cover no state that only a `gh` failure or a job that threw can produce, so the
+`ghVocabulary` and `inProcessFanOut` tables carry those: `commands/sync-repo.test.ts` maps the
+first into its own examples and `commands/sync.test.ts` reads the second, which means a fifth
+divergence, or a change to one of these, has to be recorded here before the suite goes green.
+`ghVocabulary.open` records the one line that is a defect rather than a choice, and where its fix
+belongs.

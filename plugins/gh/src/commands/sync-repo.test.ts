@@ -44,6 +44,7 @@ const GOLDEN: Record<string, { status: number; stdout: string }> = JSON.parse(
 
 const DIVERGENCES: {
   'bash-output.json': Record<string, { was: string; now: string }>
+  ghVocabulary: { lines: { state: string; was: string; now: string; account: string }[] }
 } = JSON.parse(read('divergences.json'))
 
 const PYTHON: Record<
@@ -91,7 +92,17 @@ interface GhOptions {
  * throws and names itself; only the two endpoints the sync asks for are
  * answered here. The filtering is the stub `gh`'s: `--base` and `--head` are
  * applied server-side and `--limit` truncates, which is what makes a saturated
- * window a window and not an answer.
+ * window a window and not an answer. It is a filter over registered rows and
+ * holds no knowledge of what the command does with them, which is what ADR
+ * 001's "the mock holds no conditional logic" is about: reproducing the
+ * SERVER's filter is fidelity, and without it the per-branch fallback cannot
+ * be reached at all, because the bulk window and the per-branch query are the
+ * same endpoint.
+ *
+ * One property of `createGhMock` it does give up: `listMergedPullRequests` is
+ * ALWAYS answered, so a query nobody expected reads as an answer here rather
+ * than throwing. `does not ask about a branch the bulk lookup already proved`
+ * reaches that property the other way, by making the per-branch query fail.
  */
 function ghDouble(options: GhOptions = {}): GhClient {
   const rows = options.prs ?? []
@@ -855,12 +866,13 @@ describe('merge proof', () => {
     // reader as its own sentence, which is what the Python's `gh_json`
     // comment asks for: three failures that send the reader to three
     // different places.
-    const accounts = [
-      'gh pr list --state merged failed: gh exited 4',
-      'gh pr list --state merged failed: cannot run gh: spawn gh EACCES',
-      'gh answered the merged pull requests with something that is not JSON: unexpected token',
-      'gh answered the merged pull requests with something that is not a list: {"message":"Not Found"}',
-    ]
+    // Read from `fixtures/divergences.json` rather than restated here: these
+    // four lines are what the report says INSTEAD of what the Python said for
+    // the same state, and a divergence asserted only in a test is not
+    // countable. Adding a fifth, or changing one, has to be recorded there
+    // before this goes green.
+    const accounts = DIVERGENCES.ghVocabulary.lines.map((line) => line.account)
+    expect(accounts).toHaveLength(4)
     for (const account of accounts) {
       const f = fixture()
       f.git.branchWithWork(f.repo, 'landed')
