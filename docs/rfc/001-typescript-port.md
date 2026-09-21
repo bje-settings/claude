@@ -203,8 +203,10 @@ removed rather than ported, so this question does not arise for it; the three-wa
 governs the install path only.
 
 **Divergence from `SurveyMonkey/skills` RFC 002:** that repository is one plugin, so its `src/lib`
-is a directory and the question never arises. A marketplace of four plugins has to answer it, and
-the answer has to survive both the install path and the mirror.
+is a directory and the question never arises. ~~A marketplace of four plugins has to answer it, and
+the answer has to survive both the install path and the mirror.~~ **Revised at #128:** a
+marketplace of four plugins still has to answer it, and now only for the install path; there is no
+mirror for the answer to survive.
 
 **Tests and fixtures are co-located**, `src/**/*.test.ts` beside the code and fixtures beside the
 tests that load them. The consequence is stated plainly because it cannot be avoided: Claude Code
@@ -360,8 +362,9 @@ and that entry is load-bearing here.
   order and by nothing else.
 - **Tests and fixtures ship inertly in the cache copy.** There is no exclusion mechanism, so the
   installed plugin is larger than the plugin. It is dead weight rather than a hazard, but it is
-  weight, and the mirror filter that keeps it out of the downstream copy is one more rule to keep
-  in sync with the layout.
+  weight~~, and the mirror filter that keeps it out of the downstream copy is one more rule to keep
+  in sync with the layout~~. **Revised at #128:** there is no mirror filter; the downstream mirror
+  was frozen rather than kept clean.
 - **Symlinks need git symlink support.** A clone on Windows without `core.symlinks` gets a text
   file where `plugins/<p>/src/lib` should be, and the failure is an unresolved import rather than a
   clear message. The repository's own tooling already assumes a POSIX checkout, but this makes the
@@ -522,8 +525,11 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    exactly this reason, as a stated non-goal of its own port.
 6. **No version-bump gate, for now.** No check that a plugin's `plugin.json` version moved when its
    files did. *Against:* the failure it catches is silent by construction, an unbumped plugin simply
-   does not update for anyone who has it installed, and the `sm-incubator/org-claude` mirror makes
-   that failure visible to people outside this enterprise rather than only to the maintainer.
+   does not update for anyone who has it installed. ~~The `sm-incubator/org-claude` mirror makes
+   that failure visible to people outside this enterprise rather than only to the maintainer.~~
+   **Revised at #128:** `publish-plugin` was removed rather than ported, so that mirror is now
+   frozen at the version it last received and this risk no longer propagates to it; the remaining
+   exposure is to whoever has installed a plugin directly from this repository.
 7. **The required checks stay exact-named jobs**, and ruleset 22359720 is edited as jobs are added,
    after the new name has reported on `main` once, and as jobs are dropped, before the pull request
    that removes them merges. *Against:* that is four to seven ruleset edits across the port, and
