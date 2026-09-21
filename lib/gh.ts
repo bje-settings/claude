@@ -165,8 +165,21 @@ export interface GhClient {
   addComment(comment: { pullRequest: number } & CommentText): Promise<GhResults['addComment']>
   watchChecks(pull: {
     pullRequest: number
+    /** gh's refresh interval, in SECONDS, which is the unit
+     *  `gh pr checks -i, --interval int` takes. Named because it sits beside
+     *  `boundMs`, and a caller that passed milliseconds here would get a poll
+     *  interval measured in hours with nothing to say so. No ported call site
+     *  sets it: `gh-shepherd-pr.py:645` to `655` passes `--watch
+     *  --fail-fast` and takes gh's default of 10. */
     interval?: number
-    boundMs?: number
+    /** The bound, in milliseconds. Required, because round 5's handoff fact 1
+     *  is that #154 left this call unbounded and "a watch that cannot return
+     *  is worse than no watch": optional, it is that same defect one line
+     *  away, and `process.ts` only detaches a bounded child, so an unbounded
+     *  watch cannot even be group-killed. The one ported call site has a
+     *  bound (`gh-shepherd-pr.py:637`), so nothing is being asked for that a
+     *  caller does not already have. */
+    boundMs: number
     failFast?: boolean
   }): Promise<GhResults['watchChecks']>
 }

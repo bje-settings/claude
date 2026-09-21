@@ -7,9 +7,10 @@
 // `GIT_CONFIG_GLOBAL` (this workspace exports one from direnv) out of a
 // fixture, and what keeps a `GIT_DIR` or a `GIT_INDEX_FILE` from displacing
 // the repository the call named: git exports both into every child of a git
-// hook, and a pre-commit hook is one of the places this suite runs
-// (`harness/README.md`, "The git builders"). That is also why `RepoOptions`
-// requires the object rather than defaulting it.
+// hook, a pre-commit hook is one of the places this suite runs
+// (`harness/README.md`, "The git builders"), and `GIT_DIR` outranks both
+// `cwd` and `git -C`. `RepoOptions` requires `env` as well as `cwd` for that
+// reason, so this is the compiler's rule here and not the suite's habit.
 import { mkdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createGitFixtures } from '../harness/git.ts'

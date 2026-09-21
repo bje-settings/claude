@@ -126,6 +126,13 @@ without its trailing newlines, or `null` when git failed), `gitOk`, `gitLines`, 
 git's own words. `null` and `""` are different answers there and both are used: `show-ref --quiet`
 succeeds with no output, and a `git status` that could not be run is not a clean tree.
 
+The four that ask about one repository (`toplevel`, `currentBranch`, `defaultBranch`, `hasRef`)
+take a required `cwd` **and** a required `env`, because `GIT_DIR` outranks both `cwd` and
+`git -C`: with it set, git answers about the repository it names and not about the one the call
+did. git exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and a pre-commit hook
+is one of the places this suite runs, so the environment is named at the call rather than left to
+whatever the process inherited.
+
 ## Writing to a reader that may have gone
 
 ```ts
@@ -171,8 +178,10 @@ run), so a caller branches on a value rather than on prose. Every member is publ
 reachable under two paths through the `src/lib` symlink, and a `private` or `protected` member
 would make the class nominal per declaration and the two identities no longer assignable.
 
-`watchChecks` is the one blocking call and the one exception to "non-zero is a failure". It takes
-a bound, and it answers with `{ status, timedOut, waitedMs, problem }` instead of throwing,
+`watchChecks` is the one blocking call and the one exception to "non-zero is a failure". Its
+bound is required rather than optional, because an optional one is #154's unbounded watch a line
+away and `process.ts` detaches only a bounded child, so an unbounded watch could not be
+group-killed either. It answers with `{ status, timedOut, waitedMs, problem }` instead of throwing,
 because the watch reports on the checks through its own exit status (1 a check failed, 8 still
 pending) and 1 is also gh's generic failure. An endpoint that threw on 1 would report a red rollup
 as a broken token. It carries no `--json` and returns no check list: gh refuses `--watch` with

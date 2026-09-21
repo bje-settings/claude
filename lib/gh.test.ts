@@ -230,11 +230,16 @@ describe('argv', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('watches unbounded and without flags when it was given none', async () => {
+  it('watches with only the bound when it was given no flags', async () => {
+    // The bound is the one thing that is not optional: round 5's handoff
+    // fact 1 is that #154 left this call unbounded, and `process.ts` detaches
+    // only a bounded child, so an unbounded watch could not be group-killed
+    // either. The type refuses the call that omits it, which is why there is
+    // no unbounded example here to assert against.
     const { gh, calls } = clientAnswering({ stdout: '' })
-    await gh.watchChecks({ pullRequest: 7, failFast: false })
+    await gh.watchChecks({ pullRequest: 7, failFast: false, boundMs: 45_000 })
     expect(calls[0]?.args).toEqual(['pr', 'checks', '7', '--watch'])
-    expect(calls[0]?.timeoutMs).toBeUndefined()
+    expect(calls[0]?.timeoutMs).toBe(45_000)
   })
 
   it('names the repository on every call when it was given one', async () => {
@@ -470,7 +475,7 @@ describe('the checks watch', () => {
     // failed, 8 still pending. Reading those as transport failures is how a
     // red rollup arrives as a broken token.
     const { gh } = clientAnswering({ status: 1, stderr: 'Some checks were not successful\n' })
-    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toEqual({
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toEqual({
       status: 1,
       timedOut: false,
       waitedMs: 0,
@@ -480,7 +485,7 @@ describe('the checks watch', () => {
 
   it('answers with the status when the checks are still pending', async () => {
     const { gh } = clientAnswering({ status: 8, elapsedMs: 12_000 })
-    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toMatchObject({
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
       status: 8,
       waitedMs: 12_000,
       problem: '',
@@ -541,7 +546,7 @@ describe('the checks watch', () => {
       status: 127,
       startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' },
     })
-    await expect(gh.watchChecks({ pullRequest: 7 })).resolves.toMatchObject({
+    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
       status: 127,
       problem: 'cannot run gh: spawn gh ENOENT',
     })

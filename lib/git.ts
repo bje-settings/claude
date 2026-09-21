@@ -91,19 +91,34 @@ export const gitLines = async (
 }
 
 /**
- * The options every question below takes: one repository, named.
+ * The options every question below takes: one repository, named, and the
+ * environment it is asked in.
  *
- * `cwd` is required here where {@link GitOptions} leaves it optional, and the
- * whole object is required where `gitOut` defaults it, for two reasons: each
- * of these asks about one repository, so a call that named none would be
- * asking about whatever directory the process happens to sit in; and a caller
- * that has an environment to pin (the suite does, and so does anything
- * running inside a git hook, where git exports `GIT_DIR` and `GIT_INDEX_FILE`
- * into the child) must have somewhere to put it at every call rather than at
- * some of them.
+ * Both are required here where {@link GitOptions} leaves them optional, and
+ * the whole object is required where `gitOut` defaults it, because each of
+ * these asks about ONE repository and neither `cwd` alone nor `env` alone
+ * pins which one.
+ *
+ * `cwd` is the obvious half: a call that named no directory would be asking
+ * about wherever the process happens to sit. `env` is the half that actually
+ * bites, and it is required rather than optional because `GIT_DIR` outranks
+ * both `cwd` and `git -C` outright: with it set, `rev-parse --show-toplevel`
+ * answers about the repository it names and not about `cwd` at all. git
+ * exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and a
+ * pre-commit hook is one of the places this suite runs (`lefthook.yml`), so
+ * an optional `env` here is an invariant argued in a comment and enforced
+ * nowhere: the caller that most needs to pin it is the one that would most
+ * easily leave it out.
+ *
+ * The four helpers above keep `env` optional on purpose. They are the generic
+ * escape hatch and the preflight that reports on git itself, and for those the
+ * ambient environment is sometimes the thing being asked about
+ * (`gh-sync-repo.py:65` to `86`); silently rewriting an environment a caller
+ * chose would be its own defect.
  */
 export interface RepoOptions extends GitOptions {
   readonly cwd: string
+  readonly env: NodeJS.ProcessEnv
 }
 
 /**
