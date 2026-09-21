@@ -9,10 +9,14 @@
 // (ADR 001, and the reason the fan-out is in-process at all), so a test that
 // drove `bin/gh.ts sync` itself through a real fan-out or a real merge-proof
 // lookup would be reaching for the real `gh`; the #81 case instead spawns
-// `fixtures/throwing-sync-entry.ts`, which wires the real `createSyncCommand`
-// the way `bin/gh.ts` does but with a throwing stand-in in place of the job,
-// because the real job cannot be made to throw at all (that fixture's own
-// header says why).
+// `fixtures/throwing-sync-entry.ts`, which imports the real `createSyncCommand`
+// with a throwing stand-in in place of the job, because the real job cannot be
+// made to throw at all (that fixture's own header says why). It MIRRORS, not
+// calls, `bin/gh.ts`'s own `write` helper and `sync` dispatch arm (neither is
+// importable, `fixtures/README.md` has the gap that leaves): the exit-0 and
+// exit-2 cases below spawn `bin/gh.ts` itself and so do exercise the real
+// `write`, but a future break confined to the exit-1 case in `bin/gh.ts`'s
+// own wiring would not be caught by this file.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'

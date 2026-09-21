@@ -7,10 +7,13 @@
 // failure `lib/gh.ts` reports arrives as a `GhError`, which `sync-repo.ts`'s
 // `ask()` always catches. So the only way to prove the #81 exit-1 contract at
 // a real process boundary, rather than in `commands/sync.test.ts`'s in-process
-// suite, is to drive the same production wiring `bin/gh.ts` uses with a
-// throwing stand-in in place of `syncRepo`. Everything below mirrors
-// `bin/gh.ts`'s own `sync` arm and its `write` helper, so what this proves
-// about the envelope-to-exit-code wiring is what `bin.ts` wires too.
+// suite, is to import the real `createSyncCommand` with a throwing stand-in
+// in place of `syncRepo`. Everything below MIRRORS `bin/gh.ts`'s own `sync`
+// arm and its `write` helper rather than calling them, because `write` is an
+// unexported `const` and the `sync` arm is a branch inside `run`, neither
+// reachable from outside that file (`fixtures/README.md` states what this
+// leaves untested: a future break confined to `bin/gh.ts`'s own `write` or
+// `sync` arm, for the exit-1 case specifically, would not be caught here).
 //
 // argv is passed straight through to `sync`, as `bin/gh.ts sync` would take it.
 import { createSyncCommand } from '../commands/sync.ts'
