@@ -690,6 +690,14 @@ class Shepherd {
   settleVerdict(pull: PullSummary, corroborated: boolean): [string, string] | null {
     if (pull.state === 'MERGED') return ['merged', 'merged']
     if (pull.state === 'CLOSED') return ['closed', 'pull request was closed while settling']
+    // Both folds are ports of `gh-shepherd-pr.py:768` and `:769`
+    // (`pull.get(...) or ""`) and NEITHER can change an output: the two values
+    // are read only by `.includes` against the three constant lists below, and
+    // no falsy answer, under any spelling, is in them; `reviewDecision` is
+    // inert twice over, because `summary` has already folded falsy to `""`
+    // (`shepherd.ts`, porting `lib/shepherd.py:240`), which the Python does
+    // too. Kept because they are the lines this ports, and recorded here so
+    // that neither is deleted as dead nor given an example that cannot fail.
     const merge = isTruthy(pull.mergeStateStatus) ? String(pull.mergeStateStatus) : ''
     const review = isTruthy(pull.reviewDecision) ? String(pull.reviewDecision) : ''
     // Both are named when both are blocking: the reason is the reader's only
@@ -847,6 +855,14 @@ class Shepherd {
         waited: spent(),
         reads_ok: readsOk,
         read_failures: readsFailed,
+        // Both arms are `''`, always: `readPr` clears `readErr` on every
+        // successful read and this line is reached only after one. Ported as
+        // the Python writes it (`read_error=self.last_read_error() if
+        // reads_failed else ""`), and unobservable for the same reason as the
+        // two folds in `settleVerdict`. What the clearing itself depends on IS
+        // pinned, by `keeps polling when one read fails and reports the
+        // answer that followed`, which asserts `read_failures: 1` together
+        // with `read_error: ''`.
         read_error: readsFailed > 0 ? this.readErr : '',
         pr: pull,
       },

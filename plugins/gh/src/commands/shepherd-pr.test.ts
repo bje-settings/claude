@@ -269,7 +269,17 @@ const recording = (
 
 /** What each case needs beyond its captured pull-request set: the stub `gh`
  *  switches the case's environment turned on, as this client's registrations.
- *  A case with no entry is answered from its rows alone. */
+ *  A case with no entry is answered from its rows alone.
+ *
+ *  A REFUSAL case deliberately registers no write endpoint, and that is what
+ *  asserts "no write on a refusal": `createGhServer` throws `no reply
+ *  registered for <endpoint>` for one nobody registered, `ghAccount` rethrows
+ *  anything that is not a `GhError`, and the run ends as an internal error
+ *  with a status the capture does not hold. Moving a guard below its write
+ *  turns the case red. That is the port of the Python's eleven
+ *  `comments(gh) == "NONE"` and `"update-branch" not in call_log` assertions
+ *  (`test_shepherd_pr.py:321`, `:332`, `:353`, `:360`, `:676`, `:869`,
+ *  `:1021`, `:1041`, `:1050`, `:1058`, `test_shepherd_edges.py:410`). */
 const ARRANGEMENTS: Record<string, GhServerOptions> = {
   gh_cannot_resolve_the_repository: { fail: ghFails('gh: simulated failure') },
   // No `shutil.which` preflight is ported (#158): gh not being on PATH is the
@@ -416,15 +426,6 @@ const replay = async (name: string): Promise<void> => {
     // and is read from the divergence record. One line, ending in a newline,
     // saying something after the colon: everything the Python's byte
     // comparison gave except the account itself.
-    expect(normalise(result.stderr, result.sandbox)).toBe(
-      `${divergence('cannotEnter').prefix}<sandbox>/closed: ${normalise(
-        result.stderr,
-        result.sandbox,
-      )
-        .split(': ')
-        .slice(1)
-        .join(': ')}`,
-    )
     expect(normalise(result.stderr, result.sandbox)).toMatch(
       new RegExp(`^${divergence('cannotEnter').prefix}<sandbox>/closed: [^\\n]+\\n$`),
     )

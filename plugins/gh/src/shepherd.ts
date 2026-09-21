@@ -508,9 +508,19 @@ export const statusDocument = (
  *
  * The whitespace is collapsed rather than only the newlines replaced, so a
  * message does not arrive with a trailing space where gh's own final newline
- * was. `text.split()` with no argument is what the Python calls, which splits
- * on runs of any whitespace and drops the empty ends; the regex here is that
- * rule written out.
+ * was. `text.split()` with no argument is what the Python calls
+ * (`gh-shepherd-pr.py:200`), which splits on runs of any whitespace and drops
+ * the empty ends.
+ *
+ * `\s` is NOT that set exactly, and saying so here rather than widening it:
+ * Python also splits on `\x1c` to `\x1f` and `\x85`, and does not split on
+ * `\ufeff`, where JavaScript is the other way round on both. Unlike
+ * {@link tailLines}, whose missing separator was the bare carriage return a
+ * progress bar writes on every redraw, nothing gh prints carries any of
+ * these, and `\x1c` to `\x1e` cannot reach here on the watcher path because
+ * `tailLines` has already broken the text on them. A hand-built exhaustive
+ * whitespace class in a shipping function buys no reachable case, so the set
+ * stays `\s` and the difference is recorded instead of claimed away.
  */
 export const oneLine = (text: string): string => text.split(/\s+/).filter(Boolean).join(' ')
 

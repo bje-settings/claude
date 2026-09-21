@@ -112,8 +112,12 @@ against it would be asserting the client's translation twice. What `ghCalls` was
 is what each WRITE was asked to send, and that is asserted directly instead, against the client's
 own request rather than against gh argv: `asks for a rebase of the pull request it was given, and
 never a merge`, `posts the words Dependabot answers, on the pull request it was given`, and `posts
-the reason file it was given, as the body of the comment` in `commands/shepherd-pr.test.ts`. The
-field is kept in the capture because it is the Python's record and the captures are never edited.
+the reason file it was given, as the body of the comment` in `commands/shepherd-pr.test.ts`. Each
+of those three also asserts the CLIENT the request is sent through, because `--repo` is not a
+field of any request here: it is a construction option, so the repository half of `gh_calls` is
+asserted as `{ cwd: <target>, repository: <resolved> }` rather than as argv. `commands/
+shepherd-status.test.ts` does the same for its two listings. The field is kept in the capture
+because it is the Python's record and the captures are never edited.
 
 ## The capture script
 
