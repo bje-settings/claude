@@ -27,6 +27,21 @@ SHEPHERD_CAPTURE=<a scratch directory> uv run --locked pytest tests/gh/test_capt
 rm tests/gh/test_capture_shepherd.py
 ```
 
+That run writes one JSON object per example to `$SHEPHERD_CAPTURE/lines.jsonl`. The two files here
+are that stream regrouped, and the regrouping is the whole of it, so it is written out rather than
+left to a script nobody kept:
+
+- the rows are split by `script`, `gh-shepherd-pr.py`'s into `shepherd-pr-output.json` and
+  `gh-shepherd-status.py`'s into `shepherd-status-output.json`;
+- within a file each row becomes one entry under its own `name`, in the order the run produced
+  them, with `script` and `name` themselves dropped;
+- the one key whose spelling changes is `gh_calls`, which is written `ghCalls` here, because
+  everything these fixtures are read by is TypeScript;
+- every other key, and every byte of every value, is the capture's own.
+
+Nothing is normalised at this step: `normalise` in the script below is the only substitution made
+anywhere, and it runs before the row is written.
+
 Every case is driven through the same fixtures the Python's own tests use: the `gh` fixture from
 `tests/gh/conftest.py` (a real git repository, a canned pull-request set, and the stub `gh` from
 `tests/gh/bin/gh` on `PATH`), the row builders `dep_pr` and `write_prs`, and `run_script` from
@@ -112,8 +127,8 @@ Run from the repository root with the file copied to tests/gh/:
     rm tests/gh/test_capture_shepherd.py
 
 Each example writes one JSON object per line to $SHEPHERD_CAPTURE/lines.jsonl;
-`merge_capture.py` turns those into the fixture files. Nothing here is
-committed: the fixtures are.
+"How they were made" above says how those become the two fixture files.
+Nothing here is committed: the fixtures are.
 """
 
 from __future__ import annotations
