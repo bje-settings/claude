@@ -121,7 +121,8 @@ it('writes the branch message the Python wrote, byte for byte', () => {
 
   expect(result.status).toBe(captured.status)
   // The seam is given two branch names and no repository, so neither count
-  // has an answer and the message is the branch line and the closing line.
+  // has an answer and the message is the branch line and the two closing
+  // lines.
   expect(result.stdout).toBe(expected(captured.stdout, { target: 'main' }))
 })
 

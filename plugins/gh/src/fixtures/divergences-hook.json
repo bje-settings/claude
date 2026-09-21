@@ -78,7 +78,7 @@
     },
     {
       "name": "what the summary counts, and what it does not claim",
-      "why": "A section is one repository: a line at the left margin opens it and the indented mark lines under it belong to it. Checked is the number of sections. With upstream changes and with prunable branches are the dry-run notes that say the default branch would move or a branch would go, which is the whole vocabulary the hook's own child can produce, because it always passes --dry-run. Skipped is a cross line carrying sync-repo.ts's skip prefix. Not fully checked is any other cross line, which includes the failure line sync.ts writes for a job that threw or answered non-zero (#81), plus a note that says a lookup could not be made, so a run that fell back to ancestry alone is never summarised as all clear. The buckets are not a partition and the line does not present them as one: a repository can be both skipped and not fully checked."
+      "why": "A section is one repository: a line at the left margin opens it and the indented mark lines under it belong to it. Checked is the number of sections. With upstream changes and with prunable branches are the dry-run notes that say the default branch would move or a branch would go, which are the four the summary counts; --dry-run writes other notes too (would switch from, would run install), and they are not what these two buckets are about. Skipped is a cross line carrying sync-repo.ts's skip prefix. Not fully checked is any other cross line, which includes the failure line sync.ts writes for a job that threw or answered non-zero (#81), plus a note that says a lookup could not be made, so a run that fell back to ancestry alone is never summarised as all clear. The buckets are not a partition and the line does not present them as one: a repository can be both skipped and not fully checked."
     },
     {
       "name": "the report subcommand carries no summary",
@@ -86,7 +86,7 @@
     },
     {
       "name": "silence when both in-repo counts are zero",
-      "why": "The issue keeps silence when nothing is actionable as the rule, and being off the default branch is what has always triggered this message. Being off it is itself the status worth one line: work in this session is not landing where the repository's work lands. So the branch line and the closing line are written whenever the Python wrote a message, and a count line appears only when its count is above zero, which is why nine of the ten captured in-repo rows keep a two-line message and none of them grows padding."
+      "why": "The issue keeps silence when nothing is actionable as the rule, and being off the default branch is what has always triggered this message. Being off it is itself the status worth one line: work in this session is not landing where the repository's work lands. So the branch line and the two closing lines are written whenever the Python wrote a message, and a count line appears only when its count is above zero, which is why seven of the eight captured in-repo rows that produce a message at all keep the three lines they would have had, and none of them grows padding."
     },
     {
       "name": "a lookup that could not be made says nothing rather than zero",
