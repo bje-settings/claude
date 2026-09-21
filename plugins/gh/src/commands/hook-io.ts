@@ -190,13 +190,22 @@ export const countLines = (status: BranchStatus): string[] => {
  * per count that is above zero, and two closing lines that name the dry run
  * and the command, as facts, once each. With neither count above zero the
  * message is those three lines.
+ *
+ * The closing lines name what each command is for and claim no outcome for
+ * this checkout. `/gh:sync` has three answers for the default branch, not one:
+ * it fast-forwards it, CREATES it where no local branch of that name exists
+ * (which is the state of the captured `origin-head-wins` row), or refuses it
+ * as diverged (`sync-repo.ts`, "needs a manual merge"). The Python hedged the
+ * fast-forward inside a question to the agent; stating it flatly would be a
+ * claim this message cannot check locally, and `--dry-run`, named in the line
+ * above, is what reports the answer for this repository.
  */
 export const branchMessageText = (status: BranchStatus): string =>
   `${[
     `This session started on branch '${status.current}'; the repository's default branch is '${status.target}'.`,
     ...countLines(status),
-    'These are local refs, as of the last fetch. /gh:sync --dry-run reports the current state;',
-    `/gh:sync moves to '${status.target}', fast-forwards it, and prunes branches whose work has landed.`,
+    'These are local refs, as of the last fetch. /gh:sync --dry-run reports what would change here,',
+    `including what it would do with '${status.target}'; /gh:sync makes those changes.`,
   ].join('\n')}
 `
 
@@ -283,19 +292,33 @@ export const fanOutSummary = (report: string): FanOutSummary => {
   return counts
 }
 
-/** The one line the fan-out message leads with. */
-export const summaryLine = (counts: FanOutSummary): string =>
-  `${counts.checked} ${plural(counts.checked, 'repository', 'repositories')} checked: ` +
-  `${counts.upstream} with upstream changes, ${counts.prunable} with prunable branches, ` +
-  `${counts.skipped} skipped, ${counts.unchecked} not fully checked.`
+/**
+ * The one line the fan-out message leads with, or `null` for a report this
+ * found no repository in.
+ *
+ * A report only reaches here once {@link ACTIONABLE} has found a line worth
+ * speaking about, so it is never empty; a count of zero sections over a body
+ * that has content means the body is not shaped the way the counting assumes
+ * (`sectionsOf`'s heading and indent) rather than that nothing was checked. A
+ * line of zeros above a report that says otherwise is a confident wrong
+ * statement, and this message exists to make statements a reader can trust.
+ * The report itself still goes out whole, unsummarised.
+ */
+export const summaryLine = (counts: FanOutSummary): string | null =>
+  counts.checked === 0
+    ? null
+    : `${counts.checked} ${plural(counts.checked, 'repository', 'repositories')} checked: ` +
+      `${counts.upstream} with upstream changes, ${counts.prunable} with prunable branches, ` +
+      `${counts.skipped} skipped, ${counts.unchecked} not fully checked.`
 
 /**
  * The fan-out message: the summary, the report, and what acts on it.
  *
- * `summary` is `null` where there is nothing to summarise, which is a body
- * this hook wrote itself rather than one `sync` reported: a bound that fired,
- * or a run that left no report at all. Those count no repositories, and a line
- * of zeros above them would be a claim about a check that never happened.
+ * `summary` is `null` where there is nothing to summarise: a body this hook
+ * wrote itself rather than one `sync` reported (a bound that fired, or a run
+ * that left no report at all), or a report no repository could be counted in.
+ * Those count no repositories, and a line of zeros above them would be a claim
+ * about a check that never happened, or that was not read.
  */
 export const reportMessageText = (report: string, summary: string | null): string =>
   `A read-only /gh:sync check ran for the repositories below. No branch, worktree, or working tree
@@ -794,6 +817,19 @@ const ORIGIN = `${REMOTES}origin/`
 const FIELD = '\t'
 
 /**
+ * A branch's own name, stripped of `refs/heads/` mechanically.
+ *
+ * NOT `%(refname:short)`, which is the shortest UNAMBIGUOUS name: a tag named
+ * after a branch makes git answer `heads/<name>` for the branch, and the names
+ * this is compared against (`currentBranch`, `localDefaultBranch`) are plain.
+ * The default branch would then survive both deletions below and be reported
+ * as a prunable candidate, in a repository whose only oddity is a release tag.
+ * `lstrip=2` removes exactly two components whatever else exists, so
+ * `refs/heads/a/b/c` is still `a/b/c`.
+ */
+const SHORT = '%(refname:lstrip=2)'
+
+/**
  * `git rev-list --count`'s answer, or `null` for anything that is not one.
  *
  * `null` is git failing, which is how a missing ref on either end of the range
@@ -821,17 +857,27 @@ const behindCount = async (target: string, options: RepoOptions): Promise<number
  * way this can end is reachable without arranging a git that fails one call
  * and answers the next two.
  *
- * `locals` is `name<tab>upstream` per local branch, `refs` is every ref an
- * upstream can name that exists, and `merged` is the local branches already
- * reachable from the default branch. A branch counts when its upstream is
- * configured and no longer exists, or when its work is already in the default
- * branch. Neither the default branch nor the branch the session is on ever
- * counts: one is where the work lands and the other is where the session is.
+ * `locals` is `name<tab>upstream` per local branch, `refs` is
+ * `ref<tab>objectname` for every ref an upstream can name that exists, and
+ * `merged` is the local branches already reachable from the default branch. A
+ * branch counts when its upstream is configured and no longer exists, or when
+ * its work is already in the default branch. Neither the default branch nor
+ * the branch the session is on ever counts: one is where the work lands and
+ * the other is where the session is.
  *
  * `refs` spans both namespaces because `%(upstream)` does: a branch set to
  * track another LOCAL branch answers `refs/heads/<name>`, and a set built from
  * the remote-tracking refs alone would call that live upstream gone and count
  * every such branch as a candidate.
+ *
+ * A branch sitting on the cached `origin/<target>`'s own commit does not
+ * count either. `/gh:sync` keeps exactly that branch, for a reason it can tell
+ * locally (`sync-repo.ts`, "already at origin/<default>, nothing to prune"),
+ * and a candidate the command would refuse is not one. The comparison is
+ * against the CACHED remote tip rather than the local branch's, because that
+ * is the commit `/gh:sync` compares against once it has fetched: a branch
+ * resting on a local default that is itself behind is one the command
+ * fast-forwards past and then deletes.
  *
  * `null` when ANY listing failed rather than a count of what the rest hold:
  * the line states a number of candidates, and a number assembled from a
@@ -845,7 +891,16 @@ export const countCandidates = (
   target: string,
 ): number | null => {
   if (locals === null || refs === null || merged === null) return null
-  const existing = new Set(refs)
+  const existing = new Set<string>()
+  const tips = new Map<string, string>()
+  for (const line of refs) {
+    const separator = line.indexOf(FIELD)
+    // Read as a ref with no commit rather than as a ref named after the whole
+    // line: it still says the ref exists, which is what `existing` is for.
+    const ref = separator === -1 ? line : line.slice(0, separator)
+    existing.add(ref)
+    if (separator !== -1) tips.set(ref, line.slice(separator + 1))
+  }
   const candidates = new Set(merged)
   for (const line of locals) {
     const separator = line.indexOf(FIELD)
@@ -858,6 +913,14 @@ export const countCandidates = (
   }
   candidates.delete(current)
   candidates.delete(target)
+  const tip = tips.get(`${ORIGIN}${target}`)
+  // No cached remote tip is no comparison to make, not a tip of `undefined`
+  // that every unread branch would match.
+  if (tip !== undefined) {
+    for (const branch of candidates) {
+      if (tips.get(`${HEADS}${branch}`) === tip) candidates.delete(branch)
+    }
+  }
   return candidates.size
 }
 
@@ -868,7 +931,7 @@ const prunableCandidates = async (
   options: RepoOptions,
 ): Promise<number | null> => {
   const locals = await gitLines(
-    ['for-each-ref', `--format=%(refname:short)${FIELD}%(upstream)`, HEADS],
+    ['for-each-ref', `--format=${SHORT}${FIELD}%(upstream)`, HEADS],
     options,
   )
   // Asked as refs rather than as `%(upstream:track)`, whose `[gone]` is a
@@ -877,10 +940,14 @@ const prunableCandidates = async (
   //
   // Both namespaces in one listing, because an upstream may name either. git
   // writes `refs/heads/<name>` for a branch tracking a local branch, and a
-  // set of remote-tracking refs alone would not hold it.
-  const refs = await gitLines(['for-each-ref', '--format=%(refname)', HEADS, REMOTES], options)
+  // set of remote-tracking refs alone would not hold it. The commit comes
+  // along so the tip comparison above needs no second call.
+  const refs = await gitLines(
+    ['for-each-ref', `--format=%(refname)${FIELD}%(objectname)`, HEADS, REMOTES],
+    options,
+  )
   const merged = await gitLines(
-    ['for-each-ref', '--format=%(refname:short)', '--merged', `${HEADS}${target}`, HEADS],
+    ['for-each-ref', `--format=${SHORT}`, '--merged', `${HEADS}${target}`, HEADS],
     options,
   )
   return countCandidates(locals, refs, merged, current, target)

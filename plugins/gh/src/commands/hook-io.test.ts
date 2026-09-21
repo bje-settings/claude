@@ -292,12 +292,6 @@ const expectParity = (replayed: Replayed, name: string, fields: Fields = {}): vo
  *  computed, so the expectation is not the code under test. */
 const summaryField = (line: string): Fields => ({ summary: `${line}\n` })
 
-/** The prunable-candidate line, for the one captured in-repo state that has
- *  one. */
-const candidateField = (count: number, branches: string, target: string): Fields => ({
-  counts: `Prunable candidates: ${count} local ${branches} with a gone upstream or already merged into '${target}'.\n`,
-})
-
 // --- the seams: no repository, no child --------------------------------------
 
 // The `branch` rows carry the default branch the seam was given on the
@@ -469,13 +463,11 @@ it('prefers a local main over a local master, because the order decides', async 
     return repository
   })
 
-  // The one captured in-repo state with something to count: `master` was
-  // branched off `main` and is fully merged into it, while `side` is the
-  // current branch and `main` is the default, so neither of those counts.
-  expectParity(replayed, 'in-repo/prefers-local-main', {
-    target: 'main',
-    ...candidateField(1, 'branch', 'main'),
-  })
+  // `master` was branched off `main` and never committed to, so it sits on
+  // the commit `origin/main` names. `/gh:sync` keeps exactly that branch
+  // ("already at origin/main, nothing to prune"), so it is not a candidate and
+  // no count line is written. No captured in-repo state has one.
+  expectParity(replayed, 'in-repo/prefers-local-main', { target: 'main' })
 })
 
 it('prefers a cached origin/HEAD over a local main', async () => {
@@ -1392,10 +1384,24 @@ it('keeps the branch line first, the counts in order, and the two closing lines'
     `This session started on branch 'side'; the repository's default branch is 'main'.
 Local 'main' is 2 commits behind 'origin/main'.
 Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.
-These are local refs, as of the last fetch. /gh:sync --dry-run reports the current state;
-/gh:sync moves to 'main', fast-forwards it, and prunes branches whose work has landed.
+These are local refs, as of the last fetch. /gh:sync --dry-run reports what would change here,
+including what it would do with 'main'; /gh:sync makes those changes.
 `,
   )
+})
+
+it('claims no outcome for the default branch it cannot check locally', () => {
+  // `/gh:sync` fast-forwards the default branch, CREATES it where no local
+  // branch of that name exists (the captured origin-head-wins state), or
+  // refuses it as diverged. The hook resolves the name from the cached
+  // origin/HEAD without checking a local branch of it exists, so none of the
+  // three can be asserted here; `--dry-run`, named one line above, is what
+  // answers it for this repository (review round 2).
+  const message = branchMessageText(status({ behind: 2, candidates: 1 }))
+
+  expect(message).not.toContain('fast-forward')
+  expect(message).not.toContain('prunes')
+  expect(message).toContain("what it would do with 'main'")
 })
 
 it('addresses the user with facts and the agent with nothing at all', () => {
@@ -1403,7 +1409,7 @@ it('addresses the user with facts and the agent with nothing at all', () => {
   // agent speaking, so an imperative aimed at the agent reads to them as a
   // question they are expected to answer (#110).
   const both: [string, string][] = [
-    [branchMessageText(status({ behind: 1, candidates: 1 })), "/gh:sync moves to 'main'"],
+    [branchMessageText(status({ behind: 1, candidates: 1 })), '/gh:sync makes those changes.'],
     [
       reportMessageText('fan (1 repos)\n\na\n  · main already up to date (abc1234)', 'a summary'),
       '/gh:sync applies this for real.',
@@ -1431,6 +1437,11 @@ it('reads a count only where git answered with one', () => {
   expect(parseCount('1 2')).toBeNull()
 })
 
+/** A `refs` listing line: the ref and the commit it points at, as
+ *  `for-each-ref --format='%(refname)<tab>%(objectname)'` writes it. The
+ *  commit only has to be distinct, so a name stands in for a SHA. */
+const at = (ref: string, commit = `${ref}-commit`): string => `${ref}\t${commit}`
+
 it('counts a gone upstream and a merged branch once each', () => {
   const locals = [
     'main\trefs/remotes/origin/main',
@@ -1439,7 +1450,7 @@ it('counts a gone upstream and a merged branch once each', () => {
     'both\trefs/remotes/origin/both',
     'side\t',
   ]
-  const remotes = ['refs/remotes/origin/HEAD', 'refs/remotes/origin/main']
+  const remotes = [at('refs/remotes/origin/HEAD'), at('refs/remotes/origin/main')]
 
   // `both` is gone AND merged, and is one candidate, not two.
   expect(countCandidates(locals, remotes, ['landed', 'both', 'side', 'main'], 'side', 'main')).toBe(
@@ -1453,7 +1464,7 @@ it('never counts a branch whose upstream is still there', () => {
   // branch in the repository would be reported as prunable.
   const locals = ['side\t', 'tracked\trefs/remotes/origin/tracked']
 
-  expect(countCandidates(locals, ['refs/remotes/origin/tracked'], [], 'side', 'main')).toBe(0)
+  expect(countCandidates(locals, [at('refs/remotes/origin/tracked')], [], 'side', 'main')).toBe(0)
 })
 
 it('never counts a branch that tracks a local branch that is still there', () => {
@@ -1463,16 +1474,16 @@ it('never counts a branch that tracks a local branch that is still there', () =>
   // would report every such branch as a candidate.
   const locals = ['side\t', 'stacked\trefs/heads/main', 'main\trefs/remotes/origin/main']
   const refs = [
-    'refs/heads/main',
-    'refs/heads/side',
-    'refs/heads/stacked',
-    'refs/remotes/origin/main',
+    at('refs/heads/main'),
+    at('refs/heads/side'),
+    at('refs/heads/stacked'),
+    at('refs/remotes/origin/main'),
   ]
 
   expect(countCandidates(locals, refs, [], 'side', 'main')).toBe(0)
   // The other half of the same test: a local upstream that HAS gone still
   // counts, so the fix is not just "never look at a local upstream".
-  expect(countCandidates(locals, ['refs/remotes/origin/main'], [], 'side', 'main')).toBe(1)
+  expect(countCandidates(locals, [at('refs/remotes/origin/main')], [], 'side', 'main')).toBe(1)
 })
 
 it('never counts the branch the session is on, nor the default branch', () => {
@@ -1481,13 +1492,44 @@ it('never counts the branch the session is on, nor the default branch', () => {
   // Both are reachable from `main`, and neither is anything to prune: one is
   // where work lands, the other is where the session is.
   expect(
-    countCandidates(locals, ['refs/remotes/origin/main'], ['main', 'side'], 'side', 'main'),
+    countCandidates(locals, [at('refs/remotes/origin/main')], ['main', 'side'], 'side', 'main'),
   ).toBe(0)
+})
+
+it('never counts a branch sitting on the cached origin tip, and still counts one past it', () => {
+  // `/gh:sync` keeps a branch at `origin/<default>`'s own commit and says so
+  // ("already at origin/main, nothing to prune"), so calling it a candidate
+  // would name something the command refuses. A branch that carries a commit
+  // of its own is a different answer and stays counted, which is what keeps
+  // the line's example real.
+  const locals = ['side\t', 'fresh\t', 'landed\t']
+  const refs = [
+    at('refs/remotes/origin/main', 'tip'),
+    at('refs/heads/main', 'tip'),
+    at('refs/heads/fresh', 'tip'),
+    at('refs/heads/landed', 'landed-commit'),
+    at('refs/heads/side', 'side-commit'),
+  ]
+
+  expect(countCandidates(locals, refs, ['fresh', 'landed'], 'side', 'main')).toBe(1)
+
+  // The same holds for the gone-upstream half: `sync` does not prune by a gone
+  // upstream at all, and the branch is an ancestor of the default branch by
+  // sitting on its tip, so the tip guard is what it would meet.
+  expect(
+    countCandidates(['side\t', 'fresh\trefs/remotes/origin/fresh'], refs, [], 'side', 'main'),
+  ).toBe(0)
+
+  // With no cached `origin/main` there is no tip to compare against, and the
+  // absence is not a tip of its own that every branch matches.
+  expect(countCandidates(locals, [at('refs/heads/fresh', 'tip')], ['fresh'], 'side', 'main')).toBe(
+    1,
+  )
 })
 
 it('answers nothing when any one of the three listings could not be read', () => {
   const locals = ['side\t']
-  const remotes = ['refs/remotes/origin/main']
+  const remotes = [at('refs/remotes/origin/main')]
   const merged = ['main']
 
   expect(countCandidates(null, remotes, merged, 'side', 'main')).toBeNull()
@@ -1503,6 +1545,21 @@ it('reads a listing line with no separator as a branch with no upstream', () => 
   // branch whose name is the whole line, which would then be counted as gone
   // against a remote set it can never be in.
   expect(countCandidates(['orphan'], [], [], 'side', 'main')).toBe(0)
+})
+
+it('reads a ref listing line with no commit as a ref that exists', () => {
+  // The other half of the same shape. A ref the format wrote without its
+  // commit still answers the question `existing` asks, so an upstream naming
+  // it is live; it just has no tip to compare against.
+  expect(
+    countCandidates(
+      ['tracked\trefs/remotes/origin/tracked'],
+      ['refs/remotes/origin/tracked'],
+      [],
+      'side',
+      'main',
+    ),
+  ).toBe(0)
 })
 
 /** Run the in-repo path against a real checkout and hand back what it wrote. */
@@ -1581,6 +1638,68 @@ it('does not count a branch tracking a live local branch, in a real checkout', a
 
   expect(message).toContain("default branch is 'main'")
   expect(message).not.toContain('Prunable candidates')
+})
+
+it('counts a branch whose LOCAL upstream has gone, in a real checkout', async () => {
+  const harnessed = harness()
+  const { git } = harnessed
+  const repository = git.create(harnessed.sandbox.join('r'))
+  // The half the pure function covers and real git never did: an upstream
+  // that was a local branch and has since been deleted. `%(upstream)` still
+  // answers `refs/heads/base`, and that ref is gone.
+  git.branchWithWork(repository, 'base')
+  git.branchWithWork(repository, 'stacked')
+  git.git(repository, 'branch', '--set-upstream-to=base', 'stacked')
+  git.git(repository, 'branch', '-D', 'base')
+  git.git(repository, 'checkout', '-q', '-b', 'side')
+
+  const message = await messageFor(harnessed, repository)
+
+  expect(message).toContain(
+    "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
+  )
+})
+
+it('does not count the default branch because a tag shares its name', async () => {
+  const harnessed = harness()
+  const { git } = harnessed
+  const repository = git.create(harnessed.sandbox.join('r'))
+  // `%(refname:short)` is the shortest UNAMBIGUOUS name, so a tag named after
+  // a branch makes git answer `heads/main` for the branch. The names it is
+  // compared against are plain, so the default branch survived both deletions
+  // and was reported as a prunable candidate: a release tag was enough to make
+  // the message state a false count (review round 2).
+  git.git(repository, 'tag', 'main')
+  git.git(repository, 'checkout', '-q', '-b', 'side')
+
+  const message = await messageFor(harnessed, repository)
+
+  expect(message).toContain("default branch is 'main'")
+  expect(message).not.toContain('Prunable candidates')
+})
+
+it('counts a merged branch with a commit of its own, never one on the cached tip', async () => {
+  const harnessed = harness()
+  const { git } = harnessed
+  const repository = git.create(harnessed.sandbox.join('r'))
+  // Merged with a merge commit, so it is reachable from `main` AND carries a
+  // commit of its own that `origin/main` does not name: a real candidate,
+  // which is what keeps the line's one example real. `mergeCommit` pushes, so
+  // `origin/main` is the merge commit afterwards.
+  git.branchWithWork(repository, 'landed')
+  git.mergeCommit(repository, 'landed')
+  // Branched off `main` once it is level with `origin/main` and never
+  // committed to, so it sits on exactly the commit the cached ref names.
+  // `/gh:sync` keeps this branch and says why, so the message must not call it
+  // a candidate.
+  git.branch(repository, 'fresh')
+  git.git(repository, 'checkout', '-q', '-b', 'side')
+
+  const message = await messageFor(harnessed, repository)
+
+  expect(message).toContain(
+    "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
+  )
 })
 
 it('leaves the behind line out when the count cannot be read at all', async () => {
@@ -1690,6 +1809,22 @@ it('counts each bucket from the marks sync-repo exports', () => {
   }
 })
 
+it('leaves the dry-run notes these buckets are not about out of them', () => {
+  // `--dry-run` writes more notes than the four the summary counts. Neither
+  // of these says the default branch would move or that a branch would go, so
+  // neither belongs in a bucket, and the repository is still one checked.
+  // Without this, widening either bucket's openings is a change nothing
+  // notices (review round 2).
+  expect(
+    fanOutSummary(
+      oneSection(
+        `${REPORT.note}would switch from side to main`,
+        `${REPORT.note}lock file changed in that range; would run install`,
+      ),
+    ),
+  ).toEqual({ checked: 1, upstream: 0, prunable: 0, skipped: 0, unchecked: 0 })
+})
+
 it('counts a repository once per bucket, whatever its section repeats', () => {
   expect(
     fanOutSummary(
@@ -1739,6 +1874,24 @@ it('writes the summary line with the noun the count calls for', () => {
   )
   expect(summaryLine({ checked: 3, upstream: 1, prunable: 1, skipped: 1, unchecked: 1 })).toBe(
     '3 repositories checked: 1 with upstream changes, 1 with prunable branches, 1 skipped, 1 not fully checked.',
+  )
+})
+
+it('writes no summary at all over a report it found no repository in', () => {
+  // A report only gets here once ACTIONABLE found a line worth speaking
+  // about, so no repositories counted means the body is not shaped the way
+  // the counting reads it, not that nothing was checked. A line of zeros
+  // above a report that says otherwise is the one thing this message must
+  // never do (review round 2).
+  expect(summaryLine({ checked: 0, upstream: 0, prunable: 0, skipped: 0, unchecked: 0 })).toBeNull()
+
+  const headerless = `a\n${REPORT.bad}fetch failed; nothing changed`
+  expect(fanOutSummary(headerless).checked).toBe(0)
+  expect(reportMessageText(headerless, summaryLine(fanOutSummary(headerless)))).toContain(
+    headerless,
+  )
+  expect(reportMessageText(headerless, summaryLine(fanOutSummary(headerless)))).not.toContain(
+    'repositories checked',
   )
 })
 

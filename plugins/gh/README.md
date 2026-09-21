@@ -266,15 +266,18 @@ fact, rather than asking anyone to offer anything.
 - Outside a git repository it runs the fan-out check in `--dry-run` and reports the findings, led
   by one line counting them: how many repositories were checked, and how many have upstream
   changes, have prunable branches, were skipped, or could not be fully checked. There is no such
-  line above a run that produced no report, because it counted nothing.
+  line above a run that produced no report, or above one no repository could be counted in,
+  because a line of zeros over a report that says otherwise would be worse than no line.
 - Inside a git repository, if HEAD is not on the default branch, it says so, and adds how far the
   default branch is behind the cached `origin/<default>` and how many local branches are prunable
   candidates, each only when the number is above zero. This branch is purely local and does not
   hit the network, so the numbers are as of the last fetch and the message says so; `/gh:sync
-  --dry-run` is what reports the current answer. Prunable candidates are candidates: they are
-  local branches with a gone upstream or already merged into the default branch, and ancestry
-  cannot see a squash merge, which is what `/gh:sync` asks the merged pull request list about.
-  A lookup that cannot be made leaves its line out rather than reporting a zero.
+  --dry-run` is what reports the current answer, including what `/gh:sync` would do with the
+  default branch, which the message itself does not claim. Prunable candidates are candidates:
+  they are local branches with a gone upstream or already merged into the default branch, minus
+  any sitting on the commit the cached `origin/<default>` names, which `/gh:sync` keeps and says
+  so. Ancestry cannot see a squash merge, which is what `/gh:sync` asks the merged pull request
+  list about. A lookup that cannot be made leaves its line out rather than reporting a zero.
 - Otherwise it stays silent.
 
 The whole hook is `hooks/hook-io.ts`, run as `hook-io.ts session-start`: it reads the payload,
