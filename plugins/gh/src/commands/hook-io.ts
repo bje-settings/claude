@@ -518,7 +518,21 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<string | null> =>
     // same way a zero status is; only a run that left NO report at all (a
     // crash before a byte reached stdout, or a refusal, whose stdout is empty
     // by `lib/envelope.ts`'s own contract) falls through to the line below.
-    if (result.stdout !== '') return result.stdout
+    //
+    // `result.signal === null` is also required (round 7 layer 2, review
+    // round 1 finding): `result.timedOut` above only catches the hook's OWN
+    // bound firing, so a non-null signal reaching here is an EXTERNAL kill
+    // (an OOM kill, a stray `SIGTERM`), not `sync` answering `failed(...)`.
+    // On the single-repository path `sync` hands `syncRepo` the real stdout
+    // directly, and `syncRepo` writes its report line by line across several
+    // awaited git and `gh` calls, so a kill mid-run can leave a genuinely
+    // partial report with no closing statement, on stdout, with a non-zero
+    // status: exactly what `result.stdout !== ''` alone cannot tell apart
+    // from a complete `failed(...)` report. A throw inside `syncRepo` cannot
+    // produce this: `sync.ts`'s `try`/`catch` around the whole job always
+    // appends a closing failure line before returning `failed(...)`, so only
+    // a signal death is unaccounted for here.
+    if (result.signal === null && result.stdout !== '') return result.stdout
     // `or`, not `??`: a child that failed without a word leaves `""` here,
     // and `""` is what the exit-status fallback exists for.
     const detail = lastLine(text) || `exit status ${returnCode(result.status, result.signal)}`

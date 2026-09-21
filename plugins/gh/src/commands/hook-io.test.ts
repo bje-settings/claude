@@ -944,6 +944,40 @@ it('falls back to the could-not-run line when sync answers non-zero with no repo
   expect(output.stdout()).toContain('could not run the sync check: missing git: not on PATH')
 })
 
+it('falls back to the could-not-run line when an external signal kills sync, even with a partial report on stdout', async () => {
+  // The third case, distinct from both above: a non-zero status AND non-empty
+  // stdout, but the stdout is not a `failed(...)` report because nothing
+  // wrote one. `result.timedOut` only catches the hook's own bound, so a
+  // `signal` reaching here (an OOM kill, a stray SIGTERM) is a run cut short
+  // mid-report, not `sync` answering `failed(...)` after writing the whole
+  // report (round 7 layer 2, review round 1 finding).
+  const harnessed = harness()
+  const elsewhere = harnessed.sandbox.join('elsewhere')
+  mkdirSync(elsewhere, { recursive: true })
+
+  const output = createOutputPair()
+  await runHookIo(['session-start'], {
+    cwd: () => elsewhere,
+    env: harnessed.sandbox.env,
+    stdin: () => Promise.resolve('{}'),
+    run: () =>
+      Promise.resolve(
+        runResult({
+          status: null,
+          signal: 'SIGKILL',
+          stdout: 'fan (2 repos)\n\na\n',
+          stderr: '',
+        }),
+      ),
+    output,
+    nodePath: '/usr/bin/node',
+    entry: harnessed.entry,
+  })
+
+  expect(output.stdout()).toContain('could not run the sync check: exit status')
+  expect(output.stdout()).not.toContain('fan (2 repos)')
+})
+
 it('says nothing when the child could not be started at all', async () => {
   const harnessed = harness()
   const elsewhere = harnessed.sandbox.join('elsewhere')
