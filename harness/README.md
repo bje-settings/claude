@@ -55,12 +55,21 @@ const gh = createGhMock({
 
 `gh` is an injected mock rather than a stub binary on `PATH` (ADR 001). The endpoints are named
 after the operation rather than after gh's argv, so the interface survives gh changing a flag:
-`listPullRequests`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
-`watchChecks`.
+`listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`, `listRuns`,
+`readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`.
+
+`watchChecks` is the one endpoint whose reply is a record rather than a list or a string: the
+bounded watch answers with `{ status, timedOut, waitedMs, problem }`, because gh reports on the
+checks through its own exit status and a test about a red rollup has to be able to register one.
 
 - A registered reply comes back on **every** call. The mock holds no state and has no conditional
   logic, so what a command does with the reply is the only thing a test can be measuring.
-- `ghFails(message)` is the per-endpoint fail switch, and only that endpoint fails.
+- `ghFails(message, status = 1)` is the per-endpoint fail switch, and only that endpoint fails. It
+  produces a `GhError` carrying that status, which is what the real client throws, so a command's
+  own `error instanceof GhError && error.status === ...` arm is reachable from its tests. Its
+  `detail` is the message: on a real failure `detail` is gh's own account without the
+  `gh <argv> failed: ` prefix the message carries, and a command reads it rather than `message`
+  for the one-line reason it prints, so the message a test writes is the line it should expect.
 - An endpoint with **no** registration throws and names itself. That is the property a stub binary
   cannot give: a command that reached for gh where the test expected no call fails, instead of
   reading an empty reply as an answer.
@@ -69,13 +78,15 @@ after the operation rather than after gh's argv, so the interface survives gh ch
 - There is no request log, no call counter, and no call-order assertion. Counting calls pins an
   implementation detail and turns a refactor red.
 
-`GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery` and `RunQuery` moved to `lib/gh.ts` at
+`GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`
+and `WatchResult` moved to `lib/gh.ts` at
 [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
 against them; `gh.ts` imports them back and re-exports them, so a test reaches the double and the
 interface it implements through one module. What stays in the harness is what does not ship: the
-double, its reply map and its fail switch. Inputs and outputs are still plain JSON values on
-purpose, and [#127](https://github.com/bje-settings/claude/issues/127) refines them against the
-commands that consume them.
+double, its reply map and its fail switch. `GhError`, the failure the real client throws, is
+re-exported beside them so a test reaches the double, the interface and the error through one
+module. Inputs and outputs are still plain JSON values on purpose: the commands that consume them
+(#127 layers 2 and 3) shape them with their own types.
 
 ## The git builders
 

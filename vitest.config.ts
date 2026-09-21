@@ -38,6 +38,14 @@ export default defineConfig({
     ],
     // A run that collects nothing is not a pass.
     passWithNoTests: false,
+    // vitest's default is 5 s, and #127 adds the first tests that build real
+    // repositories and start real children inside one test, with layer 2's
+    // real `pnpm install` still to come. Measured under load, individual tests
+    // in `lib/git.test.ts` took 5008, 5020, 5189, 6334 and 6709 ms, so the
+    // default turns a loaded runner into a red suite that names a timeout
+    // rather than the assertion. 30 s is well clear of that and still fails a
+    // test that has genuinely hung.
+    testTimeout: 30_000,
     coverage: {
       provider: 'v8',
       // The source set is named, not discovered (ADR 002): a coverage

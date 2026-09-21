@@ -14,17 +14,27 @@ installs differently.
 
 Everything here **ships**. Each file takes no dependency and imports nothing outside this
 directory but node's own built-ins, which today is `node:util` in `args.ts` and
-`node:child_process` in `gh.ts`; `node-floor.ts` and `envelope.ts` import nothing at all. Each
+`node:child_process` in `process.ts`; `node-floor.ts`, `envelope.ts` and `streams.ts` import
+nothing at all, and `git.ts` and `gh.ts` reach node only through `process.ts`. Each
 stays inside the erasable subset node's type stripping handles (no `enum`, no parameter
 properties, no namespaces). Tests are co-located, and `lib/**/*.ts` is measured at 100 on lines,
-branches, functions and statements, minus the test files.
+branches, functions and statements, minus the test files and `fixtures/`.
+
+`fixtures/` holds the tiny programs `process.test.ts` runs as real children: a child that sleeps,
+one that starts a child of its own, one that exits before reading its stdin. They live here rather
+than in `harness/fixtures/` because that directory has no equivalent of any of the three and was
+outside the file set of the change that needed them. They are excluded from vitest and from
+coverage, and still linted and type-checked.
 
 | Module | What it gives a plugin |
 | --- | --- |
 | `node-floor.ts` | The Node 22.18 floor: `assertNodeFloor` for an entry point, `meetsNodeFloor` for a hook that must stay silent. Imports nothing. |
 | `args.ts` | `parseArguments`, over `node:util`'s `parseArgs`: a declared option set in, an envelope out. |
 | `envelope.ts` | What a command answers with, and the two renderers that turn an answer into stdout, stderr and an exit code. |
-| `gh.ts` | `GhClient` and `createGhClient`: one method per operation, `gh` as the transport, failure as a thrown `Error`. |
+| `process.ts` | `run`: one child, no shell, with cwd, env, stdin and a time bound, and an answer that separates "could not start" from "ran and failed". |
+| `git.ts` | The git calls the ported scripts make more than once, over `process.ts`. Not a git SDK. |
+| `streams.ts` | Writers that go quiet on a broken pipe and on nothing else, and UTF-8 stdin. |
+| `gh.ts` | `GhClient` and `createGhClient`: one method per operation, `gh` as the transport, failure as a thrown `GhError`. |
 
 ## The floor guard is the one static import
 
@@ -84,33 +94,170 @@ the text to print. Both write **nothing** to stdout on a failure and the reason 
 caller parsing stdout can never parse a refusal into a result. Neither adds the trailing newline;
 the entry point does.
 
+## Running a child
+
+```ts
+const result = await run('pnpm', ['install', '--frozen-lockfile'], { cwd: root })
+result.status // 0, or the package manager's own status, or 127 and 126 (below)
+result.combined // both streams in arrival order, for a caller that wants one transcript
+```
+
+One child, no shell, and an answer rather than an exception: every ported call site already has a
+branch for a child that failed, and none of them wants a `try` around the call. Three properties
+are the reason this exists rather than `execFile`:
+
+- **A bound that sticks.** `{ timeoutMs }` starts the child detached, so when the bound fires the
+  whole process group is killed and not just the child this process holds. `gh pr checks --watch`
+  polls in a loop and the sync fan-out starts a child per repository; killing the parent alone
+  leaves those running against the network long after the caller gave up. `timedOut` says whether
+  the bound fired, and `elapsedMs` says how long the child actually took, because a watcher that
+  returned early did not wait the bound.
+- **"Could not start" apart from "ran and failed."** `startFailure` carries node's code, and
+  `status` carries the shell's convention for it: 127 for a command that is not there, 126 for one
+  that is there and will not run. That is `lib/install.py`'s mapping, kept so a caller's one-line
+  reason reads as it always did, and it is how a preflight tells "git is not on PATH" from "git is
+  on PATH and still would not run".
+- **No output ceiling.** `spawn` reads a pipe until it ends, so there is no `maxBuffer` to size and
+  no truncated answer to mistake for a complete one.
+- **A pipe that failed is reported, not swallowed.** All three of the child's pipes carry the same
+  listener, and `streamErrors` holds every error that was not a broken pipe. A broken pipe is the
+  reader leaving; anything else means the bytes in hand may be fewer than the bytes written, and a
+  child handed half its stdin still exits 0. `gh.ts` turns a non-empty list into a `GhError`;
+  `git.ts` folds it into `null` like every other failure and says so, because it calls `run`
+  directly and a branch it could not reach is not a branch this repository writes.
+
+`git.ts` sits on top of it with the calls the ported scripts make more than once: `gitOut` (stdout
+without its trailing newlines, or `null` when git failed), `gitOk`, `gitLines`, `toplevel`,
+`currentBranch`, `defaultBranch` and `hasRef`, plus `runGit` for the one preflight that needs
+git's own words. `null` and `""` are different answers there and both are used: `show-ref --quiet`
+succeeds with no output, and a `git status` that could not be run is not a clean tree.
+
+The three that answer with a NAME (`toplevel`, `currentBranch`, `defaultBranch`) fold `""` into
+`null`, because a checkout root, the branch HEAD is on and the ref `origin/HEAD` points at are each
+a name or nothing, and the Python reads all three that way. A git that exits 0 and prints nothing
+is not a real git's behaviour for those questions, but it is the behaviour of a git a caller put on
+PATH, which is the only git these helpers have. `gitOut`, `gitOk`, `gitLines`, `hasRef` and
+`runGit` do not fold, for the reason in the paragraph above.
+
+The four that ask about one repository (`toplevel`, `currentBranch`, `defaultBranch`, `hasRef`)
+take a required `cwd` **and** a required `env`, because `GIT_DIR` outranks both `cwd` and
+`git -C` for everything the git directory holds: with it set, git reads that repository's HEAD,
+its `origin/HEAD` and its refs whatever directory the call named. (`toplevel` is the exception:
+`GIT_DIR` with no `GIT_WORK_TREE` makes the current directory the top of the work tree, so
+`--show-toplevel` still answers about `cwd`, and `GIT_WORK_TREE` is what displaces that one.) git
+exports `GIT_DIR` and `GIT_INDEX_FILE` into every child of a hook, and a pre-commit hook is one of
+the places this suite runs, so the environment is named at the call rather than left to whatever
+the process inherited.
+
+Requiring it buys the naming and not the scrubbing: `env: process.env` satisfies the type and
+inside a hook carries `GIT_DIR` at full strength. Nothing in `git.ts` strips anything, and it
+cannot, because it calls `run` directly and has no seam. Pass `process.env` when there is nothing
+to pin, which is what every ported call site inherits today; a caller that must be insulated builds
+an environment without the `GIT_*` keys, the way `harness/sandbox.ts` does for the suite. The
+scrubbing helper is below, under "Decisions not taken".
+
+## Writing to a reader that may have gone
+
+```ts
+const output = createOutput(process.stdout, process.stderr)
+output.out.write(line) // silently dropped once the reader has gone away
+```
+
+`cmd | head` closes the pipe partway through a report. In node the failed write arrives as an
+`error` event rather than as an exception at the call, so there is nothing to wrap in a `try`, and
+with no listener node crashes with an internals stack trace. A writer goes quiet on EPIPE and the
+run finishes normally, because by then the jobs have already run and abandoning the loop would
+only lose the account of it. stdout and stderr are guarded independently, so a lost reader does
+not take the channel a real failure still has to reach.
+
+**Only EPIPE is swallowed.** Registering a listener at all silences node's default crash for every
+code on that stream, so `ENOSPC` and `EIO` are re-thrown. `streamFailures` is that rule as one
+exported pure function, so the writer here and the three child pipes in `process.ts` decide it the
+same way: it answers with the account of the error, zero entries for a broken pipe and one for
+everything else, which is what lets `process.ts` attach it with no arm a real child cannot reach.
+
+Two of `streams.py`'s three duties have no counterpart here, and `streams.test.ts` pins each
+against a real child rather than asserting it in prose: node writes strings as UTF-8 whatever the
+locale says, and node opens /dev/null over a stdio descriptor that was closed before it started.
+`readStdinText` is the third duty, on the way in.
+
 ## The `gh` client
 
 ```ts
-const gh = createGhClient() // or createGhClient({ cwd }) for a repository elsewhere
-const merged = await gh.listPullRequests({ state: 'merged', base: 'main' })
+const gh = createGhClient({ repository: 'acme/widgets' }) // or { cwd } for a checkout
+const merged = await gh.listMergedPullRequests({ base: 'main', limit: 200 })
 ```
 
 The endpoints are named after the operation rather than after gh's argv, so the interface survives
 gh changing a flag, and a command takes a `GhClient` as an argument rather than constructing one,
 which is what makes it swappable for `createGhMock` in the harness (ADR 001, RFC 001 decision 3).
-Failure is a thrown `Error` carrying gh's own words, never a result envelope and never an empty
-list: "nothing matched" and "the answer could not be read" are different facts.
+`repository` names the repository on every call, for the commands that run from wherever the agent
+started; `cwd` is for the ones that have already changed into the checkout, and `env` is for a
+caller with an environment to pin, because `GH_REPO` displaces `cwd` the way `GIT_DIR` does. Left
+out, the child inherits this process's, which is what every ported call site gets today. It reaches gh as
+`--repo` everywhere except `gh repo view`, which has no such flag and takes the repository as its
+positional argument, which is why the two `repo view` calls in the Python are the only ones that
+pass no `--repo`.
 
-`watchChecks` runs `gh` twice, because gh refuses `--watch` together with `--json` and refuses
-`--interval` without `--watch`: the watch blocks, and the read that follows is what the caller is
-answered with. The watch's exit status is an answer there (1 a check failed, 8 still pending)
-rather than a failure, which is `gh-shepherd-pr.py`'s `WATCHER_CODES` without that script's own
-bound. 1 is also gh's generic non-zero, so a genuine failure at the watch is caught by the read
-repeating it rather than by the watch itself. Nothing bounds the watch yet, and neither the
-watch's status nor the failure's `code` reaches a caller; both land with the command that needs
-them (#127).
+Failure is a thrown `GhError` carrying gh's own words, never a result envelope and never an empty
+list: "nothing matched" and "the answer could not be read" are different facts. The error carries
+`status` (gh's exit status, or 127 and 126 when gh could not be started), `cause` (the whole
+run) and `detail`, so a caller branches on a value rather than on prose. `detail` is gh's own
+account WITHOUT the `gh <argv> failed: ` prefix the message carries, and it is the field a command
+quotes in a one-line reason: the ordinary refusal is a single line of stderr
+("gh: API rate limit exceeded"), so tailing `message` would put the whole argv inside the report. Every member is public: `lib/` is
+reachable under two paths through the `src/lib` symlink, and a `private` or `protected` member
+would make the class nominal per declaration and the two identities no longer assignable.
 
-`createGhClient` takes node's `execFile` as an option, which is the seam this directory's own suite
-substitutes so that every endpoint and the adapter itself are exercised in-process, with nothing
-spawned and no `gh` on the machine. It is not a general process runner: the root lib's process
-runner and its git helpers arrive with [#127](https://github.com/bje-settings/claude/issues/127),
-their first consumer.
+Three inputs are required where an optional one would re-admit a defect the layer exists to close:
+`watchChecks`'s `boundMs` (round 5's handoff fact 1), `listMergedPullRequests`'s `limit` (omitted,
+gh substitutes 30 and the caller has no number to judge saturation against, so a truncated window
+reads as a complete answer) and `updateBranch`'s `rebase` (omitted, gh writes a merge commit onto
+someone's head branch). Every ported call site already passes all three, so nothing is being asked
+for that a caller does not have. The two remaining `limit` filters stay optional because neither
+consumer measures its window.
+
+`watchChecks` is the one blocking call and the one exception to "non-zero is a failure". Its
+bound is required rather than optional, because an optional one is #154's unbounded watch a line
+away and `process.ts` detaches only a bounded child, so an unbounded watch could not be
+group-killed either. It answers with `{ status, timedOut, waitedMs, problem }` instead of throwing,
+because the watch reports on the checks through its own exit status (1 a check failed, 8 still
+pending) and 1 is also gh's generic failure. An endpoint that threw on 1 would report a red rollup
+as a broken token. It carries no `--json` and returns no check list: gh refuses `--watch` with
+`--json`, and the caller reads the rollup afterwards with `viewPullRequest`, which is what
+`gh-shepherd-pr.py` does.
+
+`createGhClient` takes the process runner as an option, which is the seam this directory's own
+suite substitutes so that every endpoint and every arm of every failure are exercised in-process,
+with nothing spawned and no `gh` on the machine.
+
+## Decisions not taken
+
+Recorded rather than fixed, each with the condition that reopens it. `lib/` gets what has a user
+now (round 5 ruling 2, round 6 ruling 4): a fix written before anything calls it is the argument
+RFC 001 decision 3 records against this whole directory.
+
+- **No helper builds an environment with the `GIT_*` and `GH_*` keys removed.** `RepoOptions`
+  requires an `env` and `GhClientOptions` accepts one, and both document that naming an environment
+  is not the same as scrubbing it. The only worked scrub in the tree is `harness/sandbox.ts`, which
+  is test code and does not ship, and no Python call site scrubs anything: every one of them
+  inherits. A helper written here would be a typed function with no caller, which is the argument
+  RFC 001 decision 3 records against this directory. **Reopens at** the `hook-io.py` port (#127
+  layer 4), which is the first consumer that genuinely must not answer about the hook's own
+  `GIT_DIR`, and which is therefore where such a helper earns its place and its tests.
+
+- **`OptionSpec` admits `choices` on a boolean, and an empty `choices`.** The union's boolean arm
+  does not declare `choices`, but TypeScript's excess property check accepts a property that any
+  member of the union declares, so `{ type: 'boolean', choices: [...] }` type-checks and the
+  parser ignores it; `choices: []` infers `never` and refuses every value. Neither is reachable
+  from a spec any command writes today. **Reopens when** a command declares a boolean option with
+  `choices`, or builds a `choices` list from a value rather than writing it out, at which point
+  the spec has to refuse both at the call site rather than at the first command line.
+- **The floor comparison's patch term is unpinned.** `compareTriples` compares patch, and
+  `NODE_FLOOR` is 22.18.**0**, so every candidate patch compares greater or equal and no test can
+  tell a correct patch comparison from one that ignores patch entirely. **Reopens when** the floor
+  moves to a release with a non-zero patch (a 22.18.1 that fixes type stripping, say), which is
+  the first time the term decides an answer; the comparison then needs its own example either way.
 
 ## Running
 
