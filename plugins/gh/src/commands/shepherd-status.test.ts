@@ -126,17 +126,32 @@ interface RunOptions {
  *  command run against it. */
 const drive = async (
   build: (sandbox: Sandbox, repo: string) => RunOptions,
-): Promise<{ status: number; stdout: string; stderr: string; sandbox: Sandbox }> => {
+): Promise<{
+  status: number
+  stdout: string
+  stderr: string
+  sandbox: Sandbox
+  /** Everything `createGh` was asked for, in order. `--repo` and the checkout
+   *  are construction options of the client (`lib/gh.ts`), not fields of any
+   *  request, so this is where the repository half of "the whole request" is
+   *  asserted. The Python named `--repo` on both listings and on neither the
+   *  `gh repo view` that resolves it (`gh-shepherd-status.py:104`, `:163`,
+   *  `:185`). */
+  ghOptions: readonly unknown[]
+}> => {
   const sandbox = createSandbox()
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
   const options = build(sandbox, repo)
   const writers = capture()
+  const ghOptions: unknown[] = []
   const context: ShepherdContext = {
     cwd: repo,
     env: options.env ?? sandbox.env,
     output: writers.output,
-    createGh: () =>
-      options.gh ?? createGhServer({ prs: [], replies: { viewRepository: REPOSITORY } }),
+    createGh: (target) => {
+      ghOptions.push(target)
+      return options.gh ?? createGhServer({ prs: [], replies: { viewRepository: REPOSITORY } })
+    },
     now: options.now ?? (() => 0),
     // Never called by this command; a timer here would be a promise nothing
     // resolves rather than a wait nobody notices.
@@ -145,8 +160,16 @@ const drive = async (
     },
   }
   const status = await runShepherdStatus(options.argv, context)
-  return { status, stdout: writers.stdout(), stderr: writers.stderr(), sandbox }
+  return { status, stdout: writers.stdout(), stderr: writers.stderr(), sandbox, ghOptions }
 }
+
+/** The two clients this command builds: one from the checkout alone, the call
+ *  that answers what the repository IS, and then one naming both, which is
+ *  what puts `--repo` on the two listings. */
+const clients = (target: string): unknown[] => [
+  { cwd: target },
+  { cwd: target, repository: 'acme/widgets' },
+]
 
 // --- parity with the Python ---------------------------------------------------
 
@@ -288,13 +311,22 @@ it('answers -h the same way it answers --help', async () => {
 it('takes the working directory as the target when none is given', async () => {
   // `context.cwd` is the checkout here, so an argv with no path at all still
   // reports on it: the default is the caller's directory, not this module's.
-  const result = await drive(() => ({
-    argv: [],
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY, listRuns: [] } }),
-  }))
+  let target = ''
+  const result = await drive((_sandbox, repo) => {
+    target = repo
+    return {
+      argv: [],
+      gh: createGhServer({
+        prs: [depPr(1)],
+        replies: { viewRepository: REPOSITORY, listRuns: [] },
+      }),
+    }
+  })
 
   expect(result.status).toBe(0)
   expect(JSON.parse(result.stdout).targets).toHaveLength(1)
+  // And the directory it defaulted to is the one every call is made from.
+  expect(result.ghOptions).toEqual(clients(target))
 })
 
 it('asks for the open dependencies pull requests, with the window it reads', async () => {
@@ -307,18 +339,25 @@ it('asks for the open dependencies pull requests, with the window it reads', asy
     replies: { viewRepository: REPOSITORY, listRuns: [] },
   })
 
-  await drive(() => ({
-    argv: [],
-    gh: {
-      ...server,
-      listPullRequests: async (query) => {
-        queries.push(query)
-        return server.listPullRequests(query)
+  let target = ''
+  const result = await drive((_sandbox, repo) => {
+    target = repo
+    return {
+      argv: [repo],
+      gh: {
+        ...server,
+        listPullRequests: async (query) => {
+          queries.push(query)
+          return server.listPullRequests(query)
+        },
       },
-    },
-  }))
+    }
+  })
 
   expect(queries).toEqual([{ state: 'open', label: 'dependencies', limit: 100 }])
+  // And the repository it is addressed to: `--repo` is not in the query, it is
+  // the client the query is sent through.
+  expect(result.ghOptions).toEqual(clients(target))
 })
 
 it('asks for the completed runs on the default branch, with the sample size', async () => {
@@ -328,18 +367,23 @@ it('asks for the completed runs on the default branch, with the sample size', as
     replies: { viewRepository: { ...REPOSITORY, defaultBranchRef: { name: 'trunk' } } },
   })
 
-  await drive(() => ({
-    argv: [],
-    gh: {
-      ...server,
-      listRuns: async (query) => {
-        queries.push(query)
-        return []
+  let target = ''
+  const result = await drive((_sandbox, repo) => {
+    target = repo
+    return {
+      argv: [repo],
+      gh: {
+        ...server,
+        listRuns: async (query) => {
+          queries.push(query)
+          return []
+        },
       },
-    },
-  }))
+    }
+  })
 
   expect(queries).toEqual([{ branch: 'trunk', status: 'completed', limit: 20 }])
+  expect(result.ghOptions).toEqual(clients(target))
 })
 
 it.each([

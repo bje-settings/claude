@@ -170,6 +170,13 @@ interface RunResult {
   readonly document: Record<string, unknown>
   readonly sandbox: Sandbox
   readonly elapsed: number
+  /** Everything `createGh` was asked for, in order. `--repo` is not part of
+   *  any request object in this port: it is a construction option of the
+   *  client (`lib/gh.ts`), so the repository half of "the whole request" is
+   *  asserted here or nowhere. The Python put `--repo self.repo` on every
+   *  call but the one that resolves it (`gh-shepherd-pr.py:483`, `:538`,
+   *  `:928`, against `:958`). */
+  readonly ghOptions: readonly unknown[]
 }
 
 /** A sandbox holding one repository at the path the capture used, and the
@@ -181,11 +188,15 @@ const drive = async (build: (sandbox: Sandbox, repo: string) => RunOptions): Pro
   const writers = capture(options.reader)
   const time = fakeTime()
   const gh = options.gh ?? createGhServer({ replies: { viewRepository: REPOSITORY } })
+  const ghOptions: unknown[] = []
   const context: ShepherdContext = {
     cwd: repo,
     env: options.env ?? sandbox.env,
     output: writers.output,
-    createGh: () => gh,
+    createGh: (target) => {
+      ghOptions.push(target)
+      return gh
+    },
     now: time.now,
     sleep: time.sleep,
   }
@@ -199,8 +210,18 @@ const drive = async (build: (sandbox: Sandbox, repo: string) => RunOptions): Pro
     document: stdout.startsWith('{') ? JSON.parse(stdout) : {},
     sandbox,
     elapsed: time.at(),
+    ghOptions,
   }
 }
+
+/** The two clients every action builds: one from the checkout alone, which is
+ *  the call that answers what the repository IS, and then one that names both
+ *  the checkout and that repository, which is what puts `--repo` on every
+ *  later call. */
+const clients = (target: string): unknown[] => [
+  { cwd: target },
+  { cwd: target, repository: 'acme/widgets' },
+]
 
 /** The environment a case ran under, minus the variables that drove the stub
  *  `gh` rather than the command. */
@@ -579,9 +600,14 @@ it('asks for a rebase of the pull request it was given, and never a merge', asyn
     sequences: { viewPullRequest: [depPr(7, { merge: 'BEHIND' })] },
   })
 
-  await drive((_sandbox, repo) => ({ argv: [repo, '7', 'rebase'], gh: record.gh }))
+  let target = ''
+  const result = await drive((_sandbox, repo) => {
+    target = repo
+    return { argv: [repo, '7', 'rebase'], gh: record.gh }
+  })
 
   expect(record.updates).toEqual([{ pullRequest: 7, rebase: true }])
+  expect(result.ghOptions).toEqual(clients(target))
 })
 
 // --- recreate ----------------------------------------------------------------------
@@ -627,14 +653,41 @@ it('posts the words Dependabot answers, on the pull request it was given', async
     },
   })
 
+  let target = ''
+  const result = await drive((sandbox, repo) => {
+    target = repo
+    return { argv: [repo, '7', 'recreate'], env: recreateEnv(sandbox), gh: record.gh }
+  })
+
+  expect(result.document.detail).toBe('recreated')
+  expect(record.comments).toEqual([{ pullRequest: 7, body: '@dependabot recreate' }])
+  expect(result.ghOptions).toEqual(clients(target))
+})
+
+it('refuses a bot that is not Dependabot, and posts nothing', async () => {
+  // `is_bot` still reports what it is, so the report can say why it stopped;
+  // what the action turns on is `is_dependabot`. The captured refusal has a
+  // HUMAN author, so nothing there tells `!is_dependabot` and `!is_bot`
+  // apart, and under `!is_bot` this command posts `@dependabot recreate` on a
+  // renovate pull request, which nothing will ever answer
+  // (`test_shepherd_pr.py:334`).
+  const record = recording({
+    prs: [{ ...depPr(1, { merge: 'DIRTY' }), author: { login: 'renovate[bot]', is_bot: true } }],
+    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
+  })
+
   const result = await drive((sandbox, repo) => ({
-    argv: [repo, '7', 'recreate'],
+    argv: [repo, '1', 'recreate'],
     env: recreateEnv(sandbox),
     gh: record.gh,
   }))
 
-  expect(result.document.detail).toBe('recreated')
-  expect(record.comments).toEqual([{ pullRequest: 7, body: '@dependabot recreate' }])
+  expect(result.document.ok).toBe(false)
+  expect(result.document.detail).toContain('not authored by Dependabot')
+  const pull = result.document.pr as Record<string, unknown>
+  expect(pull.is_bot).toBe(true)
+  expect(pull.is_dependabot).toBe(false)
+  expect(record.comments).toEqual([])
 })
 
 it('reports a moved head as recreated even when the merge landed with it', async () => {
@@ -1126,6 +1179,24 @@ it('blocks on a merge state that turned BLOCKED mid-poll', async () => {
   expect((result.document.pr as Record<string, unknown>).mergeStateStatus).toBe('BLOCKED')
 })
 
+it('blocks rather than rechecks when a review is required on a base that moved', async () => {
+  // Precedence, and nothing else asserts it: a RECHECK merge state and a
+  // blocking review together must answer `blocked`. Reporting `changed` would
+  // send the caller off to rebase, which buys a CI run and leaves the pull
+  // request exactly as unmergeable as it was (`test_shepherd_pr.py:765`).
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'settle'],
+    env: settleEnv(sandbox),
+    gh: createGhServer({
+      prs: [depPr(1, { merge: 'BEHIND', checks: 'passed', review: 'REVIEW_REQUIRED' })],
+      replies: { viewRepository: REPOSITORY },
+    }),
+  }))
+
+  expect(result.document.result).toBe('blocked')
+  expect(result.document.reason).toBe('auto-merge cannot fire: reviewDecision is REVIEW_REQUIRED')
+})
+
 it('reports closed when the pull request is closed while it waits', async () => {
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
@@ -1314,13 +1385,16 @@ it('posts the reason file it was given, as the body of the comment', async () =>
     replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
   })
   let reason = ''
+  let target = ''
 
-  await drive((sandbox, repo) => {
+  const result = await drive((sandbox, repo) => {
     reason = PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''
+    target = repo
     return { argv: [repo, '4', 'skip', reason], gh: record.gh }
   })
 
   expect(record.comments).toEqual([{ pullRequest: 4, bodyFile: reason }])
+  expect(result.ghOptions).toEqual(clients(target))
 })
 
 it('vets the reason file gh will read, not one beside this process', async () => {
