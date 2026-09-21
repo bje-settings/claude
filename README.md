@@ -114,6 +114,6 @@ and get republished, never edited downstream.
 
 ## Contributing
 
-Run `uv run --locked pytest -n auto --cov` for the whole suite. Every plugin script is Python, so
-pytest is the only harness and `uv` the only requirement. See
+Run `pnpm test` for the TypeScript suite and `uv run --locked pytest -n auto --cov` for the Python
+one, which retires as the port to TypeScript finishes. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for installing the marketplace locally.
