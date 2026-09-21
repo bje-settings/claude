@@ -10,7 +10,7 @@ paths:
 # Plugin TypeScript
 
 New plugin code is TypeScript, executed directly by node with type stripping and no build step.
-The floor is node 22.18; `.npmrc` pins the 22.x release everything here runs on.
+The floor is node 22.18; `.npmrc` pins the 22.x release pnpm runs by default.
 `docs/rfc/001-typescript-port.md` is the record ("Shape", "The testing seam", the thirteen
 decisions), with `docs/adr/001-typescript-on-node-22-18.md` for the runtime and the shared `lib/`
 and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is the rules.
@@ -111,4 +111,4 @@ the decision into a function that takes what it depended on as an argument.
 
 `docs/adr/002-quality-gate-venues.md` describes exclusion by name with a stated reason as the
 relief valve. Opening it is a maintainer decision argued on its own pull request, never a step in
-someone else's change.
+the change you are making.

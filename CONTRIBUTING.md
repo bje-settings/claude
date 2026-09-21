@@ -12,13 +12,13 @@ uv run --locked ruff check . && uv run --locked ruff format --check .
 ```
 
 Two toolchains, two prerequisites: Node with corepack enabled (`package.json` pins the pnpm
-version, and `.npmrc` pins the 22.x release pnpm runs everything on), and `uv`. New plugin code
+version, and `.npmrc` pins the 22.x release pnpm runs by default), and `uv`. New plugin code
 is TypeScript, run directly by node (`.claude/rules/type-ts.md`), and the Python that remains
 retires piece by piece, each against its own issue (`.claude/rules/type-py.md` names them).
 
 Tests that need `jq` or a package manager skip themselves without it (the `gh` stubs shell out to
-`jq` for `--jq`), and the git hooks' own steps additionally need `node_modules`, `claude` and
-`uv`, and warn to stderr without them rather than failing the commit.
+`jq` for `--jq`), and the git hooks' steps need, between them, `node_modules`, `claude` and `uv`,
+each warning to stderr without the one it needs rather than failing the commit.
 
 TypeScript tests are co-located with the code they cover, at `plugins/<plugin>/src/**/*.test.ts`,
 with fixtures at `plugins/<plugin>/src/fixtures/`; the shared harness is `harness/` at the
@@ -46,7 +46,7 @@ because that is what macOS ships at `/usr/bin/python3`.
 
 ## Language server
 
-Sessions on this checkout run the TypeScript language server, which expects it on `PATH`.
+Sessions on this checkout run the TypeScript language server, which expects the server on `PATH`.
 Install it once per machine (`CLAUDE.md`'s "Language server" section has the why):
 
 ```bash
