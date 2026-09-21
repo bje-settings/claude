@@ -164,8 +164,10 @@ it('refuses a shepherd-status path that is not a directory', () => {
 it('exits 1 with the report on stdout when a job fails, at the real process boundary', () => {
   // #81: `syncRepo` cannot be driven into this state through the real `gh.ts`
   // binary (see `fixtures/throwing-sync-entry.ts` and `fixtures/README.md`),
-  // so this proves the envelope-to-exit-code wiring the same way `bin/gh.ts`
-  // wires it, in a real spawned process rather than in-process.
+  // so this proves the envelope-to-exit-code wiring `createSyncCommand` and
+  // `renderText` share with `bin/gh.ts`, at a real process boundary; the
+  // dispatch and `write` themselves are mirrored here, not called (review
+  // round 2 finding, matching this file's own header above).
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const repo = git.create(sandbox.join('r'))
