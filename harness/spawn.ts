@@ -6,7 +6,7 @@
 // thin adapter over it, and the one thing an in-process call cannot cover is
 // the process boundary itself, so each entry point gets one spawned contract
 // test: argv in, exit code and streams out.
-import { spawnSync } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process'
 
 /** status, stdout and stderr of one run.
  *
@@ -61,5 +61,88 @@ export function runScript(entry: string, options: SpawnOptions = {}): SpawnResul
     stderr: result.stderr.toString('utf8'),
     stdoutBytes: result.stdout,
     stderrBytes: result.stderr,
+  }
+}
+
+/** One running child, with its pipes still open.
+ *
+ *  {@link runScript} is `spawnSync` and drains both streams before it
+ *  returns, so nothing it runs can have its reader taken away part-way: the
+ *  EPIPE guard every entry point carries is unpinnable through it (round 5's
+ *  handoff note from #156). This is the variant that can, and it is a variant
+ *  rather than a replacement because every other spawned test wants the
+ *  simple thing.
+ */
+export interface SpawnedScript {
+  /** The child itself, for a test that needs something these three do not
+   *  give it. */
+  readonly child: ChildProcessWithoutNullStreams
+  /** The first line the child writes to stdout, without its newline.
+   *
+   *  Resolves with what arrived when the stream ends without one, which is
+   *  what a caller reading a single line off a short answer gets. */
+  firstLine(): Promise<string>
+  /** Close this end of the child's stdout, as `| head -1` does once head has
+   *  had enough. The child's next write to it fails with EPIPE. */
+  closeStdout(): void
+  /** status, signal and stderr, once the child has ended. stdout is not
+   *  collected: the point of this variant is that the reader stops reading,
+   *  and a buffer of everything would be the thing that cannot happen. */
+  ended(): Promise<EndedResult>
+}
+
+export interface EndedResult {
+  status: number | null
+  signal: NodeJS.Signals | null
+  stderr: string
+}
+
+/** Start `entry` under this same node binary and hand back its pipes.
+ *
+ *  Same argv, environment and working directory as {@link runScript}, and the
+ *  same `process.execPath` for the same reason; what differs is only that the
+ *  child is still running when this returns.
+ */
+export function startScript(entry: string, options: SpawnOptions = {}): SpawnedScript {
+  const { args = [], stdin, env, cwd } = options
+  const child = spawn(process.execPath, [entry, ...args], { env, cwd })
+  child.stdin.end(stdin)
+
+  return {
+    child,
+
+    firstLine(): Promise<string> {
+      return new Promise<string>((resolve) => {
+        let seen = ''
+        const take = (chunk: Buffer): void => {
+          seen += chunk.toString('utf8')
+          const newline = seen.indexOf('\n')
+          if (newline === -1) return
+          child.stdout.off('data', take)
+          resolve(seen.slice(0, newline))
+        }
+        child.stdout.on('data', take)
+        child.stdout.once('end', () => {
+          child.stdout.off('data', take)
+          resolve(seen)
+        })
+      })
+    },
+
+    closeStdout(): void {
+      child.stdout.destroy()
+    },
+
+    ended(): Promise<EndedResult> {
+      let stderr = ''
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8')
+      })
+      return new Promise<EndedResult>((resolve) => {
+        child.on('close', (status, signal) => {
+          resolve({ status, signal, stderr })
+        })
+      })
+    },
   }
 }

@@ -8,7 +8,19 @@ commit that made it, and neither is the file that documents it.
 | --- | --- |
 | `hook-output.json` | 54 runs of `plugins/gh/hooks/hook-io.py`, one per case, plus the `syncTimeout` table. |
 
-Read by `plugins/gh/src/commands/hook-io.test.ts` and `plugins/gh/hooks/hook-io.test.ts`.
+Read by `plugins/gh/src/commands/hook-io.test.ts` and `plugins/gh/src/hook.test.ts`, beside
+`divergences-hook.json`, which is the table of what the port deliberately says instead. That file
+is not a capture: it grows when a divergence is found, which is the only way a divergence stays
+countable rather than dissolving into a rewritten expectation, and every row of it is read by a
+test.
+
+Two `.ts` fixtures sit here too, `slow-entry.ts` and `quick-entry.ts`. They stand in for
+`bin/gh.ts` in the one example that measures a real bound: one never answers, so the timeout arm is
+reached by the timer firing rather than by an injected result, and one answers at once, so the same
+bound must not fire. They are programs rather than data for the reason `lib/fixtures/`'s three are:
+the suite that needs them has nowhere else to put a program. `vitest.config.ts` excludes
+`**/fixtures/**` from collection and from coverage, so both are linted and type-checked and never
+measured.
 
 ## What the acceptance needs from it
 
