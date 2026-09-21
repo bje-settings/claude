@@ -223,7 +223,14 @@ function shimmed(f: Fixture, ...failing: string[]): NodeJS.ProcessEnv {
 
 /** A PATH whose git answers the named subcommands with exit 0 and nothing at
  *  all, and forwards the rest. The shape CI reached, and the one the Python
- *  guards against with `or`/`if not` at six call sites. */
+ *  guards against with `or`/`if not` at nine call sites in this file's subject.
+ *
+ *  The match is a prefix of the whole subcommand line (`harness/git.ts`), so
+ *  `'rev-parse --short'` silences every abbreviation and leaves the full form
+ *  answering, and a whole ref can be named to silence one question and not its
+ *  sibling. Both are needed: several of these guards sit on two `rev-parse`
+ *  forms of the SAME ref, and a shim that silenced both would prove a
+ *  different arm. */
 function silenced(f: Fixture, ...quiet: string[]): NodeJS.ProcessEnv {
   const shim = f.git.gitShim()
   return {
@@ -630,6 +637,108 @@ describe('the preflight', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('main already up to date')
     expect(result.stdout).not.toContain('origin/ does not exist locally')
+  })
+
+  // --- an empty answer at every other guard --------------------------------
+  //
+  // `gh-sync-repo.py` guards an empty git answer with `or`/`if not` at nine
+  // places, and the port has to as well: a `git` that exits 0 and prints
+  // nothing is a shape a caller can arrange, and CI reached it. Two of the
+  // nine are the examples above (the checkout root and the default branch).
+  // The other seven are here, and they need `GIT_STUB_SILENT` rather than
+  // `GIT_STUB_FAIL` to reach: a git that FAILS answers `null`, which is the
+  // arm real git already drives and coverage already counts. The narrowing
+  // from `||` to `??`, or from `!x` to `x === null`, is not a branch at all,
+  // so the coverage gate cannot see any of these go.
+
+  it('falls back to the full sha when every abbreviation reads empty', async () => {
+    // `gh-sync-repo.py:368` and `:381` are `or self.tip` and
+    // `or git_out("rev-parse", self.default)`: an empty abbreviation is no
+    // abbreviation, and the full form behind it still answers. Read as an
+    // answer instead, `before` and `target` are both `""`, they compare equal,
+    // and the run reports the literal `main already up to date ()` about a
+    // branch it was about to move. `:664`'s `and advanced_from` then hands
+    // `git diff --name-only "" ""` a range with no ends.
+    const f = fixture()
+    SCENARIOS.lock_file_changed?.(f)
+
+    const result = await run(f, ['--dry-run', f.repo], {
+      env: silenced(f, 'rev-parse --short'),
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('lock file changed in that range; would run install')
+    expect(result.stdout).not.toContain('already up to date ()')
+    expect(result.stdout).not.toContain('could not diff the lock files over that range')
+  })
+
+  it('keeps the sha that makes a deletion recoverable when the abbreviation reads empty', async () => {
+    // `gh-sync-repo.py:631` is `or sha`, and its comment says the full sha is
+    // in hand precisely so this line keeps "the recoverability the line exists
+    // for". Read as an answer, the line is `deleted ff-done (, merged into
+    // main)` and the one thing that makes `git branch -D` undoable is gone.
+    const f = fixture()
+    SCENARIOS.delete_on_ancestry?.(f)
+
+    const result = await run(f, [f.repo], { env: silenced(f, 'rev-parse --short') })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toMatch(/deleted ff-done \([0-9a-f]{7,}, merged into main\)/)
+    expect(result.stdout).not.toContain('deleted ff-done (,')
+  })
+
+  it('reads an empty origin tip as no tip, rather than as one nothing can equal', async () => {
+    // `gh-sync-repo.py:673` is `if not self.tip`. The whole ref is named so
+    // that this question is silenced and the per-branch one below is not.
+    // Read as an answer, `this.tip` is `""`: nothing equals it, so
+    // `kept ... nothing to prune` can never fire and a branch sitting exactly
+    // on the default tip is force-deleted instead of kept.
+    const f = fixture()
+    SCENARIOS.keep_a_branch_on_the_tip?.(f)
+
+    const result = await run(f, [f.repo], {
+      env: silenced(f, 'rev-parse --verify --quiet refs/remotes/origin/main'),
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain(
+      'origin/main does not exist locally; nothing to compare against',
+    )
+    expect(result.stdout).not.toContain('deleted')
+  })
+
+  it('keeps a branch whose own tip reads empty, rather than deleting it unread', async () => {
+    // `gh-sync-repo.py:546` is `if not sha`. Read as an answer, the branch
+    // carries `""` into the pull-request match (which nothing can equal, so
+    // that signal dies silently) and can still be proved by ancestry and
+    // force-deleted on a tip that was never read.
+    const f = fixture()
+    SCENARIOS.delete_on_ancestry?.(f)
+
+    const result = await run(f, [f.repo], {
+      env: silenced(f, 'rev-parse --verify --quiet refs/heads/ff-done'),
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('kept ff-done (cannot resolve its tip)')
+    expect(f.git.branches(f.repo)).toContain('ff-done')
+  })
+
+  it('names HEAD when the current branch reads empty, not the empty string', async () => {
+    // `gh-sync-repo.py:349` is `or "HEAD"`. The sibling of the failing-git
+    // example above, which reaches the same fallback through `null`. Read as
+    // an answer, the line is `would switch from  to main`, naming no branch,
+    // and the report quotes a value that is not one.
+    const f = fixture()
+    SCENARIOS.switch_to_the_default_branch?.(f)
+
+    const result = await run(f, ['--dry-run', f.repo], {
+      env: silenced(f, 'rev-parse --abbrev-ref'),
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('would switch from HEAD to main')
+    expect(result.stdout).not.toContain('would switch from  to')
   })
 
   it('skips a repository whose path is a file rather than a directory', async () => {

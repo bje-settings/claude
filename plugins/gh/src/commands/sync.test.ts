@@ -228,7 +228,12 @@ describe('the command line', () => {
 
     expect(result.status).toBe(2)
     expect(result.stderr).toBe(`not a directory: ${f.sandbox.join('nothing-here')}`)
-    expect(PYTHON.sync?.not_a_directory?.stderr).toContain('not a directory: ')
+    // The PORT against the capture, not the capture against a literal: the
+    // Python refused the same name from the same sandbox, so the two values
+    // are directly comparable once the sandbox path is normalised, and the
+    // path SPELLING is part of what parity means here. The capture carries
+    // the trailing newline `print` adds.
+    expect(normalise(`${result.stderr}\n`, f.sandbox)).toBe(PYTHON.sync?.not_a_directory?.stderr)
   })
 
   it('takes the working directory as the scope when no target is given', async () => {
