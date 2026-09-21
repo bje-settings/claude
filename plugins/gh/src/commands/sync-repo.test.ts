@@ -25,10 +25,10 @@ import {
   GhError,
   type GhReplies,
   ghFails,
-  type MergedPullRequestQuery,
 } from '../../../../harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '../../../../harness/git.ts'
 import { corepackEnv, createPackageFixtures } from '../../../../harness/packages.ts'
+import { createGhServer, manyPrs, type PullRequestRow, pr } from '../../../../harness/pulls.ts'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { exitCodeFor } from '../lib/envelope.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
@@ -55,32 +55,9 @@ const PYTHON: Record<
   Record<string, { status: number; stdout: string; stderr: string }>
 > = JSON.parse(read('python-cli-output.json'))
 
-/** One merged pull request, for composing a canned set. The row builders stay
- *  here rather than in `harness/`: the round 4 note puts `pr`, `write_prs`,
- *  `many_prs` and `dep_pr` with the shepherd layer, which is the one that
- *  needs them all, and what this file needs is two object literals. */
-const pr = (headRefName: string, headRefOid: string, baseRefName = 'main', cross = false) => ({
-  headRefName,
-  headRefOid,
-  baseRefName,
-  isCrossRepository: cross,
-  state: 'MERGED',
-})
-
-/** `count` filler pull requests, followed by any given explicitly. When
- *  `count` is at least the bulk lookup limit, anything appended is past the
- *  window: invisible to the bulk query and reachable only by asking about that
- *  branch directly. */
-const manyPrs = (count: number, ...extra: ReturnType<typeof pr>[]) => [
-  ...Array.from({ length: count }, (_, index) => pr(`old-${index}`, String(index))),
-  ...extra,
-]
-
-type Row = ReturnType<typeof pr>
-
 interface GhOptions {
   /** The canned set every query is answered from. */
-  readonly prs?: Row[]
+  readonly prs?: PullRequestRow[]
   /** `all` fails every call, `head` only the per-branch ones, so a bulk lookup
    *  can succeed while the fallback does not. */
   readonly fail?: 'all' | 'head'
@@ -91,51 +68,41 @@ interface GhOptions {
 /**
  * A `gh` that answers about merged pull requests the way the real one does.
  *
- * `createGhMock` is the base, so every endpoint this plugin does not use still
- * throws and names itself; only the two endpoints the sync asks for are
- * answered here. The filtering is the stub `gh`'s: `--base` and `--head` are
- * applied server-side and `--limit` truncates, which is what makes a saturated
- * window a window and not an answer. It is a filter over registered rows and
- * holds no knowledge of what the command does with them, which is what ADR
- * 001's "the mock holds no conditional logic" is about: reproducing the
- * SERVER's filter is fidelity, and without it the per-branch fallback cannot
- * be reached at all, because the bulk window and the per-branch query are the
- * same endpoint.
+ * The double itself is `harness/pulls.ts` `createGhServer` now (#127 layer 3,
+ * which needed the same two properties for the shepherd and moved it out of
+ * this file); what is left here is the translation from this file's own
+ * options to that server's, so no example below changed. The row builders `pr`
+ * and `manyPrs` moved with it.
  *
- * One property of `createGhMock` it does give up: `listMergedPullRequests` is
- * ALWAYS answered, so a query nobody expected reads as an answer here rather
- * than throwing. `does not ask about a branch the bulk lookup already proved`
- * reaches that property the other way, by making the per-branch query fail.
+ * What the server gives that `createGhMock` cannot: the filtering `gh pr list`
+ * applies server-side (`--state`, `--base`, `--head`, `--limit`), which is
+ * what makes a saturated window a window and not an answer, and without which
+ * the per-branch fallback cannot be reached at all, because the bulk window
+ * and the per-branch query are the same endpoint.
+ *
+ * One property of `createGhMock` it gives up, for the endpoints a set is
+ * registered for: `listMergedPullRequests` is ALWAYS answered, so a query
+ * nobody expected reads as an answer here rather than throwing. `does not ask
+ * about a branch the bulk lookup already proved` reaches that property the
+ * other way, by making the per-branch query fail.
  */
 function ghDouble(options: GhOptions = {}): GhClient {
-  const rows = options.prs ?? []
-  // `fail: 'all'` is the stub's GH_FIXTURE_FAIL, which fails every call
-  // including `gh repo view`, so the default-branch fallback sees a gh that
-  // cannot answer rather than one nobody registered.
+  // `ghFails` rather than a hand-built `GhError`: it is the harness's own fail
+  // switch and it sets `detail`, which is the field the report quotes, so
+  // these doubles fail the way the real client does. `fail: 'all'` is the stub
+  // `gh`'s GH_FIXTURE_FAIL, which fails every call including `gh repo view`,
+  // so the default-branch fallback sees a gh that cannot answer rather than
+  // one nobody registered.
   const replies: GhReplies =
-    options.fail === 'all'
-      ? { viewRepository: ghFails('gh: simulated failure') }
-      : options.defaultBranch === undefined
-        ? {}
-        : { viewRepository: { defaultBranchRef: { name: options.defaultBranch } } }
-  return {
-    ...createGhMock(replies),
-    listMergedPullRequests: async (query: MergedPullRequestQuery) => {
-      // `ghFails` rather than a hand-built `GhError`: it is the harness's own
-      // fail switch and it sets `detail`, which is the field the report
-      // quotes, so these doubles fail the way the real client does.
-      if (options.fail === 'all') throw ghFails('gh: simulated failure')
-      if (options.fail === 'head' && query.head !== undefined) {
-        throw ghFails('gh: simulated per-branch failure')
-      }
-      const matching = rows.filter(
-        (row) =>
-          row.baseRefName === query.base &&
-          (query.head === undefined || row.headRefName === query.head),
-      )
-      return matching.slice(0, query.limit)
-    },
-  }
+    options.defaultBranch === undefined
+      ? {}
+      : { viewRepository: { defaultBranchRef: { name: options.defaultBranch } } }
+  return createGhServer({
+    prs: options.prs ?? [],
+    replies,
+    fail: options.fail === 'all' ? ghFails('gh: simulated failure') : undefined,
+    failHead: options.fail === 'head' ? ghFails('gh: simulated per-branch failure') : undefined,
+  })
 }
 
 /** The pair of writers a command reports through, over two buffers. */

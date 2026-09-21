@@ -12,6 +12,7 @@ the one cleanup hook.
 | --- | --- |
 | `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, and an `env` object to hand to children. |
 | `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
+| `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
 | `spawn.ts` | One `bin/` entry point run as its own process: argv in, status and streams out. |
@@ -88,6 +89,52 @@ double, its reply map and its fail switch. `GhError`, the failure the real clien
 re-exported beside them so a test reaches the double, the interface and the error through one
 module. Inputs and outputs are still plain JSON values on purpose: the commands that consume them
 (#127 layers 2 and 3) shape them with their own types.
+
+## The `gh` server
+
+```ts
+const gh = createGhServer({
+  prs: [depPr(1, { merge: 'BEHIND' }), depPr(2, { auto: false })],
+  replies: { viewRepository: { nameWithOwner: 'acme/widgets' } },
+  sequences: { viewPullRequest: [depPr(1), depPr(1, { state: 'MERGED' })] },
+})
+```
+
+`createGhMock` answers each endpoint with one registered reply, by design, and that is the right
+double for a command that asks a question once. Two things the ported commands do are not that,
+and both are what the stub `gh` in `tests/gh/bin/gh` gave the Python suite:
+
+- **One endpoint, two questions.** `sync-repo` asks for a window of merged pull requests and then,
+  if that window saturated, about one branch; both are `gh pr list`. A double that cannot tell them
+  apart cannot reach the per-branch fallback at all. `prs` is answered with the filtering GitHub
+  applies server-side: `--state` (case-insensitively, and a row with no state at all is merged),
+  `--base`, `--head`, `--label` and `--limit`, plus resolving `pr view <n>` against the same set
+  and failing a number that resolves to nothing in gh's own words.
+- **The same question twice, with the answer changing in between.** `settle` reads the pull request
+  until GitHub decides and `recreate` polls the head SHA until Dependabot moves it. The Python
+  arranged that by rewriting the canned file from a background thread, gated on the call log;
+  `sequences` is the same fact with no race: one entry per call, and the last entry repeats, so a
+  poll that runs one read longer than the test expected reads the settled answer rather than
+  falling off the end. An entry that is an `Error` is thrown for that call alone.
+
+Precedence, highest first: `fail` (the stub's `GH_FIXTURE_FAIL`, every call), then the endpoint's
+sequence, then its single reply, then the pull-request set, then the unregistered endpoint's throw.
+`failHead` is the stub's `GH_FIXTURE_FAIL_HEAD`: only a query that names a branch fails, so a bulk
+window can be answered while the per-branch question is not.
+
+It stays a filter over registered data, which is what ADR 001's "the mock holds no conditional
+logic" is about: reproducing the SERVER's filter is fidelity, and nothing in it knows what a
+command decides. The one property of `createGhMock` it gives up is stated in its own doc comment:
+with `prs` given, the three pull-request endpoints are always answered, so a test that means "this
+must not be called" registers no set (or registers a failure for that endpoint).
+
+The row builders are the port of the pull-request half of `tests/gh/conftest.py`. `pr` and
+`manyPrs` build the merged rows the sync layer reads; `depPr(number, keys)` builds one
+`dependencies` pull request carrying every field `PR_FIELDS` asks gh for, with the same keys and
+the same defaults the Python's had (`state`, `merge`, `checks`, `auto`, `bot`, `draft`, `review`,
+`risk`, `created`, `head`), so a captured Python run and the TypeScript example beside it are built
+from the same row. `writePrs` and `noPrs` keep their names from the Python, where they wrote the
+set to the file the stub read; here the set is passed to the server instead.
 
 ## The git builders
 

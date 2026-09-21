@@ -92,3 +92,68 @@ it('refuses a -j value that is not a positive integer', () => {
   expect(result.status).toBe(2)
   expect(result.stderr).toBe('invalid -j value: 0\n')
 })
+
+it('lists the shepherd commands in the command list', () => {
+  const result = runScript(BIN, { args: [], env: env() })
+
+  expect(result.stdout).toContain('shepherd-status')
+  expect(result.stdout).toContain('shepherd-pr <path> <number> <action>')
+})
+
+it('prints shepherd-status’s own usage for its --help', () => {
+  const result = runScript(BIN, { args: ['shepherd-status', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toContain('gh.ts shepherd-status [path]')
+  expect(result.stderr).toBe('')
+})
+
+it('prints shepherd-pr’s own usage for its --help, naming every action', () => {
+  const result = runScript(BIN, { args: ['shepherd-pr', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'skip', 'merged']) {
+    expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
+  }
+})
+
+it('refuses shepherd-pr with too few arguments, exit 2, usage on stderr', () => {
+  // The process boundary itself: a command that answers with a status rather
+  // than an envelope still reaches `process.exitCode` through the same
+  // adapter.
+  const result = runScript(BIN, { args: ['shepherd-pr', '.', '1'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toContain('gh.ts shepherd-pr <path> <number> state')
+})
+
+it('refuses a shepherd-pr path that is not a directory, without reaching gh', () => {
+  const result = runScript(BIN, {
+    args: ['shepherd-pr', 'no-such-directory', '1', 'state'],
+    env: env(),
+  })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('not a directory: no-such-directory\n')
+})
+
+it('refuses a shepherd-status path that is not a directory', () => {
+  const result = runScript(BIN, { args: ['shepherd-status', 'no-such-directory'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stderr).toBe('not a directory: no-such-directory\n')
+})
+
+it('refuses a pull request number that is not one', () => {
+  const sandbox = createSandbox()
+
+  const result = runScript(BIN, {
+    args: ['shepherd-pr', sandbox.path, 'abc', 'state'],
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(2)
+  expect(result.stderr).toBe('not a pull request number: abc\n')
+})
