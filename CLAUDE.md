@@ -17,20 +17,18 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 ### Plugins
 
 Plugins are listed in `README.md`; each has its own README. New `gh` skills belong in the `gh`
-plugin, and repo discovery shared by `gh`'s skills is `scripts/lib/discover.py`.
+plugin, and repo discovery shared by its skills is `plugins/gh/scripts/lib/discover.py`.
 
-New plugin code is TypeScript, run directly by node 22.18; `.claude/rules/type-ts.md` has the
-rules. A command is an exported function at `plugins/<plugin>/src/commands/*.ts` behind a thin
+New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
+has the rules. A command is an exported function under `plugins/<plugin>/src/` behind a thin
 adapter at `plugins/<plugin>/bin/<command>.ts`, a hook goes at `plugins/<plugin>/hooks/*.ts`, and
 code shared between plugins is the root `lib/`, reached through the committed symlink
 `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
 
 The Python layer is retiring and is not the pattern to copy. `gh` (#127) and `field-test` (#136)
 still run scripts at `plugins/<plugin>/scripts/*.py` and hooks at `plugins/<plugin>/hooks/*.py`,
-stdlib only on a Python 3.9 floor, sharing code inside one plugin at
-`plugins/<plugin>/scripts/lib/` via `sys.path.insert(0, HERE)`. Do not change how such a script
-imports `lib`: the root `tests/conftest.py` resets `sys.modules`/`sys.path` between tests so each
-plugin's `lib` resolves independently. `.claude/rules/type-py.md` has the rest.
+stdlib only on a Python 3.9 floor. `.claude/rules/type-py.md` has the layout, the import rules and
+the rest, and loads whenever a session opens one of those files.
 
 In either language nothing under `plugins/` is bash, a plugin takes no dependency and carries no
 `package.json`, and a command's exit codes and stdout are a contract with its callers.
@@ -107,16 +105,17 @@ The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforc
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 
-Not everything here is a plugin. `scripts/*.py` is this repo's own tooling and `.claude/skills/`
-holds the skills that drive it. Neither is installed by anyone, neither is in the marketplace
-manifest, and `claude plugin validate` never sees either -- they're held to the same standards
-anyway, because they can change other repositories.
+Not everything here is a plugin. Root `scripts/` is this repo's own tooling, Python until #128,
+and `.claude/skills/` holds the skills that drive it. Neither is installed by anyone, neither is
+in the marketplace manifest, and `claude plugin validate` never sees either; they are held to the
+same standards anyway, because they can change other repositories.
 
 Three things differ from a plugin (`.claude/rules/type-py.md` has the detail):
 
-- A root script is one self-contained module, with no `lib/` and no `sys.path.insert`. Enforced by
-  `tests/test_repo_layout.py` until #138, since a violation's failure mode is a confusing error in
-  an unrelated plugin's tests; `tests/repo-layout.test.ts` holds the TypeScript layout rules.
+- A root Python script is one self-contained module, with no `lib/` and no `sys.path.insert`.
+  Enforced by `tests/test_repo_layout.py` until #138, since a violation's failure mode is a
+  confusing error in an unrelated plugin's tests. `tests/repo-layout.test.ts` holds the TypeScript
+  layout rules.
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
 
@@ -157,14 +156,14 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
   because pytest imports them into one namespace: `test_gh_fixtures.py` and `test_ft_fixtures.py`,
   never two `test_fixtures.py`.
 - In the Python suite, `run_script` drives a script black-box as its own process under
-  `sys.executable`, the way Claude Code runs it; decision logic that's awkward to provoke from the
-  outside gets direct unit tests beside that.
-- `sandbox` is a private temp dir with `HOME` inside it and `CLAUDE_PLUGIN_DATA` unset. Its
-  `stub_path` method puts a directory ahead of everything on `PATH` (for stubs); its `path_without`
-  method builds a `PATH` holding the real tools minus the named ones (for "tool is not installed"
-  branches). Each plugin brings its own stub `gh` and its own canned data on top of those.
-- The suite runs in parallel under `pytest-xdist` (`-n auto`), so every test must build its state
-  in its own temp dir (the `sandbox` fixture); nothing may write to the checkout or a fixed path.
+  `sys.executable`, the way Claude Code runs it; logic awkward to provoke from the outside gets
+  direct unit tests beside that.
+- In the Python suite, `sandbox` is a private temp dir with `HOME` inside it and
+  `CLAUDE_PLUGIN_DATA` unset. `stub_path` puts a directory ahead of everything on `PATH` (for
+  stubs); `path_without` builds a `PATH` of the real tools minus the named ones (for "tool is not
+  installed" branches). Each plugin adds its own stub `gh` and canned data.
+- The Python suite runs in parallel under `pytest-xdist` (`-n auto`), so every test builds its
+  state in its own temp dir (the `sandbox` fixture) and nothing writes to the checkout.
 
 #### Coverage
 
@@ -223,8 +222,8 @@ per machine:
 npm install -g typescript-language-server typescript
 ```
 
-`package.json` pins `typescript` 7.0.2, so in a checkout that has run `pnpm install` the server
-resolves that copy and `tsc` and the editor answer from the same version.
+`package.json` pins `typescript`, so in a checkout that has run `pnpm install` the server resolves
+that copy and `tsc` and the editor answer from the same version.
 
 `.claude/settings.json` is SurveyMonkey/skills' settings verbatim, so it also turns off auto
 memory (`autoMemoryEnabled`) and strips the Claude Code attribution trailer from commits and PR
