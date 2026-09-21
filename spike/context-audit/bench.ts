@@ -1,7 +1,7 @@
 // Benchmark harness (#164): the same sample, judged by Jev and by a Claude
 // subagent, so time, tokens and agreement can be compared like for like.
 //   node bench.ts prepare <report.json> <dir>   write the sample and the rubric
-//   node bench.ts jev <dir>                     judge the sample with Jev, timed
+//   node bench.ts jev <dir> [per_unit]          judge the sample with Jev, timed
 //   node bench.ts compare <dir>                 agreement between every answer file
 // The subagent reads the same state and the same rubric Jev is sent, and
 // writes <dir>/<name>.json in the shape `jev` writes.
@@ -18,6 +18,7 @@ import {
   parseClassification,
   parseEvidence,
   parsePair,
+  type RequestShape,
 } from './questions.ts'
 import type { Report, Unit } from './types.ts'
 
@@ -96,7 +97,7 @@ const prepare = (reportPath: string, dir: string): void => {
   )
 }
 
-const runJev = async (dir: string): Promise<void> => {
+const runJev = async (dir: string, shape: RequestShape): Promise<void> => {
   const apiKey = process.env.TYPESAFE_API_KEY
   if (apiKey === undefined || apiKey === '') throw new Error('TYPESAFE_API_KEY is not set')
   const sample = readJson<{
@@ -119,7 +120,7 @@ const runJev = async (dir: string): Promise<void> => {
   }
 
   await stage('classify', async (jev) => {
-    const requests = classifyRequest(sample.units, { shape: 'per_section' })
+    const requests = classifyRequest(sample.units, { shape })
     const bags = await Promise.all(
       requests.map((r) => jev.ask(r.state, r.questions) as Promise<AnswerBag>),
     )
@@ -157,8 +158,10 @@ const runJev = async (dir: string): Promise<void> => {
     )
   })
 
-  writeJson(join(dir, 'jev.json'), answers)
-  writeJson(join(dir, 'jev-timings.json'), timings)
+  // per_unit is the shape the subagents are given, so it is the like for like run.
+  const name = shape === 'per_unit' ? 'jev-per-unit' : 'jev'
+  writeJson(join(dir, `${name}.json`), answers)
+  writeJson(join(dir, `${name}-timings.json`), timings)
   process.stdout.write(`${JSON.stringify(timings, null, 2)}\n`)
 }
 
@@ -192,7 +195,8 @@ const compare = (dir: string): void => {
 
 const [mode, first, second] = process.argv.slice(2)
 if (mode === 'prepare' && first !== undefined && second !== undefined) prepare(first, second)
-else if (mode === 'jev' && first !== undefined && existsSync(first)) await runJev(first)
+else if (mode === 'jev' && first !== undefined && existsSync(first))
+  await runJev(first, second === 'per_unit' ? 'per_unit' : 'per_section')
 else if (mode === 'compare' && first !== undefined) compare(first)
 else {
   process.stderr.write('usage: bench.ts prepare <report.json> <dir> | jev <dir> | compare <dir>\n')
