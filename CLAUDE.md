@@ -22,7 +22,7 @@ skill as `node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" discover <path>`.
 
 New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
 has the rules. A command is an exported function at `plugins/<plugin>/src/commands/<command>.ts`
-behind a thin adapter at `plugins/<plugin>/bin/<command>.ts`, a hook goes at
+behind one thin dispatcher at `plugins/<plugin>/bin/<plugin>.ts`, a hook goes at
 `plugins/<plugin>/hooks/*.ts`, and code shared between plugins is the root `lib/`, reached through
 the committed symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
 
@@ -39,7 +39,13 @@ Cross-plugin dependencies, declared through a preflight script rather than vendo
 
 - `field-test` depends on `workstreams` and `pr-review-toolkit` (through the `harden` skill's
   preflight). `workstreams` is being rebuilt as the #111 primitives, and `harden` is rebuilt on
-  them at #137; do not duplicate the review loop in `field-test` meanwhile.
+  them at #137; do not duplicate the review loop in `field-test` meanwhile. Of the five
+  primitives only the sweep exists (#130); the review loop (#133), the stream (#132), the
+  question phase (#131) and the orchestrator (#134) follow.
+- `workstreams` depends on `gh` and the `gh stack` extension, through
+  `plugins/workstreams/src/commands/preflight.ts`, which is the TypeScript form of the
+  registry read `plugins/field-test/scripts/lib/preflight.py` does. A new cross-plugin
+  dependency is a row in its `REQUIRED_PLUGINS` table, never a vendored copy.
 
 ### Plugin domains
 

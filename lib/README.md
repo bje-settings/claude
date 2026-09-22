@@ -44,7 +44,7 @@ coverage, and still linted and type-checked.
 ## The floor guard is the one static import
 
 ```ts
-// plugins/<plugin>/bin/<command>.ts
+// plugins/<plugin>/bin/<plugin>.ts
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
 assertNodeFloor(process.version)

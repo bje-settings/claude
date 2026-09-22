@@ -40,10 +40,26 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
-### `workstreams`
+### [`workstreams`](plugins/workstreams)
 
-> Being rebuilt from scratch as the round primitives in
-> [#111](https://github.com/bje-settings/claude/issues/111). Not in the marketplace until then.
+> The round primitives: the pieces a round of issue-tracker work is run out of, each usable
+> on its own. Being rebuilt from scratch under
+> [#111](https://github.com/bje-settings/claude/issues/111); the sweep is the first of the
+> five, and the review loop ([#133](https://github.com/bje-settings/claude/issues/133)),
+> the stream ([#132](https://github.com/bje-settings/claude/issues/132)), the question
+> phase ([#131](https://github.com/bje-settings/claude/issues/131)) and the orchestrator
+> ([#134](https://github.com/bje-settings/claude/issues/134)) land after it.
+
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamssweep"><code>/workstreams:sweep</code></a>: find what a round could start on. Reports the unblocked set, the tier one issue behind it, and the rest with their open blockers; then reads the bodies and the decision records, maps the files each issue touches, sizes each one, and sequences them into parallel streams, a stack, or one pull request. <em>Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ### [`field-test`](plugins/field-test)
 
@@ -53,8 +69,9 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 > `/field-test:harden` requires `workstreams` and `pr-review-toolkit`; see
 > [Requirements](https://github.com/bje-settings/claude/tree/main/plugins/field-test#requirements).
 > `workstreams` is being rebuilt under
-> [#111](https://github.com/bje-settings/claude/issues/111); `/field-test:harden` is unavailable
-> until it lands.
+> [#111](https://github.com/bje-settings/claude/issues/111): the sweep has landed, and the review
+> loop `harden` dispatches to has not, so `/field-test:harden` stays unavailable until
+> [#137](https://github.com/bje-settings/claude/issues/137) rebuilds it on the primitives.
 
 <table>
   <tr>
@@ -62,7 +79,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testrun-target-args"><code>/field-test:run</code></a>: run a skill or command as a field test, collect what its scripts and subagents actually did, and file one reproducible issue per problem on the repository that owns the plugin under test. Every issue is shown before it is created.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testharden-pluginskill---targets-repo-path"><code>/field-test:harden</code></a>: run that loop over an ordered list of target repositories, verify each round's report against GitHub, and drive the findings through fix, review, and merge until the skill is clean or a decision needs a person. Unavailable until <a href="https://github.com/bje-settings/claude/issues/111">#111</a> lands.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testharden-pluginskill---targets-repo-path"><code>/field-test:harden</code></a>: run that loop over an ordered list of target repositories, verify each round's report against GitHub, and drive the findings through fix, review, and merge until the skill is clean or a decision needs a person. Unavailable until <a href="https://github.com/bje-settings/claude/issues/137">#137</a> rebuilds it on the <code>workstreams</code> primitives.</li>
       </ul>
     </td>
   </tr>
