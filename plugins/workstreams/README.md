@@ -19,7 +19,7 @@ Every skill runs `preflight` first and stops with a hint per finding. It checks:
 | --- | --- |
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
-| The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` can open the whole stack with it. The alternative is `gh pr create --draft` per layer, which is what the last rounds used, so this is checked rather than required. |
+| The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`, so the stack is a stack in the GitHub UI from the first push (a chain of `gh pr create` drafts is not, and cannot be told from unrelated work by a reviewer). |
 | The `gh` plugin, from any marketplace | Declared here for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs `/gh:sync` between rounds; the sweep itself does not call it. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that found a reviewer missing halfway through has already spent the others. |

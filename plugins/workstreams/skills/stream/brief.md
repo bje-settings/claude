@@ -27,15 +27,13 @@ and title>`. Whoever dispatched you is another session and is not watching you.
 
 ## Your pull request
 
-`git -C <worktree> push -u origin <your branch>`, then
-`gh pr create -R <owner/repo> --head <your branch> --base <lower branch, or the default
-branch> --draft --title "<title>" --body-file <file>`. The body ends `Closes <#issue>`.
-
-If you use `gh stack submit` instead, `gh pr edit <n> --title "<title>" --body-file <file>` is
-the VERY NEXT command: `gh stack submit` takes no title and names the pull request after the
-branch. Say which you used. Both `gh stack submit` and `gh stack push` have opened a head with
-no `pull_request` workflows on it (rounds 5 to 7), which is why the run assertion below follows
-every push.
+From the worktree, `gh stack submit --auto` (never `gh pr create`: a layer's pull request is
+created as part of the stack, so the GitHub UI shows it as one from the first push; `--auto`
+skips the editor and creates new pull requests as drafts). It takes no title and names the
+pull request after the branch, so `gh pr edit <n> --title "<title>" --body-file <file>` is
+the VERY NEXT command. The body ends `Closes <#issue>`. Both `gh stack submit` and
+`gh stack push` have opened a head with no `pull_request` workflows on it (rounds 5 to 7),
+which is why the run assertion below follows every push.
 
 Open the draft as early as you have something CI can run on. It is for CI signal on each slice,
 not for review: the review loop keys on your return, because a round spent on a partial diff is

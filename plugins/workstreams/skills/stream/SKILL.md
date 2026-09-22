@@ -47,8 +47,10 @@ layer is reviewed to `done` before the next is written.
    send it back with `SendMessage` and the narrowed instruction rather than dispatching a
    second one.
 
-   The layer opens its own draft pull request, by `gh stack submit` or by `gh pr create`;
-   [brief.md](brief.md) carries both forms. Either is fine; say which you used.
+   The layer opens its own draft pull request with `gh stack submit`, never `gh pr create`:
+   a stack that is not a stack in the GitHub UI cannot be told from five unrelated drafts by
+   anyone who comes to review it, and it is harder to recover. [brief.md](brief.md) carries
+   the command and what follows it.
 
 5. Check each new head yourself. Every time a layer pushes, the caller checks what the layer
    cannot be the only witness to:
