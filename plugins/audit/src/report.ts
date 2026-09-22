@@ -127,20 +127,27 @@ const section = (heading: string, entries: string[]): string[] => [
 
 const cov = (coverage: Coverage): string => `${coverage.judged} of ${coverage.available} judged`
 
+/** The two verdicts that are findings, each its own: one is a line to delete,
+ *  the other a disagreement to settle. `unrelated` is the answer that is not a
+ *  finding, which is why it has no section. */
+const PAIR_FINDINGS = ['contradicts', 'same_claim'] as const
+
 /** The pairs the model ruled on, under the verdict that is a finding. */
 const pairSections = (report: Report): string[] => {
   const byId = new Map(report.units.map((unit) => [unit.id, unit]))
-  const matching = report.pairs.filter((pair) => pair.verdict.choice === 'contradicts')
-  return [
-    '',
-    `## pairs: contradicts (${matching.length}; ${cov(report.pairCoverage)})`,
-    // Every pair names two units of this same run, so the lookups answer.
-    ...matching.flatMap((pair) => [
-      `  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`,
-      `    a: ${(byId.get(pair.a) as Unit).text}`,
-      `    b: ${(byId.get(pair.b) as Unit).text}`,
-    ]),
-  ]
+  return PAIR_FINDINGS.flatMap((verdict) => {
+    const matching = report.pairs.filter((pair) => pair.verdict.choice === verdict)
+    return [
+      '',
+      `## pairs: ${verdict} (${matching.length}; ${cov(report.pairCoverage)})`,
+      // Every pair names two units of this same run, so the lookups answer.
+      ...matching.flatMap((pair) => [
+        `  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`,
+        `    a: ${(byId.get(pair.a) as Unit).text}`,
+        `    b: ${(byId.get(pair.b) as Unit).text}`,
+      ]),
+    ]
+  })
 }
 
 /** The probability at which the model is taken to have said a unit names its

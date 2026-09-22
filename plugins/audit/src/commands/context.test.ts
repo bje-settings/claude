@@ -1490,3 +1490,27 @@ it('reports a classify request that failed, and fails the run while still printi
   expect(text).toContain('## pairs: contradicts (0; 1 of 1 judged)')
   expect(text).toContain(['## failures (1)', '  classify request 0: HTTP 500: boom'].join('\n'))
 })
+
+it('reports a pair the model says makes one claim twice, under its own heading', async () => {
+  // Two verdicts are findings and they are different findings: one is a line
+  // to delete, the other a disagreement to settle, and a reader acts on them
+  // separately.
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('same_claim', 0.75),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  const text = audit.stdout()
+  expect(text).toContain('## pairs: contradicts (0; 1 of 1 judged)')
+  expect(text).toContain(
+    [
+      '## pairs: same_claim (1; 1 of 1 judged)',
+      '  conf 0.75  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
+    ].join('\n'),
+  )
+})
