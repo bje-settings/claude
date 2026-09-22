@@ -64,18 +64,33 @@ export type CommandLine<S extends ArgSpec> = {
 }
 
 /**
+ * A spec as the two exports take it. The intersection is what makes
+ * {@link Options}'s promise above true rather than merely written down.
+ * `const S` at the call site fixes literal types at the argument
+ * *expression*, so an inline spec or one declared `as const` keeps its keys
+ * and its `choices`; a spec that arrives already annotated `: ArgSpec` does
+ * not, and `Options<S>` silently degrades to an index signature, where every
+ * value gains `| undefined` and an option nobody declared reads clean.
+ * `string extends keyof S` is true of exactly that degraded spec and of
+ * nothing else, so it is refused at the call site with the type of the
+ * argument named, rather than surfacing later as a missing narrowing the
+ * caller works around.
+ */
+type ExactSpec<S extends ArgSpec> = S & (string extends keyof S ? never : unknown)
+
+/**
  * The core both exports share: build `parseArgs`' own option table from
  * `spec`, audit defaults against their own `choices`, parse, and check the
  * parsed values against `choices` again. `allowPositionals` is the one
  * difference between {@link parseArguments} and {@link parseCommandLine}, so
  * it is a parameter here rather than two copies of the checks around it.
  */
-// No `S & (string extends keyof S ? never : unknown)` refinement here: both
-// callers already carry that constraint on their own type parameter before
-// they reach this function, and repeating it on a second, independently
-// inferred type parameter is what defeated `tsc` above (the two conditional
-// types normalise differently, so the call site's already-narrowed spec
-// stopped satisfying the callee's version of the same check).
+// No {@link ExactSpec} here: both callers already carry that constraint on
+// their own type parameter before they reach this function, and repeating it
+// on a second, independently inferred type parameter is what defeated `tsc`
+// (the two conditional types normalise differently, so the call site's
+// already-narrowed spec stopped satisfying the callee's version of the same
+// check).
 const parseCore = <S extends ArgSpec>(
   argv: readonly string[],
   spec: S,
@@ -133,11 +148,9 @@ const parseCore = <S extends ArgSpec>(
 }
 
 /**
- * Parse `process.argv.slice(2)` against `spec`. No positionals: `parseArgs`
- * refuses them and the refusal travels as an envelope, which is what every
- * command wants except `plugins/audit`'s `/audit:context` (#170), the one
- * command that names issue numbers on its own command line and widens itself
- * with {@link parseCommandLine} instead of inheriting an untested path here.
+ * Parse `process.argv.slice(2)` against `spec`. A stray positional is refused
+ * here; a command that wants one asks for {@link parseCommandLine} instead
+ * (the header says why that is the default).
  *
  * A refusal is exit 2 (`envelope.ts`), carrying node's own wording for an
  * unknown option, a missing value or a stray positional. Its message is not
@@ -146,17 +159,7 @@ const parseCore = <S extends ArgSpec>(
  */
 export const parseArguments = <const S extends ArgSpec>(
   argv: readonly string[],
-  // The intersection is what makes {@link Options}'s promise above true
-  // rather than merely written down. `const S` fixes literal types at the
-  // argument *expression*, so an inline spec or one declared `as const` keeps
-  // its keys and its `choices`; a spec that arrives already annotated
-  // `: ArgSpec` does not, and `Options<S>` silently degrades to an index
-  // signature, where every value gains `| undefined` and an option nobody
-  // declared reads clean. `string extends keyof S` is true of exactly that
-  // degraded spec and of nothing else, so it is refused at the call site with
-  // the type of the argument named, rather than surfacing later as a missing
-  // narrowing the caller works around.
-  spec: S & (string extends keyof S ? never : unknown),
+  spec: ExactSpec<S>,
 ): Envelope<Options<S>> => {
   const parsed = parseCore(argv, spec, false)
   return parsed.outcome === 'ok' ? ok(parsed.value.options) : parsed
@@ -164,13 +167,9 @@ export const parseArguments = <const S extends ArgSpec>(
 
 /**
  * `parseArguments` widened to also hand back the words `parseArgs` did not
- * consume as an option or its value. The same core as `parseArguments`
- * (defaults audited, `parseArgs` run, choices checked), with
- * `allowPositionals: true` in place of `false`, so a command that needs
- * positionals asks for them explicitly rather than every command inheriting
- * an untested path.
+ * consume as an option or its value, for the one command that needs them.
  */
 export const parseCommandLine = <const S extends ArgSpec>(
   argv: readonly string[],
-  spec: S & (string extends keyof S ? never : unknown),
+  spec: ExactSpec<S>,
 ): Envelope<CommandLine<S>> => parseCore(argv, spec, true)

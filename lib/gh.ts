@@ -389,12 +389,19 @@ const ISSUE_BATCH = 100
  *  a `tsc` error (an incomplete `Record<IssueState, true>`), where a
  *  `readonly IssueState[]` literal would stay valid with a member missing and
  *  the two would drift apart silently. */
-const ISSUE_STATE_MEMBERS: Record<IssueState, true> = { OPEN: true, CLOSED: true, MERGED: true }
-const ISSUE_STATES = new Set<string>(Object.keys(ISSUE_STATE_MEMBERS))
+const ISSUE_STATES: Record<IssueState, true> = { OPEN: true, CLOSED: true, MERGED: true }
+
+/** Whether a GraphQL `state` field is one of the three states this promises. */
+const isIssueState = (value: unknown): value is IssueState =>
+  typeof value === 'string' && Object.hasOwn(ISSUE_STATES, value)
 
 /** `unknown` narrowed to a record, or `undefined` when it is not one. */
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
+
+/** Several reasons as one sentence, or null when there are none. */
+const joinedReasons = (reasons: readonly string[]): string | null =>
+  reasons.length === 0 ? null : reasons.join('; ')
 
 /**
  * The GraphQL query for a batch of issue and pull-request numbers in one
@@ -404,14 +411,16 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined =>
  * spike's `buildIssueQuery` (#164).
  */
 const buildIssueQuery = (owner: string, name: string, numbers: readonly number[]): string => {
-  const fields = numbers
-    .map(
-      (n, index) =>
-        `i${index}: issueOrPullRequest(number: ${n}) { ` +
-        `... on Issue { state } ... on PullRequest { state } }`,
-    )
-    .join('\n    ')
-  return `query {\n  repository(owner: "${owner}", name: "${name}") {\n    ${fields}\n  }\n}`
+  const fields = numbers.map(
+    (n, index) =>
+      `i${index}: issueOrPullRequest(number: ${n}) ` +
+      `{ ... on Issue { state } ... on PullRequest { state } }`,
+  )
+  return `query {
+  repository(owner: "${owner}", name: "${name}") {
+    ${fields.join('\n    ')}
+  }
+}`
 }
 
 /**
@@ -424,36 +433,54 @@ const buildIssueQuery = (owner: string, name: string, numbers: readonly number[]
  * point: only an alias this returns may be reported absent.
  */
 const notFoundAlias = (entry: unknown): string | null => {
-  const record = asRecord(entry)
-  if (record?.type !== 'NOT_FOUND') return null
-  const path = record.path
+  const error = asRecord(entry)
+  if (error?.type !== 'NOT_FOUND') return null
+  const path = error.path
   if (!Array.isArray(path) || path.length === 0) return null
   const last: unknown = path[path.length - 1]
   return typeof last === 'string' ? last : null
 }
 
-/** One reply, aligned back to `numbers` by alias index. `states` carries only
- *  the numbers the reply actually answered for: a number left out is one the
- *  reply gave no usable answer for, and a caller reads that as `unavailable`,
- *  never as absent. `errors` is every error message NOT already accounted for
- *  by a `not_found` state, joined, or null when every error was: a `NOT_FOUND`
- *  on a named alias is a complete answer about that number, so it is not also
- *  a reason the lookup was unavailable. Ported from the spike's
- *  `parseIssueResponse`. */
-const parseIssueResponse = (
-  body: unknown,
-  repositoryRecord: Record<string, unknown>,
+/**
+ * One chunk's reply, aligned back to `numbers` by alias index, or `undefined`
+ * when there is nothing to align against: stdout that is not JSON, or JSON
+ * with no `data.repository` object in it. The reason for that `undefined` is
+ * not this function's to give, because the caller holds the {@link RunResult}
+ * the body came from and reports `accountOf` it, which covers a gh that never
+ * started as well as a body with no repository in it.
+ *
+ * `states` carries only the numbers the reply actually answered for: a number
+ * left out is one the reply gave no usable answer for, and a caller reads that
+ * as `unavailable`, never as absent. `errors` is every error message NOT
+ * already accounted for by a `not_found` state, because a `NOT_FOUND` on a
+ * named alias is a complete answer about that number rather than a reason the
+ * lookup was unavailable. Ported from the spike's `parseIssueResponse` and
+ * `parseIssueChunkBody` (#164), which were two functions only for the
+ * fallback the spike kept for a reply with no `data` wrapper; that fallback is
+ * unreachable once a reply needs a `data.repository` to be read at all.
+ */
+const parseIssueChunk = (
+  stdout: string,
   numbers: readonly number[],
-): { states: Record<string, IssueState | 'not_found'>; errors: string | null } => {
-  const states: Record<string, IssueState | 'not_found'> = {}
-  const errorsField = asRecord(body)?.errors
+): { states: Record<string, IssueState | 'not_found'>; errors: string | null } | undefined => {
+  let reply: Record<string, unknown> | undefined
+  try {
+    reply = asRecord(JSON.parse(stdout))
+  } catch {
+    return undefined
+  }
+  const repository = asRecord(asRecord(reply?.data)?.repository)
+  if (repository === undefined) return undefined
+
+  const errorsField = reply?.errors
   const entries = Array.isArray(errorsField) ? errorsField : []
-  const absent = new Set(entries.map(notFoundAlias).filter((a): a is string => a !== null))
+  const absent = new Set(entries.map(notFoundAlias).filter((alias) => alias !== null))
+  const states: Record<string, IssueState | 'not_found'> = {}
   numbers.forEach((n, index) => {
     const alias = `i${index}`
-    const state = asRecord(repositoryRecord[alias])?.state
-    if (typeof state === 'string' && ISSUE_STATES.has(state)) {
-      states[String(n)] = state as IssueState
+    const state = asRecord(repository[alias])?.state
+    if (isIssueState(state)) {
+      states[String(n)] = state
     } else if (absent.has(alias)) {
       states[String(n)] = 'not_found'
     }
@@ -462,31 +489,7 @@ const parseIssueResponse = (
     .filter((entry) => notFoundAlias(entry) === null)
     .map((entry) => asRecord(entry)?.message)
     .filter((message): message is string => typeof message === 'string')
-  return { states, errors: messages.length === 0 ? null : messages.join('; ') }
-}
-
-/** One chunk's outcome: an answer when the body has a `data.repository`
- *  object to align aliases against, `ok: false` otherwise. The reason for the
- *  `false` case is not this function's to give: the caller already has the
- *  {@link RunResult} the body came from and reports `accountOf` it, which
- *  covers a gh that could not be started at all as well as a body that
- *  parsed to something with no repository in it. Ported from the spike's
- *  `parseIssueChunkBody`, minus the reason it computed for itself, and
- *  extracting the repository record once rather than a second time inside
- *  `parseIssueResponse`: the spike's own fallback there for a reply with no
- *  top-level `data` wrapper is dead code once this function has already
- *  required one to say `ok: true`, and coverage refuses a branch on purpose
- *  instead of a test no real reply can drive. */
-const parseIssueChunkBody = (
-  body: unknown,
-  numbers: readonly number[],
-):
-  | { ok: true; states: Record<string, IssueState | 'not_found'>; errors: string | null }
-  | { ok: false } => {
-  const repository = asRecord(asRecord(asRecord(body)?.data)?.repository)
-  return repository === undefined
-    ? { ok: false }
-    : { ok: true, ...parseIssueResponse(body, repository, numbers) }
+  return { states, errors: joinedReasons(messages) }
 }
 
 /** An optional filter, as the two argv words gh wants or as nothing at all. */
@@ -617,13 +620,11 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   /** gh's stdout alone, for the endpoints whose answer is text. */
   const text = async (args: readonly string[]): Promise<string> => (await succeeded(args)).stdout
 
-  // A `const` bound before it is fully built, and not a plain `return`,
-  // because `issueStates` reads the repository through `client.viewRepository`
-  // (round 6's ruling on #170: "the existing viewRepository()", not a second
-  // copy of its argv). The reference inside `issueStates`'s own arrow function
-  // resolves once that function is called, by which point `client` is
-  // assigned, exactly as any other closure over a not-yet-initialized binding
-  // does.
+  // A `const` bound and then returned, rather than a plain `return`, because
+  // `issueStates` reads the repository through `client.viewRepository` (round
+  // 6's ruling on #170: "the existing viewRepository()", not a second copy of
+  // its argv). The reference resolves when that endpoint is called, by which
+  // point `client` is assigned.
   const client: GhClient = {
     listPullRequests: async (query = {}) => {
       const args = [
@@ -807,22 +808,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       let name: string
       try {
         const repository = await client.viewRepository()
-        // `nameWithOwner` is `REPOSITORY_FIELDS`' own field, "owner/name" in
-        // one string; splitting it here is the cost of reusing the existing
-        // endpoint rather than asking gh for `owner,name` a second way.
-        // `split` never throws, so a value that is not that shape still
-        // produces something to build a query from, and a malformed answer
-        // fails the graphql call downstream, where `accountOf` already
-        // reports it, rather than adding a branch here no real answer can
-        // reach (pinned by "reports a repository whose name has no owner
-        // prefix" below). `owner`'s cast is `noUncheckedIndexedAccess` being
-        // exact about a `string[]` of unknown length, and is erased and adds
-        // no branch, the same trade `args.ts` makes on its own defaulted
-        // values; `name` reads `String(parts[1])` rather than the same cast,
+        // `nameWithOwner` is "owner/name" in one string, so reusing the
+        // existing endpoint costs this split. There is deliberately no branch
+        // for a value of some other shape: `split` never throws, and the query
+        // built from whatever it yields fails downstream, where `accountOf`
+        // already reports it (pinned by "reports a repository whose name has
+        // no owner prefix" below). `owner`'s cast is `noUncheckedIndexedAccess`
+        // being exact about a `string[]` of unknown length, erased and adding
+        // no branch; `name` is `String(parts[1])` rather than the same cast,
         // because a `nameWithOwner` with no `/` leaves `parts[1]` genuinely
-        // `undefined`, and casting that to `string` would be a type that
-        // lies about the value it holds rather than one this index access
-        // cannot avoid.
+        // `undefined` and a cast would be a type that lies about the value it
+        // holds.
         const parts = String(repository.nameWithOwner).split('/')
         owner = parts[0] as string
         name = String(parts[1])
@@ -839,31 +835,20 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const reasons: string[] = []
       for (let i = 0; i < query.numbers.length; i += ISSUE_BATCH) {
         const chunk = query.numbers.slice(i, i + ISSUE_BATCH)
-        const result = await invoke([
-          'api',
-          'graphql',
-          '-f',
-          `query=${buildIssueQuery(owner, name, chunk)}`,
-        ])
         // `gh api graphql` exits 1 on a partial body that is still an answer
-        // (one bad alias fails the whole call), so this reads the body
-        // whatever the status, through `invoke` rather than `succeeded`.
-        let body: unknown
-        try {
-          body = JSON.parse(result.stdout)
-        } catch {
+        // (one bad alias fails the whole call), so the body is read whatever
+        // the status, through `invoke` rather than `succeeded`.
+        const args = ['api', 'graphql', '-f', `query=${buildIssueQuery(owner, name, chunk)}`]
+        const result = await invoke(args)
+        const answer = parseIssueChunk(result.stdout, chunk)
+        if (answer === undefined) {
           reasons.push(accountOf(result))
           continue
         }
-        const outcome = parseIssueChunkBody(body, chunk)
-        if (!outcome.ok) {
-          reasons.push(accountOf(result))
-          continue
-        }
-        Object.assign(states, outcome.states)
-        if (outcome.errors !== null) reasons.push(outcome.errors)
+        Object.assign(states, answer.states)
+        if (answer.errors !== null) reasons.push(answer.errors)
       }
-      return { states, unavailable: reasons.length === 0 ? null : reasons.join('; ') }
+      return { states, unavailable: joinedReasons(reasons) }
     },
   }
   return client
