@@ -60,7 +60,7 @@ const gh = createGhMock({
 `gh` is an injected mock rather than a stub binary on `PATH` (ADR 001). The endpoints are named
 after the operation rather than after gh's argv, so the interface survives gh changing a flag:
 `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`, `listRuns`,
-`readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`.
+`readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`.
 
 `watchChecks` is the one endpoint whose reply is a record rather than a list or a string: the
 bounded watch answers with `{ status, timedOut, waitedMs, problem }`, because gh reports on the
