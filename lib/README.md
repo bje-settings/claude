@@ -324,9 +324,10 @@ by silence:
   is the only safe one. `blocking` is in that rule because it is what a caller reads to say which
   issues a round unlocks, so a short list under-claims rather than misclassifies. `labels` and the
   closing pull requests are reported without anything being concluded from their length, so they
-  are kept. The count of refused rows is one number with one reason, `N <field> row(s) could not be
-  read`, because a row refused for its shape and a row refused at the ceiling are both rows this
-  read will not report.
+  are kept. The refused rows are one count with one reason, which says they could not be read
+  rather than naming which of the two causes refused each: both are rows this read will not
+  report, and a reason that claimed the shape was wrong would send a reader after a parser that
+  is not broken.
 - **A page that wants a successor but names no cursor** ends the read and says so. Asking again
   with the cursor already used asks the same question forever, and a truncated set handed over
   without a reason reads as a complete one.

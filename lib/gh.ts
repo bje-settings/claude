@@ -1054,13 +1054,11 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       }
       cursor = answer.endCursor
     }
-    // "Could not be read" rather than "was not the shape the query asked for":
-    // a row is refused either because a field was not the shape asked for or
-    // because a dependency list arrived at the page ceiling, and the second is
-    // a perfectly well formed row. A reader told the shape was wrong goes
-    // looking for a parser that is not broken. `lib/README.md` lists the
-    // causes; one counter carries them, because telling them apart here would
-    // mean a second answer from `read`, which three endpoints share.
+    // One counter and one reason for two causes: a field that was not the
+    // shape the query asked for, and a dependency list at the page ceiling,
+    // which is a well formed row this refuses to trust. The sentence has to be
+    // true of both, because telling them apart would mean a second answer from
+    // `read`, which three endpoints share. `lib/README.md` lists the causes.
     if (unreadable > 0) {
       reasons.push(`${unreadable} ${field} row(s) could not be read`)
     }
