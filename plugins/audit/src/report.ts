@@ -146,6 +146,17 @@ const section = (heading: string, entries: string[]): string[] => [
   ...entries,
 ]
 
+/** The longest a unit's text may be in a findings list. The text is there to
+ *  recognise a unit by rather than to read in full, and one finding is one
+ *  line: a table row carries a newline between its cells, and a paragraph runs
+ *  for as long as its writer wanted. */
+const LINE_CHARS = 110
+
+const short = (text: string): string => {
+  const flat = text.replace(/\s+/g, ' ')
+  return flat.length > LINE_CHARS ? `${flat.slice(0, LINE_CHARS - 3)}...` : flat
+}
+
 const cov = (coverage: Coverage): string => `${coverage.judged} of ${coverage.available} judged`
 
 /** The two verdicts that are findings, each its own: one is a line to delete,
@@ -187,7 +198,7 @@ const evidenceSections = (report: Report): string[] => {
     // Every judgment names a unit of this same run.
     ...refuted.flatMap((entry) => [
       `  conf ${entry.verdict.confidence.toFixed(2)}  ${entry.unitId}  against ${entry.source}`,
-      `    ${(byId.get(entry.unitId) as Unit).text}`,
+      `    ${short((byId.get(entry.unitId) as Unit).text)}`,
     ]),
   ]
 }
@@ -234,7 +245,7 @@ const expiredSections = (report: Report): string[] => {
   return [
     '',
     `## volatile and the issue it names is closed (${expired.length}${unjudged})`,
-    ...expired.map((unit) => `  ${unit.id}  ${unit.text}`),
+    ...expired.map((unit) => `  ${unit.id}  ${short(unit.text)}`),
   ]
 }
 

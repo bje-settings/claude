@@ -1811,3 +1811,26 @@ it('ends with what the run spent, including the wall clock it was given', async 
     '## usage: 0 requests (0 attempts), 0 input tokens, 0 ms summed request time, 1 ms wall clock',
   )
 })
+
+it('shortens a long finding to one readable line', async () => {
+  // The findings are a list a reader scans, so a unit's text is there to
+  // recognise it by, not to read in full: a table row carries a newline
+  // between its cells and a paragraph can run for hundreds of characters, and
+  // either would break the one-finding-per-line shape the list depends on.
+  const audit = modelled(
+    'long',
+    {
+      classify: {
+        classifications: [classified('CLAUDE.md:7-7', { volatile: 0.9 })],
+        failures: [],
+      },
+    },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    '  CLAUDE.md:7-7  Rule: The retry policy backs off exponentially on every network failure, and keeps doing so until `#164` la...',
+  )
+})
