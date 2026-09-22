@@ -822,3 +822,24 @@ it('reads a file:line inside a code block, and leaves a ../ example unchecked', 
     },
   ])
 })
+
+it('refuses an unknown flag, with nothing on stdout', async () => {
+  const audit = audited('paths')
+
+  const envelope = await runContext([audit.work, '--nope'], audit.edges)
+
+  // node's own wording, passed through rather than rewritten: it names the
+  // token the caller typed, which is what a caller needs (`lib/args.ts`).
+  expect(envelope.outcome).toBe('refused')
+  expect(envelope.outcome !== 'ok' && envelope.error).toMatch(/^Unknown option '--nope'/)
+  expect(audit.stdout()).toBe('')
+})
+
+it('audits the directory it was called in when no root is given', async () => {
+  const audit = audited('absent')
+  const edges = { ...audit.edges, cwd: audit.work }
+
+  await runContext(['--json'], edges)
+
+  expect(reportOf(audit.stdout()).files).toEqual(['CLAUDE.md'])
+})
