@@ -492,3 +492,35 @@ it('refuses to build a shim when there is no real git to forward to', () => {
 
   expect(() => git.gitShim('fetch')).toThrow(/git is not on PATH/)
 })
+
+it('imports a fixture tree, renaming the disguised names, and commits it', () => {
+  // The two disguises a markdown fixture needs: a `.gitignore` committed
+  // inside this repository would apply to the fixture directory itself, and a
+  // `CLAUDE.md` under `fixtures/` would be pulled into an agent's context as
+  // if it were guidance for this repository.
+  const { git, work, sandbox } = repository()
+  const tree = sandbox.join('tree')
+  mkdirSync(path.join(tree, 'docs'), { recursive: true })
+  writeFileSync(path.join(tree, 'CLAUDE.fixture.md'), 'root text\n')
+  writeFileSync(path.join(tree, '_gitignore'), 'build/\n')
+  writeFileSync(path.join(tree, 'docs', 'note.fixture.md'), 'nested text\n')
+  writeFileSync(path.join(tree, 'lib.ts'), 'export const x = 1\n')
+
+  git.importTree(work, tree)
+
+  expect(readFileSync(path.join(work, 'CLAUDE.md'), 'utf8')).toBe('root text\n')
+  expect(readFileSync(path.join(work, '.gitignore'), 'utf8')).toBe('build/\n')
+  expect(readFileSync(path.join(work, 'docs', 'note.md'), 'utf8')).toBe('nested text\n')
+  expect(existsSync(path.join(work, 'CLAUDE.fixture.md'))).toBe(false)
+  expect(existsSync(path.join(work, '_gitignore'))).toBe(false)
+  // Tracked, not merely written: the audit reads the tree through
+  // `git ls-files`, so a fixture left uncommitted would be invisible to it.
+  expect(git.git(work, 'ls-files').split('\n').sort()).toEqual([
+    '.gitignore',
+    'CLAUDE.md',
+    'docs/note.md',
+    'file.txt',
+    'lib.ts',
+  ])
+  expect(git.git(work, 'status', '--porcelain')).toBe('')
+})

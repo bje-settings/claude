@@ -19,7 +19,7 @@
 // would also skip on a machine without all three managers, which would leave
 // this directory below its own coverage floor locally.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { findOnPath, type Sandbox } from './sandbox.ts'
 
@@ -87,6 +87,18 @@ done
 exec "$real" "$@"
 `
 
+const FIXTURE_SUFFIX = '.fixture.md'
+
+/** A fixture file's real name. Two names cannot be stored as themselves inside
+ *  this repository: a committed `.gitignore` would apply to the fixture
+ *  directory it sits in, and a committed `CLAUDE.md` under `fixtures/` would
+ *  be read as guidance for this repository by every session that opened it. */
+const undisguise = (name: string): string => {
+  if (name === '_gitignore') return '.gitignore'
+  if (!name.endsWith(FIXTURE_SUFFIX)) return name
+  return `${name.slice(0, -FIXTURE_SUFFIX.length)}.md`
+}
+
 export interface GitFixtures {
   /** git in `directory`, isolated from the developer's config. Throws on a
    *  non-zero exit, naming the command and git's own stderr. */
@@ -99,6 +111,10 @@ export interface GitFixtures {
   createAt(parent: string, name: string): string
   /** One commit appending to a tracked file. */
   commit(work: string, message: string, file?: string, content?: string): void
+  /** Copy a fixture directory into `work` and commit it, undoing the two
+   *  disguises a committed fixture tree needs: `_gitignore` becomes
+   *  `.gitignore` and a `.fixture.md` suffix becomes `.md`. */
+  importTree(work: string, fromDir: string): void
   /** Push a branch to origin. */
   push(work: string, branch?: string): void
   /** Create a branch and leave the checkout on the default branch. */
@@ -267,6 +283,19 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       writeFileSync(target, `${content}\n`, { flag: 'a' })
       git(work, 'add', '-A')
       git(work, 'commit', '-qm', message)
+    },
+
+    importTree(work: string, fromDir: string): void {
+      for (const entry of readdirSync(fromDir, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        const from = path.join(entry.parentPath, entry.name)
+        const under = path.relative(fromDir, entry.parentPath)
+        const target = path.join(work, under, undisguise(entry.name))
+        mkdirSync(path.dirname(target), { recursive: true })
+        copyFileSync(from, target)
+      }
+      git(work, 'add', '-A')
+      git(work, 'commit', '-qm', `import ${path.basename(fromDir)}`)
     },
 
     push(work: string, branch = DEFAULT_BRANCH): void {
