@@ -1,0 +1,17 @@
+{
+  "description": "Refuses two things to subagents only: a background command, and git checkout with a pathspec or git restore on a tree with uncommitted work. The main conversation is never denied.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.ts\"; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
