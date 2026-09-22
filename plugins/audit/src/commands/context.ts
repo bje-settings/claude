@@ -105,7 +105,9 @@ const COUNT_RE = /^\d+$/
 /** A fraction from 0 to 1, written out. Same argument as {@link COUNT_RE}, and
  *  the bound is part of the pattern: a threshold above 1 compares against a
  *  similarity that can never reach it, so every pair is dropped and the run
- *  reports nothing found. */
+ *  reports nothing found. 1 itself is admitted and means near-exact only; two
+ *  identical texts score within one float step of 1, on either side of it, so
+ *  which of them it keeps is arithmetic rather than a contract. */
 const FRACTION_RE = /^(?:0(?:\.\d+)?|1(?:\.0+)?)$/
 
 /** The count options, checked together: `lib/args.ts` has no numeric kind, and
@@ -184,11 +186,13 @@ const skippedStages = (reason: SkippedStage['reason']): SkippedStage[] =>
 /**
  * Why the model stages did not run.
  *
- * Both reasons are true as written, and they are the only two: `--no-jev` is
- * the caller asking for tier 0 alone, and `no_key` is an environment holding no
- * `TYPESAFE_API_KEY`, which is what a machine that has never been set up
- * reports. The flag is read first, so a caller who asked for no model call is
- * told that rather than being told about a key they did not offer.
+ * Both reasons are true as written, and they are the only two that can reach
+ * this decision: `--no-jev` is the caller asking for tier 0 alone, and
+ * `no_key` is an environment holding no `TYPESAFE_API_KEY`, which is what a
+ * machine that has never been set up reports. The flag is read first, so a
+ * caller who asked for no model call is told that rather than being told about
+ * a key they did not offer. `classify_failed`, the third `SkippedStage`
+ * reason, is decided in {@link modelStages} after a stage has actually run.
  */
 const skipReason = (noJev: boolean): SkippedStage['reason'] => (noJev ? 'no_jev' : 'no_key')
 
@@ -412,6 +416,41 @@ const modelStages = async (
     stage: 'classify',
     ...failure,
   }))
+  // Nothing downstream can be routed without a label. The pair stage reads
+  // `kindOf` to leave history and structural units out, and the evidence stage
+  // reads it to select the repository facts: against an empty map the first
+  // compares everything and the second checks nothing, so a run that had
+  // learned nothing would go on to spend a whole pair budget and then report
+  // an evidence section that read as "nothing found". The spike's own guard
+  // (`cli.ts:521-537`).
+  //
+  // A run with no units at all is not that case: there was nothing to
+  // classify, so nothing failed and nothing was skipped, and `0 of 0 judged`
+  // is the honest answer the two stages below already give for it.
+  if (units.length > 0 && classifications.length === 0) {
+    // Only when the stage said nothing about why, which is the spike's rule:
+    // `*` stands for the whole stage, and beside a failure that names the
+    // request or the unit that actually broke it would be a second entry for
+    // one fault. Every failure in hand here is the classify stage's own, so
+    // "none at all" is the same test the spike writes as "none of them is a
+    // classify failure".
+    if (failures.length === 0) {
+      failures.push({ stage: 'classify', id: '*', message: 'no unit was classified' })
+    }
+    return {
+      skipped: [
+        { stage: 'pairs', reason: 'classify_failed' },
+        { stage: 'evidence', reason: 'classify_failed' },
+      ],
+      classifications,
+      pairs: [],
+      pairCoverage: { judged: 0, available: 0 },
+      evidence: [],
+      evidenceCoverage: { judged: 0, available: 0 },
+      failures,
+      usage: jev.usage(),
+    }
+  }
   const paired = await judgePairs(jev, units, kindOf, options, failures)
   const checked = await judgeEvidence(
     jev,

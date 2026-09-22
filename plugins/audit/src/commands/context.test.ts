@@ -122,6 +122,10 @@ const picked = <T extends string>(choice: T, confidence = 1): ChoiceAnswer<T> =>
 /** The JSON report `--json` wrote, parsed. */
 const reportOf = (stdout: string): Report => JSON.parse(stdout) as Report
 
+/** A findings line naming one judgment and its confidence, which is the line
+ *  whose ORDER within a section is what a ranked section means. */
+const isConfLine = (line: string): boolean => line.startsWith('  conf ')
+
 /** The opaque blocks of one file, in document order. Indexed by file rather
  *  than by position in the whole report, so a fixture that grows another file
  *  does not renumber every assertion. */
@@ -1504,10 +1508,100 @@ it('reports a classify request that failed, and fails the run while still printi
   const text = audit.stdout()
   expect(text).toContain('1 files, 2 units, 0 opaque')
   expect(text).toContain('## volatile and the issue it names is closed (0)\n')
-  // Nothing was classified, so the pair stage compares what it was given and
-  // finds no candidate worth a call: 0 of 0 is not the same answer as 0 of 12.
-  expect(text).toContain('## pairs: contradicts (0; 0 of 0 judged)')
+  // Not "0 of 0 judged": no label came back, so the two stages below classify
+  // were never in a position to judge anything, and a coverage line saying
+  // they looked at nothing would read as a repository with no candidates in
+  // it. `judgePair` would throw if it were reached.
+  expect(text).toContain('## pairs: skipped (classify_failed)')
+  expect(text).toContain('## evidence: skipped (classify_failed)')
+  // One entry, not two: the stage already said what went wrong, and `*` beside
+  // it would be a second failure for one fault, and a second model call in the
+  // envelope's count for a call that was never made.
   expect(text).toContain(['## failures (1)', '  classify request 0: HTTP 500: boom'].join('\n'))
+})
+
+it('skips the stages below classify when no unit was classified at all', async () => {
+  // The classify stage answered and labelled nothing, without saying why. The
+  // two stages below it read the labels to decide what to ask about: without
+  // any, the pair stage compares history and structural units it should have
+  // left out, and the evidence stage finds no repository fact and checks
+  // nothing. Neither answer is worth what it costs, so neither runs, and `*`
+  // is the failure that says the whole stage came back empty.
+  const audit = modelled(
+    'ranked',
+    { classify: { classifications: [], failures: [] } },
+    {},
+    // A sequence whose only entry throws: reaching `judgePair` at all is the
+    // defect this test exists to catch, and an unregistered method would say
+    // the same thing less deliberately.
+    { judgePair: [new Error('judgePair must not be reached')] },
+  )
+
+  const envelope = await runContext([audit.work, '--json'], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'failed', error: '1 model call failed' })
+  const report = reportOf(audit.stdout())
+  expect(report.skipped).toEqual([
+    { stage: 'pairs', reason: 'classify_failed' },
+    { stage: 'evidence', reason: 'classify_failed' },
+  ])
+  expect(report.failures).toEqual([
+    { stage: 'classify', id: '*', message: 'no unit was classified' },
+  ])
+  expect(report.pairCoverage).toEqual({ judged: 0, available: 0 })
+  expect(report.evidenceCoverage).toEqual({ judged: 0, available: 0 })
+})
+
+it('prints a unit of exactly the line limit whole, and truncates the next character', async () => {
+  // A limit is only pinned by the value that sits on it. Both units below are
+  // findings of the same section, one of exactly 110 characters and one of
+  // 111: with the comparison relaxed by one the first would be cut although it
+  // fits, and with it tightened by one the second would be printed whole.
+  const audit = modelled(
+    'boundary',
+    {
+      classify: {
+        classifications: [
+          classified('CLAUDE.md:3-3', { volatile: 0.9 }),
+          classified('CLAUDE.md:5-5', { volatile: 0.9 }),
+        ],
+        failures: [],
+      },
+      // The two sentences are near-identical by construction, so they are a
+      // candidate pair as well; this test is about neither verdict.
+      judgePair: picked<PairVerdict>('unrelated'),
+    },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## volatile and the issue it names is closed (2)',
+      '  CLAUDE.md:3-3  The retry note in this file stays here until #164 has closed, and this whole sentence runs to one hundred ten.',
+      '  CLAUDE.md:5-5  The deploy note in this file stays here until #164 closes, and this whole sentence runs to one hundred elev...',
+    ].join('\n'),
+  )
+})
+
+it('calls a repository with nothing to classify neither failed nor skipped', async () => {
+  // The other side of the guard, and the one a real checkout can reach: a
+  // repository holding no markdown at all has nothing to label, which is not
+  // the same as a stage that was asked and came back empty. Nothing failed,
+  // nothing was skipped, and `0 of 0 judged` is the honest answer. Neither
+  // `judgePair` nor `judgeEvidence` has a reply registered, so a stage that
+  // asked anything would throw.
+  const audit = modelled('nounits', { classify: { classifications: [], failures: [] } })
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'ok', value: '' })
+  const text = audit.stdout()
+  expect(text).toContain('0 files, 0 units, 0 opaque')
+  expect(text).toContain('## pairs: contradicts (0; 0 of 0 judged)')
+  expect(text).toContain('## evidence: contradicts (0; 0 of 0 judged)')
+  expect(text).toContain('## failures (0)')
 })
 
 it('reports a pair the model says makes one claim twice, under its own heading', async () => {
@@ -1655,6 +1749,47 @@ it('asks nothing when --pair-threshold is set above what any pair scores', async
   await runContext([audit.work, '--json', '--pair-threshold', '0.9'], audit.edges)
 
   expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 0, available: 0 })
+})
+
+it('takes --pair-threshold 0 as a threshold, not as no threshold at all', async () => {
+  // Zero is the other end of the range and the value a falsy guard loses: a
+  // run asked to keep every candidate its index finds must not quietly fall
+  // back to the default. These six units score from 0.12 to 0.18, all under
+  // the default 0.5, so a fallback would report nothing at all instead of the
+  // five pairs the per-unit cap leaves room for.
+  const ids = [3, 5, 7, 9, 11, 13, 15].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('graded', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: picked<PairVerdict>('unrelated'),
+  })
+
+  await runContext([audit.work, '--json', '--pair-threshold', '0'], audit.edges)
+
+  expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 5, available: 5 })
+})
+
+it('writes one JSON document and one newline, with the stages that ran unskipped', async () => {
+  // What a caller piping `--json` parses. A second document, a stray line of
+  // findings text or a lost newline all reach a reader as a broken stream, and
+  // `skipped` has to be empty on a run where every stage ran: a reader looking
+  // for the reason a section is thin must be able to tell "none" from "not
+  // recorded".
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('contradicts', 0.9),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const stdout = audit.stdout()
+  expect(stdout.endsWith('}\n')).toBe(true)
+  expect(stdout.split('\n')).toHaveLength(2)
+  const report = reportOf(stdout)
+  expect(report.skipped).toEqual([])
+  expect(report.pairs).toHaveLength(1)
 })
 
 it('records every pair call that failed and keeps going, rather than ending the run', async () => {
@@ -1882,8 +2017,12 @@ it('finds the one distinctive pair in a large repository without comparing every
   // every pair of them is fifty million dot products. The index finds this
   // pair by construction, from the shared tokens almost nothing else carries,
   // and never scans the postings list of the token everything carries.
+  // Every unit is labelled, the way a real run's would be: a classify stage
+  // that came back empty is a stage that failed, and the pair stage below it
+  // no longer runs at all. The units sit on every second line from the third.
+  const ids = Array.from({ length: 10_002 }, (_, n) => `CLAUDE.md:${3 + 2 * n}-${3 + 2 * n}`)
   const audit = modelled('absent', {
-    classify: { classifications: [], failures: [] },
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
     judgePair: picked<PairVerdict>('unrelated'),
   })
   const lines = ['# Scale', '']
@@ -2001,6 +2140,47 @@ it('lists the pairs of one verdict most confident first, not in the order they w
       '    b: Deploy previews expire after fourteen quiet days and are then removed.',
     ].join('\n'),
   )
+})
+
+it('leaves the JSON report in the order the stage judged, and ties in it too', async () => {
+  // The findings text is a review queue and the JSON report is a record: the
+  // order a run made its calls in is part of what it records, so the text's
+  // sort must not reach back into `report.pairs`. The two verdicts carry the
+  // SAME confidence, which is the case an unstable or id-breaking sort gets
+  // wrong: the pair judged first is the one with the lower id-sorted name, so
+  // reordering by anything but the sort's own stability shows up here.
+  const ids = [3, 5, 7, 9].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled(
+    'ranked2',
+    { classify: { classifications: ids.map((id) => classified(id)), failures: [] } },
+    {},
+    {
+      judgePair: [picked<PairVerdict>('same_claim', 0.6), picked<PairVerdict>('same_claim', 0.6)],
+    },
+  )
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const judged: Array<[string, string]> = [
+    ['CLAUDE.md:7-7', 'CLAUDE.md:9-9'],
+    ['CLAUDE.md:3-3', 'CLAUDE.md:5-5'],
+  ]
+  expect(reportOf(audit.stdout()).pairs.map((pair) => [pair.a, pair.b])).toEqual(judged)
+
+  const second = modelled(
+    'ranked2',
+    { classify: { classifications: ids.map((id) => classified(id)), failures: [] } },
+    {},
+    {
+      judgePair: [picked<PairVerdict>('same_claim', 0.6), picked<PairVerdict>('same_claim', 0.6)],
+    },
+  )
+  await runContext([second.work], second.edges)
+
+  expect(second.stdout().split('\n').filter(isConfLine)).toEqual([
+    '  conf 0.60  CLAUDE.md:7-7  <>  CLAUDE.md:9-9',
+    '  conf 0.60  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
+  ])
 })
 
 it('lists refuted claims most confident first as well', async () => {

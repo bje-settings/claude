@@ -48,8 +48,14 @@ export type Stage = 'classify' | 'pairs' | 'evidence'
  *  `no_key` is an environment holding no `TYPESAFE_API_KEY`, which is what a
  *  machine that has never been set up reports. `no_jev` is the caller asking
  *  for tier 0 alone with `--no-jev`. `commands/context.ts` `skipReason` is
- *  where the two are chosen. */
-export type SkippedStage = { stage: Stage; reason: 'no_key' | 'no_jev' }
+ *  where those two are chosen, and they are the only two that can reach the
+ *  classify stage.
+ *
+ *  `classify_failed` is the third, and it reaches only `pairs` and `evidence`:
+ *  the classify stage ran and came back with no label at all, so there is
+ *  nothing to route the two stages below it by. `commands/context.ts`
+ *  `modelStages` is where it is chosen. */
+export type SkippedStage = { stage: Stage; reason: 'no_key' | 'no_jev' | 'classify_failed' }
 
 export type Report = {
   /** The audited checkout's root, as `git rev-parse --show-toplevel` gives it. */
