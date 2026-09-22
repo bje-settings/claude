@@ -9,7 +9,7 @@
 // anywhere. The model stages are reported as skipped, with the reason, so that
 // "skipped" can never be read as "nothing found".
 
-import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { candidatePairs } from '../candidates.ts'
@@ -239,15 +239,22 @@ type ModelOutcome = {
  *  relevant span is a retrieval problem this port has not solved either. */
 const EXCERPT_CHARS = 6000
 
+/** A resolved path that leaves the audited root. A `../` reference resolves
+ *  against the root like any other, and the file it finds is in a tree this
+ *  run was not asked about and has no business reading. */
+const escapesRoot = (repoPath: string): boolean => repoPath.split('/')[0] === '..'
+
 /** The file a claim is most likely about: its first reference, in the order
- *  the writer wrote them, that resolved to a real file of this repository
+ *  the writer wrote them, that resolved to a readable file of this repository
  *  other than the one the claim is written in. */
 const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: string } | null => {
   for (const ref of unit.refs) {
     if (ref.kind !== 'path' && ref.kind !== 'file_line') continue
     if (ref.resolution.status !== 'found' || ref.resolution.repoPath === null) continue
     const repoPath = ref.resolution.repoPath
-    if (repoPath === unit.file) continue
+    if (repoPath === unit.file || escapesRoot(repoPath)) continue
+    // A directory resolves as found and has no contents to excerpt.
+    if (!statSync(path.join(root, repoPath)).isFile()) continue
     const text = readFileSync(path.join(root, repoPath), 'utf8')
     return { source: repoPath, excerpt: text.slice(0, EXCERPT_CHARS) }
   }

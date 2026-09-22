@@ -1710,3 +1710,22 @@ it('judges a repository fact against the head of the file it names', async () =>
     report.evidence.map((entry) => [entry.unitId, entry.source, entry.excerpt.length]),
   ).toEqual([['CLAUDE.md:3-3', 'docs/retry.md', 6000]])
 })
+
+it('picks the first reference that is a readable file of this repository', async () => {
+  // Three refs are no evidence and the fourth is. The unit's own file would
+  // judge a claim against itself; a `../` path resolves outside the audited
+  // root, which is a tree this run has no business reading; and a directory
+  // has no contents to excerpt. Each one of them would otherwise be picked
+  // before the file the writer actually pointed at.
+  const audit = modelled('sources', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+    judgeEvidence: picked<EvidenceVerdict>('says_nothing'),
+  })
+  const outside = audit.sandbox.join('outside')
+  mkdirSync(outside)
+  writeFileSync(path.join(outside, 'tool.ts'), 'export const wait = 1000\n')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).evidence.map((entry) => entry.source)).toEqual(['docs/note.md'])
+})
