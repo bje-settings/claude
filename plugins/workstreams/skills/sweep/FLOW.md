@@ -12,7 +12,7 @@ flowchart TD
     D -->|No, unavailable is not empty| D1([Stop: the blocker graph has a hole in it]):::stop
     D1 -->|Only if the user says to plan on a partial read| E
     D -->|Yes| E{open pull requests?}
-    E -->|Yes| E1([Name each one and whose it is, before going on]):::pause
+    E -->|Yes| E1([Name each one before going on]):::pause
     E -->|No| F
     E1 --> F{anything unblocked?}
     F -->|No| F1([Stop: say what the next tier is waiting on]):::stop

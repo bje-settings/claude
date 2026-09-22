@@ -35,8 +35,8 @@ unless the user tells you to plan on a partial read; sequencing against a blocke
 with a hole in it is how an issue gets dispatched before its blocker lands.
 
 No open pull requests is a precondition for a round. If `pullRequests` is not empty, name
-each one and whose it is before going on: a round planned around a branch someone else is
-about to merge collides on files the sweep cannot see.
+each one before going on: a round planned around a branch someone else is about to merge
+collides on files the sweep cannot see.
 
 ## Step 3: read, do not remember
 
