@@ -258,3 +258,49 @@ it('a body that is not valid JSON on a 2xx is not retried', async () => {
   // A billed 2xx must not be resent: exactly one attempt, not up to maxRetries + 1.
   expect(calls).toBe(1)
 })
+
+it('a 2xx whose body read throws is a non-retryable JevError with the real status', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return {
+        ok: true,
+        status: 200,
+        text: async () => {
+          throw new Error('body read timed out')
+        },
+      } as unknown as Response
+    },
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(JevError)
+  expect((error as JevError).status).toBe(200)
+  expect((error as JevError).message).toMatch(/body could not be read/)
+  // A received, billed 2xx must not be resent just because its body read failed.
+  expect(calls).toBe(1)
+})
+
+it('an unreadable body on a non-OK response is reported with a marker, not as empty', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () =>
+      ({
+        ok: false,
+        status: 400,
+        headers: new Headers(),
+        text: async () => {
+          throw new Error('read failed')
+        },
+      }) as unknown as Response,
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(JevError)
+  expect((error as JevError).status).toBe(400)
+  expect((error as JevError).body).toBe('(body unreadable)')
+})
