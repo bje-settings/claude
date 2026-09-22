@@ -7,7 +7,7 @@
 // Every fixture repository is a directory under `fixtures/repos/`, copied in
 // and committed by `harness/git.ts` `importTree`, which undoes the two names a
 // fixture cannot be stored under (`_gitignore`, `<name>.fixture.md`).
-import { mkdirSync, realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -88,7 +88,7 @@ it('resolves a path its CLAUDE.md names, and skips every model stage with no key
   // `bin/audit.ts` adds nothing after it (`lib/envelope.ts` `renderText`).
   expect(envelope).toEqual({ outcome: 'ok', value: '' })
   const report = reportOf(audit.stdout())
-  expect(report.files).toEqual(['CLAUDE.md'])
+  expect(report.files).toEqual(['CLAUDE.md', 'plugins/demo/CLAUDE.md'])
   expect(report.units[0]?.refs).toEqual([
     { kind: 'path', value: 'lib/x.ts', resolution: { status: 'found', repoPath: 'lib/x.ts' } },
   ])
@@ -163,4 +163,231 @@ it('refuses a second positional, since there is only one root to audit', async (
     outcome: 'refused',
     error: `one root at most, not: ${audit.work} elsewhere`,
   })
+})
+
+it('refuses a count that is not a whole number', async () => {
+  // A NaN or a fraction reaches a `slice` in layer 5, where it silently caps
+  // the work at nothing and the run reports a clean result it never looked
+  // for.
+  const audit = audited('paths')
+
+  const envelope = await runContext([audit.work, '--max-pairs', '2.5'], audit.edges)
+
+  expect(envelope).toEqual({
+    outcome: 'refused',
+    error: '--max-pairs must be a whole number, not "2.5"',
+  })
+})
+
+it('refuses a pair threshold outside 0 to 1', async () => {
+  const audit = audited('paths')
+
+  const envelope = await runContext([audit.work, '--pair-threshold', '1.5'], audit.edges)
+
+  expect(envelope).toEqual({
+    outcome: 'refused',
+    error: '--pair-threshold must be 0 to 1, not "1.5"',
+  })
+})
+
+it('reads every tracked markdown file with --scope all', async () => {
+  // The default scope keeps this fixture's docs/note.md out, which the first
+  // test asserts; this is the other half of the same rule.
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json', '--scope', 'all'], audit.edges)
+
+  expect(reportOf(audit.stdout()).files).toEqual([
+    'CLAUDE.md',
+    'docs/note.md',
+    'plugins/demo/CLAUDE.md',
+  ])
+})
+
+it('names --no-jev as the reason the model stages did not run', async () => {
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json', '--no-jev'], audit.edges)
+
+  expect(reportOf(audit.stdout()).skipped).toEqual([
+    { stage: 'classify', reason: 'no_jev' },
+    { stage: 'pairs', reason: 'no_jev' },
+    { stage: 'evidence', reason: 'no_jev' },
+  ])
+})
+
+it('says no_jev, not no_key, when a key is set and there is no client to spend it', async () => {
+  // The harness sweeps TYPESAFE_API_KEY out of every sandbox, so a key is only
+  // ever here because a test put it there. Until layer 4 lands the client, a
+  // key that is present changes nothing, and reporting `no_key` beside one
+  // would be a reason that is not true.
+  const audit = audited('paths')
+  audit.sandbox.env.TYPESAFE_API_KEY = 'set-but-unusable'
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).skipped).toEqual([
+    { stage: 'classify', reason: 'no_jev' },
+    { stage: 'pairs', reason: 'no_jev' },
+    { stage: 'evidence', reason: 'no_jev' },
+  ])
+})
+
+it('writes the whole report to --out and still prints the findings', async () => {
+  const audit = audited('paths')
+  const out = audit.sandbox.join('report.json')
+
+  const envelope = await runContext([audit.work, '--out', out], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'ok', value: '' })
+  expect(audit.stdout()).toContain('## tier 0: refs that do not resolve (0)')
+  const written = JSON.parse(readFileSync(out, 'utf8')) as Report
+  expect(written.files).toEqual(['CLAUDE.md', 'plugins/demo/CLAUDE.md'])
+})
+
+it('refuses an --out that cannot be opened, before it reads anything', async () => {
+  const audit = audited('paths')
+  const out = audit.sandbox.join('a-directory')
+  mkdirSync(out)
+
+  const envelope = await runContext([audit.work, '--out', out], audit.edges)
+
+  expect(envelope.outcome).toBe('refused')
+  expect(envelope.outcome !== 'ok' && envelope.error).toMatch(
+    new RegExp(`^could not open ${out} for writing: EISDIR`),
+  )
+  expect(audit.stdout()).toBe('')
+})
+
+it('reports a path that is not there as the finding, in the findings text', async () => {
+  const audit = audited('absent')
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'ok', value: '' })
+  expect(audit.stdout()).toBe(
+    [
+      '1 files, 1 units, 0 opaque',
+      '',
+      '## tier 0: refs that do not resolve (1)',
+      '  CLAUDE.md:3  path `lib/gone.ts`  absent',
+      '',
+      '## tier 0: line references past the end of the file (0)',
+      '',
+      '## classify: skipped (no_key)',
+      '',
+      '## pairs: skipped (no_key)',
+      '',
+      '## evidence: skipped (no_key)',
+      '',
+    ].join('\n'),
+  )
+})
+
+it('reports a line reference past the end of the file it names', async () => {
+  const audit = audited('lines')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[0]?.refs).toEqual([
+    {
+      kind: 'file_line',
+      value: 'docs/short.md:99',
+      resolution: { status: 'line_out_of_range', repoPath: 'docs/short.md', lines: 3 },
+    },
+  ])
+})
+
+it('says unavailable, not absent, for a line reference whose file cannot be read', async () => {
+  // The path is there and the count is not: a directory has no lines, and
+  // reporting "the line is missing" would be a finding invented out of a
+  // question that could not be asked.
+  const audit = audited('lines')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[1]?.refs).toEqual([
+    {
+      kind: 'file_line',
+      value: 'docs/dir:2',
+      resolution: { status: 'unchecked', reason: 'unavailable' },
+    },
+  ])
+})
+
+it('resolves a line reference the file is long enough for, reading the file once', async () => {
+  // Both refs name the same file in one unit, so the second answer comes from
+  // the count the first one took rather than from a second read.
+  const audit = audited('lines')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[2]?.refs).toEqual([
+    {
+      kind: 'file_line',
+      value: 'docs/short.md:1',
+      resolution: { status: 'found', repoPath: 'docs/short.md' },
+    },
+    {
+      kind: 'file_line',
+      value: 'docs/short.md:3',
+      resolution: { status: 'found', repoPath: 'docs/short.md' },
+    },
+  ])
+})
+
+it('reads a line range by its end, which is the line that has to exist', async () => {
+  const audit = audited('lines')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[3]?.refs).toEqual([
+    {
+      kind: 'file_line',
+      value: 'docs/short.md:1-99',
+      resolution: { status: 'line_out_of_range', repoPath: 'docs/short.md', lines: 3 },
+    },
+  ])
+})
+
+it('marks a path outside the tree and a glob unchecked, each with its own reason', async () => {
+  // Neither is rot. A home-relative path is a fact about the machine running
+  // the audit, and a glob is a shape an existence check would always fail, so
+  // reporting either absent would be a finding invented out of a question that
+  // was never asked.
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.units[1]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: '~/.claude/settings.json',
+      resolution: { status: 'unchecked', reason: 'machine_specific' },
+    },
+  ])
+  expect(report.units[2]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'plugins/*/skills/',
+      resolution: { status: 'unchecked', reason: 'pattern' },
+    },
+  ])
+})
+
+it('falls back to the referencing file’s own directory when the root has no such path', async () => {
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.files).toEqual(['CLAUDE.md', 'plugins/demo/CLAUDE.md'])
+  expect(report.units[3]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'own.ts',
+      resolution: { status: 'found', repoPath: 'plugins/demo/own.ts' },
+    },
+  ])
 })

@@ -9,7 +9,7 @@
 // anywhere. The model stages are reported as skipped, with the reason, so that
 // "skipped" can never be read as "nothing found".
 
-import { readFileSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { discoverFiles, scopeFilter } from '../discover.ts'
@@ -64,6 +64,23 @@ model stages need TYPESAFE_API_KEY and are reported as skipped without it, or
 with --no-jev. --json writes the whole report instead of the findings text;
 --out writes it to a file as well.`
 
+/** A whole number, written out. A pattern rather than `Number.isInteger`, for
+ *  the reason `sync.ts` gives its own `-j` check: the value reaches an
+ *  arithmetic context, where anything this does not refuse is reinterpreted
+ *  silently, and a pattern refuses `2.5`, `-1`, `1e3` and `abc` as one rule
+ *  rather than as four arms a test would have to reach separately. */
+const COUNT_RE = /^\d+$/
+
+/** A fraction from 0 to 1, written out. Same argument as {@link COUNT_RE}, and
+ *  the bound is part of the pattern: a threshold above 1 compares against a
+ *  similarity that can never reach it, so every pair is dropped and the run
+ *  reports nothing found. */
+const FRACTION_RE = /^(?:0(?:\.\d+)?|1(?:\.0+)?)$/
+
+/** The count options, checked together: `lib/args.ts` has no numeric kind, and
+ *  each of these is a bound layer 5 slices work down to. */
+const COUNT_FLAGS = ['max-pairs', 'max-evidence'] as const
+
 /**
  * True when `argv` asks for help. A raw scan of the tokens themselves, checked
  * before anything is parsed, so usage wins over a bad `--scope` rather than
@@ -109,6 +126,21 @@ const skippedStages = (reason: SkippedStage['reason']): SkippedStage[] =>
   (['classify', 'pairs', 'evidence'] as const).map((stage) => ({ stage, reason }))
 
 /**
+ * Why the model stages did not run.
+ *
+ * Both reasons are true as written. `no_key` is the environment holding no
+ * `TYPESAFE_API_KEY`, which is what a run on a machine that has never been set
+ * up reports. `no_jev` is the other two cases, and they are the same fact: the
+ * caller asked for tier 0 alone with `--no-jev`, or there is a key and no
+ * client to spend it (`lib/jev.ts` lands at layer 4, and layer 5 is where the
+ * stages themselves replace this).
+ */
+const skipReason = (env: NodeJS.ProcessEnv, noJev: boolean): SkippedStage['reason'] => {
+  const key = env.TYPESAFE_API_KEY ?? ''
+  return key !== '' || noJev ? 'no_jev' : 'no_key'
+}
+
+/**
  * The command function.
  *
  * The report goes to `output` as it is built, and the envelope carries only
@@ -126,8 +158,29 @@ export const runContext = async (
   // root as one; how many it takes is this command's own rule. A second word
   // is far more often a quoting mistake than a request, and auditing the first
   // and ignoring the rest would hide it.
-  const { positionals } = parsed.value
+  const { options, positionals } = parsed.value
   if (positionals.length > 1) return refused(`one root at most, not: ${positionals.join(' ')}`)
+  for (const flag of COUNT_FLAGS) {
+    if (!COUNT_RE.test(options[flag])) {
+      return refused(`--${flag} must be a whole number, not "${options[flag]}"`)
+    }
+  }
+  const threshold = options['pair-threshold']
+  if (!FRACTION_RE.test(threshold)) {
+    return refused(`--pair-threshold must be 0 to 1, not "${threshold}"`)
+  }
+  // Opened before anything is read, and closed again: the model stages layer 5
+  // adds are paid for, so a run must not spend them and only then find that
+  // the file it was told to write cannot be opened. It catches a missing
+  // directory, a directory in the file's place and a read-only file alike.
+  const out = options.out
+  if (out !== '') {
+    try {
+      closeSync(openSync(out, 'w'))
+    } catch (error) {
+      return refused(`could not open ${out} for writing: ${(error as Error).message}`)
+    }
+  }
   const started = edges.now()
 
   const target = positionals[0] ?? edges.cwd
@@ -143,7 +196,11 @@ export const runContext = async (
     return refused(`not a git repository: ${target}`)
   }
 
-  const files = await discoverFiles(root, edges.env, scopeFilter)
+  // `all` passes a predicate that keeps everything rather than no predicate at
+  // all, so discovery has one shape and the scope is decided here, where the
+  // flag is read.
+  const filter = options.scope === 'context' ? scopeFilter : () => true
+  const files = await discoverFiles(root, edges.env, filter)
   if (files === null) return refused(`could not list the tracked files of ${root}`)
   const { units, opaque, warnings } = splitAll(root, files)
   for (const unit of units) {
@@ -157,12 +214,13 @@ export const runContext = async (
     opaque,
     warnings,
     issueLookup: 'ok',
-    skipped: skippedStages('no_key'),
+    skipped: skippedStages(skipReason(edges.env, options['no-jev'])),
     wallClockMs: edges.now() - started,
   }
 
-  edges.output.out.write(
-    parsed.value.options.json ? `${JSON.stringify(report)}\n` : renderFindings(report),
-  )
+  edges.output.out.write(options.json ? `${JSON.stringify(report)}\n` : renderFindings(report))
+  // The text as well as the file: `--out` is what a caller keeps, and the
+  // findings are what the caller reads now.
+  if (out !== '') writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
   return ok('')
 }

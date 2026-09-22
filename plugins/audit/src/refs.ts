@@ -6,7 +6,7 @@
 // layer 1 moved the issue lookup into `lib/gh.ts` `issueStates`, so an issue's
 // state arrives here as an answer the caller already has.
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 
 import type { Ref, Resolution } from './types.ts'
@@ -80,6 +80,16 @@ const looksLikePath = (value: string): boolean => {
   return KNOWN_EXTENSIONS.has(extname(value))
 }
 
+/** A path, then `:`, then a line or a line range. The path part is checked
+ *  against {@link looksLikePath} as well, so `note:1` is prose and
+ *  `lib/git.ts:115` is a reference. */
+const FILE_LINE_RE = /^([^\s:]+):(\d+)(?:-(\d+))?$/
+
+const isFileLineToken = (token: string): boolean => {
+  const match = FILE_LINE_RE.exec(token)
+  return match !== null && looksLikePath(match[1] as string)
+}
+
 /** A ref paired with where in the text it was found, so a caller can emit refs
  *  in source order however many passes produced them. */
 type Located = { at: number; ref: Ref }
@@ -88,6 +98,9 @@ type Located = { at: number; ref: Ref }
  *  reference. */
 const locateInCodeSpan = (token: string): Located[] => {
   const trimmed = token.trim()
+  if (isFileLineToken(trimmed)) {
+    return [{ at: 0, ref: { kind: 'file_line', value: trimmed, resolution: UNRESOLVED } }]
+  }
   if (looksLikePath(trimmed)) {
     return [{ at: 0, ref: { kind: 'path', value: trimmed, resolution: UNRESOLVED } }]
   }
@@ -125,7 +138,7 @@ export type ResolveContext = {
   file: string
 }
 
-const unchecked = (reason: 'machine_specific' | 'pattern'): Resolution => ({
+const unchecked = (reason: 'machine_specific' | 'pattern' | 'unavailable'): Resolution => ({
   status: 'unchecked',
   reason,
 })
@@ -166,7 +179,68 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
   return { status: 'absent' }
 }
 
+/** A file's line count the way `wc -l` counts it: a trailing newline ends the
+ *  last line rather than starting an empty one. */
+const countLines = (contents: string): number => {
+  if (contents === '') return 0
+  const lines = contents.split('\n').length
+  return contents.endsWith('\n') ? lines - 1 : lines
+}
+
+/**
+ * A `file:line` reference: where the file is, and then whether it is long
+ * enough. The END of a range is what has to exist, so `15-25` overruns a
+ * 20-line file.
+ *
+ * A file that cannot be read at all (a directory, say) is `unavailable`: the
+ * count could not be taken, which is a different fact from "the line is not
+ * there". Counts are cached per call, so a file named by several refs is read
+ * once.
+ */
+const resolveFileLine = (
+  ref: Ref,
+  ctx: ResolveContext,
+  lineCounts: Map<string, number | null>,
+): Resolution => {
+  // Extraction only ever produces a value this pattern matches, so the match
+  // is read without a null arm nothing can reach.
+  const match = FILE_LINE_RE.exec(ref.value) as RegExpExecArray
+  const needed = Number(match[3] ?? match[2])
+
+  const resolution = resolvePathValue(match[1] as string, ctx)
+  if (resolution.status !== 'found') return resolution
+  const repoPath = resolution.repoPath as string
+
+  let count = lineCounts.get(repoPath)
+  if (count === undefined) {
+    count = readLineCount(join(ctx.root, repoPath))
+    lineCounts.set(repoPath, count)
+  }
+  if (count === null) return unchecked('unavailable')
+  if (count < needed) return { status: 'line_out_of_range', repoPath, lines: count }
+  return { status: 'found', repoPath }
+}
+
+/** A file's line count, or `null` when it could not be read as a file. */
+const readLineCount = (absolute: string): number | null => {
+  try {
+    return countLines(readFileSync(absolute, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
 /** `refs`, each carrying the `Resolution` `types.ts` declares. Order is
  *  preserved. */
-export const resolveRefs = (refs: Ref[], ctx: ResolveContext): Ref[] =>
-  refs.map((ref) => ({ ...ref, resolution: resolvePathValue(ref.value, ctx) }))
+export const resolveRefs = (refs: Ref[], ctx: ResolveContext): Ref[] => {
+  // Keyed by repo-relative path, so the counts are safe to share across the
+  // refs of one call and no file is read twice.
+  const lineCounts = new Map<string, number | null>()
+  return refs.map((ref) => ({
+    ...ref,
+    resolution:
+      ref.kind === 'file_line'
+        ? resolveFileLine(ref, ctx, lineCounts)
+        : resolvePathValue(ref.value, ctx),
+  }))
+}
