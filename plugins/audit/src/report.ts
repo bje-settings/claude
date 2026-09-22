@@ -161,9 +161,24 @@ const section = (heading: string, entries: string[]): string[] => [
  *  for as long as its writer wanted. */
 const LINE_CHARS = 110
 
+/** `text` cut to at most `chars`, never through a character.
+ *
+ *  `slice` counts UTF-16 code units, and everything outside the basic plane is
+ *  two of them: an emoji or a rarer CJK codepoint straddling the cut would
+ *  leave its high half behind, which is not a character and reaches the reader
+ *  as a replacement mark in the middle of the text the finding is recognised
+ *  by. Dropping that half is one code unit shorter and is still the source's
+ *  own words, which is the property every unit text in this report has. */
+const cutTo = (text: string, chars: number): string => {
+  const head = text.slice(0, chars)
+  // D800 to DBFF is the high half of a pair; its low half was just cut off.
+  const last = head.charCodeAt(chars - 1)
+  return last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head
+}
+
 const short = (text: string): string => {
   const flat = text.replace(/\s+/g, ' ')
-  return flat.length > LINE_CHARS ? `${flat.slice(0, LINE_CHARS - 3)}...` : flat
+  return flat.length > LINE_CHARS ? `${cutTo(flat, LINE_CHARS - 3)}...` : flat
 }
 
 const cov = (coverage: Coverage): string => `${coverage.judged} of ${coverage.available} judged`

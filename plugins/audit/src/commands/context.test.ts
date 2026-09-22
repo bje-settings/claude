@@ -1553,10 +1553,14 @@ it('skips the stages below classify when no unit was classified at all', async (
 })
 
 it('prints a unit of exactly the line limit whole, and truncates the next character', async () => {
-  // A limit is only pinned by the value that sits on it. Both units below are
-  // findings of the same section, one of exactly 110 characters and one of
+  // A limit is only pinned by the value that sits on it. The first two units
+  // are findings of the same section, one of exactly 110 characters and one of
   // 111: with the comparison relaxed by one the first would be cut although it
   // fits, and with it tightened by one the second would be printed whole.
+  //
+  // The third puts an emoji across the cut itself. It is two UTF-16 code units
+  // and the cut lands between them, so a slice by code unit keeps the high
+  // half alone, which is not a character.
   const audit = modelled(
     'boundary',
     {
@@ -1564,6 +1568,7 @@ it('prints a unit of exactly the line limit whole, and truncates the next charac
         classifications: [
           classified('CLAUDE.md:3-3', { volatile: 0.9 }),
           classified('CLAUDE.md:5-5', { volatile: 0.9 }),
+          classified('CLAUDE.md:7-7', { volatile: 0.9 }),
         ],
         failures: [],
       },
@@ -1578,11 +1583,17 @@ it('prints a unit of exactly the line limit whole, and truncates the next charac
 
   expect(audit.stdout()).toContain(
     [
-      '## volatile and the issue it names is closed (2)',
+      '## volatile and the issue it names is closed (3)',
       '  CLAUDE.md:3-3  The retry note in this file stays here until #164 has closed, and this whole sentence runs to one hundred ten.',
       '  CLAUDE.md:5-5  The deploy note in this file stays here until #164 closes, and this whole sentence runs to one hundred elev...',
+      '  CLAUDE.md:7-7  The rollout note in this file stays here until #164 closes, and this sentence carries an emoji right here:...',
     ].join('\n'),
   )
+  // Said separately because the assertion above cannot say it: a lone high
+  // half is invisible in a source literal and an editor draws it the same way
+  // as the whole emoji. `[...text]` walks code points, so a surviving half
+  // comes out as itself.
+  expect([...audit.stdout()].some((character) => character.codePointAt(0) === 0xd83d)).toBe(false)
 })
 
 it('calls a repository with nothing to classify neither failed nor skipped', async () => {
@@ -1748,6 +1759,22 @@ it('asks nothing when --pair-threshold is set above what any pair scores', async
 
   await runContext([audit.work, '--json', '--pair-threshold', '0.9'], audit.edges)
 
+  expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 0, available: 0 })
+})
+
+it('takes 1 as a threshold too, which is the top of the range the flag names', async () => {
+  // The other endpoint, and the parser is the whole of what this pins: a
+  // pattern that admitted 0 to just under 1 would refuse this with exit 2, and
+  // a caller asking for near-exact duplicates only would be told their value
+  // was not a fraction. What it then finds is the existing 0.9 case.
+  const ids = [3, 5, 7].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('ranked', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+  })
+
+  const envelope = await runContext([audit.work, '--json', '--pair-threshold', '1'], audit.edges)
+
+  expect(envelope.outcome).toBe('ok')
   expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 0, available: 0 })
 })
 
@@ -2463,6 +2490,13 @@ it('breaks a tie between two equally similar candidates by id, not by position i
   // answers differently once a unit is moved up the file; built in id order,
   // as the spike builds it, the answer is the repository's and not the
   // layout's.
+  //
+  // Both halves of the expected list are load-bearing, and they pin different
+  // things. `12-12 <> 3-3` is the identical pair, which the index emits LAST
+  // and which stands first here: that is the descending-similarity sort, and
+  // deleting it moves this line to the end. The two equally scoring pairs
+  // behind it are the id order, and building the index in document order
+  // swaps them.
   const ids = ['3-3', '5-5', '7-7', '10-10', '12-12'].map((line) => `CLAUDE.md:${line}`)
   const audit = modelled('ties', {
     classify: { classifications: ids.map((id) => classified(id)), failures: [] },

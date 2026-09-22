@@ -281,6 +281,16 @@ it('takes one reply per call from a sequence, and repeats the last one', async (
   expect((await jev.judgePair(...PAIR)).confidence).toBe(0.4)
   expect((await jev.judgePair(...PAIR)).confidence).toBe(0.9)
   expect((await jev.judgePair(...PAIR)).confidence).toBe(0.9)
+  // The cursor is the only state this double holds, and it must stay out of
+  // the one answer that could be mistaken for a call count. Asserted here
+  // rather than beside `classify`, which has no cursor to leak.
+  expect(jev.usage()).toEqual({
+    requests: 0,
+    attempts: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    requestMsSum: 0,
+  })
 })
 
 it('advances each method’s cursor on its own', async () => {
