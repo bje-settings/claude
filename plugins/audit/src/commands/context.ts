@@ -201,7 +201,7 @@ const judgePairs = async (
   jev: JevClient,
   units: readonly Unit[],
   kindOf: Map<string, UnitKind>,
-  maxPairs: number,
+  options: { maxPairs: number; threshold: number },
 ): Promise<{ pairs: PairJudgment[]; coverage: Coverage }> => {
   const comparable = units.filter((unit) => {
     const kind = kindOf.get(unit.id)
@@ -210,9 +210,11 @@ const judgePairs = async (
   const byId = new Map(units.map((unit) => [unit.id, unit]))
   // Descending similarity, then capped: a budget buys the pairs most likely to
   // be a real duplicate, and `coverage` says how many it did not reach.
-  const candidates = candidatePairs(comparable).sort((x, y) => y.similarity - x.similarity)
+  const candidates = candidatePairs(comparable, { threshold: options.threshold }).sort(
+    (x, y) => y.similarity - x.similarity,
+  )
   const pairs: PairJudgment[] = []
-  for (const candidate of candidates.slice(0, maxPairs)) {
+  for (const candidate of candidates.slice(0, options.maxPairs)) {
     // Both ids came from `units` a moment ago, so the lookups answer.
     const a = byId.get(candidate.a) as Unit
     const b = byId.get(candidate.b) as Unit
@@ -231,7 +233,7 @@ const judgePairs = async (
 const modelStages = async (
   edges: ContextEdges,
   units: readonly Unit[],
-  options: { noJev: boolean; shape: RequestShape; maxPairs: number },
+  options: { noJev: boolean; shape: RequestShape; maxPairs: number; threshold: number },
 ): Promise<ModelOutcome> => {
   const key = edges.env.TYPESAFE_API_KEY ?? ''
   if (options.noJev || key === '') {
@@ -249,7 +251,7 @@ const modelStages = async (
   const classified = await jev.classify(units, options.shape)
   const { classifications } = classified
   const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
-  const paired = await judgePairs(jev, units, kindOf, options.maxPairs)
+  const paired = await judgePairs(jev, units, kindOf, options)
   return {
     skipped: [],
     classifications,
@@ -418,6 +420,8 @@ export const runContext = async (
     shape: options.shape as RequestShape,
     // Checked against COUNT_RE above, so this is a whole number.
     maxPairs: Number(options['max-pairs']),
+    // Checked against FRACTION_RE above, so this is 0 to 1.
+    threshold: Number(threshold),
   })
 
   const report: Report = {

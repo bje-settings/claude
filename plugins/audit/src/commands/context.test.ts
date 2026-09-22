@@ -1624,3 +1624,17 @@ it('spends a --max-pairs budget on the most similar candidates first', async () 
   expect(report.pairCoverage).toEqual({ judged: 1, available: 3 })
   expect(report.pairs.map((pair) => [pair.a, pair.b])).toEqual([['CLAUDE.md:3-3', 'CLAUDE.md:5-5']])
 })
+
+it('asks nothing when --pair-threshold is set above what any pair scores', async () => {
+  // The threshold is how a caller trades false pairs against missed ones, and
+  // it has to reach the scoring to do either. `judgePair` has no reply
+  // registered, so a candidate that survived would throw.
+  const ids = [3, 5, 7].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('ranked', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+  })
+
+  await runContext([audit.work, '--json', '--pair-threshold', '0.9'], audit.edges)
+
+  expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 0, available: 0 })
+})
