@@ -1476,7 +1476,6 @@ it('reports a classify request that failed, and fails the run while still printi
         classifications: [],
         failures: [{ id: 'request 0', message: 'HTTP 500: boom' }],
       },
-      judgePair: picked<PairVerdict>('unrelated'),
     },
     { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
   )
@@ -1487,7 +1486,9 @@ it('reports a classify request that failed, and fails the run while still printi
   const text = audit.stdout()
   expect(text).toContain('1 files, 2 units, 0 opaque')
   expect(text).toContain('## volatile and the issue it names is closed (0)\n')
-  expect(text).toContain('## pairs: contradicts (0; 1 of 1 judged)')
+  // Nothing was classified, so the pair stage compares what it was given and
+  // finds no candidate worth a call: 0 of 0 is not the same answer as 0 of 12.
+  expect(text).toContain('## pairs: contradicts (0; 0 of 0 judged)')
   expect(text).toContain(['## failures (1)', '  classify request 0: HTTP 500: boom'].join('\n'))
 })
 
@@ -1511,6 +1512,35 @@ it('reports a pair the model says makes one claim twice, under its own heading',
     [
       '## pairs: same_claim (1; 1 of 1 judged)',
       '  conf 0.75  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
+    ].join('\n'),
+  )
+})
+
+it('asks about the units that share a vocabulary, and about no others', async () => {
+  // Three rules in one fixture, each of which would cost model calls to get
+  // wrong: two units saying nearly the same thing are worth comparing, a unit
+  // about something else is not, and a unit of three tokens is never compared
+  // at all, however much of its vocabulary it shares, because there is not
+  // enough of it for a shared word to mean anything.
+  const audit = modelled('similar', {
+    classify: {
+      classifications: [
+        classified('CLAUDE.md:3-3'),
+        classified('CLAUDE.md:5-5'),
+        classified('CLAUDE.md:7-7'),
+        classified('CLAUDE.md:9-9'),
+      ],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('contradicts', 0.6),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## pairs: contradicts (1; 1 of 1 judged)',
+      '  conf 0.60  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
     ].join('\n'),
   )
 })
