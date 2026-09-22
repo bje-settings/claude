@@ -95,22 +95,13 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 ## Sharing a plugin outside this repo
 
 This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
-it either. Until it is published, a single plugin can be mirrored into a repository that team does
-have access to, and that repository supplies its own marketplace manifest.
+it either. There is no mirroring tool for that today: `publish-plugin.py` and the `/publish` skill
+that wrapped it were removed at #128, since this repo is going public once the TypeScript port
+finishes, which makes a downstream mirror unnecessary.
 
-```bash
-python3 scripts/publish-plugin.py <plugin> <path-to-destination-repo> --check   # what would change
-python3 scripts/publish-plugin.py <plugin> <path-to-destination-repo>           # do it
-```
-
-The `/publish` skill wraps that with the checks worth running first and opens the pull request
-downstream. The mirror publishes what git tracks, writes only `<dest>/plugins/<name>/`, and
-commits nothing; `UPSTREAM.json` in the copy records the source repository, version and commit it
-came from. Re-publishing unchanged content is byte-identical, so any diff in a sync pull request
-is real content.
-
-`gh` is mirrored into `sm-incubator/org-claude` today. That copy is generated: fixes belong here
-and get republished, never edited downstream.
+`sm-incubator/org-claude` still holds a copy of `gh`, taken before that removal, at version 0.3.0
+in a marketplace named `lab`. It stays there, generated and unmaintained, until this repo is
+public, at which point that marketplace points here instead.
 
 ## Contributing
 

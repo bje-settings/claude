@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { REPO_SKILLS, rel, SKILL_ROOTS, skillFiles, skillsUnder } from './repo.ts'
+import { filterUnderSkillsDir, PLUGINS, REPO_SKILLS, rel, skillFiles, skillsUnder } from './repo.ts'
 
 const MERMAID_FENCE = /^```mermaid/m
 
@@ -33,15 +33,15 @@ it('finds skills to check', () => {
   expect(skillFiles().length).toBeGreaterThan(0)
 })
 
-it('finds skills under each root it claims to check', () => {
-  // The guard above stops protecting a root the moment there are two of
-  // them: plugins/ alone keeps the combined list non-empty, so a typo in the
+it('finds skills under the plugin root', () => {
+  // The guard above stops protecting plugins/ the moment a second root joins
+  // it: plugins/ alone keeps the combined list non-empty, so a typo in the
   // second path would leave this file green while enforcing nothing on the
-  // skills it was extended to cover. Each root is asserted on its own.
-  const empty = SKILL_ROOTS.filter((root) => skillsUnder(root).length === 0).map((root) =>
-    rel(root),
-  )
-  expect(empty).toEqual([])
+  // skills it was extended to cover. plugins/ is asserted on its own for
+  // that reason. .claude/skills/ is not asserted the same way: it is allowed
+  // to be legitimately empty, as #128 leaves it, and skillsUnder's `optional`
+  // argument is what makes that not an error (see repo.ts).
+  expect(skillsUnder(PLUGINS).length).toBeGreaterThan(0)
 })
 
 it('gives every skill a FLOW.md beside its SKILL.md', () => {
@@ -95,7 +95,7 @@ it('gives every repo-local skill a name, a description, and no model invocation'
   // the repository, and a skill with side effects that the model can reach
   // on its own is a side effect nobody asked for.
   const missing: string[] = []
-  for (const skill of skillsUnder(REPO_SKILLS)) {
+  for (const skill of skillsUnder(REPO_SKILLS, true)) {
     const text = readFileSync(skill, 'utf8')
     if (!text.startsWith('---\n')) {
       missing.push(`${rel(skill)}: no frontmatter`)
@@ -135,5 +135,31 @@ describe('skillsUnder filtering', () => {
     writeFileSync(path.join(notUnderSkills, 'SKILL.md'), '---\n---\n')
     const found = skillsUnder(scratch).map((f) => path.relative(scratch, f))
     expect(found).toEqual([path.join('a-plugin', 'skills', 'thing', 'SKILL.md')])
+  })
+
+  it('treats a missing optional root as having no skills', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-skills-'))
+    const missing = path.join(scratch, 'does-not-exist')
+    expect(skillsUnder(missing, true)).toEqual([])
+  })
+
+  it('still walks an optional root that exists', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-skills-'))
+    const underSkills = path.join(scratch, 'a-plugin', 'skills', 'thing')
+    mkdirSync(underSkills, { recursive: true })
+    writeFileSync(path.join(underSkills, 'SKILL.md'), '---\n---\n')
+    expect(skillsUnder(scratch, true)).toEqual([path.join(underSkills, 'SKILL.md')])
+  })
+
+  it('throws when a required root is missing', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-skills-'))
+    const missing = path.join(scratch, 'does-not-exist')
+    expect(() => skillsUnder(missing)).toThrow()
+  })
+
+  it('returns every file found when the root is already a skills/ directory', () => {
+    // REPO_SKILLS has held no skill since #128, so skillsUnder can no longer
+    // reach this arm by calling it on the real constant. Exercised directly.
+    expect(filterUnderSkillsDir(['/a/b/SKILL.md'], '/a', true)).toEqual(['/a/b/SKILL.md'])
   })
 })

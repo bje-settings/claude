@@ -9,13 +9,20 @@ import path from 'node:path'
 
 export const ROOT = path.resolve(import.meta.dirname, '..')
 export const PLUGINS = path.join(ROOT, 'plugins')
+// This repo's own tooling: a root script (none today, #128 removed the only
+// one) and the skills that drive it (none today either, #128 removed the
+// only one, /publish). The convention and this file's checks stay for when
+// either returns.
 export const REPO_SKILLS = path.join(ROOT, '.claude', 'skills')
 export const SKILL_ROOTS = [PLUGINS, REPO_SKILLS] as const
 
 // Recursively finds every file named `name` under `dir`. Directories are
 // descended without limit; anything else is compared by name. No try/catch:
 // a missing root is a real error here, exactly as Python's `Path.iterdir()`
-// raising on a missing directory was in the code this replaces.
+// raising on a missing directory was in the code this replaces. A caller for
+// whom a missing root is not an error (skillsUnder's `optional` argument)
+// checks existence itself before calling in, rather than this function
+// swallowing ENOENT for everyone.
 function findFilesNamed(dir: string, name: string): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -36,9 +43,18 @@ function findFilesNamed(dir: string, name: string): string[] {
 // skill and makes the count meaningless. That is also why the second root
 // is .claude/skills and never .claude: a fixed-depth glob would quietly stop
 // checking a skill the day someone groups them into subdirectories.
-export function skillsUnder(root: string): string[] {
-  const files = findFilesNamed(root, 'SKILL.md').sort()
-  if (root === REPO_SKILLS) {
+//
+// Whether `root` is already a skills/ directory rather than one to search for
+// `skills/` subdirectories under. Pulled out of skillsUnder so a test can
+// drive both arms directly: REPO_SKILLS has held no skill since #128, so the
+// `true` arm can no longer be reached by calling skillsUnder on the real
+// constant.
+export function filterUnderSkillsDir(
+  files: string[],
+  root: string,
+  alreadyUnderSkills: boolean,
+): string[] {
+  if (alreadyUnderSkills) {
     // Already inside a skills/ directory, so every SKILL.md under it counts.
     return files
   }
@@ -48,10 +64,21 @@ export function skillsUnder(root: string): string[] {
   })
 }
 
+// `optional` is for a root allowed to not exist at all: git does not track an
+// empty directory, so REPO_SKILLS disappears from the checkout the moment its
+// last skill is deleted, which is the state #128 leaves it in. That is "no
+// repo-local skills", not an error, so it yields `[]` rather than throwing.
+// PLUGINS is never optional: a missing plugins/ is a real error.
+export function skillsUnder(root: string, optional = false): string[] {
+  if (optional && !existsSync(root)) return []
+  const files = findFilesNamed(root, 'SKILL.md').sort()
+  return filterUnderSkillsDir(files, root, root === REPO_SKILLS)
+}
+
 export function skillFiles(): string[] {
   const found: string[] = []
   for (const root of SKILL_ROOTS) {
-    found.push(...skillsUnder(root))
+    found.push(...skillsUnder(root, root === REPO_SKILLS))
   }
   return found.sort()
 }

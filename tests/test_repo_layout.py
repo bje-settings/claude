@@ -34,10 +34,8 @@ def test_every_plugin_carries_the_same_license_as_the_root():
     """keeps one LICENSE, copied identically into every plugin
 
     Each plugin directory carries its own so it is self-describing when it is
-    distributed on its own, and so a mirror copies it as an ordinary tracked file
-    with no special case. Four copies that must agree is exactly the drift shape
-    plugins/gh/scripts/lib/streams.py exists to warn about, so it is asserted
-    rather than trusted.
+    distributed on its own. Four copies that must agree is a drift shape worth
+    asserting rather than trusting.
     """
     canonical = (ROOT / "LICENSE").read_bytes()
     assert b"MIT License" in canonical

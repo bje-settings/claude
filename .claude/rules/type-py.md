@@ -8,11 +8,10 @@ paths:
 # Plugin Python
 
 **This is the retiring layer.** New plugin code is TypeScript: see `.claude/rules/type-ts.md` and
-`docs/rfc/001-typescript-port.md`. What is still Python is `gh` (#127), `field-test` (#136),
-`scripts/publish-plugin.py` (#128) and this repository's own test tooling (#138). It is stdlib
-only, driven black-box by pytest, measured by coverage.py, and these rules hold for as long as it
-is in the tree. They are what the shell harness that preceded it taught, kept because they still
-apply.
+`docs/rfc/001-typescript-port.md`. What is still Python is `gh` (#127), `field-test` (#136), and
+this repository's own test tooling (#138). It is stdlib only, driven black-box by pytest, measured
+by coverage.py, and these rules hold for as long as it is in the tree. They are what the shell
+harness that preceded it taught, kept because they still apply.
 
 ## A test per decision arm
 
@@ -65,12 +64,12 @@ second `test_fixtures.py`.
 
 ## Repo tooling: `scripts/`
 
-`scripts/*.py` at the repo root is this repo's own tooling. It is **not** a plugin: nobody
-installs it, it is not in the marketplace manifest, and `claude plugin validate` never sees it.
-It is held to everything else on this page anyway, coverage gate included, because it can delete
-and overwrite files in another repository.
+A `scripts/*.py` script at the repo root would be this repo's own tooling. It would not be a
+plugin: nobody installs it, it is not in the marketplace manifest, and `claude plugin validate`
+never sees it. It would be held to everything else on this page anyway, coverage gate included.
+Nothing exists there today: #128 deleted the only one there was, `publish-plugin.py`.
 
-Three things differ from a plugin script:
+Three things would differ from a plugin script:
 
 - **No `lib/`, and no `sys.path.insert`.** A plugin reaches its shared code that way, and the root
   `tests/conftest.py` cleans up after it by stripping leftover `sys.path` entries -- but only ones
@@ -86,8 +85,7 @@ Three things differ from a plugin script:
 - **Tests may drive it in-process.** A script that derives its own repository root from `__file__`
   cannot be pointed at a fixture by copying it, because a copy is a different file and coverage's
   relative `source` would not measure it. Load the real module by path and set its root, and keep
-  a few `run_script` examples for the contracts that only exist at the process boundary. See the
-  docstring in `tests/test_publish.py`.
+  a few `run_script` examples for the contracts that only exist at the process boundary.
 
 ## The 3.9 floor
 

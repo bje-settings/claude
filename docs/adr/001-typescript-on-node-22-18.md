@@ -78,8 +78,10 @@ properties, no namespaces. The flag turns a class of failure that would otherwis
 a user's machine into a failure of the `types` job on a pull request. `tsconfig.json` is strict,
 `noEmit`, `nodenext` for `module` and `moduleResolution`, and `allowImportingTsExtensions`; imports
 name the `.ts` extension explicitly. No build step, no bundler, no generated tree, no published
-package: the file a reviewer reads is the file that runs, which is also what keeps
-`publish-plugin`'s promise that what ships is what is committed.
+package: the file a reviewer reads is the file that runs, ~~which is also what keeps
+`publish-plugin`'s promise that what ships is what is committed~~. **Deviation
+([#128](https://github.com/bje-settings/claude/issues/128)):** `publish-plugin` no longer exists to
+keep that promise; the property stands on its own for the install path.
 
 **Code shared between plugins lives in one root `lib/`, reached by a committed symlink** at
 `plugins/<plugin>/src/lib` pointing at `../../../lib`. The Claude Code
@@ -90,8 +92,11 @@ the marketplace is skipped. The root `lib/` is the middle case, so an installed 
 real copy and needs nothing at run time the marketplace did not ship. A spike confirmed the two
 things that depend on: Node resolves `.ts` imports through the symlink and through the dereferenced
 copy identically, and `claude plugin validate --strict` passes on a plugin carrying it.
-`publish-plugin` applies the same three-way classification when it mirrors a plugin downstream,
-replacing the blanket symlink refusal it carries today.
+~~`publish-plugin` applies the same three-way classification when it mirrors a plugin downstream,
+replacing the blanket symlink refusal it carries today.~~ **Deviation ([#128](https://github.com/bje-settings/claude/issues/128)):**
+`publish-plugin` was removed rather than ported once this repository's move to public was decided,
+so this half of the decision never took effect; the three-way classification governs the install
+path only.
 
 **The symlink is the only path out of a plugin.** Nothing else imports across a plugin boundary,
 and the repository layout test is what enforces that, the way `tests/test_repo_layout.py` enforces
@@ -113,9 +118,11 @@ detail and turns a refactor red.
 tests that load them, with the shared harness at the repository root, imported only from test files
 so it never sits inside a plugin. Claude Code copies the whole plugin directory into its cache with
 no exclusion mechanism, no ignore file and no manifest field, so tests and fixtures reach the cache
-copy and sit there inert, imported by nothing and executed by nothing. The downstream mirror is a
+copy and sit there inert, imported by nothing and executed by nothing. ~~The downstream mirror is a
 different audience, read by another team as the plugin's source, so `publish-plugin` filters
-`*.test.ts`, fixture directories and `evals/` out of it.
+`*.test.ts`, fixture directories and `evals/` out of it.~~ **Deviation ([#128](https://github.com/bje-settings/claude/issues/128)):**
+as above, `publish-plugin` was removed rather than ported, so this filter was never built; the
+downstream mirror it would have applied to stops receiving updates instead.
 
 **Both hook scripts port**, the `gh` SessionStart hook and `field-test`'s PreToolUse, PostToolUse,
 PostToolUseFailure, SubagentStop and Stop hooks, with a silent Node floor guard replacing
@@ -158,8 +165,10 @@ dereferenced into it, and nothing else.
   that links the root lib. If it turns out to be the carve-out, the local flow needs a documented
   step in place of the dereference. Nothing about the installed or mirrored paths changes.
 - **Tests and fixtures ship inertly in the cache copy.** The installed plugin is larger than the
-  plugin, permanently, because there is no exclusion mechanism to ask for. The mirror filter keeps
-  the downstream copy clean and is one more rule to keep in sync with the layout.
+  plugin, permanently, because there is no exclusion mechanism to ask for. ~~The mirror filter keeps
+  the downstream copy clean and is one more rule to keep in sync with the layout.~~ **Deviation
+  ([#128](https://github.com/bje-settings/claude/issues/128)):** there is no mirror filter; the
+  downstream mirror was frozen rather than kept clean.
 - **Symlink support becomes load-bearing for contributors.** A clone without git symlink support
   gets a text file where `plugins/<plugin>/src/lib` should be, and the symptom is an unresolved
   import rather than a message naming the cause.
