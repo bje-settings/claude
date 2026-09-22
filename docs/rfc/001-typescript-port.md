@@ -161,7 +161,7 @@ is no 24 matrix leg until 22 leaves LTS; the argument against that is recorded b
 lib/                          # shared across plugins; the only thing that crosses a boundary
   ...
 plugins/<plugin>/
-  bin/<command>.ts            # thin adapter: parse argv, build clients, call, exit
+  bin/<plugin>.ts             # thin adapter: one dispatcher, parse argv, build clients, exit
   src/
     lib -> ../../../lib       # committed symlink, dereferenced into the cache copy on install
     commands/*.ts             # one exported function per command; the test seam
@@ -170,9 +170,16 @@ plugins/<plugin>/
   hooks/*.ts
 ```
 
+~~`bin/<command>.ts`: one thin adapter per command.~~ **Revised at
+[#130](https://github.com/bje-settings/claude/issues/130)** (round 8 ruling 6, and Decisions &
+Follow-ups 15): one `bin/<plugin>.ts` dispatcher per plugin, with an arm per command. Every
+plugin that has shipped an entry point chose it, `plugins/gh/bin/gh.ts` and
+`plugins/mermaid/bin/mermaid.ts`, so the RFC's wording is what drifted; `plugins/workstreams`
+follows the precedent rather than the sentence.
+
 `bin/` is an adapter and nothing else: it turns `process.argv` into the command function's
 arguments, constructs the real clients, calls the function, and maps its result onto an exit code
-and a stream. It holds no decisions, which is what lets one spawned contract test per command cover
+and a stream. It holds no decisions, which is what lets one spawned contract test per plugin cover
 all of it.
 
 **The command function is the seam.** Parsed arguments and injected clients go in; an exit code and
@@ -487,7 +494,7 @@ It absorbs six `field-test` issues: [#93](https://github.com/bje-settings/claude
 
 ## Decisions & Follow-ups
 
-Fourteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
+Fifteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
 and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions 1, 6, 7 and
 13 by [ADR 002](../adr/002-quality-gate-venues.md).
 
@@ -504,7 +511,8 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    nothing runs the suite on 24, so a behavioral difference between 22 and 24 would ship
    unnoticed, and users are more likely to be on 24 than on the floor.
 3. **The command function is the test seam.** Parsed arguments and injected clients in, exit code
-   and output out. `bin/` is a thin adapter with one spawned contract test per command. `gh` is an
+   and output out. `bin/` is a thin adapter with one spawned contract test per ~~command~~
+   **plugin** (revised at #130, decision 15 below). `gh` is an
    injected per-endpoint mock, SDK-shaped, with one reply per endpoint, a fail switch, and an
    unhandled endpoint throwing. `git` is real temporary repositories. No call-count assertions.
    Verified against the `mattpocock/skills` `engineering/tdd` skill, which argues the same two
@@ -576,6 +584,15 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     accordingly. *Against:* the downstream mirror still has one dependent,
     `sm-incubator/org-claude`, which is left on `gh` 0.3.0 and unmaintained until this repository is
     public and that marketplace points here directly instead.
+
+15. **One `bin/<plugin>.ts` dispatcher per plugin, not one `bin` per command.** Decided on
+    2026-09-21 (round 8 ruling 6) and amended into "Shape" above. Both plugins that had shipped an
+    entry point by then, `gh` (five arms) and `mermaid` (one), had already written it this way, so
+    the RFC's `bin/<command>.ts` was a sentence nothing implemented; `.claude/rules/type-ts.md` is
+    corrected with it. The plugin gets one node floor guard, one EPIPE guard and one spawned
+    contract test whose examples are the arms. *Against:* every command in a plugin then shares one
+    usage string and one dispatch table, so adding a command touches a file the other commands own,
+    and a caller that wants one command still installs the whole entry point.
 
 **The fresh slate is literal.** #129 removes `plugins/workstreams` and `tests/workstreams` as soon
 as this RFC merges; the primitives are written into an empty directory.

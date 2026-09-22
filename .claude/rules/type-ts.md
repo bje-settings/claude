@@ -20,7 +20,7 @@ and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is
 ```
 lib/                           # shared across plugins; the only thing that crosses a boundary
 plugins/<plugin>/
-  bin/<command>.ts             # thin adapter
+  bin/<plugin>.ts              # thin adapter: one dispatcher, one arm per command
   src/
     lib -> ../../../lib        # committed symlink
     commands/<command>.ts      # one exported function per command: the seam
@@ -49,7 +49,11 @@ A bad flag, a missing value, a stray positional or a value outside `choices` is 
 
 It turns `process.argv` into the command function's arguments, constructs the real clients, calls,
 and maps the result onto an exit code and a stream. It holds no decisions, which is what lets one
-spawned contract test per command (`harness/spawn.ts` `runScript`) cover all of it.
+spawned contract test per plugin (`harness/spawn.ts` `runScript`) cover all of it.
+
+One dispatcher per plugin, with an arm per command, so the plugin carries one floor guard, one
+EPIPE guard and one contract test (RFC 001 decision 15). The import inside each arm is dynamic, so
+a command nobody asked for is never loaded.
 
 It carries exactly one static import, `../src/lib/node-floor.ts`, calls
 `assertNodeFloor(process.version)`, and reaches everything else by `await import` after the check.

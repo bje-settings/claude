@@ -1078,7 +1078,10 @@ it("defaults to the root lib's own process runner", () => {
   expect(endpoints).toEqual([
     'addComment',
     'issueStates',
+    'listIssues',
     'listMergedPullRequests',
+    'listMilestones',
+    'listOpenPullRequests',
     'listPullRequests',
     'listRuns',
     'readFailedRunLog',
@@ -1087,4 +1090,408 @@ it("defaults to the root lib's own process runner", () => {
     'viewRepository',
     'watchChecks',
   ])
+})
+
+// --- the paginated sweep reads -----------------------------------------------
+//
+// One repository resolution then one `api graphql` call per page, so every
+// example here answers the `repo view` first. What is asserted is the argv
+// built for each endpoint, the rows read back, and every way an answer can be
+// short: a reply that cannot be read at all, a row that is not the shape the
+// query asked for, an error beside a good page, a cursor that does not
+// advance, and more pages than the client will follow.
+describe('milestones, issues and pull requests', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+
+  /** One connection page as gh prints it. */
+  const page = (
+    field: string,
+    nodes: readonly unknown[],
+    info: { hasNextPage?: boolean; endCursor?: string | null } = {},
+    errors?: readonly unknown[],
+  ): Reply => ({
+    stdout: JSON.stringify({
+      data: {
+        repository: {
+          [field]: {
+            pageInfo: { hasNextPage: info.hasNextPage ?? false, endCursor: info.endCursor ?? null },
+            nodes,
+          },
+        },
+      },
+      ...(errors === undefined ? {} : { errors }),
+    }),
+  })
+
+  const milestoneNode = {
+    number: 4,
+    title: 'workstreams primitives',
+    issues: { totalCount: 13 },
+    closedIssues: { totalCount: 1 },
+  }
+
+  const issueNode = {
+    number: 130,
+    title: 'feat(workstreams): sweep (primitive 1)',
+    milestone: { number: 4, title: 'workstreams primitives' },
+    labels: { nodes: [{ name: 'enhancement' }] },
+    blockedBy: { nodes: [{ number: 127, state: 'CLOSED' }] },
+    blocking: { nodes: [{ number: 131, state: 'OPEN' }] },
+    closedByPullRequestsReferences: { nodes: [{ number: 158, state: 'MERGED' }] },
+  }
+
+  const pullNode = {
+    number: 177,
+    title: 'feat(audit): plugin skeleton',
+    isDraft: true,
+    headRefName: 'wktr-171-audit-split',
+    baseRefName: 'main',
+  }
+
+  it('asks for the open milestones with owner and name as variables, and no cursor on the first page', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, page('milestones', [milestoneNode])])
+
+    const result = await gh.listMilestones()
+
+    expect(calls[1]?.command).toBe('gh')
+    expect(calls[1]?.args.slice(0, 6)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'owner=acme',
+      '-f',
+      'name=widgets',
+    ])
+    // The cursor is omitted rather than passed empty: `after: null` is the
+    // first page, and an empty string is a cursor value GitHub is under no
+    // obligation to read as one.
+    expect(calls[1]?.args.some((word) => word.startsWith('cursor='))).toBe(false)
+    expect(calls[1]?.args[7]).toContain('milestones(states: OPEN, first: 100, after: $cursor')
+    expect(calls[1]?.args[7]).toContain('closedIssues: issues(states: CLOSED)')
+    expect(result).toEqual({
+      rows: [{ number: 4, title: 'workstreams primitives', openIssues: 13, closedIssues: 1 }],
+      unavailable: null,
+    })
+  })
+
+  it('asks for open issues with their dependency relationships, filtered by milestone', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, page('issues', [issueNode])])
+
+    const result = await gh.listIssues({ milestone: '4' })
+
+    expect(calls[1]?.args.slice(0, 8)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'owner=acme',
+      '-f',
+      'name=widgets',
+      '-f',
+      'milestone=4',
+    ])
+    expect(calls[1]?.args[9]).toContain('filterBy: {milestoneNumber: $milestone}')
+    expect(calls[1]?.args[9]).toContain('blockedBy(first: 100)')
+    expect(calls[1]?.args[9]).toContain('blocking(first: 100)')
+    expect(calls[1]?.args[9]).toContain('includeClosedPrs: true')
+    expect(result).toEqual({
+      rows: [
+        {
+          number: 130,
+          title: 'feat(workstreams): sweep (primitive 1)',
+          milestone: { number: 4, title: 'workstreams primitives' },
+          labels: ['enhancement'],
+          blockedBy: [{ number: 127, state: 'CLOSED' }],
+          blocking: [{ number: 131, state: 'OPEN' }],
+          pullRequests: [{ number: 158, state: 'MERGED' }],
+        },
+      ],
+      unavailable: null,
+    })
+  })
+
+  it('omits the milestone variable when no milestone was asked for', async () => {
+    // Which is the query that answers for the issues on NO milestone: the
+    // variable is then null and GitHub filters on nothing, and the caller
+    // reads `milestone === null` off the rows.
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      page('issues', [{ ...issueNode, milestone: null }]),
+    ])
+
+    const result = await gh.listIssues()
+
+    expect(calls[1]?.args.some((word) => word.startsWith('milestone='))).toBe(false)
+    expect(calls[1]?.args.slice(0, 6)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'owner=acme',
+      '-f',
+      'name=widgets',
+    ])
+    expect(result.rows[0]?.milestone).toBeNull()
+  })
+
+  it('asks for every open pull request with its head and base', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, page('pullRequests', [pullNode])])
+
+    const result = await gh.listOpenPullRequests()
+
+    expect(calls[1]?.args[7]).toContain('pullRequests(states: OPEN, first: 100, after: $cursor')
+    expect(result).toEqual({
+      rows: [
+        {
+          number: 177,
+          title: 'feat(audit): plugin skeleton',
+          head: 'wktr-171-audit-split',
+          base: 'main',
+          draft: true,
+        },
+      ],
+      unavailable: null,
+    })
+  })
+
+  it('follows the cursor to the next page and concatenates the rows', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      page('milestones', [milestoneNode], { hasNextPage: true, endCursor: 'CUR1' }),
+      page('milestones', [{ ...milestoneNode, number: 5, title: 'field-test' }]),
+    ])
+
+    const result = await gh.listMilestones()
+
+    expect(calls[2]?.args).toContain('cursor=CUR1')
+    // The same query text on both pages: only the cursor variable moves, which
+    // is what makes a captured page replayable against the argv that asked
+    // for it.
+    expect(calls[2]?.args[9]).toBe(calls[1]?.args[7])
+    expect(result.rows.map((row) => row.number)).toEqual([4, 5])
+    expect(result.unavailable).toBeNull()
+  })
+
+  it('stops when the reply wants another page but names no cursor to ask with, and says so', async () => {
+    // Asking again with the cursor already used would ask the same question
+    // forever. The rows already read are still an answer, and the reason the
+    // answer is short is reported: without it a truncated set is handed over
+    // as a complete one.
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('milestones', [milestoneNode], { hasNextPage: true, endCursor: null }),
+    ])
+
+    const result = await gh.listMilestones()
+
+    // One row, from the one page that was read: the count of rows is the
+    // count of pages here, and it is what says the read stopped.
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe(
+      'milestones has more pages and the reply named no cursor to ask with',
+    )
+  })
+
+  it('stops after twenty pages and says the answer is short', async () => {
+    // A `hasNextPage` that never goes false is a loop this process would not
+    // leave. The ceiling is reported rather than silently truncating. Each
+    // page's cursor advances so the repeated-cursor guard does not trip
+    // first: `CUR${n}` is a fresh value every time.
+    const pages = Array.from({ length: 20 }, (_, index) =>
+      page('issues', [issueNode], { hasNextPage: true, endCursor: `CUR${index + 1}` }),
+    )
+    const { gh } = clientAnsweringEach([REPO, ...pages])
+
+    const result = await gh.listIssues()
+
+    // One row per page, so twenty rows is twenty pages and nothing beyond.
+    expect(result.rows).toHaveLength(20)
+    expect(result.unavailable).toBe('issues has more pages than the 20 this reads')
+  })
+
+  it('stops when a page replies with the same cursor it was just asked with, before reading its rows again', async () => {
+    // A cursor that does not advance would otherwise be read and appended
+    // forever (up to the page ceiling): the same node counted once per page
+    // instead of once. The guard fires on the second page, since the first
+    // page is asked with no cursor at all.
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('issues', [issueNode], { hasNextPage: true, endCursor: 'CUR' }),
+    ])
+
+    const result = await gh.listIssues()
+
+    // Only the first page's row: the second page's identical cursor stops
+    // the read before its rows are appended a second time.
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe("issues's reply repeated the same cursor without advancing")
+  })
+
+  it('counts a milestone row that is not the shape the query asked for, one field at a time', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('milestones', [
+        'not a record',
+        { ...milestoneNode, number: 'four' },
+        { ...milestoneNode, title: 4 },
+        { ...milestoneNode, issues: {} },
+        { ...milestoneNode, closedIssues: null },
+        milestoneNode,
+      ]),
+    ])
+
+    const result = await gh.listMilestones()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('5 milestones row(s) could not be read')
+  })
+
+  it('counts an issue row that is not the shape the query asked for, one field at a time', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('issues', [
+        { ...issueNode, number: null },
+        { ...issueNode, title: null },
+        { ...issueNode, blockedBy: {} },
+        { ...issueNode, blocking: 'no' },
+        { ...issueNode, closedByPullRequestsReferences: null },
+        { ...issueNode, labels: { nodes: 'no' } },
+        { ...issueNode, labels: { nodes: [{ name: 7 }] } },
+        { ...issueNode, milestone: { title: 'no number' } },
+        { ...issueNode, milestone: { number: 4 } },
+        { ...issueNode, milestone: 'not a record' },
+        issueNode,
+      ]),
+    ])
+
+    const result = await gh.listIssues()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('10 issues row(s) could not be read')
+  })
+
+  it('refuses an issue whose dependency list came back at the page ceiling', async () => {
+    // A `blockedBy` of exactly 100 is either a complete list or the first page
+    // of a longer one, and the query asks for no page signal to tell them
+    // apart. Read as complete, an issue whose only OPEN blocker sat past the
+    // ceiling would report as unblocked. `labels` and the closing pull
+    // requests at the ceiling have nothing concluded from their length, so
+    // each is still a readable row.
+    const full = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({ number: index + 1, state: 'CLOSED' }))
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('issues', [
+        { ...issueNode, blockedBy: { nodes: full(100) } },
+        { ...issueNode, blocking: { nodes: full(100) } },
+        { ...issueNode, blockedBy: { nodes: full(99) } },
+        { ...issueNode, labels: { nodes: full(100).map(() => ({ name: 'enhancement' })) } },
+        { ...issueNode, closedByPullRequestsReferences: { nodes: full(100) } },
+      ]),
+    ])
+
+    const result = await gh.listIssues()
+
+    expect(result.rows).toHaveLength(3)
+    expect(result.unavailable).toBe('2 issues row(s) could not be read')
+  })
+
+  it('refuses a whole blocker list when one entry of it cannot be read', async () => {
+    // A blocker list with one entry quietly dropped is a blocked issue
+    // reported as unblocked, which is the one mistake a sweep must not make.
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('issues', [
+        { ...issueNode, blockedBy: { nodes: [{ number: 127, state: 'CLOSED' }, { number: 129 }] } },
+        { ...issueNode, blocking: { nodes: [{ state: 'OPEN' }] } },
+      ]),
+    ])
+
+    const result = await gh.listIssues()
+
+    expect(result.rows).toEqual([])
+    expect(result.unavailable).toBe('2 issues row(s) could not be read')
+  })
+
+  it('counts a pull request row that is not the shape the query asked for, one field at a time', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('pullRequests', [
+        { ...pullNode, number: null },
+        { ...pullNode, title: null },
+        { ...pullNode, headRefName: null },
+        { ...pullNode, baseRefName: null },
+        { ...pullNode, isDraft: 'yes' },
+        pullNode,
+      ]),
+    ])
+
+    const result = await gh.listOpenPullRequests()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('5 pullRequests row(s) could not be read')
+  })
+
+  it('reports an answer that is not JSON, without throwing', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { status: 1, stdout: 'gateway timeout', stderr: 'gh: HTTP 504\n' },
+    ])
+
+    await expect(gh.listMilestones()).resolves.toEqual({
+      rows: [],
+      unavailable: 'gh: HTTP 504',
+    })
+  })
+
+  it('reports a reply with no connection where the query put one', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { status: 1, stdout: '{"data":{"repository":null}}', stderr: 'gh: Not Found\n' },
+    ])
+
+    await expect(gh.listIssues()).resolves.toEqual({ rows: [], unavailable: 'gh: Not Found' })
+  })
+
+  it('reports a connection whose nodes are not a list', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { stdout: '{"data":{"repository":{"pullRequests":{"nodes":null}}}}' },
+    ])
+
+    await expect(gh.listOpenPullRequests()).resolves.toEqual({
+      rows: [],
+      unavailable: 'gh exited 0',
+    })
+  })
+
+  it('keeps the rows of a page that also carried an error, and reports the error', async () => {
+    // `gh api graphql` exits 1 on a partial body that is still an answer,
+    // which is why the body is read through `invoke` and not `succeeded`.
+    const { gh } = clientAnsweringEach([
+      REPO,
+      {
+        status: 1,
+        ...page('milestones', [milestoneNode], {}, [
+          { message: 'Something went wrong while executing your query.' },
+          { notAMessage: true },
+        ]),
+      },
+    ])
+
+    const result = await gh.listMilestones()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('Something went wrong while executing your query.')
+  })
+
+  it('reports a repository it could not resolve at all, and asks nothing else', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      { status: 1, stderr: 'gh: could not resolve to a Repository\n' },
+    ])
+
+    await expect(gh.listIssues({ milestone: '4' })).resolves.toEqual({
+      rows: [],
+      unavailable: 'gh: could not resolve to a Repository',
+    })
+    expect(calls).toHaveLength(1)
+  })
 })
