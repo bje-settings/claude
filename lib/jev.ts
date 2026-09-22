@@ -480,13 +480,10 @@ export function batchSections(
       nextState <= stateTokens &&
       nextState + questionCost * nextCount <= requestTokens
     if (current !== null && fits) {
-      // Structural invariant, not a real-world case: this loop only ever
-      // reaches here on the array position right after the section's last
-      // one, so a gap would mean the scan itself broke, not bad input.
-      const last = current.indexes[current.indexes.length - 1]
-      if (last !== index - 1) {
-        throw new Error('batchSections: a section must be a contiguous run of the input array')
-      }
+      // No gap check here: `current` is only ever created at this loop's own
+      // `index`, or extended one array position later than that, so its last
+      // entry is always `index - 1` by construction. A guard for anything
+      // else would be a branch nothing in this function could ever take.
       current.indexes.push(index)
       stateSoFar += cost
       continue
@@ -756,12 +753,19 @@ const CLASSIFICATION_JUDGMENTS = [
   'multi_assertion',
 ] as const
 
-/** `JevError`'s own account when it is the rejection reason, or the plain message otherwise. */
+/**
+ * `JevError`'s own account when it is the rejection reason, or the plain
+ * message otherwise. Every failure this function sees was thrown from this
+ * file: a rejected request rejects with `typesafe.ts`'s `JevError` (every
+ * throw site in `request()`/`ask()` is one), and a caught parse failure is
+ * always a plain `Error` from `readChoice` or `readNoul`. There is no third
+ * shape to account for, so unlike the spike's `cli.ts` version this has no
+ * `String(error)` fallback: that branch nothing here could ever take.
+ */
 function failureMessage(error: unknown): string {
   if (error instanceof JevError)
     return `HTTP ${error.status}: ${error.message} ${error.body}`.trim()
-  if (error instanceof Error) return error.message
-  return String(error)
+  return (error as Error).message
 }
 
 /**

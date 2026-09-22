@@ -224,6 +224,12 @@ it('estimateTokens is conservative about prose', () => {
   expect(estimateTokens({ a: 'bb' })).toBe(Math.ceil('{"a":"bb"}'.length / 3))
 })
 
+it('estimateTokens treats a value JSON.stringify cannot render as zero-length text', () => {
+  // JSON.stringify(undefined) is the actual value `undefined`, not a string,
+  // which is the `?? ''` branch: not the same as estimateTokens('undefined').
+  expect(estimateTokens(undefined)).toBe(0)
+})
+
 it('shortId is the unit index', () => {
   expect(shortId(0)).toBe('u0')
   expect(shortId(11)).toBe('u11')
