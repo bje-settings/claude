@@ -29,6 +29,12 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
   const headingStack: HeadingFrame[] = []
   let i = 1
 
+  const frontmatter = readFrontmatter(lines, file)
+  if (frontmatter !== null) {
+    opaque.push(frontmatter)
+    i = frontmatter.endLine + 1
+  }
+
   while (i <= total) {
     const line = lines[i - 1] ?? ''
 
@@ -123,6 +129,25 @@ const splitLines = (source: string): string[] => {
 }
 
 const isBlank = (line: string): boolean => line.trim() === ''
+
+/** YAML frontmatter, which counts only when line 1 is a bare `---` and some
+ *  later line closes it with another. */
+const readFrontmatter = (lines: string[], file: string): OpaqueBlock | null => {
+  if ((lines[0] ?? '').trim() !== '---') return null
+  for (let close = 2; close <= lines.length; close++) {
+    if ((lines[close - 1] ?? '').trim() !== '---') continue
+    return {
+      file,
+      startLine: 1,
+      endLine: close,
+      kind: 'frontmatter',
+      lang: null,
+      text: lines.slice(1, close - 1).join('\n'),
+      refs: [],
+    }
+  }
+  return null
+}
 
 const matchHeading = (line: string): { level: number; text: string } | null => {
   const m = line.match(/^(#{1,6})\s+(.*)$/)

@@ -194,4 +194,24 @@ describe('splitMarkdown', () => {
     expect(opaque[0]?.lang).toBe('mermaid')
     expect(opaque[0]?.text).toBe('graph TD\nA --> B')
   })
+
+  it('reads YAML frontmatter as an opaque block, only when line 1 opens it', () => {
+    const source = [
+      '---',
+      'title: Spike',
+      'draft: true',
+      '---',
+      '',
+      '# Heading',
+      '',
+      'Body sentence.',
+    ].join('\n')
+    const { units, opaque } = splitMarkdown(FILE, source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.kind).toBe('frontmatter')
+    expect(opaque[0]?.text).toBe('title: Spike\ndraft: true')
+    expect(opaque[0]?.startLine).toBe(1)
+    expect(opaque[0]?.endLine).toBe(4)
+    expect(units.find((u) => u.text === 'Body sentence.')?.headingPath[0]).toBe('Heading')
+  })
 })
