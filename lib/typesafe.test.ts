@@ -4,7 +4,7 @@
 // jitter actually ran.
 
 import { expect, it } from 'vitest'
-import { createJev } from './typesafe.ts'
+import { createJev, retryAfterMs } from './typesafe.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -89,4 +89,77 @@ it('retries a 429 and then succeeds, backing off with the injected random', asyn
   expect(noulOf(answers, 'q')).toBe(0.75)
   // attempt 0, random() = 0.5: floor(0.5 * min(30000, 500 * 2**0)) = 250.
   expect(slept).toEqual([250])
+})
+
+it('honours Retry-After in seconds over the computed backoff', async () => {
+  let calls = 0
+  const slept: number[] = []
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async (ms) => {
+      slept.push(ms)
+    },
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(529, 'overloaded', { 'retry-after': '7' }) : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+
+  expect(slept).toEqual([7000])
+})
+
+it('honours Retry-After as an HTTP date', async () => {
+  const now = Date.now()
+  const soon = new Date(now + 5_000).toUTCString()
+  let calls = 0
+  const slept: number[] = []
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async (ms) => {
+      slept.push(ms)
+    },
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(429, 'slow down', { 'retry-after': soon }) : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+
+  expect(slept.length).toBe(1)
+  // Real-time slop between computing `soon` and the header being read.
+  expect(slept[0]).toBeGreaterThan(3_000)
+  expect(slept[0]).toBeLessThanOrEqual(5_000)
+})
+
+it('a Retry-After above the ceiling is capped at 120s', async () => {
+  let calls = 0
+  const slept: number[] = []
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async (ms) => {
+      slept.push(ms)
+    },
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(429, 'slow down', { 'retry-after': '99999' }) : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+
+  expect(slept).toEqual([120_000])
+})
+
+it('retryAfterMs reads seconds, dates, and neither', () => {
+  const now = Date.parse('2026-09-21T00:00:00Z')
+  expect(retryAfterMs('3', now)).toBe(3000)
+  expect(retryAfterMs('  12 ', now)).toBe(12000)
+  expect(retryAfterMs('Mon, 21 Sep 2026 00:00:30 GMT', now)).toBe(30000)
+  expect(retryAfterMs('Mon, 21 Sep 2020 00:00:00 GMT', now)).toBe(0)
+  expect(retryAfterMs('soon', now)).toBe(null)
+  expect(retryAfterMs('', now)).toBe(null)
+  expect(retryAfterMs(null, now)).toBe(null)
 })
