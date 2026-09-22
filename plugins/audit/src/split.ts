@@ -601,7 +601,7 @@ const readTableRows = (
   let i = start
   while (i <= lines.length) {
     // i stays within start..lines.length by the loop guard above.
-    const rowLine = lines[i - 1] as string
+    const rowLine = stripBlockquote(lines[i - 1] as string)
     if (isBlank(rowLine) || !rowLine.includes('|')) break
     const cells = splitTableRow(rowLine)
     const text = headerCells

@@ -502,6 +502,14 @@ describe('splitMarkdown', () => {
     expect(units[0]?.text).toBe('Name: ``a`b``\nNote: plain')
   })
 
+  it('strips the > marker from a table row inside a blockquote', () => {
+    const source = ['> | Name | Role |', '> | --- | --- |', '> | Ada | Engineer |'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units).toHaveLength(1)
+    expect(units[0]?.block).toBe('table_row')
+    expect(units[0]?.text).toBe('Name: Ada\nRole: Engineer')
+  })
+
   it('drops a sentence boundary that has only trailing whitespace after it', () => {
     const source = 'Final line ends here.   '
     const { units } = splitMarkdown(FILE, source)
