@@ -1666,3 +1666,27 @@ it('records every pair call that failed and keeps going, rather than ending the 
     ].join('\n'),
   )
 })
+
+it('reports an answer that would not parse in its own words', async () => {
+  // A rejected request and an answer that arrived but is not one this code can
+  // read are different failures, and only the first has an HTTP status. A
+  // report that prefixed both with one would tell a reader to go looking at
+  // the transport for a parser's complaint.
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: new Error('answer pair chose banana, which is not one of the options'),
+  })
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'failed', error: '1 model call failed' })
+  expect(audit.stdout()).toContain(
+    [
+      '## failures (1)',
+      '  pairs CLAUDE.md:3-3 <> CLAUDE.md:5-5: answer pair chose banana, which is not one of the options',
+    ].join('\n'),
+  )
+})
