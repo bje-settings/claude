@@ -12,7 +12,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
-import { createGhMock, type GhClient, type GhReplies, ghFails } from '../../../../harness/gh.ts'
+import { createGhMock, type GhClient, GhError, type GhReplies } from '../../../../harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '../../../../harness/git.ts'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
@@ -534,6 +534,21 @@ it('reads a manifest that declares no scripts as a manifest, not as a missing on
   ])
 })
 
+it('reads a manifest whose scripts key is null as one declaring none', async () => {
+  // `typeof null` is `'object'`, so the null arm of the guard is the only
+  // thing between this manifest and `Object.hasOwn(null, ...)`, which throws
+  // and takes the whole run down over one word in one file.
+  const audit = audited('scripts')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  const unit = report.units.filter((entry) => entry.file === 'nullscripts/CLAUDE.md')[0]
+  expect(unit?.refs).toEqual([
+    { kind: 'script', value: 'pnpm test', resolution: { status: 'absent' } },
+  ])
+})
+
 it('reads the refs in a fenced code block, commands included', async () => {
   // A fenced block never goes to the model, and tier 0 is the only thing that
   // reads it: a command line that names a path is exactly where a stale path
@@ -610,8 +625,18 @@ it('catches a gh failure into the lookup reason, leaving every issue unchecked',
   // The real client folds its own failures into `unavailable` and never
   // throws, but a caller that trusted that and reached for `.states` on a
   // rejection would take the whole audit down over one lookup.
+  //
+  // Built here rather than with `ghFails`, whose `detail` is its message, so
+  // the two differ the way they do on a real failure: `message` carries the
+  // whole argv and `detail` is gh's own line. A report line that quoted
+  // `message` would carry the `--json` fields with it, which is the defect
+  // #159 found, and with the two equal nothing would notice.
   const audit = audited('issues', {
-    issueStates: ghFails('gh: could not resolve to a Repository'),
+    issueStates: new GhError(
+      'gh issue list --json number,state failed: gh: could not resolve to a Repository',
+      1,
+      { cause: null, detail: 'gh: could not resolve to a Repository' },
+    ),
   })
 
   await runContext([audit.work, '--json'], audit.edges)
@@ -986,6 +1011,12 @@ it('asks git about a path outside the tree without losing the answer for the res
   // The value that cannot be asked about is still answered, from the tree.
   expect(unitNaming(report, 'sibling checkout')).toEqual([
     { kind: 'path', value: '../other/tool.ts', resolution: { status: 'absent' } },
+  ])
+  // The first segment is what leaves the tree, not the first two characters: a
+  // directory whose name merely starts with them is still git's to answer
+  // about, and a prefix test would drop it and report it absent.
+  expect(unitNaming(report, 'scratch copy')).toEqual([
+    { kind: 'path', value: '..cache/out.js', resolution: { status: 'ignored' } },
   ])
 })
 
