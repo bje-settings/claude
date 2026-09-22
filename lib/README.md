@@ -74,8 +74,8 @@ if (parsed.outcome !== 'ok') return parsed // exit 2, the reason on stderr
 `parseArguments` refuses a positional by design: nothing in front of it takes one, so a stray word
 on the command line is far more often a quoting mistake than a request. `parseCommandLine(argv,
 spec)` is the same core with `allowPositionals: true`, for the one command that widens itself
-rather than inheriting an untested path (`plugins/audit`'s `/audit:context`, #170, names issue
-numbers on the command line). It answers `Envelope<{ options; positionals: readonly string[] }>`;
+rather than inheriting an untested path (`plugins/audit`'s `/audit:context`, #172, takes the root
+it audits as one). It answers `Envelope<{ options; positionals: readonly string[] }>`;
 `parseArguments` stays the no-positionals wrapper so every other caller, including
 `plugins/mermaid/src/commands/url.ts`, is untouched.
 
