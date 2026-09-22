@@ -249,4 +249,14 @@ describe('splitMarkdown', () => {
     const items = units.filter((u) => u.block === 'list_item')
     expect(items.map((u) => u.text)).toEqual(['an item with code', 'next item'])
   })
+
+  it('handles CRLF input with exact line numbers', () => {
+    const source = ['# Heading', '', 'A sentence here.', '', '- an item'].join('\r\n')
+    const { units } = splitMarkdown(FILE, source)
+    const sentence = units.find((u) => u.block === 'sentence')
+    expect(sentence?.startLine).toBe(3)
+    expect(sentence?.endLine).toBe(3)
+    const item = units.find((u) => u.block === 'list_item')
+    expect(item?.startLine).toBe(5)
+  })
 })
