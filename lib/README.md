@@ -269,16 +269,22 @@ reason, the same account every other failure in this file reads.
 
 **The one rule that took two review rounds on the spike (#164) to get right, pinned first in this
 port's suite:** an alias is `not_found` only when `errors` carries an entry of type `NOT_FOUND`
-whose `path` ends in that alias. Any other null or missing alias, such as a `FORBIDDEN`, a rate
-limit, or a timeout, which carries no `path` at all, is left out of `states` entirely and its
-message folded into `unavailable`, never reported as "this issue does not exist": that is a finding
-fabricated out of a failure to ask. A `NOT_FOUND` on a named alias is a complete answer about that
-number, so it is not also counted toward `unavailable`.
+whose `path` ends in that alias. Any other null or missing alias with an accompanying error, such
+as a `FORBIDDEN`, a rate limit, or a timeout, which carries no `path` at all, is left out of
+`states` entirely, with its message folded into `unavailable`, never reported as "this issue does
+not exist": that is a finding fabricated out of a failure to ask. A `NOT_FOUND` on a named alias is
+a complete answer about that number, so it is not also counted toward `unavailable`. A number whose
+alias resolves to neither a recognised state nor a `NOT_FOUND` error (the reply answered something
+this endpoint does not read as a state, or left the alias out with no error alongside it) is also
+left out of `states`, and, with no error to fold in, out of `unavailable` too: the caller reads a
+number missing from both the same way the spike's own suite pins it (`refs.test.ts`, "leaves an
+unrecognised state out"), as unresolved rather than as a third, distinct outcome.
 
 Ported from the spike's `buildIssueQuery`, `parseIssueResponse` and `parseIssueChunkBody` as
-private helpers, adapted rather than copied: the spike spawned `gh` itself and threw on a failed
-chunk (`parseIssueChunkFailure`); here the endpoint takes the argv through the injected `Runner`
-seam every other endpoint uses and never throws, so there is no caught error to parse a second way.
+private helpers, adapted rather than copied: the spike's own endpoint never threw either, but it
+called `execFileSync` directly and parsed what THAT threw (`parseIssueChunkFailure`); here the
+endpoint takes the argv through the injected `Runner` seam every other endpoint uses, which answers
+rather than rejects, so there is no caught error to parse a second way.
 
 ## Decisions not taken
 

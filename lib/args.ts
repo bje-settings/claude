@@ -10,10 +10,12 @@
 // `choices` is the one piece of `argparse` node has no answer for, and
 // `mermaid-url.py`'s `--route` is the caller that needs it (#126).
 //
-// **What it deliberately does not add.** No positionals: `parseArgs` refuses
-// them and the refusal travels as an envelope, which is what the one command
-// in front of this wants, and a command that needs them can widen this with a
-// test rather than inherit an untested path. No `--help` handling: help text
+// **What it deliberately does not add, to `parseArguments`.** No positionals:
+// `parseArgs` refuses them and the refusal travels as an envelope, which is
+// what every command but one wants; `parseCommandLine` is the widened sibling
+// for the one command that needs them (`plugins/audit`'s `/audit:context`,
+// #170), so every other caller keeps the untested path closed rather than
+// inheriting a positional it never asked for. No `--help` handling: help text
 // is a command's own sentence about itself, so a command declares a `help`
 // boolean and prints its own, which is one line there against a text
 // generator here that every command would then have to fit.
@@ -133,9 +135,9 @@ const parseCore = <S extends ArgSpec>(
 /**
  * Parse `process.argv.slice(2)` against `spec`. No positionals: `parseArgs`
  * refuses them and the refusal travels as an envelope, which is what every
- * command in front of this wants except #170's `issueStates` caller, which
- * widens itself with {@link parseCommandLine} instead rather than inheriting
- * an untested path here.
+ * command wants except `plugins/audit`'s `/audit:context` (#170), the one
+ * command that names issue numbers on its own command line and widens itself
+ * with {@link parseCommandLine} instead of inheriting an untested path here.
  *
  * A refusal is exit 2 (`envelope.ts`), carrying node's own wording for an
  * unknown option, a missing value or a stray positional. Its message is not

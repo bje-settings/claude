@@ -30,6 +30,7 @@ export type {
   GhClient,
   GhEndpoint,
   GhResults,
+  IssueState,
   MergedPullRequestQuery,
   PullRequestQuery,
   RunQuery,
