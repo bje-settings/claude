@@ -2,7 +2,7 @@
 name: review
 description: Review one draft pull request through to done, in at most two rounds.
 argument-hint: [pr-number]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Read Grep Glob Agent SendMessage
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Agent SendMessage
 disable-model-invocation: true
 ---
 
