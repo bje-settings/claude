@@ -22,6 +22,7 @@ import { runScript } from '../../../harness/spawn.ts'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const HOOK = path.join(HERE, '..', 'hooks', 'guard.ts')
 const HOOKS_JSON = path.join(HERE, '..', 'hooks', 'hooks.json')
+const STDIN_ERROR = path.join(HERE, 'fixtures', 'stdin-error.ts')
 
 /** A `PreToolUse` payload, in the shape hooks.md documents, with `agent_id`
  *  and `agent_type` added only when a case is a subagent's. */
@@ -243,6 +244,20 @@ it('allows in silence with no git on PATH at all', () => {
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('git could not report the state of')
+})
+
+it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
+  const sandbox = createSandbox()
+
+  // The one failure the entry point cannot hand to a seam, from inside a
+  // process that has it (`src/fixtures/stdin-error.ts`). The promise under
+  // test is the outer one: an unforeseen throw still leaves stdout empty, so
+  // the tool call proceeds and no session stops for it.
+  const result = runScript(STDIN_ERROR, { args: [HOOK], stdin: '', env: sandbox.env })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toContain('stdin went away mid read')
 })
 
 // --- the wiring hooks.json carries -------------------------------------------
