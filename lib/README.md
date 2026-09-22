@@ -318,9 +318,13 @@ by silence:
 - **A row that is not the shape the query asked for** is counted, never dropped quietly, and a
   `blockedBy` or `blocking` connection with one unreadable entry makes the WHOLE issue unreadable.
   A blocker list one entry short is a blocked issue reported as unblocked, which is the one
-  mistake a sweep must not make.
-- **A page that wants a successor but names no cursor** ends the read. Asking again with the
-  cursor already used asks the same question forever.
+  mistake a sweep must not make. A `blockedBy` or `blocking` answered at exactly the 100 the query
+  asks for is unreadable on the same grounds: those connections carry no page signal, so a
+  complete list and the first page of a longer one arrive identical, and the conservative reading
+  is the only safe one. `labels` and the closing pull requests classify nothing and are kept.
+- **A page that wants a successor but names no cursor** ends the read and says so. Asking again
+  with the cursor already used asks the same question forever, and a truncated set handed over
+  without a reason reads as a complete one.
 - **More than 20 pages** ends the read and says so. That is 2,000 rows in one repository, far past
   anything a round sweeps, and a `hasNextPage` that never goes false is a loop this process would
   not leave.

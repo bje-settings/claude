@@ -70,9 +70,9 @@ checks through its own exit status and a test about a red rollup has to be able 
 never throws at all, so there is nothing else for a test to register beside its one reply. The
 three sweep reads answer `{ rows, unavailable }` and never throw for the same reason.)
 
-The double answers `listIssues` from one registration whatever milestone is asked for, because it
-holds no state and has no conditional logic. A test that needs a different answer per milestone
-builds `createGhClient` over a runner that answers by argv instead, which is what
+The double answers `listIssues` with the same reply whatever milestone is asked for, since one
+registration holds no state and has no conditional logic. A test that needs a different answer
+per milestone builds `createGhClient` over a runner that answers by argv instead, which is what
 `plugins/workstreams/src/commands/sweep.test.ts` does with its captured replies.
 
 - A registered reply comes back on **every** call. The mock holds no state and has no conditional

@@ -11,11 +11,8 @@ allowed-tools: Bash, Read, Grep, Glob
 disable-model-invocation: true
 ---
 
-Find what a round could start on, and say how it should be sequenced.
-
 The command answers the deterministic half: which issues are unblocked, which are one
-issue behind that, and which are further out. Everything below it is reading, and the
-reading is where every sweep has gone wrong before.
+issue behind that, and which are further out. Everything below it is reading.
 
 ## Step 1: preflight
 

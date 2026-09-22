@@ -8,9 +8,11 @@ and stdout exactly as `gh` printed them. It was produced by the real client with
 runner wrapped around `lib/process.ts`, so the argv in it is the argv the shipped code builds and
 the bodies are GitHub's own, not a hand-written approximation of either.
 
-The four reads, in the order they appear: `listMilestones()`, `listIssues({ milestone: '4' })`,
-`listIssues()` and `listOpenPullRequests()`. Each is preceded by the `gh repo view` call every
-GraphQL endpoint makes to resolve the owner and name.
+The four reads, in the order they sit in the file: `listMilestones()`,
+`listIssues({ milestone: '4' })`, `listIssues()` and `listOpenPullRequests()`. Each is preceded by
+the `gh repo view` call every GraphQL endpoint makes to resolve the owner and name. That is the
+order the client was driven in to record them, not the order `sweep.ts` asks in; the replay
+matches a call by its argv, so neither the order nor the number of calls has to agree.
 
 `sweep.test.ts` replays it by argv: a runner that answers a recorded call with its recorded
 stdout, and throws on an argv that was never recorded. That is what makes the acceptance case a
