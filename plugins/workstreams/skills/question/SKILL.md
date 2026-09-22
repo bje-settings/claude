@@ -2,7 +2,7 @@
 name: question
 description: Turn a sweep report into an approved plan, one question at a time.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Read Grep Glob AskUserQuestion
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion
 disable-model-invocation: true
 ---
 
