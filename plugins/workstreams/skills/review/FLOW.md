@@ -17,7 +17,9 @@ flowchart TD
     F -->|No| F1[Close and reopen the pull request] --> C
     F -->|Yes| F2([Stop: a head with no run twice is not a wait]):::stop
     E -->|red, before any round| G([Stop: red CI belongs to whoever opened it]):::stop
-    E -->|ci-pending or fixing| H[Wait: the hint, or 60s, capped at 30 min] --> C
+    E -->|ci-pending or fixing| H{waited ten times on this state?}
+    H -->|No| H1[Wait: the hint, or 60s, capped at 30 min] --> C
+    H -->|Yes| H2([Stop: name the contexts that never reported]):::stop
 
     E -->|review-1 or review-2| I[One round agent in the worktree]
     I --> J[Reviewers, read-only, no suites, all finish first]
@@ -40,7 +42,9 @@ flowchart TD
 The stops are different facts and are reported as different facts. A preflight failure
 is a machine that cannot run the round. No state at all is a fact nobody could read, and
 acting on it would send a round to review checks it has not seen. Red CI before any
-round has run is someone else's problem, because nothing this skill did caused it.
+round has run is someone else's problem, because nothing this skill did caused it. A
+required context that never reports is not a wait at all, so the waiting has a ceiling
+like the reopen does.
 
 Every loop back goes through the state read, never through a memory of it: there is no
 state file, and the only things carried between ticks are how many rounds have completed,
