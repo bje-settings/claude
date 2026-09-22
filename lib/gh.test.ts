@@ -1731,7 +1731,7 @@ describe('the review loop reads', () => {
       expect(result.pullRequest?.commentAuthors).toEqual(['github-code-quality', 'unknown'])
     })
 
-    it('reads a commit status, whose state is its conclusion and which has no status', async () => {
+    it('reads a commit status, which has no status of its own, beside a check run', async () => {
       const { gh } = clientAnsweringEach([
         REPO,
         prReply(
@@ -1761,10 +1761,54 @@ describe('the review loop reads', () => {
       const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
 
       expect(result.pullRequest?.checks).toEqual([
-        { name: 'vercel/preview', status: null, conclusion: 'PENDING' },
+        // PENDING is the status saying it has not concluded, so it is carried
+        // as no conclusion, exactly as a running check run is. A reader
+        // matching the conclusion against the set that satisfies a required
+        // check would otherwise call a building preview a failure.
+        { name: 'vercel/preview', status: null, conclusion: null },
         { name: 'types', status: 'IN_PROGRESS', conclusion: null },
       ])
     })
+
+    for (const [state, conclusion] of [
+      ['PENDING', null],
+      ['EXPECTED', null],
+      ['SUCCESS', 'SUCCESS'],
+      ['FAILURE', 'FAILURE'],
+      ['ERROR', 'ERROR'],
+    ] as const) {
+      it(`reads a commit status of ${state} as conclusion ${conclusion}`, async () => {
+        // The five members of GitHub's StatusState, read by introspection.
+        const { gh } = clientAnsweringEach([
+          REPO,
+          prReply(
+            prNode({
+              commits: {
+                nodes: [
+                  {
+                    commit: {
+                      oid: '9b13a20',
+                      statusCheckRollup: {
+                        contexts: {
+                          pageInfo: { hasNextPage: false },
+                          nodes: [{ context: 'vercel/preview', state }],
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            }),
+          ),
+        ])
+
+        const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+        expect(result.pullRequest?.checks).toEqual([
+          { name: 'vercel/preview', status: null, conclusion },
+        ])
+      })
+    }
 
     it('reads a head nothing has reported on as no checks, not as a failed read', async () => {
       const { gh } = clientAnsweringEach([

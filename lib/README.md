@@ -366,7 +366,10 @@ rollup, the unresolved review threads and the comments. Not `viewPullRequest`, w
 field list carries neither ref name and cannot carry review threads at all, since thread
 resolution exists in GraphQL alone. A check run and a commit status are read into one
 `CheckContext` (`name`/`status`/`conclusion` against `context`/`state`), told apart by which
-fields answered rather than by `__typename`. The threads and the comments are separate fields
+fields answered rather than by `__typename`. A commit status has no status of its own, and its
+`PENDING` and `EXPECTED` states are carried as NO conclusion, because both mean it has not
+concluded and `CheckContext` promises null for that; a reader matching conclusions against the
+set that satisfies a required check would otherwise call a building preview a failure. The threads and the comments are separate fields
 because they are separate facts: the enterprise coverage bot posts a COMMENT on every pull request
 here. All three connections ask for `pageInfo`, unlike the dependency connections in the sweep
 query, and a list at the page ceiling says so through `unavailable` rather than being refused,

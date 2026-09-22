@@ -995,15 +995,26 @@ const loginOf = (value: unknown): string => {
   return login === null ? 'unknown' : login
 }
 
+/** The two `StatusState` values that mean a commit status has not concluded. */
+const UNCONCLUDED: Record<string, true> = { PENDING: true, EXPECTED: true }
+
 /**
  * One reported check, from either object GitHub reports one as.
  *
  * Told apart by the fields present rather than by `__typename`: the two are
  * `name`/`status`/`conclusion` and `context`/`state`, so asking which fields
  * answered is asking the same question one step closer to what is read. A
- * commit status carries no status of its own, so its `state` IS its
- * conclusion and its `status` is null, which is what {@link CheckContext}
- * promises.
+ * commit status carries no status of its own, so its `status` is null, which
+ * is what {@link CheckContext} promises.
+ *
+ * Its `state` is its conclusion only where it names one. `StatusState` is
+ * `EXPECTED, ERROR, FAILURE, PENDING, SUCCESS` (GitHub's schema, read by
+ * introspection), and two of those five are the check saying it has NOT
+ * concluded. Carrying them through as a conclusion breaks the one invariant
+ * {@link CheckContext} states, and a reader that trusts it, such as a review
+ * loop matching a conclusion against the set that satisfies a required check,
+ * calls a preview deployment that is still building a failure and reports the
+ * whole pull request red.
  */
 const readCheck = (node: unknown): CheckContext | null => {
   const record = asRecord(node)
@@ -1016,7 +1027,12 @@ const readCheck = (node: unknown): CheckContext | null => {
   // means.
   const context = asText(record?.context)
   if (context === null) return null
-  return { name: context, status: null, conclusion: asText(record?.state) }
+  const state = asText(record?.state)
+  return {
+    name: context,
+    status: null,
+    conclusion: state !== null && Object.hasOwn(UNCONCLUDED, state) ? null : state,
+  }
 }
 
 /** One pull request's facts, with every reason a list beside them is short,
