@@ -137,6 +137,12 @@ export function sandboxEnv(base: NodeJS.ProcessEnv, home: string): NodeJS.Proces
     if (key.startsWith('GIT_') || key.startsWith('GH_')) delete env[key]
   }
   delete env.GITHUB_TOKEN
+  // `plugins/audit` decides whether its model stages run by reading this key,
+  // so a developer's shell exporting one would make a spawned audit test call
+  // the real API, bill a real account, and answer differently there than in
+  // CI. Same argument as `GH_` above, for the other credential the suite must
+  // not be able to reach.
+  delete env.TYPESAFE_API_KEY
   env.HOME = home
   env.GIT_CONFIG_GLOBAL = path.join(home, '.gitconfig')
   env.GIT_CONFIG_NOSYSTEM = '1'

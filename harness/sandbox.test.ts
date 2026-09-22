@@ -108,6 +108,21 @@ it('drops the git and gh environment a hook or a workspace exports', () => {
   ])
 })
 
+it('drops the TypeSafe API key, so no spawned test can reach the real API', () => {
+  // `plugins/audit` reads TYPESAFE_API_KEY to decide whether its model stages
+  // run at all, and a developer's shell exports one. Without this sweep a
+  // spawned audit test would bill a real account and answer differently on
+  // that machine than in CI, which is the same argument GH_TOKEN is swept on.
+  const env = sandboxEnv({ TYPESAFE_API_KEY: 'secret', PATH: '/usr/bin' }, '/sandbox/home')
+
+  expect(Object.keys(env).sort()).toEqual([
+    'GIT_CONFIG_GLOBAL',
+    'GIT_CONFIG_NOSYSTEM',
+    'HOME',
+    'PATH',
+  ])
+})
+
 it('never mutates the environment it was built from', () => {
   // The property vitest makes load-bearing: several test files share one
   // worker process, so an env rewritten in place would outlive this test.
