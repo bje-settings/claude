@@ -8,7 +8,11 @@ import {
   batchSections,
   classifyRequest,
   createJevClient,
+  EVIDENCE_QUESTION_ID,
   estimateTokens,
+  evidenceRequest,
+  PAIR_QUESTION_ID,
+  pairRequest,
   parseClassification,
   shortId,
 } from './jev.ts'
@@ -223,6 +227,136 @@ it('estimateTokens is conservative about prose', () => {
 it('shortId is the unit index', () => {
   expect(shortId(0)).toBe('u0')
   expect(shortId(11)).toBe('u11')
+})
+
+it('pairRequest carries both units and one question', () => {
+  const b = unit({
+    id: 'plugins/gh/README.md:310-310',
+    file: 'plugins/gh/README.md',
+    headingPath: ['gh', 'Requirements'],
+    text: 'It needs node 22.18 or newer.',
+  })
+
+  const request = pairRequest(ONE, b)
+
+  expect(request.state).toEqual({
+    statement_a: {
+      file: 'CLAUDE.md',
+      heading_path: ['claude', 'Tests'],
+      text: 'One command per language: `pnpm test` for TypeScript.',
+    },
+    statement_b: {
+      file: 'plugins/gh/README.md',
+      heading_path: ['gh', 'Requirements'],
+      text: 'It needs node 22.18 or newer.',
+    },
+  })
+  expect(Object.keys(request.questions)).toEqual([PAIR_QUESTION_ID])
+  const question = request.questions[PAIR_QUESTION_ID] as unknown as {
+    type: string
+    criteria: object
+    instructions: { question: string }
+  }
+  expect(question.type).toBe('choice')
+  expect(Object.keys(question.criteria)).toEqual(['same_claim', 'contradicts', 'unrelated'])
+  expect(question.instructions.question).toMatch(/`statement_a`/)
+})
+
+it('judgePair sends the pair request and answers with the verdict alone', async () => {
+  const seen: { body?: string } = {}
+  const client = createJevClient({
+    apiKey: KEY,
+    fetch: async (_url, init) => {
+      seen.body = String(init?.body)
+      return reply(200, {
+        model: 'x',
+        answers: {
+          [PAIR_QUESTION_ID]: {
+            type: 'choice',
+            choice: 'same_claim',
+            probabilities: { same_claim: 0.8, contradicts: 0.05, unrelated: 0.15 },
+            confidence: 0.72,
+          },
+        },
+        usage: {},
+      })
+    },
+  })
+
+  const verdict = await client.judgePair(ONE, TWO)
+
+  const sent = JSON.parse(seen.body ?? '{}')
+  expect(Object.keys(sent.questions)).toEqual([PAIR_QUESTION_ID])
+  expect(verdict).toEqual({
+    choice: 'same_claim',
+    probabilities: { same_claim: 0.8, contradicts: 0.05, unrelated: 0.15 },
+    confidence: 0.72,
+  })
+})
+
+it('evidenceRequest is the citation check, exactly', () => {
+  const request = evidenceRequest(ONE, 'package.json', '"test": "vitest run --coverage"')
+
+  expect(request.state).toEqual({
+    claim: 'One command per language: `pnpm test` for TypeScript.',
+    source: 'package.json',
+    excerpt: '"test": "vitest run --coverage"',
+  })
+  expect(Object.keys(request.questions)).toEqual([EVIDENCE_QUESTION_ID])
+  const question = request.questions[EVIDENCE_QUESTION_ID] as unknown as { criteria: object }
+  expect(Object.keys(question.criteria)).toEqual(['supports', 'contradicts', 'says_nothing'])
+})
+
+it('judgeEvidence sends the evidence request and answers with the verdict alone', async () => {
+  const seen: { body?: string } = {}
+  const client = createJevClient({
+    apiKey: KEY,
+    fetch: async (_url, init) => {
+      seen.body = String(init?.body)
+      return reply(200, {
+        model: 'x',
+        answers: {
+          [EVIDENCE_QUESTION_ID]: {
+            type: 'choice',
+            choice: 'supports',
+            probabilities: { supports: 0.97, contradicts: 0.01, says_nothing: 0.02 },
+            confidence: 0.95,
+          },
+        },
+        usage: {},
+      })
+    },
+  })
+
+  const verdict = await client.judgeEvidence(ONE, 'package.json', '"test": "vitest run --coverage"')
+
+  const sent = JSON.parse(seen.body ?? '{}')
+  expect(sent.state).toEqual({
+    claim: ONE.text,
+    source: 'package.json',
+    excerpt: '"test": "vitest run --coverage"',
+  })
+  expect(verdict.choice).toBe('supports')
+  expect(verdict.confidence).toBe(0.95)
+})
+
+it("usage() passes through the transport's own totals", async () => {
+  const client = createJevClient({
+    apiKey: KEY,
+    fetch: async () =>
+      reply(200, { model: 'x', answers: classificationReply(0), usage: { input_tokens: 5 } }),
+  })
+
+  expect(client.usage()).toEqual({
+    requests: 0,
+    attempts: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    requestMsSum: 0,
+  })
+  await client.classify([unit()], 'per_unit')
+  expect(client.usage().requests).toBe(1)
+  expect(client.usage().inputTokens).toBe(5)
 })
 
 it('per_unit sends one request per unit, with that unit as the whole state', () => {
