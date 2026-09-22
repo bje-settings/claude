@@ -696,3 +696,21 @@ it('answers ignored for a line reference into an ignored file too', async () => 
     { kind: 'file_line', value: 'build/output.js:12', resolution: { status: 'ignored' } },
   ])
 })
+
+it('skips a uses: value in a yaml block, which names another repository’s file', async () => {
+  // A `uses:` value is resolved by GitHub Actions against the repository and
+  // ref it names, not against this checkout, so an existence check here
+  // answers a question nobody asked. The `run:` line beside it still yields
+  // its script, which is what proves the block was read at all.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).opaque[0]?.refs).toEqual([
+    {
+      kind: 'script',
+      value: 'pnpm test',
+      resolution: { status: 'unchecked', reason: 'no_resolver' },
+    },
+  ])
+})

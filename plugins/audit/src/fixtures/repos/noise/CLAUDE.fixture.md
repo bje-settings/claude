@@ -13,3 +13,13 @@ An ambiguous one is `docs/adr/099`, which two files could answer to.
 The bundle is written to `build/output.js`, which this repository ignores.
 
 The failing line is `build/output.js:12`, in that same ignored bundle.
+
+The workflow reads:
+
+```yaml
+jobs:
+  build:
+    steps:
+      - uses: ./.github/workflows/ci.yml
+      - run: pnpm test
+```

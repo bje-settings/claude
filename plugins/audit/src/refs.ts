@@ -299,13 +299,35 @@ const looksLikePathInCode = (value: string): boolean =>
  *  there is nowhere to look for it. A shape, not an absence. */
 const RELATIVE_EXAMPLE: Resolution = { status: 'unchecked', reason: 'pattern' }
 
+/** The fence info strings, and the block kind, whose content is yaml. */
+const YAML_LANGS = new Set(['yaml', 'yml'])
+
+/** The value of each `uses:` key, as ranges over `text`. GitHub Actions
+ *  resolves one against the repository and ref it names, or against the
+ *  workflow's own repository at that ref, so an existence check in this
+ *  checkout answers a question nobody asked. */
+const usesRanges = (text: string): Array<[number, number]> => {
+  const ranges: Array<[number, number]> = []
+  for (const match of text.matchAll(/\buses:[ \t]*(\S+)/g)) {
+    const value = match[1] as string
+    const at = match.index + (match[0] as string).length - value.length
+    ranges.push([at, at + value.length])
+  }
+  return ranges
+}
+
+const inRanges = (at: number, ranges: ReadonlyArray<[number, number]>): boolean =>
+  ranges.some(([from, to]) => at >= from && at < to)
+
 /** Paths and file:line references written inside a code block, token by
- *  token. Narrower than the prose rule ({@link looksLikePathInCode}). */
-const locatePathsInCode = (content: string): Located[] => {
+ *  token. Narrower than the prose rule ({@link looksLikePathInCode}), and
+ *  blind to whatever `skip` covers. */
+const locatePathsInCode = (content: string, skip: ReadonlyArray<[number, number]>): Located[] => {
   const located: Located[] = []
   for (const match of content.matchAll(/\S+/g)) {
     const token = (match[0] as string).replace(TRIM_LEADING_RE, '').replace(TRIM_TRAILING_RE, '')
     if (token === '') continue
+    if (inRanges(match.index, skip)) continue
     if (CODE_TOKEN_SYNTAX_RE.test(token)) continue
     const resolution = token.startsWith('../') ? RELATIVE_EXAMPLE : UNRESOLVED
     if (isFileLineToken(token)) {
@@ -415,7 +437,8 @@ export const extractBlockRefs = (
     located.push(...locateCommands(text))
   }
   located.push(...locateScripts(text))
-  located.push(...locatePathsInCode(text))
+  const yaml = kind === 'frontmatter' || YAML_LANGS.has((lang ?? '').toLowerCase())
+  located.push(...locatePathsInCode(text, yaml ? usesRanges(text) : []))
   located.push(...locateIssues(text))
   return inSourceOrder(located)
 }
