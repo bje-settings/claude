@@ -798,6 +798,33 @@ describe('issue and pull request states', () => {
 
     expect(result).toEqual({ states: { '999999': 'not_found' }, unavailable: null })
   })
+
+  it('leaves a FORBIDDEN alias out rather than calling it absent, and reports why', async () => {
+    // The defect the rule above exists for: a permissions error beside a
+    // perfectly good answer must not read as "this issue does not exist".
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'OPEN' }, i1: null } },
+          errors: [
+            {
+              type: 'FORBIDDEN',
+              path: ['repository', 'i1'],
+              message: 'Resource not accessible by integration',
+            },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 164] })
+
+    expect(result).toEqual({
+      states: { '138': 'OPEN' },
+      unavailable: 'Resource not accessible by integration',
+    })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
