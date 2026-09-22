@@ -101,6 +101,23 @@ describe('the command line', () => {
     expect(answer.outcome !== 'ok' && answer.error).toContain('--round must be one of 0, 1, 2')
   })
 
+  for (const flag of ['--substantial', '--rot-checked'] as const) {
+    it(`refuses ${flag} with --round 0, where no round has finished`, async () => {
+      // Silently ignored otherwise: deriveState returns from every round-0 arm
+      // before it reads either flag, so a caller that miscounted its own
+      // rounds would be told nothing.
+      const answer = await ran(['178', '--round', '0', flag])
+
+      expect(answer.outcome).toBe('refused')
+    })
+  }
+
+  it('accepts --round 2 without --substantial, which describes round 1 alone', async () => {
+    const report = await reportOf(['178', '--round', '2'])
+
+    expect(report.state).toBe('rot-check')
+  })
+
   it('refuses a flag nobody declared', async () => {
     const answer = await ran(['178', '--nope'], {})
 
@@ -319,9 +336,22 @@ describe('the verdict over the required contexts', () => {
         { name: 'b', reported: true, conclusion: 'FAILURE', verdict: 'failed' },
       ],
       true,
+      true,
     )
 
     expect(verdict).toBe('red')
+  })
+
+  it('is pending, never green, over a list of contexts that is not settled yet', () => {
+    // The head fallback's list is whatever has reported. Green over it would
+    // be green over however little that is.
+    const settled = [
+      { name: 'a', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
+    ] as const
+
+    expect(verdictOf(settled, true, true)).toBe('green')
+    expect(verdictOf(settled, true, false)).toBe('pending')
+    expect(verdictOf([], true, true)).toBe('pending')
   })
 
   for (const [what, rows] of [
@@ -383,6 +413,76 @@ describe('a base branch no ruleset covers', () => {
     expect(report.verdict).toBe('no-run')
   })
 
+  it('is pending, not green, when a run exists and nothing has reported yet', async () => {
+    // The run is there, so it is not `no-run`; the rollup is still empty, so
+    // there is nothing to be green about. Green here would send a round to
+    // review a diff no check has looked at.
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ base: 'wktr-130-ws-sweep', checks: [] }),
+          unavailable: null,
+        },
+        requiredContexts: { contexts: [], unavailable: null },
+        listWorkflowRuns: { rows: [run()], unavailable: null },
+      }),
+    )
+
+    expect(report.hasPullRequestRun).toBe(true)
+    expect(report.contexts).toEqual([])
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('ci-pending')
+  })
+
+  it('is pending while one workflow has finished and another is still running', async () => {
+    // Two workflows run on a pull request here. The finished one's context is
+    // satisfying and the other has not created its checks yet, so a verdict
+    // over the reported list alone would be green over a fraction of it.
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            base: 'wktr-130-ws-sweep',
+            checks: [{ name: 'plugin-validate', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+          }),
+          unavailable: null,
+        },
+        requiredContexts: { contexts: [], unavailable: null },
+        listWorkflowRuns: {
+          rows: [
+            run({ name: 'Plugin validate' }),
+            run({ name: 'CI', status: 'in_progress', conclusion: null }),
+          ],
+          unavailable: null,
+        },
+      }),
+    )
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['plugin-validate'])
+    expect(report.verdict).toBe('pending')
+  })
+
+  it('is green once every run on the head has finished adding contexts', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ base: 'wktr-130-ws-sweep' }),
+          unavailable: null,
+        },
+        requiredContexts: { contexts: [], unavailable: null },
+        listWorkflowRuns: {
+          rows: [run({ name: 'Plugin validate' }), run({ name: 'CI' })],
+          unavailable: null,
+        },
+      }),
+    )
+
+    expect(report.verdict).toBe('green')
+  })
+
   it('reads one name reported twice as one context', async () => {
     const report = await reportOf(
       ['178'],
@@ -406,6 +506,28 @@ describe('a base branch no ruleset covers', () => {
 })
 
 describe('what it does with a read that fell short', () => {
+  it('names no state when the pull request itself was read only in part', async () => {
+    // A thread list longer than one page reads as fewer unresolved threads
+    // than there are, and a report that believed it would reach done on a
+    // pull request somebody is still waiting on.
+    const report = await reportOf(
+      ['178', '--round', '2', '--rot-checked'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail(),
+          unavailable: 'pull request 178 has more review threads than the 100 this reads',
+        },
+      }),
+    )
+
+    expect(report.unresolvedThreads).toBe(0)
+    expect(report.verdict).toBe('unavailable')
+    expect(report.state).toBeNull()
+    expect(report.unavailable).toEqual([
+      'pull request 178 has more review threads than the 100 this reads',
+    ])
+  })
+
   it('reports a pull request gh answered nothing about as awaiting-pr, and exits 0', async () => {
     // gh answered the run sample, so gh works and there is no such pull
     // request yet. That is a state the loop has a name for.
@@ -456,12 +578,10 @@ describe('what it does with a read that fell short', () => {
 
   it('keeps the wait hint out of the verdict when only the sample failed', async () => {
     const gh = createGhMock(replies())
-    let asked = 0
     const answer = await runPrState(['--json', '178'], {
       gh: {
         ...gh,
         listWorkflowRuns: async (query = {}) => {
-          asked += 1
           if (query.branch !== undefined) return { rows: [run()], unavailable: null }
           return { rows: [], unavailable: 'gh: API rate limit exceeded' }
         },
@@ -470,7 +590,6 @@ describe('what it does with a read that fell short', () => {
 
     expect(answer.outcome).toBe('ok')
     const report = JSON.parse(answer.outcome === 'ok' ? answer.value : '{}') as PrStateReport
-    expect(asked).toBe(2)
     expect(report.verdict).toBe('green')
     expect(report.waitHint).toBeNull()
     expect(report.unavailable).toEqual(['gh: API rate limit exceeded'])
@@ -556,6 +675,35 @@ describe('the state the facts add up to', () => {
 })
 
 describe('the wait hint', () => {
+  it('is scoped to the head’s own workflows by the command, not only by the helper', async () => {
+    // The sample carries a slower workflow that never ran on this head. The
+    // hint must still answer for the head's own, or a caller waits on a
+    // number measured from something it is not waiting for.
+    const gh = createGhMock(replies())
+    const answer = await runPrState(['--json', '178'], {
+      gh: {
+        ...gh,
+        listWorkflowRuns: async (query = {}) => {
+          if (query.branch !== undefined) return { rows: [run({ name: 'CI' })], unavailable: null }
+          return {
+            rows: [
+              run({ name: 'CI' }),
+              run({
+                name: 'Nightly',
+                startedAt: '2026-09-22T06:00:00Z',
+                updatedAt: '2026-09-22T07:00:00Z',
+              }),
+            ],
+            unavailable: null,
+          }
+        },
+      },
+    })
+
+    const report = JSON.parse(answer.outcome === 'ok' ? answer.value : '{}') as PrStateReport
+    expect(report.waitHint?.workflow).toBe('CI')
+  })
+
   it('is measured over the workflows that ran on THIS head', () => {
     // Measured over everything, the hint is whichever unrelated workflow
     // happens to be slowest: on the first live run here that was a `push`

@@ -40,14 +40,19 @@ recent runs have taken, and reports the state the review loop is in.
 --round is how many review rounds have COMPLETED, which is the one thing this
 command cannot read; --substantial says round 1 changed something substantial,
 and --rot-checked says the title and body have been checked against the final
-diff. Together they are what separates review-2 from rot-check from done.
+diff. Together they are what separates review-2 from rot-check from done. Both
+flags describe a round that has finished, so neither is accepted with
+--round 0.
 
 The verdict over the required contexts:
 
-  green       every required context reported and none of them failed
+  green       every required context reported and none of them failed, and
+              the list of contexts is settled
   red         a required context concluded anything but success, skipped or
               neutral
-  pending     a required context has not reported, or has not concluded
+  pending     a required context has not reported, or has not concluded, or
+              the base branch has no ruleset and a run on the head is still
+              adding contexts to the list
   no-run      no workflow run with event pull_request exists for the head
   unavailable something needed to answer could not be read
 
@@ -205,12 +210,25 @@ const reportedAs = (checks: readonly CheckContext[], name: string): ReportedCont
  * A failure outranks a pending context: a round told "pending" would wait for
  * a run that has already lost, and the failure is the thing to act on either
  * way.
+ *
+ * `green` needs one more thing than "nothing failed and nothing is pending":
+ * that the names themselves are the whole list. Under a ruleset they are, and
+ * `namesFinal` is true. Under the head fallback they are only what has
+ * reported so far, so a head whose checks have not appeared yet would
+ * otherwise be green over NOTHING, and a head where one workflow has finished
+ * while another is still creating its checks would be green over a fraction.
+ * Both are `pending`: the answer is not that the pull request passed, it is
+ * that nobody knows yet.
  */
-export const verdictOf = (contexts: readonly ReportedContext[], hasRun: boolean): Verdict => {
+export const verdictOf = (
+  contexts: readonly ReportedContext[],
+  hasRun: boolean,
+  namesFinal: boolean,
+): Verdict => {
   if (!hasRun) return 'no-run'
   if (contexts.some((context) => context.verdict === 'failed')) return 'red'
   if (contexts.some((context) => context.verdict === 'pending')) return 'pending'
-  return 'green'
+  return namesFinal && contexts.length > 0 ? 'green' : 'pending'
 }
 
 /**
@@ -330,7 +348,16 @@ const asDuration = (ms: number): string =>
 export const renderReport = (report: PrStateReport): string => {
   const lines: string[] = []
   if (report.unavailable.length > 0) {
-    lines.push('INCOMPLETE: something needed to answer could not be read.')
+    // INCOMPLETE only when the shortfall cost the answer. A read can fall
+    // short without doing that: the wait hint's sample is deliberately left
+    // out of the verdict, so a report can name a state and still carry a
+    // reason. Calling that one INCOMPLETE tells a reader to distrust a verdict
+    // that is sound.
+    lines.push(
+      report.state === null
+        ? 'INCOMPLETE: something needed to answer could not be read.'
+        : 'The state below holds. Something beside it could not be read:',
+    )
     for (const reason of report.unavailable) lines.push(`  ${reason}`)
     lines.push('')
   }
@@ -349,7 +376,8 @@ export const renderReport = (report: PrStateReport): string => {
   if (report.contextsFrom === 'head') {
     lines.push(
       `  no ruleset requires a status check of ${report.base}, so the verdict below is over`,
-      `  the ${report.contexts.length} context(s) that have reported on the head instead`,
+      `  the ${report.contexts.length} context(s) that have reported on the head instead,`,
+      '  and cannot see a check that has not been created yet',
     )
   }
   for (const context of report.contexts) {
@@ -446,6 +474,20 @@ export const runPrState = async (
   if (parsed.value.options.help) return ok(HELP)
   const requested = requestedPullRequest(parsed.value.positionals)
   if (requested.outcome !== 'ok') return requested
+  const round = Number(parsed.value.options.round)
+  const substantial = parsed.value.options.substantial
+  const rotChecked = parsed.value.options['rot-checked']
+  // Both flags say something about a round that has finished, so at round 0
+  // neither can be true of anything. `deriveState` returns from its round-0
+  // arms before it reads either, so without this they are accepted and
+  // silently discarded, and a caller that miscounted its own rounds is told
+  // nothing. `--round 2` without `--substantial` is NOT refused: substantial
+  // describes round 1 and stops mattering once round 2 has run.
+  if (round === 0 && (substantial || rotChecked)) {
+    return refused(
+      '--substantial and --rot-checked describe a completed round, so neither holds with --round 0',
+    )
+  }
 
   const unavailable: string[] = []
   const note = (reason: string | null): void => {
@@ -499,10 +541,24 @@ export const runPrState = async (
       ? []
       : runs.rows.filter((run) => run.event === 'pull_request' && run.headSha === detail.headSha)
 
-  const unreadable = detail === null || required.unavailable !== null || runs.unavailable !== null
-  const verdict: Verdict = unreadable ? 'unavailable' : verdictOf(contexts, runsForHead.length > 0)
+  // `viewed.unavailable` counts as much as the other two. It is not only "no
+  // pull request": it is also a reply whose check, thread or comment list was
+  // longer than one page, and a GraphQL body that came back with `errors`
+  // beside the data. A thread list short by truncation reads as zero
+  // unresolved threads, which is how a report reaches `done` on a pull request
+  // someone is still waiting on.
+  const unreadable =
+    detail === null ||
+    viewed.unavailable !== null ||
+    required.unavailable !== null ||
+    runs.unavailable !== null
+  // The ruleset's list is the whole list. The head's is whatever has reported,
+  // so it is settled only once every run on the head has stopped adding to it.
+  const namesFinal = fromRuleset || runsForHead.every((run) => run.status === 'completed')
+  const verdict: Verdict = unreadable
+    ? 'unavailable'
+    : verdictOf(contexts, runsForHead.length > 0, namesFinal)
 
-  const round = Number(parsed.value.options.round)
   const report: PrStateReport = {
     pullRequest: requested.value,
     ...pullRequestFields(detail),
@@ -521,15 +577,15 @@ export const runPrState = async (
       runsForHead.map((run) => run.name),
     ),
     round,
-    substantial: parsed.value.options.substantial,
-    rotChecked: parsed.value.options['rot-checked'],
+    substantial,
+    rotChecked,
     state: deriveState({
       hasPullRequest: detail !== null,
       verdict,
       unresolvedThreads: detail === null ? 0 : detail.unresolvedThreadAuthors.length,
       round,
-      substantial: parsed.value.options.substantial,
-      rotChecked: parsed.value.options['rot-checked'],
+      substantial,
+      rotChecked,
     }),
     unavailable,
   }
