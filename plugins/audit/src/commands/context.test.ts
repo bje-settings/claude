@@ -663,3 +663,13 @@ it('resolves a number-only record reference against the one file that starts wit
     },
   ])
 })
+
+it('does not resolve a number-only reference that two files could answer to', async () => {
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[4]?.refs).toEqual([
+    { kind: 'path', value: 'docs/adr/099', resolution: { status: 'absent' } },
+  ])
+})
