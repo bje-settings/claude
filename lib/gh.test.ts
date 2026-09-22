@@ -773,6 +773,31 @@ describe('issue and pull request states', () => {
 
     expect(result).toEqual({ states: { '1': 'CLOSED', '2': 'MERGED' }, unavailable: null })
   })
+
+  it('reads a null alias as not_found only when a NOT_FOUND error names it', async () => {
+    // The rule that took two review rounds on the spike to get right (#170):
+    // an alias is `not_found` only when `errors` carries a `NOT_FOUND` entry
+    // whose `path` ends in that alias.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: null } },
+          errors: [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'i0'],
+              message: 'Could not resolve to an issue or pull request with the number of 999999.',
+            },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [999999] })
+
+    expect(result).toEqual({ states: { '999999': 'not_found' }, unavailable: null })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
