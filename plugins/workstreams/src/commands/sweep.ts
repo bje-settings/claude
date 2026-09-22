@@ -11,7 +11,7 @@
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
-import { type ArgSpec, parseArguments } from '../lib/args.ts'
+import { parseArguments } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import type {
   GhClient,
@@ -53,7 +53,7 @@ const SPEC = {
   milestone: { type: 'string', default: '' },
   json: { type: 'boolean' },
   help: { type: 'boolean' },
-} as const satisfies ArgSpec
+} as const
 
 /** Which of the three sets an issue falls in. Each value is also the key its
  *  set has on a {@link Group}, so a caller holding a tier can read the set
