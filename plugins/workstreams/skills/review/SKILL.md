@@ -99,9 +99,9 @@ round said so.
 Findings under `lower_layer` are never applied here: they belong to a branch this
 round does not own. Pass them to the caller.
 
-Read `substantial` generously. In eight of the nine hand-run rounds this skill is made
-of, round 2 found round 1 wrong or incomplete, so a round that changed behaviour at all
-is substantial. Two rounds is the ceiling whatever round 2 returns.
+Read `substantial` generously. On nine of the ten pull requests reviewed by hand in rounds
+5 to 7 (#133's findings), round 2 found round 1 wrong or incomplete, so a round that changed
+behaviour at all is substantial. Two rounds is the ceiling whatever round 2 returns.
 
 ## Step 6: rot check
 

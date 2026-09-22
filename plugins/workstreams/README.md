@@ -91,8 +91,8 @@ template, with `round-2.md` for what round 2 adds and `rot-check.md` for the cal
 last step. Each rule in them is a round that lost something: reviewers are read-only and
 run no suites because three concurrent suites in one worktree made a test flake, they
 all finish before any edit because one reviewed a round's own uncommitted work, and
-round 2 checks round 1's commits first because in eight of the last nine rounds it found
-them wrong or incomplete.
+round 2 checks round 1's commits first because on nine of the ten pull requests reviewed by
+hand in rounds 5 to 7 it found them wrong or incomplete.
 
 There is no state file. Everything is read again each tick, and the three things the
 command cannot read are passed as flags by the skill that is running the loop.

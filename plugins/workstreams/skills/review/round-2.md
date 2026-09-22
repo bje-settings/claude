@@ -10,8 +10,8 @@ Before you review the pull request, review round 1. List its commits
 (`git -C <worktree> log --oneline <base>..<head>`) and check each change it made, for
 being WRONG and for being INCOMPLETE, reproducing each claim rather than reading it.
 
-This is the most valuable line in the brief. In eight of the last nine rounds, round 2
-found round 1 wrong or incomplete:
+This is the most valuable line in the brief. On nine of the ten pull requests reviewed by
+hand in rounds 5 to 7, round 2 found round 1 wrong or incomplete:
 
 - a guard that threw on a dangling symlink, found by three reviewers independently;
 - a closed-stdout guard that swallowed every stream error rather than only the one, and

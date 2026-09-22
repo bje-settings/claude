@@ -264,9 +264,9 @@ export const deriveState = (facts: {
   // fixes landing rather than the stream's problem.
   if (facts.verdict !== 'green') return 'fixing'
   if (facts.unresolvedThreads > 0) return 'fixing'
-  // The two-round ceiling. Round 2 never schedules a third: in eight of the
-  // nine hand-run rounds behind this command, round 2 found round 1 wrong or
-  // incomplete, so "substantial" is read generously, but two is the limit.
+  // The two-round ceiling. Round 2 never schedules a third: on nine of the
+  // ten pull requests reviewed by hand in rounds 5 to 7 (#133's findings),
+  // round 2 found round 1 wrong or incomplete, so "substantial" is read generously, but two is the limit.
   if (facts.round === 1 && facts.substantial) return 'review-2'
   return facts.rotChecked ? 'done' : 'rot-check'
 }
