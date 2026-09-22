@@ -4,7 +4,14 @@
 // what `lib/jev.ts` adds on top of it).
 
 import { expect, it } from 'vitest'
-import { batchSections, classifyRequest, createJevClient, estimateTokens, shortId } from './jev.ts'
+import {
+  batchSections,
+  classifyRequest,
+  createJevClient,
+  estimateTokens,
+  parseClassification,
+  shortId,
+} from './jev.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -216,4 +223,174 @@ it('estimateTokens is conservative about prose', () => {
 it('shortId is the unit index', () => {
   expect(shortId(0)).toBe('u0')
   expect(shortId(11)).toBe('u11')
+})
+
+it('per_unit sends one request per unit, with that unit as the whole state', () => {
+  const requests = classifyRequest([ONE, TWO], 'per_unit')
+
+  expect(requests).toHaveLength(2)
+  expect(requests[0]?.state).toEqual({
+    file: 'CLAUDE.md',
+    heading_path: ['claude', 'Tests'],
+    lead_in: null,
+    prev: null,
+    text: 'One command per language: `pnpm test` for TypeScript.',
+    next: null,
+    refs: ['pnpm test'],
+  })
+  expect(Object.keys(requests[0]?.questions ?? {})).toEqual([
+    'kind__u0',
+    'volatile__u0',
+    'self_contained__u0',
+    'evidence__u0',
+    'multi_assertion__u0',
+  ])
+  expect(Object.keys(requests[1]?.questions ?? {})).toEqual([
+    'kind__u1',
+    'volatile__u1',
+    'self_contained__u1',
+    'evidence__u1',
+    'multi_assertion__u1',
+  ])
+})
+
+it('parseClassification reads a canned response into the contract type', () => {
+  const answers = {
+    kind__u0: {
+      type: 'choice',
+      choice: 'repo_fact',
+      probabilities: { repo_fact: 0.7, instruction: 0.3 },
+      confidence: 0.62,
+    },
+    volatile__u0: { type: 'noul', noul: 0.12 },
+    self_contained__u0: { type: 'noul', noul: 0.88 },
+    evidence__u0: {
+      type: 'choice',
+      choice: 'config_value',
+      probabilities: { config_value: 0.9, file_contents: 0.1 },
+      confidence: 0.85,
+    },
+    multi_assertion__u0: { type: 'noul', noul: 0.04 },
+  }
+
+  const [parsed] = parseClassification([ONE], answers)
+
+  expect(parsed?.unitId).toBe('CLAUDE.md:148-149')
+  expect(parsed?.kind.choice).toBe('repo_fact')
+  expect(parsed?.kind.confidence).toBe(0.62)
+  // Options the response left out come back as 0, so the record is total.
+  expect(parsed?.kind.probabilities).toEqual({
+    repo_fact: 0.7,
+    external_fact: 0,
+    instruction: 0.3,
+    rationale: 0,
+    history: 0,
+    pointer: 0,
+    structural: 0,
+  })
+  expect(parsed?.volatile).toBe(0.12)
+  expect(parsed?.selfContained).toBe(0.88)
+  expect(parsed?.evidenceNeed.choice).toBe('config_value')
+  expect(parsed?.multiAssertion).toBe(0.04)
+})
+
+const GOOD_ANSWERS = {
+  kind__u0: { type: 'choice', choice: 'repo_fact', probabilities: { repo_fact: 1 }, confidence: 1 },
+  volatile__u0: { type: 'noul', noul: 0 },
+  self_contained__u0: { type: 'noul', noul: 0 },
+  evidence__u0: {
+    type: 'choice',
+    choice: 'config_value',
+    probabilities: { config_value: 1 },
+    confidence: 1,
+  },
+  multi_assertion__u0: { type: 'noul', noul: 0 },
+}
+
+it('parseClassification refuses an answer of the wrong type or an unknown option', () => {
+  expect(() =>
+    parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: { type: 'noul' } }),
+  ).toThrow(/no noul answer/)
+  expect(() => parseClassification([ONE], { ...GOOD_ANSWERS, kind__u0: undefined })).toThrow(
+    /no choice answer/,
+  )
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: { ...GOOD_ANSWERS.kind__u0, choice: 'invented' },
+    }),
+  ).toThrow(/not one of the options/)
+})
+
+it('a noul outside 0 to 1 is refused, not clamped, and reported as out of range', () => {
+  expect(() =>
+    parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: { type: 'noul', noul: 1.5 } }),
+  ).toThrow(/out of range: 1\.5/)
+})
+
+it('a non-finite noul is reported as out of range too, not as missing', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      volatile__u0: { type: 'noul', noul: Number.NaN },
+    }),
+  ).toThrow(/out of range/)
+})
+
+it('an array does not pass readChoice as an object', () => {
+  expect(() => parseClassification([ONE], { ...GOOD_ANSWERS, kind__u0: ['repo_fact'] })).toThrow(
+    /no choice answer/,
+  )
+})
+
+it('an array does not pass readNoul as an object', () => {
+  expect(() => parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: [0.5] })).toThrow(
+    /no noul answer/,
+  )
+})
+
+it('a choice missing the probability for its own answer is refused, not defaulted to 0', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: { type: 'choice', choice: 'repo_fact', probabilities: {}, confidence: 1 },
+    }),
+  ).toThrow(/no probability for its own choice repo_fact/)
+})
+
+it('a non-finite probability on a non-chosen option is refused', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: {
+        type: 'choice',
+        choice: 'repo_fact',
+        probabilities: { repo_fact: 1, instruction: Number.NaN },
+        confidence: 1,
+      },
+    }),
+  ).toThrow(/non-finite probability for instruction/)
+})
+
+it('a NaN confidence is refused, not passed through as a valid number', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: { ...GOOD_ANSWERS.kind__u0, confidence: Number.NaN },
+    }),
+  ).toThrow(/no choice answer/)
+})
+
+it('a probability of 42 is refused, not accepted as a raw score', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: {
+        type: 'choice',
+        choice: 'repo_fact',
+        probabilities: { repo_fact: 42 },
+        confidence: 1,
+      },
+    }),
+  ).toThrow(/probability out of range for repo_fact: 42/)
 })
