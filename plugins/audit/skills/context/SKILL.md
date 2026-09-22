@@ -14,7 +14,7 @@ Audit the current checkout, or the root named in `$ARGUMENTS`.
 ## Step 1: Run
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/audit.ts" context $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT}/scripts/audit.ts" context $ARGUMENTS
 ```
 
 The audit runs to completion with no key: do not ask for `TYPESAFE_API_KEY` or refuse to run

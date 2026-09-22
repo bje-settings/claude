@@ -52,7 +52,7 @@ three model stages.
 From an installed copy of the plugin, `<plugin>` below is the plugin's own directory:
 
 ```bash
-node <plugin>/bin/audit.ts context . --no-jev
+node <plugin>/scripts/audit.ts context . --no-jev
 ```
 
 ### Running outside Claude Code
@@ -61,8 +61,8 @@ The command has no dependency on the plugin runtime; inside Claude Code the skil
 `${CLAUDE_PLUGIN_ROOT}` in its place:
 
 ```bash
-node <plugin>/bin/audit.ts context /path/to/a/repo --scope all --out report.json
+node <plugin>/scripts/audit.ts context /path/to/a/repo --scope all --out report.json
 ```
 
-`node <plugin>/bin/audit.ts` with no command prints the list, and `context --help` prints its
+`node <plugin>/scripts/audit.ts` with no command prints the list, and `context --help` prints its
 own usage.

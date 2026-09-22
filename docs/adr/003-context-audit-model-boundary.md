@@ -47,7 +47,7 @@ question, not a detail either seam settles on its own.
 ## Decision
 
 **Repository text leaves the machine only when `TYPESAFE_API_KEY` is set, and never otherwise.**
-`bin/audit.ts` hands `commands/context.ts` a client factory rather than a constructed client, and
+`scripts/audit.ts` hands `commands/context.ts` a client factory rather than a constructed client, and
 `modelStages` reads the key and decides whether to call that factory at all
 (`plugins/audit/src/commands/context.ts:407-427`). With no key, or with `--no-jev`, the three
 model stages are skipped with the reason recorded on the report, and nothing they would have sent
@@ -87,7 +87,7 @@ convention: `gh` and this plugin's own issue lookup (`commands/context.ts:22`) b
   report and nothing else; the three model sections read `skipped (no_key)` rather than empty,
   which is what `SkippedStage` exists to keep a reader from misreading as "nothing found".
 - Any later use of the model in this plugin inherits the same rule: the key is read at the point
-  it would be spent, through the factory `bin/audit.ts` hands over, not earlier and not twice.
+  it would be spent, through the factory `scripts/audit.ts` hands over, not earlier and not twice.
 - No test, CI gate, or command exit status may read a Jev probability as pass or fail. The
   mitigation is the same one ADR 002 states for coverage: a number is a fact the report carries,
   not a threshold anything enforces, unless the rubric behind it is itself pinned by a test the
