@@ -736,7 +736,11 @@ it('takes no issue reference from a URL, a cross-repo slug, a colour or a padded
   await runContext([audit.work, '--json'], audit.edges)
 
   const report = reportOf(audit.stdout())
-  expect(report.units.slice(-4).map((unit) => unit.refs)).toEqual([[], [], [], []])
+  const naming = (text: string) => report.units.filter((unit) => unit.text.includes(text))[0]?.refs
+  expect(naming('example.invalid/page')).toEqual([])
+  expect(naming("Another repository's")).toEqual([])
+  expect(naming('classDef')).toEqual([])
+  expect(naming('zero-padded')).toEqual([])
   expect(report.issueLookup).toBe('ok')
 })
 
@@ -919,4 +923,17 @@ it('takes no path out of code that merely quotes one', async () => {
   await runContext([audit.work, '--json'], audit.edges)
 
   expect(blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[4]?.refs).toEqual([])
+})
+
+it('reads a backticked URL as no path and a bare well-known filename as one', async () => {
+  // A URL has slashes and is no path in the tree. `CLAUDE.md` has an extension
+  // too generic to qualify by suffix, so it is a path by name instead.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.units.at(-1)?.refs).toEqual([
+    { kind: 'path', value: 'CLAUDE.md', resolution: { status: 'found', repoPath: 'CLAUDE.md' } },
+  ])
 })

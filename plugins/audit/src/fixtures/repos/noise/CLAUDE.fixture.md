@@ -31,3 +31,5 @@ Another repository's bje-settings/claude#4242 is not this one's issue.
 A diagram writes `classDef done fill:#000,color:#123` for the colours it wants.
 
 A zero-padded #0170 is no issue number at all.
+
+The docs are at `https://example.invalid/docs`, and `CLAUDE.md` is this file.
