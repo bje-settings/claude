@@ -33,6 +33,10 @@ Print the command output verbatim. Then, and only if there were any, list the re
 that were skipped along with the reason given for each. Do not re-run git commands to
 verify or expand on the report.
 
+A non-zero exit means at least one repository's sync failed outright, not merely skipped;
+the report already names which one and why, and stderr adds which repository (one repo)
+or how many of how many (several). Say so plainly rather than treating the run as successful.
+
 Deleted branches are printed with their SHA. If the user thinks one was removed in error,
 it is restored with `git branch <name> <sha>`; if it also had a worktree, that needs
 `git worktree add` and a fresh dependency install.

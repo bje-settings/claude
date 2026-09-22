@@ -10,8 +10,10 @@
 // a copy of the orchestrator so that a job's timing and exit status are
 // something the test states rather than something it hopes for. With the
 // fan-out in-process that stand-in is a function, and `createSyncCommand`
-// takes it; the throttle, the section order and the dropped status are
-// asserted exactly as they were.
+// takes it; the throttle and the section order are asserted exactly as they
+// were. The status USED to be dropped there too; #81 (round 7) is where a
+// throw or a non-zero answer starts making the run answer `failed`, and "the
+// exit status" describes below is where that lands.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
@@ -44,12 +46,27 @@ const PYTHON: Record<
 
 /** The recorded divergences, read rather than restated: a line this port says
  *  instead of what the Python said has to be in the table to be asserted. */
-const DIVERGENCES: { inProcessFanOut: { now: string } } = JSON.parse(read('divergences.json'))
+const DIVERGENCES: {
+  inProcessFanOut: { now: string }
+  failureSummary: { fanOut: string; single: string }
+} = JSON.parse(read('divergences.json'))
 
 /** The recorded line for a job that threw, with its placeholder filled in.
  *  The table names a line; the report writes it with a newline after it. */
 const failed = (message: string): string =>
   `${DIVERGENCES.inProcessFanOut.now.replace('<message>', message)}\n`
+
+/** The recorded stderr message for a fan-out where one or more repositories
+ *  failed (#81), with its placeholders filled in. */
+const fanOutFailed = (failedCount: number, total: number): string =>
+  DIVERGENCES.failureSummary.fanOut
+    .replace('<n>', String(failedCount))
+    .replace('<total>', String(total))
+
+/** The recorded stderr message for the single-repository path when that one
+ *  repository's job failed (#81). */
+const singleFailed = (name: string): string =>
+  DIVERGENCES.failureSummary.single.replace('<name>', name)
 
 /** A `gh` with no merged pull requests, which is every scenario here: the
  *  reports these assert are about branches and discovery, not about pull
@@ -266,19 +283,6 @@ describe('the scope', () => {
     expect(result.stdout).not.toContain('repos)')
   })
 
-  it('drops the job’s status on the single-repository path', async () => {
-    // Documented parity, pinned: `gh-sync.sh` dropped the status at its lines
-    // 72 to 73, so a skipped repo and a broken job are the same answer there.
-    // Changing it is a behaviour change rather than a port, and #81 is where
-    // it lands; this test is what makes the change visible when it comes.
-    const f = fixture()
-
-    const result = await run(f, [f.repo], { job: async () => 9 })
-
-    expect(result.status).toBe(0)
-    expect(result.stdout).not.toContain('✗')
-  })
-
   it('fans out over immediate subdirectories that are git repos', async () => {
     const f = fixture()
     f.git.createAt(f.sandbox.join('fan'), 'a')
@@ -479,7 +483,9 @@ describe('the fan-out', () => {
       },
     })
 
-    expect(result.status).toBe(0)
+    // #81 (round 7): one job threw, so the run answers `failed`; "the exit
+    // status" describes the exit-1 contract, this test is about the report.
+    expect(result.status).toBe(1)
     expect(result.stdout).toContain('a\n')
     expect(result.stdout).toContain('c\n')
     // The WHOLE section, not just the line: `b` threw before writing a
@@ -534,8 +540,9 @@ describe('the fan-out', () => {
 
   it('says so on the single-repository path too, rather than crashing the run', async () => {
     // That path has no section to fold the failure into, as `gh-sync.py:245`
-    // to `:251` has it for a child it could not start, and the status still
-    // does not change: #81 is the dropped status and it stays as it is.
+    // to `:251` has it for a child it could not start. #81 (round 7) is where
+    // the status stopped being dropped: the report is unchanged, and now the
+    // run also answers `failed`.
     //
     // Thrown as a bare value rather than an `Error`, which a rejected promise
     // may carry and which the Python never had to think about: `str(error)`
@@ -551,8 +558,9 @@ describe('the fan-out', () => {
       },
     })
 
-    expect(result.status).toBe(0)
+    expect(result.status).toBe(1)
     expect(result.stdout).toBe(failed('boom'))
+    expect(result.stderr).toBe(singleFailed(path.basename(work)))
   })
 
   it('mutates nothing in --dry-run', async () => {
@@ -616,6 +624,177 @@ describe('the fan-out', () => {
 
     expect(result.stdout).toContain('b\n')
     expect(result.stdout).not.toContain('a\n')
+  })
+})
+
+// --- the exit status (#81) -----------------------------------------------------------
+
+describe('the exit status', () => {
+  it('exits 1 on the single-repository path when the job throws', async () => {
+    const f = fixture()
+
+    const result = await run(f, [f.repo], {
+      job: async (): Promise<number> => {
+        throw new Error('boom')
+      },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toBe(failed('boom'))
+    expect(result.stderr).toBe(singleFailed(path.basename(f.repo)))
+  })
+
+  it('exits 1 on the single-repository path when the job answers non-zero without throwing', async () => {
+    const f = fixture()
+
+    const result = await run(f, [f.repo], { job: async () => 9 })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('exited with status 9')
+    expect(result.stderr).toBe(singleFailed(path.basename(f.repo)))
+  })
+
+  it('exits 0 on the single-repository path when the job answers 0', async () => {
+    const f = fixture()
+
+    const result = await run(f, ['--dry-run', f.repo])
+
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+  })
+
+  it('exits 0 on the single-repository path for a skipped repository, with the real job', async () => {
+    // Real `syncRepo`, not a stand-in: a skip is not a failure, and that has
+    // not changed (`sync-repo.ts` always answers 0 for one).
+    const f = fixture()
+    f.git.dirty(f.repo)
+
+    const result = await run(f, ['--dry-run', f.repo])
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('skipped: uncommitted changes')
+    expect(result.stderr).toBe('')
+  })
+
+  it('exits 1 in the fan-out when one job throws, with every other section intact and in order', async () => {
+    const f = fixture()
+    for (const name of ['aaa', 'bbb', 'ccc']) f.git.createAt(f.sandbox.join('fan'), name)
+    const job = async (options: SyncRepoOptions): Promise<number> => {
+      const name = path.basename(options.repo)
+      if (name === 'bbb') throw new Error('boom')
+      options.report.write(`${name}\n`)
+      return 0
+    }
+
+    const result = await run(f, [f.sandbox.join('fan')], { job })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(fanOutFailed(1, 3))
+    expect(result.stdout).toContain('aaa\n')
+    expect(result.stdout).toContain(`bbb\n${failed('boom')}`)
+    expect(result.stdout).toContain('ccc\n')
+    const positions = ['aaa', 'bbb', 'ccc'].map((name) => result.stdout.indexOf(name))
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  it('leaves the report exactly as it would be with no failure, plus the one failure line', async () => {
+    // The core claim (PR body, fixtures/divergences.json "exitStatus"): stdout
+    // does not change by one byte; only `failed(...)` on stderr is new. The
+    // test above proves this with `toContain` per section plus an ordering
+    // check; this one proves it with an exact `toBe` of the WHOLE report, the
+    // way "keeps every repository's lines together..." does for a clean run.
+    const f = fixture()
+    for (const name of ['aaa', 'bbb', 'ccc']) f.git.createAt(f.sandbox.join('fan'), name)
+    const job = async (options: SyncRepoOptions): Promise<number> => {
+      const name = path.basename(options.repo)
+      if (name === 'bbb') throw new Error('boom')
+      options.report.write(`${name}\n`)
+      return 0
+    }
+
+    const result = await run(f, [f.sandbox.join('fan')], { job })
+
+    expect(result.stdout).toBe(
+      `${realpathSync(f.sandbox.join('fan'))} (3 repos)\n\naaa\nbbb\n${failed('boom')}ccc\n`,
+    )
+  })
+
+  it('exits 1 in the fan-out when a job answers non-zero without throwing', async () => {
+    const f = fixture()
+    for (const name of ['aaa', 'bbb']) f.git.createAt(f.sandbox.join('fan'), name)
+    const job = async (options: SyncRepoOptions): Promise<number> => {
+      const name = path.basename(options.repo)
+      options.report.write(`${name}\n`)
+      return name === 'bbb' ? 3 : 0
+    }
+
+    const result = await run(f, [f.sandbox.join('fan')], { job })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(fanOutFailed(1, 2))
+    expect(result.stdout).toContain(`bbb\n  ✗ the sync failed: exited with status 3\n`)
+  })
+
+  it('puts a non-zero status that arrived mid-line on a line of its own too', async () => {
+    // appendFailure's mid-line branch (`puts a failure that arrived mid-line
+    // on a line of its own`, above, under "the fan-out") is exercised there
+    // only through the throw call site. It is the same shared helper at the
+    // new status-check call site, with no branch of its own on which caller
+    // sent it, but this proves the guarantee holds there too rather than
+    // only by the two call sites being textually identical.
+    const f = fixture()
+    f.git.createAt(f.sandbox.join('fan'), 'a')
+    f.git.createAt(f.sandbox.join('fan'), 'b')
+
+    const result = await run(f, [f.sandbox.join('fan')], {
+      job: async (options: SyncRepoOptions): Promise<number> => {
+        const name = path.basename(options.repo)
+        options.report.write(name === 'a' ? 'half a line' : `${name}\n`)
+        return name === 'a' ? 9 : 0
+      },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('half a line\n  ✗ the sync failed: exited with status 9\n')
+  })
+
+  it('counts every failed repository, not just whether any failed', async () => {
+    const f = fixture()
+    for (const name of ['aaa', 'bbb', 'ccc']) f.git.createAt(f.sandbox.join('fan'), name)
+    const job = async (options: SyncRepoOptions): Promise<number> => {
+      const name = path.basename(options.repo)
+      if (name === 'bbb' || name === 'ccc') throw new Error('boom')
+      options.report.write(`${name}\n`)
+      return 0
+    }
+
+    const result = await run(f, [f.sandbox.join('fan')], { job })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(fanOutFailed(2, 3))
+  })
+
+  it('exits 0 in the fan-out when every job answers 0', async () => {
+    const f = fixture()
+    for (const name of ['aaa', 'bbb']) f.git.createAt(f.sandbox.join('fan'), name)
+
+    const result = await run(f, ['--dry-run', f.sandbox.join('fan')])
+
+    expect(result.status).toBe(0)
+    expect(result.stderr).toBe('')
+  })
+
+  it('exits 0 in the fan-out for a skipped repository, with the real job', async () => {
+    const f = fixture()
+    f.git.createAt(f.sandbox.join('fan'), 'clean')
+    const dirty = f.git.createAt(f.sandbox.join('fan'), 'dirty')
+    f.git.dirty(dirty)
+
+    const result = await run(f, ['--dry-run', f.sandbox.join('fan')])
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('skipped: uncommitted changes')
+    expect(result.stderr).toBe('')
   })
 })
 

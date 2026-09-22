@@ -51,3 +51,28 @@ that field. They are a list and not a sentence because an example is driven from
 that each state now reads in the Python's own words AND that the line it used to print appears
 nowhere in the report. That is what stops the table quietly growing them back; the sentence this
 replaced claimed as much and nothing enforced it.
+
+`exitStatus` and `failureSummary` are #81's tables: the first is a was/now/why row like the others,
+the second states the new stderr wording rather than substituting for an old one, because there is
+no shell or Python line either replaces.
+
+## `throwing-sync-entry.ts`
+
+A `.ts` fixture rather than a JSON one, beside `deleted-cwd.ts` and the other two for the same
+reason: the suite that needs it has no other place to put a program. `syncRepo`, the real job, never
+throws through any state a test can reach from the outside (`lib/process.ts` `run` never rejects,
+every git call answers `null` on failure rather than throwing, and every `gh` failure arrives as a
+`GhError`, which `sync-repo.ts`'s `ask()` always catches), so `src/bin.test.ts`'s one spawned case
+for the #81 exit-1 contract imports the real `createSyncCommand` with a throwing stand-in in place
+of `syncRepo`, in a real process rather than in-process. What it proves is narrower than "the same
+production wiring `bin/gh.ts` uses": `bin/gh.ts`'s own `write` helper and its `sync` dispatch arm
+are an unexported `const` and a dispatch branch respectively, neither importable from outside that
+file, so this fixture MIRRORS that wiring rather than calling it (review round 1, #165: proved by
+mutating `bin/gh.ts`'s `write` to always return exit 0 and confirming the spawned test in
+`bin.test.ts` stayed green). A future edit to `bin/gh.ts`'s `write` or its `sync` arm that broke
+the exit-1 case would not be caught here; it would only be caught by an edit that also broke one of
+the OTHER spawned `bin.test.ts` cases (the refusals, `--help`), which exercise the real `write` at
+exit 0 and exit 2. Closing this gap outright needs `write` exported from `bin/gh.ts` or otherwise
+made importable, which is outside this fixture's own scope. It is excluded from collection and
+coverage the same way the other `.ts` fixtures are (`vitest.config.ts` `**/fixtures/**`), so it is
+linted and type-checked and never measured.

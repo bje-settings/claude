@@ -508,6 +508,41 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<string | null> =>
     // the session gets one line, because a person reads that one.
     const text = result.stderr
     edges.output.err.write(text.endsWith('\n') || text === '' ? text : `${text}\n`)
+    // #81 (found while reading this function for round 7 layer 2): `sync` now
+    // answers a non-zero status when one of its own repositories failed,
+    // AFTER writing the whole report to stdout, exactly as it does for a
+    // clean run. Falling straight to `FAILED_LINE` here would throw that
+    // report away and say something strictly less true: "could not run the
+    // sync check" about a check that ran to completion and found a real
+    // problem. So a non-zero status with a report still on stdout is read the
+    // same way a zero status is; only a run that left NO report at all (a
+    // crash before a byte reached stdout, or a refusal, whose stdout is empty
+    // by `lib/envelope.ts`'s own contract) falls through to the line below.
+    //
+    // `result.signal === null` is also required (round 7 layer 2, review
+    // round 1 finding): `result.timedOut` above only catches the hook's OWN
+    // bound firing, so a non-null signal reaching here is an EXTERNAL kill
+    // (an OOM kill, a stray `SIGTERM`), not `sync` answering `failed(...)`.
+    // On the single-repository path `sync` hands `syncRepo` the real stdout
+    // directly, and `syncRepo` writes its report line by line across several
+    // awaited git and `gh` calls, so a kill mid-run can leave a genuinely
+    // partial report with no closing statement, on stdout, with a non-zero
+    // status: exactly what `result.stdout !== ''` alone cannot tell apart
+    // from a complete `failed(...)` report. A throw inside `syncRepo` cannot
+    // produce this: `sync.ts`'s `try`/`catch` around the whole job always
+    // appends a closing failure line before returning `failed(...)`, so a
+    // signal death is the case this gate is FOR.
+    //
+    // It is not the only way there (review round 2 finding): `lib/streams.ts`
+    // `createWriter` re-throws anything on the stream that is not `EPIPE`
+    // (`ENOSPC`, `EIO`), and that throw fires from a stream `error` event,
+    // outside `sync.ts`'s `try`/`catch` regardless of nesting. A real write
+    // failure on the child's actively-drained stdout pipe would crash it the
+    // same way, with `signal` still `null`. That is narrower than a signal
+    // death (a disk error, not a reader going away) and the re-throw itself
+    // lives in `lib/streams.ts`, a lower layer this gate cannot see into;
+    // recorded here rather than guarded against.
+    if (result.signal === null && result.stdout !== '') return result.stdout
     // `or`, not `??`: a child that failed without a word leaves `""` here,
     // and `""` is what the exit-status fallback exists for.
     const detail = lastLine(text) || `exit status ${returnCode(result.status, result.signal)}`

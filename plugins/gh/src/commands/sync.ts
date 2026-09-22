@@ -17,8 +17,11 @@
 // What has no in-process counterpart goes with the child process, and the PR
 // body lists each line and the test that pinned it: a child that could not be
 // started, a child that exited non-zero, and a child a signal killed were all
-// reported in the job's own section. A direct call has no exit status of its
-// own and cannot fail to start.
+// reported in the job's own section. A direct call cannot fail to start, and
+// the real job, `syncRepo`, never answers anything but 0 (its own status is
+// dead weight in production); `RepoJob`'s status exists for the stand-in a
+// test drives, and #81 (round 7) is where a non-zero answer, like a throw,
+// makes this command answer `failed` rather than being read by nobody.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
@@ -26,7 +29,7 @@
 // `cd0d515`, kept because each says where a rule came from.
 import path from 'node:path'
 import { discoverRepos, gitUnavailable, toplevel } from '../discover.ts'
-import { type Envelope, ok, refused } from '../lib/envelope.ts'
+import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import { createWriter } from '../lib/streams.ts'
 import { type Command, type SyncRepoOptions, syncRepo } from './sync-repo.ts'
 
@@ -72,6 +75,53 @@ order, never in the order the jobs happened to finish.`
  */
 export const failureLine = (error: unknown): string =>
   `  ✗ the sync failed: ${error instanceof Error ? error.message : String(error)}\n`
+
+/**
+ * What a job that returned a non-zero status without throwing says, in the
+ * same vocabulary {@link failureLine} uses for one that threw (#81, round 7
+ * ruling 2, `fixtures/divergences.json` "exitStatus"). `RepoJob` promises a
+ * status; the real job, `syncRepo`, never answers anything but 0, so this arm
+ * is reachable only through a stand-in a test drives, the way `failureLine`
+ * itself is reachable through one that throws.
+ */
+export const statusLine = (status: number): string =>
+  `  ✗ the sync failed: exited with status ${status}\n`
+
+/** The section a repository's job left, and whether that job counts as
+ *  failed: a throw, or a non-zero status with no throw. Data, never a mark
+ *  the command re-reads out of the text (round 7 ruling B): a section that
+ *  happens to print a `✗` of its own, from a merge-proof lookup that could
+ *  not be read, is not this repository's job failing. */
+export interface RepoResult {
+  readonly section: string
+  readonly failed: boolean
+}
+
+/**
+ * The message `failed(...)` carries on stderr, once every line of the report
+ * is already on stdout: how many repositories failed, of how many were
+ * tried. A skipped repository is not a failure and is not counted.
+ */
+export const fanOutFailureMessage = (failedCount: number, total: number): string =>
+  `${failedCount} of ${total} repositories failed to sync`
+
+/** The single-repository path has just the one, so it names it rather than
+ *  saying "1 of 1". */
+export const singleFailureMessage = (repo: string): string =>
+  `the sync to ${path.basename(repo)} failed`
+
+/** Append a failure line to a repository's buffered section, heading and
+ *  newline handled the same way {@link failureLine}'s own call site always
+ *  has: a section with nothing written yet gets the repository's name first,
+ *  and a section whose last write did not end in a newline gets one before
+ *  the failure line, so the failure never lands mid-line or under the
+ *  previous repository's heading. */
+const appendFailure = (chunks: string[], repo: string, line: string): void => {
+  const written = chunks.join('')
+  if (written === '') chunks.push(`${path.basename(repo)}\n`)
+  else if (!written.endsWith('\n')) chunks.push('\n')
+  chunks.push(line)
+}
 
 /** One repository's job, as the fan-out calls it. The seam the Python reaches
  *  by copying a stand-in script beside the orchestrator (`TIMED_JOB`,
@@ -149,9 +199,9 @@ export const parseSyncArgs = (argv: readonly string[]): Envelope<SyncArgs> => {
 const runAll = async (
   repos: readonly string[],
   jobs: number,
-  run: (repo: string) => Promise<string>,
-): Promise<string[]> => {
-  const reports = repos.map(() => '')
+  run: (repo: string) => Promise<RepoResult>,
+): Promise<RepoResult[]> => {
+  const reports: RepoResult[] = repos.map(() => ({ section: '', failed: false }))
   let next = 0
   const worker = async (): Promise<void> => {
     for (;;) {
@@ -204,7 +254,7 @@ export const createSyncCommand =
     if (unavailable !== null) return refused(`missing git: ${unavailable}`)
 
     const repos = found.roots
-    const runOne = async (repo: string): Promise<string> => {
+    const runOne = async (repo: string): Promise<RepoResult> => {
       // Each job collects its own lines. Several run at once, and a
       // repository's lines belong together: an orchestrator that passed a
       // job's output through as it arrived would split a section in half.
@@ -222,8 +272,9 @@ export const createSyncCommand =
           return undefined
         },
       })
+      let repoFailed = false
       try {
-        await job({
+        const status = await job({
           repo,
           dryRun,
           noInstall,
@@ -231,6 +282,14 @@ export const createSyncCommand =
           createGh: context.createGh,
           report,
         })
+        // #81 (round 7 ruling A): a status read by nobody is dead weight. The
+        // real job, `syncRepo`, never answers anything but 0; a stand-in a
+        // test drives can answer non-zero without throwing, and that counts
+        // as this repository's job failing exactly as a throw does.
+        if (status !== 0) {
+          repoFailed = true
+          appendFailure(chunks, repo, statusLine(status))
+        }
       } catch (error) {
         // `gh-sync.py:123` to `:135` states the rule: a job that raises "would
         // otherwise raise out of the pool and take every other repository's
@@ -250,12 +309,10 @@ export const createSyncCommand =
         // `sync-repo.ts` would have written itself
         // (`path.basename` of the checkout root, which is what discovery
         // hands in), so a section written either way reads alike.
-        const written = chunks.join('')
-        if (written === '') chunks.push(`${path.basename(repo)}\n`)
-        else if (!written.endsWith('\n')) chunks.push('\n')
-        chunks.push(failureLine(error))
+        repoFailed = true
+        appendFailure(chunks, repo, failureLine(error))
       }
-      return chunks.join('')
+      return { section: chunks.join(''), failed: repoFailed }
     }
 
     // A target inside a repo yields exactly that repo, and it runs with the
@@ -263,11 +320,14 @@ export const createSyncCommand =
     // merely holds one repo is still a fan-out, and says so.
     const only = repos.length === 1 ? repos[0] : undefined
     if (only !== undefined && (await toplevel(found.resolved, context.env)) !== null) {
-      // The status is deliberately dropped, as the shell version dropped it at
-      // its lines 72 to 73: a skipped repo and a broken script both answer 0
-      // here today. Tracked as issue #81, which lands after this port.
+      // #81: the status used to be dropped outright, as the shell version
+      // dropped it at its lines 72 to 73 (`fixtures/divergences.json`
+      // "exitStatus"). A skipped repository is still exit 0 (`sync-repo.ts`
+      // always answers 0 for one), and that has not changed; only a job that
+      // threw or answered non-zero now makes this path answer `failed`.
+      let repoFailed = false
       try {
-        await job({
+        const status = await job({
           repo: only,
           dryRun,
           noInstall,
@@ -275,14 +335,18 @@ export const createSyncCommand =
           createGh: context.createGh,
           report: context.output.out,
         })
+        if (status !== 0) {
+          repoFailed = true
+          context.output.out.write(statusLine(status))
+        }
       } catch (error) {
         // The same account on the path with no section to fold it into, which
         // is what `gh-sync.py:245` to `:251` does with a child it could not
-        // start: it is said, and the status still does not change, "which is
-        // the same reason this is not a `return 2`".
+        // start: it is said.
+        repoFailed = true
         context.output.out.write(failureLine(error))
       }
-      return ok('')
+      return repoFailed ? failed(singleFailureMessage(only)) : ok('')
     }
 
     if (repos.length === 0) {
@@ -293,10 +357,14 @@ export const createSyncCommand =
     // The whole fan-out runs before a line of the report is written, as the
     // shell version did: the reports are assembled in directory order, not in
     // the order the jobs finished.
-    const sections = await runAll(repos, jobs, runOne)
+    const results = await runAll(repos, jobs, runOne)
     context.output.out.write(`${found.resolved} (${repos.length} repos)\n\n`)
-    for (const section of sections) context.output.out.write(section)
-    return ok('')
+    for (const result of results) context.output.out.write(result.section)
+    // #81: decided only after every section is already on stdout, so the
+    // report never changes and the failure is data the command read off each
+    // job, never a scan of the text it just wrote (round 7 ruling B).
+    const failedCount = results.filter((result) => result.failed).length
+    return failedCount > 0 ? failed(fanOutFailureMessage(failedCount, repos.length)) : ok('')
   }
 
 /** The command as `bin/gh.ts` dispatches it. */

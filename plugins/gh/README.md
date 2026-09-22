@@ -26,6 +26,14 @@ inside it is a no-op, so running this somewhere unexpected costs nothing.
 | `--no-install` | Skip dependency installation even when a lock file changed. |
 | `-j N` | Parallel jobs in fan-out mode (default 4). |
 
+### Exit status
+
+Exit 0 when every repository synced or was skipped for a normal reason (uncommitted changes,
+no `origin`, and so on: those are not failures). Exit 1 when a repository's own sync failed
+outright, on the single-repository path and the fan-out alike, once the whole report is
+already on stdout: stderr then says which repository, or how many of how many. Exit 2 means
+the arguments were refused, as with any command here.
+
 ### What one repository gets
 
 1. Skipped outright, before anything is modified, if it is not a git repo, has no `origin`,
@@ -272,9 +280,11 @@ hook checks the running version first and exits 0 without writing anything, beca
 explains itself on stderr writes into the session. In fan-out mode it does fetch, which updates
 remote-tracking refs, and that is one network round trip per repository against the hook's 60
 second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
-out. A degraded run (a missing `bin/gh.ts`, no git on PATH, a fan-out that failed or timed out)
-leaves a line on stderr for `claude --debug`, and says so in the session only when there is
-something to act on.
+out. A degraded run (a missing `bin/gh.ts`, no git on PATH, `sync` itself timing out or leaving no
+report at all) leaves a line on stderr for `claude --debug`, and says so in the session only when
+there is something to act on. A `sync` that ran to completion but answered exit 1 because a
+repository's own job failed is not degraded: the report it already wrote is what the session sees,
+the same as a clean run.
 
 ## Credentials
 
