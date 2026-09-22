@@ -384,7 +384,13 @@ const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
  *  100 `state` fields are far below either (the context-audit spike, #164). */
 const ISSUE_BATCH = 100
 
-const ISSUE_STATES = new Set<string>(['OPEN', 'CLOSED', 'MERGED'])
+/** Every value {@link IssueState} can hold, as a `Record` rather than a bare
+ *  array literal: adding a member to the union without adding its key here is
+ *  a `tsc` error (an incomplete `Record<IssueState, true>`), where a
+ *  `readonly IssueState[]` literal would stay valid with a member missing and
+ *  the two would drift apart silently. */
+const ISSUE_STATE_MEMBERS: Record<IssueState, true> = { OPEN: true, CLOSED: true, MERGED: true }
+const ISSUE_STATES = new Set<string>(Object.keys(ISSUE_STATE_MEMBERS))
 
 /** `unknown` narrowed to a record, or `undefined` when it is not one. */
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
@@ -435,12 +441,12 @@ const notFoundAlias = (entry: unknown): string | null => {
  *  a reason the lookup was unavailable. Ported from the spike's
  *  `parseIssueResponse`. */
 const parseIssueResponse = (
-  data: unknown,
+  body: unknown,
   repositoryRecord: Record<string, unknown>,
   numbers: readonly number[],
 ): { states: Record<string, IssueState | 'not_found'>; errors: string | null } => {
   const states: Record<string, IssueState | 'not_found'> = {}
-  const errorsField = asRecord(data)?.errors
+  const errorsField = asRecord(body)?.errors
   const entries = Array.isArray(errorsField) ? errorsField : []
   const absent = new Set(entries.map(notFoundAlias).filter((a): a is string => a !== null))
   numbers.forEach((n, index) => {
@@ -808,12 +814,18 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         // produces something to build a query from, and a malformed answer
         // fails the graphql call downstream, where `accountOf` already
         // reports it, rather than adding a branch here no real answer can
-        // reach. The casts are `noUncheckedIndexedAccess` being exact about a
-        // `string[]` of unknown length; they are erased and add no branch,
-        // the same trade `args.ts` makes on its own defaulted values.
+        // reach (pinned by "reports a repository whose name has no owner
+        // prefix" below). `owner`'s cast is `noUncheckedIndexedAccess` being
+        // exact about a `string[]` of unknown length, and is erased and adds
+        // no branch, the same trade `args.ts` makes on its own defaulted
+        // values; `name` reads `String(parts[1])` rather than the same cast,
+        // because a `nameWithOwner` with no `/` leaves `parts[1]` genuinely
+        // `undefined`, and casting that to `string` would be a type that
+        // lies about the value it holds rather than one this index access
+        // cannot avoid.
         const parts = String(repository.nameWithOwner).split('/')
         owner = parts[0] as string
-        name = parts[1] as string
+        name = String(parts[1])
       } catch (error) {
         // `viewRepository` throws only `GhError` (`succeeded` and `record`
         // above), so this is a cast, not a runtime check: an `instanceof`
