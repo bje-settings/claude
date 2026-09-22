@@ -29,13 +29,16 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 
    > You are READ-ONLY. Do not edit, create or delete any file, anywhere. Do not spawn
    > agents or background work. Run NO test suite and no build. Work only by reading
-   > `<worktree>`. If you want a mutation tried, describe it and I will run it. Report
-   > only to me, and to nobody else.
+   > `<worktree>`, and read no earlier review's findings file: what a previous round
+   > concluded reaches you through this message or not at all. If you want a mutation
+   > tried, describe it and I will run it. Report only to me, and to nobody else.
 
-   Three rounds have paid for each of those sentences: a reviewer edited a file in a
+   Four rounds have paid for each of those sentences: a reviewer edited a file in a
    shared worktree, another wrote into the ROOT checkout, three concurrent suites in
-   one worktree took the load average to 33 and made a test flake, and a reviewer sent
-   its finding to the orchestrator's session instead of to the round.
+   one worktree took the load average to 33 and made a test flake, a reviewer sent its
+   finding to the orchestrator's session instead of to the round, and one went looking
+   for the previous rounds' findings files and read them before forming its own, which
+   makes a reviewer's agreement with an earlier round worth nothing.
 4. Wait for EVERY reviewer to finish before you edit anything. A reviewer that saw a
    round's own uncommitted edits has reviewed a diff nobody will ever merge.
 5. Write the findings file `<scratchpad>/findings-<number>-r<round>.md` BEFORE any
