@@ -436,17 +436,16 @@ const notFoundAlias = (entry: unknown): string | null => {
  *  `parseIssueResponse`. */
 const parseIssueResponse = (
   data: unknown,
+  repositoryRecord: Record<string, unknown>,
   numbers: readonly number[],
 ): { states: Record<string, IssueState | 'not_found'>; errors: string | null } => {
   const states: Record<string, IssueState | 'not_found'> = {}
-  const repository = asRecord(asRecord(data)?.data ?? data)?.repository
-  const repositoryRecord = asRecord(repository)
   const errorsField = asRecord(data)?.errors
   const entries = Array.isArray(errorsField) ? errorsField : []
   const absent = new Set(entries.map(notFoundAlias).filter((a): a is string => a !== null))
   numbers.forEach((n, index) => {
     const alias = `i${index}`
-    const state = asRecord(repositoryRecord?.[alias])?.state
+    const state = asRecord(repositoryRecord[alias])?.state
     if (typeof state === 'string' && ISSUE_STATES.has(state)) {
       states[String(n)] = state as IssueState
     } else if (absent.has(alias)) {
@@ -466,16 +465,23 @@ const parseIssueResponse = (
  *  {@link RunResult} the body came from and reports `accountOf` it, which
  *  covers a gh that could not be started at all as well as a body that
  *  parsed to something with no repository in it. Ported from the spike's
- *  `parseIssueChunkBody`, minus the reason it computed for itself. */
+ *  `parseIssueChunkBody`, minus the reason it computed for itself, and
+ *  extracting the repository record once rather than a second time inside
+ *  `parseIssueResponse`: the spike's own fallback there for a reply with no
+ *  top-level `data` wrapper is dead code once this function has already
+ *  required one to say `ok: true`, and coverage refuses a branch on purpose
+ *  instead of a test no real reply can drive. */
 const parseIssueChunkBody = (
   body: unknown,
   numbers: readonly number[],
 ):
   | { ok: true; states: Record<string, IssueState | 'not_found'>; errors: string | null }
-  | { ok: false } =>
-  asRecord(asRecord(asRecord(body)?.data)?.repository) === undefined
+  | { ok: false } => {
+  const repository = asRecord(asRecord(asRecord(body)?.data)?.repository)
+  return repository === undefined
     ? { ok: false }
-    : { ok: true, ...parseIssueResponse(body, numbers) }
+    : { ok: true, ...parseIssueResponse(body, repository, numbers) }
+}
 
 /** An optional filter, as the two argv words gh wants or as nothing at all. */
 const filter = (name: string, value: string | number | undefined): string[] =>

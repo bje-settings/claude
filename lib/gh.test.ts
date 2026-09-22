@@ -937,6 +937,36 @@ describe('issue and pull request states', () => {
     })
     expect(calls[0]?.args).toEqual(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'])
   })
+
+  it('leaves an unrecognised state out: the node exists, so it is not absent', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: '{"data":{"repository":{"i0":{"state":"DRAFT"}}}}' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138] })
+
+    expect(result).toEqual({ states: {}, unavailable: null })
+  })
+
+  it.each([
+    ['no path at all', { type: 'NOT_FOUND', message: 'gone' }],
+    ['a path that is not an array', { type: 'NOT_FOUND', path: 'repository.i0', message: 'gone' }],
+    ['an empty path', { type: 'NOT_FOUND', path: [], message: 'gone' }],
+    [
+      'a path whose last entry is not a string',
+      { type: 'NOT_FOUND', path: ['repository', 0], message: 'gone' },
+    ],
+  ])('names no alias for a NOT_FOUND error with %s', async (_case, error) => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: JSON.stringify({ data: { repository: { i0: null } }, errors: [error] }) },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gone' })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
