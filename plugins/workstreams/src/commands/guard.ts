@@ -12,7 +12,7 @@
 //     can only read as stopped short; in round 3 two of five turns did the
 //     same; the audit L1 stream hit it again (#132, the round 2, round 3 and
 //     audit L1 findings). Each cost a resume message and idle minutes.
-//   - **`git checkout --` and `git restore` on a dirty tree.** Round 7's
+//   - **`git checkout` and `git restore` on a dirty tree.** Round 7's
 //     stream lost its uncommitted hook entry point to its own `git checkout`
 //     mid mutation sweep and rebuilt the file from memory; a round 2 agent
 //     lost edits the same way with the rule in its brief (#132, the round 7
