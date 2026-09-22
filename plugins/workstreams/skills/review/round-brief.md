@@ -55,7 +55,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    fact the pull request had really lost.
 7. Verification rules that have each found what reading could not:
    - **Mutation before you accept "tested".** Disable the thing a test claims to prove,
-     run the suite, and watch it go red. A suite that stays green is the finding.
+     run the suite, and watch it go red. A suite that stays green is the finding; a suite
+     already red on the mutation is a rejection.
    - **A redundancy claim is a mutation target, not a verdict.** "X is redundant with Y"
      is checked by removing X and watching Y fail.
    - **One real call per endpoint, for any client over a command line.** An in-process
