@@ -47,6 +47,14 @@
 // `permissionDecision: "allow"`, which would skip the permission prompt the
 // user's own settings asked for (hooks.md, "PreToolUse decision control").
 //
+// **Neither `additionalContext` nor `systemMessage`.**
+// `.claude/rules/path-hooks.md` is about a hook with something to tell a
+// person; this one has something to tell the worker it just stopped, and
+// `permissionDecisionReason` is the field the docs say is "shown to Claude"
+// for a deny. A `systemMessage` beside it would render in the main terminal
+// on every denial, where the person is not the one who has to act and the
+// subagent's own transcript already carries the reason.
+//
 // The command function is the seam (ADR 001, RFC 001 decision 3): the payload
 // text, the output pair and a reader for git come in, a status goes out, and
 // no test here needs a process.
