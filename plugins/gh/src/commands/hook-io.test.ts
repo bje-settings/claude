@@ -839,10 +839,15 @@ it('notes a missing entry point and costs the check nothing else', async () => {
   expect(output.stdout()).toBe(row?.stdout)
   // The path is the one divergence: the entry point moved from
   // `scripts/gh-sync.py` to `scripts/gh.ts`, and the recorded row names both.
+  // Both halves are pinned against the run they describe, the Python's
+  // against the captured stderr and the port's against the path this example
+  // reports: a row asserted on one side only is prose, and #185 changed that
+  // side when it moved the entry point out of `bin/`.
   const moved = divergences.paths.find((entry) => entry.name === 'fan-out/missing-entry-point')
   expect(moved).toBeDefined()
   expect(row?.stderr).toContain(moved?.python)
   expect(output.stderr()).toBe(`missing ${missing}\n`)
+  expect(output.stderr()).toContain(`${moved?.port}\n`)
   expect(calls).toEqual([])
 })
 
