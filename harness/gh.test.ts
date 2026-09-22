@@ -25,6 +25,9 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['addComment', (client) => client.addComment({ pullRequest: 7, body: 'hello' })],
   ['watchChecks', (client) => client.watchChecks({ pullRequest: 7, interval: 30, boundMs: 1_000 })],
   ['issueStates', (client) => client.issueStates({ numbers: [127, 164] })],
+  ['listMilestones', (client) => client.listMilestones()],
+  ['listIssues', (client) => client.listIssues({ milestone: '4' })],
+  ['listOpenPullRequests', (client) => client.listOpenPullRequests()],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -56,6 +59,30 @@ it('answers every endpoint it declares', async () => {
     addComment: 'https://github.com/acme/widgets/pull/7#issuecomment-1\n',
     watchChecks: { status: 0, timedOut: false, waitedMs: 12, problem: '' },
     issueStates: { states: { '127': 'OPEN', '164': 'not_found' }, unavailable: null },
+    listMilestones: {
+      rows: [{ number: 4, title: 'workstreams primitives', openIssues: 13, closedIssues: 1 }],
+      unavailable: null,
+    },
+    listIssues: {
+      rows: [
+        {
+          number: 130,
+          title: 'feat(workstreams): sweep (primitive 1)',
+          milestone: { number: 4, title: 'workstreams primitives' },
+          labels: ['enhancement'],
+          blockedBy: [{ number: 127, state: 'CLOSED' }],
+          blocking: [{ number: 131, state: 'OPEN' }],
+          pullRequests: [],
+        },
+      ],
+      unavailable: null,
+    },
+    listOpenPullRequests: {
+      rows: [
+        { number: 177, title: 'audit L2', head: 'wktr-171-audit-split', base: 'main', draft: true },
+      ],
+      unavailable: null,
+    },
   })
 
   for (const [endpoint, call] of CALLS) {

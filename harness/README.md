@@ -60,13 +60,20 @@ const gh = createGhMock({
 `gh` is an injected mock rather than a stub binary on `PATH` (ADR 001). The endpoints are named
 after the operation rather than after gh's argv, so the interface survives gh changing a flag:
 `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`, `listRuns`,
-`readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`.
+`readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`,
+`listMilestones`, `listIssues`, `listOpenPullRequests`.
 
 `watchChecks` is the one endpoint whose exit status is itself the answer rather than a failure: the
 bounded watch answers with `{ status, timedOut, waitedMs, problem }`, because gh reports on the
 checks through its own exit status and a test about a red rollup has to be able to register one.
 (`issueStates` also answers with a record, `{ states, unavailable }`, but unlike `watchChecks` it
-never throws at all, so there is nothing else for a test to register beside its one reply.)
+never throws at all, so there is nothing else for a test to register beside its one reply. The
+three sweep reads answer `{ rows, unavailable }` and never throw for the same reason.)
+
+The double answers `listIssues` from one registration whatever milestone is asked for, because it
+holds no state and has no conditional logic. A test that needs a different answer per milestone
+builds `createGhClient` over a runner that answers by argv instead, which is what
+`plugins/workstreams/src/commands/sweep.test.ts` does with its captured replies.
 
 - A registered reply comes back on **every** call. The mock holds no state and has no conditional
   logic, so what a command does with the reply is the only thing a test can be measuring.

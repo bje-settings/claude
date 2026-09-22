@@ -137,6 +137,74 @@ export interface WatchResult {
 /** The three states GraphQL reports for an issue or a pull request. */
 export type IssueState = 'OPEN' | 'CLOSED' | 'MERGED'
 
+/**
+ * One open milestone, with the two counts a sweep reports beside it.
+ *
+ * A named shape rather than the plain JSON row the older endpoints answer
+ * with, for the reason `issueStates` is also shaped: the query is written
+ * here, so the fields are this file's promise rather than gh's, and a caller
+ * that had to re-derive `openIssues` from an untyped record would be
+ * re-deriving something this file already knows.
+ */
+export interface MilestoneSummary {
+  readonly number: number
+  readonly title: string
+  /** Open issues on the milestone. Pull requests are not counted: the
+   *  connection is asked for `issues`, which on GitHub excludes them. */
+  readonly openIssues: number
+  readonly closedIssues: number
+}
+
+/** One issue or pull request a relationship field points at: the number and
+ *  the state, which is all a blocker graph needs. */
+export interface IssueRef {
+  readonly number: number
+  readonly state: IssueState
+}
+
+/** One open issue, as a sweep reads it.
+ *
+ *  `blockedBy` and `blocking` are GitHub's issue-dependency relationships and
+ *  exist in GraphQL alone, which is why these endpoints are `gh api graphql`
+ *  and not `gh issue list`. */
+export interface IssueSummary {
+  readonly number: number
+  readonly title: string
+  /** The milestone, or null for an issue on none. */
+  readonly milestone: { readonly number: number; readonly title: string } | null
+  readonly labels: readonly string[]
+  readonly blockedBy: readonly IssueRef[]
+  readonly blocking: readonly IssueRef[]
+  /** The pull requests that would close this issue, including closed ones, so
+   *  a sweep can see that work has already been opened for it. */
+  readonly pullRequests: readonly IssueRef[]
+}
+
+/** One open pull request, with the two refs a sweep needs to see a stack. */
+export interface PullRequestSummary {
+  readonly number: number
+  readonly title: string
+  readonly head: string
+  readonly base: string
+  readonly draft: boolean
+}
+
+/**
+ * What a paginated GraphQL read answers with: the rows it could read, and the
+ * reason it could not read more, in the shape {@link GhClient.issueStates}
+ * established.
+ *
+ * `unavailable` beside the rows rather than a throw, for that endpoint's own
+ * reason one step further: a sweep asks about several milestones, and one
+ * page that could not be read must not cost every other answer. A row left
+ * out is therefore never silence: the count of unreadable rows is folded into
+ * `unavailable` too.
+ */
+export interface PagedResult<T> {
+  readonly rows: readonly T[]
+  readonly unavailable: string | null
+}
+
 /** What each endpoint answers with. One entry per operation, so the reply map
  *  and the client cannot drift apart. */
 export interface GhResults {
@@ -167,6 +235,12 @@ export interface GhResults {
     readonly states: Readonly<Record<string, IssueState | 'not_found'>>
     readonly unavailable: string | null
   }
+  /** The repository's open milestones. */
+  listMilestones: PagedResult<MilestoneSummary>
+  /** Open issues, with their dependency relationships. */
+  listIssues: PagedResult<IssueSummary>
+  /** Open pull requests, including ones no round opened. */
+  listOpenPullRequests: PagedResult<PullRequestSummary>
 }
 
 export type GhEndpoint = keyof GhResults
@@ -249,6 +323,36 @@ export interface GhClient {
    * would fabricate a finding out of a failure to ask.
    */
   issueStates(query: { readonly numbers: readonly number[] }): Promise<GhResults['issueStates']>
+  /**
+   * The repository's open milestones, with their open and closed issue
+   * counts. Never throws, for {@link PagedResult}'s reason.
+   */
+  listMilestones(): Promise<GhResults['listMilestones']>
+  /**
+   * Open issues with their labels, their `blockedBy` and `blocking`
+   * relationships and the pull requests that would close them.
+   *
+   * `milestone` is GitHub's own `milestoneNumber` filter, as a string because
+   * that is the type the filter declares. Left out, every open issue is
+   * answered for, which is how a caller reads the issues on no milestone at
+   * all: `milestoneNumber: "none"` is NOT that query, verified against the
+   * API on 2026-09-21 (it matches nothing rather than matching the
+   * unassigned), so the caller filters on `milestone === null` instead.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listIssues(query?: { readonly milestone?: string }): Promise<GhResults['listIssues']>
+  /**
+   * Every open pull request: number, title, head, base and draft.
+   *
+   * Not {@link GhClient.listPullRequests}, which answers the shepherd's field
+   * list and carries neither `headRefName` nor `baseRefName`. Widening that
+   * list would change what every existing consumer is handed for a question
+   * none of them asked, so this is its own endpoint and its own query.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listOpenPullRequests(): Promise<GhResults['listOpenPullRequests']>
 }
 
 /**
@@ -384,6 +488,22 @@ const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
  *  100 `state` fields are far below either (the context-audit spike, #164). */
 const ISSUE_BATCH = 100
 
+/** How many nodes one page of a paginated sweep query asks for. 100 is the
+ *  most a GitHub connection accepts in one `first:`. */
+const SWEEP_PAGE = 100
+
+/**
+ * How many pages one paginated read will ask for before it stops and says so.
+ *
+ * A `hasNextPage` that stays true with a cursor that does not advance is a
+ * loop this process never leaves, and a command that never returns is worse
+ * than a short answer that admits it is short. 20 pages is 2,000 open issues,
+ * milestones or pull requests in one repository, which is far past anything a
+ * round sweeps; reaching it is reported through `unavailable` rather than
+ * silently truncating the rows.
+ */
+const SWEEP_PAGES = 20
+
 /** Every value {@link IssueState} can hold, as a `Record` rather than a bare
  *  array literal: adding a member to the union without adding its key here is
  *  a `tsc` error (an incomplete `Record<IssueState, true>`), where a
@@ -490,6 +610,207 @@ const parseIssueChunk = (
     .map((entry) => asRecord(entry)?.message)
     .filter((message): message is string => typeof message === 'string')
   return { states, errors: joinedReasons(messages) }
+}
+
+/**
+ * The three paginated sweep queries.
+ *
+ * Owner, name, cursor and milestone arrive as GraphQL VARIABLES rather than
+ * interpolated into the query text the way {@link buildIssueQuery} builds its
+ * aliases. The aliases have to be text, because a variable cannot name a
+ * field; these do not, and a cursor is an opaque base64 string from the
+ * server that has no business being spliced into a query body. One query
+ * string per endpoint also means the argv gh is handed is the same bytes on
+ * every page, which is what a captured fixture can be compared against.
+ *
+ * `after: $cursor` with no `cursor` variable supplied is `null`, which is the
+ * first page; the client omits the variable rather than passing an empty
+ * string.
+ */
+const MILESTONES_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    milestones(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: NUMBER, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        title
+        issues(states: OPEN) { totalCount }
+        closedIssues: issues(states: CLOSED) { totalCount }
+      }
+    }
+  }
+}`
+
+const ISSUES_QUERY = `query($owner: String!, $name: String!, $cursor: String, $milestone: String) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, filterBy: {milestoneNumber: $milestone}, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        title
+        milestone { number title }
+        labels(first: ${SWEEP_PAGE}) { nodes { name } }
+        blockedBy(first: ${SWEEP_PAGE}) { nodes { number state } }
+        blocking(first: ${SWEEP_PAGE}) { nodes { number state } }
+        closedByPullRequestsReferences(first: ${SWEEP_PAGE}, includeClosedPrs: true) { nodes { number state } }
+      }
+    }
+  }
+}`
+
+const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number title isDraft headRefName baseRefName }
+    }
+  }
+}`
+
+/** An integer, or null for anything else. GraphQL answers a count and a
+ *  number as JSON numbers, and a value that is not one is a reply this file
+ *  does not recognise rather than a zero to carry on with. */
+const asInteger = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) ? value : null
+
+/** A string, or null for anything else. */
+const asText = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+
+/** A connection's `nodes` array, or null when the field is not one. */
+const nodesOf = (value: unknown): unknown[] | null => {
+  const nodes = asRecord(value)?.nodes
+  return Array.isArray(nodes) ? nodes : null
+}
+
+/**
+ * A `{ nodes { number state } }` connection as refs, or null when any entry
+ * is not one.
+ *
+ * Null for the whole connection rather than for the bad entry: a blocker list
+ * with one entry quietly dropped is a blocked issue reported as unblocked,
+ * which is the one mistake a sweep must not make. The caller turns a null
+ * into an unreadable row and says so.
+ */
+const readRefs = (value: unknown): IssueRef[] | null => {
+  const nodes = nodesOf(value)
+  if (nodes === null) return null
+  const refs: IssueRef[] = []
+  for (const entry of nodes) {
+    const record = asRecord(entry)
+    const number = asInteger(record?.number)
+    const state = record?.state
+    if (number === null || !isIssueState(state)) return null
+    refs.push({ number, state })
+  }
+  return refs
+}
+
+/** One milestone node, or null when it is not the shape asked for. */
+const readMilestone = (node: unknown): MilestoneSummary | null => {
+  const record = asRecord(node)
+  const number = asInteger(record?.number)
+  const title = asText(record?.title)
+  const openIssues = asInteger(asRecord(record?.issues)?.totalCount)
+  const closedIssues = asInteger(asRecord(record?.closedIssues)?.totalCount)
+  if (number === null || title === null || openIssues === null || closedIssues === null) return null
+  return { number, title, openIssues, closedIssues }
+}
+
+/** One issue node, or null when it is not the shape asked for. */
+const readIssue = (node: unknown): IssueSummary | null => {
+  const record = asRecord(node)
+  const number = asInteger(record?.number)
+  const title = asText(record?.title)
+  const blockedBy = readRefs(record?.blockedBy)
+  const blocking = readRefs(record?.blocking)
+  const pullRequests = readRefs(record?.closedByPullRequestsReferences)
+  const labelNodes = nodesOf(record?.labels)
+  if (
+    number === null ||
+    title === null ||
+    blockedBy === null ||
+    blocking === null ||
+    pullRequests === null ||
+    labelNodes === null
+  ) {
+    return null
+  }
+  const labels: string[] = []
+  for (const entry of labelNodes) {
+    const name = asText(asRecord(entry)?.name)
+    if (name === null) return null
+    labels.push(name)
+  }
+  // An issue on no milestone answers `null` here, which is the query a caller
+  // reading the unassigned set depends on being distinguishable from a
+  // milestone whose fields could not be read.
+  const milestoneRecord = asRecord(record?.milestone)
+  let milestone: IssueSummary['milestone'] = null
+  if (milestoneRecord !== undefined) {
+    const milestoneNumber = asInteger(milestoneRecord.number)
+    const milestoneTitle = asText(milestoneRecord.title)
+    if (milestoneNumber === null || milestoneTitle === null) return null
+    milestone = { number: milestoneNumber, title: milestoneTitle }
+  }
+  return { number, title, milestone, labels, blockedBy, blocking, pullRequests }
+}
+
+/** One pull request node, or null when it is not the shape asked for. */
+const readPullRequest = (node: unknown): PullRequestSummary | null => {
+  const record = asRecord(node)
+  const number = asInteger(record?.number)
+  const title = asText(record?.title)
+  const head = asText(record?.headRefName)
+  const base = asText(record?.baseRefName)
+  const draft = record?.isDraft
+  if (number === null || title === null || head === null || base === null) return null
+  if (typeof draft !== 'boolean') return null
+  return { number, title, head, base, draft }
+}
+
+/** What one page of a paginated read yielded. */
+interface Page {
+  readonly nodes: readonly unknown[]
+  readonly hasNextPage: boolean
+  readonly endCursor: string | null
+  readonly errors: string | null
+}
+
+/**
+ * One page's reply, or `undefined` when there is nothing to read: stdout that
+ * is not JSON, or JSON with no connection at `data.repository.<field>` in it.
+ * The reason for that `undefined` belongs to the caller, which holds the
+ * {@link RunResult} and reports `accountOf` it, exactly as `parseIssueChunk`
+ * leaves it.
+ *
+ * `errors` is every message the reply carried. Unlike `issueStates` there is
+ * no per-alias `NOT_FOUND` to account for separately: a sweep query names no
+ * node that may legitimately be absent, so any error at all is a reason the
+ * answer is short.
+ */
+const parseConnection = (stdout: string, field: string): Page | undefined => {
+  let reply: Record<string, unknown> | undefined
+  try {
+    reply = asRecord(JSON.parse(stdout))
+  } catch {
+    return undefined
+  }
+  const connection = asRecord(asRecord(asRecord(reply?.data)?.repository)?.[field])
+  if (connection === undefined) return undefined
+  const nodes = nodesOf(connection)
+  if (nodes === null) return undefined
+  const info = asRecord(connection.pageInfo)
+  const errorsField = reply?.errors
+  const entries = Array.isArray(errorsField) ? errorsField : []
+  const messages = entries
+    .map((entry) => asRecord(entry)?.message)
+    .filter((message): message is string => typeof message === 'string')
+  return {
+    nodes,
+    hasNextPage: info?.hasNextPage === true,
+    endCursor: asText(info?.endCursor),
+    errors: joinedReasons(messages),
+  }
 }
 
 /** An optional filter, as the two argv words gh wants or as nothing at all. */
@@ -619,6 +940,106 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
 
   /** gh's stdout alone, for the endpoints whose answer is text. */
   const text = async (args: readonly string[]): Promise<string> => (await succeeded(args)).stdout
+
+  /**
+   * The repository this client answers about, split into the two arguments a
+   * GraphQL query names it with, or the reason neither could be read.
+   *
+   * Read through `client.viewRepository` rather than from `options`, because
+   * a client built with a `cwd` and no `repository` is the mode
+   * `gh-sync-repo.py` used and the one `bin/gh.ts` still builds: the
+   * repository is whatever gh resolves from that directory, and asking the
+   * existing endpoint is how this file finds out (round 6's ruling on #170).
+   *
+   * `nameWithOwner` is "owner/name" in one string, so reusing that endpoint
+   * costs this split. There is deliberately no branch for a value of some
+   * other shape: `split` never throws, and the query built from whatever it
+   * yields fails downstream, where `accountOf` already reports it.
+   * `owner`'s cast is `noUncheckedIndexedAccess` being exact about a
+   * `string[]` of unknown length, erased and adding no branch; `name` is
+   * `String(parts[1])` rather than the same cast, because a `nameWithOwner`
+   * with no `/` leaves `parts[1]` genuinely `undefined` and a cast would be a
+   * type that lies about the value it holds.
+   */
+  const repositoryParts = async (): Promise<
+    { owner: string; name: string; unavailable: null } | { unavailable: string }
+  > => {
+    try {
+      const viewed = await client.viewRepository()
+      const parts = String(viewed.nameWithOwner).split('/')
+      return { owner: parts[0] as string, name: String(parts[1]), unavailable: null }
+    } catch (error) {
+      // `viewRepository` throws only `GhError` (`succeeded` and `record`
+      // above), so this is a cast, not a runtime check: an `instanceof` guard
+      // here would add an arm no input can reach, which is the branch the
+      // coverage rule says to restructure away rather than exclude.
+      return { unavailable: (error as GhError).detail }
+    }
+  }
+
+  /**
+   * Every page of one paginated GraphQL read, as rows.
+   *
+   * Read through `invoke` and not `succeeded`, for `issueStates`' reason:
+   * `gh api graphql` exits 1 on a partial body that is still an answer, so
+   * the body is read whatever the status. Nothing here throws; every reason
+   * the answer is short, including a row whose shape could not be read, ends
+   * up in `unavailable` beside the rows that were read.
+   */
+  const collect = async <T>(
+    field: string,
+    query: string,
+    variables: readonly string[],
+    read: (node: unknown) => T | null,
+  ): Promise<PagedResult<T>> => {
+    const parts = await repositoryParts()
+    if (parts.unavailable !== null) return { rows: [], unavailable: parts.unavailable }
+
+    const rows: T[] = []
+    const reasons: string[] = []
+    let unreadable = 0
+    let cursor: string | null = null
+    for (let page = 0; page < SWEEP_PAGES; page += 1) {
+      const args = [
+        'api',
+        'graphql',
+        '-f',
+        `owner=${parts.owner}`,
+        '-f',
+        `name=${parts.name}`,
+        ...variables,
+        ...(cursor === null ? [] : ['-f', `cursor=${cursor}`]),
+        '-f',
+        `query=${query}`,
+      ]
+      const result = await invoke(args)
+      const answer = parseConnection(result.stdout, field)
+      if (answer === undefined) {
+        reasons.push(accountOf(result))
+        break
+      }
+      for (const node of answer.nodes) {
+        const row = read(node)
+        if (row === null) unreadable += 1
+        else rows.push(row)
+      }
+      if (answer.errors !== null) reasons.push(answer.errors)
+      // An `endCursor` of null with `hasNextPage` true is a reply this cannot
+      // follow, and asking again with the same cursor would ask the same
+      // question forever. Ending here is the short answer; the rows already
+      // read are still an answer.
+      if (!answer.hasNextPage || answer.endCursor === null) break
+      if (page === SWEEP_PAGES - 1) {
+        reasons.push(`${field} has more pages than the ${SWEEP_PAGES} this reads`)
+        break
+      }
+      cursor = answer.endCursor
+    }
+    if (unreadable > 0) {
+      reasons.push(`${unreadable} ${field} row(s) were not the shape the query asked for`)
+    }
+    return { rows, unavailable: joinedReasons(reasons) }
+  }
 
   // A `const` bound and then returned, rather than a plain `return`, because
   // `issueStates` reads the repository through `client.viewRepository` (round
@@ -804,32 +1225,12 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     // (tier 0 of the context audit, #164/#170) reports on many numbers at
     // once and a single bad chunk must not cost it every other answer.
     issueStates: async (query) => {
-      let owner: string
-      let name: string
-      try {
-        const repository = await client.viewRepository()
-        // `nameWithOwner` is "owner/name" in one string, so reusing the
-        // existing endpoint costs this split. There is deliberately no branch
-        // for a value of some other shape: `split` never throws, and the query
-        // built from whatever it yields fails downstream, where `accountOf`
-        // already reports it (pinned by "reports a repository whose name has
-        // no owner prefix" below). `owner`'s cast is `noUncheckedIndexedAccess`
-        // being exact about a `string[]` of unknown length, erased and adding
-        // no branch; `name` is `String(parts[1])` rather than the same cast,
-        // because a `nameWithOwner` with no `/` leaves `parts[1]` genuinely
-        // `undefined` and a cast would be a type that lies about the value it
-        // holds.
-        const parts = String(repository.nameWithOwner).split('/')
-        owner = parts[0] as string
-        name = String(parts[1])
-      } catch (error) {
-        // `viewRepository` throws only `GhError` (`succeeded` and `record`
-        // above), so this is a cast, not a runtime check: an `instanceof`
-        // guard here would add an arm no input can reach, which is the
-        // branch the coverage rule says to restructure away rather than
-        // exclude.
-        return { states: {}, unavailable: (error as GhError).detail }
-      }
+      // The same two arguments every GraphQL endpoint here needs, resolved
+      // the one way (`repositoryParts`, which carries the reasoning and the
+      // pinned case "reports a repository whose name has no owner prefix").
+      const parts = await repositoryParts()
+      if (parts.unavailable !== null) return { states: {}, unavailable: parts.unavailable }
+      const { owner, name } = parts
 
       const states: Record<string, IssueState | 'not_found'> = {}
       const reasons: string[] = []
@@ -850,6 +1251,23 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       }
       return { states, unavailable: joinedReasons(reasons) }
     },
+
+    listMilestones: async () => collect('milestones', MILESTONES_QUERY, [], readMilestone),
+
+    // The milestone filter is a variable and not a second query, so the argv
+    // differs by two words and the query text does not. Omitted, the variable
+    // is null and GitHub applies no milestone filter at all, which is how a
+    // caller reads the issues on no milestone (see the interface).
+    listIssues: async (query = {}) =>
+      collect(
+        'issues',
+        ISSUES_QUERY,
+        query.milestone === undefined ? [] : ['-f', `milestone=${query.milestone}`],
+        readIssue,
+      ),
+
+    listOpenPullRequests: async () =>
+      collect('pullRequests', PULL_REQUESTS_QUERY, [], readPullRequest),
   }
   return client
 }

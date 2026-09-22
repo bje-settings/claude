@@ -30,9 +30,14 @@ export type {
   GhClient,
   GhEndpoint,
   GhResults,
+  IssueRef,
   IssueState,
+  IssueSummary,
   MergedPullRequestQuery,
+  MilestoneSummary,
+  PagedResult,
   PullRequestQuery,
+  PullRequestSummary,
   RunQuery,
   WatchResult,
 } from '../lib/gh.ts'
@@ -110,5 +115,8 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     addComment: async () => answer(replies, 'addComment'),
     watchChecks: async () => answer(replies, 'watchChecks'),
     issueStates: async () => answer(replies, 'issueStates'),
+    listMilestones: async () => answer(replies, 'listMilestones'),
+    listIssues: async () => answer(replies, 'listIssues'),
+    listOpenPullRequests: async () => answer(replies, 'listOpenPullRequests'),
   }
 }

@@ -286,6 +286,49 @@ called `execFileSync` directly and parsed what THAT threw (`parseIssueChunkFailu
 endpoint takes the argv through the injected `Runner` seam every other endpoint uses, which answers
 rather than rejects, so there is no caught error to parse a second way.
 
+### `listMilestones`, `listIssues` and `listOpenPullRequests`
+
+```ts
+const milestones = await gh.listMilestones()
+const issues = await gh.listIssues({ milestone: '4' })
+// issues.rows[0].blockedBy -> [{ number: 127, state: 'CLOSED' }]
+```
+
+The sweep's three reads (#130): the open milestones with their open and closed issue counts, open
+issues with their labels, their `blockedBy` and `blocking` relationships and the pull requests
+that would close them, and every open pull request with its head and base. Each answers
+`{ rows, unavailable }`, the {@link PagedResult} shape `issueStates` established, and none of them
+throws: a sweep asks about several milestones, and one page that could not be read must not cost
+every other answer.
+
+GraphQL rather than REST, because `blockedBy` and `blocking` are issue dependencies and exist in
+GraphQL alone. Owner, name, cursor and milestone are GraphQL VARIABLES rather than text spliced
+into the query the way `issueStates` builds its aliases: an alias has to be text because a
+variable cannot name a field, a cursor is an opaque server string that has no business inside a
+query body, and one query string per endpoint means the argv is the same bytes on every page,
+which is what lets a captured reply be replayed against the argv that asked for it.
+
+`listOpenPullRequests` is its own endpoint rather than a wider `listPullRequests`, whose field
+list carries neither `headRefName` nor `baseRefName`: widening that list would change what every
+existing consumer is handed for a question none of them asked.
+
+Three ways an answer can be short, each reported through `unavailable` rather than by throwing or
+by silence:
+
+- **A row that is not the shape the query asked for** is counted, never dropped quietly, and a
+  `blockedBy` or `blocking` connection with one unreadable entry makes the WHOLE issue unreadable.
+  A blocker list one entry short is a blocked issue reported as unblocked, which is the one
+  mistake a sweep must not make.
+- **A page that wants a successor but names no cursor** ends the read. Asking again with the
+  cursor already used asks the same question forever.
+- **More than 20 pages** ends the read and says so. That is 2,000 rows in one repository, far past
+  anything a round sweeps, and a `hasNextPage` that never goes false is a loop this process would
+  not leave.
+
+`milestoneNumber: "none"` is NOT the query for the issues on no milestone: verified against the
+API on 2026-09-21, it matches nothing rather than matching the unassigned. A caller reads that set
+from an unfiltered `listIssues()` by filtering on `milestone === null`.
+
 ## Decisions not taken
 
 Recorded rather than fixed, each with the condition that reopens it. `lib/` gets what has a user
