@@ -135,6 +135,10 @@ describe('the round 8 hand sweep, replayed against the captured tracker', () => 
 
     expect(parsed.unassigned.milestone).toBeNull()
     expect(parsed.unassigned.unblocked.map((entry) => entry.number)).toEqual([1, 5, 15, 22, 106])
+    // #37 is behind #133 and #132 both, so it is not the next tier however
+    // reachable its first blocker happens to be: asserted here as well as in
+    // `blocked`, because the two halves of the rule fail in different ways.
+    expect(parsed.unassigned.next).toEqual([])
     expect(parsed.unassigned.blocked.map((entry) => entry.number)).toEqual([37])
   })
 
@@ -164,9 +168,13 @@ describe('the round 8 hand sweep, replayed against the captured tracker', () => 
     expect(text).toContain('        no blockers')
     expect(text).toContain('        behind #132, #133')
     expect(text).toContain('  #177  wktr-171-audit-split -> main  draft  ')
-    expect(text).toContain('  unblocked: #111, #130, #133, #1, #5, #15, #22, #106')
-    expect(text).toContain('  next tier: #18, #96, #100, #101, #131, #132')
-    expect(text).toContain('  blocked: #98, #102, #134, #135, #37')
+    // Whole lines, not substrings: a set that grew an entry on the end still
+    // contains the shorter string, so `toContain` would read an issue promoted
+    // into the wrong tier as a pass.
+    const lines = text.split('\n')
+    expect(lines).toContain('  unblocked: #111, #130, #133, #1, #5, #15, #22, #106')
+    expect(lines).toContain('  next tier: #18, #96, #100, #101, #131, #132')
+    expect(lines).toContain('  blocked: #98, #102, #134, #135, #37')
     expect(text).not.toContain('INCOMPLETE')
   })
 })

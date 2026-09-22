@@ -159,6 +159,10 @@ export const classify = (issues: readonly IssueSummary[]): ReportedIssue[] => {
   return entries.map(({ issue, openBlockers }) => {
     let tier: Tier = 'blocked'
     if (openBlockers.length === 0) tier = 'unblocked'
+    // The cast is `noUncheckedIndexedAccess` being exact about an array of
+    // unknown length: the count was just checked, so index 0 is there. Worth
+    // saying, because a weakened count check would not fail here, it would
+    // make `has(undefined)` quietly false and misfile the issue.
     else if (openBlockers.length === 1 && unblocked.has(openBlockers[0] as number)) tier = 'next'
     return {
       number: issue.number,

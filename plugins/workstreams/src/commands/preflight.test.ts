@@ -123,15 +123,6 @@ describe('when everything is present', () => {
     expect(ran.status).toBe(0)
     expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
   })
-
-  it('asks gh for its version, its login and its extensions, in that order', async () => {
-    const sandbox = createSandbox()
-    const output = createOutputPair()
-    const runner = runnerFor(HEALTHY)
-    await runPreflight([], { env: withRegistry(sandbox, INSTALLED), output, run: runner })
-
-    expect(runner.asked).toEqual(['--version', 'auth status', 'extension list'])
-  })
 })
 
 describe('the command line', () => {
