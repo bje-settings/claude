@@ -1,7 +1,7 @@
 // `/audit:context`: read a checkout's context files, and report the references
 // in them that no longer resolve. The TypeScript port of the spike's `cli.ts`
 // (#164) as a command function (RFC 001 decision 3): parsed arguments and
-// injected clients in, an envelope out, with `bin/audit.ts` the thin adapter
+// injected clients in, an envelope out, with `scripts/audit.ts` the thin adapter
 // over it.
 //
 // Tier 0 only in this layer, and complete on its own: everything it produces
@@ -30,7 +30,7 @@ import { type Report, renderFindings, type SkippedStage } from '../report.ts'
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
 
-/** The process's edges, as `bin/audit.ts` builds them. `now` is the clock, so
+/** The process's edges, as `scripts/audit.ts` builds them. `now` is the clock, so
  *  that a report's `wallClockMs` is a value a test states rather than a
  *  duration it has to tolerate. */
 export interface ContextEdges {

@@ -1,4 +1,4 @@
-// The one spawned contract test for `bin/audit.ts` (`harness/README.md`):
+// The one spawned contract test for `scripts/audit.ts` (`harness/README.md`):
 // argv in, exit code and streams out. Everything else about this command is
 // exercised in-process in `commands/context.test.ts`; this is the only place
 // the process boundary itself, and the floor guard in front of it, are real.
@@ -16,7 +16,7 @@ import { createSandbox } from '../../../harness/sandbox.ts'
 import { runScript } from '../../../harness/spawn.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const BIN = path.join(HERE, '..', 'bin', 'audit.ts')
+const BIN = path.join(HERE, '..', 'scripts', 'audit.ts')
 const REPOS = path.join(HERE, 'fixtures', 'repos')
 
 /** The sandbox's environment, so the child carries no `GIT_`, `GH_` or

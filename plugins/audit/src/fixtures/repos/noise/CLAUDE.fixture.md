@@ -4,7 +4,7 @@ The dependency `@scope/name` is a package and not a path in this tree.
 
 The workflow pins `owner/name@v1.2.3`, which names a ref rather than a file.
 
-A skill runs `${CLAUDE_PLUGIN_ROOT}/bin/audit.ts`, filled in at run time.
+A skill runs `${CLAUDE_PLUGIN_ROOT}/scripts/audit.ts`, filled in at run time.
 
 The decision is recorded in `docs/adr/022`, whose file carries a slug.
 
@@ -26,7 +26,7 @@ jobs:
 
 The thread is at https://example.invalid#170 for anyone who wants it.
 
-A skill also runs `$CLAUDE_PLUGIN_ROOT/bin/audit.ts` with no braces at all.
+A skill also runs `$CLAUDE_PLUGIN_ROOT/scripts/audit.ts` with no braces at all.
 
 A generated one is `dist/{name}/index.ts`, named by a brace and nothing else.
 

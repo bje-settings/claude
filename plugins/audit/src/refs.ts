@@ -491,7 +491,7 @@ const isMachineSpecific = (value: string): boolean => value.startsWith('~/') || 
  *  purpose, but one an existence check would always fail, which is a different
  *  fact from "looked and absent". `*` and `<name>` are the literal spellings;
  *  `{` and `$` are the env-templated one a skill writes
- *  (`${CLAUDE_PLUGIN_ROOT}/bin/audit.ts`), each on its own because either
+ *  (`${CLAUDE_PLUGIN_ROOT}/scripts/audit.ts`), each on its own because either
  *  character alone is enough to make the value a template; `NNN` and `...`
  *  are the prose spellings of the same thing. */
 const PATTERN_RE = /[*<{$]|NNN|\.\.\./

@@ -92,7 +92,7 @@ it('resolves a path its CLAUDE.md names, and skips every model stage with no key
   const envelope = await runContext([audit.work, '--json'], audit.edges)
 
   // The command writes the report itself and answers with an empty payload, so
-  // `bin/audit.ts` adds nothing after it (`lib/envelope.ts` `renderText`).
+  // `scripts/audit.ts` adds nothing after it (`lib/envelope.ts` `renderText`).
   expect(envelope).toEqual({ outcome: 'ok', value: '' })
   const report = reportOf(audit.stdout())
   expect(report.files).toEqual(['CLAUDE.md', 'plugins/demo/CLAUDE.md'])
@@ -680,7 +680,7 @@ it('treats an env-templated path as a placeholder rather than a missing file', a
   expect(reportOf(audit.stdout()).units[2]?.refs).toEqual([
     {
       kind: 'path',
-      value: `\${CLAUDE_PLUGIN_ROOT}/bin/audit.ts`,
+      value: `\${CLAUDE_PLUGIN_ROOT}/scripts/audit.ts`,
       resolution: { status: 'unchecked', reason: 'pattern' },
     },
   ])
@@ -1131,7 +1131,7 @@ it('reads each placeholder character as a template on its own', async () => {
   expect(unitNaming(report, 'no braces at all')).toEqual([
     {
       kind: 'path',
-      value: '$CLAUDE_PLUGIN_ROOT/bin/audit.ts',
+      value: '$CLAUDE_PLUGIN_ROOT/scripts/audit.ts',
       resolution: { status: 'unchecked', reason: 'pattern' },
     },
   ])
