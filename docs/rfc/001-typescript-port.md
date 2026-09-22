@@ -172,8 +172,8 @@ plugins/<plugin>/
 
 ~~`bin/<command>.ts`: one thin adapter per command.~~ **Revised at
 [#130](https://github.com/bje-settings/claude/issues/130)** (round 8 ruling 6, and Decisions &
-Follow-ups 15): one `bin/<plugin>.ts` dispatcher per plugin, with an arm per command. Every
-plugin that has shipped an entry point chose it, ~~`plugins/gh/bin/gh.ts`~~
+Follow-ups 15): one ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, with an arm
+per command. Every plugin that has shipped an entry point chose it, ~~`plugins/gh/bin/gh.ts`~~
 `plugins/gh/scripts/gh.ts` and ~~`plugins/mermaid/bin/mermaid.ts`~~
 `plugins/mermaid/scripts/mermaid.ts` (the directory revised at #185, decision 16 below), so the
 RFC's wording is what drifted; `plugins/workstreams` follows the precedent rather than the

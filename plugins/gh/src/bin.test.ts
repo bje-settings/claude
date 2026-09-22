@@ -7,13 +7,13 @@
 // refusals, `--help`, a subcommand nobody answers to, and one case for #81's
 // exit-1 contract. A spawned child cannot be handed the injected `gh` client
 // (ADR 001, and the reason the fan-out is in-process at all), so a test that
-// drove `scripts/gh.ts sync` itself through a real fan-out or a real merge-proof
-// lookup would be reaching for the real `gh`; the #81 case instead spawns
+// drove `scripts/gh.ts sync` itself through a real fan-out or a real
+// merge-proof lookup would be reaching for the real `gh`; the #81 case instead spawns
 // `fixtures/throwing-sync-entry.ts`, which imports the real `createSyncCommand`
 // with a throwing stand-in in place of the job, because the real job cannot be
 // made to throw at all (that fixture's own header says why). It MIRRORS, not
-// calls, `scripts/gh.ts`'s own `write` helper and `sync` dispatch arm (neither is
-// importable, `fixtures/README.md` has the gap that leaves): the exit-0 and
+// calls, `scripts/gh.ts`'s own `write` helper and `sync` dispatch arm (neither
+// is importable, `fixtures/README.md` has the gap that leaves): the exit-0 and
 // exit-2 cases below spawn `scripts/gh.ts` itself and so do exercise the real
 // `write`, but a future break confined to the exit-1 case in `scripts/gh.ts`'s
 // own wiring would not be caught by this file.

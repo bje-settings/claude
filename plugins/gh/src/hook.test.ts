@@ -4,8 +4,8 @@
 // `commands/hook-io.test.ts` is where the hook's decisions are exercised, in
 // process, against the captured Python. This file is the process boundary
 // itself: the floor guard in front of it, argv, stdin, both streams and the
-// exit status, plus the one run that starts the real `scripts/gh.ts` child rather
-// than an injected one.
+// exit status, plus the one run that starts the real `scripts/gh.ts` child
+// rather than an injected one.
 import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

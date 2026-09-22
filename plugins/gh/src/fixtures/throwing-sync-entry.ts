@@ -8,14 +8,16 @@
 // `ask()` always catches. So the only way to prove the #81 exit-1 contract at
 // a real process boundary, rather than in `commands/sync.test.ts`'s in-process
 // suite, is to import the real `createSyncCommand` with a throwing stand-in
-// in place of `syncRepo`. Everything below MIRRORS `scripts/gh.ts`'s own `sync`
-// arm and its `write` helper rather than calling them, because `write` is an
-// unexported `const` and the `sync` arm is a branch inside `run`, neither
-// reachable from outside that file (`fixtures/README.md` states what this
-// leaves untested: a future break confined to `scripts/gh.ts`'s own `write` or
-// `sync` arm, for the exit-1 case specifically, would not be caught here).
+// in place of `syncRepo`. Everything below MIRRORS `scripts/gh.ts`'s own
+// `sync` arm and its `write` helper rather than calling them, because `write`
+// is an unexported `const` and the `sync` arm is a branch inside `run`,
+// neither reachable from outside that file (`fixtures/README.md` states what
+// this leaves untested: a future break confined to `scripts/gh.ts`'s own
+// `write` or `sync` arm, for the exit-1 case specifically, would not be caught
+// here).
 //
-// argv is passed straight through to `sync`, as `scripts/gh.ts sync` would take it.
+// argv is passed straight through to `sync`, as `scripts/gh.ts sync` would
+// take it.
 import { createSyncCommand } from '../commands/sync.ts'
 import { renderText } from '../lib/envelope.ts'
 import { createOutput } from '../lib/streams.ts'
