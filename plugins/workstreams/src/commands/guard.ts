@@ -12,11 +12,15 @@
 //     can only read as stopped short; in round 3 two of five turns did the
 //     same; the audit L1 stream hit it again (#132, the round 2, round 3 and
 //     audit L1 findings). Each cost a resume message and idle minutes.
-//   - **`git checkout` and `git restore` on a dirty tree.** Round 7's
-//     stream lost its uncommitted hook entry point to its own `git checkout`
-//     mid mutation sweep and rebuilt the file from memory; a round 2 agent
-//     lost edits the same way with the rule in its brief (#132, the round 7
-//     finding 1). The fix is one commit away and always was.
+//   - **A command that overwrites uncommitted work in a tracked file.**
+//     Round 7's stream lost its uncommitted hook entry point to its own `git
+//     checkout` mid mutation sweep and rebuilt the file from memory; a round 2
+//     agent lost edits the same way with the rule in its brief (#132, the
+//     round 7 finding 1). The fix is one commit away and always was. The
+//     spellings are `git restore`, `git checkout` with a pathspec written with
+//     or without a `--`, and `git checkout` or `git switch` carrying a force,
+//     patch or `--pathspec-from-file` option, which throw the tree away while
+//     naming nothing.
 //
 // **Who it binds.** Round 8 ruling 5: a subagent, never the main thread. The
 // input carries `agent_id` "only when the hook fires inside a subagent"
@@ -89,8 +93,8 @@ export interface ToolCall {
   readonly command: string | null
   /** Whether Claude asked for the command to be started in the background. */
   readonly background: boolean
-  /** Where the tool call runs, which is the tree a bare `git restore` would
-   *  act on. */
+  /** Where the tool call runs, which is the tree every refused command acts on
+   *  unless it carries a `-C` of its own. */
   readonly cwd: string | null
 }
 
@@ -173,6 +177,34 @@ const OPENERS: readonly string[] = ['(', '{', 'then', 'do', 'else', '!']
 /** An environment assignment in front of a command (`GIT_DIR=x git ...`). */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
+/** The options that make a `checkout` or a `switch` overwrite the working tree
+ *  without naming a single path, so that the whole tree is the question:
+ *
+ *    - `-f`, `--force`, and `switch`'s `--discard-changes`, which git's own
+ *      usage calls "throw away local modifications". Measured against git
+ *      2.54.0: `git checkout -f` on a tree with two modified tracked files
+ *      left it clean, and so did `git checkout -f <branch>`, `git checkout
+ *      --force`, `git switch -f <branch>` and `git switch --discard-changes
+ *      <branch>`. This is the loss at the top of this file, spelled without a
+ *      pathspec.
+ *    - `-p` and `--patch`, which offer every modified tracked file hunk by
+ *      hunk when no path follows. `restore` is already caught whatever its
+ *      operands, so `git restore -p` was refused while `git checkout -p` was
+ *      not.
+ *    - `--pathspec-from-file`, which reads the paths out of a file, in either
+ *      spelling.
+ */
+const WHOLE_TREE = /^(-f|--force|-p|--patch|--discard-changes|--pathspec-from-file(=.*)?)$/
+
+/** The options whose argument is a ref and never a path. `git checkout -h`
+ *  gives `checkout` two forms, `[<options>] <branch>` and `[<options>]
+ *  [<branch>] -- <file>...`, and with any of these the command creates or
+ *  tracks a branch and accepts no pathspec at all, so there is nothing to put
+ *  to git. Without this the argument of a `-b` was probed as a path, and
+ *  `git checkout -b <name>` was refused whenever a dirty tracked file, or a
+ *  directory holding one, was called `<name>`. */
+const REF_OPTIONS: readonly string[] = ['-b', '-B', '--orphan', '-t', '--track']
+
 /** What a destructive git command names: the tree it would act on, and the
  *  paths inside it to ask about.
  *
@@ -189,19 +221,29 @@ export interface Destructive {
  * What a destructive git command in `command` would act on, or `undefined`
  * when the command asks for nothing of the kind.
  *
- * Three forms qualify:
+ * Four forms qualify:
  *
  *   - `git restore ...`, with or without `--staged`, which exists to
  *     overwrite working tree files.
  *   - `git checkout` with a `--` separator, the explicit pathspec form.
+ *   - `git checkout` or `git switch` carrying one of {@link WHOLE_TREE}, which
+ *     throws local modifications away without naming anything, so the whole
+ *     tree is what is at stake.
  *   - `git checkout <operands>` with no separator. This is the spelling round
  *     7's stream lost its file to (`git checkout hook-io.ts`), and `git
  *     checkout .` is the same command with a wider reach. The same words may
  *     be a branch, and only the repository can tell, so the operands are
  *     carried out to {@link decide}, which scopes the one probe it already
- *     runs to them: a branch name matches no path and answers clean, while a
- *     path answers with the work about to be overwritten. Asking costs no
- *     extra process and denies nothing a branch switch needs.
+ *     runs to them: a path answers with the work about to be overwritten,
+ *     while a name that is only a branch matches no path and answers clean.
+ *
+ * Asking costs no extra process. It costs one false refusal, and only one: a
+ * name that is BOTH an existing branch and a dirty tracked path reads as the
+ * path, while git would have resolved the branch and carried the change over
+ * (measured against git 2.54.0). Telling those apart needs a second question
+ * to git; the refusal costs a commit and never costs work, so the one probe
+ * stands. The options that name a branch are the case that is NOT ambiguous,
+ * and {@link REF_OPTIONS} keeps them out of the probe.
  */
 export const destructiveGit = (command: string): Destructive | undefined => {
   for (const segment of command.split(SEGMENTS)) {
@@ -264,12 +306,23 @@ const readSegment = (tokens: readonly string[]): Destructive | undefined => {
   const verb = at(tokens, cursor)
   const operands = tokens.slice(cursor + 1)
   if (verb === 'restore') return { directory, pathspec: [] }
-  if (verb !== 'checkout') return undefined
+  if (verb !== 'checkout' && verb !== 'switch') return undefined
+
+  // A spelling that overwrites the working tree without naming a path: the
+  // whole tree is the question, as it is for an explicit `--`.
+  if (operands.some((token) => WHOLE_TREE.test(token))) return { directory, pathspec: [] }
+  // Everything else a `switch` can do carries uncommitted work across with it
+  // rather than overwriting it (measured: `git switch <branch>` on a modified
+  // tracked file leaves it modified on the new branch), so only the spellings
+  // above make a switch destructive.
+  if (verb === 'switch') return undefined
   if (operands.includes('--')) return { directory, pathspec: [] }
+  // An option that names the branch rules a pathspec out of the whole command.
+  if (operands.some((token) => REF_OPTIONS.includes(token))) return undefined
 
   // No separator. Everything that is not an option is carried out as the
   // question to put to git; a `checkout` that names nothing at all (`git
-  // checkout`, `git checkout -f`) asks for no file and is left alone.
+  // checkout`, `git checkout --quiet`) asks for no file and is left alone.
   const named = operands.filter((token) => token !== '' && !token.startsWith('-'))
   return named.length === 0 ? undefined : { directory, pathspec: named }
 }
@@ -301,7 +354,8 @@ const trackedChanges = (porcelain: string): readonly string[] =>
  * a shell, is answered without reading the command at all; a shell command
  * that asks for nothing destructive is answered without starting git. The
  * one probe this runs is `git status --porcelain`, on the command's own
- * target tree.
+ * target tree, scoped with `-- <pathspec>` when a separatorless `checkout`
+ * named operands and over the whole tree otherwise.
  *
  * A git that cannot answer allows, and says why on stderr: an unreadable tree
  * is not evidence of a dirty one, and a guard that denied on a failed probe

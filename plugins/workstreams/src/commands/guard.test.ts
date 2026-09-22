@@ -211,6 +211,21 @@ describe('finding the destructive command', () => {
     'C:\\Program\\git.exe restore .',
     'git --no-pager restore .',
     'git -c core.hooksPath=/dev/null restore .',
+    // The spellings that throw the tree away while naming no path at all.
+    // Measured against git 2.54.0: each of these left a tree holding two
+    // modified tracked files clean.
+    'git checkout -f',
+    'git checkout --force',
+    'git checkout -f main',
+    'git switch -f feature',
+    'git switch --force feature',
+    'git switch --discard-changes feature',
+    // `-p` offers every modified tracked file when no path follows, which is
+    // how `git restore -p` is already read.
+    'git checkout -p',
+    'git checkout --patch',
+    'git checkout --pathspec-from-file=paths.txt',
+    'git checkout --pathspec-from-file paths.txt',
   ]) {
     it(`finds it in ${JSON.stringify(command)}, targeting the call's own tree`, () => {
       expect(destructiveGit(command)).toEqual({ directory: null, pathspec: [] })
@@ -236,7 +251,6 @@ describe('finding the destructive command', () => {
     ['git checkout .', ['.']],
     ['git checkout main', ['main']],
     ['git checkout --quiet src two.txt', ['src', 'two.txt']],
-    ['git checkout -b wktr-132-ws-stream', ['wktr-132-ws-stream']],
   ] as const) {
     it(`carries the operands of ${JSON.stringify(command)} out to be resolved`, () => {
       expect(destructiveGit(command)).toEqual({ directory: null, pathspec })
@@ -256,11 +270,31 @@ describe('finding the destructive command', () => {
     'git commit -m "git restore is what lost it"',
     'sudo git restore .',
     'git checkout',
-    'git checkout -f',
+    'git checkout --quiet',
     'git -C',
     'git',
     ';;',
     '',
+    // A command name that merely ends in `git`. `gitk` and `git-lfs` do not,
+    // so they hold whatever the anchor in the matcher does; these are the
+    // shape that catches an anchor someone widened.
+    'nogit restore .',
+    'mygit restore .',
+    'gitk restore .',
+    'git-lfs restore .',
+    // A switch that only switches: git carries uncommitted work across with
+    // it, so there is nothing here to refuse.
+    'git switch feature',
+    'git switch -c a-new-branch',
+    'git switch --track origin/feature',
+    // The options that name the branch a checkout creates or tracks. Git
+    // accepts no pathspec beside them, so the name is never put to git as a
+    // path.
+    'git checkout -b wktr-132-ws-stream',
+    'git checkout -B wktr-132-ws-stream',
+    'git checkout --orphan wktr-132-ws-stream',
+    'git checkout -t origin/wktr-132-ws-stream',
+    'git checkout --track origin/wktr-132-ws-stream',
   ]) {
     it(`leaves ${JSON.stringify(command)} alone`, () => {
       expect(destructiveGit(command)).toBeUndefined()
@@ -456,6 +490,16 @@ describe('git checkout and git restore, against real repositories', () => {
     'git checkout main',
     'git checkout -b a-new-branch',
     'git checkout two.txt',
+    // The branch being created is called exactly what the dirty tracked file
+    // is called. `git.dirty` writes to `file.txt`, so these are the collision
+    // the operand filter used to refuse: git creates the branch and leaves
+    // the file alone, and a case where the two names differ cannot show it.
+    'git checkout -b file.txt',
+    'git checkout -B file.txt',
+    'git checkout --orphan file.txt',
+    'git switch -c file.txt',
+    // A switch that only switches, on the same dirty tree.
+    'git switch a-branch-that-does-not-exist',
   ]) {
     it(`allows ${JSON.stringify(command)} on the same dirty tree`, async () => {
       const sandbox = createSandbox()
@@ -474,6 +518,67 @@ describe('git checkout and git restore, against real repositories', () => {
       expect(output.stderr()).toBe('')
     })
   }
+
+  // The spellings that name no path and take the whole tree anyway. Measured
+  // against git 2.54.0: each of these left a tree with two modified tracked
+  // files clean, which is the loss this hook exists for, written so that the
+  // operand filter sees nothing to ask about.
+  for (const command of [
+    'git checkout -f',
+    'git checkout --force',
+    'git checkout -f main',
+    'git checkout -p',
+    'git switch --discard-changes main',
+    'git switch -f main',
+  ]) {
+    it(`refuses ${JSON.stringify(command)}, which names no path at all`, async () => {
+      const sandbox = createSandbox()
+      const git = createGitFixtures(sandbox)
+      const work = git.create(sandbox.join('r'))
+      git.dirty(work)
+      const output = createOutputPair()
+
+      const verdict = await decide(call({ command, cwd: work }), {
+        git: readerFor(sandbox),
+        output,
+      })
+
+      expect(verdict.decision).toBe('deny')
+      // The whole tree, so the reason names the directory and not a pathspec.
+      expect(verdict).toMatchObject({
+        reason: expect.stringContaining(`${work} has 1 uncommitted change to tracked files`),
+      })
+      expect(output.stderr()).toBe('')
+    })
+  }
+
+  it('scopes a separatorless checkout to the tree its own -C names', async () => {
+    const sandbox = createSandbox()
+    const git = createGitFixtures(sandbox)
+    const dirty = git.createAt(sandbox.join('trees'), 'dirty')
+    const clean = git.createAt(sandbox.join('trees'), 'clean')
+    git.dirty(dirty)
+    const output = createOutputPair()
+
+    const denied = await decide(
+      call({ command: `git -C ${dirty} checkout file.txt`, cwd: clean }),
+      {
+        git: readerFor(sandbox),
+        output,
+      },
+    )
+    const allowed = await decide(
+      call({ command: `git -C ${clean} checkout file.txt`, cwd: dirty }),
+      {
+        git: readerFor(sandbox),
+        output,
+      },
+    )
+
+    expect(denied.decision).toBe('deny')
+    expect(allowed).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toBe('')
+  })
 
   it('allows the command on a clean tree', async () => {
     const sandbox = createSandbox()
