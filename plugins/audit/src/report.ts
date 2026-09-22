@@ -138,14 +138,20 @@ const pairSections = (report: Report): string[] => {
   ]
 }
 
+/** The probability at which the model is taken to have said a unit names its
+ *  own expiry. */
+const VOLATILE_BAR = 0.8
+
 /** A unit that names an expiry, where an issue it cites is no longer open.
  *
+ *  0.8 is the spike's own bar, tuned against the live model.
  *  A record of the past cites a closed issue correctly, so `history` is never
  *  a finding here however the issue resolved. The model is not asked WHICH
  *  issue the expiry refers to, so a unit citing several is reported when any
  *  of them has closed. */
 const isExpired = (unit: Unit, judged: Classification | undefined): boolean =>
   judged !== undefined &&
+  judged.volatile >= VOLATILE_BAR &&
   judged.kind.choice !== 'history' &&
   unit.refs.some((ref) => ref.resolution.status === 'issue' && ref.resolution.state !== 'OPEN')
 

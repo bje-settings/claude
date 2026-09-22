@@ -1381,7 +1381,9 @@ it('reports a volatile unit whose cited issue has closed', async () => {
   // longer open: that pairing is the finding, and neither half is one alone.
   const audit = modelled(
     'expired',
-    { classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] } },
+    {
+      classify: { classifications: [classified('CLAUDE.md:3-3', { volatile: 0.9 })], failures: [] },
+    },
     { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
   )
 
@@ -1403,7 +1405,29 @@ it('never calls a history unit expired, whatever the issue it cites says', async
     'history',
     {
       classify: {
-        classifications: [classified('CLAUDE.md:3-3', { kind: picked<UnitKind>('history') })],
+        classifications: [
+          classified('CLAUDE.md:3-3', { kind: picked<UnitKind>('history'), volatile: 0.9 }),
+        ],
+        failures: [],
+      },
+    },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('## volatile and the issue it names is closed (0)')
+})
+
+it('leaves a unit the model does not call volatile out of the section', async () => {
+  // 0.8 is the spike's bar, tuned against the live model, and the unit below
+  // it says nothing about its own expiry: the closed issue it cites is then a
+  // citation rather than a deadline that has passed.
+  const audit = modelled(
+    'expired',
+    {
+      classify: {
+        classifications: [classified('CLAUDE.md:3-3', { volatile: 0.79 })],
         failures: [],
       },
     },
