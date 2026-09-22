@@ -420,7 +420,7 @@ export const decide = async (
     reason:
       `The workstreams guard refuses this command for ${who(call)}: ${where} ` +
       `${changed.length} uncommitted change${changed.length === 1 ? '' : 's'} to tracked files, ` +
-      'and git checkout with a pathspec and git restore both overwrite them; commit first, ' +
+      'and this command overwrites them; commit first, ' +
       'because two rounds have lost work to exactly this command.',
   }
 }
