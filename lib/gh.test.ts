@@ -878,6 +878,17 @@ describe('issue and pull request states', () => {
 
     expect(result).toEqual({ states: {}, unavailable: 'gh: a note' })
   })
+
+  it('reports a gh that could not be started as unavailable, never as a throw', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { status: 127, startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' } },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'cannot run gh: spawn gh ENOENT' })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
