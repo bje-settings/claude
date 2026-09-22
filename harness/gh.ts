@@ -108,5 +108,6 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     updateBranch: async () => answer(replies, 'updateBranch'),
     addComment: async () => answer(replies, 'addComment'),
     watchChecks: async () => answer(replies, 'watchChecks'),
+    issueStates: async () => answer(replies, 'issueStates'),
   }
 }

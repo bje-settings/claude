@@ -80,6 +80,30 @@ const clientAnswering = (
   return { gh: createGhClient({ ...options, run: answering(reply, calls) }), calls }
 }
 
+/** A runner that answers each call from `replies` in order, repeating the
+ *  last reply once the list runs out, and records every call. `issueStates`
+ *  is the one endpoint that makes more than one call on its own (`repo view`
+ *  for the owner and name, then one `api graphql` call per chunk), so its
+ *  tests need a runner that can tell those calls apart. */
+const answeringEach =
+  (replies: Reply[], calls: Call[]): Runner =>
+  async (command, args, options) => {
+    calls.push({
+      command,
+      args: args ?? [],
+      cwd: options?.cwd,
+      env: options?.env,
+      timeoutMs: options?.timeoutMs,
+    })
+    const reply = replies[Math.min(calls.length - 1, replies.length - 1)]
+    return asResult(reply ?? {})
+  }
+
+const clientAnsweringEach = (replies: Reply[]): Harness => {
+  const calls: Call[] = []
+  return { gh: createGhClient({ run: answeringEach(replies, calls) }), calls }
+}
+
 describe('argv', () => {
   it('asks gh pr list for the fields the shepherd reads, with no filters by default', async () => {
     const { gh, calls } = clientAnswering({ stdout: '[]' })
@@ -714,6 +738,30 @@ describe('the checks watch', () => {
   })
 })
 
+describe('issue and pull request states', () => {
+  it('asks gh api graphql for one aliased issueOrPullRequest per number and reads OPEN back', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: '{"data":{"repository":{"i0":{"state":"OPEN"}}}}' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [127] })
+
+    expect(calls[0]?.args).toEqual(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'])
+    expect(calls[1]?.args).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'query=query {\n' +
+        '  repository(owner: "acme", name: "widgets") {\n' +
+        '    i0: issueOrPullRequest(number: 127) { ... on Issue { state } ... on PullRequest { state } }\n' +
+        '  }\n' +
+        '}',
+    ])
+    expect(result).toEqual({ states: { '127': 'OPEN' }, unavailable: null })
+  })
+})
+
 it("defaults to the root lib's own process runner", () => {
   // Constructed, not called: calling it would start the real `gh`, which is
   // what every other example here avoids. What this pins is that a client
@@ -726,6 +774,7 @@ it("defaults to the root lib's own process runner", () => {
   const endpoints = Object.keys(gh).sort()
   expect(endpoints).toEqual([
     'addComment',
+    'issueStates',
     'listMergedPullRequests',
     'listPullRequests',
     'listRuns',
