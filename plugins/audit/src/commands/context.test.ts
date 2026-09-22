@@ -798,3 +798,27 @@ it('leads with the splitter’s warnings, so the counts beside them are not trus
     /^1 files, 1 units, 1 opaque\n {2}warning: CLAUDE\.md:5 unclosed_fence\n/,
   )
 })
+
+it('reads a file:line inside a code block, and leaves a ../ example unchecked', async () => {
+  // A `../` path in an example is written relative to whatever directory the
+  // example runs from, which is not the referencing file's, so there is
+  // nowhere to look for it: a shape, not an absence. A comment line carries no
+  // command, and its file:line is still a reference.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).opaque[2]?.refs).toEqual([
+    {
+      kind: 'file_line',
+      value: 'scripts/build.ts:1',
+      resolution: { status: 'found', repoPath: 'scripts/build.ts' },
+    },
+    { kind: 'command', value: 'node', resolution: { status: 'unchecked', reason: 'no_resolver' } },
+    {
+      kind: 'path',
+      value: '../other/tool.ts',
+      resolution: { status: 'unchecked', reason: 'pattern' },
+    },
+  ])
+})
