@@ -24,7 +24,7 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
    node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" sweep --json
    ```
 
-   Add `--milestone 4` or `--milestone 4,5` when the user named milestones.
+   Add `--milestone 4` or `--milestone 4,5` for the milestones named above.
 
    `unavailable` non-empty means the sets are short of what was asked for. Say so and stop,
    unless the user tells you to plan on a partial read.
@@ -36,15 +36,15 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
    is often out of date.
 
    Then read the decision records for the milestone: every file under `docs/rfc/` and
-   `docs/adr/`, the Decisions lists in particular, and check each decision against what has
-   actually merged.
+   `docs/adr/`, the Decisions lists in particular ([file-map.md](file-map.md) has the check
+   against what has merged).
 
    Every factual claim you are about to write down gets cited to a line you have just read.
    Grep for it; do not recall it. Three sweeps have asserted something about a test file, a
    CI job or a caller that was not there.
 
-4. Map the files. Apply every rule in [file-map.md](file-map.md), the rules a file map has
-   to apply, before writing one.
+4. Map the files. Apply every rule in [file-map.md](file-map.md), each one earned by a
+   round that lost time to it, before writing one.
 
 5. Classify and size each issue, in this shape:
 

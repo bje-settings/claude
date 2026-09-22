@@ -14,7 +14,7 @@ entries in the marketplace manifest's `plugins` array. See
 Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 `/plugin install <plugin-name>@bje`. That path is the only local one that works here: an
 install with `claude --plugin-dir`, from a local path, or from a `command` source in copy
-mode keeps only the symlinks resolving inside the plugin's own directory, so every plugin's
+mode keeps only the symlinks resolving inside the plugin's own directory, so a plugin's
 `src/lib` is dropped and its commands fail at import.
 
 ### Plugins
