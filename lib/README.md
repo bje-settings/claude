@@ -339,6 +339,46 @@ by silence:
 API on 2026-09-21, it matches nothing rather than matching the unassigned. A caller reads that set
 from an unfiltered `listIssues()` by filtering on `milestone === null`.
 
+### `requiredContexts`, `viewPullRequestDetail` and `listWorkflowRuns`
+
+```ts
+const { contexts } = await gh.requiredContexts({ branch: 'main' })
+const { pullRequest } = await gh.viewPullRequestDetail({ pullRequest: 178 })
+const runs = await gh.listWorkflowRuns({ branch: 'wktr-133-ws-review' })
+```
+
+The review loop's three reads (#133). Each answers with its rows or its record beside an
+`unavailable` sentence and none of them throws, for the sweep reads' reason: the loop reads all
+three on every tick, and one that could not be read must cost its own fact and nothing else.
+
+`requiredContexts` is REST (`repos/{owner}/{name}/rules/branches/{branch}`), because GraphQL
+exposes no equivalent, and it is asked PER BRANCH rather than per repository. That is the whole
+point of it: verified against this repository on 2026-09-22, `main` is required to pass nine
+contexts and `wktr-130-ws-sweep`, a topic branch of the kind every layer of a stack is based on,
+is required to pass none. A caller that read the default branch's list would report the wrong
+answer for exactly the pull requests a stack is made of. An EMPTY list is therefore an answer and
+not a failure. The contexts of every `required_status_checks` rule are unioned, and one rule that
+could not be read costs the whole answer rather than a context, because a required context
+silently dropped is a pull request reported green that the ruleset would refuse.
+
+`viewPullRequestDetail` is one GraphQL round trip for the refs, the head commit and its check
+rollup, the unresolved review threads and the comments. Not `viewPullRequest`, whose `--json`
+field list carries neither ref name and cannot carry review threads at all, since thread
+resolution exists in GraphQL alone. A check run and a commit status are read into one
+`CheckContext` (`name`/`status`/`conclusion` against `context`/`state`), told apart by which
+fields answered rather than by `__typename`. The threads and the comments are separate fields
+because they are separate facts: the enterprise coverage bot posts a COMMENT on every pull request
+here. All three connections ask for `pageInfo`, unlike the dependency connections in the sweep
+query, and a list at the page ceiling says so through `unavailable` rather than being refused,
+because here there is a page signal to read.
+
+`listWorkflowRuns` is REST (`actions/runs`), because `listRuns` asks `gh run list` for a field list
+carrying neither `event` nor the head commit, so a caller cannot tell a `pull_request` run from a
+`push` one nor say which head either ran on. It filters with `?branch=` and never `?head_sha=`,
+which answered nothing once for a head whose runs existed and cost a close-and-reopen and a whole
+CI run. A row that is not the shape REST promises is counted into `unavailable`, never dropped: a
+caller asserting that a run exists for a head would read a dropped row as "no run".
+
 ## Decisions not taken
 
 Recorded rather than fixed, each with the condition that reopens it. `lib/` gets what has a user

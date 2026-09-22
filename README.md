@@ -44,11 +44,11 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 > The round primitives: the pieces a round of issue-tracker work is run out of, each usable
 > on its own. Being rebuilt from scratch under
-> [#111](https://github.com/bje-settings/claude/issues/111); the sweep is the first of the
-> five, and the review loop ([#133](https://github.com/bje-settings/claude/issues/133)),
-> the stream ([#132](https://github.com/bje-settings/claude/issues/132)), the question
-> phase ([#131](https://github.com/bje-settings/claude/issues/131)) and the orchestrator
-> ([#134](https://github.com/bje-settings/claude/issues/134)) land after it.
+> [#111](https://github.com/bje-settings/claude/issues/111); the sweep and the review loop
+> are the first two of the five, and the stream
+> ([#132](https://github.com/bje-settings/claude/issues/132)), the question phase
+> ([#131](https://github.com/bje-settings/claude/issues/131)) and the orchestrator
+> ([#134](https://github.com/bje-settings/claude/issues/134)) land after them.
 
 <table>
   <tr>
@@ -56,6 +56,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamssweep"><code>/workstreams:sweep</code></a>: find what a round could start on. Reports the unblocked set, the tier one issue behind it, and the rest with their open blockers; then reads the bodies and the decision records, maps the files each issue touches, sizes each one, and sequences them into parallel streams, a stack, or one pull request. <em>Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsreview"><code>/workstreams:review</code></a>: review one draft pull request through to done. Runs the <code>pr-review-toolkit</code> reviewers over the pull request's own diff, verifies every finding and every rejection against the code, applies what holds, pushes and waits for CI, in at most two rounds, then checks the title and body against the final diff. <em>Scope: one pull request, in its own worktree.</em></li>
       </ul>
     </td>
   </tr>
