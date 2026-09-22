@@ -259,4 +259,10 @@ describe('splitMarkdown', () => {
     const item = units.find((u) => u.block === 'list_item')
     expect(item?.startLine).toBe(5)
   })
+
+  it('produces no units and no opaque blocks for an empty file', () => {
+    const { units, opaque } = splitMarkdown(FILE, '')
+    expect(units).toEqual([])
+    expect(opaque).toEqual([])
+  })
 })
