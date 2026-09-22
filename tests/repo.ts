@@ -248,3 +248,32 @@ export function libLinkViolations(root: string = PLUGINS): string[] {
   }
   return violations.sort()
 }
+
+/**
+ * Every plugin carrying a top-level `bin/` directory.
+ *
+ * claude.ai refuses such a plugin outright, by marketplace sync and by direct
+ * upload alike, so one `bin/` makes the plugin undistributable through
+ * organization settings; the directory is also added to the Bash tool's
+ * `PATH` while the plugin is enabled. The entry point lives in `scripts/`
+ * instead (RFC 001 decision 16, #185, `.claude/rules/type-ts.md`).
+ *
+ * This is the rule here whose failure mode is furthest from a red test: a
+ * reintroduced `bin/` breaks nothing in this repository and is refused later,
+ * on a machine that is not this one, by a service no test can ask.
+ *
+ * Followed rather than read from the listing, for the reason
+ * `libLinkViolations` gives above: a link to a directory is dereferenced into
+ * the cache copy and installs as a directory, so it is the same violation,
+ * while a link pointing at nothing or at a file is not one.
+ */
+export function binDirectories(root: string = PLUGINS): string[] {
+  const violations: string[] = []
+  for (const plugin of pluginDirs(root)) {
+    if (statSync(path.join(plugin, 'bin'), { throwIfNoEntry: false })?.isDirectory() !== true) {
+      continue
+    }
+    violations.push(`${path.relative(root, plugin)}/bin is a directory, and claude.ai refuses one`)
+  }
+  return violations.sort()
+}
