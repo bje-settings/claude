@@ -3,7 +3,7 @@
 // trades full CommonMark generality for rules that are simple to verify by
 // hand against the fixtures in split.test.ts.
 
-import type { SplitResult, Unit } from './types.ts'
+import type { OpaqueBlock, SplitResult, SplitWarning, Unit } from './types.ts'
 
 type HeadingFrame = { level: number; text: string }
 
@@ -22,6 +22,8 @@ type OpenItem = {
 export const splitMarkdown = (file: string, source: string): SplitResult => {
   const lines = splitLines(source)
   const units: Omit<Unit, 'id' | 'prev' | 'next'>[] = []
+  const opaque: OpaqueBlock[] = []
+  const warnings: SplitWarning[] = []
   const total = lines.length
 
   const headingStack: HeadingFrame[] = []
@@ -32,6 +34,15 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     if (isBlank(line)) {
       i++
+      continue
+    }
+
+    const fence = matchFenceOpen(line)
+    if (fence) {
+      const read = readFence(lines, i, fence, file, 0)
+      if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
+      opaque.push(read.block)
+      i = read.endLine + 1
       continue
     }
 
@@ -102,7 +113,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     i = paraEnd + 1
   }
 
-  return { units: withNeighbours(assignIds(file, units)), opaque: [], warnings: [] }
+  return { units: withNeighbours(assignIds(file, units)), opaque, warnings }
 }
 
 /** Splits on \n, \r\n and bare \r, without dropping a trailing empty line's count. */
@@ -233,7 +244,7 @@ const paragraphEnd = (lines: string[], start: number): number => {
   let end = start
   while (end + 1 <= lines.length) {
     const next = lines[end] ?? ''
-    if (isBlank(next) || matchHeading(next) || matchListMarker(next)) break
+    if (isBlank(next) || matchHeading(next) || matchListMarker(next) || matchFenceOpen(next)) break
     end++
   }
   return end
@@ -257,6 +268,72 @@ const buildLineMap = (
     }
   })
   return { text, map }
+}
+
+type FenceOpen = { char: string; length: number; info: string }
+
+const matchFenceOpen = (line: string): FenceOpen | null => {
+  const m = line.match(/^(\s*)(`{3,}|~{3,})(.*)$/)
+  if (!m) return null
+  const marker = m[2] ?? ''
+  const info = m[3] ?? ''
+  // A backtick fence's info string cannot itself contain a backtick.
+  if (marker.startsWith('`') && info.includes('`')) return null
+  return { char: marker[0] ?? '`', length: marker.length, info }
+}
+
+const findFenceClose = (lines: string[], start: number, fence: FenceOpen): number => {
+  for (let i = start; i <= lines.length; i++) {
+    const line = (lines[i - 1] ?? '').trim()
+    const re = fence.char === '`' ? /^`{3,}$/ : /^~{3,}$/
+    if (re.test(line) && line.length >= fence.length) return i
+  }
+  return -1
+}
+
+/**
+ * The opaque block a fence opener on line `start` produces, and the line it
+ * ends on (the last line of the file when nothing closes it, which
+ * `closed: false` reports so the caller can warn).
+ *
+ * `strip` undoes a containing list item's own indentation, so a nested
+ * block's text reads the way it would unnested.
+ */
+const readFence = (
+  lines: string[],
+  start: number,
+  fence: FenceOpen,
+  file: string,
+  strip: number,
+): { block: OpaqueBlock; endLine: number; closed: boolean } => {
+  const close = findFenceClose(lines, start + 1, fence)
+  const endLine = close > 0 ? close : lines.length
+  const body = lines
+    .slice(start, close > 0 ? close - 1 : lines.length)
+    .map((l) => stripLeading(l, strip))
+    .join('\n')
+  const info = fence.info.trim()
+  const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
+  return {
+    block: {
+      file,
+      startLine: start,
+      endLine,
+      kind: lang?.toLowerCase() === 'mermaid' ? 'mermaid' : 'code',
+      lang,
+      text: body,
+      refs: [],
+    },
+    endLine,
+    closed: close > 0,
+  }
+}
+
+/** Removes up to `n` leading spaces, never more than the line actually has. */
+const stripLeading = (line: string, n: number): string => {
+  let cut = 0
+  while (cut < n && line[cut] === ' ') cut++
+  return line.slice(cut)
 }
 
 const matchTableHeader = (line: string, next: string | null): string[] | null => {

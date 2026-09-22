@@ -163,4 +163,26 @@ describe('splitMarkdown', () => {
     const { units } = splitMarkdown(FILE, source)
     expect(units[0]?.text).toBe('col1: a\nNote: plain')
   })
+
+  it('closes a backtick fence on a fence of the same char and at least the same length', () => {
+    const source = [
+      'Intro.',
+      '',
+      '````ts',
+      'const x = 1',
+      '```',
+      'still inside',
+      '````',
+      '',
+      'After.',
+    ].join('\n')
+    const { units, opaque } = splitMarkdown(FILE, source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.kind).toBe('code')
+    expect(opaque[0]?.lang).toBe('ts')
+    expect(opaque[0]?.text).toBe('const x = 1\n```\nstill inside')
+    expect(opaque[0]?.startLine).toBe(3)
+    expect(opaque[0]?.endLine).toBe(7)
+    expect(units.map((u) => u.text)).toEqual(['Intro.', 'After.'])
+  })
 })
