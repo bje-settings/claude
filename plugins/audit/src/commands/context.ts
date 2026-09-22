@@ -268,8 +268,23 @@ const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: st
     const repoPath = ref.resolution.repoPath
     if (repoPath === unit.file || escapesRoot(repoPath)) continue
     // A directory resolves as found and has no contents to excerpt.
-    if (!statSync(path.join(root, repoPath)).isFile()) continue
-    const text = readFileSync(path.join(root, repoPath), 'utf8')
+    //
+    // Neither does a path git lists but the working tree does not hold:
+    // `refs.ts` resolves a record named by its number against the TRACKED
+    // list rather than by reading, so a staged deletion, a `git mv` in flight
+    // or a sparse checkout leaves a `found` ref whose file is not there, and
+    // a mode the reader cannot open does the same. `splitAll` above refuses
+    // rather than letting that throw, and this is the same hazard one stage
+    // later, where a throw would also discard the tier 0 findings and the
+    // model calls this run has already paid for. A file that cannot be read
+    // is no evidence, exactly like the directory and the binary beside it.
+    let text: string
+    try {
+      if (!statSync(path.join(root, repoPath)).isFile()) continue
+      text = readFileSync(path.join(root, repoPath), 'utf8')
+    } catch {
+      continue
+    }
     // A NUL byte marks a binary file, which is no excerpt a judgment can be
     // made against.
     if (text.includes('\0')) continue

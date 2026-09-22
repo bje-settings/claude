@@ -22,6 +22,7 @@ import {
   type EvidenceVerdict,
   JevError,
   type JevReplies,
+  type JevSequences,
   type JevUnit,
   jevFails,
   type PairVerdict,
@@ -70,7 +71,12 @@ interface Audited {
  *  a test can assert rather than a duration it has to tolerate. `createGh`
  *  answers from `replies`, and an endpoint with no reply throws, which is what
  *  proves a fixture with no issue references never reaches `gh` at all. */
-function audited(name: string, replies: GhReplies = {}, jev: JevReplies = {}): Audited {
+function audited(
+  name: string,
+  replies: GhReplies = {},
+  jev: JevReplies = {},
+  sequences: JevSequences = {},
+): Audited {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
@@ -82,7 +88,7 @@ function audited(name: string, replies: GhReplies = {}, jev: JevReplies = {}): A
     env: sandbox.env,
     output: captured.output,
     createGh: (): GhClient => createGhMock(replies),
-    createJev: () => createJevMock(jev),
+    createJev: () => createJevMock(jev, sequences),
     now: () => {
       tick += 1
       return tick
@@ -92,10 +98,16 @@ function audited(name: string, replies: GhReplies = {}, jev: JevReplies = {}): A
 }
 
 /** The same repository, with a key in the environment so the model stages run
- *  and `createJev` answers from `jev`. The key is never a real one: the mock is
- *  what answers, and `harness/sandbox.ts` swept the variable out first. */
-function modelled(name: string, jev: JevReplies, replies: GhReplies = {}): Audited {
-  const audit = audited(name, replies, jev)
+ *  and `createJev` answers from `jev`, or from `sequences` where a stage's
+ *  calls have to differ from each other. The key is never a real one: the mock
+ *  is what answers, and `harness/sandbox.ts` swept the variable out first. */
+function modelled(
+  name: string,
+  jev: JevReplies,
+  replies: GhReplies = {},
+  sequences: JevSequences = {},
+): Audited {
+  const audit = audited(name, replies, jev, sequences)
   audit.sandbox.env.TYPESAFE_API_KEY = 'test-key'
   return audit
 }
@@ -1716,22 +1728,36 @@ it('judges a repository fact against the head of the file it names', async () =>
 })
 
 it('picks the first reference that is a readable file of this repository', async () => {
-  // Three refs are no evidence and the fourth is. The unit's own file would
+  // Four refs are no evidence and the fifth is. The unit's own file would
   // judge a claim against itself; a `../` path resolves outside the audited
-  // root, which is a tree this run has no business reading; and a directory
-  // has no contents to excerpt. Each one of them would otherwise be picked
-  // before the file the writer actually pointed at.
+  // root, which is a tree this run has no business reading; a directory has
+  // no contents to excerpt; and a path that does not resolve at all names no
+  // file to read. Each one of them would otherwise be picked before the file
+  // the writer actually pointed at.
   const audit = modelled('sources', {
     classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
     judgeEvidence: picked<EvidenceVerdict>('says_nothing'),
   })
-  const outside = audit.sandbox.join('outside')
+  // Beside the audited root, not beside the sandbox: `harness/git.ts` puts the
+  // checkout at `<root>/work`, so `../outside/tool.ts` written from the
+  // repository resolves here and nowhere else. Anywhere else and the ref is
+  // simply `absent`, and the skip this test is named for is never reached.
+  const outside = path.join(audit.work, '..', 'outside')
   mkdirSync(outside)
   writeFileSync(path.join(outside, 'tool.ts'), 'export const wait = 1000\n')
 
   await runContext([audit.work, '--json'], audit.edges)
 
-  expect(reportOf(audit.stdout()).evidence.map((entry) => entry.source)).toEqual(['docs/note.md'])
+  const report = reportOf(audit.stdout())
+  // The premise, asserted so the test cannot pass for the wrong reason: the
+  // `../` ref really does resolve to a file, which is what makes skipping it
+  // a decision rather than an absence.
+  expect(report.units[0]?.refs[1]).toEqual({
+    kind: 'path',
+    value: '../outside/tool.ts',
+    resolution: { status: 'found', repoPath: '../outside/tool.ts' },
+  })
+  expect(report.evidence.map((entry) => entry.source)).toEqual(['docs/note.md'])
 })
 
 it('is not fooled into excerpting a binary file', async () => {
@@ -1920,4 +1946,354 @@ it('prints a refuted claim beside the file that refutes it', async () => {
       '    The retry helper described in `docs/retry.md` waits one second between attempts.',
     ].join('\n'),
   )
+})
+
+it('shortens both halves of a pair finding, which a table row would otherwise break', async () => {
+  // The pair section is a list a reader scans, one finding per line, and a
+  // two-column table row carries a newline between its cells: printed raw, one
+  // finding becomes four lines and anything reading the text line-wise
+  // mis-counts it. The same bound the other two sections use.
+  const audit = modelled('longpair', {
+    classify: {
+      classifications: [classified('CLAUDE.md:7-7'), classified('CLAUDE.md:13-13')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('same_claim', 0.9),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## pairs: same_claim (1; 1 of 1 judged)',
+      '  conf 0.90  CLAUDE.md:13-13  <>  CLAUDE.md:7-7',
+      '    a: Rule: The retry policy backs off exponentially on every network failure Why: A fixed delay hammers a servic...',
+      '    b: Rule: The retry policy backs off exponentially on every network failure Why: A fixed delay hammers a servic...',
+    ].join('\n'),
+  )
+})
+
+it('lists the pairs of one verdict most confident first, not in the order they were judged', async () => {
+  // The section is a review queue: the finding the model was surest of is the
+  // one a reader should act on first. The stage judges in descending
+  // SIMILARITY, which is a different order, so the two pairs below come back
+  // in the opposite order to the one they must print in.
+  const ids = [3, 5, 7, 9].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled(
+    'ranked2',
+    { classify: { classifications: ids.map((id) => classified(id)), failures: [] } },
+    {},
+    {
+      judgePair: [picked<PairVerdict>('same_claim', 0.41), picked<PairVerdict>('same_claim', 0.97)],
+    },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## pairs: same_claim (2; 2 of 2 judged)',
+      '  conf 0.97  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
+      '    a: The retry policy backs off exponentially on every network failure.',
+      '    b: The retry policy backs off on every network failure, without any delay.',
+      '  conf 0.41  CLAUDE.md:7-7  <>  CLAUDE.md:9-9',
+      '    a: Deploy previews expire after fourteen quiet days and are then removed.',
+      '    b: Deploy previews expire after fourteen quiet days and are then removed.',
+    ].join('\n'),
+  )
+})
+
+it('lists refuted claims most confident first as well', async () => {
+  // The same rule in the evidence section. The stage judges in document order,
+  // so the second fact is the one that must print first.
+  const audit = modelled(
+    'facts',
+    {
+      classify: {
+        classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+        failures: [],
+      },
+    },
+    {},
+    {
+      judgeEvidence: [
+        picked<EvidenceVerdict>('contradicts', 0.32),
+        picked<EvidenceVerdict>('contradicts', 0.88),
+      ],
+    },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## evidence: contradicts (2; 2 of 2 judged)',
+      '  conf 0.88  CLAUDE.md:5-5  against docs/two.md',
+      '    The guide in `docs/two.md` explains when a caller should give up.',
+      '  conf 0.32  CLAUDE.md:3-3  against docs/one.md',
+      '    The note in `docs/one.md` records how long the helper waits.',
+    ].join('\n'),
+  )
+})
+
+it('leaves a volatile unit alone while the issue it names is still open', async () => {
+  // The other half of the expired rule. Volatile and not history is not a
+  // finding on its own: the deadline has to have passed, and an OPEN issue
+  // says it has not. Without this the section reports every volatile unit
+  // citing any issue at all.
+  const audit = modelled(
+    'expired',
+    {
+      classify: { classifications: [classified('CLAUDE.md:3-3', { volatile: 0.9 })], failures: [] },
+    },
+    { issueStates: { states: { '164': 'OPEN' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('## volatile and the issue it names is closed (0)')
+})
+
+it('does not report a volatile unit when one of the issues it cites is unanswerable', async () => {
+  // One issue has closed and the other could not be looked up, and the model
+  // is not asked WHICH issue the expiry hangs on. Publishing the finding would
+  // be guessing that the closed one is the one that mattered, so the unit is
+  // counted in the heading instead.
+  const audit = modelled(
+    'partial',
+    {
+      classify: { classifications: [classified('CLAUDE.md:3-3', { volatile: 0.9 })], failures: [] },
+    },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    '## volatile and the issue it names is closed (0; 1 volatile units not judged, issue lookup unavailable)',
+  )
+})
+
+it('spends the pair budget across query units, not on the first unit that has a candidate', async () => {
+  // `candidatePairs` ranks each unit's own candidates and emits them in id
+  // order, so the strongest pair in a repository can come out last. The
+  // budget is worth nothing unless the whole list is ranked before it is cut:
+  // here the weaker pair is emitted first and the stronger one must be the
+  // one call that is made.
+  const ids = [3, 5, 7, 9].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('ranked2', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: picked<PairVerdict>('same_claim', 0.9),
+  })
+
+  await runContext([audit.work, '--json', '--max-pairs', '1'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.pairCoverage).toEqual({ judged: 1, available: 2 })
+  expect(report.pairs.map((pair) => [pair.a, pair.b])).toEqual([['CLAUDE.md:7-7', 'CLAUDE.md:9-9']])
+})
+
+it('keeps a unit’s most similar candidates when its cap binds, and drops the weakest', async () => {
+  // Six candidates and room for five, so one is dropped, and which one is the
+  // whole question: the cap has to spend its places on the strongest. The
+  // weakest candidate here is not the last one the index reaches, so an
+  // unranked cap would keep it and drop a stronger pair instead.
+  const ids = [3, 5, 7, 9, 11, 13, 15].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('graded', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: picked<PairVerdict>('unrelated'),
+  })
+
+  await runContext([audit.work, '--json', '--pair-threshold', '0.1'], audit.edges)
+
+  expect(reportOf(audit.stdout()).pairs.map((pair) => [pair.a, pair.b])).toEqual([
+    ['CLAUDE.md:11-11', 'CLAUDE.md:15-15'],
+    ['CLAUDE.md:11-11', 'CLAUDE.md:3-3'],
+    ['CLAUDE.md:11-11', 'CLAUDE.md:5-5'],
+    ['CLAUDE.md:11-11', 'CLAUDE.md:7-7'],
+    ['CLAUDE.md:11-11', 'CLAUDE.md:9-9'],
+  ])
+})
+
+it('compares a unit of exactly four tokens, the shortest length that pairs at all', async () => {
+  // The floor is four, and a floor is only pinned by the value that sits on
+  // it: three tokens is refused elsewhere, and this is the other side.
+  const audit = modelled('fourtokens', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('same_claim', 0.9),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 1, available: 1 })
+})
+
+it('compares no structural unit, which asserts nothing that could be contradicted', async () => {
+  // A heading or a table header names things rather than claiming anything
+  // about them, so it can be neither the duplicate nor the contradiction a
+  // pair finding is about. `judgePair` has no reply registered, so a candidate
+  // that reached the model would throw rather than pass quietly.
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [
+        classified('CLAUDE.md:3-3', { kind: picked<UnitKind>('structural') }),
+        classified('CLAUDE.md:5-5'),
+      ],
+      failures: [],
+    },
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('## pairs: contradicts (0; 0 of 0 judged)')
+})
+
+it('asks for evidence about a repository fact and about nothing else', async () => {
+  // Only a claim about this repository can be checked against this
+  // repository's files; an instruction or a rule is not that kind of claim.
+  // `judgeEvidence` has no reply registered, so a unit that reached the model
+  // would throw, and `available` is the other half of it: a kind counted but
+  // never judged would read as a budget that ran out.
+  const audit = modelled('evidence', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3', { kind: picked<UnitKind>('instruction') })],
+      failures: [],
+    },
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).evidenceCoverage).toEqual({ judged: 0, available: 0 })
+})
+
+it('takes the excerpt from a file a line reference names, not only a bare path', async () => {
+  // `docs/retry.md:3` names a file as surely as `docs/retry.md` does, and a
+  // writer who cited a line meant that file to be the evidence.
+  const audit = modelled('fileline', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+    judgeEvidence: picked<EvidenceVerdict>('contradicts', 0.75),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).evidence.map((entry) => entry.source)).toEqual(['docs/retry.md'])
+})
+
+it('carries on when the file a claim names is tracked but not on disk', async () => {
+  // `docs/adr/022` resolves against the TRACKED list rather than by reading,
+  // so git can name a file the working tree does not hold: a staged deletion,
+  // a `git mv` in flight, a sparse checkout. The read must not throw out of
+  // the command, which would discard the tier 0 findings and every model call
+  // this run has already paid for. `judgeEvidence` has no reply registered,
+  // so a unit that still reached the model would throw.
+  const audit = modelled('missing', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+  })
+  rmSync(path.join(audit.work, 'docs', 'adr', '022-retry.md'))
+
+  const envelope = await runContext([audit.work, '--json'], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'ok', value: '' })
+  const report = reportOf(audit.stdout())
+  expect(report.evidence).toEqual([])
+  expect(report.evidenceCoverage).toEqual({ judged: 0, available: 1 })
+  expect(report.failures).toEqual([])
+})
+
+it('builds no Jev client at all when --no-jev is given and there is a key to spend', async () => {
+  // The factory is the assertion: a client that is never constructed is the
+  // difference between a run that spends nothing and one that merely happens
+  // to make no call. `bin/audit.ts` builds the REAL client from whatever key
+  // is in the environment, so this is the only place the rule can be held.
+  const audit = modelled('paths', {})
+  const edges: ContextEdges = {
+    ...audit.edges,
+    createJev: () => {
+      throw new Error('the Jev client was constructed')
+    },
+  }
+
+  await runContext([audit.work, '--json', '--no-jev'], edges)
+
+  expect(reportOf(audit.stdout()).skipped).toEqual([
+    { stage: 'classify', reason: 'no_jev' },
+    { stage: 'pairs', reason: 'no_jev' },
+    { stage: 'evidence', reason: 'no_jev' },
+  ])
+})
+
+it('reads an empty TYPESAFE_API_KEY as no key, and builds no client for it either', async () => {
+  // An exported variable with nothing in it is what a half-finished setup
+  // leaves behind, and it is no more a key to spend than an absent one.
+  const audit = audited('paths')
+  audit.sandbox.env.TYPESAFE_API_KEY = ''
+  const edges: ContextEdges = {
+    ...audit.edges,
+    createJev: () => {
+      throw new Error('the Jev client was constructed')
+    },
+  }
+
+  await runContext([audit.work, '--json'], edges)
+
+  expect(reportOf(audit.stdout()).skipped).toEqual([
+    { stage: 'classify', reason: 'no_key' },
+    { stage: 'pairs', reason: 'no_key' },
+    { stage: 'evidence', reason: 'no_key' },
+  ])
+})
+
+it('judges no pair at all when --max-pairs is zero, and says how many it passed over', async () => {
+  // A budget of nothing is a caller asking for tier 0 plus the labels, and it
+  // still has to report what it did not reach. `judgePair` has no reply
+  // registered, so a call that happened would throw.
+  const ids = [3, 5, 7].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('ranked', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+  })
+
+  const envelope = await runContext([audit.work, '--json', '--max-pairs', '0'], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'ok', value: '' })
+  expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 0, available: 3 })
+})
+
+it('judges no claim at all when --max-evidence is zero, and says how many it passed over', async () => {
+  const audit = modelled('facts', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+  })
+
+  const envelope = await runContext([audit.work, '--json', '--max-evidence', '0'], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'ok', value: '' })
+  expect(reportOf(audit.stdout()).evidenceCoverage).toEqual({ judged: 0, available: 2 })
+})
+
+it('breaks a tie between two equally similar candidates by id, not by position in the file', async () => {
+  // Two candidates that score EXACTLY the same against one unit, because
+  // their text is the same. Which of them is judged first is then decided by
+  // the order the index was built in, and a budget that stops between them
+  // buys whichever came first. Built in document order, the same repository
+  // answers differently once a unit is moved up the file; built in id order,
+  // as the spike builds it, the answer is the repository's and not the
+  // layout's.
+  const ids = ['3-3', '5-5', '7-7', '10-10', '12-12'].map((line) => `CLAUDE.md:${line}`)
+  const audit = modelled('ties', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: picked<PairVerdict>('unrelated'),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).pairs.map((pair) => [pair.a, pair.b])).toEqual([
+    ['CLAUDE.md:12-12', 'CLAUDE.md:3-3'],
+    ['CLAUDE.md:10-10', 'CLAUDE.md:12-12'],
+    ['CLAUDE.md:10-10', 'CLAUDE.md:3-3'],
+  ])
 })

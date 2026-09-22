@@ -39,7 +39,8 @@ export type StageFailure = { stage: Stage; id: string; message: string }
  *  looked at". */
 export type Coverage = { judged: number; available: number }
 
-/** A stage that asks the model something. Layer 5 gives each one findings. */
+/** A stage that asks the model something. Each one has its own findings
+ *  section, in {@link STAGE_SECTIONS}. */
 export type Stage = 'classify' | 'pairs' | 'evidence'
 
 /** Why a stage never ran.
@@ -84,9 +85,10 @@ export type Report = {
  *  print. Everything else is a status word of its own.
  *
  *  Only `absent` and `line_out_of_range` reach it: those are the two the
- *  sections select. The spike's `issue` arm, which prints the state, belongs
- *  with the section that prints issues, and comes back with it at layer 5
- *  rather than sitting here as a branch no input can reach. */
+ *  sections select. The spike's `issue` arm, which printed the state, was
+ *  already dead there for the same reason, and no section prints a ref's issue
+ *  state here either: a cited issue's state is a finding only once a model
+ *  judgment gates it, which is {@link isExpired}'s section and not this one. */
 const describe = (ref: Ref): string => {
   const resolution = ref.resolution
   if (resolution.status === 'line_out_of_range') return `only ${resolution.lines} lines`
@@ -165,19 +167,29 @@ const cov = (coverage: Coverage): string => `${coverage.judged} of ${coverage.av
  *  finding, which is why it has no section. */
 const PAIR_FINDINGS = ['contradicts', 'same_claim'] as const
 
+/** Most confident first, which is what turns a verdict's findings into a
+ *  review queue rather than a list. Both callers sort the array `filter` has
+ *  already copied for them, so `report.pairs` and `report.evidence` keep the
+ *  order the stages judged them in: the JSON report is a record, not a queue,
+ *  and the order a run made its calls in is part of what it records. */
+const byConfidence = <T extends { verdict: { confidence: number } }>(x: T, y: T): number =>
+  y.verdict.confidence - x.verdict.confidence
+
 /** The pairs the model ruled on, under the verdict that is a finding. */
 const pairSections = (report: Report): string[] => {
   const byId = new Map(report.units.map((unit) => [unit.id, unit]))
   return PAIR_FINDINGS.flatMap((verdict) => {
-    const matching = report.pairs.filter((pair) => pair.verdict.choice === verdict)
+    const matching = report.pairs
+      .filter((pair) => pair.verdict.choice === verdict)
+      .sort(byConfidence)
     return [
       '',
       `## pairs: ${verdict} (${matching.length}; ${cov(report.pairCoverage)})`,
       // Every pair names two units of this same run, so the lookups answer.
       ...matching.flatMap((pair) => [
         `  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`,
-        `    a: ${(byId.get(pair.a) as Unit).text}`,
-        `    b: ${(byId.get(pair.b) as Unit).text}`,
+        `    a: ${short((byId.get(pair.a) as Unit).text)}`,
+        `    b: ${short((byId.get(pair.b) as Unit).text)}`,
       ]),
     ]
   })
@@ -192,7 +204,9 @@ const VOLATILE_BAR = 0.8
  *  act on. */
 const evidenceSections = (report: Report): string[] => {
   const byId = new Map(report.units.map((unit) => [unit.id, unit]))
-  const refuted = report.evidence.filter((entry) => entry.verdict.choice === 'contradicts')
+  const refuted = report.evidence
+    .filter((entry) => entry.verdict.choice === 'contradicts')
+    .sort(byConfidence)
   return [
     '',
     `## evidence: contradicts (${refuted.length}; ${cov(report.evidenceCoverage)})`,

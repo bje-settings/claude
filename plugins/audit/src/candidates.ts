@@ -238,22 +238,30 @@ export const candidatePairs = (
 ): PairCandidate[] => {
   const threshold = options.threshold
 
+  // Sorted BEFORE the index is built, not after. Id order is what makes the
+  // run deterministic twice over: which unit is the query side first decides
+  // which pairs fill a cap up, and the order the postings lists are written in
+  // decides which of two EQUALLY similar candidates is scored first, since the
+  // sort below is stable. Built in document order instead, the same repository
+  // spends a tight `--max-pairs` on a different pair depending on where its
+  // units happen to sit in the file.
+  //
+  // Two arms and not three: ids are unique by construction (`split.ts`
+  // disambiguates a collision with `#2`), so an equal-ids arm is a branch no
+  // input can reach.
+  const eligible = [...units]
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
+    .filter((unit) => tokenize(unit.text).length >= MIN_TOKENS)
+
   const tokensByUnit = new Map<string, string[]>()
-  const eligible: Unit[] = []
   const byId = new Map<string, Unit>()
-  for (const unit of units) {
-    const tokens = tokenize(unit.text)
-    if (tokens.length < MIN_TOKENS) continue
-    tokensByUnit.set(unit.id, tokens)
-    eligible.push(unit)
+  for (const unit of eligible) {
+    tokensByUnit.set(unit.id, tokenize(unit.text))
     byId.set(unit.id, unit)
   }
   const documentFrequency = documentFrequencies(tokensByUnit)
   const vectors = vectorsOf(tokensByUnit, documentFrequency)
   const postings = postingsOf(tokensByUnit, documentFrequency)
-  // Sorted for a deterministic processing order: which unit is the query side
-  // first decides which pairs fill a cap up.
-  eligible.sort((a, b) => (a.id < b.id ? -1 : 1))
 
   const seen = new Set<string>()
   const taken = new Map<string, number>()
