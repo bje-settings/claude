@@ -408,3 +408,17 @@ it('answers tail_match for a path that ends a tracked path at a segment boundary
     },
   ])
 })
+
+it('answers tail_match for a directory reference contained in a tracked path', async () => {
+  const audit = audited('tails')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[1]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'two/three/',
+      resolution: { status: 'tail_match', witness: 'one/two/three/leaf.ts' },
+    },
+  ])
+})

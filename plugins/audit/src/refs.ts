@@ -183,8 +183,14 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
     return { status: 'found', repoPath: toRepoRelative(ctx.root, fromFile) }
   }
 
-  const tail = value.replace(/^\.\//, '')
-  const witness = ctx.tracked.find((tracked) => tracked.endsWith(`/${tail}`))
+  // A trailing slash says the value names a directory, which no tracked path
+  // ever is: git tracks files, so a directory is absolved by a file inside it
+  // rather than by a path that ends with it.
+  const isDirectoryRef = value.endsWith('/')
+  const tail = value.replace(/^\.\//, '').replace(/\/$/, '')
+  const witness = ctx.tracked.find((tracked) =>
+    isDirectoryRef ? `/${tracked}`.includes(`/${tail}/`) : tracked.endsWith(`/${tail}`),
+  )
   if (witness !== undefined) return { status: 'tail_match', witness }
 
   return { status: 'absent' }
