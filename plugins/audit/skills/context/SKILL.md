@@ -24,7 +24,10 @@ without one. Pass the user's arguments straight through; supported flags are `--
 
 ## Step 2: Report
 
-Print the findings verbatim.
+Print the findings verbatim. A non-zero exit changes what that means: exit 1 says at least one
+model call failed, so say the audit is incomplete before triaging (the report's own `failures`
+section names which call); exit 2 means the request was refused, and there is nothing on stdout
+to print.
 
 ## Step 3: Triage
 

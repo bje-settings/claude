@@ -68,16 +68,18 @@ first 6,000 characters of the cited file, so a true claim about something furthe
 read as contradicted. Nothing in this plugin treats a judgment as proof a reviewer can skip.
 
 **The model is reached through a `JevClient` in the shared `lib/`, one method per operation, mocked
-at that interface rather than at the transport underneath it.** `lib/jev.ts` declares `classify`,
-`judgePair` and `judgeEvidence` as the client's whole surface, the same shape ADR 001 states for
-`lib/gh.ts`'s injected `GhClient`, and `harness/jev.ts` is the double built against exactly that
-surface: one reply registered per method, an unregistered method throwing rather than answering
-empty, so a test proves a command called the client correctly rather than passing because nothing
-was called. The question and rubric wording each method sends is copied verbatim from the PR #168
-spike, since it is what every measurement the spike made, including the drift figure above,
-depended on staying exactly as written. Living in `lib/` rather than inside `plugins/audit/src/`
-is what lets a later plugin needing the same kind of judgment reuse the client, the way
-`lib/gh.ts` is shared by convention today though only `gh` uses it.
+at that interface rather than at the transport underneath it.** `lib/jev.ts`'s `JevClient` declares
+four members: `classify`, `judgePair` and `judgeEvidence`, the three model operations, plus
+`usage()` for what a run spent. `harness/jev.ts` is the double built against exactly that
+interface, the same shape ADR 001 states for `lib/gh.ts`'s injected `GhClient`: one reply
+registered per model operation, an unregistered method throwing rather than answering empty, and
+`usage()` answering a fixed zero rather than accumulating anything real, so a test proves a
+command called the client correctly rather than passing because nothing was called. The question
+and rubric wording each method sends is copied verbatim from the PR #168 spike, since it is what
+every measurement the spike made, including the drift figure above, depended on staying exactly
+as written. Living in `lib/` rather than inside `plugins/audit/src/` is what lets a later plugin
+needing the same kind of judgment reuse the client, the way `lib/gh.ts` is already shared by
+convention: `gh` and this plugin's own issue lookup (`commands/context.ts:22`) both reach it.
 
 ## Consequences
 

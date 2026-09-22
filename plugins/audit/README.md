@@ -20,15 +20,16 @@ and is always run. The three model stages, classify, pairs and evidence, need
 
 ### Requirements
 
-Node 22.18 or newer. `gh`, for issue states, only when a context file names an issue number; a
-repository that names none never reaches it. `TYPESAFE_API_KEY`, optional, for the three model
-stages.
+Node 22.18 or newer. `git`; the audit reads only tracked files and refuses if git is absent or
+the root is outside a checkout. `gh`, for issue states, only when a context file names an issue
+number; a repository that names none never reaches it. `TYPESAFE_API_KEY`, optional, for the
+three model stages.
 
 ### Flags
 
 | Flag | Effect |
 | --- | --- |
-| `--scope context\|all` | `context` (default) reads `CLAUDE.md`, `README.md` anywhere, and anything under `.claude/`. `all` reads every tracked `.md` file instead. |
+| `--scope context\|all` | `context` (default) reads `CLAUDE.md`, `README.md` anywhere, and any tracked `.md` file under `.claude/`. `all` reads every tracked `.md` file instead. |
 | `--shape per_section\|per_unit` | The classify request shape sent to the model. Default `per_section`. |
 | `--no-jev` | Skip the three model stages even with a key present. |
 | `--json` | Write the whole report as JSON to stdout instead of the findings text. |
@@ -42,9 +43,9 @@ stages.
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Every stage that ran succeeded; a skipped stage counts as succeeding. |
-| 1 | At least one model call failed. The findings still printed; stderr says how many calls failed. |
-| 2 | The arguments were refused: a bad flag, a second positional, a bad count or fraction, a path outside any checkout, git absent, or an `--out` that cannot be opened. Nothing on stdout. |
+| 0 | Every stage that ran succeeded; skipping because there was no key to spend, or `--no-jev`, counts as succeeding. |
+| 1 | At least one model call failed, including a classify stage that ran and labelled no unit at all. The findings still printed; stderr says how many calls failed. |
+| 2 | The request was refused: a bad flag, a second positional, a bad count or fraction, a path outside any checkout, git absent, an `--out` that cannot be opened, git refusing to list the tracked files, or a tracked file that cannot be read. Nothing on stdout. |
 
 ### Example
 
