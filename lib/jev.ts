@@ -35,6 +35,7 @@ import {
   choice,
   createJev,
   type Entry,
+  isRecord,
   JevError,
   noul,
   type QuestionMap,
@@ -398,6 +399,19 @@ function questionId(judgment: string, sid: string): string {
   return `${judgment}__${sid}`
 }
 
+/**
+ * One unit's five questions, keyed by the ids the answers come back under.
+ * `at` is where the unit's text sits in the state, which differs between the
+ * two shapes; the ids do not.
+ */
+function unitQuestionsFor(at: string, sid: string): Record<string, AnyQuestion> {
+  const questions: Record<string, AnyQuestion> = {}
+  for (const [judgment, question] of Object.entries(unitQuestions(at))) {
+    questions[questionId(judgment, sid)] = question
+  }
+  return questions
+}
+
 /** The unit as `per_unit` sends it: the contract's fields, minus what the model cannot use. */
 function unitState(unit: JevUnit) {
   return {
@@ -472,21 +486,18 @@ export function batchSections(
 
   for (const [index, unit] of units.entries()) {
     const cost = estimateTokens(sectionUnitState(unit))
-    const nextState = stateSoFar + cost
-    const nextCount = (current?.indexes.length ?? 0) + 1
-    const fits =
-      current !== null &&
-      key(unit) === currentKey &&
-      nextState <= stateTokens &&
-      nextState + questionCost * nextCount <= requestTokens
-    if (current !== null && fits) {
-      // No gap check here: `current` is only ever created at this loop's own
-      // `index`, or extended one array position later than that, so its last
-      // entry is always `index - 1` by construction. A guard for anything
-      // else would be a branch nothing in this function could ever take.
-      current.indexes.push(index)
-      stateSoFar += cost
-      continue
+    if (current !== null && key(unit) === currentKey) {
+      const nextState = stateSoFar + cost
+      const nextRequest = nextState + questionCost * (current.indexes.length + 1)
+      if (nextState <= stateTokens && nextRequest <= requestTokens) {
+        // No gap check here: `current` is only ever created at this loop's own
+        // `index`, or extended one array position later than that, so its last
+        // entry is always `index - 1` by construction. A guard for anything
+        // else would be a branch nothing in this function could ever take.
+        current.indexes.push(index)
+        stateSoFar += cost
+        continue
+      }
     }
     current = { file: unit.file, headingPath: unit.headingPath, indexes: [index] }
     currentKey = key(unit)
@@ -507,13 +518,10 @@ export function classifyRequest(
   budget: { stateTokens?: number; requestTokens?: number } = {},
 ): JevRequest[] {
   if (shape === 'per_unit') {
-    return units.map((unit, index) => {
-      const questions: Record<string, AnyQuestion> = {}
-      for (const [judgment, question] of Object.entries(unitQuestions('text'))) {
-        questions[questionId(judgment, shortId(index))] = question
-      }
-      return { state: unitState(unit), questions }
-    })
+    return units.map((unit, index) => ({
+      state: unitState(unit),
+      questions: unitQuestionsFor('text', shortId(index)),
+    }))
   }
 
   return batchSections(units, budget).map((section) => {
@@ -524,9 +532,7 @@ export function classifyRequest(
       const unit = units[index] as JevUnit
       const sid = shortId(index)
       unitsById[sid] = sectionUnitState(unit)
-      for (const [judgment, question] of Object.entries(unitQuestions(`units.${sid}.text`))) {
-        questions[questionId(judgment, sid)] = question
-      }
+      Object.assign(questions, unitQuestionsFor(`units.${sid}.text`, sid))
     }
     return {
       state: { file: section.file, heading_path: section.headingPath, units: unitsById },
@@ -536,23 +542,24 @@ export function classifyRequest(
 }
 
 /**
- * A Noul answer's `noul` is P(yes), so anything outside `[0, 1]` is not a
- * probability and the response cannot be trusted. An array passes
- * `typeof x === 'object'` in JavaScript, so it is excluded explicitly rather
- * than accepted as a weird object with no `noul` property.
+ * The same test wherever a probability arrives, a Noul's own `noul` or a
+ * Choice's `confidence`: NaN or a value outside `[0, 1]` is not a probability,
+ * and is no more trustworthy in one field than in the other.
  */
+function isProbability(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+}
+
+/** A Noul answer's `noul` is P(yes). */
 function readNoul(bag: AnswerBag, id: string): number {
   const answer = bag[id]
-  if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) {
-    throw new Error(`no noul answer under ${id}`)
-  }
-  const value = (answer as { noul?: unknown }).noul
+  const value = isRecord(answer) ? answer.noul : undefined
   if (typeof value !== 'number') {
     throw new Error(`no noul answer under ${id}`)
   }
   // A value is present, so a reader should be pointed at the value that is
   // wrong, not sent looking for a key that is not actually missing.
-  if (!Number.isFinite(value) || value < 0 || value > 1) {
+  if (!isProbability(value)) {
     throw new Error(`noul answer under ${id} is out of range: ${value}`)
   }
   return value
@@ -570,42 +577,30 @@ function readChoice<T extends string>(
 ): ChoiceAnswer<T> {
   const options = Object.keys(criteria) as T[]
   const answer = bag[id]
-  if (typeof answer !== 'object' || answer === null || Array.isArray(answer)) {
+  if (!isRecord(answer)) {
     throw new Error(`no choice answer under ${id}`)
   }
-  const raw = answer as { choice?: unknown; probabilities?: unknown; confidence?: unknown }
-  if (
-    typeof raw.choice !== 'string' ||
-    typeof raw.confidence !== 'number' ||
-    // Same range check readNoul applies to `noul`: a probability is a
-    // probability whichever field carries it, so NaN or a value outside
-    // [0, 1] is no more trustworthy here than it is there.
-    !Number.isFinite(raw.confidence) ||
-    raw.confidence < 0 ||
-    raw.confidence > 1 ||
-    typeof raw.probabilities !== 'object' ||
-    raw.probabilities === null ||
-    Array.isArray(raw.probabilities)
-  ) {
+  // Renamed off `choice`, which is the question builder imported above.
+  const { choice: picked, confidence, probabilities } = answer
+  if (typeof picked !== 'string' || !isProbability(confidence) || !isRecord(probabilities)) {
     throw new Error(`no choice answer under ${id}`)
   }
-  if (!options.includes(raw.choice as T)) {
-    throw new Error(`answer ${id} chose ${raw.choice}, which is not one of the options`)
+  if (!options.includes(picked as T)) {
+    throw new Error(`answer ${id} chose ${picked}, which is not one of the options`)
   }
-  const rawProbabilities = raw.probabilities as Record<string, unknown>
   // Jev omits a zero-probability option from the map rather than sending an
   // explicit 0, so an option missing from the response reads as 0, EXCEPT the
   // chosen option itself: an answer that names its own choice but carries no
   // probability for it (or a non-finite one) is not one this code can trust,
   // so that case is refused rather than silently defaulted.
-  const probabilities = {} as Record<T, number>
+  const byOption = {} as Record<T, number>
   for (const option of options) {
-    const value = rawProbabilities[option]
+    const value = probabilities[option]
     if (value === undefined) {
-      if (option === raw.choice) {
-        throw new Error(`answer ${id} has no probability for its own choice ${raw.choice}`)
+      if (option === picked) {
+        throw new Error(`answer ${id} has no probability for its own choice ${picked}`)
       }
-      probabilities[option] = 0
+      byOption[option] = 0
       continue
     }
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -614,9 +609,9 @@ function readChoice<T extends string>(
     if (value < 0 || value > 1) {
       throw new Error(`answer ${id} has a probability out of range for ${option}: ${value}`)
     }
-    probabilities[option] = value
+    byOption[option] = value
   }
-  return { choice: raw.choice as T, probabilities, confidence: raw.confidence }
+  return { choice: picked as T, probabilities: byOption, confidence }
 }
 
 export function parseClassification(
@@ -763,10 +758,32 @@ const CLASSIFICATION_JUDGMENTS = [
  * `String(error)` fallback: that branch nothing here could ever take.
  */
 function failureMessage(error: unknown): string {
-  if (error instanceof JevError)
+  if (error instanceof JevError) {
     return `HTTP ${error.status}: ${error.message} ${error.body}`.trim()
+  }
   return (error as Error).message
 }
+
+/**
+ * One unit's own five answers, lifted out of a request's bag and relabelled to
+ * `u0`, which is the id {@link parseClassification} looks for when it is
+ * handed a single unit. Relabelling also keeps a parse failure's message the
+ * same whichever position the unit held in the request.
+ */
+function unitAnswers(bag: AnswerBag, index: number): AnswerBag {
+  const own: AnswerBag = {}
+  for (const judgment of CLASSIFICATION_JUDGMENTS) {
+    own[questionId(judgment, shortId(0))] = bag[questionId(judgment, shortId(index))]
+  }
+  return own
+}
+
+/**
+ * Sending one built request and getting its answers back: all three operations
+ * below need exactly this much of the transport, and {@link classifyImpl}
+ * needs nothing else at all.
+ */
+type Ask = (request: JevRequest) => Promise<AnswerBag>
 
 /**
  * Ported from the spike's `cli.ts` `classifyUnits`: one request per shape's
@@ -780,12 +797,11 @@ function failureMessage(error: unknown): string {
  * unit alone is what is wrong.
  */
 async function classifyImpl(
-  transport: { ask<Q extends QuestionMap>(state: unknown, questions: Q): Promise<AnswerBag> },
+  ask: Ask,
   units: readonly JevUnit[],
   shape: RequestShape,
 ): Promise<ClassifyOutcome> {
-  const requests = classifyRequest(units, shape)
-  const results = await Promise.allSettled(requests.map((r) => transport.ask(r.state, r.questions)))
+  const results = await Promise.allSettled(classifyRequest(units, shape).map(ask))
   const bag: AnswerBag = {}
   const failures: { id: string; message: string }[] = []
   results.forEach((result, i) => {
@@ -795,12 +811,9 @@ async function classifyImpl(
 
   const classifications: Classification[] = []
   units.forEach((unit, i) => {
-    if (!(`kind__u${i}` in bag)) return
-    const own: AnswerBag = {}
-    for (const judgment of CLASSIFICATION_JUDGMENTS)
-      own[`${judgment}__u0`] = bag[`${judgment}__u${i}`]
+    if (!(questionId('kind', shortId(i)) in bag)) return
     try {
-      classifications.push(...parseClassification([unit], own))
+      classifications.push(...parseClassification([unit], unitAnswers(bag, i)))
     } catch (error) {
       failures.push({ id: unit.id, message: failureMessage(error) })
     }
@@ -811,16 +824,14 @@ async function classifyImpl(
 /** A `JevClient` over the `typesafe.ts` transport (`createJev`). */
 export function createJevClient(options: TypeSafeOptions): JevClient {
   const transport = createJev(options)
+  function ask(request: JevRequest): Promise<AnswerBag> {
+    return transport.ask(request.state, request.questions)
+  }
   return {
-    classify: (units, shape) => classifyImpl(transport, units, shape),
-    judgePair: async (a, b) => {
-      const request = pairRequest(a, b)
-      return parsePair(await transport.ask(request.state, request.questions))
-    },
-    judgeEvidence: async (unit, source, excerpt) => {
-      const request = evidenceRequest(unit, source, excerpt)
-      return parseEvidence(await transport.ask(request.state, request.questions))
-    },
+    classify: (units, shape) => classifyImpl(ask, units, shape),
+    judgePair: async (a, b) => parsePair(await ask(pairRequest(a, b))),
+    judgeEvidence: async (unit, source, excerpt) =>
+      parseEvidence(await ask(evidenceRequest(unit, source, excerpt))),
     // TypeSafeUsage and Usage are structurally identical; no cast needed.
     usage: () => transport.usage(),
   }

@@ -232,6 +232,21 @@ export function redact(text: string, apiKey: string): string {
     .replace(new RegExp(escaped, 'g'), '[redacted]')
 }
 
+/** A foreign error's own text, on its way to being redacted into a `JevError`. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * A plain JSON object. `typeof` answers `'object'` for `null` and for an
+ * array too, so both are excluded here: every caller is checking something the
+ * API sent, where an array would otherwise read as an object carrying none of
+ * the properties the contract promises.
+ */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /**
  * `payload` only ever comes from `JSON.parse` (or is `undefined`, for an
  * empty body), so `JSON.stringify` here can never throw the way it can on
@@ -277,9 +292,9 @@ export function createJev(opts: TypeSafeOptions): Jev {
   const limit = createLimiter(opts.concurrency ?? DEFAULT_CONCURRENCY)
 
   /** Everything that reaches `JevError.body` goes through here: redacted, then capped. */
-  const asBody = (text: string): string => redact(text, opts.apiKey).slice(0, BODY_LIMIT)
-  const messageOf = (error: unknown): string =>
-    error instanceof Error ? error.message : String(error)
+  function asBody(text: string): string {
+    return redact(text, opts.apiKey).slice(0, BODY_LIMIT)
+  }
 
   const totals = {
     requests: 0,
@@ -302,6 +317,35 @@ export function createJev(opts: TypeSafeOptions): Jev {
   }
 
   /**
+   * The payload of a response the server answered OK. Read once as text, then
+   * parsed, so a malformed body is settled here rather than inside the retry
+   * machinery. Neither failure is retried, which is why both are thrown as a
+   * {@link JevError}: the response was received and billed, so resending would
+   * only re-bill a request that already succeeded.
+   */
+  async function readOk(response: Response): Promise<{ status: number; payload: unknown }> {
+    let text: string
+    try {
+      text = await response.text()
+    } catch (error) {
+      throw new JevError(
+        response.status,
+        asBody(messageOf(error)),
+        `TypeSafe returned HTTP ${response.status} but the body could not be read`,
+      )
+    }
+    try {
+      return { status: response.status, payload: text === '' ? undefined : JSON.parse(text) }
+    } catch {
+      throw new JevError(
+        response.status,
+        asBody(text),
+        `TypeSafe returned HTTP ${response.status} with a body that is not valid JSON`,
+      )
+    }
+  }
+
+  /**
    * One request, with retries. A retryable answer is a 429, a 529 or a
    * transport failure (a network error, an aborted timeout, or a 2xx whose
    * body cannot be parsed as JSON is NOT one of these: the request was billed
@@ -320,37 +364,8 @@ export function createJev(opts: TypeSafeOptions): Jev {
         totals.attempts += 1
         try {
           const response = await send(body)
-          if (response.ok) {
-            // Read once as text, then parse, so a malformed body is caught
-            // here rather than inside the retry machinery below. A read
-            // failure here (a timeout partway through the body) is thrown as
-            // a JevError, not left to the transport-failure branch below: the
-            // response was already received and billed, so retrying would
-            // only re-bill a request that already succeeded.
-            let text: string
-            try {
-              text = await response.text()
-            } catch (error) {
-              throw new JevError(
-                response.status,
-                asBody(messageOf(error)),
-                `TypeSafe returned HTTP ${response.status} but the body could not be read`,
-              )
-            }
-            try {
-              return {
-                status: response.status,
-                payload: text === '' ? undefined : JSON.parse(text),
-              }
-            } catch {
-              throw new JevError(
-                response.status,
-                asBody(text),
-                `TypeSafe returned HTTP ${response.status} with a body that is not valid JSON`,
-              )
-            }
-          }
-          // Unlike the JSON body above, an unreadable non-OK body is not
+          if (response.ok) return await readOk(response)
+          // Unlike the JSON body in `readOk`, an unreadable non-OK body is not
           // discarded as an empty string: an empty body and an unreadable one
           // are different failures, and folding them together would hide a
           // read failure as if the server had said nothing.
@@ -384,25 +399,21 @@ export function createJev(opts: TypeSafeOptions): Jev {
   async function ask<Q extends QuestionMap>(state: unknown, questions: Q): Promise<AnswerBag> {
     const body = JSON.stringify({ state, model, questions })
     const { status, payload } = await limit(() => request(body))
-    const refuse = (why: string): JevError =>
-      new JevError(status, asBody(safeStringify(payload)), why)
-    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    function refuse(why: string): JevError {
+      return new JevError(status, asBody(safeStringify(payload)), why)
+    }
+    if (!isRecord(payload)) {
       throw refuse('TypeSafe returned a body that is not an object')
     }
-    const record = payload as {
-      answers?: unknown
-      usage?: { input_tokens?: number; output_tokens?: number }
-    }
-    if (
-      typeof record.answers !== 'object' ||
-      record.answers === null ||
-      Array.isArray(record.answers)
-    ) {
+    const { answers, usage } = payload
+    if (!isRecord(answers)) {
       throw refuse('TypeSafe returned no answers')
     }
-    totals.inputTokens += record.usage?.input_tokens ?? 0
-    totals.outputTokens += record.usage?.output_tokens ?? 0
-    const answers = record.answers as AnswerBag
+    // Optional on purpose: the contract promises the counts, and a response
+    // that omits them still carries answers worth returning.
+    const counts = usage as { input_tokens?: number; output_tokens?: number } | undefined
+    totals.inputTokens += counts?.input_tokens ?? 0
+    totals.outputTokens += counts?.output_tokens ?? 0
     for (const id of Object.keys(questions)) {
       if (!(id in answers)) {
         throw refuse(`TypeSafe returned no answer for question ${id}`)
