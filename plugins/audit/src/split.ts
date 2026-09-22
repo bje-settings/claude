@@ -329,9 +329,16 @@ const parseListBlock = (
     }
 
     const innermost = stack[stack.length - 1]
-    if (innermost) {
+    if (innermost && !matchHeading(line) && !isThematicBreak(line)) {
       const lineIndent = (line.match(/^\s*/)?.[0] ?? '').length
       if (lineIndent >= innermost.contentColumn) {
+        if (isHtmlCommentOpen(line) && skipHtmlComment(lines, i).next < 0) {
+          // Unclosed: end it at its own line rather than folding the rest of
+          // the file into the item's text, and say so, as the top level does.
+          warnings.push({ file, line: i, kind: 'unclosed_comment' })
+          i++
+          continue
+        }
         innermost.text += ` ${line.trim()}`
         innermost.endLine = i
         i++

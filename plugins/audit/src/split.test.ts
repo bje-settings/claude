@@ -389,4 +389,11 @@ describe('splitMarkdown', () => {
     expect(opaque[0]?.text).toBe('pnpm test')
     expect(units.map((u) => u.text)).toEqual(['item', 'next'])
   })
+
+  it('warns and ends at its own line on an unclosed HTML comment in a list continuation', () => {
+    const source = ['- item', '  <!-- never closes', '', 'A sentence after.'].join('\n')
+    const { units, warnings } = splitMarkdown('a.md', source)
+    expect(warnings).toEqual([{ file: 'a.md', line: 2, kind: 'unclosed_comment' }])
+    expect(units.map((u) => u.text)).toEqual(['item', 'A sentence after.'])
+  })
 })
