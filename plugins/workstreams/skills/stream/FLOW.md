@@ -41,10 +41,3 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
 ```
-
-The stops are different facts. A preflight failure is a machine that cannot run the stream. A
-lower SHA that moved is work already reviewed being rewritten underneath a pull request someone
-has read, which no later check can undo. A head with no workflow run twice is not something more
-waiting fixes, and a watch that exited 0 is not evidence it has one.
-
-Nothing merges in this flow. The layers exist so that a person can merge them in order.

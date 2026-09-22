@@ -10,7 +10,7 @@ Issues to build: $ARGUMENTS. Ask the caller for anything you were not given: the
 numbers and their order, the model and effort per layer, and where the briefs go.
 
 One stream is one worktree, one branch per layer, one agent per layer, in sequence. The lower
-layer is reviewed to `done` before the next is written. (The plugin README carries why.)
+layer is reviewed to `done` before the next is written.
 
 ## Process
 
@@ -36,9 +36,7 @@ layer is reviewed to `done` before the next is written. (The plugin README carri
    agent's whole instruction, into a file of its own, one per layer. The dispatch prompt
    points at that file and repeats only the lines most often got wrong.
 
-   Check the brief against the repository before you send it. An approved plan has twice told
-   a layer to do something the repository's own rules forbid, such as regenerating a capture
-   that its fixtures README says is never edited.
+   Check the brief against the repository before you send it.
 
 4. Dispatch one agent per layer: one subagent, `workstreams:stream-low`,
    `workstreams:stream-medium` or `workstreams:stream-high` for the effort, with the `model`

@@ -33,7 +33,9 @@ branch> --draft --title "<title>" --body-file <file>`. The body ends `Closes <#i
 
 If you use `gh stack submit` instead, `gh pr edit <n> --title "<title>" --body-file <file>` is
 the VERY NEXT command: `gh stack submit` takes no title and names the pull request after the
-branch. Say which you used.
+branch. Say which you used. Both `gh stack submit` and `gh stack push` have opened a head with
+no `pull_request` workflows on it (rounds 5 to 7), which is why the run assertion below follows
+every push.
 
 Open the draft as early as you have something CI can run on. It is for CI signal on each slice,
 not for review: the review loop keys on your return, because a round spent on a partial diff is
