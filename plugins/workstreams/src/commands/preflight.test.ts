@@ -88,10 +88,39 @@ const withRegistry = (sandbox: Sandbox, contents: string): NodeJS.ProcessEnv => 
   return sandbox.env
 }
 
-const INSTALLED = JSON.stringify({
-  version: 1,
-  plugins: { 'gh@bje': {}, 'pr-review-toolkit@claude-plugins-official': {} },
-})
+/** The five reviewer agents the review loop dispatches. Written out here
+ *  rather than imported from the command, so a reviewer quietly dropped from
+ *  `REQUIRED_REVIEWERS` fails this suite instead of passing it. */
+const REVIEWERS = [
+  'code-reviewer',
+  'comment-analyzer',
+  'silent-failure-hunter',
+  'pr-test-analyzer',
+  'type-design-analyzer',
+]
+
+/** A cache copy of `pr-review-toolkit` inside the sandbox, carrying `agents`
+ *  and nothing else, and its path. */
+const withReviewers = (sandbox: Sandbox, agents: readonly string[] = REVIEWERS): string => {
+  const root = sandbox.join('cache', 'pr-review-toolkit')
+  mkdirSync(path.join(root, 'agents'), { recursive: true })
+  for (const agent of agents) writeFileSync(path.join(root, 'agents', `${agent}.md`), '---\n')
+  return root
+}
+
+/** A registry naming both required plugins, with `pr-review-toolkit`
+ *  installed at `roots`. */
+const installed = (roots: readonly string[]): string =>
+  JSON.stringify({
+    version: 2,
+    plugins: {
+      'gh@bje': [{ scope: 'user', installPath: '/does/not/matter' }],
+      'pr-review-toolkit@claude-plugins-official': roots.map((installPath) => ({
+        scope: 'user',
+        installPath,
+      })),
+    },
+  })
 
 const run = async (
   argv: readonly string[],
@@ -109,7 +138,7 @@ const findings = (stdout: string): Finding[] =>
 describe('when everything is present', () => {
   it('exits 0 and says so', async () => {
     const sandbox = createSandbox()
-    const ran = await run([], withRegistry(sandbox, INSTALLED))
+    const ran = await run([], withRegistry(sandbox, installed([withReviewers(sandbox)])))
 
     expect(ran.status).toBe(0)
     expect(ran.stdout).toBe('everything the workstreams skills depend on is present\n')
@@ -118,7 +147,7 @@ describe('when everything is present', () => {
 
   it('answers --json with an ok report and no findings', async () => {
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED))
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])))
 
     expect(ran.status).toBe(0)
     expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
@@ -150,7 +179,7 @@ describe('what gh can be missing', () => {
       '--version': { status: null, startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' } },
     })
     const status = await runPreflight(['--json'], {
-      env: withRegistry(sandbox, INSTALLED),
+      env: withRegistry(sandbox, installed([withReviewers(sandbox)])),
       output,
       run: runner,
     })
@@ -164,7 +193,7 @@ describe('what gh can be missing', () => {
 
   it('reports a gh that is there and cannot be run, which is the shell’s 126', async () => {
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       '--version': { status: 126 },
     })
 
@@ -173,7 +202,7 @@ describe('what gh can be missing', () => {
 
   it('reports a gh on PATH that exits 127 for itself the same way', async () => {
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       '--version': { status: 127 },
     })
 
@@ -203,7 +232,7 @@ describe('what gh can be missing', () => {
 
   it('reports a login that is not there, carrying gh’s own words', async () => {
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       ...HEALTHY,
       'auth status': { status: 1, stderr: 'You are not logged into any GitHub hosts.\n' },
     })
@@ -220,7 +249,7 @@ describe('what gh can be missing', () => {
 
   it('falls back to stdout for a failure that said nothing on stderr', async () => {
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       ...HEALTHY,
       'auth status': { status: 1, stdout: 'could not reach github.com\n' },
     })
@@ -233,7 +262,7 @@ describe('what gh can be missing', () => {
     // installed, and telling someone to install one they already have sends
     // them the wrong way.
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       ...HEALTHY,
       'extension list': { status: 1, stderr: 'gh: HTTP 500\n' },
     })
@@ -245,7 +274,7 @@ describe('what gh can be missing', () => {
 
   it('reports the stack extension as missing when the listing has other extensions but not it', async () => {
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       ...HEALTHY,
       'extension list': { stdout: 'gh dash\tdlvhdr/gh-dash\tv4.0.0\n' },
     })
@@ -259,7 +288,7 @@ describe('what gh can be missing', () => {
     // A fork installed under the same command is the same extension to the
     // skill that runs `gh stack submit`.
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       ...HEALTHY,
       'extension list': { stdout: '  gh stack\tsomeone/gh-stack-fork\tv9.9.9\n' },
     })
@@ -277,17 +306,30 @@ describe('the installed-plugins registry', () => {
     )
 
     expect(ran.status).toBe(1)
-    expect(findings(ran.stdout)).toEqual([{ id: 'gh', hint: '/plugin install gh@bje' }])
+    expect(findings(ran.stdout)).toEqual([
+      { id: 'gh', hint: '/plugin install gh@bje' },
+      {
+        id: 'pr-review-toolkit',
+        hint: '/plugin install pr-review-toolkit@claude-plugins-official',
+      },
+    ])
   })
 
   it('accepts a plugin installed from some other marketplace', async () => {
     // A fork of `gh` under another marketplace is still `gh` to the skill
-    // that runs its commands.
+    // that runs its commands, and a fork of `pr-review-toolkit` is still the
+    // reviewers, which is why the agents are checked and the marketplace is
+    // not.
     const sandbox = createSandbox()
-    const ran = await run(
-      ['--json'],
-      withRegistry(sandbox, JSON.stringify({ plugins: { 'gh@somewhere-else': {} } })),
-    )
+    const registry = JSON.stringify({
+      plugins: {
+        'gh@somewhere-else': [],
+        'pr-review-toolkit@somewhere-else': [
+          { scope: 'user', installPath: withReviewers(sandbox) },
+        ],
+      },
+    })
+    const ran = await run(['--json'], withRegistry(sandbox, registry))
 
     expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
   })
@@ -296,14 +338,20 @@ describe('the installed-plugins registry', () => {
     const sandbox = createSandbox()
     const ran = await run(['--json'], sandbox.env)
 
-    expect(findings(ran.stdout)).toEqual([{ id: 'gh', hint: '/plugin install gh@bje' }])
+    expect(findings(ran.stdout)).toEqual([
+      { id: 'gh', hint: '/plugin install gh@bje' },
+      {
+        id: 'pr-review-toolkit',
+        hint: '/plugin install pr-review-toolkit@claude-plugins-official',
+      },
+    ])
   })
 
   it('reports a registry it could not read as itself, not as missing plugins', async () => {
     // The fix is a different one. A permission error reported as two missing
     // plugins sends a reader after the wrong thing entirely.
     const sandbox = createSandbox()
-    const env = withRegistry(sandbox, INSTALLED)
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
     chmodSync(registryPath(env), 0o000)
     const ran = await run(['--json'], env)
 
@@ -363,7 +411,7 @@ describe('the installed-plugins registry', () => {
   it('takes the registry path from the override when there is one', async () => {
     const sandbox = createSandbox()
     const file = sandbox.join('elsewhere.json')
-    writeFileSync(file, INSTALLED)
+    writeFileSync(file, installed([withReviewers(sandbox)]))
 
     expect(registryPath({ ...sandbox.env, WORKSTREAMS_INSTALLED_PLUGINS: file })).toBe(file)
     expect(registryPath({ ...sandbox.env, WORKSTREAMS_INSTALLED_PLUGINS: '' })).toBe(
@@ -381,7 +429,11 @@ describe('the report a person reads', () => {
     })
 
     expect(ran.status).toBe(1)
-    expect(ran.stdout).toBe('gh-auth: gh auth login: not logged in\ngh: /plugin install gh@bje\n')
+    expect(ran.stdout).toBe(
+      'gh-auth: gh auth login: not logged in\n' +
+        'gh: /plugin install gh@bje\n' +
+        'pr-review-toolkit: /plugin install pr-review-toolkit@claude-plugins-official\n',
+    )
   })
 })
 
@@ -394,7 +446,7 @@ describe('excerpt', () => {
 
 it('falls back to stdout for an extension listing that failed silently on stderr', async () => {
   const sandbox = createSandbox()
-  const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+  const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
     ...HEALTHY,
     'extension list': { status: 1, stdout: 'could not read the extension directory\n' },
   })
@@ -403,5 +455,90 @@ it('falls back to stdout for an extension listing that failed silently on stderr
     id: 'gh-extension-list',
     hint: 'gh extension list',
     detail: 'could not read the extension directory',
+  })
+})
+
+describe('the reviewer agents the review loop dispatches', () => {
+  it('names each reviewer no installed copy carries', async () => {
+    // A round that found a reviewer missing halfway through would already
+    // have spent the other reviewers' tokens.
+    const sandbox = createSandbox()
+    const root = withReviewers(
+      sandbox,
+      REVIEWERS.filter((name) => name !== 'type-design-analyzer'),
+    )
+    const ran = await run(['--json'], withRegistry(sandbox, installed([root])))
+
+    expect(ran.status).toBe(1)
+    expect(findings(ran.stdout)).toEqual([
+      {
+        id: 'reviewer:type-design-analyzer',
+        hint: 'update pr-review-toolkit: no agents/type-design-analyzer.md in any installed copy',
+      },
+    ])
+  })
+
+  it('accepts a reviewer that only one of several installed copies carries', async () => {
+    // One plugin has one entry per project that installed it, at different
+    // versions, and the session that runs the round resolves whichever scope
+    // applies.
+    const sandbox = createSandbox()
+    const partial = sandbox.join('older')
+    mkdirSync(path.join(partial, 'agents'), { recursive: true })
+    const ran = await run(
+      ['--json'],
+      withRegistry(sandbox, installed([partial, withReviewers(sandbox)])),
+    )
+
+    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+  })
+
+  for (const [what, entries] of [
+    ['an empty list of installs', []],
+    ['an entry that is null', [null]],
+    ['an entry that is not an object', ['/somewhere']],
+    ['an entry with no install path', [{ scope: 'user' }]],
+    ['a value that is not a list at all', {}],
+  ] as const) {
+    it(`reports ${what} as reviewers it could not check, never as five missing ones`, async () => {
+      // `registry-unreadable`'s rule one level down: "the reviewers could not
+      // be checked" is a different instruction from "these are not there".
+      const sandbox = createSandbox()
+      const registry = JSON.stringify({
+        version: 2,
+        plugins: { 'gh@bje': [], 'pr-review-toolkit@claude-plugins-official': entries },
+      })
+      const ran = await run(['--json'], withRegistry(sandbox, registry))
+
+      const found = findings(ran.stdout)
+      expect(found).toHaveLength(1)
+      expect(found[0]?.id).toBe('reviewers-unlocatable')
+      expect(found[0]?.hint).toContain('pr-review-toolkit')
+    })
+  }
+
+  it('asks nothing about reviewers when the plugin that carries them is missing', async () => {
+    // The missing plugin already says everything; five reviewer findings
+    // under it would send a reader after agents that arrive with the install.
+    const sandbox = createSandbox()
+    const ran = await run(
+      ['--json'],
+      withRegistry(sandbox, JSON.stringify({ plugins: { 'gh@bje': [] } })),
+    )
+
+    expect(findings(ran.stdout)).toEqual([
+      {
+        id: 'pr-review-toolkit',
+        hint: '/plugin install pr-review-toolkit@claude-plugins-official',
+      },
+    ])
+  })
+
+  it('reads one install path named twice as one place to look', async () => {
+    const sandbox = createSandbox()
+    const root = withReviewers(sandbox)
+    const ran = await run(['--json'], withRegistry(sandbox, installed([root, root])))
+
+    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
   })
 })

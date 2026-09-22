@@ -27,6 +27,7 @@ it('prints the command list with no arguments at all, and exits 0', () => {
   expect(result.status).toBe(0)
   expect(result.stdout).toMatch(/^usage: workstreams\.ts <command>/)
   expect(result.stdout).toContain('sweep [--milestone 4,5] [--json]')
+  expect(result.stdout).toContain('pr-state <number> [--round 0|1|2]')
   expect(result.stdout).toContain('preflight [--json]')
   expect(result.stderr).toBe('')
 })
@@ -104,4 +105,35 @@ it('refuses a repeated --milestone at the process boundary too', () => {
 
   expect(result.status).toBe(2)
   expect(result.stderr).toBe('--milestone is not repeatable; pass one comma-separated list\n')
+})
+
+it('prints pr-state’s own usage for its --help', () => {
+  const result = runScript(BIN, { args: ['pr-state', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^One pull request's review-loop state/)
+  expect(result.stderr).toBe('')
+})
+
+it('refuses pr-state with no pull request number, before reaching gh', () => {
+  const result = runScript(BIN, { args: ['pr-state'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('pr-state takes a pull request number\n')
+})
+
+it('refuses a pr-state positional that is not a number', () => {
+  const result = runScript(BIN, { args: ['pr-state', 'main'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stderr).toBe('pr-state takes a pull request number, not "main"\n')
+})
+
+it('refuses a pr-state round outside the three the loop has', () => {
+  const result = runScript(BIN, { args: ['pr-state', '178', '--round', '3'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toContain('--round must be one of 0, 1, 2')
 })
