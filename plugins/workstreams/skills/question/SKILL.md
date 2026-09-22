@@ -28,14 +28,20 @@ Exit 1 means something is missing. Print each hint verbatim and stop.
 
 ## Step 2: read the sweep report
 
-Read the sequencing comment the sweep posted. If there is none yet:
+Read the sequencing comment the sweep posted. It is the input: the unblocked set, the next
+tier, the file map, the collisions, the recommended shape with its argument, the sizing, and
+the hidden dependencies, each already cited.
+
+If there is none yet, run the command instead:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" sweep --json
 ```
 
-Either way, the report is the input: the unblocked set, the next tier, the file map, the
-collisions, the recommended shape, and the hidden dependencies.
+Its JSON carries only the unblocked, next and blocked sets, the milestones, and the open pull
+requests, none of the judgement steps 3 to 6 of `/workstreams:sweep` add. Run that skill first
+if the file map, the collisions, the recommended shape, the sizing, or the hidden dependencies
+are needed and no comment has been posted.
 
 ## Step 3: explore before asking
 

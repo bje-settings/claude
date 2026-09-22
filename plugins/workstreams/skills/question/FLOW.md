@@ -6,9 +6,13 @@ What `/workstreams:question` does to one sweep report, and every way it declines
 flowchart TD
     A[preflight] --> B{anything missing?}
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| C[Read the sweep report]
+    B -->|No| C{sequencing comment posted?}
+    C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, sizing,<br/>hidden dependencies]
+    C -->|No| C2[Run sweep --json: only the<br/>sets, milestones, open pull requests]
+    C1 --> D
+    C2 --> D
 
-    C --> D[Open the file, the record, or the docs an open item names]
+    D[Open the file, the record, or the docs an open item names]
     D --> E{answer already in the tree?}
     E -->|Yes| E1[Record it as a ruling, with a citation] --> H
     E -->|No| F{genuinely the human's to decide?}
@@ -16,7 +20,7 @@ flowchart TD
     F -->|Yes| G[AskUserQuestion: recommendation first, argument against, 2-4 options]
     G --> H{another open item?}
     H -->|Yes| D
-    H -->|No| I[Rulings comment on every issue in the round]
+    H -->|No| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
 
     I --> J([Hand back: the human enters plan mode]):::pause
     J --> K{plan approved?}
