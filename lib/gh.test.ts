@@ -1357,6 +1357,7 @@ describe('milestones, issues and pull requests', () => {
         { ...issueNode, labels: { nodes: [{ name: 7 }] } },
         { ...issueNode, milestone: { title: 'no number' } },
         { ...issueNode, milestone: { number: 4 } },
+        { ...issueNode, milestone: 'not a record' },
         issueNode,
       ]),
     ])
@@ -1364,7 +1365,7 @@ describe('milestones, issues and pull requests', () => {
     const result = await gh.listIssues()
 
     expect(result.rows).toHaveLength(1)
-    expect(result.unavailable).toBe('9 issues row(s) could not be read')
+    expect(result.unavailable).toBe('10 issues row(s) could not be read')
   })
 
   it('refuses an issue whose dependency list came back at the page ceiling', async () => {

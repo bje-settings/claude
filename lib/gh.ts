@@ -757,10 +757,15 @@ const readIssue = (node: unknown): IssueSummary | null => {
   }
   // An issue on no milestone answers `null` here, which is the query a caller
   // reading the unassigned set depends on being distinguishable from a
-  // milestone whose fields could not be read.
-  const milestoneRecord = asRecord(record?.milestone)
+  // milestone whose fields could not be read. A field that is present but
+  // neither an object nor `null` is not "no milestone", it is a malformed
+  // row, and is rejected like every sibling field rather than folded into
+  // the no-milestone case.
+  const milestoneField = record?.milestone
   let milestone: IssueSummary['milestone'] = null
-  if (milestoneRecord !== undefined) {
+  if (milestoneField !== undefined && milestoneField !== null) {
+    const milestoneRecord = asRecord(milestoneField)
+    if (milestoneRecord === undefined) return null
     const milestoneNumber = asInteger(milestoneRecord.number)
     const milestoneTitle = asText(milestoneRecord.title)
     if (milestoneNumber === null || milestoneTitle === null) return null
