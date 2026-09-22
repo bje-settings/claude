@@ -39,12 +39,6 @@ flowchart TD
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
 ```
 
-The two pauses are different from the stop. A preflight failure is a machine that cannot
-run the round. Handing back for plan mode is not a failure: the skill has done everything
-it can do without the human, and the plan is theirs to approve. The hook question, when the
-records are silent, is the one case in the whole skill where a cheap ruling is not taken:
-disabling a push-time suite changes what protects the round, so it is asked rather than
-ruled even though it is, in every other sense, reversible.
-
-Every ruling in step 5 still carries the argument against it, the same as a question would,
-so a human reading the comment later can reverse one without re-deriving why it was made.
+The hook question, when the records are silent, is the one case in the whole skill where a
+cheap ruling is not taken: disabling a push-time suite changes what protects the round, so
+it is asked rather than ruled even though it is, in every other sense, reversible.
