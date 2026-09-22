@@ -193,7 +193,7 @@ const tierZero = async (
   root: string,
   edges: ContextEdges,
   blocks: Blocks,
-): Promise<string | null> => {
+): Promise<{ issueLookup: string | null; ignoreCheck: string | null }> => {
   const extracted = [
     ...blocks.units.map((block) => ({ block, refs: extractRefs(block.text) })),
     ...blocks.opaque.map((block) => ({
@@ -217,8 +217,8 @@ const tierZero = async (
       issueState: (n) => lookup.states[String(n)] ?? 'unavailable',
     })
   }
-  await markIgnored([...blocks.units, ...blocks.opaque], root, edges.env)
-  return lookup.unavailable
+  const ignoreCheck = await markIgnored([...blocks.units, ...blocks.opaque], root, edges.env)
+  return { issueLookup: lookup.unavailable, ignoreCheck }
 }
 
 /**
@@ -285,7 +285,7 @@ export const runContext = async (
   if (tracked === null) return refused(`could not list the tracked files of ${root}`)
   const files = markdownFiles(tracked, filter)
   const { units, opaque, warnings } = splitAll(root, files)
-  const unavailable = await tierZero(root, edges, { units, opaque, tracked })
+  const tier0 = await tierZero(root, edges, { units, opaque, tracked })
 
   const report: Report = {
     root,
@@ -293,7 +293,8 @@ export const runContext = async (
     units,
     opaque,
     warnings,
-    issueLookup: unavailable ?? 'ok',
+    issueLookup: tier0.issueLookup ?? 'ok',
+    ignoreCheck: tier0.ignoreCheck ?? 'ok',
     skipped: skippedStages(skipReason(edges.env, options['no-jev'])),
     // Rounded: the clock a caller passes is `performance.now()`, whose
     // fractional milliseconds are noise in a report and noise in a diff.

@@ -26,6 +26,11 @@ export type Report = {
   warnings: SplitWarning[]
   /** `ok`, or why no issue state could be read. */
   issueLookup: string
+  /** `ok`, or why git could not say which absent paths this repository
+   *  ignores. Without it a reader cannot tell a repository that ignores
+   *  nothing from one the question could not be asked about, and the refs it
+   *  leaves saying `absent` are the section a reader acts on first. */
+  ignoreCheck: string
   /** Stages that did not run at all, and why. */
   skipped: SkippedStage[]
   wallClockMs: number
@@ -96,6 +101,7 @@ export const renderFindings = (report: Report): string => {
     lines.push(`  warning: ${warning.file}:${warning.line} ${warning.kind}`)
   }
   if (report.issueLookup !== 'ok') lines.push(`  issue lookup unavailable: ${report.issueLookup}`)
+  if (report.ignoreCheck !== 'ok') lines.push(`  ignore check unavailable: ${report.ignoreCheck}`)
 
   lines.push(
     ...section(

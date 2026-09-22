@@ -17,6 +17,7 @@ import { createGitFixtures, type GitFixtures } from '../../../../harness/git.ts'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
 import type { Report } from '../report.ts'
+import type { Ref } from '../types.ts'
 import { type ContextEdges, runContext } from './context.ts'
 
 const REPOS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'repos')
@@ -950,4 +951,73 @@ it('strips a shell prompt before reading the command on the line', async () => {
     value: 'pnpm',
     resolution: { status: 'unchecked', reason: 'no_resolver' },
   })
+})
+
+/** The refs of the one unit whose text contains `text`, so a fixture that
+ *  grows a paragraph does not renumber every assertion beside it. */
+const unitNaming = (report: Report, text: string): Ref[] | undefined =>
+  report.units.find((unit) => unit.text.includes(text))?.refs
+
+it('asks git about a path outside the tree without losing the answer for the rest', async () => {
+  // `git check-ignore` does not skip a path it cannot place: one value outside
+  // the repository aborts the whole batch with exit 128, and the batch is
+  // shared by every absent ref in the run. Sending one would turn every
+  // correctly ignored path in the repository into a headline finding.
+  const audit = audited('ignored')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(unitNaming(report, 'bundle is written')).toEqual([
+    { kind: 'path', value: 'build/out.js', resolution: { status: 'ignored' } },
+  ])
+  // The value that cannot be asked about is still answered, from the tree.
+  expect(unitNaming(report, 'sibling checkout')).toEqual([
+    { kind: 'path', value: '../other/tool.ts', resolution: { status: 'absent' } },
+  ])
+})
+
+it('answers ignored for a path written inside a fenced block too', async () => {
+  // Build output is named in a command line more often than in prose, and a
+  // block's refs go through the same ignore pass or they do not go at all.
+  const audit = audited('ignored')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  const fence = report.opaque.find((block) => block.text.includes('scripts/build.ts'))
+  expect(fence?.refs.find((ref) => ref.value === 'build/nested.js')?.resolution).toEqual({
+    status: 'ignored',
+  })
+})
+
+it('never asks git whether a missing script is ignored', async () => {
+  // A script is a name in a manifest, not a path git has an opinion about.
+  // This fixture ignores `pnpm*`, so a script value that reached the batch
+  // would come back ignored and a real missing script would stop being a
+  // finding.
+  const audit = audited('ignored')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(unitNaming(reportOf(audit.stdout()), 'this manifest does not declare')).toEqual([
+    { kind: 'script', value: 'pnpm missing', resolution: { status: 'absent' } },
+  ])
+})
+
+it('says the ignore check was unavailable rather than reporting absent as settled', async () => {
+  // The shim fails `check-ignore` alone, so everything else still resolves.
+  // Reading an unanswerable question as "nothing here is ignored" would
+  // publish every ignored path as a finding with no sign anything went wrong.
+  // An exclude file git cannot read makes `check-ignore` exit 128 for the
+  // whole batch, which is a real repository state rather than a stubbed one.
+  const audit = audited('ignored')
+  const notAFile = audit.sandbox.join('excludes-dir')
+  mkdirSync(notAFile)
+  audit.git.git(audit.work, 'config', 'core.excludesFile', notAFile)
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('  ignore check unavailable: git check-ignore exited 128')
+  expect(audit.stdout()).toContain('  CLAUDE.md:3  path `build/out.js`  absent')
 })

@@ -7,7 +7,7 @@
 // state arrives here as an answer the caller already has.
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 
 import { run } from './lib/process.ts'
 import type { IssueLookup, Ref, Resolution } from './types.ts'
@@ -673,15 +673,33 @@ const resolveIssue = (ref: Ref, ctx: ResolveContext): Resolution => {
   return { status: 'issue', state: lookup }
 }
 
+/**
+ * `true` for a value `git check-ignore` cannot place: one that leaves the
+ * repository when it is resolved against the root.
+ *
+ * git does not skip such a path. It abandons the whole batch with
+ * `fatal: ... is outside repository` and status 128, and the batch is shared
+ * by every absent ref in the run, so one `../`-rooted path written in prose
+ * would cost every other answer and turn each correctly ignored path in the
+ * repository into a headline finding.
+ *
+ * Nothing is lost by leaving it out: this repository's own ignore rules have
+ * no opinion about a file outside its tree, so the answer would be "not
+ * ignored" either way. The first segment is compared rather than the prefix,
+ * so a file actually named `..foo` is still asked about.
+ */
+const escapesRoot = (value: string): boolean => posix.normalize(value).split('/')[0] === '..'
+
 /** The value to ask `git check-ignore` about, or `null` for a ref that is not
- *  an absent path. A script and an issue can be absent too, and neither is a
- *  path git has an opinion about. */
+ *  an absent path git can place. A script and an issue can be absent too, and
+ *  neither is a path git has an opinion about. */
 const ignorableValue = (ref: Ref): string | null => {
   if (ref.resolution.status !== 'absent') return null
-  if (ref.kind === 'path') return ref.value
+  if (ref.kind === 'path') return escapesRoot(ref.value) ? null : ref.value
   if (ref.kind !== 'file_line') return null
   // Extraction only produces a value this pattern matches.
-  return (FILE_LINE_RE.exec(ref.value) as RegExpExecArray)[1] as string
+  const file = (FILE_LINE_RE.exec(ref.value) as RegExpExecArray)[1] as string
+  return escapesRoot(file) ? null : file
 }
 
 /**
@@ -697,25 +715,34 @@ const ignorableValue = (ref: Ref): string | null => {
  * names itself: `gitOut` folds a non-zero exit into `null`, and check-ignore
  * exits **1** to say "none of these are ignored", which is an answer and not a
  * failure; and `runGit` carries no stdin, which is how the whole batch is sent
- * in one argv-free call. Any status but 0 means nothing here is ignored, or
- * the question could not be asked, and both leave the refs saying `absent`,
- * which is what they already said.
+ * in one argv-free call.
+ *
+ * Answers why the question could not be asked, or `null` when it was. Only 0
+ * and 1 are answers; anything else is a failure, and it is reported rather
+ * than folded, because the refs it leaves saying `absent` are the audit's
+ * headline finding and a reader has no other way to tell a repository with
+ * nothing ignored from one git would not answer about.
  */
 export const markIgnored = async (
   blocks: ReadonlyArray<{ refs: Ref[] }>,
   root: string,
   env: NodeJS.ProcessEnv,
-): Promise<void> => {
+): Promise<string | null> => {
   const asked = [
     ...new Set(blocks.flatMap((block) => block.refs.map(ignorableValue).filter((v) => v !== null))),
   ]
-  if (asked.length === 0) return
+  if (asked.length === 0) return null
   const result = await run('git', ['check-ignore', '-z', '--stdin'], {
     cwd: root,
     env,
     stdin: asked.join('\0'),
   })
-  if (result.status !== 0) return
+  // 1 is git's own "none of these are ignored", which needs no rewrite. Any
+  // other non-zero status is a failure, including the 127 and 126 a child that
+  // never started carries (`lib/process.ts`).
+  if (result.status === 1) return null
+  if (result.status !== 0)
+    return `git check-ignore exited ${result.status}: ${result.stderr.trim()}`
   const ignored = new Set(result.stdout.split('\0').filter((entry) => entry !== ''))
   for (const block of blocks) {
     block.refs = block.refs.map((ref) => {
@@ -725,6 +752,7 @@ export const markIgnored = async (
         : ref
     })
   }
+  return null
 }
 
 /** Every issue number the refs name, deduplicated, for the one batched
