@@ -7,6 +7,17 @@ import type { SplitResult, Unit } from './types.ts'
 
 type HeadingFrame = { level: number; text: string }
 
+// One list item under construction while a list block is being scanned. Kept
+// mutable until the list block finishes, at which point it becomes a Unit.
+type OpenItem = {
+  indent: number
+  contentColumn: number
+  text: string
+  startLine: number
+  endLine: number
+  leadIn: string | null
+}
+
 /** Splits `source` (the contents of `file`) into checkable units. */
 export const splitMarkdown = (file: string, source: string): SplitResult => {
   const lines = splitLines(source)
@@ -34,6 +45,11 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       }
       headingStack.push({ level: heading.level, text: heading.text })
       i++
+      continue
+    }
+
+    if (matchListMarker(line)) {
+      i = parseListBlock(lines, i, headingStack, file, units)
       continue
     }
 
@@ -70,6 +86,110 @@ const matchHeading = (line: string): { level: number; text: string } | null => {
   const rest = m[2] ?? ''
   const text = rest.replace(/\s+#+\s*$/, '').trim()
   return { level: marks.length, text }
+}
+
+type ListMatch = { indent: number; content: string; contentColumn: number }
+
+const matchListMarker = (line: string): ListMatch | null => {
+  const m = line.match(/^(\s*)([-*+]|\d+\.)(\s+)(.*)$/)
+  if (!m) return null
+  const indentStr = m[1] ?? ''
+  const marker = m[2] ?? ''
+  const gap = m[3] ?? ''
+  const content = m[4] ?? ''
+  return {
+    indent: indentStr.length,
+    content: content.trim(),
+    contentColumn: indentStr.length + marker.length + gap.length,
+  }
+}
+
+/**
+ * Scans a list block starting at `start`, pushing one `list_item` unit per
+ * item onto `units`. Returns the line to resume the outer loop from.
+ */
+const parseListBlock = (
+  lines: string[],
+  start: number,
+  headingStack: HeadingFrame[],
+  file: string,
+  units: Omit<Unit, 'id' | 'prev' | 'next'>[],
+): number => {
+  const stack: OpenItem[] = []
+  // Items are finished (popped) in an order driven by list structure, not by
+  // where they started in the source: a sibling can close before its parent
+  // does. Collect them here and sort by startLine at the end, so units still
+  // come out in true document order regardless of pop order.
+  const finished: OpenItem[] = []
+  const headingPath = headingStack.map((h) => h.text)
+  const total = lines.length
+  let i = start
+
+  const popTo = (indent: number) => {
+    while (stack.length > 0 && (stack[stack.length - 1]?.indent ?? -1) >= indent) {
+      const item = stack.pop()
+      if (item) finished.push(item)
+    }
+  }
+
+  while (i <= total) {
+    const line = lines[i - 1] ?? ''
+
+    if (isBlank(line)) {
+      break
+    }
+
+    const marker = matchListMarker(line)
+    if (marker) {
+      // Closes any open item at this depth or deeper: a same-indent line is
+      // a sibling of the item it replaces, not its continuation.
+      popTo(marker.indent)
+      const parent = stack[stack.length - 1]
+      const leadIn = parent ? parent.text : null
+      stack.push({
+        indent: marker.indent,
+        contentColumn: marker.contentColumn,
+        text: marker.content,
+        startLine: i,
+        endLine: i,
+        leadIn,
+      })
+      i++
+      continue
+    }
+
+    const innermost = stack[stack.length - 1]
+    if (innermost) {
+      const lineIndent = (line.match(/^\s*/)?.[0] ?? '').length
+      if (lineIndent >= innermost.contentColumn) {
+        innermost.text += ` ${line.trim()}`
+        innermost.endLine = i
+        i++
+        continue
+      }
+    }
+
+    popTo(0)
+    break
+  }
+
+  popTo(0)
+
+  finished.sort((a, b) => a.startLine - b.startLine)
+  for (const item of finished) {
+    units.push({
+      file,
+      startLine: item.startLine,
+      endLine: item.endLine,
+      block: 'list_item',
+      headingPath,
+      leadIn: item.leadIn,
+      text: item.text,
+      refs: [],
+    })
+  }
+
+  return i
 }
 
 /** Splits paragraph text into sentence strings on `. ` `? ` `! ` boundaries. */

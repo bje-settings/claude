@@ -42,4 +42,19 @@ describe('splitMarkdown', () => {
     // A level-1 heading pops the level-2 child too.
     expect(units.find((u) => u.text === 'Other sentence.')?.headingPath).toEqual(['Second Top'])
   })
+
+  it('turns list items into units, joining a continuation line with one space', () => {
+    const source = [
+      '- First line of the item',
+      '  continued on the next line.',
+      '- Second item',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items).toHaveLength(2)
+    expect(items[0]?.text).toBe('First line of the item continued on the next line.')
+    expect(items[0]?.startLine).toBe(1)
+    expect(items[0]?.endLine).toBe(2)
+    expect(items[1]?.text).toBe('Second item')
+  })
 })
