@@ -3,7 +3,7 @@
 Run this:
 
 ```bash
-pnpm test
+$ pnpm test
 node scripts/build.ts --watch
 ```
 

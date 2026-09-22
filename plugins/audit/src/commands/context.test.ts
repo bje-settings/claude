@@ -937,3 +937,17 @@ it('reads a backticked URL as no path and a bare well-known filename as one', as
     { kind: 'path', value: 'CLAUDE.md', resolution: { status: 'found', repoPath: 'CLAUDE.md' } },
   ])
 })
+
+it('strips a shell prompt before reading the command on the line', async () => {
+  // A transcript writes `$ pnpm test`, and reporting `$` as the command would
+  // be a finding about the prompt.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[0]?.refs[0]).toEqual({
+    kind: 'command',
+    value: 'pnpm',
+    resolution: { status: 'unchecked', reason: 'no_resolver' },
+  })
+})
