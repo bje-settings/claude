@@ -368,4 +368,16 @@ describe('splitMarkdown', () => {
     const items = units.filter((u) => u.block === 'list_item')
     expect(items.map((u) => u.text)).toEqual(['A', 'B', 'C', 'D', 'E', 'F'])
   })
+
+  it('closes a fenced block inside a blockquote on the quoted closing fence', () => {
+    const source = '# T\n\n> ```bash\n> ls\n> ```\n\nRule after quote.\n'
+    const { units, opaque } = splitMarkdown('a.md', source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.kind).toBe('code')
+    expect(opaque[0]?.lang).toBe('bash')
+    expect(opaque[0]?.text).toBe('ls')
+    expect(opaque[0]?.startLine).toBe(3)
+    expect(opaque[0]?.endLine).toBe(5)
+    expect(units.map((u) => u.text)).toEqual(['Rule after quote.'])
+  })
 })

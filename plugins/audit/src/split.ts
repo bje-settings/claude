@@ -71,7 +71,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const fence = matchFenceOpen(line)
     if (fence) {
-      const read = readFence(lines, i, fence, file, 0)
+      const read = readFence(lines, i, fence, raw !== line, file, 0)
       if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
       opaque.push(read.block)
       i = read.endLine + 1
@@ -318,7 +318,7 @@ const parseListBlock = (
     const fence = matchFenceOpen(line)
     if (fence && stack.length > 0) {
       const strip = stack[stack.length - 1]?.contentColumn ?? 0
-      const read = readFence(lines, i, fence, file, strip)
+      const read = readFence(lines, i, fence, raw !== line, file, strip)
       if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
       opaque.push(read.block)
       // The fence closes whatever item held it: continuation resumes as a
@@ -416,9 +416,20 @@ const matchFenceOpen = (line: string): FenceOpen | null => {
   return { char: marker[0] ?? '`', length: marker.length, info }
 }
 
-const findFenceClose = (lines: string[], start: number, fence: FenceOpen): number => {
+/**
+ * `quoted` is true when the fence opener was found on a blockquoted line: the
+ * closer is then matched on the stripped line too, since `>` still prefixes
+ * every line of the quoted fence body.
+ */
+const findFenceClose = (
+  lines: string[],
+  start: number,
+  fence: FenceOpen,
+  quoted: boolean,
+): number => {
   for (let i = start; i <= lines.length; i++) {
-    const line = (lines[i - 1] ?? '').trim()
+    const raw = lines[i - 1] ?? ''
+    const line = (quoted ? stripBlockquote(raw) : raw).trim()
     const re = fence.char === '`' ? /^`{3,}$/ : /^~{3,}$/
     if (re.test(line) && line.length >= fence.length) return i
   }
@@ -431,20 +442,23 @@ const findFenceClose = (lines: string[], start: number, fence: FenceOpen): numbe
  * `closed: false` reports so the caller can warn).
  *
  * `strip` undoes a containing list item's own indentation, so a nested
- * block's text reads the way it would unnested.
+ * block's text reads the way it would unnested. The `>` comes off first:
+ * inside a blockquote it sits before that indentation, so stripping spaces
+ * alone would leave the marker in the block's text.
  */
 const readFence = (
   lines: string[],
   start: number,
   fence: FenceOpen,
+  quoted: boolean,
   file: string,
   strip: number,
 ): { block: OpaqueBlock; endLine: number; closed: boolean } => {
-  const close = findFenceClose(lines, start + 1, fence)
+  const close = findFenceClose(lines, start + 1, fence, quoted)
   const endLine = close > 0 ? close : lines.length
   const body = lines
     .slice(start, close > 0 ? close - 1 : lines.length)
-    .map((l) => stripLeading(l, strip))
+    .map((l) => stripLeading(quoted ? stripBlockquote(l) : l, strip))
     .join('\n')
   const info = fence.info.trim()
   const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
