@@ -126,6 +126,21 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+### [`audit`](plugins/audit)
+
+> Repository context-file auditing.
+
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/audit#auditcontext"><code>/audit:context</code></a>: audit a checkout's <code>CLAUDE.md</code>, <code>README.md</code> and <code>.claude/**/*.md</code> for references that no longer resolve, statements whose named condition has ended, and duplicated claims. Runs fully without a key; repository text reaches TypeSafe only when <code>TYPESAFE_API_KEY</code> is set.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
 ## Sharing a plugin outside this repo
 
 This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
