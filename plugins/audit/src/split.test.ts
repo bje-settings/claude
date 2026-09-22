@@ -151,4 +151,16 @@ describe('splitMarkdown', () => {
     expect(units[0]?.startLine).toBe(3)
     expect(units[1]?.startLine).toBe(4)
   })
+
+  it('renders a table row as header: cell lines, not JSON, so quotes and backslashes reach verbatim', () => {
+    const source = ['| Name | Note |', '| --- | --- |', '| a "quoted" \\value | plain |'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units[0]?.text).toBe('Name: a "quoted" \\value\nNote: plain')
+  })
+
+  it('falls an empty table header cell back to col<N>', () => {
+    const source = ['|  | Note |', '| --- | --- |', '| a | plain |'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units[0]?.text).toBe('col1: a\nNote: plain')
+  })
 })
