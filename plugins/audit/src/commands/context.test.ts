@@ -274,6 +274,8 @@ it('reports a path that is not there as the finding, in the findings text', asyn
       '',
       '## tier 0: line references past the end of the file (0)',
       '',
+      '## tier 0: issues cited that are not open (0)',
+      '',
       '## classify: skipped (no_key)',
       '',
       '## pairs: skipped (no_key)',
@@ -726,4 +728,26 @@ it('takes no issue reference from a URL, a cross-repo slug, a colour or a padded
   const report = reportOf(audit.stdout())
   expect(report.units.slice(-4).map((unit) => unit.refs)).toEqual([[], [], [], []])
   expect(report.issueLookup).toBe('ok')
+})
+
+it('lists the issues a file cites that are no longer open', async () => {
+  // The state of a cited issue is the one thing tier 0 learns that is not in
+  // the tree, and a closed issue beside an instruction is the rot the audit
+  // exists to find. An issue nobody can find is an absence like any other.
+  const audit = audited('issues', {
+    issueStates: {
+      states: { '170': 'OPEN', '164': 'CLOSED', '4242': 'not_found' },
+      unavailable: null,
+    },
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  const text = audit.stdout()
+  expect(text).toContain(
+    ['## tier 0: issues cited that are not open (1)', '  CLAUDE.md:5  issue `#164`  CLOSED'].join(
+      '\n',
+    ),
+  )
+  expect(text).toContain('  CLAUDE.md:7  issue `#4242`  absent')
 })

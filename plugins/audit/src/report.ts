@@ -31,29 +31,24 @@ export type Report = {
   wallClockMs: number
 }
 
-/** How one resolution reads in the report. */
+/** How one resolution reads in the report, for the statuses the sections below
+ *  print. Everything else is a status word of its own. */
 const describe = (ref: Ref): string => {
   const resolution = ref.resolution
-  switch (resolution.status) {
-    case 'unchecked':
-      return `unchecked (${resolution.reason})`
-    case 'line_out_of_range':
-      return `only ${resolution.lines} lines`
-    case 'found':
-      return 'found'
-    default:
-      return resolution.status
-  }
+  if (resolution.status === 'line_out_of_range') return `only ${resolution.lines} lines`
+  if (resolution.status === 'issue') return resolution.state
+  return resolution.status
 }
 
 /** Every block that carries refs, units and opaque blocks alike: a path that
  *  does not resolve is the same finding wherever it was written. */
 const blocksOf = (report: Report): Array<Unit | OpaqueBlock> => [...report.units, ...report.opaque]
 
-const linesWithStatus = (report: Report, status: string): string[] =>
+/** One line per ref `keep` selects, naming where it was written. */
+const linesFor = (report: Report, keep: (ref: Ref) => boolean): string[] =>
   blocksOf(report).flatMap((block) =>
     block.refs
-      .filter((ref) => ref.resolution.status === status)
+      .filter(keep)
       .map(
         (ref) =>
           `  ${block.file}:${block.startLine}  ${ref.kind} \`${ref.value}\`  ${describe(ref)}`,
@@ -77,11 +72,27 @@ export const renderFindings = (report: Report): string => {
   }
   if (report.issueLookup !== 'ok') lines.push(`  issue lookup unavailable: ${report.issueLookup}`)
 
-  lines.push(...section('tier 0: refs that do not resolve', linesWithStatus(report, 'absent')))
+  lines.push(
+    ...section(
+      'tier 0: refs that do not resolve',
+      linesFor(report, (ref) => ref.resolution.status === 'absent'),
+    ),
+  )
   lines.push(
     ...section(
       'tier 0: line references past the end of the file',
-      linesWithStatus(report, 'line_out_of_range'),
+      linesFor(report, (ref) => ref.resolution.status === 'line_out_of_range'),
+    ),
+  )
+  // An issue that is still open says nothing; one that is closed or merged
+  // beside an instruction is the rot tier 0 can see without a model.
+  lines.push(
+    ...section(
+      'tier 0: issues cited that are not open',
+      linesFor(
+        report,
+        (ref) => ref.resolution.status === 'issue' && ref.resolution.state !== 'OPEN',
+      ),
     ),
   )
 
