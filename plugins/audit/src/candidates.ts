@@ -236,8 +236,6 @@ export const candidatePairs = (
   units: readonly Unit[],
   options: { threshold: number },
 ): PairCandidate[] => {
-  const threshold = options.threshold
-
   // Sorted BEFORE the index is built, not after. Id order is what makes the
   // run deterministic twice over: which unit is the query side first decides
   // which pairs fill a cap up, and the order the postings lists are written in
@@ -249,14 +247,16 @@ export const candidatePairs = (
   // Two arms and not three: ids are unique by construction (`split.ts`
   // disambiguates a collision with `#2`), so an equal-ids arm is a branch no
   // input can reach.
-  const eligible = [...units]
-    .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .filter((unit) => tokenize(unit.text).length >= MIN_TOKENS)
-
+  // One pass: the eligibility test and the index want the same tokens, so a
+  // unit's text is tokenized once rather than once for each.
+  const eligible: Unit[] = []
   const tokensByUnit = new Map<string, string[]>()
   const byId = new Map<string, Unit>()
-  for (const unit of eligible) {
-    tokensByUnit.set(unit.id, tokenize(unit.text))
+  for (const unit of [...units].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+    const tokens = tokenize(unit.text)
+    if (tokens.length < MIN_TOKENS) continue
+    eligible.push(unit)
+    tokensByUnit.set(unit.id, tokens)
     byId.set(unit.id, unit)
   }
   const documentFrequency = documentFrequencies(tokensByUnit)
@@ -277,7 +277,7 @@ export const candidatePairs = (
       const other = byId.get(otherId) as Unit
       if (seen.has(pairKey(unit.id, other.id))) continue
       const similarity = dot(vector, vectors.get(other.id) as Map<string, number>)
-      if (similarity < threshold) continue
+      if (similarity < options.threshold) continue
       if (repeatedCell(unit, other)) continue
       scored.push({ other, similarity })
     }

@@ -179,9 +179,9 @@ const gitMissing = async (env: NodeJS.ProcessEnv): Promise<string | null> => {
   return probe.startFailure === null ? null : probe.startFailure.message
 }
 
-/** The three stages this layer never runs, each carrying the same reason. */
-const skippedStages = (reason: SkippedStage['reason']): SkippedStage[] =>
-  (['classify', 'pairs', 'evidence'] as const).map((stage) => ({ stage, reason }))
+/** The stages a run never got to, each carrying the same reason. */
+const skippedStages = (stages: readonly Stage[], reason: SkippedStage['reason']): SkippedStage[] =>
+  stages.map((stage) => ({ stage, reason }))
 
 /**
  * Why the model stages did not run.
@@ -252,6 +252,19 @@ const NO_USAGE: Usage = {
   requestMsSum: 0,
 }
 
+/** An outcome in which neither the pair nor the evidence stage ran, so both
+ *  are empty and both coverages are `0 of 0`: what one such outcome carries
+ *  over another is only why it stopped and what it had spent by then. */
+const noJudgments = (
+  reached: Pick<ModelOutcome, 'skipped' | 'classifications' | 'failures' | 'usage'>,
+): ModelOutcome => ({
+  ...reached,
+  pairs: [],
+  pairCoverage: { judged: 0, available: 0 },
+  evidence: [],
+  evidenceCoverage: { judged: 0, available: 0 },
+})
+
 /** The excerpt a claim is judged against. Accuracy falls as unrelated state
  *  grows, so the head of the file is a deliberate, crude bound; choosing the
  *  relevant span is a retrieval problem this port has not solved either. */
@@ -262,6 +275,36 @@ const EXCERPT_CHARS = 6000
  *  run was not asked about and has no business reading. */
 const escapesRoot = (repoPath: string): boolean => repoPath.split('/')[0] === '..'
 
+/**
+ * The head of `repoPath`, or `null` when that file is no evidence at all.
+ *
+ * A directory resolves as found and has no contents to excerpt.
+ *
+ * Neither does a path git lists but the working tree does not hold: `refs.ts`
+ * resolves a record named by its number against the TRACKED list rather than
+ * by reading, so a staged deletion, a `git mv` in flight or a sparse checkout
+ * leaves a `found` ref whose file is not there, and a mode the reader cannot
+ * open does the same. `splitAll` above refuses rather than letting that throw,
+ * and this is the same hazard one stage later, where a throw would also
+ * discard the tier 0 findings and the model calls this run has already paid
+ * for. A file that cannot be read is no evidence, exactly like the directory
+ * and the binary beside it.
+ */
+const excerptOf = (root: string, repoPath: string): string | null => {
+  const full = path.join(root, repoPath)
+  let text: string
+  try {
+    if (!statSync(full).isFile()) return null
+    text = readFileSync(full, 'utf8')
+  } catch {
+    return null
+  }
+  // A NUL byte marks a binary file, which is no excerpt a judgment can be made
+  // against.
+  if (text.includes('\0')) return null
+  return text.slice(0, EXCERPT_CHARS)
+}
+
 /** The file a claim is most likely about: its first reference, in the order
  *  the writer wrote them, that resolved to a readable file of this repository
  *  other than the one the claim is written in. */
@@ -271,28 +314,8 @@ const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: st
     if (ref.resolution.status !== 'found' || ref.resolution.repoPath === null) continue
     const repoPath = ref.resolution.repoPath
     if (repoPath === unit.file || escapesRoot(repoPath)) continue
-    // A directory resolves as found and has no contents to excerpt.
-    //
-    // Neither does a path git lists but the working tree does not hold:
-    // `refs.ts` resolves a record named by its number against the TRACKED
-    // list rather than by reading, so a staged deletion, a `git mv` in flight
-    // or a sparse checkout leaves a `found` ref whose file is not there, and
-    // a mode the reader cannot open does the same. `splitAll` above refuses
-    // rather than letting that throw, and this is the same hazard one stage
-    // later, where a throw would also discard the tier 0 findings and the
-    // model calls this run has already paid for. A file that cannot be read
-    // is no evidence, exactly like the directory and the binary beside it.
-    let text: string
-    try {
-      if (!statSync(path.join(root, repoPath)).isFile()) continue
-      text = readFileSync(path.join(root, repoPath), 'utf8')
-    } catch {
-      continue
-    }
-    // A NUL byte marks a binary file, which is no excerpt a judgment can be
-    // made against.
-    if (text.includes('\0')) continue
-    return { source: repoPath, excerpt: text.slice(0, EXCERPT_CHARS) }
+    const excerpt = excerptOf(root, repoPath)
+    if (excerpt !== null) return { source: repoPath, excerpt }
   }
   return null
 }
@@ -395,16 +418,12 @@ const modelStages = async (
 ): Promise<ModelOutcome> => {
   const key = edges.env.TYPESAFE_API_KEY ?? ''
   if (options.noJev || key === '') {
-    return {
-      skipped: skippedStages(skipReason(options.noJev)),
+    return noJudgments({
+      skipped: skippedStages(['classify', 'pairs', 'evidence'], skipReason(options.noJev)),
       classifications: [],
-      pairs: [],
-      pairCoverage: { judged: 0, available: 0 },
-      evidence: [],
-      evidenceCoverage: { judged: 0, available: 0 },
       failures: [],
       usage: NO_USAGE,
-    }
+    })
   }
   const jev = edges.createJev({ apiKey: key })
   // The client folds a rejected request into its own failures rather than
@@ -437,19 +456,12 @@ const modelStages = async (
     if (failures.length === 0) {
       failures.push({ stage: 'classify', id: '*', message: 'no unit was classified' })
     }
-    return {
-      skipped: [
-        { stage: 'pairs', reason: 'classify_failed' },
-        { stage: 'evidence', reason: 'classify_failed' },
-      ],
+    return noJudgments({
+      skipped: skippedStages(['pairs', 'evidence'], 'classify_failed'),
       classifications,
-      pairs: [],
-      pairCoverage: { judged: 0, available: 0 },
-      evidence: [],
-      evidenceCoverage: { judged: 0, available: 0 },
       failures,
       usage: jev.usage(),
-    }
+    })
   }
   const paired = await judgePairs(jev, units, kindOf, options, failures)
   const checked = await judgeEvidence(

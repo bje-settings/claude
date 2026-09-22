@@ -148,10 +148,13 @@ const FINDING_SECTIONS = [
   ['line_out_of_range', 'tier 0: line references past the end of the file'],
 ] as const satisfies ReadonlyArray<readonly [Ref['resolution']['status'], string]>
 
-/** A section: its heading, its count, and one line per finding. */
-const section = (heading: string, entries: string[]): string[] => [
+/** A section: a blank line, the heading, and one line per finding. Every
+ *  section of the report is built here, so the blank line separating them is
+ *  written once. A heading counts its own findings, in the form that section
+ *  needs, rather than being counted for it. */
+const section = (heading: string, entries: string[] = []): string[] => [
   '',
-  `## ${heading} (${entries.length})`,
+  `## ${heading}`,
   ...entries,
 ]
 
@@ -196,23 +199,28 @@ const PAIR_FINDINGS = ['contradicts', 'same_claim'] as const
 const byConfidence = <T extends { verdict: { confidence: number } }>(x: T, y: T): number =>
   y.verdict.confidence - x.verdict.confidence
 
+/** A reader for one unit's text, shortened, by id. Every judgment in a report
+ *  names a unit of the same run, so the lookup answers. */
+const shortTextById = (report: Report): ((unitId: string) => string) => {
+  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  return (unitId) => short((byId.get(unitId) as Unit).text)
+}
+
 /** The pairs the model ruled on, under the verdict that is a finding. */
 const pairSections = (report: Report): string[] => {
-  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  const textOf = shortTextById(report)
   return PAIR_FINDINGS.flatMap((verdict) => {
     const matching = report.pairs
       .filter((pair) => pair.verdict.choice === verdict)
       .sort(byConfidence)
-    return [
-      '',
-      `## pairs: ${verdict} (${matching.length}; ${cov(report.pairCoverage)})`,
-      // Every pair names two units of this same run, so the lookups answer.
-      ...matching.flatMap((pair) => [
+    return section(
+      `pairs: ${verdict} (${matching.length}; ${cov(report.pairCoverage)})`,
+      matching.flatMap((pair) => [
         `  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`,
-        `    a: ${short((byId.get(pair.a) as Unit).text)}`,
-        `    b: ${short((byId.get(pair.b) as Unit).text)}`,
+        `    a: ${textOf(pair.a)}`,
+        `    b: ${textOf(pair.b)}`,
       ]),
-    ]
+    )
   })
 }
 
@@ -224,19 +232,17 @@ const VOLATILE_BAR = 0.8
  *  nothing about, is not a finding: only the contradiction is something to
  *  act on. */
 const evidenceSections = (report: Report): string[] => {
-  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  const textOf = shortTextById(report)
   const refuted = report.evidence
     .filter((entry) => entry.verdict.choice === 'contradicts')
     .sort(byConfidence)
-  return [
-    '',
-    `## evidence: contradicts (${refuted.length}; ${cov(report.evidenceCoverage)})`,
-    // Every judgment names a unit of this same run.
-    ...refuted.flatMap((entry) => [
+  return section(
+    `evidence: contradicts (${refuted.length}; ${cov(report.evidenceCoverage)})`,
+    refuted.flatMap((entry) => [
       `  conf ${entry.verdict.confidence.toFixed(2)}  ${entry.unitId}  against ${entry.source}`,
-      `    ${short((byId.get(entry.unitId) as Unit).text)}`,
+      `    ${textOf(entry.unitId)}`,
     ]),
-  ]
+  )
 }
 
 /** A unit that names an expiry, where an issue it cites is no longer open.
@@ -282,28 +288,30 @@ const expiredSections = (report: Report): string[] => {
   // expired" when no unit was ever judged; the stages below say the same with
   // their skipped line, and this section has no skipped entry of its own.
   const classifyFailed = report.skipped.some((entry) => entry.reason === 'classify_failed')
-  return [
-    '',
-    `## volatile and the issue it names is closed (${expired.length}${unjudged})`,
-    ...(classifyFailed
-      ? ['  not judged: classify failed']
-      : expired.map((unit) => `  ${unit.id}  ${short(unit.text)}`)),
-  ]
+  const entries = classifyFailed
+    ? ['  not judged: classify failed']
+    : expired.map((unit) => `  ${unit.id}  ${short(unit.text)}`)
+  return section(
+    `volatile and the issue it names is closed (${expired.length}${unjudged})`,
+    entries,
+  )
 }
 
-/** What each model stage prints when it ran, in the order the stages run. */
-const STAGE_SECTIONS: Record<Stage, (report: Report) => string[]> = {
-  classify: expiredSections,
-  pairs: pairSections,
-  evidence: evidenceSections,
-}
+/** What each model stage prints when it ran, in the order the stages run. A
+ *  list rather than a record keyed by {@link Stage}, so the order is the
+ *  array's own rather than something read back out of the keys. */
+const STAGE_SECTIONS = [
+  ['classify', expiredSections],
+  ['pairs', pairSections],
+  ['evidence', evidenceSections],
+] as const satisfies ReadonlyArray<readonly [Stage, (report: Report) => string[]]>
 
 /** Each model stage's own findings, or the one line saying it never ran. */
 const modelSections = (report: Report): string[] =>
-  (Object.keys(STAGE_SECTIONS) as Stage[]).flatMap((stage) => {
+  STAGE_SECTIONS.flatMap(([stage, sectionsFor]) => {
     const skipped = report.skipped.find((entry) => entry.stage === stage)
-    if (skipped === undefined) return STAGE_SECTIONS[stage](report)
-    return ['', `## ${stage}: skipped (${skipped.reason})`]
+    if (skipped === undefined) return sectionsFor(report)
+    return section(`${stage}: skipped (${skipped.reason})`)
   })
 
 /** The findings a reviewer, human or agent, starts from. */
@@ -318,7 +326,8 @@ export const renderFindings = (report: Report): string => {
   if (report.ignoreCheck !== 'ok') lines.push(`  ignore check unavailable: ${report.ignoreCheck}`)
 
   for (const [status, heading] of FINDING_SECTIONS) {
-    lines.push(...section(heading, linesFor(report, status)))
+    const entries = linesFor(report, status)
+    lines.push(...section(`${heading} (${entries.length})`, entries))
   }
   // There is deliberately no "issues cited that are not open" section here.
   // Tier 0 knows each cited issue's state, and every state is in the JSON
@@ -330,23 +339,25 @@ export const renderFindings = (report: Report): string => {
   // No count in this heading: the lines are the counts, and a number of
   // distinct kinds beside them would be a second number meaning something
   // else.
-  lines.push('', '## tier 0: refs not checked', ...uncheckedTally(report))
+  lines.push(...section('tier 0: refs not checked', uncheckedTally(report)))
   lines.push(...modelSections(report))
   // Always, and with its count, whether or not a stage ran: a report with no
   // failures section would leave a reader guessing whether there were none or
   // whether nobody looked.
   lines.push(
-    '',
-    `## failures (${report.failures.length})`,
-    ...report.failures.map((failure) => `  ${failure.stage} ${failure.id}: ${failure.message}`),
+    ...section(
+      `failures (${report.failures.length})`,
+      report.failures.map((failure) => `  ${failure.stage} ${failure.id}: ${failure.message}`),
+    ),
   )
 
   const usage = report.usage
   lines.push(
-    '',
-    `## usage: ${usage.requests} requests (${usage.attempts} attempts), ` +
-      `${usage.inputTokens} input tokens, ${usage.requestMsSum} ms summed request time, ` +
-      `${report.wallClockMs} ms wall clock`,
+    ...section(
+      `usage: ${usage.requests} requests (${usage.attempts} attempts), ` +
+        `${usage.inputTokens} input tokens, ${usage.requestMsSum} ms summed request time, ` +
+        `${report.wallClockMs} ms wall clock`,
+    ),
   )
 
   return `${lines.join('\n')}\n`
