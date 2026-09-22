@@ -117,6 +117,18 @@ describe('splitMarkdown', () => {
     ])
   })
 
+  it('does not split on any of the other three abbreviations, only e.g. was covered above', () => {
+    const source =
+      'See the guide, i.e. Foo bar. Also etc. Bar baz. Compare vs. Qux quux. Next one starts.'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual([
+      'See the guide, i.e. Foo bar.',
+      'Also etc. Bar baz.',
+      'Compare vs. Qux quux.',
+      'Next one starts.',
+    ])
+  })
+
   it('does not split on a period inside a markdown link', () => {
     const source = 'Read [the docs. See it](https://example.com/a.b) for more. Then this.'
     const { units } = splitMarkdown(FILE, source)
@@ -256,6 +268,13 @@ describe('splitMarkdown', () => {
     expect(units.map((u) => u.text)).toEqual(['A quoted sentence.', 'A plain sentence.'])
   })
 
+  it('recognises a heading marker inside a blockquote, pushing it onto the heading stack', () => {
+    const source = ['> # Quoted Heading', '>', '> Body sentence.'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['Body sentence.'])
+    expect(units[0]?.headingPath).toEqual(['Quoted Heading'])
+  })
+
   it('turns a fence inside a list item into its own opaque block', () => {
     const source = [
       '- an item with code',
@@ -282,6 +301,17 @@ describe('splitMarkdown', () => {
     expect(sentence?.endLine).toBe(3)
     const item = units.find((u) => u.block === 'list_item')
     expect(item?.startLine).toBe(5)
+  })
+
+  it('handles a bare-CR-only file (no \\n anywhere), not only \\r\\n', () => {
+    // splitLines' three-way alternation has a standalone `\r` branch that a
+    // CRLF-only test can never exercise: this pins the old-Mac-style case.
+    const source = '# Heading\r\rFirst sentence.\r\rSecond sentence.\r'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['First sentence.', 'Second sentence.'])
+    expect(units[0]?.startLine).toBe(3)
+    expect(units[0]?.headingPath).toEqual(['Heading'])
+    expect(units[1]?.startLine).toBe(5)
   })
 
   it('produces no units and no opaque blocks for an empty file', () => {
@@ -312,6 +342,28 @@ describe('splitMarkdown', () => {
     expect(second?.next).toBe(null)
     expect(third?.prev).toBe(null)
     expect(third?.next).toBe(null)
+  })
+
+  it('links prev/next across an opaque block, since only headingPath adjacency governs it', () => {
+    // Opaque blocks (fences, frontmatter) never enter `units`, so two units
+    // under one heading are still document-order neighbours in `units` even
+    // with a fenced block between them in the source.
+    const source = [
+      '# Sec',
+      '',
+      'First sentence.',
+      '',
+      '```',
+      'code',
+      '```',
+      '',
+      'Second sentence.',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const first = units.find((u) => u.text === 'First sentence.')
+    const second = units.find((u) => u.text === 'Second sentence.')
+    expect(first?.next).toBe('Second sentence.')
+    expect(second?.prev).toBe('First sentence.')
   })
 
   it('leaves refs empty from the splitter, on units and opaque blocks alike', () => {
@@ -447,6 +499,17 @@ describe('splitMarkdown', () => {
     expect(units.map((u) => u.text)).toEqual(['Look at ``x`y. Z`` after.', 'New one.'])
   })
 
+  it('protects a code span that opens on one hard-wrapped line and closes on the next', () => {
+    // computeProtectedMask runs once over buildLineMap's already-joined text,
+    // so the span stays masked across the line break: a mask computed per
+    // physical line and concatenated would wrongly split at the period inside it.
+    const source = ['Note `run(x). Y', 'continues` after this. New one.'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['Note `run(x). Y continues` after this.', 'New one.'])
+    expect(units[0]?.startLine).toBe(1)
+    expect(units[0]?.endLine).toBe(2)
+  })
+
   it('leaves an unterminated code span unprotected, rather than masking the rest of the text', () => {
     const source = 'See `unterminated code here. Next one.'
     const { units } = splitMarkdown(FILE, source)
@@ -514,6 +577,13 @@ describe('splitMarkdown', () => {
     const source = ['| Name | Note |', '| --- | --- |', '| a |'].join('\n')
     const { units } = splitMarkdown(FILE, source)
     expect(units[0]?.text).toBe('Name: a\nNote: ')
+  })
+
+  it('drops an extra cell silently when a row is wider than the header', () => {
+    const source = ['| Name | Note |', '| --- | --- |', '| a | b | extra |'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units).toHaveLength(1)
+    expect(units[0]?.text).toBe('Name: a\nNote: b')
   })
 
   it('tracks a mismatched inner backtick run inside a table cell without losing the pipe count', () => {
