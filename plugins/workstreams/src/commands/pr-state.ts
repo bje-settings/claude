@@ -3,10 +3,11 @@
 //
 // **Nothing is remembered.** Round 8 ruling 8 and CLAUDE.md's "derive what a
 // plugin needs each time it runs": there is no state file, so every fact here
-// is read again each tick and the only things the caller carries are the two
-// it alone knows, how many review rounds it has completed and whether the
-// first one was substantial. A file would be the copy that goes stale, and a
-// loop resumed from one would review a head that had already moved.
+// is read again each tick and the only things the caller carries are the three
+// it alone knows, how many review rounds it has completed, whether the first
+// one was substantial, and whether the rot check is done. A file would be the
+// copy that goes stale, and a loop resumed from one would review a head that
+// had already moved.
 //
 // **Nothing is hard-coded about the repository either.** The required
 // status-check contexts come from the rules that apply to the pull request's
