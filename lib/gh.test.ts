@@ -920,6 +920,23 @@ describe('issue and pull request states', () => {
     ])
     expect(result).toEqual({ states: { '101': 'OPEN' }, unavailable: null })
   })
+
+  it('reports a repository it could not resolve as unavailable, without a second call', async () => {
+    // Owner and name come from `viewRepository`, which throws; this endpoint
+    // never does, so a failure there ends the lookup with no `api graphql`
+    // call at all rather than one built from an empty owner and name.
+    const { gh, calls } = clientAnsweringEach([
+      { status: 1, stderr: 'gh: could not resolve to a Repository\n' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({
+      states: {},
+      unavailable: 'gh: could not resolve to a Repository',
+    })
+    expect(calls[0]?.args).toEqual(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'])
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
