@@ -81,6 +81,22 @@ const tokenize = (text: string): string[] => {
   return tokens
 }
 
+/** A table row's grouping key: same file, same heading path. Two rows with
+ *  that key and identical text are one column value repeated down a table
+ *  rather than duplicated content, so a pair between them is dropped whatever
+ *  their similarity. Any other block kind gets `null`, which is never treated
+ *  as equal to another `null`: two rows under DIFFERENT headings get different
+ *  keys and so still pair. */
+const tableGroup = (unit: Unit): string | null =>
+  unit.block === 'table_row' ? `${unit.file}\u0000${unit.headingPath.join('>')}` : null
+
+/** Two rows of one table holding the same value. */
+const repeatedCell = (unit: Unit, other: Unit): boolean => {
+  if (unit.text !== other.text) return false
+  const group = tableGroup(unit)
+  return group !== null && group === tableGroup(other)
+}
+
 /** The dot product of two token-weight maps, iterating the smaller one: both
  *  vectors are already L2-normalised below, so this dot product IS the cosine
  *  similarity. */
@@ -148,23 +164,26 @@ export const candidatePairs = (
   const threshold = opts.threshold ?? DEFAULT_THRESHOLD
 
   const tokensByUnit = new Map<string, string[]>()
+  const eligible: Unit[] = []
   for (const unit of units) {
     const tokens = tokenize(unit.text)
-    if (tokens.length >= MIN_TOKENS) tokensByUnit.set(unit.id, tokens)
+    if (tokens.length < MIN_TOKENS) continue
+    tokensByUnit.set(unit.id, tokens)
+    eligible.push(unit)
   }
   const vectors = vectorsOf(tokensByUnit)
 
-  const eligible = [...tokensByUnit.keys()]
   const pairs: PairCandidate[] = []
-  for (const [index, id] of eligible.entries()) {
-    for (const otherId of eligible.slice(index + 1)) {
+  for (const [index, unit] of eligible.entries()) {
+    for (const other of eligible.slice(index + 1)) {
       // Both ids are keys of `tokensByUnit`, so both have a vector.
       const similarity = dot(
-        vectors.get(id) as Map<string, number>,
-        vectors.get(otherId) as Map<string, number>,
+        vectors.get(unit.id) as Map<string, number>,
+        vectors.get(other.id) as Map<string, number>,
       )
       if (similarity < threshold) continue
-      const [a, b] = id < otherId ? [id, otherId] : [otherId, id]
+      if (repeatedCell(unit, other)) continue
+      const [a, b] = unit.id < other.id ? [unit.id, other.id] : [other.id, unit.id]
       pairs.push({ a, b, similarity })
     }
   }

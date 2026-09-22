@@ -1544,3 +1544,20 @@ it('asks about the units that share a vocabulary, and about no others', async ()
     ].join('\n'),
   )
 })
+
+it('does not compare a cell value repeated down one table', async () => {
+  // Two rows of one table saying the same thing are one value written twice in
+  // a column, not a claim made twice: there is nothing to delete and nothing
+  // to settle, so a model call on them buys nothing. `judgePair` has no reply
+  // registered, so a candidate that reached it would throw.
+  const audit = modelled('tables', {
+    classify: {
+      classifications: [classified('CLAUDE.md:7-7'), classified('CLAUDE.md:8-8')],
+      failures: [],
+    },
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('## pairs: contradicts (0; 0 of 0 judged)')
+})
