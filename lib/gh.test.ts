@@ -867,6 +867,17 @@ describe('issue and pull request states', () => {
 
     expect(result).toEqual({ states: {}, unavailable: 'gh: Bad credentials' })
   })
+
+  it("reports a body that is not JSON as unavailable in accountOf's words", async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: 'not json at all', stderr: 'gh: a note\n' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gh: a note' })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
