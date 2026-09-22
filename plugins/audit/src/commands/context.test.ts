@@ -610,3 +610,14 @@ it('catches a gh failure into the lookup reason, leaving every issue unchecked',
     { status: 'unchecked', reason: 'unavailable' },
   ])
 })
+
+it('does not read a scoped package name as a path', async () => {
+  // `@scope/name` has a slash and is not a path, and reporting one absent
+  // gives a reader a finding to dismiss in every repository that has a
+  // dependency.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[0]?.refs).toEqual([])
+})

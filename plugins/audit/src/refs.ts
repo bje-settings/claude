@@ -72,9 +72,14 @@ const KNOWN_BARE_FILENAMES = new Set([
  * Accepted: a value with a directory component, a narrowly-specific extension,
  * or a well-known bare filename.
  */
+/** A scoped package name (`@scope/name`, `@scope/name@1.2.3`). It has a slash
+ *  and is not a path, and a repository with dependencies writes several. */
+const SCOPED_PACKAGE_RE = /^@[\w.-]+\/[\w.-]+/
+
 const looksLikePath = (value: string): boolean => {
   if (/\s/.test(value)) return false
   if (value.includes('://')) return false
+  if (SCOPED_PACKAGE_RE.test(value)) return false
   if (value.includes('/')) return true
   if (KNOWN_BARE_FILENAMES.has(value)) return true
   return KNOWN_EXTENSIONS.has(extname(value))
