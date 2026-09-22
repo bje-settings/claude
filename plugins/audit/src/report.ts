@@ -137,12 +137,26 @@ const pairSections = (report: Report): string[] => {
   ]
 }
 
+/** A unit that names an expiry, where an issue it cites is no longer open. */
+const isExpired = (unit: Unit): boolean =>
+  unit.refs.some((ref) => ref.resolution.status === 'issue' && ref.resolution.state !== 'OPEN')
+
+/** The units the classify stage makes findings of. */
+const expiredSections = (report: Report): string[] => {
+  const expired = report.units.filter(isExpired)
+  return [
+    '',
+    `## volatile and the issue it names is closed (${expired.length})`,
+    ...expired.map((unit) => `  ${unit.id}  ${unit.text}`),
+  ]
+}
+
 /** A stage with nothing to print yet. */
 const noSections = (): string[] => []
 
 /** What each model stage prints when it ran, in the order the stages run. */
 const STAGE_SECTIONS: Record<Stage, (report: Report) => string[]> = {
-  classify: noSections,
+  classify: expiredSections,
   pairs: pairSections,
   evidence: noSections,
 }

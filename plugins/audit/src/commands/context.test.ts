@@ -1375,3 +1375,22 @@ it('compares no history or structural unit, whatever they look like', async () =
 
   expect(audit.stdout()).toContain('## pairs: contradicts (0; 0 of 0 judged)')
 })
+
+it('reports a volatile unit whose cited issue has closed', async () => {
+  // The unit names its own expiry, and the issue it hangs that expiry on is no
+  // longer open: that pairing is the finding, and neither half is one alone.
+  const audit = modelled(
+    'expired',
+    { classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] } },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## volatile and the issue it names is closed (1)',
+      '  CLAUDE.md:3-3  The Python layer is retiring and stays only until `#164` lands.',
+    ].join('\n'),
+  )
+})
