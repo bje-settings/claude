@@ -134,6 +134,9 @@ export interface WatchResult {
   readonly problem: string
 }
 
+/** The three states GraphQL reports for an issue or a pull request. */
+export type IssueState = 'OPEN' | 'CLOSED' | 'MERGED'
+
 /** What each endpoint answers with. One entry per operation, so the reply map
  *  and the client cannot drift apart. */
 export interface GhResults {
@@ -155,6 +158,15 @@ export interface GhResults {
   addComment: string
   /** What the bounded watch did. */
   watchChecks: WatchResult
+  /** Every requested number's state, resolved through one or more `gh api
+   *  graphql` calls. `not_found` only for a number GraphQL names outright as
+   *  gone; any other unresolved number is left out of `states` and its
+   *  reason folded into `unavailable`, so a permissions error or a timeout is
+   *  never reported as "this issue does not exist" (see {@link GhClient.issueStates}). */
+  issueStates: {
+    readonly states: Readonly<Record<string, IssueState | 'not_found'>>
+    readonly unavailable: string | null
+  }
 }
 
 export type GhEndpoint = keyof GhResults
@@ -224,6 +236,19 @@ export interface GhClient {
     boundMs: number
     failFast?: boolean
   }): Promise<GhResults['watchChecks']>
+  /**
+   * Every number's state: open, closed, merged, or not found. Reads the
+   * repository from {@link GhClient.viewRepository} rather than taking one,
+   * because the one caller (tier 0 of the context audit, #170) has already
+   * resolved the checkout and wants the same repository every other endpoint
+   * here answers about.
+   *
+   * Never throws. A number GraphQL cannot place at all (a private repository
+   * this token cannot see, a rate limit, a timeout) is left out of `states`
+   * and its reason goes into `unavailable`, because reporting it `not_found`
+   * would fabricate a finding out of a failure to ask.
+   */
+  issueStates(query: { readonly numbers: readonly number[] }): Promise<GhResults['issueStates']>
 }
 
 /**
@@ -353,6 +378,120 @@ const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
 
+/** How many numbers `issueStates` puts in one `gh api graphql` call. A
+ *  conservative batch size rather than a documented limit: GitHub rejects a
+ *  query by node count and complexity, not by a fixed number of aliases, and
+ *  100 `state` fields are far below either (the context-audit spike, #164). */
+const ISSUE_BATCH = 100
+
+/** Every value {@link IssueState} can hold, as a `Record` rather than a bare
+ *  array literal: adding a member to the union without adding its key here is
+ *  a `tsc` error (an incomplete `Record<IssueState, true>`), where a
+ *  `readonly IssueState[]` literal would stay valid with a member missing and
+ *  the two would drift apart silently. */
+const ISSUE_STATES: Record<IssueState, true> = { OPEN: true, CLOSED: true, MERGED: true }
+
+/** Whether a GraphQL `state` field is one of the three states this promises. */
+const isIssueState = (value: unknown): value is IssueState =>
+  typeof value === 'string' && Object.hasOwn(ISSUE_STATES, value)
+
+/** `unknown` narrowed to a record, or `undefined` when it is not one. */
+const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
+
+/** Several reasons as one sentence, or null when there are none. */
+const joinedReasons = (reasons: readonly string[]): string | null =>
+  reasons.length === 0 ? null : reasons.join('; ')
+
+/**
+ * The GraphQL query for a batch of issue and pull-request numbers in one
+ * round trip: one aliased `issueOrPullRequest` field per number, each asking
+ * for `state` under both possible types, because `gh` cannot tell the caller
+ * in advance which of the two a number is. Ported from the context-audit
+ * spike's `buildIssueQuery` (#164).
+ */
+const buildIssueQuery = (owner: string, name: string, numbers: readonly number[]): string => {
+  const fields = numbers.map(
+    (n, index) =>
+      `i${index}: issueOrPullRequest(number: ${n}) ` +
+      `{ ... on Issue { state } ... on PullRequest { state } }`,
+  )
+  return `query {
+  repository(owner: "${owner}", name: "${name}") {
+    ${fields.join('\n    ')}
+  }
+}`
+}
+
+/**
+ * The alias one error says outright does not exist, or null for every other
+ * error. A GraphQL reply tags each error with a `type` and the `path` it
+ * happened on: a missing node is
+ * `{"type":"NOT_FOUND","path":["repository","i1"], ...}`. A `FORBIDDEN`, a
+ * `RATE_LIMITED` and a timeout are tagged differently, and a timeout carries
+ * no `path` at all, so none of them names an alias here. That is the whole
+ * point: only an alias this returns may be reported absent.
+ */
+const notFoundAlias = (entry: unknown): string | null => {
+  const error = asRecord(entry)
+  if (error?.type !== 'NOT_FOUND') return null
+  const path = error.path
+  if (!Array.isArray(path) || path.length === 0) return null
+  const last: unknown = path[path.length - 1]
+  return typeof last === 'string' ? last : null
+}
+
+/**
+ * One chunk's reply, aligned back to `numbers` by alias index, or `undefined`
+ * when there is nothing to align against: stdout that is not JSON, or JSON
+ * with no `data.repository` object in it. The reason for that `undefined` is
+ * not this function's to give, because the caller holds the {@link RunResult}
+ * the body came from and reports `accountOf` it, which covers a gh that never
+ * started as well as a body with no repository in it.
+ *
+ * `states` carries only the numbers the reply actually answered for: a number
+ * left out is one the reply gave no usable answer for, and a caller reads that
+ * as `unavailable`, never as absent. `errors` is every error message NOT
+ * already accounted for by a `not_found` state, because a `NOT_FOUND` on a
+ * named alias is a complete answer about that number rather than a reason the
+ * lookup was unavailable. Ported from the spike's `parseIssueResponse` and
+ * `parseIssueChunkBody` (#164), which were two functions only for the
+ * fallback the spike kept for a reply with no `data` wrapper; that fallback is
+ * unreachable once a reply needs a `data.repository` to be read at all.
+ */
+const parseIssueChunk = (
+  stdout: string,
+  numbers: readonly number[],
+): { states: Record<string, IssueState | 'not_found'>; errors: string | null } | undefined => {
+  let reply: Record<string, unknown> | undefined
+  try {
+    reply = asRecord(JSON.parse(stdout))
+  } catch {
+    return undefined
+  }
+  const repository = asRecord(asRecord(reply?.data)?.repository)
+  if (repository === undefined) return undefined
+
+  const errorsField = reply?.errors
+  const entries = Array.isArray(errorsField) ? errorsField : []
+  const absent = new Set(entries.map(notFoundAlias).filter((alias) => alias !== null))
+  const states: Record<string, IssueState | 'not_found'> = {}
+  numbers.forEach((n, index) => {
+    const alias = `i${index}`
+    const state = asRecord(repository[alias])?.state
+    if (isIssueState(state)) {
+      states[String(n)] = state
+    } else if (absent.has(alias)) {
+      states[String(n)] = 'not_found'
+    }
+  })
+  const messages = entries
+    .filter((entry) => notFoundAlias(entry) === null)
+    .map((entry) => asRecord(entry)?.message)
+    .filter((message): message is string => typeof message === 'string')
+  return { states, errors: joinedReasons(messages) }
+}
+
 /** An optional filter, as the two argv words gh wants or as nothing at all. */
 const filter = (name: string, value: string | number | undefined): string[] =>
   value === undefined ? [] : [`--${name}`, String(value)]
@@ -481,7 +620,12 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   /** gh's stdout alone, for the endpoints whose answer is text. */
   const text = async (args: readonly string[]): Promise<string> => (await succeeded(args)).stdout
 
-  return {
+  // A `const` bound and then returned, rather than a plain `return`, because
+  // `issueStates` reads the repository through `client.viewRepository` (round
+  // 6's ruling on #170: "the existing viewRepository()", not a second copy of
+  // its argv). The reference resolves when that endpoint is called, by which
+  // point `client` is assigned.
+  const client: GhClient = {
     listPullRequests: async (query = {}) => {
       const args = [
         'pr',
@@ -653,5 +797,59 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
             : accountOf(result),
       }
     },
+
+    // Never throws (the interface's own contract): a failure to resolve the
+    // repository, to reach gh at all, or to read what gh printed is folded
+    // into `unavailable` rather than rejecting, because the one consumer
+    // (tier 0 of the context audit, #164/#170) reports on many numbers at
+    // once and a single bad chunk must not cost it every other answer.
+    issueStates: async (query) => {
+      let owner: string
+      let name: string
+      try {
+        const repository = await client.viewRepository()
+        // `nameWithOwner` is "owner/name" in one string, so reusing the
+        // existing endpoint costs this split. There is deliberately no branch
+        // for a value of some other shape: `split` never throws, and the query
+        // built from whatever it yields fails downstream, where `accountOf`
+        // already reports it (pinned by "reports a repository whose name has
+        // no owner prefix" below). `owner`'s cast is `noUncheckedIndexedAccess`
+        // being exact about a `string[]` of unknown length, erased and adding
+        // no branch; `name` is `String(parts[1])` rather than the same cast,
+        // because a `nameWithOwner` with no `/` leaves `parts[1]` genuinely
+        // `undefined` and a cast would be a type that lies about the value it
+        // holds.
+        const parts = String(repository.nameWithOwner).split('/')
+        owner = parts[0] as string
+        name = String(parts[1])
+      } catch (error) {
+        // `viewRepository` throws only `GhError` (`succeeded` and `record`
+        // above), so this is a cast, not a runtime check: an `instanceof`
+        // guard here would add an arm no input can reach, which is the
+        // branch the coverage rule says to restructure away rather than
+        // exclude.
+        return { states: {}, unavailable: (error as GhError).detail }
+      }
+
+      const states: Record<string, IssueState | 'not_found'> = {}
+      const reasons: string[] = []
+      for (let i = 0; i < query.numbers.length; i += ISSUE_BATCH) {
+        const chunk = query.numbers.slice(i, i + ISSUE_BATCH)
+        // `gh api graphql` exits 1 on a partial body that is still an answer
+        // (one bad alias fails the whole call), so the body is read whatever
+        // the status, through `invoke` rather than `succeeded`.
+        const args = ['api', 'graphql', '-f', `query=${buildIssueQuery(owner, name, chunk)}`]
+        const result = await invoke(args)
+        const answer = parseIssueChunk(result.stdout, chunk)
+        if (answer === undefined) {
+          reasons.push(accountOf(result))
+          continue
+        }
+        Object.assign(states, answer.states)
+        if (answer.errors !== null) reasons.push(answer.errors)
+      }
+      return { states, unavailable: joinedReasons(reasons) }
+    },
   }
+  return client
 }

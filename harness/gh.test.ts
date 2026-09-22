@@ -24,6 +24,7 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['updateBranch', (client) => client.updateBranch({ pullRequest: 7, rebase: true })],
   ['addComment', (client) => client.addComment({ pullRequest: 7, body: 'hello' })],
   ['watchChecks', (client) => client.watchChecks({ pullRequest: 7, interval: 30, boundMs: 1_000 })],
+  ['issueStates', (client) => client.issueStates({ numbers: [127, 164] })],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -54,6 +55,7 @@ it('answers every endpoint it declares', async () => {
     updateBranch: 'Updated branch\n',
     addComment: 'https://github.com/acme/widgets/pull/7#issuecomment-1\n',
     watchChecks: { status: 0, timedOut: false, waitedMs: 12, problem: '' },
+    issueStates: { states: { '127': 'OPEN', '164': 'not_found' }, unavailable: null },
   })
 
   for (const [endpoint, call] of CALLS) {

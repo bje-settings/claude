@@ -3,7 +3,7 @@
 // `argparse` answers today rather than invented ones.
 import { describe, expect, it } from 'vitest'
 
-import { type ArgSpec, type Options, parseArguments } from './args.ts'
+import { type ArgSpec, type Options, parseArguments, parseCommandLine } from './args.ts'
 
 // Deliberately not annotated `: ArgSpec`. The annotation widens every key to
 // `string` and every value to `OptionSpec`, which collapses `Options<S>` to an
@@ -174,4 +174,43 @@ describe('parseArguments', () => {
       value: { quiet: true },
     })
   })
+})
+
+describe('parseCommandLine', () => {
+  it('answers with the options and the positionals a command that widens itself wants', () => {
+    // #170's first caller: a command that names issue numbers on the command
+    // line rather than through a flag.
+    expect(parseCommandLine(['138', '164', '--help'], MERMAID)).toEqual({
+      outcome: 'ok',
+      value: {
+        options: { route: 'view', theme: 'default', help: true },
+        positionals: ['138', '164'],
+      },
+    })
+  })
+
+  it('answers with no positionals on a command line that names none', () => {
+    // Never partial, the same promise `parseArguments` makes for options:
+    // `positionals` is always an array, empty rather than absent.
+    expect(parseCommandLine([], MERMAID)).toEqual({
+      outcome: 'ok',
+      value: { options: { route: 'view', theme: 'default', help: false }, positionals: [] },
+    })
+  })
+
+  it('still refuses a bad flag, exactly as parseArguments does', () => {
+    // The core is shared; only `allowPositionals` differs, so a bad flag or a
+    // bad choice is refused before positionals ever enter it.
+    expect(parseCommandLine(['--route', 'ink-pdf'], MERMAID)).toEqual({
+      outcome: 'refused',
+      error: '--route must be one of edit, ink-img, ink-svg, view, not "ink-pdf"',
+    })
+  })
+})
+
+it('parseArguments still refuses a positional now that parseCommandLine exists beside it', () => {
+  // The split is `allowPositionals` alone: a caller of the narrower function
+  // must keep getting the narrower refusal, not silently widen because the
+  // core it shares learned to allow one.
+  expect(parseArguments(['138'], MERMAID)).toMatchObject({ outcome: 'refused' })
 })

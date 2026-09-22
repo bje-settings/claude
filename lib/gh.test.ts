@@ -80,6 +80,30 @@ const clientAnswering = (
   return { gh: createGhClient({ ...options, run: answering(reply, calls) }), calls }
 }
 
+/** A runner that answers each call from `replies` in order, repeating the
+ *  last reply once the list runs out, and records every call. `issueStates`
+ *  is the one endpoint that makes more than one call on its own (`repo view`
+ *  for the owner and name, then one `api graphql` call per chunk), so its
+ *  tests need a runner that can tell those calls apart. */
+const answeringEach =
+  (replies: Reply[], calls: Call[]): Runner =>
+  async (command, args, options) => {
+    calls.push({
+      command,
+      args: args ?? [],
+      cwd: options?.cwd,
+      env: options?.env,
+      timeoutMs: options?.timeoutMs,
+    })
+    const reply = replies[Math.min(calls.length - 1, replies.length - 1)]
+    return asResult(reply ?? {})
+  }
+
+const clientAnsweringEach = (replies: Reply[]): Harness => {
+  const calls: Call[] = []
+  return { gh: createGhClient({ run: answeringEach(replies, calls) }), calls }
+}
+
 describe('argv', () => {
   it('asks gh pr list for the fields the shepherd reads, with no filters by default', async () => {
     const { gh, calls } = clientAnswering({ stdout: '[]' })
@@ -714,6 +738,333 @@ describe('the checks watch', () => {
   })
 })
 
+describe('issue and pull request states', () => {
+  it('asks gh api graphql for one aliased issueOrPullRequest per number and reads OPEN back', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: '{"data":{"repository":{"i0":{"state":"OPEN"}}}}' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [127] })
+
+    expect(calls[0]?.args).toEqual(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'])
+    expect(calls[1]?.args).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'query=query {\n' +
+        '  repository(owner: "acme", name: "widgets") {\n' +
+        '    i0: issueOrPullRequest(number: 127) { ... on Issue { state } ... on PullRequest { state } }\n' +
+        '  }\n' +
+        '}',
+    ])
+    expect(result).toEqual({ states: { '127': 'OPEN' }, unavailable: null })
+  })
+
+  it('reads a CLOSED state and a MERGED state, one alias per number', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: '{"data":{"repository":{"i0":{"state":"CLOSED"},"i1":{"state":"MERGED"}}}}',
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1, 2] })
+
+    expect(result).toEqual({ states: { '1': 'CLOSED', '2': 'MERGED' }, unavailable: null })
+  })
+
+  it('reads a null alias as not_found only when a NOT_FOUND error names it', async () => {
+    // The rule that took two review rounds on the spike to get right (#170):
+    // an alias is `not_found` only when `errors` carries a `NOT_FOUND` entry
+    // whose `path` ends in that alias.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: null } },
+          errors: [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'i0'],
+              message: 'Could not resolve to an issue or pull request with the number of 999999.',
+            },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [999999] })
+
+    expect(result).toEqual({ states: { '999999': 'not_found' }, unavailable: null })
+  })
+
+  it('leaves a FORBIDDEN alias out rather than calling it absent, and reports why', async () => {
+    // The defect the rule above exists for: a permissions error beside a
+    // perfectly good answer must not read as "this issue does not exist".
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'OPEN' }, i1: null } },
+          errors: [
+            {
+              type: 'FORBIDDEN',
+              path: ['repository', 'i1'],
+              message: 'Resource not accessible by integration',
+            },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 164] })
+
+    expect(result).toEqual({
+      states: { '138': 'OPEN' },
+      unavailable: 'Resource not accessible by integration',
+    })
+  })
+
+  it('leaves every null alias out for a timeout error, which carries no path', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: null, i1: null } },
+          errors: [{ message: 'Something went wrong while executing your query.' }],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 164] })
+
+    expect(result).toEqual({
+      states: {},
+      unavailable: 'Something went wrong while executing your query.',
+    })
+  })
+
+  it("reports a body whose repository is null as unavailable in accountOf's words", async () => {
+    // "Only a body without `data.repository` is `unavailable`, with
+    // `accountOf(result)` as the reason" (#170): unlike the spike, this does
+    // not read the GraphQL error message for the reason, it reads what the
+    // transport says about the call, exactly as every other endpoint here
+    // does for a failure.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        status: 1,
+        stdout: JSON.stringify({
+          data: { repository: null },
+          errors: [{ message: 'Bad credentials' }],
+        }),
+        stderr: 'gh: Bad credentials\n',
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gh: Bad credentials' })
+  })
+
+  it("reports a body that is not JSON as unavailable in accountOf's words", async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: 'not json at all', stderr: 'gh: a note\n' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gh: a note' })
+  })
+
+  it('reports a gh that could not be started as unavailable, never as a throw', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { status: 127, startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' } },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'cannot run gh: spawn gh ENOENT' })
+  })
+
+  it('chunks 101 numbers into two calls of 100 and 1, each aliased from i0', async () => {
+    const numbers = Array.from({ length: 101 }, (_, i) => i + 1)
+    const { gh, calls } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: '{"data":{"repository":{}}}' },
+      { stdout: '{"data":{"repository":{"i0":{"state":"OPEN"}}}}' },
+    ])
+
+    const result = await gh.issueStates({ numbers })
+
+    // Each `api graphql` call aliases from i0 again: the batch is what resets,
+    // not a running count, so the second call's one number is still i0. Only
+    // the two ends of the first chunk are asserted as literals, rather than
+    // reconstructing the whole 100-alias query from the numbers array, which
+    // would only prove the query builder against a copy of itself.
+    expect(calls[1]?.args[3]).toContain('i0: issueOrPullRequest(number: 1) {')
+    expect(calls[1]?.args[3]).toContain('i99: issueOrPullRequest(number: 100) {')
+    expect(calls[1]?.args[3]).not.toContain('number: 101')
+    expect(calls[2]?.args).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'query=query {\n' +
+        '  repository(owner: "acme", name: "widgets") {\n' +
+        '    i0: issueOrPullRequest(number: 101) { ... on Issue { state } ... on PullRequest { state } }\n' +
+        '  }\n' +
+        '}',
+    ])
+    expect(result).toEqual({ states: { '101': 'OPEN' }, unavailable: null })
+  })
+
+  it('reports a repository it could not resolve as unavailable, without a second call', async () => {
+    // Owner and name come from `viewRepository`, which throws; this endpoint
+    // never does, so a failure there ends the lookup with no `api graphql`
+    // call at all rather than one built from an empty owner and name.
+    const { gh, calls } = clientAnsweringEach([
+      { status: 1, stderr: 'gh: could not resolve to a Repository\n' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({
+      states: {},
+      unavailable: 'gh: could not resolve to a Repository',
+    })
+    expect(calls[0]?.args).toEqual(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'])
+  })
+
+  it('leaves an unrecognised state out: the node exists, so it is not absent', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: '{"data":{"repository":{"i0":{"state":"DRAFT"}}}}' },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138] })
+
+    expect(result).toEqual({ states: {}, unavailable: null })
+  })
+
+  it.each([
+    ['no path at all', { type: 'NOT_FOUND', message: 'gone' }],
+    ['a path that is not an array', { type: 'NOT_FOUND', path: 'repository.i0', message: 'gone' }],
+    ['an empty path', { type: 'NOT_FOUND', path: [], message: 'gone' }],
+    [
+      'a path whose last entry is not a string',
+      { type: 'NOT_FOUND', path: ['repository', 0], message: 'gone' },
+    ],
+  ])('names no alias for a NOT_FOUND error with %s', async (_case, error) => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: JSON.stringify({ data: { repository: { i0: null } }, errors: [error] }) },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gone' })
+  })
+
+  it('keeps the states a non-zero exit still answered, alongside a NOT_FOUND', async () => {
+    // `gh api graphql` exits 1 when ANY alias in the query errors, even when
+    // the body is a perfectly good answer for every other alias: this is the
+    // whole reason `issueStates` reads the body through `invoke` rather than
+    // `succeeded`, which would throw on this exit status and lose the
+    // resolved answer along with it.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        status: 1,
+        stderr: 'gh: some errors occurred processing your query\n',
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'OPEN' }, i1: null } },
+          errors: [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'i1'],
+              message: 'Could not resolve to an issue or pull request with the number of 999999.',
+            },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 999999] })
+
+    expect(result).toEqual({ states: { '138': 'OPEN', '999999': 'not_found' }, unavailable: null })
+  })
+
+  it('joins two non-NOT_FOUND error messages from the same chunk', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: null, i1: null } },
+          errors: [
+            { type: 'FORBIDDEN', path: ['repository', 'i0'], message: 'first message' },
+            { type: 'RATE_LIMITED', path: ['repository', 'i1'], message: 'second message' },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 164] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'first message; second message' })
+  })
+
+  it('joins reasons from two chunks that each failed for a different reason', async () => {
+    const numbers = Array.from({ length: 101 }, (_, i) => i + 1)
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'OPEN' } } },
+          errors: [{ type: 'FORBIDDEN', path: ['repository', 'i1'], message: 'first reason' }],
+        }),
+      },
+      { stdout: 'not json at all', stderr: 'second reason\n' },
+    ])
+
+    const result = await gh.issueStates({ numbers })
+
+    // Both chunks' resolved states and both chunks' reasons survive: neither
+    // overwrites the other, which `reasons.push` across the loop and
+    // `Object.assign` promise and a `reasons[0]` or a clobbering assignment
+    // would not.
+    expect(result).toEqual({ states: { '1': 'OPEN' }, unavailable: 'first reason; second reason' })
+  })
+
+  it('reports a repository whose name has no owner prefix as unavailable, via the graphql call it still makes', async () => {
+    // `nameWithOwner` with no `/` is not a shape any real gh answers with,
+    // but the code makes no branch for it either (the comment above the
+    // split in `lib/gh.ts`): `parts[1]` is `undefined`, `String(undefined)`
+    // embeds the four characters `undefined` as the query's `name` argument,
+    // and the resulting query fails downstream exactly as any other query
+    // naming a repository that does not exist would, reported through
+    // `accountOf` like every other chunk failure in this file.
+    const { gh, calls } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"widgets"}' },
+      {
+        status: 1,
+        stdout: JSON.stringify({ data: { repository: null } }),
+        stderr: "gh: Could not resolve to a Repository with the name 'widgets/undefined'.\n",
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(calls[1]?.args[3]).toContain('repository(owner: "widgets", name: "undefined")')
+    expect(result).toEqual({
+      states: {},
+      unavailable: "gh: Could not resolve to a Repository with the name 'widgets/undefined'.",
+    })
+  })
+})
+
 it("defaults to the root lib's own process runner", () => {
   // Constructed, not called: calling it would start the real `gh`, which is
   // what every other example here avoids. What this pins is that a client
@@ -726,6 +1077,7 @@ it("defaults to the root lib's own process runner", () => {
   const endpoints = Object.keys(gh).sort()
   expect(endpoints).toEqual([
     'addComment',
+    'issueStates',
     'listMergedPullRequests',
     'listPullRequests',
     'listRuns',

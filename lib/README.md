@@ -71,6 +71,14 @@ const parsed = parseArguments(argv, {
 if (parsed.outcome !== 'ok') return parsed // exit 2, the reason on stderr
 ```
 
+`parseArguments` refuses a positional by design: nothing in front of it takes one, so a stray word
+on the command line is far more often a quoting mistake than a request. `parseCommandLine(argv,
+spec)` is the same core with `allowPositionals: true`, for the one command that widens itself
+rather than inheriting an untested path (`plugins/audit`'s `/audit:context`, #170, names issue
+numbers on the command line). It answers `Envelope<{ options; positionals: readonly string[] }>`;
+`parseArguments` stays the no-positionals wrapper so every other caller, including
+`plugins/mermaid/src/commands/url.ts`, is untouched.
+
 Every declared option carries a default, so a parsed command line is never partial and no command
 grows a fallback branch for a flag nobody passed. A bad flag, a missing value, a stray positional
 or a value outside `choices` all come back as `refused`, which is exit 2: the status Python's
@@ -235,6 +243,48 @@ as a broken token. It carries no `--json` and returns no check list: gh refuses 
 `createGhClient` takes the process runner as an option, which is the seam this directory's own
 suite substitutes so that every endpoint and every arm of every failure are exercised in-process,
 with nothing spawned and no `gh` on the machine.
+
+### `issueStates`
+
+```ts
+const { states, unavailable } = await gh.issueStates({ numbers: [138, 164] })
+// states: { '138': 'OPEN', '164': 'not_found' }
+```
+
+Tier 0 of the context audit (#164/#170): every number's state, resolved through one or more `gh
+api graphql` calls in place of a `gh issue view` or `gh pr view` per number. Owner and name come
+from `viewRepository()` rather than a second `gh repo view --json owner,name` call, splitting its
+`nameWithOwner` field on `/`; `REPOSITORY_FIELDS` already carries it. Numbers are batched at 100
+per call (`ISSUE_BATCH`), each with its own aliases starting again from `i0`: GitHub rejects a
+GraphQL query by node count and complexity rather than by a fixed alias count, and 100 `state`
+fields are far below either.
+
+**Never throws.** A failure to resolve the repository, to reach `gh` at all, or to read what it
+printed goes into `unavailable` rather than rejecting, because the one consumer reports on many
+numbers at once and a single bad chunk must not cost every other answer. `gh api graphql` exits 1
+on a partial body that is still an answer (one bad alias fails the whole call), so this endpoint
+reads the body through `invoke`, never `succeeded`, whatever the exit status; a body with no
+`data.repository` to align aliases against is `unavailable`, with `accountOf(result)` as the
+reason, the same account every other failure in this file reads.
+
+**The one rule that took two review rounds on the spike (#164) to get right, pinned first in this
+port's suite:** an alias is `not_found` only when `errors` carries an entry of type `NOT_FOUND`
+whose `path` ends in that alias. Any other null or missing alias with an accompanying error, such
+as a `FORBIDDEN`, a rate limit, or a timeout, which carries no `path` at all, is left out of
+`states` entirely, with its message folded into `unavailable`, never reported as "this issue does
+not exist": that is a finding fabricated out of a failure to ask. A `NOT_FOUND` on a named alias is
+a complete answer about that number, so it is not also counted toward `unavailable`. A number whose
+alias resolves to neither a recognised state nor a `NOT_FOUND` error (the reply answered something
+this endpoint does not read as a state, or left the alias out with no error alongside it) is also
+left out of `states`, and, with no error to fold in, out of `unavailable` too: the caller reads a
+number missing from both the same way the spike's own suite pins it (`refs.test.ts`, "leaves an
+unrecognised state out"), as unresolved rather than as a third, distinct outcome.
+
+Ported from the spike's `buildIssueQuery`, `parseIssueResponse` and `parseIssueChunkBody` as
+private helpers, adapted rather than copied: the spike's own endpoint never threw either, but it
+called `execFileSync` directly and parsed what THAT threw (`parseIssueChunkFailure`); here the
+endpoint takes the argv through the injected `Runner` seam every other endpoint uses, which answers
+rather than rejects, so there is no caught error to parse a second way.
 
 ## Decisions not taken
 
