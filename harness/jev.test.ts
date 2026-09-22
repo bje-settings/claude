@@ -3,7 +3,7 @@
 // its own method, an unregistered method throws and names itself, and
 // usage() always answers zeros.
 import { expect, it } from 'vitest'
-import { createJevMock } from './jev.ts'
+import { createJevMock, JevError, jevFails } from './jev.ts'
 
 it('answers with the reply registered for classify, on every call', async () => {
   const outcome = { classifications: [], failures: [] }
@@ -103,6 +103,35 @@ it('fails only the method the fail switch was registered for', async () => {
       },
     ),
   ).resolves.toBeDefined()
+})
+
+it('jevFails produces a JevError, so a command branching on error.status has something to catch', async () => {
+  const jev = createJevMock({ judgeEvidence: jevFails('jev: rate limited', 429) })
+
+  const rejection = await jev
+    .judgeEvidence(
+      {
+        id: 'a',
+        file: 'a.md',
+        headingPath: [],
+        leadIn: null,
+        prev: null,
+        next: null,
+        text: 'a',
+        refs: [],
+      },
+      'source.ts',
+      'excerpt',
+    )
+    .catch((error: unknown) => error)
+
+  expect(rejection).toBeInstanceOf(JevError)
+  expect((rejection as JevError).status).toBe(429)
+  expect((rejection as JevError).message).toBe('jev: rate limited')
+})
+
+it('jevFails defaults status to 0, the transport-failure status, when none is given', () => {
+  expect(jevFails('boom').status).toBe(0)
 })
 
 it('throws and names the method when nothing is registered for it', async () => {

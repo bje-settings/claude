@@ -391,7 +391,7 @@ the newest page answers.
 ## The TypeSafe transport and the Jev client
 
 ```ts
-const jev = createJevClient({ apiKey: process.env.TYPESAFE_API_KEY })
+const jev = createJevClient({ apiKey: process.env.TYPESAFE_API_KEY ?? '' })
 const { classifications, failures } = await jev.classify(units, 'per_unit')
 ```
 
@@ -405,7 +405,8 @@ reaches both through one import.
 
 **`typesafe.ts`.** `createJev(options)` takes `apiKey` and, for a test, every other knob that could
 otherwise sit in a branch nothing could steer: `fetch`, `sleep`, `random` and `timeoutMs`. A 429, a
-529 or a 5xx is retried with full-jitter backoff (`backoffMs`), capped at 30s before jitter; a
+529, or one of the proxy-layer 5xx (500, 502, 503, 504), is retried with full-jitter backoff
+(`backoffMs`), capped at 30s before jitter; a
 server-stated `Retry-After`, in seconds or as an HTTP date (`retryAfterMs`), wins over the computed
 backoff and is itself capped at 120s, since that number is the server's choice and not this code's. A
 timeout abort (`AbortSignal.timeout`) is a transport failure and is retried the same way a network

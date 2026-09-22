@@ -363,7 +363,7 @@ export function createJev(opts: TypeSafeOptions): Jev {
         } catch (error) {
           if (error instanceof JevError) throw error
           lastStatus = 0
-          lastBody = redact(messageOf(error), opts.apiKey)
+          lastBody = asBody(messageOf(error))
         }
         if (attempt >= maxRetries) {
           const what = lastStatus === 0 ? 'a transport failure' : `HTTP ${lastStatus}`

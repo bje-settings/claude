@@ -22,13 +22,14 @@
 // deliberately: counting calls pins an implementation detail and turns a
 // refactor red (ADR 001, RFC 001 "The testing seam").
 
-import type {
-  ChoiceAnswer,
-  ClassifyOutcome,
-  EvidenceVerdict,
-  JevClient,
-  PairVerdict,
-  Usage,
+import {
+  type ChoiceAnswer,
+  type ClassifyOutcome,
+  type EvidenceVerdict,
+  type JevClient,
+  JevError,
+  type PairVerdict,
+  type Usage,
 } from '../lib/jev.ts'
 
 export type {
@@ -46,6 +47,17 @@ export type {
   Usage,
 } from '../lib/jev.ts'
 export { JevError } from '../lib/jev.ts'
+
+/** The fail switch, for one method alone, mirroring `harness/gh.ts`'s
+ *  `ghFails`. A plain `Error` registered in its place would make a command's
+ *  own `error instanceof JevError && error.status === ...` arm unreachable
+ *  from its tests, the same gap `ghFails` exists to close for `GhError`.
+ *  `status` defaults to 0, `JevError`'s own status for a transport failure
+ *  that never got a response, since the fail switch stands for "this call
+ *  did not work" rather than for a particular HTTP status. */
+export function jevFails(message: string, status = 0): JevError {
+  return new JevError(status, message, message)
+}
 
 /** What each method answers with, one entry per method, so the reply map and
  *  the client cannot drift apart (mirrors `lib/gh.ts`'s `GhResults`). */

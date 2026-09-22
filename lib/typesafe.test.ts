@@ -4,7 +4,7 @@
 // jitter actually ran.
 
 import { expect, it } from 'vitest'
-import { choice, createJev, JevError, noul, redact, retryAfterMs } from './typesafe.ts'
+import { backoffMs, choice, createJev, JevError, noul, redact, retryAfterMs } from './typesafe.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -179,6 +179,32 @@ it('a 503 is retried like a 429', async () => {
   expect(calls).toBe(2)
 })
 
+// RETRYABLE names 500, 502 and 504 as "the standard proxy-layer statuses"
+// beside 429, 503 and 529, each with its own test: a Set literal missing one
+// of the six, or a typo in one of the numbers, is otherwise invisible to the
+// suite (only 429, 503 and 529 had a test of their own before this one).
+it.each([500, 502, 504])('a %d is retried like a 429', async (status) => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(status, 'unavailable') : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+  expect(calls).toBe(2)
+})
+
+it('the computed backoff stays inside its own 30s ceiling for a large attempt', () => {
+  // attempt 20: 500 * 2**20 is far past MAX_DELAY_MS, so an unguarded formula
+  // would sleep hours; the ceiling caps it at 30000 before jitter.
+  expect(backoffMs(20, () => 0.5)).toBe(15_000)
+  expect(backoffMs(20, () => 1)).toBeLessThanOrEqual(30_000)
+})
+
 it('a 400 is not retried and carries its status and body', async () => {
   let calls = 0
   const jev = createJev({
@@ -210,6 +236,25 @@ it('a network error is retried', async () => {
   })
   await jev.ask('s', Q)
   expect(calls).toBe(2)
+})
+
+it('a transport failure message is capped at BODY_LIMIT, like every other JevError.body', async () => {
+  // The doc comment on asBody says everything that reaches JevError.body goes
+  // through it, "redacted, then capped". The transport-failure branch of
+  // request()'s catch calls redact() directly instead of asBody(), so an
+  // oversized Error#message from a network failure (an aggregate error, a
+  // proxy quoting a whole request) would reach JevError.body uncapped.
+  const jev = createJev({
+    apiKey: KEY,
+    maxRetries: 0,
+    sleep: async () => {},
+    fetch: async () => {
+      throw new Error('x'.repeat(3_000))
+    },
+  })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.body.length).toBeLessThanOrEqual(2_000)
 })
 
 it('a transport failure that is not an Error instance is still retried and reported', async () => {
@@ -424,6 +469,15 @@ it('redact leaves text alone when the api key is empty', () => {
   // Exercises the early-return branch directly: an empty key would otherwise
   // become an empty-string RegExp that matches everywhere.
   expect(redact('nothing to hide', '')).toBe('nothing to hide')
+})
+
+it('redact turns Bearer <key> into [redacted] alone, not Bearer [redacted]', () => {
+  // The doc comment on redact() promises this exact result so the reader
+  // never sees "Bearer [redacted]"; a bare-key-only redaction would still
+  // remove the key here (leaving no key text behind) without producing this
+  // string, so a test that only checked "the key is gone" could not tell the
+  // two implementations apart.
+  expect(redact(`Bearer ${KEY}`, KEY)).toBe('[redacted]')
 })
 
 it('a body without answers is refused as a JevError carrying the response status', async () => {

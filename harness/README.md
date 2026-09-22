@@ -125,16 +125,19 @@ module. Inputs and outputs are still plain JSON values on purpose: the commands 
 ```ts
 const jev = createJevMock({
   classify: { classifications: [oneClassification], failures: [] },
-  judgeEvidence: new Error('jev: rate limited'), // the fail switch, for this one method alone
+  judgeEvidence: jevFails('jev: rate limited'), // the fail switch, for this one method alone
 })
 ```
 
 `createJevMock` is the same shape as `createGhMock`, over `JevClient` (`lib/jev.ts`, #173): a reply
-registered per method (`classify`, `judgePair`, `judgeEvidence`) comes back on **every** call, an
-`Error` in its place is that method's own fail switch, and a method with **no** registration throws
-and names itself. `usage()` is not registrable: it always answers zeros, because the mock holds no
-state to accumulate a real total against, and a test that cares what a run actually spent belongs
-against `lib/jev.test.ts`'s transport (`typesafe.ts`), which is where the counting logic lives.
+registered per method (`classify`, `judgePair`, `judgeEvidence`) comes back on **every** call, a
+`JevError` in its place is that method's own fail switch, and a method with **no** registration
+throws and names itself. `jevFails(message, status = 0)` is the per-method fail switch, mirroring
+`ghFails`: a plain `Error` would make a command's own `error instanceof JevError && error.status
+=== ...` arm unreachable from its tests, the same gap `ghFails` closes for `GhError`. `usage()` is
+not registrable: it always answers zeros, because the mock holds no state to accumulate a real
+total against, and a test that cares what a run actually spent belongs against `lib/jev.test.ts`'s
+transport (`typesafe.ts`), which is where the counting logic lives.
 
 `JevClient`, `ChoiceAnswer`, `Classification`, `ClassifyOutcome`, `EvidenceNeed`, `EvidenceVerdict`,
 `JevRequest`, `JevUnit`, `PairVerdict`, `RequestShape` and `UnitKind` moved to `lib/jev.ts` at #173,
