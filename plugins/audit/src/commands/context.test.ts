@@ -140,3 +140,16 @@ it('refuses when git will not list the tracked files', async () => {
     error: `could not list the tracked files of ${realpathSync(audit.work)}`,
   })
 })
+
+it('answers --help with its own usage, before anything is parsed or read', async () => {
+  // A raw scan of the tokens, the way `plugins/mermaid` resolves it: usage
+  // wins over a bad `--scope` rather than losing to it, and asking what a
+  // command does is not a mistake.
+  const audit = audited('paths')
+
+  const envelope = await runContext(['--scope', 'nonsense', '--help'], audit.edges)
+
+  expect(envelope.outcome).toBe('ok')
+  expect(envelope.outcome === 'ok' && envelope.value).toMatch(/^usage: audit\.ts context \[root\]/)
+  expect(audit.stdout()).toBe('')
+})

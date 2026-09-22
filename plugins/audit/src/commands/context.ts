@@ -35,7 +35,43 @@ export interface ContextEdges {
   readonly now: () => number
 }
 
-const ARG_SPEC = { json: { type: 'boolean' } } as const
+// `as const`, never `: ArgSpec` or `satisfies ArgSpec`: either annotation
+// widens `choices` to `readonly string[]` and collapses the parsed options to
+// an index signature (`lib/README.md`). Every count and the threshold are
+// string options with a default, checked below rather than by the parser,
+// which has no numeric kind.
+const ARG_SPEC = {
+  scope: { type: 'string', default: 'context', choices: ['context', 'all'] },
+  shape: { type: 'string', default: 'per_section', choices: ['per_section', 'per_unit'] },
+  'no-jev': { type: 'boolean' },
+  json: { type: 'boolean' },
+  out: { type: 'string', default: '' },
+  'max-pairs': { type: 'string', default: '300' },
+  'max-evidence': { type: 'string', default: '200' },
+  'pair-threshold': { type: 'string', default: '0.5' },
+} as const
+
+const USAGE = `usage: audit.ts context [root] [--scope context|all]
+       [--shape per_section|per_unit] [--no-jev] [--json] [--out FILE]
+       [--max-pairs N] [--max-evidence N] [--pair-threshold X]
+
+Audits a checkout's context files (CLAUDE.md, README.md and anything under a
+.claude/ directory; --scope all reads every tracked .md) for references that
+no longer resolve. The root defaults to the working directory.
+
+Tier 0 reads the tree and one batched issue lookup and needs no model. The
+model stages need TYPESAFE_API_KEY and are reported as skipped without it, or
+with --no-jev. --json writes the whole report instead of the findings text;
+--out writes it to a file as well.`
+
+/**
+ * True when `argv` asks for help. A raw scan of the tokens themselves, checked
+ * before anything is parsed, so usage wins over a bad `--scope` rather than
+ * losing to it. `plugins/mermaid/src/commands/url.ts` is where this shape was
+ * settled and why.
+ */
+export const wantsHelp = (argv: readonly string[]): boolean =>
+  argv.includes('-h') || argv.includes('--help')
 
 /** Every file's blocks, in file order. */
 const splitAll = (
@@ -82,6 +118,8 @@ export const runContext = async (
   argv: readonly string[],
   edges: ContextEdges,
 ): Promise<Envelope<string>> => {
+  if (wantsHelp(argv)) return ok(USAGE)
+
   const parsed = parseCommandLine(argv, ARG_SPEC)
   if (parsed.outcome !== 'ok') return parsed
   const started = edges.now()
