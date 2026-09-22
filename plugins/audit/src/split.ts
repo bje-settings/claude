@@ -435,8 +435,12 @@ const buildLineMap = (
   const map: number[] = []
   paraLines.forEach((line, idx) => {
     const lineNo = startLineNo + idx
-    for (const ch of line) {
-      text += ch
+    // Indexes by UTF-16 code unit, not code point: `text`'s length and every
+    // offset splitSentences reads from it (`.length`, match indices) are code
+    // units too, so a surrogate pair must still cost exactly one map entry
+    // per unit or later offsets drift off the end of map.
+    for (let k = 0; k < line.length; k++) {
+      text += line[k]
       map.push(lineNo)
     }
     if (idx < paraLines.length - 1) {

@@ -140,6 +140,26 @@ describe('splitMarkdown', () => {
     expect(units[1]?.endLine).toBe(3)
   })
 
+  it('keeps line numbers correct across a hard-wrapped sentence that carries an astral character', () => {
+    // A surrogate pair is one code point but two UTF-16 code units: buildLineMap
+    // must size its line map in the same units splitSentences indexes with, or
+    // every offset after the emoji drifts and the last unit's endLine reads
+    // past the end of the map.
+    const source = [
+      'Line \u{1F680} one starts a thought that',
+      'wraps onto line two.',
+      'A new sentence begins here.',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units).toHaveLength(2)
+    expect(units[0]?.id).toBe('a.md:1-2')
+    expect(units[0]?.startLine).toBe(1)
+    expect(units[0]?.endLine).toBe(2)
+    expect(units[1]?.id).toBe('a.md:3-3')
+    expect(units[1]?.startLine).toBe(3)
+    expect(units[1]?.endLine).toBe(3)
+  })
+
   it('turns a GFM table into header: cell rows, never units for the header or separator', () => {
     const source = [
       '| Name | Note |',
