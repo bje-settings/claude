@@ -7,6 +7,7 @@
 // Every fixture repository is a directory under `fixtures/repos/`, copied in
 // and committed by `harness/git.ts` `importTree`, which undoes the two names a
 // fixture cannot be stored under (`_gitignore`, `<name>.fixture.md`).
+import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -96,4 +97,15 @@ it('resolves a path its CLAUDE.md names, and skips every model stage with no key
     { stage: 'evidence', reason: 'no_key' },
   ])
   expect(report.issueLookup).toBe('ok')
+})
+
+it('refuses a path that is inside no checkout, and writes nothing to stdout', async () => {
+  const audit = audited('paths')
+  const outside = audit.sandbox.join('outside')
+  mkdirSync(outside)
+
+  const envelope = await runContext([outside], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'refused', error: `not a git repository: ${outside}` })
+  expect(audit.stdout()).toBe('')
 })
