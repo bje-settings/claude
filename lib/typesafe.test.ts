@@ -238,3 +238,23 @@ it('a stalled request is aborted by the timeout and retried as a transport failu
   expect(noulOf(answers, 'q')).toBe(0.75)
   expect(jev.usage().attempts).toBe(2)
 })
+
+it('a body that is not valid JSON on a 2xx is not retried', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return reply(200, 'not json at all {')
+    },
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(JevError)
+  expect((error as JevError).status).toBe(200)
+  expect((error as JevError).message).toMatch(/not valid JSON/)
+  expect((error as JevError).body).toBe('not json at all {')
+  // A billed 2xx must not be resent: exactly one attempt, not up to maxRetries + 1.
+  expect(calls).toBe(1)
+})
