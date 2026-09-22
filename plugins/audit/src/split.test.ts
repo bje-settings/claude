@@ -420,4 +420,98 @@ describe('splitMarkdown', () => {
     expect(units[0]?.startLine).toBe(2)
     expect(units[0]?.endLine).toBe(2)
   })
+
+  it('protects a period inside a double-backtick span even when a mismatched inner backtick run appears first', () => {
+    const source = 'Look at ``x`y. Z`` after. New one.'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['Look at ``x`y. Z`` after.', 'New one.'])
+  })
+
+  it('leaves an unterminated code span unprotected, rather than masking the rest of the text', () => {
+    const source = 'See `unterminated code here. Next one.'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['See `unterminated code here.', 'Next one.'])
+  })
+
+  it('treats an opening --- with no closing marker as an ordinary thematic break, not frontmatter', () => {
+    const source = ['---', 'title: no closing marker'].join('\n')
+    const { units, opaque } = splitMarkdown(FILE, source)
+    expect(opaque).toEqual([])
+    expect(units.map((u) => u.text)).toEqual(['title: no closing marker'])
+  })
+
+  it('closes a list immediately when a heading follows an item with no blank line between', () => {
+    const source = ['- item', '# Heading', '', 'Body sentence.'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const item = units.find((u) => u.block === 'list_item')
+    expect(item?.text).toBe('item')
+    const body = units.find((u) => u.text === 'Body sentence.')
+    expect(body?.headingPath).toEqual(['Heading'])
+  })
+
+  it('warns on an unclosed fence inside a list item, running it to EOF', () => {
+    const source = ['- item', '', '  ```bash', '  echo hi'].join('\n')
+    const { opaque, warnings } = splitMarkdown(FILE, source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.text).toBe('echo hi')
+    expect(warnings).toEqual([{ file: FILE, line: 3, kind: 'unclosed_fence' }])
+  })
+
+  it('closes a list when the line after an item is not indented enough to continue it', () => {
+    const source = ['- item', 'not enough indent'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const item = units.find((u) => u.block === 'list_item')
+    expect(item?.text).toBe('item')
+    expect(units.map((u) => u.text)).toContain('not enough indent')
+  })
+
+  it('rejects a backtick fence whose info string itself contains a backtick', () => {
+    const { units, opaque } = splitMarkdown(FILE, '``` a`b')
+    expect(opaque).toEqual([])
+    expect(units.map((u) => u.text)).toEqual(['``` a`b'])
+  })
+
+  it('does not treat a pipe line as a table header when the next line is blank', () => {
+    const source = ['| a | b |', '', 'Some text.'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['| a | b |', 'Some text.'])
+  })
+
+  it('does not treat a pipe line as a table header at end of file, with no next line at all', () => {
+    const { units } = splitMarkdown(FILE, '| a | b |')
+    expect(units.every((u) => u.block !== 'table_row')).toBe(true)
+  })
+
+  it('reads a table with no leading or trailing pipes on any row', () => {
+    const source = ['Name | Note', '--- | ---', 'a | b'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units).toHaveLength(1)
+    expect(units[0]?.block).toBe('table_row')
+    expect(units[0]?.text).toBe('Name: a\nNote: b')
+  })
+
+  it('fills a missing trailing cell with an empty value when a row is shorter than the header', () => {
+    const source = ['| Name | Note |', '| --- | --- |', '| a |'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units[0]?.text).toBe('Name: a\nNote: ')
+  })
+
+  it('tracks a mismatched inner backtick run inside a table cell without losing the pipe count', () => {
+    const source = ['| Name | Note |', '| --- | --- |', '| ``a`b`` | plain |'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units[0]?.text).toBe('Name: ``a`b``\nNote: plain')
+  })
+
+  it('drops a sentence boundary that has only trailing whitespace after it', () => {
+    const source = 'Final line ends here.   '
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['Final line ends here.'])
+  })
+
+  it('tolerates more than one blank line before a list item continuation', () => {
+    const source = ['- item', '', '', '  continued.'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const item = units.find((u) => u.block === 'list_item')
+    expect(item?.text).toBe('item continued.')
+  })
 })
