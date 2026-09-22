@@ -1507,7 +1507,11 @@ it('reports a classify request that failed, and fails the run while still printi
   expect(envelope).toEqual({ outcome: 'failed', error: '1 model call failed' })
   const text = audit.stdout()
   expect(text).toContain('1 files, 2 units, 0 opaque')
-  expect(text).toContain('## volatile and the issue it names is closed (0)\n')
+  // A heading of 0 with nothing under it would read as "no unit expired"; the
+  // spike's line says the stage never judged one.
+  expect(text).toContain(
+    '## volatile and the issue it names is closed (0)\n  not judged: classify failed\n',
+  )
   // Not "0 of 0 judged": no label came back, so the two stages below classify
   // were never in a position to judge anything, and a coverage line saying
   // they looked at nothing would read as a repository with no candidates in

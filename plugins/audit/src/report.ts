@@ -278,10 +278,16 @@ const expiredSections = (report: Report): string[] => {
   ).length
   const unjudged =
     notJudged > 0 ? `; ${notJudged} volatile units not judged, issue lookup unavailable` : ''
+  // When classify labelled nothing, a heading of 0 would read as "no unit
+  // expired" when no unit was ever judged; the stages below say the same with
+  // their skipped line, and this section has no skipped entry of its own.
+  const classifyFailed = report.skipped.some((entry) => entry.reason === 'classify_failed')
   return [
     '',
     `## volatile and the issue it names is closed (${expired.length}${unjudged})`,
-    ...expired.map((unit) => `  ${unit.id}  ${short(unit.text)}`),
+    ...(classifyFailed
+      ? ['  not judged: classify failed']
+      : expired.map((unit) => `  ${unit.id}  ${short(unit.text)}`)),
   ]
 }
 
