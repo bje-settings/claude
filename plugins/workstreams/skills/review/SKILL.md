@@ -15,6 +15,9 @@ Everything below it is judgement: which reviewers, what holds, and what to do ne
 
 Ask the caller for anything you were not given: the pull request number, the absolute
 path of its worktree, and the model to size the round agent with. Never guess a worktree.
+Both commands below run in that worktree: they take no repository argument and read it
+from the working directory, so outside a checkout they report on git rather than on the
+pull request.
 
 ## Step 1: preflight
 
@@ -62,6 +65,11 @@ only when it is rebased onto a branch that has one.
 Wait by sleeping for `waitHint.medianMs` when there is one and 60 seconds when there is
 not, and never longer than 30 minutes in one wait. Run the wait in the foreground.
 Never poll a subagent; only the pull request is watched.
+
+Ten waits on one state is a stop, the ceiling `no-run` has and these two need as much:
+a required context nothing ever reports under, which is what a renamed ruleset entry
+leaves behind, is `pending` forever and no amount of waiting changes it. Stop and name
+the contexts whose `reported` is false.
 
 ## Step 4: one round agent
 

@@ -54,7 +54,7 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    a rejection with no citation, which is a finding you have not checked: one reviewer's
    quote was believed fabricated until `git show` proved it verbatim, and it was the one
    fact the pull request had really lost.
-7. Three verification rules that have each found what reading could not:
+7. Verification rules that have each found what reading could not:
    - **Mutation before you accept "tested".** Disable the thing a test claims to prove,
      run the suite, and watch it go red. A suite that stays green is the finding. It
      has also rejected findings, by showing the mutation was already caught.
