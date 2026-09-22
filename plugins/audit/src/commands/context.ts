@@ -295,7 +295,9 @@ export const runContext = async (
     warnings,
     issueLookup: unavailable ?? 'ok',
     skipped: skippedStages(skipReason(edges.env, options['no-jev'])),
-    wallClockMs: edges.now() - started,
+    // Rounded: the clock a caller passes is `performance.now()`, whose
+    // fractional milliseconds are noise in a report and noise in a diff.
+    wallClockMs: Math.round(edges.now() - started),
   }
 
   edges.output.out.write(options.json ? `${JSON.stringify(report)}\n` : renderFindings(report))
