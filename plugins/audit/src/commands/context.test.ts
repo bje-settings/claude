@@ -14,6 +14,15 @@ import { expect, it } from 'vitest'
 
 import { createGhMock, type GhClient, GhError, type GhReplies } from '../../../../harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '../../../../harness/git.ts'
+import {
+  type ChoiceAnswer,
+  type Classification,
+  createJevMock,
+  type EvidenceNeed,
+  type JevReplies,
+  type PairVerdict,
+  type UnitKind,
+} from '../../../../harness/jev.ts'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
 import type { Report } from '../report.ts'
@@ -57,7 +66,7 @@ interface Audited {
  *  a test can assert rather than a duration it has to tolerate. `createGh`
  *  answers from `replies`, and an endpoint with no reply throws, which is what
  *  proves a fixture with no issue references never reaches `gh` at all. */
-function audited(name: string, replies: GhReplies = {}): Audited {
+function audited(name: string, replies: GhReplies = {}, jev: JevReplies = {}): Audited {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
@@ -69,6 +78,7 @@ function audited(name: string, replies: GhReplies = {}): Audited {
     env: sandbox.env,
     output: captured.output,
     createGh: (): GhClient => createGhMock(replies),
+    createJev: () => createJevMock(jev),
     now: () => {
       tick += 1
       return tick
@@ -76,6 +86,22 @@ function audited(name: string, replies: GhReplies = {}): Audited {
   }
   return { sandbox, git, work, edges, stdout: captured.stdout, stderr: captured.stderr }
 }
+
+/** The same repository, with a key in the environment so the model stages run
+ *  and `createJev` answers from `jev`. The key is never a real one: the mock is
+ *  what answers, and `harness/sandbox.ts` swept the variable out first. */
+function modelled(name: string, jev: JevReplies, replies: GhReplies = {}): Audited {
+  const audit = audited(name, replies, jev)
+  audit.sandbox.env.TYPESAFE_API_KEY = 'test-key'
+  return audit
+}
+
+/** A Choice answer that picked `choice` outright. */
+const picked = <T extends string>(choice: T, confidence = 1): ChoiceAnswer<T> => ({
+  choice,
+  probabilities: { [choice]: 1 } as Record<T, number>,
+  confidence,
+})
 
 /** The JSON report `--json` wrote, parsed. */
 const reportOf = (stdout: string): Report => JSON.parse(stdout) as Report
@@ -223,15 +249,15 @@ it('names --no-jev as the reason the model stages did not run', async () => {
   ])
 })
 
-it('says no_jev, not no_key, when a key is set and there is no client to spend it', async () => {
+it('reads --no-jev before the key, and builds no client at all', async () => {
   // The harness sweeps TYPESAFE_API_KEY out of every sandbox, so a key is only
-  // ever here because a test put it there. Until layer 4 lands the client, a
-  // key that is present changes nothing, and reporting `no_key` beside one
-  // would be a reason that is not true.
-  const audit = audited('paths')
-  audit.sandbox.env.TYPESAFE_API_KEY = 'set-but-unusable'
+  // ever here because a test put it there. A caller who asked for tier 0 alone
+  // is told that rather than being told about a key they did not offer, and
+  // the mock has no reply registered for anything, so a stage that ran would
+  // throw rather than pass quietly.
+  const audit = modelled('paths', {})
 
-  await runContext([audit.work, '--json'], audit.edges)
+  await runContext([audit.work, '--json', '--no-jev'], audit.edges)
 
   expect(reportOf(audit.stdout()).skipped).toEqual([
     { stage: 'classify', reason: 'no_jev' },
@@ -1294,4 +1320,38 @@ it('refuses an --out whose directory does not exist', async () => {
     new RegExp(`^could not open ${out} for writing: ENOENT`),
   )
   expect(audit.stdout()).toBe('')
+})
+
+/** One unit's five judgments, with only what a test is about spelled out. The
+ *  defaults are the quiet answers: a repository fact, not volatile, whole on
+ *  its own, and one claim. */
+const classified = (unitId: string, over: Partial<Classification> = {}): Classification => ({
+  unitId,
+  kind: picked<UnitKind>('repo_fact'),
+  volatile: 0,
+  selfContained: 1,
+  evidenceNeed: picked<EvidenceNeed>('file_contents'),
+  multiAssertion: 0,
+  ...over,
+})
+
+it('reports a pair the model says contradicts, naming both units', async () => {
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('contradicts', 0.9),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## pairs: contradicts (1; 1 of 1 judged)',
+      '  conf 0.90  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
+      '    a: The retry policy backs off exponentially on failure.',
+      '    b: The retry policy backs off exponentially every time.',
+    ].join('\n'),
+  )
 })

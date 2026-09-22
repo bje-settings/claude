@@ -12,11 +12,13 @@
 import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { candidatePairs } from '../candidates.ts'
 import { markdownFiles, scopeFilter, trackedPaths } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
+import type { JevClient, RequestShape, UnitKind } from '../lib/jev.ts'
 import type { Output } from '../lib/streams.ts'
 import {
   extractBlockRefs,
@@ -26,7 +28,13 @@ import {
   type PackageJsonCache,
   resolveRefs,
 } from '../refs.ts'
-import { type Report, renderFindings, type SkippedStage } from '../report.ts'
+import {
+  type Coverage,
+  type PairJudgment,
+  type Report,
+  renderFindings,
+  type SkippedStage,
+} from '../report.ts'
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
 
@@ -39,6 +47,9 @@ export interface ContextEdges {
   readonly env: NodeJS.ProcessEnv
   readonly output: Output
   readonly createGh: (cwd: string) => GhClient
+  /** Built only when there is a key to spend, so a run that skips the model
+   *  stages never constructs a client at all. */
+  readonly createJev: (options: { apiKey: string }) => JevClient
   readonly now: () => number
 }
 
@@ -160,16 +171,75 @@ const skippedStages = (reason: SkippedStage['reason']): SkippedStage[] =>
 /**
  * Why the model stages did not run.
  *
- * Both reasons are true as written. `no_key` is the environment holding no
- * `TYPESAFE_API_KEY`, which is what a run on a machine that has never been set
- * up reports. `no_jev` is the other two cases, and they are the same fact: the
- * caller asked for tier 0 alone with `--no-jev`, or there is a key and no
- * client to spend it (`lib/jev.ts` lands at layer 4, and layer 5 is where the
- * stages themselves replace this).
+ * Both reasons are true as written, and they are the only two: `--no-jev` is
+ * the caller asking for tier 0 alone, and `no_key` is an environment holding no
+ * `TYPESAFE_API_KEY`, which is what a machine that has never been set up
+ * reports. The flag is read first, so a caller who asked for no model call is
+ * told that rather than being told about a key they did not offer.
  */
-const skipReason = (env: NodeJS.ProcessEnv, noJev: boolean): SkippedStage['reason'] => {
-  const key = env.TYPESAFE_API_KEY ?? ''
-  return key !== '' || noJev ? 'no_jev' : 'no_key'
+const skipReason = (noJev: boolean): SkippedStage['reason'] => (noJev ? 'no_jev' : 'no_key')
+
+/** What the model stages produced, or what they did instead. */
+type ModelOutcome = {
+  skipped: SkippedStage[]
+  pairs: PairJudgment[]
+  pairCoverage: Coverage
+}
+
+/**
+ * The pair stage: candidates chosen lexically, then ruled on one at a time.
+ *
+ * History is a record of the past and structural text asserts nothing, so
+ * neither can be a duplicate worth removing or a claim worth refuting. A unit
+ * the classify stage said nothing about keeps its place, since an unlabelled
+ * unit is not a labelled one.
+ */
+const judgePairs = async (
+  jev: JevClient,
+  units: readonly Unit[],
+  kindOf: Map<string, UnitKind>,
+): Promise<{ pairs: PairJudgment[]; coverage: Coverage }> => {
+  const comparable = units.filter((unit) => {
+    const kind = kindOf.get(unit.id)
+    return kind !== 'history' && kind !== 'structural'
+  })
+  const byId = new Map(units.map((unit) => [unit.id, unit]))
+  const candidates = candidatePairs(comparable)
+  const pairs: PairJudgment[] = []
+  for (const candidate of candidates) {
+    // Both ids came from `units` a moment ago, so the lookups answer.
+    const a = byId.get(candidate.a) as Unit
+    const b = byId.get(candidate.b) as Unit
+    pairs.push({ ...candidate, verdict: await jev.judgePair(a, b) })
+  }
+  return { pairs, coverage: { judged: pairs.length, available: candidates.length } }
+}
+
+/**
+ * The model stages, or the reason there were none.
+ *
+ * The client is built here and nowhere else: `bin/audit.ts` hands over a
+ * factory rather than a client, so a run with no key to spend never constructs
+ * one and never reads the environment twice.
+ */
+const modelStages = async (
+  edges: ContextEdges,
+  units: readonly Unit[],
+  options: { noJev: boolean; shape: RequestShape },
+): Promise<ModelOutcome> => {
+  const key = edges.env.TYPESAFE_API_KEY ?? ''
+  if (options.noJev || key === '') {
+    return {
+      skipped: skippedStages(skipReason(options.noJev)),
+      pairs: [],
+      pairCoverage: { judged: 0, available: 0 },
+    }
+  }
+  const jev = edges.createJev({ apiKey: key })
+  const { classifications } = await jev.classify(units, options.shape)
+  const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
+  const paired = await judgePairs(jev, units, kindOf)
+  return { skipped: [], pairs: paired.pairs, pairCoverage: paired.coverage }
 }
 
 /** What the issue lookup answered, with the numbers as `gh` reports them.
@@ -325,6 +395,11 @@ export const runContext = async (
   const { units, opaque, warnings, unreadable } = splitAll(root, files)
   if (unreadable !== null) return refused(`could not read ${unreadable}`)
   const tier0 = await tierZero(root, edges, { units, opaque, tracked })
+  const models = await modelStages(edges, units, {
+    noJev: options['no-jev'],
+    // The parser held the value to the two the client declares.
+    shape: options.shape as RequestShape,
+  })
 
   const report: Report = {
     root,
@@ -334,7 +409,9 @@ export const runContext = async (
     warnings,
     issueLookup: tier0.issueLookup ?? 'ok',
     ignoreCheck: tier0.ignoreCheck ?? 'ok',
-    skipped: skippedStages(skipReason(edges.env, options['no-jev'])),
+    skipped: models.skipped,
+    pairs: models.pairs,
+    pairCoverage: models.pairCoverage,
     // Rounded: the clock a caller passes is `performance.now()`, whose
     // fractional milliseconds are noise in a report and noise in a diff.
     wallClockMs: Math.round(edges.now() - started),

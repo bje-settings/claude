@@ -7,7 +7,17 @@
 // layer and appear as the one line saying they never ran, which is the whole
 // point of `SkippedStage`: "skipped" must never read as "nothing found".
 
+import type { PairCandidate } from './candidates.ts'
+import type { ChoiceAnswer, PairVerdict } from './lib/jev.ts'
 import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
+
+/** A candidate the model has ruled on. The candidate's own ids and similarity
+ *  are kept beside the verdict: a reader acting on a finding needs both. */
+export type PairJudgment = PairCandidate & { verdict: ChoiceAnswer<PairVerdict> }
+
+/** How much of a stage's work was done, so "0 found" can be told from "0
+ *  looked at". */
+export type Coverage = { judged: number; available: number }
 
 /** A stage that asks the model something. Layer 5 gives each one findings. */
 export type Stage = 'classify' | 'pairs' | 'evidence'
@@ -15,10 +25,9 @@ export type Stage = 'classify' | 'pairs' | 'evidence'
 /** Why a stage never ran.
  *
  *  `no_key` is an environment holding no `TYPESAFE_API_KEY`, which is what a
- *  machine that has never been set up reports. `no_jev` is every other reason
- *  there was no model call: the caller asked for tier 0 alone with `--no-jev`,
- *  or there is a key and no client to spend it, since `lib/jev.ts` lands at
- *  layer 4. `commands/context.ts` `skipReason` is where the two are chosen. */
+ *  machine that has never been set up reports. `no_jev` is the caller asking
+ *  for tier 0 alone with `--no-jev`. `commands/context.ts` `skipReason` is
+ *  where the two are chosen. */
 export type SkippedStage = { stage: Stage; reason: 'no_key' | 'no_jev' }
 
 export type Report = {
@@ -38,6 +47,8 @@ export type Report = {
   ignoreCheck: string
   /** Stages that did not run at all, and why. */
   skipped: SkippedStage[]
+  pairs: PairJudgment[]
+  pairCoverage: Coverage
   wallClockMs: number
 }
 
@@ -108,6 +119,42 @@ const section = (heading: string, entries: string[]): string[] => [
   ...entries,
 ]
 
+const cov = (coverage: Coverage): string => `${coverage.judged} of ${coverage.available} judged`
+
+/** The pairs the model ruled on, under the verdict that is a finding. */
+const pairSections = (report: Report): string[] => {
+  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  const matching = report.pairs.filter((pair) => pair.verdict.choice === 'contradicts')
+  return [
+    '',
+    `## pairs: contradicts (${matching.length}; ${cov(report.pairCoverage)})`,
+    // Every pair names two units of this same run, so the lookups answer.
+    ...matching.flatMap((pair) => [
+      `  conf ${pair.verdict.confidence.toFixed(2)}  ${pair.a}  <>  ${pair.b}`,
+      `    a: ${(byId.get(pair.a) as Unit).text}`,
+      `    b: ${(byId.get(pair.b) as Unit).text}`,
+    ]),
+  ]
+}
+
+/** A stage with nothing to print yet. */
+const noSections = (): string[] => []
+
+/** What each model stage prints when it ran, in the order the stages run. */
+const STAGE_SECTIONS: Record<Stage, (report: Report) => string[]> = {
+  classify: noSections,
+  pairs: pairSections,
+  evidence: noSections,
+}
+
+/** Each model stage's own findings, or the one line saying it never ran. */
+const modelSections = (report: Report): string[] =>
+  (Object.keys(STAGE_SECTIONS) as Stage[]).flatMap((stage) => {
+    const skipped = report.skipped.find((entry) => entry.stage === stage)
+    if (skipped === undefined) return STAGE_SECTIONS[stage](report)
+    return ['', `## ${stage}: skipped (${skipped.reason})`]
+  })
+
 /** The findings a reviewer, human or agent, starts from. */
 export const renderFindings = (report: Report): string => {
   const lines: string[] = [
@@ -134,10 +181,7 @@ export const renderFindings = (report: Report): string => {
   // distinct kinds beside them would be a second number meaning something
   // else.
   lines.push('', '## tier 0: refs not checked', ...uncheckedTally(report))
-
-  for (const skipped of report.skipped) {
-    lines.push('', `## ${skipped.stage}: skipped (${skipped.reason})`)
-  }
+  lines.push(...modelSections(report))
 
   return `${lines.join('\n')}\n`
 }
