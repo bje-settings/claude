@@ -1219,12 +1219,48 @@ it('trims a code span before reading it, so padding is not part of the value', a
 it('leaves an existing --out file alone when the run refuses', async () => {
   // The pre-open is a probe, and a probe that truncates destroys the caller's
   // last report on the way to writing nothing.
+  //
+  // The refusal has to be one that happens AFTER the probe, or the probe never
+  // runs and the assertion passes under either mode. A bad root is the first
+  // of them; a bad count is not, which is why it is not used here.
   const audit = audited('paths')
   const out = audit.sandbox.join('report.json')
   writeFileSync(out, 'previous\n')
+  const outside = audit.sandbox.join('outside')
+  mkdirSync(outside)
 
-  const envelope = await runContext([audit.work, '--max-pairs', 'nope', '--out', out], audit.edges)
+  const envelope = await runContext([outside, '--out', out], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'refused', error: `not a git repository: ${outside}` })
+  expect(readFileSync(out, 'utf8')).toBe('previous\n')
+})
+
+it('replaces the --out file rather than appending to it on a second run', async () => {
+  // The probe opens for append so that it cannot truncate; the write that
+  // earns the file is a separate call and has to truncate, or a second run
+  // leaves two reports in one file and nothing can parse it.
+  const audit = audited('paths')
+  const out = audit.sandbox.join('report.json')
+
+  await runContext([audit.work, '--out', out], audit.edges)
+  await runContext([audit.work, '--out', out], audit.edges)
+
+  const written = JSON.parse(readFileSync(out, 'utf8')) as Report
+  expect(written.files).toEqual(['CLAUDE.md', 'plugins/demo/CLAUDE.md'])
+})
+
+it('refuses an --out whose directory does not exist', async () => {
+  // The other half of the claim the probe makes: a directory in the file's
+  // place is one way it cannot be opened, and a parent that is not there is
+  // the one a caller reaches by typing a path before creating the directory.
+  const audit = audited('paths')
+  const out = audit.sandbox.join('nowhere', 'report.json')
+
+  const envelope = await runContext([audit.work, '--out', out], audit.edges)
 
   expect(envelope.outcome).toBe('refused')
-  expect(readFileSync(out, 'utf8')).toBe('previous\n')
+  expect(envelope.outcome !== 'ok' && envelope.error).toMatch(
+    new RegExp(`^could not open ${out} for writing: ENOENT`),
+  )
+  expect(audit.stdout()).toBe('')
 })
