@@ -22,6 +22,7 @@ import {
   type EvidenceVerdict,
   JevError,
   type JevReplies,
+  type JevUnit,
   jevFails,
   type PairVerdict,
   type UnitKind,
@@ -29,7 +30,7 @@ import {
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
 import type { Report } from '../report.ts'
-import type { Ref } from '../types.ts'
+import type { Ref, Unit } from '../types.ts'
 import { type ContextEdges, runContext } from './context.ts'
 
 const REPOS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'repos')
@@ -1833,4 +1834,19 @@ it('shortens a long finding to one readable line', async () => {
   expect(audit.stdout()).toContain(
     '  CLAUDE.md:7-7  Rule: The retry policy backs off exponentially on every network failure, and keeps doing so until `#164` la...',
   )
+})
+
+it('hands the client the plugin’s own unit, with no shape in between', async () => {
+  // `lib/` cannot import a plugin, so the client takes the minimal structural
+  // shape it reads off a unit and the plugin's richer `Unit` satisfies it
+  // with no cast and no copy. The assignment below is the whole test: a field
+  // renamed or narrowed on either side fails `tsc` here rather than turning
+  // into a wrong question at the API.
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const unit = reportOf(audit.stdout()).units[0] as Unit
+  const asJevUnit: JevUnit = unit
+  expect(asJevUnit.refs.map((ref) => ref.value)).toEqual(['lib/x.ts'])
 })
