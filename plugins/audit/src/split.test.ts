@@ -185,4 +185,13 @@ describe('splitMarkdown', () => {
     expect(opaque[0]?.endLine).toBe(7)
     expect(units.map((u) => u.text)).toEqual(['Intro.', 'After.'])
   })
+
+  it('tags a mermaid fence with kind mermaid, and tilde fences work the same way', () => {
+    const source = ['~~~mermaid', 'graph TD', 'A --> B', '~~~'].join('\n')
+    const { opaque } = splitMarkdown(FILE, source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.kind).toBe('mermaid')
+    expect(opaque[0]?.lang).toBe('mermaid')
+    expect(opaque[0]?.text).toBe('graph TD\nA --> B')
+  })
 })
