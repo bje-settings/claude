@@ -1438,3 +1438,25 @@ it('leaves a unit the model does not call volatile out of the section', async ()
 
   expect(audit.stdout()).toContain('## volatile and the issue it names is closed (0)')
 })
+
+it('does not judge a volatile unit whose issue could not be looked up, and says how many', async () => {
+  // The issue that closed may be the one the expiry hangs on, or may not, so
+  // the unit is neither reported nor quietly dropped: the count in the heading
+  // is what stops "0 found" from reading as "nothing is stale".
+  const audit = modelled(
+    'expired',
+    {
+      classify: {
+        classifications: [classified('CLAUDE.md:3-3', { volatile: 0.9 })],
+        failures: [],
+      },
+    },
+    { issueStates: { states: {}, unavailable: 'API rate limit exceeded' } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    '## volatile and the issue it names is closed (0; 1 volatile units not judged, issue lookup unavailable)',
+  )
+})

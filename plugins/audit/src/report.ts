@@ -155,13 +155,35 @@ const isExpired = (unit: Unit, judged: Classification | undefined): boolean =>
   judged.kind.choice !== 'history' &&
   unit.refs.some((ref) => ref.resolution.status === 'issue' && ref.resolution.state !== 'OPEN')
 
+/** The model's answer to "does this name its own expiry". */
+const namesExpiry = (judged: Classification | undefined): boolean =>
+  judged !== undefined && judged.volatile >= VOLATILE_BAR
+
+/** A unit citing an issue the lookup could not answer about. The closed issue
+ *  may be exactly the one the expiry hangs on, so such a unit is judged
+ *  neither way and is counted in the heading instead. */
+const hasUnreachableIssue = (unit: Unit): boolean =>
+  unit.refs.some(
+    (ref) =>
+      ref.kind === 'issue' &&
+      ref.resolution.status === 'unchecked' &&
+      ref.resolution.reason === 'unavailable',
+  )
+
 /** The units the classify stage makes findings of. */
 const expiredSections = (report: Report): string[] => {
   const judged = new Map(report.classifications.map((entry) => [entry.unitId, entry]))
-  const expired = report.units.filter((unit) => isExpired(unit, judged.get(unit.id)))
+  const expired = report.units.filter(
+    (unit) => !hasUnreachableIssue(unit) && isExpired(unit, judged.get(unit.id)),
+  )
+  const notJudged = report.units.filter(
+    (unit) => hasUnreachableIssue(unit) && namesExpiry(judged.get(unit.id)),
+  ).length
+  const unjudged =
+    notJudged > 0 ? `; ${notJudged} volatile units not judged, issue lookup unavailable` : ''
   return [
     '',
-    `## volatile and the issue it names is closed (${expired.length})`,
+    `## volatile and the issue it names is closed (${expired.length}${unjudged})`,
     ...expired.map((unit) => `  ${unit.id}  ${unit.text}`),
   ]
 }
