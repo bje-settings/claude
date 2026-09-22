@@ -4,7 +4,7 @@
 // jitter actually ran.
 
 import { expect, it } from 'vitest'
-import { createJev, retryAfterMs } from './typesafe.ts'
+import { createJev, JevError, retryAfterMs } from './typesafe.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -162,4 +162,37 @@ it('retryAfterMs reads seconds, dates, and neither', () => {
   expect(retryAfterMs('soon', now)).toBe(null)
   expect(retryAfterMs('', now)).toBe(null)
   expect(retryAfterMs(null, now)).toBe(null)
+})
+
+it('a 503 is retried like a 429', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(503, 'unavailable') : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+  expect(calls).toBe(2)
+})
+
+it('a 400 is not retried and carries its status and body', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return reply(400, '{"error":"questions.q.criteria is required"}')
+    },
+  })
+
+  const error = await jev.ask('s', Q).catch((e: unknown) => e)
+  expect(error).toBeInstanceOf(JevError)
+  expect((error as JevError).status).toBe(400)
+  expect((error as JevError).body).toBe('{"error":"questions.q.criteria is required"}')
+  expect(calls).toBe(1)
 })
