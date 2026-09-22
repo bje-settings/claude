@@ -24,7 +24,7 @@ reaches step 4 and cannot ask.
 
    Exit 1 means something is missing. Print each hint verbatim and stop.
 
-2. Read the sequencing comment the sweep posted. It is the input.
+2. Read the sequencing comment the sweep posted.
 
    If there is none yet, run the command instead:
 
@@ -42,7 +42,7 @@ reaches step 4 and cannot ask.
 
 4. Ask one question at a time. Only what is genuinely the human's to decide: scope, shape
    (layer count, one pull request or a stack), names that ship, what proves an acceptance
-   line true, order against other efforts. Never ask "is this okay".
+   line true, order against other efforts.
 
    `AskUserQuestion`, one question, two to four options, the recommended option first and
    labelled, with the argument against it in its own description. Wait for the answer before
