@@ -400,7 +400,7 @@ const judgePairs = async (
 /**
  * The model stages, or the reason there were none.
  *
- * The client is built here and nowhere else: `bin/audit.ts` hands over a
+ * The client is built here and nowhere else: `scripts/audit.ts` hands over a
  * factory rather than a client, so a run with no key to spend never constructs
  * one and never reads the environment twice.
  */

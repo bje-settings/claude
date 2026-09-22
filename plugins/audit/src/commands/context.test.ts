@@ -2417,7 +2417,7 @@ it('carries on when the file a claim names is tracked but not on disk', async ()
 it('builds no Jev client at all when --no-jev is given and there is a key to spend', async () => {
   // The factory is the assertion: a client that is never constructed is the
   // difference between a run that spends nothing and one that merely happens
-  // to make no call. `bin/audit.ts` builds the REAL client from whatever key
+  // to make no call. `scripts/audit.ts` builds the REAL client from whatever key
   // is in the environment, so this is the only place the rule can be held.
   const audit = modelled('paths', {})
   const edges: ContextEdges = {
