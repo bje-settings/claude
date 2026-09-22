@@ -785,3 +785,16 @@ it('names every line reference past the end of its file, with the count it has',
     ].join('\n'),
   )
 })
+
+it('leads with the splitter’s warnings, so the counts beside them are not trusted', async () => {
+  // A fence that never closes swallows the rest of the file, so the unit count
+  // under it is not the file's. The warning has to be where a reader sees it
+  // before the findings.
+  const audit = audited('warn')
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toMatch(
+    /^1 files, 1 units, 1 opaque\n {2}warning: CLAUDE\.md:5 unclosed_fence\n/,
+  )
+})
