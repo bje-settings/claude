@@ -13,7 +13,7 @@ the one cleanup hook.
 | --- | --- |
 | `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, no credentials, and an `env` object to hand to children. |
 | `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
-| `jev.ts` | `createJevMock`: one reply per method (`classify`, `judgePair`, `judgeEvidence`), a fail switch per method, an unhandled method throws, `usage()` always answers zeros. `JevClient` itself lives in the root `lib/` and is re-exported here. |
+| `jev.ts` | `createJevMock`: one reply per method (`classify`, `judgePair`, `judgeEvidence`), a fail switch on every method except `classify`, an unhandled method throws, `usage()` always answers zeros. `JevClient` itself lives in the root `lib/` and is re-exported here. |
 | `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle, and `importTree` to commit a fixture directory into one. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
@@ -131,13 +131,20 @@ const jev = createJevMock({
 
 `createJevMock` is the same shape as `createGhMock`, over `JevClient` (`lib/jev.ts`, #173): a reply
 registered per method (`classify`, `judgePair`, `judgeEvidence`) comes back on **every** call, a
-`JevError` in its place is that method's own fail switch, and a method with **no** registration
-throws and names itself. `jevFails(message, status = 0)` is the per-method fail switch, mirroring
-`ghFails`: a plain `Error` would make a command's own `error instanceof JevError && error.status
-=== ...` arm unreachable from its tests, the same gap `ghFails` closes for `GhError`. `usage()` is
-not registrable: it always answers zeros, because the mock holds no state to accumulate a real
-total against, and a test that cares what a run actually spent belongs against `lib/jev.test.ts`'s
-transport (`typesafe.ts`), which is where the counting logic lives.
+`JevError` in its place is `judgePair` and `judgeEvidence`'s own fail switch (see below for why
+`classify` has none), and a method with **no** registration throws and names itself.
+`jevFails(message, status = 0)` is that fail switch, mirroring `ghFails`: a plain `Error` would make
+a command's own `error instanceof JevError && error.status === ...` arm unreachable from its tests,
+the same gap `ghFails` closes for `GhError`. `usage()` is not registrable: it always answers zeros,
+because the mock holds no state to accumulate a real total against, and a test that cares what a run
+actually spent belongs against `lib/jev.test.ts`'s transport (`typesafe.ts`), which is where the
+counting logic lives.
+
+`classify` has no fail switch: `classifyImpl` settles every request with `Promise.allSettled` and
+folds a rejected one into `ClassifyOutcome.failures` rather than rejecting its own promise, so
+`classify()` on the real client never rejects (the same reason `lib/gh.ts`'s `issueStates` never
+throws either). `JevReplies['classify']` excludes `Error` so `tsc` refuses `classify:
+jevFails(...)` rather than letting a test pin a rejection the real client cannot produce.
 
 `JevClient`, `ChoiceAnswer`, `Classification`, `ClassifyOutcome`, `EvidenceNeed`, `EvidenceVerdict`,
 `JevRequest`, `JevUnit`, `PairVerdict`, `RequestShape` and `UnitKind` moved to `lib/jev.ts` at #173,

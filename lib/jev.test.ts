@@ -368,6 +368,22 @@ it('batchSections splits when the repeated questions blow the request budget', (
   expect(sections.flatMap((section) => section.indexes)).toEqual([0, 1, 2, 3])
 })
 
+it('a section landing exactly on stateTokens still includes the unit, and one token over splits it', () => {
+  // `fits` requires `nextState <= stateTokens`: an off-by-one that used `<`
+  // instead would start a new section one unit earlier than the budget
+  // allows. u1's state costs 4 tokens, u2's costs 5 (JSON.stringify({text})
+  // over CHARS_PER_TOKEN=3, both exact divisions so there is no rounding to
+  // obscure the boundary), so their sum lands exactly on stateTokens: 9.
+  const u1 = unit({ id: 'a:1-1', text: 'a', headingPath: ['one'] })
+  const u2 = unit({ id: 'a:2-2', text: 'bb', headingPath: ['one'] })
+
+  const onBudget = batchSections([u1, u2], { stateTokens: 9, requestTokens: 1_000_000 })
+  expect(onBudget.map((section) => section.indexes)).toEqual([[0, 1]])
+
+  const oneOver = batchSections([u1, u2], { stateTokens: 8, requestTokens: 1_000_000 })
+  expect(oneOver.map((section) => section.indexes)).toEqual([[0], [1]])
+})
+
 it('the section key includes the file: a shared heading path across files still splits', () => {
   const lastOfA = unit({
     id: 'a.md:9-9',
@@ -733,6 +749,16 @@ it('a non-finite noul is reported as out of range too, not as missing', () => {
   ).toThrow(/out of range/)
 })
 
+it('a negative noul is refused too, not just one above 1', () => {
+  // readNoul's range check is `value < 0 || value > 1`: every other test of
+  // this branch uses a value above 1, so a regression that dropped the lower
+  // half of the check (a plausible "simplify the condition" mistake) would
+  // pass unnoticed without this.
+  expect(() =>
+    parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: { type: 'noul', noul: -0.1 } }),
+  ).toThrow(/out of range: -0\.1/)
+})
+
 it('an array does not pass readChoice as an object', () => {
   expect(() => parseClassification([ONE], { ...GOOD_ANSWERS, kind__u0: ['repo_fact'] })).toThrow(
     /no choice answer/,
@@ -777,12 +803,35 @@ it('a NaN confidence is refused, not passed through as a valid number', () => {
   ).toThrow(/no choice answer/)
 })
 
-function classificationReply(index: number) {
+it('a negative confidence is refused too, not just one above 1', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: { ...GOOD_ANSWERS.kind__u0, confidence: -0.01 },
+    }),
+  ).toThrow(/no choice answer/)
+})
+
+it('a negative probability is refused too, not just one above 1', () => {
+  expect(() =>
+    parseClassification([ONE], {
+      ...GOOD_ANSWERS,
+      kind__u0: {
+        type: 'choice',
+        choice: 'repo_fact',
+        probabilities: { repo_fact: -1 },
+        confidence: 1,
+      },
+    }),
+  ).toThrow(/probability out of range for repo_fact: -1/)
+})
+
+function classificationReply(index: number, kindChoice: 'repo_fact' | 'instruction' = 'repo_fact') {
   return {
     [`kind__u${index}`]: {
       type: 'choice',
-      choice: 'repo_fact',
-      probabilities: { repo_fact: 1 },
+      choice: kindChoice,
+      probabilities: { [kindChoice]: 1 },
       confidence: 0.9,
     },
     [`volatile__u${index}`]: { type: 'noul', noul: 0.1 },
@@ -815,7 +864,13 @@ it('a rejected request loses only its own units, and the failure names the reque
 
   expect(outcome.classifications).toHaveLength(1)
   expect(outcome.classifications[0]?.unitId).toBe('b')
-  expect(outcome.failures).toEqual([{ id: 'request 0', message: expect.stringContaining('400') }])
+  // '400' alone would also match the JevError's own default message ("...HTTP
+  // 400"), which failureMessage's template string carries regardless of
+  // whether it also appends error.body; asserting the response's own text is
+  // what actually pins that the append happens.
+  expect(outcome.failures).toEqual([
+    { id: 'request 0', message: expect.stringContaining('refused: bad question') },
+  ])
 })
 
 it('classify(units, "per_section") batches both units into one request and splits the answers back out', async () => {
@@ -823,6 +878,13 @@ it('classify(units, "per_section") batches both units into one request and split
   // is otherwise only exercised at the classifyRequest() builder level. This
   // proves createJevClient actually forwards `shape` through to the request
   // it sends, rather than silently always building per_unit requests.
+  //
+  // u0 and u1 are given DIFFERENT `kind` choices on purpose: identical
+  // answers for both units would let a swapped-index bug (unit 'a' reading
+  // u1's bag entries, unit 'b' reading u0's) pass, since `unitId` comes from
+  // the `units` array itself regardless of which bag entries were pulled for
+  // it. Asserting the choice by unitId, not just which ids are present, is
+  // what would catch that swap.
   const seen: { body?: string } = {}
   const client = createJevClient({
     apiKey: KEY,
@@ -830,7 +892,10 @@ it('classify(units, "per_section") batches both units into one request and split
       seen.body = String(init?.body)
       return reply(200, {
         model: 'x',
-        answers: { ...classificationReply(0), ...classificationReply(1) },
+        answers: {
+          ...classificationReply(0, 'repo_fact'),
+          ...classificationReply(1, 'instruction'),
+        },
         usage: {},
       })
     },
@@ -846,6 +911,9 @@ it('classify(units, "per_section") batches both units into one request and split
   expect(outcome.failures).toEqual([])
   expect(outcome.classifications).toHaveLength(2)
   expect(outcome.classifications.map((c) => c.unitId).sort()).toEqual(['a', 'b'])
+  const byId = new Map(outcome.classifications.map((c) => [c.unitId, c]))
+  expect(byId.get('a')?.kind.choice).toBe('repo_fact')
+  expect(byId.get('b')?.kind.choice).toBe('instruction')
 })
 
 it('a parse failure on an answer that arrived records one failure naming the unit', async () => {

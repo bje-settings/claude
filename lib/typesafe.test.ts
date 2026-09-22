@@ -4,7 +4,16 @@
 // jitter actually ran.
 
 import { expect, it } from 'vitest'
-import { backoffMs, choice, createJev, JevError, noul, redact, retryAfterMs } from './typesafe.ts'
+import {
+  backoffMs,
+  choice,
+  createJev,
+  createLimiter,
+  JevError,
+  noul,
+  redact,
+  retryAfterMs,
+} from './typesafe.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -255,6 +264,34 @@ it('a transport failure message is capped at BODY_LIMIT, like every other JevErr
   const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
   expect(error).toBeInstanceOf(JevError)
   expect(error.body.length).toBeLessThanOrEqual(2_000)
+})
+
+it('the cap is applied after redaction, so a key straddling the cut cannot survive', async () => {
+  // asBody's doc comment promises "redacted, then capped". If BODY_LIMIT
+  // sliced the text before redact() ran, a key positioned across the cut
+  // point would be cut in half; redact() only matches the WHOLE key, so that
+  // surviving half would never match and would leak into JevError.body
+  // un-redacted. Placing the key's own midpoint at the cut is what makes that
+  // failure mode observable: a message that is merely "long" (the test above)
+  // cannot tell the two orderings apart when it carries no key at all.
+  const straddle = 2_000 - Math.floor(KEY.length / 2)
+  const message = `${'x'.repeat(straddle)}${KEY}${'y'.repeat(5_000)}`
+  const jev = createJev({
+    apiKey: KEY,
+    maxRetries: 0,
+    sleep: async () => {},
+    fetch: async () => {
+      throw new Error(message)
+    },
+  })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.body.length).toBeLessThanOrEqual(2_000)
+  expect(error.body).not.toContain(KEY)
+  // A slice-before-redact bug leaves this un-redacted fragment inside the
+  // truncated body.
+  expect(error.body).not.toContain(KEY.slice(0, 10))
+  expect(error.body).toContain('[redacted]')
 })
 
 it('a transport failure that is not an Error instance is still retried and reported', async () => {
@@ -531,6 +568,12 @@ it('gives up after maxRetries and reports the last status', async () => {
   expect(error.message).toMatch(/gave up after 3 attempts, last HTTP 429/)
   expect(error.body).toBe('still rate limited')
   expect(calls).toBe(3)
+  // usage() is a run's own account of what it spent, and a request that
+  // never succeeds was still billed for every attempt: the `finally` around
+  // the whole retry loop counts it the same as a request that succeeded.
+  const usage = jev.usage()
+  expect(usage.requests).toBe(1)
+  expect(usage.attempts).toBe(3)
 })
 
 it('usage accumulates requests, attempts, tokens and request time', async () => {
@@ -632,6 +675,27 @@ it('a rejected request still releases its slot', async () => {
   await expect(jev.ask('s', Q)).rejects.toThrow()
   const answers = await jev.ask('s', Q)
   expect(noulOf(answers, 'q')).toBe(0.75)
+})
+
+it('createLimiter releases its slot even when a task throws synchronously', async () => {
+  // `createJev` only ever hands the limiter an async task (`request` is an
+  // async function, so a throw inside it is already a rejected promise by
+  // the time the limiter sees it), so this is the one case that integration
+  // cannot exercise: a task that throws before returning a promise at all.
+  // The doc comment's "handed straight from a finishing task to a waiting
+  // one" promise has to hold from the `finally` block regardless of how the
+  // task failed.
+  const limit = createLimiter(1)
+
+  await expect(
+    limit((): Promise<never> => {
+      throw new Error('boom')
+    }),
+  ).rejects.toThrow('boom')
+
+  // If the first call's slot were never released, this would hang forever
+  // waiting for one.
+  await expect(limit(async () => 'ok')).resolves.toBe('ok')
 })
 
 it('noul omits criteria when none is given, and carries it when given', () => {

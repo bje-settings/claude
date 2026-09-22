@@ -1,9 +1,10 @@
 // The in-process Jev double (#173), mirroring harness/gh.ts: one reply
-// registered per method, a fail switch per method, an unregistered method
-// throwing rather than returning empty (ADR 001, "The command function is the
-// test seam"). That last property is the one a stub binary on PATH cannot
-// give, and it is the difference between a test proving a call was made
-// correctly and a test passing because nothing was called.
+// registered per method, a fail switch on every method except `classify`
+// (whose own promise never rejects, see `JevReplies`'s doc comment below), an
+// unregistered method throwing rather than returning empty (ADR 001, "The
+// command function is the test seam"). That last property is the one a stub
+// binary on PATH cannot give, and it is the difference between a test proving
+// a call was made correctly and a test passing because nothing was called.
 //
 // `JevClient` and its judgment types moved to the root `lib/` at #173, where
 // the real client is written against them, and this file imports them back
@@ -70,8 +71,18 @@ type JevResults = {
 type JevMethod = keyof JevResults
 
 /** One reply per method, or a failure in its place. Registering nothing for a
- *  method is how a test says "this must not be called". */
-export type JevReplies = { [K in JevMethod]?: JevResults[K] | Error }
+ *  method is how a test says "this must not be called". `classify` has no
+ *  fail switch: `lib/jev.ts`'s `classifyImpl` settles every request with
+ *  `Promise.allSettled` and folds a rejection into `ClassifyOutcome.failures`
+ *  rather than rejecting its own promise (see `ClassifyOutcome`'s doc
+ *  comment), so `classify()` on the real client never rejects and there is
+ *  nothing for a fail switch to model here: the same reason `lib/gh.ts`'s
+ *  `issueStates` never throws either. */
+export type JevReplies = {
+  classify?: JevResults['classify']
+  judgePair?: JevResults['judgePair'] | Error
+  judgeEvidence?: JevResults['judgeEvidence'] | Error
+}
 
 /** `usage()`'s one answer: zeros. The mock holds no state, so there is
  *  nothing here for a real total to accumulate against; a test that cares

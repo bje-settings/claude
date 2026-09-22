@@ -70,15 +70,14 @@ it('answers judgePair and judgeEvidence from their own registrations', async () 
 
 it('fails only the method the fail switch was registered for', async () => {
   const jev = createJevMock({
-    classify: new Error('jev: rate limited'),
-    judgePair: {
-      choice: 'unrelated',
-      probabilities: { unrelated: 1, same_claim: 0, contradicts: 0 },
+    judgePair: new Error('jev: rate limited'),
+    judgeEvidence: {
+      choice: 'supports',
+      probabilities: { supports: 1, contradicts: 0, says_nothing: 0 },
       confidence: 1,
     },
   })
 
-  await expect(jev.classify([], 'per_unit')).rejects.toThrow('jev: rate limited')
   await expect(
     jev.judgePair(
       {
@@ -102,7 +101,36 @@ it('fails only the method the fail switch was registered for', async () => {
         refs: [],
       },
     ),
+  ).rejects.toThrow('jev: rate limited')
+  await expect(
+    jev.judgeEvidence(
+      {
+        id: 'a',
+        file: 'a.md',
+        headingPath: [],
+        leadIn: null,
+        prev: null,
+        next: null,
+        text: 'a',
+        refs: [],
+      },
+      'source.ts',
+      'excerpt',
+    ),
   ).resolves.toBeDefined()
+})
+
+it("classify has no fail switch, because the real client's classify() never rejects", async () => {
+  // `lib/jev.ts`'s `classifyImpl` settles every request with
+  // `Promise.allSettled` and folds a rejection into `ClassifyOutcome.failures`
+  // rather than rejecting; `JevReplies['classify']` excludes `Error` so this
+  // is enforced at the type level (`tsc` refuses `classify: new Error(...)`),
+  // and this test is the runtime half: a registered `ClassifyOutcome` is the
+  // only thing `classify` can ever answer with, fail switch or not.
+  const outcome = { classifications: [], failures: [{ id: 'request 0', message: 'boom' }] }
+  const jev = createJevMock({ classify: outcome })
+
+  await expect(jev.classify([], 'per_unit')).resolves.toEqual(outcome)
 })
 
 it('jevFails produces a JevError, so a command branching on error.status has something to catch', async () => {

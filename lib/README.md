@@ -445,7 +445,7 @@ that context is the plugin's job.
 
 `classify`'s failure rule, ported from the spike's `cli.ts` `classifyUnits`: every request is settled
 on its own (`Promise.allSettled`), so one bad request never costs the others. A **rejected request**
-loses only the units it covered — they are simply absent from `classifications` — with one failure
+loses only the units it covered (they are simply absent from `classifications`), with one failure
 recorded naming the request, not each unit, because the request is what actually failed. A unit whose
 answer DID arrive but does not parse (an unknown option, an out-of-range probability, a NaN
 confidence) gets its own failure, named by the unit, since that unit alone is what is wrong.
