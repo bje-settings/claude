@@ -119,6 +119,7 @@ describe('the facts it reads', () => {
     expect(report.draft).toBe(true)
     expect(report.mergeable).toBe('MERGEABLE')
     expect(report.requiredContexts).toEqual(['vitest', 'types'])
+    expect(report.contextsFrom).toBe('ruleset')
     expect(report.contexts).toEqual([
       { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
       { name: 'types', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
@@ -357,12 +358,12 @@ describe('a base branch no ruleset covers', () => {
     )
 
     expect(report.requiredContexts).toEqual([])
+    expect(report.contextsFrom).toBe('head')
     expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'types'])
     expect(report.verdict).toBe('green')
-    expect(report.unavailable).toEqual([
-      'no ruleset requires a status check of wktr-130-ws-sweep, so the verdict is over the ' +
-        '2 context(s) that have reported on the head instead',
-    ])
+    // NOT under `unavailable`: a caller keys on that to decide whether the
+    // report is an answer at all, and a stacked pull request is an answer.
+    expect(report.unavailable).toEqual([])
   })
 
   it('is no-run, not green, when nothing has reported on the head either', async () => {
@@ -417,6 +418,10 @@ describe('what it does with a read that fell short', () => {
 
     expect(report.state).toBe('awaiting-pr')
     expect(report.verdict).toBe('unavailable')
+    // Neither source: no pull request means no base branch to ask about, so
+    // no list was asked for. Saying `ruleset` would claim an empty answer
+    // from a question nobody put.
+    expect(report.contextsFrom).toBe('unread')
     expect(report.title).toBeNull()
     expect(report.unresolvedThreads).toBe(0)
     expect(report.unavailable).toEqual(['pull request 178 not found'])
@@ -697,8 +702,12 @@ describe('the report a person reads', () => {
     )
 
     expect(answer.outcome === 'ok' && answer.value).toContain(
-      'none: no ruleset requires anything of this base branch',
+      'no ruleset requires a status check of topic, so the verdict below is over',
     )
+    expect(answer.outcome === 'ok' && answer.value).toContain(
+      'the 2 context(s) that have reported on the head instead',
+    )
+    expect(answer.outcome === 'ok' && answer.value).not.toMatch(/^INCOMPLETE:/)
   })
 
   it('leads with INCOMPLETE, and names no state, when a read fell short', async () => {

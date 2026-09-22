@@ -139,6 +139,20 @@ export interface PrStateReport {
    *  requires anything of that branch, which is the ordinary case for a
    *  stacked pull request based on a topic branch. */
   readonly requiredContexts: readonly string[]
+  /**
+   * Where the names in `contexts` came from.
+   *
+   * `head` is the fallback for a base branch no ruleset covers, and it is a
+   * DESIGN fact rather than a read that fell short, so it is a field of its
+   * own and not a line in `unavailable`. A caller keys on `unavailable` to
+   * decide whether the report is an answer at all; putting this there would
+   * make every stacked pull request look unreadable.
+   *
+   * `unread` is neither: there was no pull request to find a base branch on,
+   * so no list was asked for. Saying `ruleset` there would claim an empty
+   * answer from a question nobody put.
+   */
+  readonly contextsFrom: 'ruleset' | 'head' | 'unread'
   readonly contexts: readonly ReportedContext[]
   /** Whether a workflow run with event `pull_request` exists for the head.
    *  Read from `actions/runs?branch=`, never `?head_sha=`. */
@@ -327,8 +341,11 @@ export const renderReport = (report: PrStateReport): string => {
   }
 
   lines.push('', `required contexts (${report.requiredContexts.length})`)
-  if (report.requiredContexts.length === 0) {
-    lines.push('  none: no ruleset requires anything of this base branch')
+  if (report.contextsFrom === 'head') {
+    lines.push(
+      `  no ruleset requires a status check of ${report.base}, so the verdict below is over`,
+      `  the ${report.contexts.length} context(s) that have reported on the head instead`,
+    )
   }
   for (const context of report.contexts) {
     const said = context.reported ? (context.conclusion ?? 'running') : 'not reported'
@@ -480,18 +497,12 @@ export const runPrState = async (
   const unreadable = detail === null || required.unavailable !== null || runs.unavailable !== null
   const verdict: Verdict = unreadable ? 'unavailable' : verdictOf(contexts, runsForHead.length > 0)
 
-  if (!fromRuleset && detail !== null && required.unavailable === null) {
-    unavailable.push(
-      `no ruleset requires a status check of ${detail.base}, so the verdict is over the ` +
-        `${contexts.length} context(s) that have reported on the head instead`,
-    )
-  }
-
   const round = Number(parsed.value.options.round)
   const report: PrStateReport = {
     pullRequest: requested.value,
     ...pullRequestFields(detail),
     requiredContexts: required.contexts,
+    contextsFrom: detail === null ? 'unread' : fromRuleset ? 'ruleset' : 'head',
     contexts,
     hasPullRequestRun: runsForHead.length > 0,
     runsForHead: runsForHead.map((run) => ({

@@ -143,7 +143,9 @@ branch, never hard-coded and never the default branch's: a pull request based on
 branch, which is what every layer of a stack is, is typically required to pass nothing at
 all, and a verdict over an empty list would be green before a single check had run. Where
 no ruleset requires anything, the verdict is taken over the contexts that have actually
-reported on the head and the report says so under `unavailable`.
+reported on the head and `contextsFrom` says `head`. That is a design fact and not a read
+that fell short, so it is a field of its own: a caller keys on `unavailable` to decide
+whether the report is an answer at all, and every layer of a stack is an answer.
 
 The run assertion reads `actions/runs?branch=<head ref>` and never `?head_sha=`, which
 has answered nothing for a head whose runs existed. An unresolved review THREAD is

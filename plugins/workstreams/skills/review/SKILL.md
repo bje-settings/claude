@@ -39,6 +39,10 @@ what you carry between ticks; nothing is written to disk.
 `state` of `null`: no state at all is the command declining to name one from facts
 nobody has seen.
 
+`contextsFrom: "head"` is not that. It means the base branch is one no ruleset covers,
+which every layer of a stack is, so the verdict is over what has reported on the head.
+Say so once and carry on.
+
 ## Step 3: act on the state
 
 | State | What to do |
