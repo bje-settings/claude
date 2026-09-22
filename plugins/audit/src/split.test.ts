@@ -333,4 +333,14 @@ describe('splitMarkdown', () => {
     expect(row?.startLine).toBe(12)
     expect(row?.headingPath).toEqual(['Guide', 'Details'])
   })
+
+  it('keeps prose between two comments on one line, rather than skipping it as a comment', () => {
+    const { units } = splitMarkdown('a.md', '<!-- a --> Kept text here. <!-- b -->\n')
+    expect(units).toHaveLength(1)
+    expect(units[0]?.text.includes('Kept text here.')).toBe(true)
+  })
+
+  it('treats a comment holding only its own markers as a full comment', () => {
+    expect(splitMarkdown('a.md', '<!---->\n<!-- -->\n').units).toHaveLength(0)
+  })
 })
