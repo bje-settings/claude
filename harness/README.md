@@ -42,6 +42,13 @@ take, and which a test may edit freely because nobody else can see it.
 Cleanup is registered with vitest's `onTestFinished`, so a test that throws still removes its
 directory; `sandbox.cleanup()` removes it sooner.
 
+Every fixture repository turns `maintenance.auto` and `gc.auto` off in its own config. git spawns
+both detached, and they outlive the git that started them: a repack landing after the sandbox has
+walked the tree fails the removal with `ENOTEMPTY`, and so fails a test that had already passed.
+Retrying does not help, because node retries the `rmdir` rather than the walk. It is set in the
+repository's config rather than on the harness's own command lines, since the git processes that
+race the cleanup are the ones the command under test runs.
+
 `sandboxEnv` sweeps every `GIT_` and `GH_` variable, `GITHUB_TOKEN` and `TYPESAFE_API_KEY`, so
 nothing the suite spawns can reach a real account with a developer's own credentials or answer
 differently on that machine than in CI. A test that wants one back sets it on the sandbox's own

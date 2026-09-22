@@ -242,6 +242,23 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     const parent = path.dirname(bare)
     git(parent, 'init', '-q', '--bare', `--initial-branch=${DEFAULT_BRANCH}`, bare)
     git(parent, 'clone', '-q', bare, work)
+    // No background housekeeping, written into each repository's own config
+    // rather than passed with `-c`: the git processes that matter here are not
+    // this harness's, since the command under test runs its own, and those
+    // would still inherit the default.
+    //
+    // git spawns both of these detached and they outlive the git that started
+    // them, finishing by writing `info/refs` and `objects/info/packs`. When
+    // that lands after the sandbox has walked the tree, the removal fails with
+    // ENOTEMPTY and fails a test that had already passed. Retrying cannot help,
+    // because node retries the `rmdir` rather than the walk. `maintenance.auto`
+    // is the one that actually fires on git 2.54; `gc.auto` is its older name
+    // and is set beside it so an older git is covered too. A fixture repository
+    // holds a handful of objects and has nothing to gain from repacking.
+    for (const repo of [bare, work]) {
+      git(repo, 'config', 'gc.auto', '0')
+      git(repo, 'config', 'maintenance.auto', 'false')
+    }
     git(work, 'checkout', '-q', '-B', DEFAULT_BRANCH)
     writeFileSync(path.join(work, 'file.txt'), 'base\n')
     git(work, 'add', '-A')

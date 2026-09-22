@@ -879,10 +879,15 @@ it('reads the paths in a fence with no info string, but takes no commands from i
   ])
 })
 
-it('reads the refs in a file’s frontmatter', async () => {
+it('reads the refs in a file’s frontmatter, issue numbers included', async () => {
   // Frontmatter never goes to the model either, and a skill's frontmatter is
-  // exactly where a path to a renamed script sits unnoticed.
-  const audit = audited('opaque')
+  // exactly where a path to a renamed script sits unnoticed. An issue number
+  // is read there and in a fence too: only a mermaid diagram is exempt, and
+  // the diagram's own early return would otherwise be the only thing proving
+  // it.
+  const audit = audited('opaque', {
+    issueStates: { states: { '164': 'CLOSED' }, unavailable: null },
+  })
 
   await runContext([audit.work, '--json'], audit.edges)
 
@@ -895,6 +900,7 @@ it('reads the refs in a file’s frontmatter', async () => {
       value: 'scripts/build.ts',
       resolution: { status: 'found', repoPath: 'scripts/build.ts' },
     },
+    { kind: 'issue', value: '#164', resolution: { status: 'issue', state: 'CLOSED' } },
   ])
 })
 
