@@ -21,7 +21,6 @@
     {
       "name": "workstreams",
       "source": "./plugins/workstreams",
-      "description": "Round primitives for issue-tracker work. /workstreams:sweep reads a repository's milestones and issue dependencies, reports the unblocked set and the tier behind it, maps the files each issue touches, and sequences them into streams, stacks, or one pull request.",
       "category": "development"
     },
     {
