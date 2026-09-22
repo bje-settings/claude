@@ -208,10 +208,100 @@ const parseListBlock = (
   return i
 }
 
-/** Splits paragraph text into sentence strings on `. ` `? ` `! ` boundaries. */
+const ABBREVIATIONS = ['e.g.', 'i.e.', 'etc.', 'vs.']
+
+type Span = { start: number; end: number }
+
+/** Marks offsets that fall inside an inline code span or a markdown link. */
+const computeProtectedMask = (text: string): boolean[] => {
+  const mask = new Array<boolean>(text.length).fill(false)
+  let i = 0
+  while (i < text.length) {
+    if (text[i] === '`') {
+      let runLen = 1
+      while (text[i + runLen] === '`') runLen++
+      let j = i + runLen
+      let closeStart = -1
+      while (j < text.length) {
+        if (text[j] === '`') {
+          let closeLen = 1
+          while (text[j + closeLen] === '`') closeLen++
+          if (closeLen === runLen) {
+            closeStart = j
+            break
+          }
+          j += closeLen
+          continue
+        }
+        j++
+      }
+      if (closeStart >= 0) {
+        for (let k = i; k < closeStart + runLen; k++) mask[k] = true
+        i = closeStart + runLen
+        continue
+      }
+      i += runLen
+      continue
+    }
+    i++
+  }
+
+  const linkRe = /\[[^[\]]*\]\([^()]*\)/g
+  for (const m of text.matchAll(linkRe)) {
+    for (let k = m.index; k < m.index + m[0].length; k++) mask[k] = true
+  }
+  return mask
+}
+
+const isAbbreviation = (text: string, periodIndex: number): boolean =>
+  ABBREVIATIONS.some(
+    (a) => text.slice(periodIndex - a.length + 1, periodIndex + 1).toLowerCase() === a,
+  )
+
+const trimSpan = (text: string, span: Span): Span => {
+  let { start, end } = span
+  while (start < end && /\s/.test(text[start] ?? '')) start++
+  while (end > start && /\s/.test(text[end - 1] ?? '')) end--
+  return { start, end }
+}
+
+/**
+ * Splits paragraph text into sentence strings. The rule: split at `.`, `?` or
+ * `!` followed by whitespace and then an uppercase letter, a backtick, or
+ * `[`, outside code spans and links, skipping the abbreviations in
+ * `ABBREVIATIONS` (`e.g.`, `i.e.`, `etc.`, `vs.`).
+ */
 const splitSentences = (text: string): string[] => {
   if (text.trim() === '') return []
-  return text.split(/(?<=[.?!]) (?=[A-Z])/)
+  const mask = computeProtectedMask(text)
+  const boundaries: { end: number; nextStart: number }[] = []
+  const re = /[.?!]/g
+  for (const m of text.matchAll(re)) {
+    const idx = m.index
+    if (mask[idx]) continue
+    const after = idx + 1
+    if (after >= text.length || !/\s/.test(text[after] ?? '')) continue
+    let k = after
+    while (k < text.length && /\s/.test(text[k] ?? '')) k++
+    if (k >= text.length) continue
+    const nextCh = text[k] ?? ''
+    if (!/[A-Z`[]/.test(nextCh)) continue
+    if (text[idx] === '.' && isAbbreviation(text, idx)) continue
+    boundaries.push({ end: after, nextStart: k })
+  }
+
+  const spans: Span[] = []
+  let start = 0
+  for (const b of boundaries) {
+    spans.push({ start, end: b.end })
+    start = b.nextStart
+  }
+  spans.push({ start, end: text.length })
+
+  return spans
+    .map((s) => trimSpan(text, s))
+    .filter((s) => s.end > s.start)
+    .map((s) => text.slice(s.start, s.end))
 }
 
 /**

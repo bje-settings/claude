@@ -102,4 +102,14 @@ describe('splitMarkdown', () => {
       'See [the link](https://example.com) too.',
     ])
   })
+
+  it('does not split on an abbreviation, or on a period inside a code span', () => {
+    const source = 'See the guide, e.g. Foo bar. A span like `x. A y` stays whole. Next one starts.'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual([
+      'See the guide, e.g. Foo bar.',
+      'A span like `x. A y` stays whole.',
+      'Next one starts.',
+    ])
+  })
 })
