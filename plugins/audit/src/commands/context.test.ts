@@ -22,6 +22,7 @@ import {
   type EvidenceVerdict,
   JevError,
   type JevReplies,
+  jevFails,
   type PairVerdict,
   type UnitKind,
 } from '../../../../harness/jev.ts'
@@ -1765,4 +1766,26 @@ it('spends a --max-evidence budget in document order, and says what it left', as
   const report = reportOf(audit.stdout())
   expect(report.evidenceCoverage).toEqual({ judged: 1, available: 2 })
   expect(report.evidence.map((entry) => entry.source)).toEqual(['docs/one.md'])
+})
+
+it('names the unit when an evidence call fails, not the file it was reading', async () => {
+  // The unit is what a reader would have to check by hand, so it is what the
+  // failure is filed under. `jevFails` stands for "this call did not work"
+  // and carries its message as the body too, which is why it reads twice.
+  const audit = modelled('evidence', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+    judgeEvidence: jevFails('the model is overloaded', 503),
+  })
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'failed', error: '1 model call failed' })
+  const text = audit.stdout()
+  expect(text).toContain('## evidence: contradicts (0; 0 of 1 judged)')
+  expect(text).toContain(
+    [
+      '## failures (1)',
+      '  evidence CLAUDE.md:3-3: HTTP 503: the model is overloaded the model is overloaded',
+    ].join('\n'),
+  )
 })
