@@ -10,6 +10,7 @@ flowchart TD
 
     C --> D{read complete?}
     D -->|No, unavailable is not empty| D1([Stop: the blocker graph has a hole in it]):::stop
+    D1 -->|Only if the user says to plan on a partial read| E
     D -->|Yes| E{open pull requests?}
     E -->|Yes| E1([Name each one and whose it is, before going on]):::pause
     E -->|No| F
@@ -50,5 +51,6 @@ flowchart TD
 
 The three stops are different facts and are reported as different facts. A preflight
 failure is a machine that cannot run the round; an incomplete read is a question that
-could not be answered; an empty unblocked set is an answer, and the useful half of it is
-what the next tier is waiting on.
+could not be answered, and the only one of the three a user can send the skill past; an
+empty unblocked set is an answer, and the useful half of it is what the next tier is
+waiting on.

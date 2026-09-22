@@ -93,7 +93,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" preflight [--json]
 Prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}]}` with `--json`
 and the same findings as lines without it. Each hint is a command to run, except for an
 unreadable registry, whose hint names the file it could not read. Exit 0 when everything
-is present, 1 when anything is missing.
+is present, 1 when anything is missing, and 2 on a usage error.
 
 A registry that cannot be read is reported as itself and never as missing plugins: the fix
 is a different one, and telling someone to install what they already have sends them the

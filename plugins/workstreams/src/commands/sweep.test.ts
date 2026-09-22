@@ -348,6 +348,26 @@ describe('what the sweep does with a read it could not complete', () => {
     expect(renderReport(report)).toContain('INCOMPLETE: the sets below are short')
   })
 
+  it('reports the milestones it read when the issues and the pull requests were the reads that failed', async () => {
+    // The other half of the same rule: the milestone list is an answer too, and
+    // a failure writes nothing to stdout, so it must not be thrown away because
+    // the two reads beside it came back empty.
+    const report = await reportOf(
+      [],
+      createGhMock({
+        listMilestones: {
+          rows: [{ number: 4, title: 'workstreams primitives', openIssues: 13, closedIssues: 1 }],
+          unavailable: null,
+        },
+        listOpenPullRequests: { rows: [], unavailable: 'gh: API rate limit exceeded' },
+        listIssues: { rows: [], unavailable: 'gh: API rate limit exceeded' },
+      }),
+    )
+
+    expect(report.milestones.map((milestone) => milestone.number)).toEqual([4])
+    expect(renderReport(report)).toContain('INCOMPLETE: the sets below are short')
+  })
+
   it('answers with empty sets for a repository that simply has no open issues', async () => {
     // Nothing read and nothing wrong is a different answer from nothing read
     // because a read failed, and reporting the first as a failure would make

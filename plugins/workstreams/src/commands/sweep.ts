@@ -310,12 +310,16 @@ export interface SweepContext {
  * list nor `null` lands in no group at all, so it would be read, classified,
  * and then invisible. Sweeping these too is what keeps every row that arrived
  * in the report.
+ *
+ * Repeats and all: the caller unions this with the open milestones through a
+ * `Set`, so a milestone that twenty issues name is swept once. Deduplicating
+ * here as well would be a second guard on the same property, and no test can
+ * tell which of the two is doing the work.
  */
 const milestonesNamed = (issues: readonly IssueSummary[]): number[] => {
   const numbers: number[] = []
   for (const issue of issues) {
-    if (issue.milestone === null) continue
-    if (!numbers.includes(issue.milestone.number)) numbers.push(issue.milestone.number)
+    if (issue.milestone !== null) numbers.push(issue.milestone.number)
   }
   return numbers
 }
