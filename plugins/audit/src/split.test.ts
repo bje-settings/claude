@@ -89,4 +89,17 @@ describe('splitMarkdown', () => {
     const { units } = splitMarkdown(FILE, source)
     expect(units.map((u) => u.text)).toContain('This is a claim:')
   })
+
+  it('splits sentences only on . ? ! followed by whitespace then an uppercase/backtick/[ start', () => {
+    const source =
+      'Foo bar. Baz qux! Is this real? Sure, `run(x)` works. See [the link](https://example.com) too.'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual([
+      'Foo bar.',
+      'Baz qux!',
+      'Is this real?',
+      'Sure, `run(x)` works.',
+      'See [the link](https://example.com) too.',
+    ])
+  })
 })
