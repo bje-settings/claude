@@ -56,8 +56,8 @@ shape of the plan it was written for.
 
 - **Read the Decisions lists in `docs/rfc/` and `docs/adr/` for the milestone**, and check
   each decision against what has merged. A requirement can be recorded in an ADR, absent
-  from every issue body, and still binding; one surfaced only in a review round because the
-  sweep read the bodies alone.
+  from every issue body, and still binding; the sweep has read the bodies alone and missed
+  one twice, each time surfacing only in a review round.
 - **A design record can imply a dependency the tracker does not carry.** Fix it as a
   relationship field on the issue, never as a sentence in a comment.
 

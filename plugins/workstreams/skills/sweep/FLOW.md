@@ -48,9 +48,3 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
 ```
-
-The three stops are different facts and are reported as different facts. A preflight
-failure is a machine that cannot run the round; an incomplete read is a question that
-could not be answered, and the only one of the three a user can send the skill past; an
-empty unblocked set is an answer, and the useful half of it is what the next tier is
-waiting on.
