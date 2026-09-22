@@ -13,7 +13,13 @@
 // injected `GhClient` in, an envelope out, with nothing spawned.
 import { type ArgSpec, parseArguments } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
-import type { GhClient, IssueRef, IssueSummary, MilestoneSummary } from '../lib/gh.ts'
+import type {
+  GhClient,
+  IssueRef,
+  IssueSummary,
+  MilestoneSummary,
+  PullRequestSummary,
+} from '../lib/gh.ts'
 
 export const HELP = `What a round could start on, read from the issue tracker.
 
@@ -112,13 +118,7 @@ export interface Group {
 
 export interface SweepReport {
   readonly milestones: readonly MilestoneSummary[]
-  readonly pullRequests: ReadonlyArray<{
-    readonly number: number
-    readonly title: string
-    readonly head: string
-    readonly base: string
-    readonly draft: boolean
-  }>
+  readonly pullRequests: readonly PullRequestSummary[]
   readonly groups: readonly Group[]
   readonly unassigned: Group
   /** The same three sets across every group above, as numbers. */
