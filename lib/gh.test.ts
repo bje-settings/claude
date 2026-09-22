@@ -889,6 +889,37 @@ describe('issue and pull request states', () => {
 
     expect(result).toEqual({ states: {}, unavailable: 'cannot run gh: spawn gh ENOENT' })
   })
+
+  it('chunks 101 numbers into two calls of 100 and 1, each aliased from i0', async () => {
+    const numbers = Array.from({ length: 101 }, (_, i) => i + 1)
+    const { gh, calls } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { stdout: '{"data":{"repository":{}}}' },
+      { stdout: '{"data":{"repository":{"i0":{"state":"OPEN"}}}}' },
+    ])
+
+    const result = await gh.issueStates({ numbers })
+
+    // Each `api graphql` call aliases from i0 again: the batch is what resets,
+    // not a running count, so the second call's one number is still i0. Only
+    // the two ends of the first chunk are asserted as literals, rather than
+    // reconstructing the whole 100-alias query from the numbers array, which
+    // would only prove the query builder against a copy of itself.
+    expect(calls[1]?.args[3]).toContain('i0: issueOrPullRequest(number: 1) {')
+    expect(calls[1]?.args[3]).toContain('i99: issueOrPullRequest(number: 100) {')
+    expect(calls[1]?.args[3]).not.toContain('number: 101')
+    expect(calls[2]?.args).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'query=query {\n' +
+        '  repository(owner: "acme", name: "widgets") {\n' +
+        '    i0: issueOrPullRequest(number: 101) { ... on Issue { state } ... on PullRequest { state } }\n' +
+        '  }\n' +
+        '}',
+    ])
+    expect(result).toEqual({ states: { '101': 'OPEN' }, unavailable: null })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
