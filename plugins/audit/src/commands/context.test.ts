@@ -1877,3 +1877,47 @@ it('finds the one distinctive pair in a large repository without comparing every
   expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 1, available: 1 })
   expect(elapsedMs).toBeLessThan(6000)
 })
+
+it('still compares two identical sentences, which are not table cells', async () => {
+  // The repeated-cell rule is about table rows and nothing else. The same
+  // sentence written twice in prose is the plainest duplicate there is, and a
+  // rule that dropped every identical text would drop exactly it.
+  const audit = modelled('twins', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('same_claim', 0.95),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## pairs: same_claim (1; 1 of 1 judged)',
+      '  conf 0.95  CLAUDE.md:3-3  <>  CLAUDE.md:5-5',
+      '    a: The retry policy backs off exponentially on failure.',
+      '    b: The retry policy backs off exponentially on failure.',
+    ].join('\n'),
+  )
+})
+
+it('prints a refuted claim beside the file that refutes it', async () => {
+  // The finding is only actionable with all three: which claim, which file,
+  // and how sure the model was. The excerpt itself stays in the JSON report,
+  // where a reader who wants it can look it up.
+  const audit = modelled('evidence', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+    judgeEvidence: picked<EvidenceVerdict>('contradicts', 0.88),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## evidence: contradicts (1; 1 of 1 judged)',
+      '  conf 0.88  CLAUDE.md:3-3  against docs/retry.md',
+      '    The retry helper described in `docs/retry.md` waits one second between attempts.',
+    ].join('\n'),
+  )
+})

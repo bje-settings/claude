@@ -13,8 +13,6 @@ import type { Unit } from './types.ts'
 /** Two units worth comparing, `a < b` by id. */
 export type PairCandidate = { a: string; b: string; similarity: number }
 
-const DEFAULT_THRESHOLD = 0.5
-
 /** How many pairs one unit may appear in, on either side. A unit that says
  *  nearly what a dozen others say is worth a second look a few times over,
  *  and the twelfth call buys nothing the first few did not. */
@@ -80,7 +78,10 @@ const tokenize = (text: string): string[] => {
     tokens.push(code.toLowerCase())
     return ' '
   })
-  for (const word of prose.toLowerCase().match(/[a-z0-9]+(?:[-'_][a-z0-9]+)*/g) ?? []) {
+  // `matchAll` rather than `match`, which answers `null` for a text holding no
+  // word at all and would leave a branch here nothing could reach.
+  for (const match of prose.toLowerCase().matchAll(/[a-z0-9]+(?:[-'_][a-z0-9]+)*/g)) {
+    const word = match[0]
     if (!STOPWORDS.has(word)) tokens.push(word)
   }
   return tokens
@@ -233,9 +234,9 @@ const vectorsOf = (
  */
 export const candidatePairs = (
   units: readonly Unit[],
-  opts: { threshold?: number } = {},
+  options: { threshold: number },
 ): PairCandidate[] => {
-  const threshold = opts.threshold ?? DEFAULT_THRESHOLD
+  const threshold = options.threshold
 
   const tokensByUnit = new Map<string, string[]>()
   const eligible: Unit[] = []
@@ -282,8 +283,9 @@ export const candidatePairs = (
       seen.add(pairKey(unit.id, candidate.other.id))
       taken.set(unit.id, countOf(unit.id) + 1)
       taken.set(candidate.other.id, countOf(candidate.other.id) + 1)
-      const [a, b] =
-        unit.id < candidate.other.id ? [unit.id, candidate.other.id] : [candidate.other.id, unit.id]
+      // Sorted rather than compared: which of the two was the query side is an
+      // artefact of the loop, and a pair is named the same way whichever it was.
+      const [a, b] = [unit.id, candidate.other.id].sort() as [string, string]
       pairs.push({ a, b, similarity: candidate.similarity })
     }
   }
