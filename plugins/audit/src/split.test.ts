@@ -121,4 +121,18 @@ describe('splitMarkdown', () => {
       'Then this.',
     ])
   })
+
+  it('gives a hard-wrapped sentence a startLine/endLine spanning exactly the lines it occupies', () => {
+    const source = [
+      'Line one starts a thought that',
+      'wraps onto line two.',
+      'A new sentence begins here.',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units).toHaveLength(2)
+    expect(units[0]?.startLine).toBe(1)
+    expect(units[0]?.endLine).toBe(2)
+    expect(units[1]?.startLine).toBe(3)
+    expect(units[1]?.endLine).toBe(3)
+  })
 })

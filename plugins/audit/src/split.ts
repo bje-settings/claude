@@ -53,26 +53,36 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       continue
     }
 
+    const paraStart = i
+    const paraEnd = paragraphEnd(lines, i)
+    const paraLines: string[] = []
+    for (let k = paraStart; k <= paraEnd; k++) paraLines.push(lines[k - 1] ?? '')
+    const joined = paraLines.join(' ').trim()
+
     // "Directly before a list" also matches across blank lines: a blank line
     // (or several) between a lead-in paragraph and the list it introduces is
     // still tolerated.
-    let afterBlank = i + 1
+    let afterBlank = paraEnd + 1
     while (afterBlank <= total && isBlank(lines[afterBlank - 1] ?? '')) afterBlank++
     const afterLine = afterBlank <= total ? (lines[afterBlank - 1] ?? '') : null
     const nextIsList = afterLine !== null && matchListMarker(afterLine) !== null
 
-    if (nextIsList && line.trim().endsWith(':')) {
-      // A lead-in line is never a unit; it becomes the leadIn for the list
-      // that follows it.
-      i = parseListBlock(lines, afterBlank, headingStack, line.trim(), file, units)
+    if (nextIsList && joined.endsWith(':')) {
+      // A lead-in paragraph is never a unit; it becomes the leadIn for the
+      // list that follows it.
+      i = parseListBlock(lines, afterBlank, headingStack, joined, file, units)
       continue
     }
 
-    for (const text of splitSentences(line)) {
+    const { text: paraText, map } = buildLineMap(paraLines, paraStart)
+    for (const span of splitSentences(paraText)) {
+      const text = paraText.slice(span.start, span.end)
+      const startLine = map[span.start] ?? paraStart
+      const endLine = map[span.end - 1] ?? paraEnd
       units.push({
         file,
-        startLine: i,
-        endLine: i,
+        startLine,
+        endLine,
         block: 'sentence',
         headingPath: headingStack.map((h) => h.text),
         leadIn: null,
@@ -80,7 +90,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
         refs: [],
       })
     }
-    i++
+    i = paraEnd + 1
   }
 
   return { units: withNeighbours(assignIds(file, units)), opaque: [], warnings: [] }
@@ -208,6 +218,38 @@ const parseListBlock = (
   return i
 }
 
+/** The last line of the hard-wrapped paragraph starting at `start`: the scan
+ *  stops before the first line that opens a different kind of block, or at EOF. */
+const paragraphEnd = (lines: string[], start: number): number => {
+  let end = start
+  while (end + 1 <= lines.length) {
+    const next = lines[end] ?? ''
+    if (isBlank(next) || matchHeading(next) || matchListMarker(next)) break
+    end++
+  }
+  return end
+}
+
+const buildLineMap = (
+  paraLines: string[],
+  startLineNo: number,
+): { text: string; map: number[] } => {
+  let text = ''
+  const map: number[] = []
+  paraLines.forEach((line, idx) => {
+    const lineNo = startLineNo + idx
+    for (const ch of line) {
+      text += ch
+      map.push(lineNo)
+    }
+    if (idx < paraLines.length - 1) {
+      text += ' '
+      map.push(lineNo)
+    }
+  })
+  return { text, map }
+}
+
 const ABBREVIATIONS = ['e.g.', 'i.e.', 'etc.', 'vs.']
 
 type Span = { start: number; end: number }
@@ -266,12 +308,12 @@ const trimSpan = (text: string, span: Span): Span => {
 }
 
 /**
- * Splits paragraph text into sentence strings. The rule: split at `.`, `?` or
+ * Splits paragraph text into sentence spans. The rule: split at `.`, `?` or
  * `!` followed by whitespace and then an uppercase letter, a backtick, or
  * `[`, outside code spans and links, skipping the abbreviations in
  * `ABBREVIATIONS` (`e.g.`, `i.e.`, `etc.`, `vs.`).
  */
-const splitSentences = (text: string): string[] => {
+const splitSentences = (text: string): Span[] => {
   if (text.trim() === '') return []
   const mask = computeProtectedMask(text)
   const boundaries: { end: number; nextStart: number }[] = []
@@ -298,10 +340,7 @@ const splitSentences = (text: string): string[] => {
   }
   spans.push({ start, end: text.length })
 
-  return spans
-    .map((s) => trimSpan(text, s))
-    .filter((s) => s.end > s.start)
-    .map((s) => text.slice(s.start, s.end))
+  return spans.map((s) => trimSpan(text, s)).filter((s) => s.end > s.start)
 }
 
 /**
