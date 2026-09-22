@@ -10,8 +10,8 @@ disable-model-invocation: true
 ---
 
 One stream is one worktree, one branch per layer, one agent per layer, in sequence. The lower
-layer is reviewed to `done` before the next is written: a review fix on the lower branch
-rewrites the upper one, so nothing may be writing above while that happens.
+layer is reviewed to `done` before the next is written. (`FLOW.md` and the plugin README carry
+why.)
 
 Ask the caller for anything you were not given: the issue numbers and their order, the model
 and effort per layer, and where the briefs go. Never guess a layer's sizing; a wrong one is
@@ -87,9 +87,10 @@ what it touched beyond the allowed set, `lower_layer` belongs to a branch it doe
 instruction. Act on each before moving on: a `brief_vs_code` entry is a correction to the next
 layer's brief.
 
-Then hand the pull request to `/workstreams:review`. Only when it reaches `done` is the next
-layer written, and its brief gains what this layer's review found. That lessons section is the
-most valuable part of an upper layer's brief, and it is grown layer by layer.
+Then the pull request goes through `/workstreams:review`. That skill has side effects, so a
+person runs it; ask for it and wait rather than reaching for it yourself. Only when it reaches
+`done` is the next layer written, and its brief's lessons section gains what this layer's review
+found.
 
 ## Step 7: report
 
