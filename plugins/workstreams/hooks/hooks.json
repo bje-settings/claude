@@ -1,0 +1,17 @@
+{
+  "description": "Refuses two things to subagents only: a background command, and a git command that would overwrite uncommitted work in a tracked file (git restore, git checkout with a pathspec written with or without a --, and git checkout or git switch carrying a force, patch or --pathspec-from-file option). The main conversation is never denied.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.ts\"; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

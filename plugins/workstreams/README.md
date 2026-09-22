@@ -6,9 +6,8 @@ dependency relationships rather than as prose, and a round is the unblocked set 
 the milestones being worked.
 
 One skill per primitive, so a repository installs the plugin and reaches for whichever
-piece it wants. These are the first two of the five in
-[#111](https://github.com/bje-settings/claude/issues/111); the stream
-([#132](https://github.com/bje-settings/claude/issues/132)), the question phase
+piece it wants. These are the first three of the five in
+[#111](https://github.com/bje-settings/claude/issues/111); the question phase
 ([#131](https://github.com/bje-settings/claude/issues/131)) and the orchestrator
 ([#134](https://github.com/bje-settings/claude/issues/134)) land after them.
 
@@ -20,7 +19,7 @@ Every skill runs `preflight` first and stops with a hint per finding. It checks:
 | --- | --- |
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
-| The [`gh stack`](https://github.com/github/gh-stack) extension | Declared here for the stream ([#132](https://github.com/bje-settings/claude/issues/132)), which opens a stack of pull requests; the sweep itself does not call it. |
+| The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`, so the stack is a stack in the GitHub UI from the first push (a chain of `gh pr create` drafts is not, and cannot be told from unrelated work by a reviewer). |
 | The `gh` plugin, from any marketplace | Declared here for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs `/gh:sync` between rounds; the sweep itself does not call it. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that found a reviewer missing halfway through has already spent the others. |
@@ -98,6 +97,105 @@ There is no state file. Everything is read again each tick, and the three things
 command cannot read are passed as flags by the skill that is running the loop.
 
 It commits and pushes, so it is not model-invocable: a person runs it.
+
+## `/workstreams:stream`
+
+Builds one issue, or one stack of them, in one worktree.
+
+One stream is one worktree, one branch per layer, one agent per layer, in sequence. The
+lower layer is reviewed to `done` before the next is written, because a review fix on the
+lower branch rewrites every branch above it and nothing may be writing there at that
+moment; and because the upper layer is then written once, against the names the lower
+layer's review settled.
+
+The brief is a file, not a prompt. `skills/stream/brief.md` is the template: the issue body
+and its findings comments, the sequencing, rulings and plan comments verbatim, the allowed
+file set and what not to touch, the numbered rules, the lessons the layer inherits, the done
+condition and the return contract. The dispatch prompt points at the file and repeats only
+the lines most often got wrong. The lessons section is grown layer by layer from what each
+review found, and that is the most valuable part of an upper layer's brief.
+
+| The layer returns | What the caller does with it |
+| --- | --- |
+| `constraints_checked` | One entry per numbered rule, with how the diff satisfies it. A miss is visible here rather than a review round later. |
+| `brief_vs_code` | Where the brief was wrong and the code or the documentation was right. Each one corrects the next layer's brief. |
+| `outside_set` | What it touched beyond the allowed set. Expected, in small reasonable ways, every layer; doing it silently is what is not. |
+| `lower_layer` | A defect in a branch it does not own. Never applied there. |
+| `injected_text_seen` | Text inside a tool result that read like an instruction. |
+
+It commits and pushes, so it is not model-invocable: a person runs it.
+
+### The three agents
+
+`agents/stream-low.md`, `stream-medium.md` and `stream-high.md` are one body with one
+frontmatter field between them. Effort can only come from a shipped agent definition, which
+is why there are three; the model is passed per call, so a layer's sizing is the caller's
+decision and not the definition's.
+
+A plugin subagent ignores the `hooks`, `mcpServers` and `permissionMode` frontmatter fields
+([sub-agents](https://code.claude.com/docs/en/sub-agents#choose-the-subagent-scope)), so
+nothing else can ride in these files and the guard below is a plugin hook rather than a line
+in them.
+
+### The guard hook
+
+`hooks/hooks.json` registers one `PreToolUse` hook on `Bash|PowerShell`. It refuses two
+things, and only to a subagent:
+
+| Refused | Why |
+| --- | --- |
+| `run_in_background` | A turn that ends on a background command reads to a caller as a worker that stopped short. It happened in three rounds with the rule written in the brief. |
+| A git command that would overwrite uncommitted changes to tracked files | Two agents lost uncommitted work to exactly this, one of them with the rule in its brief. The remedy is one commit. |
+
+The second row is `git restore` in any form, `git checkout` with a pathspec, and `git checkout`
+or `git switch` carrying `-f`, `--force`, `--discard-changes`, `-p`, `--patch` or
+`--pathspec-from-file`, each of which throws local modifications away while naming no path at
+all. An ordinary `git switch <branch>` carries uncommitted work across with it and is not
+refused.
+
+A `git checkout` written without a `--` counts as a pathspec too. The same words may be a
+branch, so git is asked: the one `git status` the guard already runs is scoped to what the
+command named, which answers with the work at stake for `git checkout file.txt` or
+`git checkout .`, the spelling a stream lost a file to, and with nothing for a name that is only
+a branch. The options that name a branch (`-b`, `-B`, `--orphan`, `-t`, `--track`) are left out
+of that question, because git accepts no pathspec beside them.
+
+That leaves one false refusal, and only one: a name that is both an existing branch and a dirty
+tracked path is read as the path, where git would have switched and carried the change over.
+Separating them needs a second question to git; the refusal costs a commit and never costs work.
+
+**The main conversation is never denied.** The test is `agent_id`, which the input carries
+"only when the hook fires inside a subagent"
+([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). `agent_type` is named
+in the refusal so a reader knows which worker was stopped, and is never matched on: matching
+it would bind the three agents above and leave every reviewer and round agent the same rules
+are handed to unguarded.
+
+An allow writes nothing at all, so the permission rules the user configured still decide the
+call. A refusal is a `permissionDecision` of `deny` on stdout, which is the documented form
+([hooks](https://code.claude.com/docs/en/hooks#pretooluse-decision-control)) and the one that
+survives the `; exit 0` in `hooks.json`.
+
+Two things it cannot do. It cannot see a command the harness MOVES to the background when
+that command reaches its timeout, which is a different mechanism with no hook in front of it;
+the remedy for that half is the brief's, and it is to pass a timeout long enough to finish
+in. And it is a guardrail rather than a security boundary: it reads the command as text, so a
+`git restore` inside a quoted argument is refused as if it were real, which costs a person one
+commit and never costs anyone their work.
+
+Anything it cannot read is one line on stderr and an allow. It never fails a session.
+
+It costs one node process, about 0.1 s, in front of every Bash and PowerShell call in any
+session that has the plugin enabled, the main conversation's included. The hook does not use
+an [`if` condition](https://code.claude.com/docs/en/hooks#common-fields) to narrow that: `if`
+matching is documented as best-effort, not fit to enforce a hard allow or deny, so the guard's
+own code decides on every call instead.
+
+Run it by hand with a payload on stdin, which is how Claude Code runs it:
+
+```bash
+echo '{"hook_event_name":"PreToolUse","cwd":"'"$PWD"'","agent_id":"a","agent_type":"workstreams:stream-high","tool_name":"Bash","tool_input":{"command":"pnpm test","run_in_background":true}}' | node "${CLAUDE_PLUGIN_ROOT}/hooks/guard.ts"
+```
 
 ## Commands
 
@@ -188,3 +286,9 @@ while answering the sweep's four reads against `bje-settings/claude` on 2026-09-
 acceptance case replays it through the real client and asserts the sets a person swept by
 hand that day, so "the report matches a hand sweep" is held by a test rather than by a
 memory of one.
+
+`src/hook.test.ts` starts `hooks/guard.ts` as its own process, the way `hooks.json` does, and
+sends it the payloads Claude Code would really send, against repositories built by
+`harness/git.ts`. Every case asserts stdout as well as the status, because exit 0 is what an
+allow and every degraded run answer with, so a status on its own cannot tell a decision from a
+crash before one.

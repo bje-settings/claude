@@ -44,9 +44,8 @@ the plugin's own README has the detail, including the scripts the skills and hoo
 
 > The round primitives: the pieces a round of issue-tracker work is run out of, each usable
 > on its own. Being rebuilt from scratch under
-> [#111](https://github.com/bje-settings/claude/issues/111); the sweep and the review loop
-> are the first two of the five, and the stream
-> ([#132](https://github.com/bje-settings/claude/issues/132)), the question phase
+> [#111](https://github.com/bje-settings/claude/issues/111); the sweep, the review loop and the
+> stream are the first three of the five, and the question phase
 > ([#131](https://github.com/bje-settings/claude/issues/131)) and the orchestrator
 > ([#134](https://github.com/bje-settings/claude/issues/134)) land after them.
 
@@ -57,6 +56,23 @@ the plugin's own README has the detail, including the scripts the skills and hoo
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamssweep"><code>/workstreams:sweep</code></a>: find what a round could start on. Reports the unblocked set, the tier one issue behind it, and the rest with their open blockers; then reads the bodies and the decision records, maps the files each issue touches, sizes each one, and sequences them into parallel streams, a stack, or one pull request. <em>Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsreview"><code>/workstreams:review</code></a>: review one draft pull request through to done. Runs the <code>pr-review-toolkit</code> reviewers over the pull request's own diff, verifies every finding and every rejection against the code, applies what holds, pushes and waits for CI, in at most two rounds, then checks the title and body against the final diff. <em>Scope: one pull request, in its own worktree.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>/workstreams:stream</code></a>: build one issue, or one stack of them, in one worktree. Writes each layer's brief from the template, dispatches one sized agent per layer, opens a draft pull request per layer, and hands each to the review loop before the next is written. <em>Scope: one worktree, one branch per layer.</em></li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Agents</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>stream-low</code>, <code>stream-medium</code>, <code>stream-high</code></a>: one body, one effort each; build one layer from one brief. Dispatched by <code>/workstreams:stream</code> with the model chosen per call.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Hooks</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#the-guard-hook">Pre tool use</a>: refuses a background command, and <code>git checkout</code> with a pathspec or <code>git restore</code> on a tree with uncommitted work, to subagents only. The main conversation is never denied.</li>
       </ul>
     </td>
   </tr>
