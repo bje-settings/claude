@@ -188,6 +188,10 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
   // rather than by a path that ends with it.
   const isDirectoryRef = value.endsWith('/')
   const tail = value.replace(/^\.\//, '').replace(/\/$/, '')
+  // A one-segment directory reference matches a tracked path in almost any
+  // repository, so a witness for it would absolve everything and prove
+  // nothing.
+  if (isDirectoryRef && !tail.includes('/')) return unchecked('pattern')
   const witness = ctx.tracked.find((tracked) =>
     isDirectoryRef ? `/${tracked}`.includes(`/${tail}/`) : tracked.endsWith(`/${tail}`),
   )

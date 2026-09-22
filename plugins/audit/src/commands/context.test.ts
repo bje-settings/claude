@@ -422,3 +422,16 @@ it('answers tail_match for a directory reference contained in a tracked path', a
     },
   ])
 })
+
+it('leaves a one-segment directory reference unchecked rather than absolving it', async () => {
+  // `bin/` would match a tracked path in almost any repository, so a witness
+  // for it proves nothing. Unchecked is the honest answer: it was not looked
+  // for, rather than looked for and absolved.
+  const audit = audited('tails')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[2]?.refs).toEqual([
+    { kind: 'path', value: 'bin/', resolution: { status: 'unchecked', reason: 'pattern' } },
+  ])
+})
