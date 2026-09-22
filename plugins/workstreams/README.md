@@ -21,8 +21,8 @@ piece it wants. This is the first of the five in
 | --- | --- |
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
-| The [`gh stack`](https://github.com/github/gh-stack) extension | A sequenced round opens a stack of pull requests. |
-| The `gh` plugin, from any marketplace | The sweep sequences a round that `/gh:sync` prunes between. |
+| The [`gh stack`](https://github.com/github/gh-stack) extension | Declared here for the stream ([#132](https://github.com/bje-settings/claude/issues/132)), which opens a stack of pull requests; the sweep itself does not call it. |
+| The `gh` plugin, from any marketplace | Declared here for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs `/gh:sync` between rounds; the sweep itself does not call it. |
 
 Nothing is vendored: a dependency is declared here and checked before a round starts,
 never bundled. The plugin registry is read at
