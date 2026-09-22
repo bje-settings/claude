@@ -145,13 +145,24 @@ things, and only to a subagent:
 | Refused | Why |
 | --- | --- |
 | `run_in_background` | A turn that ends on a background command reads to a caller as a worker that stopped short. It happened in three rounds with the rule written in the brief. |
-| `git checkout` with a pathspec, or `git restore`, on a tree with uncommitted changes to tracked files | Two agents lost uncommitted work to exactly this, one of them with the rule in its brief. The remedy is one commit. |
+| A git command that would overwrite uncommitted changes to tracked files | Two agents lost uncommitted work to exactly this, one of them with the rule in its brief. The remedy is one commit. |
+
+The second row is `git restore` in any form, `git checkout` with a pathspec, and `git checkout`
+or `git switch` carrying `-f`, `--force`, `--discard-changes`, `-p`, `--patch` or
+`--pathspec-from-file`, each of which throws local modifications away while naming no path at
+all. An ordinary `git switch <branch>` carries uncommitted work across with it and is not
+refused.
 
 A `git checkout` written without a `--` counts as a pathspec too. The same words may be a
 branch, so git is asked: the one `git status` the guard already runs is scoped to what the
-command named, which answers with nothing for `git checkout <branch>` and with the work at
-stake for `git checkout file.txt` or `git checkout .`. The second of those is what a stream
-lost a file to.
+command named, which answers with the work at stake for `git checkout file.txt` or
+`git checkout .`, the spelling a stream lost a file to, and with nothing for a name that is only
+a branch. The options that name a branch (`-b`, `-B`, `--orphan`, `-t`, `--track`) are left out
+of that question, because git accepts no pathspec beside them.
+
+That leaves one false refusal, and only one: a name that is both an existing branch and a dirty
+tracked path is read as the path, where git would have switched and carried the change over.
+Separating them needs a second question to git; the refusal costs a commit and never costs work.
 
 **The main conversation is never denied.** The test is `agent_id`, which the input carries
 "only when the hook fires inside a subagent"
