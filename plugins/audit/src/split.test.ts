@@ -135,4 +135,20 @@ describe('splitMarkdown', () => {
     expect(units[1]?.startLine).toBe(3)
     expect(units[1]?.endLine).toBe(3)
   })
+
+  it('turns a GFM table into header: cell rows, never units for the header or separator', () => {
+    const source = [
+      '| Name | Note |',
+      '| --- | --- |',
+      '| a\\|b | plain |',
+      '| `x|y` | code span |',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units).toHaveLength(2)
+    expect(units.every((u) => u.block === 'table_row')).toBe(true)
+    expect(units[0]?.text).toBe('Name: a|b\nNote: plain')
+    expect(units[1]?.text).toBe('Name: `x|y`\nNote: code span')
+    expect(units[0]?.startLine).toBe(3)
+    expect(units[1]?.startLine).toBe(4)
+  })
 })

@@ -48,6 +48,15 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       continue
     }
 
+    const headerCells = matchTableHeader(line, lines[i] ?? null)
+    if (headerCells) {
+      // The header's own line and the separator under it are not units.
+      const table = readTableRows(lines, i + 2, headerCells, file, headingStack)
+      units.push(...table.units)
+      i = table.next
+      continue
+    }
+
     if (matchListMarker(line)) {
       i = parseListBlock(lines, i, headingStack, null, file, units)
       continue
@@ -248,6 +257,97 @@ const buildLineMap = (
     }
   })
   return { text, map }
+}
+
+const matchTableHeader = (line: string, next: string | null): string[] | null => {
+  if (next === null || !line.includes('|') || !isTableSeparator(next)) return null
+  return splitTableRow(line)
+}
+
+const isTableSeparator = (line: string): boolean => {
+  let s = line.trim()
+  if (s === '') return false
+  if (s.startsWith('|')) s = s.slice(1)
+  if (s.endsWith('|')) s = s.slice(0, -1)
+  const cells = s.split('|')
+  if (cells.length === 0) return false
+  return cells.every((c) => /^:?-+:?$/.test(c.trim()))
+}
+
+/** Splits a table row on unescaped, non-code-span pipes. */
+const splitTableRow = (line: string): string[] => {
+  let s = line.trim()
+  if (s.startsWith('|')) s = s.slice(1)
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1)
+
+  const cells: string[] = []
+  let current = ''
+  let openBackticks = 0
+  let idx = 0
+  while (idx < s.length) {
+    const ch = s[idx]
+    if (ch === '`') {
+      let runLen = 1
+      while (s[idx + runLen] === '`') runLen++
+      if (openBackticks === 0) openBackticks = runLen
+      else if (openBackticks === runLen) openBackticks = 0
+      current += '`'.repeat(runLen)
+      idx += runLen
+      continue
+    }
+    if (ch === '\\' && s[idx + 1] === '|') {
+      current += '|'
+      idx += 2
+      continue
+    }
+    if (ch === '|' && openBackticks === 0) {
+      cells.push(current.trim())
+      current = ''
+      idx++
+      continue
+    }
+    current += ch
+    idx++
+  }
+  cells.push(current.trim())
+  return cells
+}
+
+/** One unit per body row of a table, from `start` to the first line that is
+ *  blank or carries no pipe. Each row's text is the header's own cell names
+ *  paired with the row's values. */
+const readTableRows = (
+  lines: string[],
+  start: number,
+  headerCells: string[],
+  file: string,
+  headingStack: HeadingFrame[],
+): { units: Omit<Unit, 'id' | 'prev' | 'next'>[]; next: number } => {
+  const units: Omit<Unit, 'id' | 'prev' | 'next'>[] = []
+  let i = start
+  while (i <= lines.length) {
+    const rowLine = lines[i - 1] ?? ''
+    if (isBlank(rowLine) || !rowLine.includes('|')) break
+    const cells = splitTableRow(rowLine)
+    const text = headerCells
+      .map((header, idx) => {
+        const name = header.trim() === '' ? `col${idx + 1}` : header.trim()
+        return `${name}: ${(cells[idx] ?? '').trim()}`
+      })
+      .join('\n')
+    units.push({
+      file,
+      startLine: i,
+      endLine: i,
+      block: 'table_row',
+      headingPath: headingStack.map((h) => h.text),
+      leadIn: null,
+      text,
+      refs: [],
+    })
+    i++
+  }
+  return { units, next: i }
 }
 
 const ABBREVIATIONS = ['e.g.', 'i.e.', 'etc.', 'vs.']
