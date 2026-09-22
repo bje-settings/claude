@@ -760,6 +760,19 @@ describe('issue and pull request states', () => {
     ])
     expect(result).toEqual({ states: { '127': 'OPEN' }, unavailable: null })
   })
+
+  it('reads a CLOSED state and a MERGED state, one alias per number', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: '{"data":{"repository":{"i0":{"state":"CLOSED"},"i1":{"state":"MERGED"}}}}',
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1, 2] })
+
+    expect(result).toEqual({ states: { '1': 'CLOSED', '2': 'MERGED' }, unavailable: null })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
