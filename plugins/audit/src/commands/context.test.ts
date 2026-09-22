@@ -1561,3 +1561,25 @@ it('does not compare a cell value repeated down one table', async () => {
 
   expect(audit.stdout()).toContain('## pairs: contradicts (0; 0 of 0 judged)')
 })
+
+it('still compares the same cell written under two different headings', async () => {
+  // The other half of the repeated-cell rule. One table saying it twice is a
+  // column; two tables saying it is the duplication the audit exists to find,
+  // and dropping every identical row would hide it.
+  const audit = modelled('retables', {
+    classify: {
+      classifications: [classified('CLAUDE.md:7-7'), classified('CLAUDE.md:13-13')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('same_claim', 0.81),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## pairs: same_claim (1; 1 of 1 judged)',
+      '  conf 0.81  CLAUDE.md:13-13  <>  CLAUDE.md:7-7',
+    ].join('\n'),
+  )
+})
