@@ -629,3 +629,19 @@ it('does not read an owner/name@ref pin as a path', async () => {
 
   expect(reportOf(audit.stdout()).units[1]?.refs).toEqual([])
 })
+
+it('treats an env-templated path as a placeholder rather than a missing file', async () => {
+  // `${VAR}` is the spelling a skill writes, and no existence check can ever
+  // succeed on it: it is a shape, which is a different fact from an absence.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[2]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: `\${CLAUDE_PLUGIN_ROOT}/bin/audit.ts`,
+      resolution: { status: 'unchecked', reason: 'pattern' },
+    },
+  ])
+})
