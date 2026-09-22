@@ -524,3 +524,23 @@ it('reads a manifest that declares no scripts as a manifest, not as a missing on
     { kind: 'script', value: 'pnpm test', resolution: { status: 'absent' } },
   ])
 })
+
+it('reads the refs in a fenced code block, commands included', async () => {
+  // A fenced block never goes to the model, and tier 0 is the only thing that
+  // reads it: a command line that names a path is exactly where a stale path
+  // hides.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).opaque[0]?.refs).toEqual([
+    { kind: 'command', value: 'pnpm', resolution: { status: 'unchecked', reason: 'no_resolver' } },
+    { kind: 'script', value: 'pnpm test', resolution: { status: 'found', repoPath: null } },
+    { kind: 'command', value: 'node', resolution: { status: 'unchecked', reason: 'no_resolver' } },
+    {
+      kind: 'path',
+      value: 'scripts/build.ts',
+      resolution: { status: 'found', repoPath: 'scripts/build.ts' },
+    },
+  ])
+})

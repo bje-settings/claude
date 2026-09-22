@@ -18,7 +18,7 @@ import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import type { GhClient } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
-import { extractRefs, type PackageJsonCache, resolveRefs } from '../refs.ts'
+import { extractBlockRefs, extractRefs, type PackageJsonCache, resolveRefs } from '../refs.ts'
 import { type Report, renderFindings, type SkippedStage } from '../report.ts'
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
@@ -211,6 +211,14 @@ export const runContext = async (
     unit.refs = resolveRefs(extractRefs(unit.text), {
       root,
       file: unit.file,
+      tracked,
+      packageJson,
+    })
+  }
+  for (const block of opaque) {
+    block.refs = resolveRefs(extractBlockRefs(block.text, block.lang, block.kind), {
+      root,
+      file: block.file,
       tracked,
       packageJson,
     })

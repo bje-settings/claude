@@ -160,6 +160,9 @@ const YARN_BUILTINS = new Set([
 
 const SCRIPT_NAME = '[\\w:.-]+'
 
+/** Fence info strings whose first line words are shell commands. */
+const COMMAND_LANGS = new Set(['bash', 'sh', 'shell', 'zsh'])
+
 /** A path, then `:`, then a line or a line range. The path part is checked
  *  against {@link looksLikePath} as well, so `note:1` is prose and
  *  `lib/git.ts:115` is a reference. */
@@ -233,6 +236,77 @@ const locateInCodeSpan = (token: string): Located[] => {
   return []
 }
 
+/** The first word of each non-blank line of a shell block, after a `$ `
+ *  prompt, leading `NAME=value` assignments and a leading `sudo` are stripped.
+ *  A comment line has no command, so it is skipped rather than reported as one
+ *  starting with `#`. Extraction only: nothing here runs, or ever will. */
+const locateCommands = (blockContent: string): Located[] => {
+  const located: Located[] = []
+  let lineStart = 0
+  for (const rawLine of blockContent.split('\n')) {
+    const at = lineStart
+    lineStart += rawLine.length + 1
+    let rest = rawLine.trim()
+    if (rest === '' || rest.startsWith('#')) continue
+    if (rest.startsWith('$ ')) rest = rest.slice(2).trim()
+    rest = rest.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').replace(/^sudo\s+/, '')
+    const firstWord = /^(\S+)/.exec(rest)
+    if (firstWord === null) continue
+    located.push({
+      at,
+      ref: { kind: 'command', value: firstWord[1] as string, resolution: UNRESOLVED },
+    })
+  }
+  return located
+}
+
+/** Wrapping punctuation around a token inside a code block: quotes and
+ *  brackets on the left, those plus sentence punctuation on the right. A
+ *  leading `.` is never stripped, since `../../lib/git.ts` starts with one,
+ *  and a trailing `/` is never stripped, since it is what marks a directory
+ *  reference. */
+const TRIM_LEADING_RE = /^[('"[{`]+/
+const TRIM_TRAILING_RE = /[)'"\]},;:.`]+$/
+
+/** Syntax that survives the edge trims because it is not at an edge, and that
+ *  no bare path contains. `import('../src/run.ts')` trims to
+ *  `import('../src/run.ts`, which is not a path anybody wrote: the token is
+ *  code around a path rather than a path, so it yields no ref at all. */
+const CODE_TOKEN_SYNTAX_RE = /[()'"=`]/
+
+/** Inside a code block almost every line carries slashes that are not paths
+ *  (`and/or`, a URL path), so there a path must also end in an extension or a
+ *  slash, or carry a glob or placeholder. In prose a backticked token is
+ *  deliberate enough that {@link looksLikePath} alone is the rule. */
+const CODE_PATH_SHAPE_RE = /\/$|\.[A-Za-z0-9]{1,5}$|[*<]/
+const looksLikePathInCode = (value: string): boolean =>
+  looksLikePath(value) && CODE_PATH_SHAPE_RE.test(value)
+
+/** A `../`-rooted path inside a code block is written relative to whatever
+ *  directory the example runs from, which is not the referencing file's, so
+ *  there is nowhere to look for it. A shape, not an absence. */
+const RELATIVE_EXAMPLE: Resolution = { status: 'unchecked', reason: 'pattern' }
+
+/** Paths and file:line references written inside a code block, token by
+ *  token. Narrower than the prose rule ({@link looksLikePathInCode}). */
+const locatePathsInCode = (content: string): Located[] => {
+  const located: Located[] = []
+  for (const match of content.matchAll(/\S+/g)) {
+    const token = (match[0] as string).replace(TRIM_LEADING_RE, '').replace(TRIM_TRAILING_RE, '')
+    if (token === '') continue
+    if (CODE_TOKEN_SYNTAX_RE.test(token)) continue
+    const resolution = token.startsWith('../') ? RELATIVE_EXAMPLE : UNRESOLVED
+    if (isFileLineToken(token)) {
+      located.push({ at: match.index, ref: { kind: 'file_line', value: token, resolution } })
+      continue
+    }
+    if (looksLikePathInCode(token)) {
+      located.push({ at: match.index, ref: { kind: 'path', value: token, resolution } })
+    }
+  }
+  return located
+}
+
 /** `located` in source order, stably: two refs found at the same offset keep
  *  the order the passes produced them in. */
 const inSourceOrder = (located: Located[]): Ref[] =>
@@ -253,6 +327,30 @@ export const extractRefs = (text: string): Ref[] => {
       located.push({ at: base + entry.at, ref: entry.ref })
     }
   }
+  return inSourceOrder(located)
+}
+
+/**
+ * The references in one opaque block, for a caller that already holds the
+ * block's text, info string and kind ({@link extractRefs} would need the text
+ * wrapped back in a fence, which breaks on an info string like `c++` and on a
+ * body containing a fence line of its own).
+ *
+ * A mermaid diagram yields nothing: its `#`s are colours and its arrows are
+ * not paths, so every ref it could produce would be a false one.
+ */
+export const extractBlockRefs = (
+  text: string,
+  lang: string | null,
+  kind: 'code' | 'frontmatter' | 'mermaid',
+): Ref[] => {
+  if (kind === 'mermaid') return []
+  const located: Located[] = []
+  if (kind === 'code' && COMMAND_LANGS.has((lang ?? '').toLowerCase())) {
+    located.push(...locateCommands(text))
+  }
+  located.push(...locateScripts(text))
+  located.push(...locatePathsInCode(text))
   return inSourceOrder(located)
 }
 
@@ -454,8 +552,18 @@ const resolveOne = (
   ctx: ResolveContext,
   lineCounts: Map<string, number | null>,
 ): Resolution => {
+  // A ref extraction already settled keeps its resolution: only extraction can
+  // see which side of a fence a path was written on ({@link RELATIVE_EXAMPLE}).
+  // `not_resolved_yet` is the sentinel for "nobody has looked yet".
+  const { resolution } = ref
+  if (resolution.status !== 'unchecked' || resolution.reason !== 'not_resolved_yet') {
+    return resolution
+  }
   if (ref.kind === 'file_line') return resolveFileLine(ref, ctx, lineCounts)
   if (ref.kind === 'script') return resolveScript(ref, ctx)
+  // The contract for a command is extract-only: what a shell would find on
+  // PATH is a fact about the machine, not about this repository.
+  if (ref.kind === 'command') return unchecked('no_resolver')
   return resolvePathValue(ref.value, ctx)
 }
 
