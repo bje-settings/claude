@@ -30,6 +30,14 @@ never bundled. The plugin registry is read at
 marketplace, because a fork under another name is still that plugin to the skill that
 runs its commands.
 
+## Installing
+
+Install through a marketplace: `/plugin marketplace add <path-or-repo>`, then
+`/plugin install workstreams@bje`. A plugin installed with `claude --plugin-dir`, from a
+local path, or from a `command` source in copy mode keeps only the symlinks that resolve
+inside the plugin's own directory and skips the rest, so `src/lib` is dropped and every
+command fails at import.
+
 ## `/workstreams:sweep`
 
 Finds what a round could start on, and says how it should be sequenced.
