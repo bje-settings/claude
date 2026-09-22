@@ -825,6 +825,25 @@ describe('issue and pull request states', () => {
       unavailable: 'Resource not accessible by integration',
     })
   })
+
+  it('leaves every null alias out for a timeout error, which carries no path', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: null, i1: null } },
+          errors: [{ message: 'Something went wrong while executing your query.' }],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 164] })
+
+    expect(result).toEqual({
+      states: {},
+      unavailable: 'Something went wrong while executing your query.',
+    })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
