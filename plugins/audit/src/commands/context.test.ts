@@ -453,3 +453,20 @@ it('resolves a package script against the manifest that governs the file', async
   ])
   expect(report.units[2]?.refs).toEqual([])
 })
+
+it('reads npm only in its explicit run form, and yarn the way it reads pnpm', async () => {
+  const audit = audited('scripts')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.units[3]?.refs).toEqual([
+    { kind: 'script', value: 'npm run test', resolution: { status: 'found', repoPath: null } },
+  ])
+  expect(report.units[4]?.refs).toEqual([
+    { kind: 'script', value: 'yarn test', resolution: { status: 'found', repoPath: null } },
+  ])
+  expect(report.units[5]?.refs).toEqual([
+    { kind: 'script', value: 'pnpm run test', resolution: { status: 'found', repoPath: null } },
+  ])
+})
