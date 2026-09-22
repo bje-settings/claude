@@ -115,17 +115,13 @@ export const renderFindings = (report: Report): string => {
       linesFor(report, (ref) => ref.resolution.status === 'line_out_of_range'),
     ),
   )
-  // An issue that is still open says nothing; one that is closed or merged
-  // beside an instruction is the rot tier 0 can see without a model.
-  lines.push(
-    ...section(
-      'tier 0: issues cited that are not open',
-      linesFor(
-        report,
-        (ref) => ref.resolution.status === 'issue' && ref.resolution.state !== 'OPEN',
-      ),
-    ),
-  )
+  // There is deliberately no "issues cited that are not open" section here.
+  // Tier 0 knows each cited issue's state, and every state is in the JSON
+  // report, but the state alone is not a finding: a history line legitimately
+  // cites a closed issue, and this repository's own files are almost entirely
+  // that. The spike gated the finding on a model judgment instead, `volatile`
+  // at or above 0.8 and a unit that is not `history` (`cli.ts` `isExpired`),
+  // which makes it a model section and layer 5's to add.
 
   // No count in this heading: the lines are the counts, and a number of
   // distinct kinds beside them would be a second number meaning something
