@@ -20,3 +20,9 @@ And an example from elsewhere:
 # see scripts/build.ts:1 for the entry point
 node ../other/tool.ts
 ```
+
+And one with no language at all:
+
+```
+node scripts/build.ts
+```

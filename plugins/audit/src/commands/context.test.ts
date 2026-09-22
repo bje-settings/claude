@@ -843,3 +843,19 @@ it('audits the directory it was called in when no root is given', async () => {
 
   expect(reportOf(audit.stdout()).files).toEqual(['CLAUDE.md'])
 })
+
+it('reads the paths in a fence with no info string, but takes no commands from it', async () => {
+  // A fence with no language is not known to be a shell, so its first words
+  // are not commands; the paths written in it are still paths.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).opaque[3]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'scripts/build.ts',
+      resolution: { status: 'found', repoPath: 'scripts/build.ts' },
+    },
+  ])
+})
