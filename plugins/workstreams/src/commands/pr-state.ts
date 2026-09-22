@@ -23,7 +23,7 @@
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
-import { type ArgSpec, parseCommandLine } from '../lib/args.ts'
+import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import type { CheckContext, GhClient, PullRequestDetail, WorkflowRun } from '../lib/gh.ts'
 
@@ -55,13 +55,18 @@ Nothing here throws. Every read that fell short is listed under "unavailable",
 and a verdict of "unavailable" means the sets below it are not an answer.
 Exits 2 on a usage error, and 1 only when nothing at all could be read.`
 
+// `as const` alone, as `plugins/mermaid/src/commands/url.ts` and `preflight.ts`
+// write it and as `lib/README.md` asks for. A broken spec is refused either
+// way: `parseCommandLine`'s own `ExactSpec` guard answers `never` at the call
+// site, verified by removing `round`'s default and watching `tsc` refuse it
+// with and without a `satisfies` clause.
 const SPEC = {
   round: { type: 'string', default: '0', choices: ['0', '1', '2'] },
   substantial: { type: 'boolean' },
   'rot-checked': { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean' },
-} as const satisfies ArgSpec
+} as const
 
 /** How many recent runs the wait hint is measured over. Large enough that one
  *  slow run does not move the median, small enough to be one page. */
