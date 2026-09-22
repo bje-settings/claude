@@ -4,7 +4,9 @@ Run this:
 
 ```bash
 $ pnpm test
-node scripts/build.ts --watch
+$
+CI=1 node scripts/build.ts --watch
+sudo node scripts/build.ts
 ```
 
 And the shape of it:

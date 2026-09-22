@@ -551,6 +551,12 @@ it('reads the refs in a fenced code block, commands included', async () => {
       value: 'scripts/build.ts',
       resolution: { status: 'found', repoPath: 'scripts/build.ts' },
     },
+    { kind: 'command', value: 'node', resolution: { status: 'unchecked', reason: 'no_resolver' } },
+    {
+      kind: 'path',
+      value: 'scripts/build.ts',
+      resolution: { status: 'found', repoPath: 'scripts/build.ts' },
+    },
   ])
 })
 
@@ -729,14 +735,16 @@ it('takes no issue reference from a URL, a cross-repo slug, a colour or a padded
   // throws: this fixture proves both that the four shapes yield nothing and
   // that a repository naming no issue never reaches gh. The colours are two:
   // `#000` is refused by the leading zero alone, and `#123` only by the `:`
-  // touching it, which is the rule that has to be exercised on its own.
+  // touching it, which is the rule that has to be exercised on its own. The
+  // URL carries no path, so the cross-repo rule cannot reach it either and the
+  // URL rule is the only thing that drops it.
   const audit = audited('noise')
 
   await runContext([audit.work, '--json'], audit.edges)
 
   const report = reportOf(audit.stdout())
   const naming = (text: string) => report.units.filter((unit) => unit.text.includes(text))[0]?.refs
-  expect(naming('example.invalid/page')).toEqual([])
+  expect(naming('The thread is at')).toEqual([])
   expect(naming("Another repository's")).toEqual([])
   expect(naming('classDef')).toEqual([])
   expect(naming('zero-padded')).toEqual([])
@@ -1056,4 +1064,134 @@ it('refuses, naming the file, when a tracked markdown file is not on disk', asyn
     /^could not read CLAUDE\.md, which git lists as tracked: ENOENT/,
   )
   expect(audit.stdout()).toBe('')
+})
+
+it('takes no command from a bare prompt, an assignment or a sudo', async () => {
+  // A transcript writes a lone `$` between commands, and an example writes
+  // `CI=1 ...` or `sudo ...` in front of the one it means. Reporting `$`,
+  // `CI=1` or `sudo` as the command would be a finding about the shell line
+  // rather than about this repository.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const commands = blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[0]
+    ?.refs.filter((ref) => ref.kind === 'command')
+    .map((ref) => ref.value)
+  expect(commands).toEqual(['pnpm', 'node', 'node'])
+})
+
+it('reads each placeholder character as a template on its own', async () => {
+  // `{` and `$` are separate rules because either spelling alone makes the
+  // value a template. A fixture carrying both at once is satisfied by either
+  // rule, so neither is held to anything.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(unitNaming(report, 'no braces at all')).toEqual([
+    {
+      kind: 'path',
+      value: '$CLAUDE_PLUGIN_ROOT/bin/audit.ts',
+      resolution: { status: 'unchecked', reason: 'pattern' },
+    },
+  ])
+  expect(unitNaming(report, 'named by a brace')).toEqual([
+    {
+      kind: 'path',
+      value: 'dist/{name}/index.ts',
+      resolution: { status: 'unchecked', reason: 'pattern' },
+    },
+  ])
+})
+
+it('does not absolve a value that ends a tracked path mid-segment', async () => {
+  // The tail rule compares against `/` plus the value, so `est/thing.ts` is
+  // not answered by `deep/nest/thing.ts`. Without the boundary a witness could
+  // be found for almost any suffix, and `tail_match` would absolve everything.
+  const audit = audited('tails')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(unitNaming(reportOf(audit.stdout()), 'partial segment')).toEqual([
+    { kind: 'path', value: 'est/thing.ts', resolution: { status: 'absent' } },
+  ])
+})
+
+it('reads a bare npm subcommand as no script at all', async () => {
+  // npm is the one manager whose bare subcommands are not also script
+  // shorthands, so only `npm run <name>` is a script. Tested in the negative
+  // as well, since the positive case passes whichever rule is applied.
+  const audit = audited('scripts')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(unitNaming(reportOf(audit.stdout()), 'only the explicit run form')).toEqual([])
+})
+
+it('prefers the root over the referencing file when both hold the path', async () => {
+  // Prose names paths from the root far more often than from the file it is
+  // written in, so the root's is the one meant. With only one of the two
+  // present anywhere, the order the two lookups run in proves nothing.
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  // The ref is written in `plugins/demo/CLAUDE.md`, and `lib/x.ts` exists
+  // both at the root and beside that file, so the two lookups disagree and
+  // the answer says which one ran first.
+  expect(unitNaming(reportOf(audit.stdout()), 'which exists here and at the root')).toEqual([
+    { kind: 'path', value: 'lib/x.ts', resolution: { status: 'found', repoPath: 'lib/x.ts' } },
+  ])
+})
+
+it('refuses a bad value for either count, not only the first', async () => {
+  const audit = audited('paths')
+
+  const envelope = await runContext([audit.work, '--max-evidence', 'abc'], audit.edges)
+
+  expect(envelope).toEqual({
+    outcome: 'refused',
+    error: '--max-evidence must be a whole number, not "abc"',
+  })
+})
+
+it('measures the run on the clock it was given, rounded to whole milliseconds', async () => {
+  // `now` is an edge so that `wallClockMs` is a literal rather than a duration
+  // a test has to tolerate, and the rounding is there because the real clock
+  // is `performance.now()`, whose fractions are noise in a report and in a
+  // diff.
+  const audit = audited('paths')
+  const ticks = [0, 1.6]
+  const edges: ContextEdges = { ...audit.edges, now: () => ticks.shift() as number }
+
+  await runContext([audit.work, '--json'], edges)
+
+  expect(reportOf(audit.stdout()).wallClockMs).toBe(2)
+})
+
+it('audits the checkout a subdirectory belongs to, and asks gh about that root', async () => {
+  // The root is the toplevel rather than the directory the caller named, and
+  // `gh` resolves the repository from the working directory it is built with,
+  // so a client built with the caller's own path would ask about whatever
+  // repository that happened to sit in.
+  const audit = audited('issues')
+  const asked: string[] = []
+  const edges: ContextEdges = {
+    ...audit.edges,
+    createGh: (cwd: string): GhClient => {
+      asked.push(cwd)
+      return createGhMock({ issueStates: { states: {}, unavailable: null } })
+    },
+  }
+  const below = path.join(audit.work, 'below')
+  mkdirSync(below)
+
+  await runContext([below, '--json'], edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.root).toBe(realpathSync(audit.work))
+  expect(report.files).toEqual(['CLAUDE.md'])
+  expect(asked).toEqual([realpathSync(audit.work)])
 })

@@ -11,3 +11,5 @@ Run `npm run test` where npm is what the machine has.
 Run `yarn test` likewise, and `yarn add` is a subcommand rather than a script.
 
 Run `pnpm run test` when the explicit form reads better.
+
+Run `npm install` first, which only the explicit run form makes a script.

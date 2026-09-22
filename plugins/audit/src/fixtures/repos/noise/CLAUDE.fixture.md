@@ -24,7 +24,11 @@ jobs:
       - run: pnpm test
 ```
 
-The thread is at https://example.invalid/page#170 for anyone who wants it.
+The thread is at https://example.invalid#170 for anyone who wants it.
+
+A skill also runs `$CLAUDE_PLUGIN_ROOT/bin/audit.ts` with no braces at all.
+
+A generated one is `dist/{name}/index.ts`, named by a brace and nothing else.
 
 Another repository's bje-settings/claude#4242 is not this one's issue.
 

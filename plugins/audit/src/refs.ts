@@ -261,6 +261,10 @@ const locateCommands = (blockContent: string): Located[] => {
     let rest = rawLine.trim()
     if (rest === '' || rest.startsWith('#')) continue
     if (rest.startsWith('$ ')) rest = rest.slice(2).trim()
+    // A lone `$` is a transcript's empty prompt line, not a command called
+    // `$`. It has to be skipped here rather than stripped above, because the
+    // strip needs the whitespace a line holding only the prompt does not have.
+    else if (rest === '$') continue
     rest = rest.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').replace(/^sudo\s+/, '')
     // `rest` is never empty here: a blank line is skipped above, and each
     // strip requires whitespace after what it removes, which means a token
