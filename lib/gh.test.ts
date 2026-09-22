@@ -967,6 +967,102 @@ describe('issue and pull request states', () => {
 
     expect(result).toEqual({ states: {}, unavailable: 'gone' })
   })
+
+  it('keeps the states a non-zero exit still answered, alongside a NOT_FOUND', async () => {
+    // `gh api graphql` exits 1 when ANY alias in the query errors, even when
+    // the body is a perfectly good answer for every other alias: this is the
+    // whole reason `issueStates` reads the body through `invoke` rather than
+    // `succeeded`, which would throw on this exit status and lose the
+    // resolved answer along with it.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        status: 1,
+        stderr: 'gh: some errors occurred processing your query\n',
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'OPEN' }, i1: null } },
+          errors: [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'i1'],
+              message: 'Could not resolve to an issue or pull request with the number of 999999.',
+            },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 999999] })
+
+    expect(result).toEqual({ states: { '138': 'OPEN', '999999': 'not_found' }, unavailable: null })
+  })
+
+  it('joins two non-NOT_FOUND error messages from the same chunk', async () => {
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: null, i1: null } },
+          errors: [
+            { type: 'FORBIDDEN', path: ['repository', 'i0'], message: 'first message' },
+            { type: 'RATE_LIMITED', path: ['repository', 'i1'], message: 'second message' },
+          ],
+        }),
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [138, 164] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'first message; second message' })
+  })
+
+  it('joins reasons from two chunks that each failed for a different reason', async () => {
+    const numbers = Array.from({ length: 101 }, (_, i) => i + 1)
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        stdout: JSON.stringify({
+          data: { repository: { i0: { state: 'OPEN' } } },
+          errors: [{ type: 'FORBIDDEN', path: ['repository', 'i1'], message: 'first reason' }],
+        }),
+      },
+      { stdout: 'not json at all', stderr: 'second reason\n' },
+    ])
+
+    const result = await gh.issueStates({ numbers })
+
+    // Both chunks' resolved states and both chunks' reasons survive: neither
+    // overwrites the other, which `reasons.push` across the loop and
+    // `Object.assign` promise and a `reasons[0]` or a clobbering assignment
+    // would not.
+    expect(result).toEqual({ states: { '1': 'OPEN' }, unavailable: 'first reason; second reason' })
+  })
+
+  it('reports a repository whose name has no owner prefix as unavailable, via the graphql call it still makes', async () => {
+    // `nameWithOwner` with no `/` is not a shape any real gh answers with,
+    // but the code makes no branch for it either (the comment above the
+    // split in `lib/gh.ts`): `parts[1]` is `undefined`, `String(undefined)`
+    // embeds the four characters `undefined` as the query's `name` argument,
+    // and the resulting query fails downstream exactly as any other query
+    // naming a repository that does not exist would, reported through
+    // `accountOf` like every other chunk failure in this file.
+    const { gh, calls } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"widgets"}' },
+      {
+        status: 1,
+        stdout: JSON.stringify({ data: { repository: null } }),
+        stderr: "gh: Could not resolve to a Repository with the name 'widgets/undefined'.\n",
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(calls[1]?.args[3]).toContain('repository(owner: "widgets", name: "undefined")')
+    expect(result).toEqual({
+      states: {},
+      unavailable: "gh: Could not resolve to a Repository with the name 'widgets/undefined'.",
+    })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
