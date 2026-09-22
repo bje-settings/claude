@@ -844,6 +844,29 @@ describe('issue and pull request states', () => {
       unavailable: 'Something went wrong while executing your query.',
     })
   })
+
+  it("reports a body whose repository is null as unavailable in accountOf's words", async () => {
+    // "Only a body without `data.repository` is `unavailable`, with
+    // `accountOf(result)` as the reason" (#170): unlike the spike, this does
+    // not read the GraphQL error message for the reason, it reads what the
+    // transport says about the call, exactly as every other endpoint here
+    // does for a failure.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      {
+        status: 1,
+        stdout: JSON.stringify({
+          data: { repository: null },
+          errors: [{ message: 'Bad credentials' }],
+        }),
+        stderr: 'gh: Bad credentials\n',
+      },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gh: Bad credentials' })
+  })
 })
 
 it("defaults to the root lib's own process runner", () => {
