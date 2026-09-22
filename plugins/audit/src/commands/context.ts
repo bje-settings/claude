@@ -24,6 +24,7 @@ import {
   JevError,
   type RequestShape,
   type UnitKind,
+  type Usage,
 } from '../lib/jev.ts'
 import type { Output } from '../lib/streams.ts'
 import {
@@ -232,6 +233,16 @@ type ModelOutcome = {
   evidence: EvidenceJudgment[]
   evidenceCoverage: Coverage
   failures: StageFailure[]
+  usage: Usage
+}
+
+/** What a run that made no model call spent. */
+const NO_USAGE: Usage = {
+  requests: 0,
+  attempts: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  requestMsSum: 0,
 }
 
 /** The excerpt a claim is judged against. Accuracy falls as unrelated state
@@ -370,6 +381,7 @@ const modelStages = async (
       evidence: [],
       evidenceCoverage: { judged: 0, available: 0 },
       failures: [],
+      usage: NO_USAGE,
     }
   }
   const jev = edges.createJev({ apiKey: key })
@@ -399,6 +411,7 @@ const modelStages = async (
     evidence: checked.evidence,
     evidenceCoverage: checked.coverage,
     failures,
+    usage: jev.usage(),
   }
 }
 
@@ -582,6 +595,7 @@ export const runContext = async (
     evidence: models.evidence,
     evidenceCoverage: models.evidenceCoverage,
     failures: models.failures,
+    usage: models.usage,
     // Rounded: the clock a caller passes is `performance.now()`, whose
     // fractional milliseconds are noise in a report and noise in a diff.
     wallClockMs: Math.round(edges.now() - started),

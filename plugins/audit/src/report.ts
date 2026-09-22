@@ -8,7 +8,13 @@
 // point of `SkippedStage`: "skipped" must never read as "nothing found".
 
 import type { PairCandidate } from './candidates.ts'
-import type { ChoiceAnswer, Classification, EvidenceVerdict, PairVerdict } from './lib/jev.ts'
+import type {
+  ChoiceAnswer,
+  Classification,
+  EvidenceVerdict,
+  PairVerdict,
+  Usage,
+} from './lib/jev.ts'
 import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
 
 /** A candidate the model has ruled on. The candidate's own ids and similarity
@@ -68,6 +74,8 @@ export type Report = {
    *  is in neither `judged` nor a failure. */
   evidenceCoverage: Coverage
   failures: StageFailure[]
+  /** What the model calls of this run cost. Zeros when no stage ran. */
+  usage: Usage
   wallClockMs: number
 }
 
@@ -279,6 +287,14 @@ export const renderFindings = (report: Report): string => {
     '',
     `## failures (${report.failures.length})`,
     ...report.failures.map((failure) => `  ${failure.stage} ${failure.id}: ${failure.message}`),
+  )
+
+  const usage = report.usage
+  lines.push(
+    '',
+    `## usage: ${usage.requests} requests (${usage.attempts} attempts), ` +
+      `${usage.inputTokens} input tokens, ${usage.requestMsSum} ms summed request time, ` +
+      `${report.wallClockMs} ms wall clock`,
   )
 
   return `${lines.join('\n')}\n`

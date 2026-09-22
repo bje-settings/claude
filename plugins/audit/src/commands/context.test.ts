@@ -320,6 +320,8 @@ it('reports a path that is not there as the finding, in the findings text', asyn
       '',
       '## failures (0)',
       '',
+      '## usage: 0 requests (0 attempts), 0 input tokens, 0 ms summed request time, 1 ms wall clock',
+      '',
     ].join('\n'),
   )
 })
@@ -1787,5 +1789,25 @@ it('names the unit when an evidence call fails, not the file it was reading', as
       '## failures (1)',
       '  evidence CLAUDE.md:3-3: HTTP 503: the model is overloaded the model is overloaded',
     ].join('\n'),
+  )
+})
+
+it('ends with what the run spent, including the wall clock it was given', async () => {
+  // Four numbers a caller uses to decide whether to run this again: a call
+  // retried twice is one request and three attempts, and the summed request
+  // time exceeds the wall clock whenever calls ran side by side. The mock
+  // answers zeros, and the clock is the one the test handed over.
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgePair: picked<PairVerdict>('unrelated'),
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    '## usage: 0 requests (0 attempts), 0 input tokens, 0 ms summed request time, 1 ms wall clock',
   )
 })
