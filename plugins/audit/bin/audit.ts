@@ -72,5 +72,15 @@ const [name = '', ...rest] = process.argv.slice(2)
 // asking what this can do has not made a mistake. An unknown command has, and
 // is exit 2 with the same list on stderr.
 const wantsUsage = name === '' || name === '-h' || name === '--help'
-const status = wantsUsage ? write(ok(USAGE)) : await run(name, rest)
+// The spike this ports ended the same way. A command answers with an envelope
+// for everything it decides, so anything that reaches here is a defect rather
+// than a refusal, and without this it leaves node's own internals stack trace
+// on stderr and an exit code the envelope contract never chose. Exit 1 is what
+// `lib/envelope.ts` calls `failed`: this code went wrong.
+const status = wantsUsage
+  ? write(ok(USAGE))
+  : await run(name, rest).catch((error: unknown) => {
+      output.err.write(`audit: ${error instanceof Error ? error.message : String(error)}\n`)
+      return 1
+    })
 process.exitCode = status === null ? write(refused(`unknown command: ${name}\n\n${USAGE}`)) : status

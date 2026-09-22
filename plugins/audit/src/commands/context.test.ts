@@ -7,7 +7,7 @@
 // Every fixture repository is a directory under `fixtures/repos/`, copied in
 // and committed by `harness/git.ts` `importTree`, which undoes the two names a
 // fixture cannot be stored under (`_gitignore`, `<name>.fixture.md`).
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -1020,4 +1020,43 @@ it('says the ignore check was unavailable rather than reporting absent as settle
 
   expect(audit.stdout()).toContain('  ignore check unavailable: git check-ignore exited 128')
   expect(audit.stdout()).toContain('  CLAUDE.md:3  path `build/out.js`  absent')
+})
+
+it('reports a lookup that threw something other than a GhError as unavailable', async () => {
+  // `GhError` is the only failure the client declares, but the catch exists
+  // because something else might. Reading `.detail` off whatever was thrown
+  // gives `undefined`, and `undefined` folds to the report's success value, so
+  // a mis-wired client would publish "the lookup succeeded" while every issue
+  // ref silently said unavailable.
+  const audit = audited('issues')
+  const edges: ContextEdges = {
+    ...audit.edges,
+    createGh: () => {
+      throw new TypeError('gh client is not wired')
+    },
+  }
+
+  await runContext([audit.work, '--json'], edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.issueLookup).toContain('gh client is not wired')
+  expect(report.issueLookup).not.toBe('ok')
+})
+
+it('refuses, naming the file, when a tracked markdown file is not on disk', async () => {
+  // `git ls-files` lists the index and the read comes from the working tree,
+  // and the two differ in ordinary use: a staged deletion, a `git mv` in
+  // flight, a sparse checkout. Letting the read throw ends the run with node's
+  // own `fs` stack trace and no envelope, so the caller gets neither findings
+  // nor a sentence it can act on.
+  const audit = audited('paths')
+  rmSync(path.join(audit.work, 'CLAUDE.md'))
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope.outcome).toBe('refused')
+  expect(envelope.outcome !== 'ok' && envelope.error).toMatch(
+    /^could not read CLAUDE\.md, which git lists as tracked: ENOENT/,
+  )
+  expect(audit.stdout()).toBe('')
 })

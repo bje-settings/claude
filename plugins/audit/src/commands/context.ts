@@ -15,7 +15,7 @@ import path from 'node:path'
 import { markdownFiles, scopeFilter, trackedPaths } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
-import type { GhClient, GhError, GhResults } from '../lib/gh.ts'
+import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
 import {
@@ -97,21 +97,46 @@ const COUNT_FLAGS = ['max-pairs', 'max-evidence'] as const
 export const wantsHelp = (argv: readonly string[]): boolean =>
   argv.includes('-h') || argv.includes('--help')
 
-/** Every file's blocks, in file order. */
+/**
+ * Every file's blocks, in file order, or why one of them could not be read.
+ *
+ * Discovery lists the index and the read comes from the working tree, and the
+ * two differ in ordinary use: a staged deletion, a `git mv` in flight, a
+ * sparse checkout, a symlink whose target is gone. Letting the read throw ends
+ * the run with node's own `fs` stack trace, no envelope and no exit code from
+ * the contract, so the reason is carried back instead and the caller refuses
+ * with the file named.
+ */
 const splitAll = (
   root: string,
   files: string[],
-): { units: Unit[]; opaque: OpaqueBlock[]; warnings: SplitWarning[] } => {
+): {
+  units: Unit[]
+  opaque: OpaqueBlock[]
+  warnings: SplitWarning[]
+  unreadable: string | null
+} => {
   const units: Unit[] = []
   const opaque: OpaqueBlock[] = []
   const warnings: SplitWarning[] = []
   for (const file of files) {
-    const split = splitMarkdown(file, readFileSync(path.join(root, file), 'utf8'))
+    let text: string
+    try {
+      text = readFileSync(path.join(root, file), 'utf8')
+    } catch (error) {
+      return {
+        units,
+        opaque,
+        warnings,
+        unreadable: `${file}, which git lists as tracked: ${(error as Error).message}`,
+      }
+    }
+    const split = splitMarkdown(file, text)
     units.push(...split.units)
     opaque.push(...split.opaque)
     warnings.push(...split.warnings)
   }
-  return { units, opaque, warnings }
+  return { units, opaque, warnings, unreadable: null }
 }
 
 /**
@@ -167,7 +192,14 @@ const issueStates = async (
     // that did throw would otherwise take the whole audit down over one
     // lookup. `GhError` is the only failure it declares, and `detail` is gh's
     // own account of it without the argv prefix the message carries.
-    return { states: {}, unavailable: (error as GhError).detail }
+    //
+    // Tested rather than cast, the way every other command here reads one
+    // (`plugins/gh/src/commands/shepherd-pr.ts:248`). A cast reads `detail`
+    // off whatever was thrown, and `undefined` is folded into `ok` by the
+    // caller, so a client that failed some other way would report a lookup
+    // that succeeded while every issue ref said unavailable.
+    if (error instanceof GhError) return { states: {}, unavailable: error.detail }
+    return { states: {}, unavailable: `issue lookup threw: ${String(error)}` }
   }
 }
 
@@ -284,7 +316,8 @@ export const runContext = async (
   const tracked = await trackedPaths(root, edges.env)
   if (tracked === null) return refused(`could not list the tracked files of ${root}`)
   const files = markdownFiles(tracked, filter)
-  const { units, opaque, warnings } = splitAll(root, files)
+  const { units, opaque, warnings, unreadable } = splitAll(root, files)
+  if (unreadable !== null) return refused(`could not read ${unreadable}`)
   const tier0 = await tierZero(root, edges, { units, opaque, tracked })
 
   const report: Report = {
