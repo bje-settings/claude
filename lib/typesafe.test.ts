@@ -4,7 +4,7 @@
 // jitter actually ran.
 
 import { expect, it } from 'vitest'
-import { createJev, JevError, retryAfterMs } from './typesafe.ts'
+import { createJev, JevError, redact, retryAfterMs } from './typesafe.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -303,4 +303,89 @@ it('an unreadable body on a non-OK response is reported with a marker, not as em
   expect(error).toBeInstanceOf(JevError)
   expect((error as JevError).status).toBe(400)
   expect((error as JevError).body).toBe('(body unreadable)')
+})
+
+it('the api key is redacted from a server error body that echoes the auth header', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    // The worst case for a header leak: a server that echoes the request
+    // headers back verbatim in its error body.
+    fetch: async (_url, init) => reply(400, JSON.stringify(init?.headers)),
+  })
+
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  const everything = `${error.message} ${error.stack ?? ''} ${error.body} ${JSON.stringify(error)}`
+  expect(everything.includes(KEY)).toBe(false)
+  expect(error.body.includes('[redacted]')).toBe(true)
+})
+
+it('the api key is redacted from a foreign error thrown by fetch itself', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    maxRetries: 0,
+    sleep: async () => {},
+    fetch: async (_url, init) => {
+      const headers = init?.headers as Record<string, string>
+      // A transport that fails badly enough to leak the header into its own
+      // exception message, the way a proxy or a broken client sometimes does.
+      throw new Error(String(headers.authorization))
+    },
+  })
+
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.status).toBe(0)
+  const everything = `${error.message} ${error.stack ?? ''} ${error.body} ${String(error)} ${JSON.stringify(error)}`
+  expect(everything.includes(KEY)).toBe(false)
+})
+
+it('the api key is redacted from a server body that echoes the bare key, not just Bearer <key>', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    // No `Bearer` prefix this time: some servers echo the raw credential
+    // value alone, which is a different code path in `redact` than the
+    // `Bearer <key>` case the other tests exercise.
+    fetch: async () => reply(400, JSON.stringify({ error: `key ${KEY} rejected` })),
+  })
+
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.body.includes(KEY)).toBe(false)
+  expect(error.body.includes('[redacted]')).toBe(true)
+})
+
+it('the api key is redacted from a malformed 2xx body that happens to contain it', async () => {
+  // Pins the redact() call on the not-valid-JSON call site, which no other
+  // test exercises with the bare key present in the body.
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, `not json ${KEY}`) })
+
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.message).toMatch(/not valid JSON/)
+  expect(error.body.includes(KEY)).toBe(false)
+  expect(error.body.includes('[redacted]')).toBe(true)
+})
+
+it('the api key is redacted from a 2xx body with no answers that happens to contain it', async () => {
+  // Pins one of the three ask()-level safeStringify(payload) call sites: a
+  // 2xx that parses as JSON but fails the `answers` shape check.
+  const jev = createJev({
+    apiKey: KEY,
+    fetch: async () => reply(200, { model: 'x', note: `leaked key ${KEY}` }),
+  })
+
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.message).toMatch(/no answers/)
+  expect(error.body.includes(KEY)).toBe(false)
+  expect(error.body.includes('[redacted]')).toBe(true)
+})
+
+it('redact leaves text alone when the api key is empty', () => {
+  // Exercises the early-return branch directly: an empty key would otherwise
+  // become an empty-string RegExp that matches everywhere.
+  expect(redact('nothing to hide', '')).toBe('nothing to hide')
 })
