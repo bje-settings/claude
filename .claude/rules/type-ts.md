@@ -55,7 +55,8 @@ The directory is `scripts/`, never `bin/`: claude.ai rejects a plugin that carri
 `bin/`, by marketplace sync and by direct upload alike, so a plugin with one cannot be distributed
 through organization settings at all ([plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces#keep-executables-out-of-the-top-level-bin-directory)).
 `bin/` is also added to the Bash tool's `PATH` while the plugin is enabled, which nothing here
-wants. RFC 001 decision 16.
+wants. RFC 001 decision 16. `tests/repo-layout.test.ts` refuses a plugin that carries one
+(`binDirectories`), because nothing else here goes red when it comes back.
 
 One dispatcher per plugin, with an arm per command, so the plugin carries one floor guard, one
 EPIPE guard and one contract test (RFC 001 decision 15). The import inside each arm is dynamic, so

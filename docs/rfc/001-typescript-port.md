@@ -173,9 +173,11 @@ plugins/<plugin>/
 ~~`bin/<command>.ts`: one thin adapter per command.~~ **Revised at
 [#130](https://github.com/bje-settings/claude/issues/130)** (round 8 ruling 6, and Decisions &
 Follow-ups 15): one `bin/<plugin>.ts` dispatcher per plugin, with an arm per command. Every
-plugin that has shipped an entry point chose it, `plugins/gh/bin/gh.ts` and
-`plugins/mermaid/bin/mermaid.ts`, so the RFC's wording is what drifted; `plugins/workstreams`
-follows the precedent rather than the sentence.
+plugin that has shipped an entry point chose it, ~~`plugins/gh/bin/gh.ts`~~
+`plugins/gh/scripts/gh.ts` and ~~`plugins/mermaid/bin/mermaid.ts`~~
+`plugins/mermaid/scripts/mermaid.ts` (the directory revised at #185, decision 16 below), so the
+RFC's wording is what drifted; `plugins/workstreams` follows the precedent rather than the
+sentence.
 
 ~~The directory is `bin/`.~~ **Revised at
 [#185](https://github.com/bje-settings/claude/issues/185)** (Decisions & Follow-ups 16): it is
@@ -593,8 +595,8 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     `sm-incubator/org-claude`, which is left on `gh` 0.3.0 and unmaintained until this repository is
     public and that marketplace points here directly instead.
 
-15. **One ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, not one adapter per
-    command.** Decided on
+15. **One ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, not one ~~`bin`~~
+    adapter per command.** Decided on
     2026-09-21 (round 8 ruling 6) and amended into "Shape" above. Both plugins that had shipped an
     entry point by then, `gh` (five arms) and `mermaid` (one), had already written it this way, so
     the RFC's `bin/<command>.ts` was a sentence nothing implemented; `.claude/rules/type-ts.md` is
@@ -611,7 +613,8 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     "Don't include a top-level `bin/` directory in any plugin you distribute through organization
     settings. claude.ai rejects a plugin that has one, whether the plugin arrives by marketplace
     sync or by direct upload ... Keep executables in another directory, such as `scripts/`, and
-    reference them as `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`." Every plugin in this marketplace
+    reference them as `${CLAUDE_PLUGIN_ROOT}/scripts/<name>` from your skills, hooks, or MCP
+    server configs." Every plugin in this marketplace
     shipped `bin/<plugin>.ts`, so none of them was eligible for that distribution path at all.
     `bin/` also has a side effect nothing here wants: the
     [file locations reference](https://code.claude.com/docs/en/plugins-reference#file-locations-reference)
