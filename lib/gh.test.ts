@@ -1292,7 +1292,26 @@ describe('milestones, issues and pull requests', () => {
 
   it('stops after twenty pages and says the answer is short', async () => {
     // A `hasNextPage` that never goes false is a loop this process would not
-    // leave. The ceiling is reported rather than silently truncating.
+    // leave. The ceiling is reported rather than silently truncating. Each
+    // page's cursor advances so the repeated-cursor guard does not trip
+    // first: `CUR${n}` is a fresh value every time.
+    const pages = Array.from({ length: 20 }, (_, index) =>
+      page('issues', [issueNode], { hasNextPage: true, endCursor: `CUR${index + 1}` }),
+    )
+    const { gh } = clientAnsweringEach([REPO, ...pages])
+
+    const result = await gh.listIssues()
+
+    // One row per page, so twenty rows is twenty pages and nothing beyond.
+    expect(result.rows).toHaveLength(20)
+    expect(result.unavailable).toBe('issues has more pages than the 20 this reads')
+  })
+
+  it('stops when a page replies with the same cursor it was just asked with, before reading its rows again', async () => {
+    // A cursor that does not advance would otherwise be read and appended
+    // forever (up to the page ceiling): the same node counted once per page
+    // instead of once. The guard fires on the second page, since the first
+    // page is asked with no cursor at all.
     const { gh } = clientAnsweringEach([
       REPO,
       page('issues', [issueNode], { hasNextPage: true, endCursor: 'CUR' }),
@@ -1300,9 +1319,10 @@ describe('milestones, issues and pull requests', () => {
 
     const result = await gh.listIssues()
 
-    // One row per page, so twenty rows is twenty pages and nothing beyond.
-    expect(result.rows).toHaveLength(20)
-    expect(result.unavailable).toBe('issues has more pages than the 20 this reads')
+    // Only the first page's row: the second page's identical cursor stops
+    // the read before its rows are appended a second time.
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe("issues's reply repeated the same cursor without advancing")
   })
 
   it('counts a milestone row that is not the shape the query asked for, one field at a time', async () => {

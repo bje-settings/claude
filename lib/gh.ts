@@ -1032,6 +1032,15 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         reasons.push(accountOf(result))
         break
       }
+      // A non-null `endCursor` equal to the cursor this page was just asked
+      // with is a reply this cannot follow: asking again would ask the same
+      // question forever, and the page's rows have already been read once.
+      // Breaking here, before they are read a second time, is what keeps a
+      // stuck cursor from counting the same rows up to `SWEEP_PAGES` times.
+      if (answer.endCursor !== null && answer.endCursor === cursor) {
+        reasons.push(`${field}'s reply repeated the same cursor without advancing`)
+        break
+      }
       for (const node of answer.nodes) {
         const row = read(node)
         if (row === null) unreadable += 1
