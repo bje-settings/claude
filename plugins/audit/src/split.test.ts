@@ -396,4 +396,28 @@ describe('splitMarkdown', () => {
     expect(warnings).toEqual([{ file: 'a.md', line: 2, kind: 'unclosed_comment' }])
     expect(units.map((u) => u.text)).toEqual(['item', 'A sentence after.'])
   })
+
+  it('runs an unclosed fence to EOF and warns', () => {
+    const source = ['Intro.', '', '```ts', 'const x = 1'].join('\n')
+    const { opaque, warnings } = splitMarkdown('a.md', source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.endLine).toBe(4)
+    expect(warnings).toEqual([{ file: 'a.md', line: 3, kind: 'unclosed_fence' }])
+  })
+
+  it('warns on an unclosed HTML comment and does not swallow the rest of the file', () => {
+    const source = ['<!-- never closes', '', 'A sentence after.'].join('\n')
+    const { units, warnings } = splitMarkdown('a.md', source)
+    expect(warnings).toEqual([{ file: 'a.md', line: 1, kind: 'unclosed_comment' }])
+    expect(units.map((u) => u.text)).toEqual(['A sentence after.'])
+  })
+
+  it('keeps text after --> on a multi-line comment close line as paragraph text', () => {
+    const source = ['<!-- comment', 'spans b --> Trailing rule.'].join('\n')
+    const { units, warnings } = splitMarkdown('a.md', source)
+    expect(warnings).toHaveLength(0)
+    expect(units.map((u) => u.text)).toEqual(['Trailing rule.'])
+    expect(units[0]?.startLine).toBe(2)
+    expect(units[0]?.endLine).toBe(2)
+  })
 })
