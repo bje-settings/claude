@@ -907,3 +907,14 @@ it('counts lines the way wc does, for an empty file and one with no final newlin
     },
   ])
 })
+
+it('takes no path out of code that merely quotes one', async () => {
+  // `run('scripts/build.ts')` trims to `run('scripts/build.ts`, which is not a
+  // path anybody wrote: the token is code around a path rather than a path. A
+  // brace on its own trims to nothing at all.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[4]?.refs).toEqual([])
+})

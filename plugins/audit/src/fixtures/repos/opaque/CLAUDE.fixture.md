@@ -26,3 +26,11 @@ And one with no language at all:
 ```
 node scripts/build.ts
 ```
+
+And a snippet that only looks like it names one:
+
+```ts
+if (ready) {
+  run('scripts/build.ts')
+}
+```

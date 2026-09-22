@@ -262,8 +262,11 @@ const locateCommands = (blockContent: string): Located[] => {
     if (rest === '' || rest.startsWith('#')) continue
     if (rest.startsWith('$ ')) rest = rest.slice(2).trim()
     rest = rest.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').replace(/^sudo\s+/, '')
-    const firstWord = /^(\S+)/.exec(rest)
-    if (firstWord === null) continue
+    // `rest` is never empty here: a blank line is skipped above, and each
+    // strip requires whitespace after what it removes, which means a token
+    // follows it. So the match always succeeds, and a guard for it would be a
+    // branch no input can reach.
+    const firstWord = /^(\S+)/.exec(rest) as RegExpExecArray
     located.push({
       at,
       ref: { kind: 'command', value: firstWord[1] as string, resolution: UNRESOLVED },
