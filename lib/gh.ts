@@ -741,8 +741,13 @@ const readIssue = (node: unknown): IssueSummary | null => {
   // `blockedBy`, and a blocker list one entry short is a blocked issue
   // reported as unblocked, which is the one mistake a sweep must not make, so
   // the ambiguity is read the same conservative way a malformed entry is:
-  // the whole issue is unreadable and is counted as such. `labels` and
-  // `closedByPullRequestsReferences` classify nothing and are left alone.
+  // the whole issue is unreadable and is counted as such. `blocking` is in the
+  // rule for its own reason: it classifies nothing, but it is what a caller
+  // reads to say which issues a round unlocks and which of them the round's
+  // comment has to reach, and a truncated `blocking` list would under-claim
+  // both in silence. `labels` and `closedByPullRequestsReferences` are read
+  // and reported without anything being concluded from their length, so they
+  // are left alone.
   if (blockedBy.length === SWEEP_PAGE || blocking.length === SWEEP_PAGE) return null
   const labels: string[] = []
   for (const entry of labelNodes) {
@@ -1049,8 +1054,15 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       }
       cursor = answer.endCursor
     }
+    // "Could not be read" rather than "was not the shape the query asked for":
+    // a row is refused either because a field was not the shape asked for or
+    // because a dependency list arrived at the page ceiling, and the second is
+    // a perfectly well formed row. A reader told the shape was wrong goes
+    // looking for a parser that is not broken. `lib/README.md` lists the
+    // causes; one counter carries them, because telling them apart here would
+    // mean a second answer from `read`, which three endpoints share.
     if (unreadable > 0) {
-      reasons.push(`${unreadable} ${field} row(s) were not the shape the query asked for`)
+      reasons.push(`${unreadable} ${field} row(s) could not be read`)
     }
     return { rows, unavailable: joinedReasons(reasons) }
   }

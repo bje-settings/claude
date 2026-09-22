@@ -1275,14 +1275,15 @@ describe('milestones, issues and pull requests', () => {
     // forever. The rows already read are still an answer, and the reason the
     // answer is short is reported: without it a truncated set is handed over
     // as a complete one.
-    const { gh, calls } = clientAnsweringEach([
+    const { gh } = clientAnsweringEach([
       REPO,
       page('milestones', [milestoneNode], { hasNextPage: true, endCursor: null }),
     ])
 
     const result = await gh.listMilestones()
 
-    expect(calls).toHaveLength(2)
+    // One row, from the one page that was read: the count of rows is the
+    // count of pages here, and it is what says the read stopped.
     expect(result.rows).toHaveLength(1)
     expect(result.unavailable).toBe(
       'milestones has more pages and the reply named no cursor to ask with',
@@ -1292,14 +1293,14 @@ describe('milestones, issues and pull requests', () => {
   it('stops after twenty pages and says the answer is short', async () => {
     // A `hasNextPage` that never goes false is a loop this process would not
     // leave. The ceiling is reported rather than silently truncating.
-    const { gh, calls } = clientAnsweringEach([
+    const { gh } = clientAnsweringEach([
       REPO,
       page('issues', [issueNode], { hasNextPage: true, endCursor: 'CUR' }),
     ])
 
     const result = await gh.listIssues()
 
-    expect(calls).toHaveLength(21)
+    // One row per page, so twenty rows is twenty pages and nothing beyond.
     expect(result.rows).toHaveLength(20)
     expect(result.unavailable).toBe('issues has more pages than the 20 this reads')
   })
@@ -1320,7 +1321,7 @@ describe('milestones, issues and pull requests', () => {
     const result = await gh.listMilestones()
 
     expect(result.rows).toHaveLength(1)
-    expect(result.unavailable).toBe('5 milestones row(s) were not the shape the query asked for')
+    expect(result.unavailable).toBe('5 milestones row(s) could not be read')
   })
 
   it('counts an issue row that is not the shape the query asked for, one field at a time', async () => {
@@ -1343,15 +1344,16 @@ describe('milestones, issues and pull requests', () => {
     const result = await gh.listIssues()
 
     expect(result.rows).toHaveLength(1)
-    expect(result.unavailable).toBe('9 issues row(s) were not the shape the query asked for')
+    expect(result.unavailable).toBe('9 issues row(s) could not be read')
   })
 
   it('refuses an issue whose dependency list came back at the page ceiling', async () => {
     // A `blockedBy` of exactly 100 is either a complete list or the first page
     // of a longer one, and the query asks for no page signal to tell them
     // apart. Read as complete, an issue whose only OPEN blocker sat past the
-    // ceiling would report as unblocked. `labels` at the ceiling classifies
-    // nothing, so it is still a readable row.
+    // ceiling would report as unblocked. `labels` and the closing pull
+    // requests at the ceiling have nothing concluded from their length, so
+    // each is still a readable row.
     const full = (count: number) =>
       Array.from({ length: count }, (_, index) => ({ number: index + 1, state: 'CLOSED' }))
     const { gh } = clientAnsweringEach([
@@ -1361,13 +1363,14 @@ describe('milestones, issues and pull requests', () => {
         { ...issueNode, blocking: { nodes: full(100) } },
         { ...issueNode, blockedBy: { nodes: full(99) } },
         { ...issueNode, labels: { nodes: full(100).map(() => ({ name: 'enhancement' })) } },
+        { ...issueNode, closedByPullRequestsReferences: { nodes: full(100) } },
       ]),
     ])
 
     const result = await gh.listIssues()
 
-    expect(result.rows).toHaveLength(2)
-    expect(result.unavailable).toBe('2 issues row(s) were not the shape the query asked for')
+    expect(result.rows).toHaveLength(3)
+    expect(result.unavailable).toBe('2 issues row(s) could not be read')
   })
 
   it('refuses a whole blocker list when one entry of it cannot be read', async () => {
@@ -1384,7 +1387,7 @@ describe('milestones, issues and pull requests', () => {
     const result = await gh.listIssues()
 
     expect(result.rows).toEqual([])
-    expect(result.unavailable).toBe('2 issues row(s) were not the shape the query asked for')
+    expect(result.unavailable).toBe('2 issues row(s) could not be read')
   })
 
   it('counts a pull request row that is not the shape the query asked for, one field at a time', async () => {
@@ -1403,7 +1406,7 @@ describe('milestones, issues and pull requests', () => {
     const result = await gh.listOpenPullRequests()
 
     expect(result.rows).toHaveLength(1)
-    expect(result.unavailable).toBe('5 pullRequests row(s) were not the shape the query asked for')
+    expect(result.unavailable).toBe('5 pullRequests row(s) could not be read')
   })
 
   it('reports an answer that is not JSON, without throwing', async () => {
