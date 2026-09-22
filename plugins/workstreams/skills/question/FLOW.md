@@ -1,0 +1,46 @@
+# question, flow
+
+What `/workstreams:question` does to one sweep report, and every way it declines to act.
+
+```mermaid
+flowchart TD
+    A[preflight] --> B{anything missing?}
+    B -->|Yes| B1([Stop: print each hint verbatim]):::stop
+    B -->|No| C[Read the sweep report]
+
+    C --> D[Open the file, the record, or the docs an open item names]
+    D --> E{answer already in the tree?}
+    E -->|Yes| E1[Record it as a ruling, with a citation] --> H
+    E -->|No| F{genuinely the human's to decide?}
+    F -->|No, cheap to reverse| E1
+    F -->|Yes| G[AskUserQuestion: recommendation first, argument against, 2-4 options]
+    G --> H{another open item?}
+    H -->|Yes| D
+    H -->|No| I[Rulings comment on every issue in the round]
+
+    I --> J([Hand back: the human enters plan mode]):::pause
+    J --> K{plan approved?}
+    K -->|No| J
+    K -->|Yes| L[Plan comment on every issue in the round]
+
+    L --> M[Ask the person to run /gh:sync and clear ignored leftovers]
+    M --> N{a local hook runs a full suite?}
+    N -->|No| P[Note any open pull request that shares files]
+    N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> P
+    N -->|Yes, records silent| O2([Ask: disable it, per-push cost stated]):::pause --> P
+
+    P --> Q([Report: what was asked, what was ruled,<br/>the two comments, housekeeping])
+
+    classDef stop fill:#fff3e0,stroke:#e65100,color:#000
+    classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
+```
+
+The two pauses are different from the stop. A preflight failure is a machine that cannot
+run the round. Handing back for plan mode is not a failure: the skill has done everything
+it can do without the human, and the plan is theirs to approve. The hook question, when the
+records are silent, is the one case in the whole skill where a cheap ruling is not taken:
+disabling a push-time suite changes what protects the round, so it is asked rather than
+ruled even though it is, in every other sense, reversible.
+
+Every ruling in step 5 still carries the argument against it, the same as a question would,
+so a human reading the comment later can reverse one without re-deriving why it was made.

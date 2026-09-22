@@ -6,10 +6,9 @@ dependency relationships rather than as prose, and a round is the unblocked set 
 the milestones being worked.
 
 One skill per primitive, so a repository installs the plugin and reaches for whichever
-piece it wants. These are the first three of the five in
-[#111](https://github.com/bje-settings/claude/issues/111); the question phase
-([#131](https://github.com/bje-settings/claude/issues/131)) and the orchestrator
-([#134](https://github.com/bje-settings/claude/issues/134)) land after them.
+piece it wants. These are the first four of the five in
+[#111](https://github.com/bje-settings/claude/issues/111); the orchestrator
+([#134](https://github.com/bje-settings/claude/issues/134)) is next.
 
 ## Requirements
 
@@ -20,7 +19,7 @@ Every skill runs `preflight` first and stops with a hint per finding. It checks:
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
 | The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`, so the stack is a stack in the GitHub UI from the first push (a chain of `gh pr create` drafts is not, and cannot be told from unrelated work by a reviewer). |
-| The `gh` plugin, from any marketplace | Declared here for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs `/gh:sync` between rounds; the sweep itself does not call it. |
+| The `gh` plugin, from any marketplace | Declared here for `/workstreams:question`, which asks the person to run `/gh:sync` before the first worktree, and for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs it between rounds; the sweep itself does not call it. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that found a reviewer missing halfway through has already spent the others. |
 
@@ -196,6 +195,27 @@ Run it by hand with a payload on stdin, which is how Claude Code runs it:
 ```bash
 echo '{"hook_event_name":"PreToolUse","cwd":"'"$PWD"'","agent_id":"a","agent_type":"workstreams:stream-high","tool_name":"Bash","tool_input":{"command":"pnpm test","run_in_background":true}}' | node "${CLAUDE_PLUGIN_ROOT}/hooks/guard.ts"
 ```
+
+## `/workstreams:question`
+
+Turns a sweep report into an approved plan.
+
+The skill explores every open item the sweep named before asking anything: the file, the
+record, or the docs it turns on. A question whose answer is already in the tree is recorded
+as a ruling with a citation instead of asked. What is left goes to the human one question at
+a time, `AskUserQuestion`, the recommended option first and labelled, with the argument
+against it in its own description; a ruling that is cheap to reverse is taken the same way,
+recorded with the argument for and against it rather than asked.
+
+Both are recorded in one rulings comment, posted on every issue in the round. The skill then
+hands back: the human enters plan mode, and `skills/stream/brief.md` is the template the plan
+feeds, so the plan answers what that template needs. Once approved, the plan comment goes on
+every issue in the round, and housekeeping runs before the first worktree: `/gh:sync`, any
+ignored leftover under `plugins/`, and a preflight for a local hook that runs a full suite on
+every push, which is disabled for the round only when the repository's own records say CI is
+the enforcement boundary, or asked about once with the per-push cost stated when they do not.
+
+It posts comments, so it is not model-invocable: a person runs it.
 
 ## Commands
 

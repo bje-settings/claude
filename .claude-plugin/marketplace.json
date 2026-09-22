@@ -21,7 +21,7 @@
     {
       "name": "workstreams",
       "source": "./plugins/workstreams",
-      "description": "Round primitives for issue-tracker work. /workstreams:sweep reads a repository's milestones and issue dependencies, reports the unblocked set and the tier behind it, maps the files each issue touches, and sequences them into streams, stacks, or one pull request.",
+      "description": "Round primitives for issue-tracker work. /workstreams:sweep reads a repository's milestones and issue dependencies, reports the unblocked set and the tier behind it, and sequences them into streams, stacks, or one pull request. /workstreams:review takes one draft pull request through verified review rounds to done. /workstreams:stream builds one issue, or one stack of them, in one worktree, one sized agent per layer. /workstreams:question turns a sweep report into an approved plan, one question at a time.",
       "category": "development"
     },
     {
