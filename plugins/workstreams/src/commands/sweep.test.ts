@@ -315,6 +315,9 @@ describe('what the sweep does with a read it could not complete', () => {
         listIssues: {
           rows: [
             issue(130, { milestone: { number: 3, title: 'closed milestone' } }),
+            // A second issue on that same closed milestone: the milestone is
+            // swept once, not once per issue that names it.
+            issue(133, { milestone: { number: 3, title: 'closed milestone' } }),
             issue(170, { milestone: { number: 6, title: 'audit plugin' } }),
           ],
           unavailable: null,
@@ -323,7 +326,7 @@ describe('what the sweep does with a read it could not complete', () => {
     )
 
     expect(report.groups.map((group) => group.milestone?.number)).toEqual([3, 6])
-    expect(report.combined.unblocked).toEqual([130, 170])
+    expect(report.combined.unblocked).toEqual([130, 133, 170])
   })
 
   it('reports the pull requests it read rather than failing because the issues were empty', async () => {
