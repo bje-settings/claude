@@ -109,3 +109,16 @@ it('refuses a path that is inside no checkout, and writes nothing to stdout', as
   expect(envelope).toEqual({ outcome: 'refused', error: `not a git repository: ${outside}` })
   expect(audit.stdout()).toBe('')
 })
+
+it('tells a git that is not installed apart from a directory outside any checkout', async () => {
+  // Both answer "no root" through `toplevel`, and a reader sent to look for a
+  // checkout when the real problem is a missing git is sent to the wrong
+  // place. Only a PATH without git can provoke it, which is what
+  // `pathWithout` is for.
+  const audit = audited('paths')
+  audit.sandbox.env.PATH = audit.sandbox.pathWithout('git')
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'refused', error: 'missing git: spawn git ENOENT' })
+})

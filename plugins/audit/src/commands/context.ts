@@ -16,7 +16,7 @@ import { discoverFiles, scopeFilter } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import type { GhClient } from '../lib/gh.ts'
-import { toplevel } from '../lib/git.ts'
+import { runGit, toplevel } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
 import { extractRefs, resolveRefs } from '../refs.ts'
 import { type Report, renderFindings, type SkippedStage } from '../report.ts'
@@ -54,6 +54,20 @@ const splitAll = (
   return { units, opaque, warnings }
 }
 
+/**
+ * Why git could not be run at all, or `null` when it ran.
+ *
+ * It asks git rather than the PATH: running the command answers the question
+ * the caller has, and `lib/process.ts` already separates "never started" from
+ * "ran and said no" for it. `--version` because it is git's cheapest
+ * subcommand and needs no repository to answer in. node's own message is
+ * passed through, since it names both the command and the code.
+ */
+const gitMissing = async (env: NodeJS.ProcessEnv): Promise<string | null> => {
+  const probe = await runGit(['--version'], { env })
+  return probe.startFailure === null ? null : probe.startFailure.message
+}
+
 /** The three stages this layer never runs, each carrying the same reason. */
 const skippedStages = (reason: SkippedStage['reason']): SkippedStage[] =>
   (['classify', 'pairs', 'evidence'] as const).map((stage) => ({ stage, reason }))
@@ -74,7 +88,16 @@ export const runContext = async (
 
   const target = parsed.value.positionals[0] ?? edges.cwd
   const root = await toplevel({ cwd: target, env: edges.env })
-  if (root === null) return refused(`not a git repository: ${target}`)
+  if (root === null) {
+    // `toplevel` answers `null` for a directory outside any checkout and for a
+    // git that could not be run at all, and a reader sent to look for a
+    // checkout when git is simply missing is sent to the wrong place. Asked
+    // only here, on the failing path, because a machine with git has nothing
+    // to learn from the probe.
+    const missing = await gitMissing(edges.env)
+    if (missing !== null) return refused(`missing git: ${missing}`)
+    return refused(`not a git repository: ${target}`)
+  }
 
   const files = await discoverFiles(root, edges.env, scopeFilter)
   if (files === null) return refused(`could not list the tracked files of ${root}`)
