@@ -1747,3 +1747,22 @@ it('is not fooled into excerpting a binary file', async () => {
 
   expect(reportOf(audit.stdout()).evidence.map((entry) => entry.source)).toEqual(['docs/note.md'])
 })
+
+it('spends a --max-evidence budget in document order, and says what it left', async () => {
+  // The bound is what keeps a large repository's run finite, and the coverage
+  // line is the only thing between "one contradiction found" and a reader
+  // believing the other fact was checked and cleared.
+  const audit = modelled('facts', {
+    classify: {
+      classifications: [classified('CLAUDE.md:3-3'), classified('CLAUDE.md:5-5')],
+      failures: [],
+    },
+    judgeEvidence: picked<EvidenceVerdict>('supports'),
+  })
+
+  await runContext([audit.work, '--json', '--max-evidence', '1'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.evidenceCoverage).toEqual({ judged: 1, available: 2 })
+  expect(report.evidence.map((entry) => entry.source)).toEqual(['docs/one.md'])
+})

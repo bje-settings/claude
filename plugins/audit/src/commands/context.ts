@@ -274,13 +274,18 @@ const judgeEvidence = async (
   root: string,
   units: readonly Unit[],
   kindOf: Map<string, UnitKind>,
+  maxEvidence: number,
   failures: StageFailure[],
 ): Promise<{ evidence: EvidenceJudgment[]; coverage: Coverage }> => {
   const facts = units.filter((unit) => kindOf.get(unit.id) === 'repo_fact')
-  const checkable = facts.flatMap((unit) => {
-    const found = evidenceSource(root, unit)
-    return found === null ? [] : [{ unit, ...found }]
-  })
+  const checkable = facts
+    .flatMap((unit) => {
+      const found = evidenceSource(root, unit)
+      return found === null ? [] : [{ unit, ...found }]
+    })
+    // Document order: there is no ranking here the way there is for pairs, so
+    // a budget buys the facts a reader would reach first.
+    .slice(0, maxEvidence)
   const evidence = await settle(
     'evidence',
     checkable,
@@ -351,6 +356,7 @@ const modelStages = async (
     noJev: boolean
     shape: RequestShape
     maxPairs: number
+    maxEvidence: number
     threshold: number
   },
 ): Promise<ModelOutcome> => {
@@ -377,7 +383,14 @@ const modelStages = async (
     ...failure,
   }))
   const paired = await judgePairs(jev, units, kindOf, options, failures)
-  const checked = await judgeEvidence(jev, options.root, units, kindOf, failures)
+  const checked = await judgeEvidence(
+    jev,
+    options.root,
+    units,
+    kindOf,
+    options.maxEvidence,
+    failures,
+  )
   return {
     skipped: [],
     classifications,
@@ -549,6 +562,7 @@ export const runContext = async (
     shape: options.shape as RequestShape,
     // Checked against COUNT_RE above, so this is a whole number.
     maxPairs: Number(options['max-pairs']),
+    maxEvidence: Number(options['max-evidence']),
     // Checked against FRACTION_RE above, so this is 0 to 1.
     threshold: Number(threshold),
   })
