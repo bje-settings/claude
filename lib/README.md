@@ -369,11 +369,12 @@ resolution exists in GraphQL alone. A check run and a commit status are read int
 fields answered rather than by `__typename`. A commit status has no status of its own, and its
 `PENDING` and `EXPECTED` states are carried as NO conclusion, because both mean it has not
 concluded and `CheckContext` promises null for that; a reader matching conclusions against the
-set that satisfies a required check would otherwise call a building preview a failure. The threads and the comments are separate fields
-because they are separate facts: the enterprise coverage bot posts a COMMENT on every pull request
-here. All three connections ask for `pageInfo`, unlike the dependency connections in the sweep
-query, and a list at the page ceiling says so through `unavailable` rather than being refused,
-because here there is a page signal to read.
+set that satisfies a required check would otherwise call a building preview a failure. The
+threads and the comments are separate fields because they are separate facts: the enterprise
+coverage bot posts a COMMENT on every pull request here. All three connections ask for
+`pageInfo`, unlike the dependency connections in the sweep query, and a list at the page
+ceiling says so through `unavailable` rather than being refused, because here there is a page
+signal to read.
 
 `listWorkflowRuns` is REST (`actions/runs`), because `listRuns` asks `gh run list` for a field list
 carrying neither `event` nor the head commit, so a caller cannot tell a `pull_request` run from a
