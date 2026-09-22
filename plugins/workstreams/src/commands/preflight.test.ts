@@ -216,7 +216,7 @@ describe('what gh can be missing', () => {
     // a login problem, telling someone to `gh auth login` a binary that
     // cannot even report its version.
     const sandbox = createSandbox()
-    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+    const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       '--version': { status: 3, stderr: 'gh: error while loading shared libraries\n' },
       'auth status': { status: 1, stderr: 'You are not logged into any GitHub hosts.\n' },
     })
