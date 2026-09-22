@@ -153,3 +153,14 @@ it('answers --help with its own usage, before anything is parsed or read', async
   expect(envelope.outcome === 'ok' && envelope.value).toMatch(/^usage: audit\.ts context \[root\]/)
   expect(audit.stdout()).toBe('')
 })
+
+it('refuses a second positional, since there is only one root to audit', async () => {
+  const audit = audited('paths')
+
+  const envelope = await runContext([audit.work, 'elsewhere'], audit.edges)
+
+  expect(envelope).toEqual({
+    outcome: 'refused',
+    error: `one root at most, not: ${audit.work} elsewhere`,
+  })
+})

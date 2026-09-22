@@ -122,9 +122,15 @@ export const runContext = async (
 
   const parsed = parseCommandLine(argv, ARG_SPEC)
   if (parsed.outcome !== 'ok') return parsed
+  // `parseCommandLine` admits positionals so that this command can take its
+  // root as one; how many it takes is this command's own rule. A second word
+  // is far more often a quoting mistake than a request, and auditing the first
+  // and ignoring the rest would hide it.
+  const { positionals } = parsed.value
+  if (positionals.length > 1) return refused(`one root at most, not: ${positionals.join(' ')}`)
   const started = edges.now()
 
-  const target = parsed.value.positionals[0] ?? edges.cwd
+  const target = positionals[0] ?? edges.cwd
   const root = await toplevel({ cwd: target, env: edges.env })
   if (root === null) {
     // `toplevel` answers `null` for a directory outside any checkout and for a
