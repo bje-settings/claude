@@ -389,3 +389,119 @@ it('redact leaves text alone when the api key is empty', () => {
   // become an empty-string RegExp that matches everywhere.
   expect(redact('nothing to hide', '')).toBe('nothing to hide')
 })
+
+it('a body without answers is refused as a JevError carrying the response status', async () => {
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, { model: 'jev-1.13.0' }) })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.status).toBe(200)
+  expect(error.message).toMatch(/no answers/)
+})
+
+it('a missing answer for a question asked is refused as a JevError', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    fetch: async () =>
+      reply(200, { model: 'x', answers: { other: { type: 'noul', noul: 1 } }, usage: {} }),
+  })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.status).toBe(200)
+  expect(error.message).toMatch(/no answer for question q/)
+})
+
+it('a non-object body is refused as a JevError', async () => {
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, '"just a string"') })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.status).toBe(200)
+  expect(error.message).toMatch(/not an object/)
+})
+
+it('an array body is refused, not treated as an object', async () => {
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, [1, 2, 3]) })
+  await expect(jev.ask('s', Q)).rejects.toThrow(/not an object/)
+})
+
+it('gives up after maxRetries and reports the last status', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    maxRetries: 2,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return reply(429, 'still rate limited')
+    },
+  })
+
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.status).toBe(429)
+  expect(error.message).toMatch(/gave up after 3 attempts, last HTTP 429/)
+  expect(error.body).toBe('still rate limited')
+  expect(calls).toBe(3)
+})
+
+it('usage accumulates requests, attempts, tokens and request time', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    fetch: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2))
+      return reply(200, OK_BODY)
+    },
+  })
+
+  expect(jev.usage()).toEqual({
+    requests: 0,
+    attempts: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    requestMsSum: 0,
+  })
+  await jev.ask('s', Q)
+  await jev.ask('s', Q)
+  const usage = jev.usage()
+  expect(usage.requests).toBe(2)
+  expect(usage.attempts).toBe(2)
+  expect(usage.inputTokens).toBe(200)
+  expect(usage.outputTokens).toBe(20)
+  expect(usage.requestMsSum).toBeGreaterThanOrEqual(2)
+})
+
+it('a call retried twice reports one logical request and three attempts', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return calls < 3 ? reply(429, 'slow down') : reply(200, OK_BODY)
+    },
+  })
+
+  await jev.ask('s', Q)
+  const usage = jev.usage()
+  expect(usage.requests).toBe(1)
+  expect(usage.attempts).toBe(3)
+})
+
+it('usage counts a failed request and a body with no usage field', async () => {
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => reply(200, { model: 'x', answers: { q: { type: 'noul', noul: 0.5 } } }),
+  })
+  await jev.ask('s', Q)
+  const usage = jev.usage()
+  expect(usage.requests).toBe(1)
+  expect(usage.inputTokens).toBe(0)
+})
+
+it('usage() returns a copy, not the live totals', async () => {
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, OK_BODY) })
+  const before = jev.usage()
+  await jev.ask('s', Q)
+  expect(before.requests).toBe(0)
+  expect(jev.usage().requests).toBe(1)
+})
