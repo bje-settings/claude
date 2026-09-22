@@ -580,3 +580,13 @@ it('gives each issue reference the state the lookup answered with', async () => 
   ])
   expect(report.issueLookup).toBe('ok')
 })
+
+it('carries the lookup’s own reason into the report and the findings text', async () => {
+  const audit = audited('issues', {
+    issueStates: { states: {}, unavailable: 'API rate limit exceeded' },
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('  issue lookup unavailable: API rate limit exceeded')
+})
