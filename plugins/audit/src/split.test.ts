@@ -380,4 +380,13 @@ describe('splitMarkdown', () => {
     expect(opaque[0]?.endLine).toBe(5)
     expect(units.map((u) => u.text)).toEqual(['Rule after quote.'])
   })
+
+  it('strips the > markers from a fenced block inside a list item inside a blockquote', () => {
+    const source = '> - item\n>   ```bash\n>   pnpm test\n>   ```\n> - next\n'
+    const { units, opaque } = splitMarkdown('a.md', source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.lang).toBe('bash')
+    expect(opaque[0]?.text).toBe('pnpm test')
+    expect(units.map((u) => u.text)).toEqual(['item', 'next'])
+  })
 })
