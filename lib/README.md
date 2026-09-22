@@ -269,11 +269,11 @@ reason, the same account every other failure in this file reads.
 
 **The one rule that took two review rounds on the spike (#164) to get right, pinned first in this
 port's suite:** an alias is `not_found` only when `errors` carries an entry of type `NOT_FOUND`
-whose `path` ends in that alias. Any other null or missing alias — a `FORBIDDEN`, a rate limit, a
-timeout, which carries no `path` at all — is left out of `states` entirely and its message folded
-into `unavailable`, never reported as "this issue does not exist": that is a finding fabricated out
-of a failure to ask. A `NOT_FOUND` on a named alias is a complete answer about that number, so it is
-not also counted toward `unavailable`.
+whose `path` ends in that alias. Any other null or missing alias, such as a `FORBIDDEN`, a rate
+limit, or a timeout, which carries no `path` at all, is left out of `states` entirely and its
+message folded into `unavailable`, never reported as "this issue does not exist": that is a finding
+fabricated out of a failure to ask. A `NOT_FOUND` on a named alias is a complete answer about that
+number, so it is not also counted toward `unavailable`.
 
 Ported from the spike's `buildIssueQuery`, `parseIssueResponse` and `parseIssueChunkBody` as
 private helpers, adapted rather than copied: the spike spawned `gh` itself and threw on a failed
