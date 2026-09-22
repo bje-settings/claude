@@ -256,6 +256,9 @@ const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: st
     // A directory resolves as found and has no contents to excerpt.
     if (!statSync(path.join(root, repoPath)).isFile()) continue
     const text = readFileSync(path.join(root, repoPath), 'utf8')
+    // A NUL byte marks a binary file, which is no excerpt a judgment can be
+    // made against.
+    if (text.includes('\0')) continue
     return { source: repoPath, excerpt: text.slice(0, EXCERPT_CHARS) }
   }
   return null

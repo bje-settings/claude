@@ -1729,3 +1729,21 @@ it('picks the first reference that is a readable file of this repository', async
 
   expect(reportOf(audit.stdout()).evidence.map((entry) => entry.source)).toEqual(['docs/note.md'])
 })
+
+it('is not fooled into excerpting a binary file', async () => {
+  // A NUL byte marks a file no judgment can be made against, and it is the
+  // first ref the unit names: without the check the model would be asked to
+  // compare a claim with six thousand characters of an image. Written here
+  // rather than committed, because a fixture holding a NUL byte is a file no
+  // tool in this repository can read either.
+  const audit = modelled('binary', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+    judgeEvidence: picked<EvidenceVerdict>('says_nothing'),
+  })
+  mkdirSync(path.join(audit.work, 'assets'))
+  writeFileSync(path.join(audit.work, 'assets', 'logo.bin'), Buffer.from([0x89, 0x50, 0x00, 0x0d]))
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).evidence.map((entry) => entry.source)).toEqual(['docs/note.md'])
+})
