@@ -3,7 +3,7 @@
 // `argparse` answers today rather than invented ones.
 import { describe, expect, it } from 'vitest'
 
-import { type ArgSpec, type Options, parseArguments } from './args.ts'
+import { type ArgSpec, type Options, parseArguments, parseCommandLine } from './args.ts'
 
 // Deliberately not annotated `: ArgSpec`. The annotation widens every key to
 // `string` and every value to `OptionSpec`, which collapses `Options<S>` to an
@@ -172,6 +172,20 @@ describe('parseArguments', () => {
     expect(parseArguments(['--quiet'], { quiet: { type: 'boolean' } })).toEqual({
       outcome: 'ok',
       value: { quiet: true },
+    })
+  })
+})
+
+describe('parseCommandLine', () => {
+  it('answers with the options and the positionals a command that widens itself wants', () => {
+    // #170's first caller: a command that names issue numbers on the command
+    // line rather than through a flag.
+    expect(parseCommandLine(['138', '164', '--help'], MERMAID)).toEqual({
+      outcome: 'ok',
+      value: {
+        options: { route: 'view', theme: 'default', help: true },
+        positionals: ['138', '164'],
+      },
     })
   })
 })
