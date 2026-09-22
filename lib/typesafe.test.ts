@@ -67,3 +67,26 @@ it('the model is overridable', async () => {
   await jev.ask('s', Q)
   expect(JSON.parse(body).model).toBe('jev-1.13.0')
 })
+
+it('retries a 429 and then succeeds, backing off with the injected random', async () => {
+  let calls = 0
+  const slept: number[] = []
+  const jev = createJev({
+    apiKey: KEY,
+    random: () => 0.5,
+    sleep: async (ms) => {
+      slept.push(ms)
+    },
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(429, 'slow down') : reply(200, OK_BODY)
+    },
+  })
+
+  const answers = await jev.ask('s', Q)
+
+  expect(calls).toBe(2)
+  expect(noulOf(answers, 'q')).toBe(0.75)
+  // attempt 0, random() = 0.5: floor(0.5 * min(30000, 500 * 2**0)) = 250.
+  expect(slept).toEqual([250])
+})
