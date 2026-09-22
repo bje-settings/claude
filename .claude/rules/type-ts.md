@@ -20,7 +20,7 @@ and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is
 ```
 lib/                           # shared across plugins; the only thing that crosses a boundary
 plugins/<plugin>/
-  bin/<plugin>.ts              # thin adapter: one dispatcher, one arm per command
+  scripts/<plugin>.ts          # thin adapter: one dispatcher, one arm per command
   src/
     lib -> ../../../lib        # committed symlink
     commands/<command>.ts      # one exported function per command: the seam
@@ -45,11 +45,17 @@ so a parsed command line is never partial and no command grows a branch for a fl
 A bad flag, a missing value, a stray positional or a value outside `choices` is `refused`, exit 2.
 `lib/README.md` has the worked examples and the rest of the contract.
 
-## `bin/` is an adapter
+## `scripts/` is an adapter
 
 It turns `process.argv` into the command function's arguments, constructs the real clients, calls,
 and maps the result onto an exit code and a stream. It holds no decisions, which is what lets one
 spawned contract test per plugin (`harness/spawn.ts` `runScript`) cover all of it.
+
+The directory is `scripts/`, never `bin/`: claude.ai rejects a plugin that carries a top-level
+`bin/`, by marketplace sync and by direct upload alike, so a plugin with one cannot be distributed
+through organization settings at all ([plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces#keep-executables-out-of-the-top-level-bin-directory)).
+`bin/` is also added to the Bash tool's `PATH` while the plugin is enabled, which nothing here
+wants. RFC 001 decision 16.
 
 One dispatcher per plugin, with an arm per command, so the plugin carries one floor guard, one
 EPIPE guard and one contract test (RFC 001 decision 15). The import inside each arm is dynamic, so

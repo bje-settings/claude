@@ -18,7 +18,7 @@ Three `.ts` fixtures sit here too. `deleted-cwd.ts` enters a directory, removes 
 the hook, which is the only way to reach the entry point's outermost handler: `process.cwd()`
 raises there and the payload has no cwd to use instead, so the failure arrives before any of the
 hook's own guards are in play. `slow-entry.ts` and `quick-entry.ts` are the
-other two. They stand in for `bin/gh.ts` in the one example that measures a real
+other two. They stand in for `scripts/gh.ts` in the one example that measures a real
 bound: one never answers, so the timeout arm is reached by the timer firing
 rather than by an injected result, and one answers at once, so the same bound
 must not fire. All three are programs rather than data for the reason `lib/fixtures/`'s five
