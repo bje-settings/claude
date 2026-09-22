@@ -30,15 +30,33 @@ interface Divergences {
   text: { python: string; port: string }[]
 }
 
+/** What a case's own state makes true, filled into the placeholders a
+ *  divergence row carries. `commands/hook-io.test.ts` documents the mechanism
+ *  and `fixtures/divergences-hook.json` names every placeholder. */
+type Fields = Record<string, string>
+
 const capture = JSON.parse(readFileSync(path.join(FIXTURES, 'hook-output.json'), 'utf8')) as Capture
 const divergences = JSON.parse(
   readFileSync(path.join(FIXTURES, 'divergences-hook.json'), 'utf8'),
 ) as Divergences
 
-/** The Python's text with every recorded substitution applied. */
-const expected = (text: string): string => {
+const fill = (text: string, fields: Fields): string =>
+  text.replace(/\{([a-z]+)\}/g, (_match, name: string) => fields[name] ?? '')
+
+/** One string as it appears inside the hook's JSON document, where `emit`
+ *  escapes a newline as a backslash and an `n`. */
+const inJson = (text: string): string => JSON.stringify(text).slice(1, -1)
+
+/** The Python's text with every recorded substitution applied, raw for stderr
+ *  and escaped for the document on stdout. */
+const expected = (text: string, fields: Fields = {}): string => {
   let answer = text
-  for (const entry of divergences.text) answer = answer.split(entry.python).join(entry.port)
+  for (const entry of divergences.text) {
+    const python = fill(entry.python, fields)
+    const port = fill(entry.port, fields)
+    answer = answer.split(python).join(port)
+    answer = answer.split(inJson(python)).join(inJson(port))
+  }
   return answer
 }
 
@@ -102,7 +120,10 @@ it('writes the branch message the Python wrote, byte for byte', () => {
   const result = runScript(HOOK, { args: captured.argv, env: sandbox.env })
 
   expect(result.status).toBe(captured.status)
-  expect(result.stdout).toBe(captured.stdout)
+  // The seam is given two branch names and no repository, so neither count
+  // has an answer and the message is the branch line and the two closing
+  // lines.
+  expect(result.stdout).toBe(expected(captured.stdout, { target: 'main' }))
 })
 
 it('wraps a report holding ✓, ✗ and · whatever the locale says', () => {
@@ -118,7 +139,7 @@ it('wraps a report holding ✓, ✗ and · whatever the locale says', () => {
   })
 
   expect(result.status).toBe(captured.status)
-  expect(result.stdout).toBe(captured.stdout)
+  expect(result.stdout).toBe(expected(captured.stdout))
   expect(result.stderr).toBe('')
 })
 
@@ -135,7 +156,10 @@ it('runs the whole session-start path in a real checkout, byte for byte', () => 
   })
 
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe(row('in-repo/off-default-branch').stdout)
+  // A fresh clone on a branch of its own: the default branch is current with
+  // the cached origin and nothing but the current branch is reachable from it,
+  // so both counts are zero and neither writes a line.
+  expect(result.stdout).toBe(expected(row('in-repo/off-default-branch').stdout, { target: 'main' }))
   expect(result.stderr).toBe('')
 })
 
@@ -187,6 +211,12 @@ it('starts the real bin/gh.ts child for a directory of checkouts', () => {
   const context = contextOf(result.stdout)
   expect(context).toContain('A read-only /gh:sync check ran for the repositories below')
   expect(context).toContain('could not')
+  // The summary the real child's real report makes true, computed by the hook
+  // in the process `hooks.json` starts rather than by the in-process seam.
+  expect(context).toContain(
+    '1 repository checked: 0 with upstream changes, 0 with prunable branches, ' +
+      '0 skipped, 1 not fully checked.',
+  )
   // The sentence the hook writes is "No branch, worktree, or working tree was
   // changed", and this is the one example in this layer that starts the real
   // child, so it is the only place that claim can be checked

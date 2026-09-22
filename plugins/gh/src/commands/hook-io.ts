@@ -42,9 +42,17 @@ import { constants as osConstants } from 'node:os'
 import path from 'node:path'
 
 import { discoverRepos } from '../discover.ts'
-import { currentBranch, defaultBranch, gitOut, hasRef } from '../lib/git.ts'
+import {
+  currentBranch,
+  defaultBranch,
+  gitLines,
+  gitOut,
+  hasRef,
+  type RepoOptions,
+} from '../lib/git.ts'
 import type { Runner } from '../lib/process.ts'
 import type { Output } from '../lib/streams.ts'
+import { REPORT } from './sync-repo.ts'
 
 /** The event name the response names itself with. */
 const HOOK_EVENT = 'SessionStart'
@@ -116,23 +124,209 @@ export const scrubRepositoryEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
   return scrubbed
 }
 
-/** The two messages, ported byte for byte. #110 reshapes them into status
- *  lines and lands after this port, so not a character moves here. */
-export const branchMessageText = (current: string, target: string): string =>
-  `This session started on branch '${current}'; the repository's default branch is '${target}'.
-Ask the user whether they would like to run /gh:sync to move to '${target}', fast-forward it,
-and prune branches whose work has already landed. Ask first. Do not run it unprompted, and do
-not mention this if the user is clearly in the middle of something else.
+/** The word a lookup `sync` could not make opens with, in `sync-repo.ts`'s
+ *  own vocabulary. Not a new dependency on its prose: it is {@link ACTIONABLE}'s
+ *  third marker, which has decided whether this hook speaks at all since the
+ *  Python. The trailing space is carried so the opening is the whole word and
+ *  not the start of a longer one; it is matched with `startsWith` against a
+ *  note line, never searched for inside one. */
+const COULD_NOT = 'could not '
+
+/** What one repository is worth saying about its checkout, all of it read from
+ *  local refs (#110 ruling 4). */
+export interface BranchStatus {
+  /** The branch the session started on. */
+  readonly current: string
+  /** The repository's default branch, as far as the clone knows locally. */
+  readonly target: string
+  /** Commits the cached `origin/<target>` has that the local `<target>` does
+   *  not, or `null` where that pair could not be counted. Zero and `null` both
+   *  write no line and are deliberately different: only one of them is an
+   *  answer. */
+  readonly behind: number | null
+  /** Local branches whose upstream is gone or that are already merged into
+   *  `<target>`, never `<target>` and never the current branch; `null` where
+   *  any of the listings behind it failed. */
+  readonly candidates: number | null
+}
+
+/** One form or the other. Written out rather than suffixed, because the two
+ *  call sites below need `commits` and `branches`. */
+const plural = (count: number, one: string, many: string): string => (count === 1 ? one : many)
+
+/**
+ * The count lines a status carries, in order, and none for a count of zero.
+ *
+ * Both counts are as of the last fetch, which the closing line of the message
+ * says once rather than each line saying it again. `candidates` is the word
+ * on purpose: ancestry cannot see a squash merge, and it is `/gh:sync` that
+ * decides with the merged pull request list, so this message must not claim
+ * that any of them will go.
+ */
+export const countLines = (status: BranchStatus): string[] => {
+  const lines: string[] = []
+  if (status.behind !== null && status.behind > 0) {
+    lines.push(
+      `Local '${status.target}' is ${status.behind} ${plural(status.behind, 'commit', 'commits')} behind 'origin/${status.target}'.`,
+    )
+  }
+  if (status.candidates !== null && status.candidates > 0) {
+    lines.push(
+      `Prunable candidates: ${status.candidates} local ${plural(status.candidates, 'branch', 'branches')} with a gone upstream or already merged into '${status.target}'.`,
+    )
+  }
+  return lines
+}
+
+/**
+ * The in-repo message: what is true of this checkout, then what acts on it.
+ *
+ * Deterministic and computed here, never a request for the agent to ask
+ * something (#110). The same text goes out as `systemMessage`, where a user
+ * reads it as the agent speaking, so an imperative addressed to the agent
+ * reads to them as a question they have to answer.
+ *
+ * The first line is the Python's, unchanged. What follows it is a count line
+ * per count that is above zero, and two closing lines that name the dry run
+ * and the command, as facts, once each. With neither count above zero the
+ * message is those three lines.
+ *
+ * The closing lines name what each command is for and claim no outcome for
+ * this checkout. `/gh:sync` has three answers for the default branch, not one:
+ * it fast-forwards it, CREATES it where no local branch of that name exists
+ * (which is the state of the captured `origin-head-wins` row), or refuses it
+ * as diverged (`sync-repo.ts`, "needs a manual merge"). The Python hedged the
+ * fast-forward inside a question to the agent; stating it flatly would be a
+ * claim this message cannot check locally, and `--dry-run`, named in the line
+ * above, is what reports the answer for this repository.
+ */
+export const branchMessageText = (status: BranchStatus): string =>
+  `${[
+    `This session started on branch '${status.current}'; the repository's default branch is '${status.target}'.`,
+    ...countLines(status),
+    'These are local refs, as of the last fetch. /gh:sync --dry-run reports what would change here,',
+    `including what it would do with '${status.target}'; /gh:sync makes those changes.`,
+  ].join('\n')}
 `
 
-export const reportMessageText = (report: string): string =>
+/** What the fan-out found, one number per bucket. The buckets are not a
+ *  partition and the line does not read as one: a repository can be both
+ *  skipped and not fully checked. */
+export interface FanOutSummary {
+  /** Sections in the report, which is one per repository the fan-out ran. */
+  readonly checked: number
+  readonly upstream: number
+  readonly prunable: number
+  readonly skipped: number
+  readonly unchecked: number
+}
+
+/** The indent every line of a repository's section carries, and the heading
+ *  above them does not. {@link REPORT}'s three marks open with it. */
+const INDENT = '  '
+
+/**
+ * A report's repository sections, each as its own lines.
+ *
+ * Structural rather than a match on any heading: a line at the left margin
+ * opens a section and the indented lines under it belong to it. The first line
+ * is dropped by position because it is the fan-out's own header, which
+ * `sync.ts` writes and no repository does.
+ *
+ * `split('\n')` and not Python's line boundaries: this text is what `sync`
+ * wrote, and `sync` ends every line with exactly `\n`. A checkout directory
+ * whose name holds a `\u2028` would be split by `splitlines` where the report
+ * itself is not, which would invent a section.
+ *
+ * A directory whose name begins with two spaces would be read as a mark line
+ * of the section above it. Its lines would then be counted against the
+ * previous repository, and the count of repositories would be one short. It is
+ * left unhandled: the alternative is matching the heading against the paths
+ * discovery found, which is a second reading of the same text.
+ */
+const sectionsOf = (report: string): string[][] => {
+  const sections: string[][] = []
+  let current: string[] | undefined
+  for (const line of report.split('\n').slice(1)) {
+    if (line === '') continue
+    if (line.startsWith(INDENT)) current?.push(line)
+    else {
+      current = []
+      sections.push(current)
+    }
+  }
+  return sections
+}
+
+/** Whether any line opens with the bad mark and then `opening`. */
+const hasBad = (lines: readonly string[], opening: string): boolean =>
+  lines.some((line) => line.startsWith(`${REPORT.bad}${opening}`))
+
+/** Whether any line opens with the note mark and then any of `openings`. */
+const hasNote = (lines: readonly string[], openings: readonly string[]): boolean =>
+  lines.some((line) => openings.some((opening) => line.startsWith(`${REPORT.note}${opening}`)))
+
+/**
+ * The counts for one report, read off the marks `sync-repo.ts` exports.
+ *
+ * The hook's own child always runs `--dry-run`, so the vocabulary counted is
+ * the `would ...` half of it. A bad mark that is not a skip is a repository
+ * something went wrong for, which includes the line `sync.ts` writes for a job
+ * that threw or answered non-zero (#81): that run is counted here rather than
+ * disappearing between the report and the summary above it. A note that opens
+ * with `could not` is counted too, so a repository that fell back to ancestry
+ * alone is never summarised as all clear.
+ */
+export const fanOutSummary = (report: string): FanOutSummary => {
+  const sections = sectionsOf(report)
+  const counts = { checked: sections.length, upstream: 0, prunable: 0, skipped: 0, unchecked: 0 }
+  for (const lines of sections) {
+    if (hasNote(lines, [REPORT.wouldFastForward, REPORT.wouldCreate])) counts.upstream += 1
+    if (hasNote(lines, [REPORT.wouldDelete, REPORT.wouldRemoveWorktree])) counts.prunable += 1
+    if (hasBad(lines, REPORT.skipped)) counts.skipped += 1
+    const failed = lines.some(
+      (line) => line.startsWith(REPORT.bad) && !line.startsWith(`${REPORT.bad}${REPORT.skipped}`),
+    )
+    if (failed || hasNote(lines, [COULD_NOT])) counts.unchecked += 1
+  }
+  return counts
+}
+
+/**
+ * The one line the fan-out message leads with, or `null` for a report this
+ * found no repository in.
+ *
+ * A report only reaches here once {@link ACTIONABLE} has found a line worth
+ * speaking about, so it is never empty; a count of zero sections over a body
+ * that has content means the body is not shaped the way the counting assumes
+ * (`sectionsOf`'s heading and indent) rather than that nothing was checked. A
+ * line of zeros above a report that says otherwise is a confident wrong
+ * statement, and this message exists to make statements a reader can trust.
+ * The report itself still goes out whole, unsummarised.
+ */
+export const summaryLine = (counts: FanOutSummary): string | null =>
+  counts.checked === 0
+    ? null
+    : `${counts.checked} ${plural(counts.checked, 'repository', 'repositories')} checked: ` +
+      `${counts.upstream} with upstream changes, ${counts.prunable} with prunable branches, ` +
+      `${counts.skipped} skipped, ${counts.unchecked} not fully checked.`
+
+/**
+ * The fan-out message: the summary, the report, and what acts on it.
+ *
+ * `summary` is `null` where there is nothing to summarise: a body this hook
+ * wrote itself rather than one `sync` reported (a bound that fired, or a run
+ * that left no report at all), or a report no repository could be counted in.
+ * Those count no repositories, and a line of zeros above them would be a claim
+ * about a check that never happened, or that was not read.
+ */
+export const reportMessageText = (report: string, summary: string | null): string =>
   `A read-only /gh:sync check ran for the repositories below. No branch, worktree, or working tree
 was changed (it does fetch, so remote-tracking refs are current).
-
+${summary === null ? '' : `${summary}\n`}
 ${report}
 
-Offer to run /gh:sync to apply this for real. Ask first, and report the outcome plainly,
-including any repository that gets skipped and why.
+/gh:sync applies this for real.
 `
 
 export const USAGE = 'usage: hook-io.ts {session-start|cwd|branch <current> <default>|report}\n'
@@ -434,6 +628,19 @@ export interface HookEdges {
   readonly entry: string
 }
 
+/**
+ * What the fan-out produced.
+ *
+ * `report` is `sync`'s own, whole. `degraded` is a sentence this hook wrote
+ * about a run that produced none. The two are kept apart as data rather than
+ * told apart later by reading the text back, because the hook is the one that
+ * wrote the second and already knows which it has; it is what decides whether
+ * there is anything to summarise.
+ */
+type SyncOutcome =
+  | { readonly kind: 'report'; readonly text: string }
+  | { readonly kind: 'degraded'; readonly text: string }
+
 /** What the fan-out is worth saying, or `null` when it is worth nothing. */
 const FAILED_LINE = (detail: string): string => `could not run the sync check: ${detail}`
 
@@ -481,7 +688,7 @@ export const repoCount = async (cwd: string, env: NodeJS.ProcessEnv): Promise<nu
  * today the child runs, refuses the directory in its own words, and the
  * session gets that sentence.
  */
-const runSync = async (cwd: string, edges: HookEdges): Promise<string | null> => {
+const runSync = async (cwd: string, edges: HookEdges): Promise<SyncOutcome | null> => {
   const env = scrubRepositoryEnv(edges.env)
   const seconds = syncTimeout(edges.env)
   const milliseconds = seconds * 1000
@@ -501,7 +708,10 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<string | null> =>
     return null
   }
   if (result.timedOut) {
-    return TIMEOUT_LINE(formatG(seconds), await repoCount(cwd, env), cwd)
+    return {
+      kind: 'degraded',
+      text: TIMEOUT_LINE(formatG(seconds), await repoCount(cwd, env), cwd),
+    }
   }
   if (result.status !== 0) {
     // The child's own diagnosis, kept whole where the debug log will have it;
@@ -542,13 +752,15 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<string | null> =>
     // death (a disk error, not a reader going away) and the re-throw itself
     // lives in `lib/streams.ts`, a lower layer this gate cannot see into;
     // recorded here rather than guarded against.
-    if (result.signal === null && result.stdout !== '') return result.stdout
+    if (result.signal === null && result.stdout !== '') {
+      return { kind: 'report', text: result.stdout }
+    }
     // `or`, not `??`: a child that failed without a word leaves `""` here,
     // and `""` is what the exit-status fallback exists for.
     const detail = lastLine(text) || `exit status ${returnCode(result.status, result.signal)}`
-    return FAILED_LINE(detail)
+    return { kind: 'degraded', text: FAILED_LINE(detail) }
   }
-  return result.stdout
+  return { kind: 'report', text: result.stdout }
 }
 
 /**
@@ -563,10 +775,14 @@ const reportMessage = async (cwd: string, edges: HookEdges): Promise<string | nu
     edges.output.err.write(`missing ${edges.entry}\n`)
     return null
   }
-  const report = await runSync(cwd, edges)
-  if (report === null) return null
-  if (!ACTIONABLE.some((marker) => report.includes(marker))) return null
-  return reportMessageText(report.replace(/\n+$/, ''))
+  const outcome = await runSync(cwd, edges)
+  if (outcome === null) return null
+  if (!ACTIONABLE.some((marker) => outcome.text.includes(marker))) return null
+  const body = outcome.text.replace(/\n+$/, '')
+  return reportMessageText(
+    body,
+    outcome.kind === 'report' ? summaryLine(fanOutSummary(body)) : null,
+  )
 }
 
 /**
@@ -577,10 +793,7 @@ const reportMessage = async (cwd: string, edges: HookEdges): Promise<string | nu
  * mean a round trip on every session start, which is exactly what the in-repo
  * branch of this hook exists to avoid.
  */
-const localDefaultBranch = async (options: {
-  cwd: string
-  env: NodeJS.ProcessEnv
-}): Promise<string | null> => {
+const localDefaultBranch = async (options: RepoOptions): Promise<string | null> => {
   const ref = await defaultBranch(options)
   // `if ref:` in the Python: a ref read as the empty string is no ref, which
   // is the fold `lib/git.ts`'s `defaultBranch` already does.
@@ -591,24 +804,182 @@ const localDefaultBranch = async (options: {
   return null
 }
 
+/** The two namespaces the count lookups name in full. `--merged main` would
+ *  take a tag named `main` as happily as the branch, and the default branch
+ *  here is a local branch name or nothing. */
+const HEADS = 'refs/heads/'
+const REMOTES = 'refs/remotes/'
+const ORIGIN = `${REMOTES}origin/`
+
+/** The field separator the local branch listing is read back with. git refuses
+ *  an ASCII control character in a ref name (`git check-ref-format`), so a tab
+ *  cannot appear in either field and the split is unambiguous. */
+const FIELD = '\t'
+
+/**
+ * A branch's own name, stripped of `refs/heads/` mechanically.
+ *
+ * NOT `%(refname:short)`, which is the shortest UNAMBIGUOUS name: a tag named
+ * after a branch makes git answer `heads/<name>` for the branch, and the names
+ * this is compared against (`currentBranch`, `localDefaultBranch`) are plain.
+ * The default branch would then survive both deletions below and be reported
+ * as a prunable candidate, in a repository whose only oddity is a release tag.
+ * `lstrip=2` removes exactly two components whatever else exists, so
+ * `refs/heads/a/b/c` is still `a/b/c`.
+ */
+const SHORT = '%(refname:lstrip=2)'
+
+/**
+ * `git rev-list --count`'s answer, or `null` for anything that is not one.
+ *
+ * `null` is git failing, which is how a missing ref on either end of the range
+ * arrives (status 128). The empty string is the other shape a `git` on PATH
+ * can take, exiting 0 with nothing to say, and it is not a count: reading it
+ * as zero would report "up to date" about a question that was never answered.
+ */
+export const parseCount = (out: string | null): number | null => {
+  if (out === null || !/^[0-9]+$/.test(out)) return null
+  return Number(out)
+}
+
+/** How far the local default branch is behind the CACHED `origin/<target>`.
+ *  No fetch: the closing line of the message says the number is as of the last
+ *  one (#110 ruling 4). */
+const behindCount = async (target: string, options: RepoOptions): Promise<number | null> =>
+  parseCount(
+    await gitOut(['rev-list', '--count', `${HEADS}${target}..${ORIGIN}${target}`], options),
+  )
+
+/**
+ * The prunable candidates among `locals`, or `null` when a listing failed.
+ *
+ * Pure, and given all three listings rather than fetching them, so that every
+ * way this can end is reachable without arranging a git that fails one call
+ * and answers the next two.
+ *
+ * `locals` is `name<tab>upstream` per local branch, `refs` is
+ * `ref<tab>objectname` for every ref an upstream can name that exists, and
+ * `merged` is the local branches already reachable from the default branch. A
+ * branch counts when its upstream is configured and no longer exists, or when
+ * its work is already in the default branch. Neither the default branch nor
+ * the branch the session is on ever counts: one is where the work lands and
+ * the other is where the session is.
+ *
+ * `refs` spans both namespaces because `%(upstream)` does: a branch set to
+ * track another LOCAL branch answers `refs/heads/<name>`, and a set built from
+ * the remote-tracking refs alone would call that live upstream gone and count
+ * every such branch as a candidate.
+ *
+ * A branch sitting on the cached `origin/<target>`'s own commit does not
+ * count either. `/gh:sync` keeps exactly that branch, for a reason it can tell
+ * locally (`sync-repo.ts`, "already at origin/<default>, nothing to prune"),
+ * and a candidate the command would refuse is not one. The comparison is
+ * against the CACHED remote tip rather than the local branch's, because that
+ * is the commit `/gh:sync` compares against once it has fetched: a branch
+ * resting on a local default that is itself behind is one the command
+ * fast-forwards past and then deletes.
+ *
+ * `null` when ANY listing failed rather than a count of what the rest hold:
+ * the line states a number of candidates, and a number assembled from a
+ * partial answer understates what it says it counted.
+ */
+export const countCandidates = (
+  locals: readonly string[] | null,
+  refs: readonly string[] | null,
+  merged: readonly string[] | null,
+  current: string,
+  target: string,
+): number | null => {
+  if (locals === null || refs === null || merged === null) return null
+  const existing = new Set<string>()
+  const tips = new Map<string, string>()
+  for (const line of refs) {
+    const separator = line.indexOf(FIELD)
+    // Read as a ref with no commit rather than as a ref named after the whole
+    // line: it still says the ref exists, which is what `existing` is for.
+    const ref = separator === -1 ? line : line.slice(0, separator)
+    existing.add(ref)
+    if (separator !== -1) tips.set(ref, line.slice(separator + 1))
+  }
+  const candidates = new Set(merged)
+  for (const line of locals) {
+    const separator = line.indexOf(FIELD)
+    // No separator at all is a line this format cannot produce; it is read as
+    // a branch with no upstream rather than as a branch named after the whole
+    // line with an upstream of nothing.
+    if (separator === -1) continue
+    const upstream = line.slice(separator + 1)
+    if (upstream !== '' && !existing.has(upstream)) candidates.add(line.slice(0, separator))
+  }
+  candidates.delete(current)
+  candidates.delete(target)
+  const tip = tips.get(`${ORIGIN}${target}`)
+  // No cached remote tip is no comparison to make, not a tip of `undefined`
+  // that every unread branch would match.
+  if (tip !== undefined) {
+    for (const branch of candidates) {
+      if (tips.get(`${HEADS}${branch}`) === tip) candidates.delete(branch)
+    }
+  }
+  return candidates.size
+}
+
+/** The candidate count for one checkout, from three local ref listings. */
+const prunableCandidates = async (
+  current: string,
+  target: string,
+  options: RepoOptions,
+): Promise<number | null> => {
+  const locals = await gitLines(
+    ['for-each-ref', `--format=${SHORT}${FIELD}%(upstream)`, HEADS],
+    options,
+  )
+  // Asked as refs rather than as `%(upstream:track)`, whose `[gone]` is a
+  // translated string: a session in a French locale would report no gone
+  // upstreams at all, silently.
+  //
+  // Both namespaces in one listing, because an upstream may name either. git
+  // writes `refs/heads/<name>` for a branch tracking a local branch, and a
+  // set of remote-tracking refs alone would not hold it. The commit comes
+  // along so the tip comparison above needs no second call.
+  const refs = await gitLines(
+    ['for-each-ref', `--format=%(refname)${FIELD}%(objectname)`, HEADS, REMOTES],
+    options,
+  )
+  const merged = await gitLines(
+    ['for-each-ref', `--format=${SHORT}`, '--merged', `${HEADS}${target}`, HEADS],
+    options,
+  )
+  return countCandidates(locals, refs, merged, current, target)
+}
+
 /**
  * The in-repo message, or `null` when there is nothing worth saying.
  *
  * Nothing to say on a detached HEAD (there is no branch to compare), on a
  * repository whose default branch cannot be resolved locally, or when the
- * session already started on the default branch.
+ * session already started on the default branch. Being off the default branch
+ * is itself the status worth one line, so the counts are gathered only once
+ * that is established: on the silent paths no lookup runs at all.
+ *
+ * Every one of them is local, and every one of them may answer with nothing
+ * (#110 ruling 4). A count that could not be read leaves its line out; neither
+ * a failing git, a missing ref, an empty answer nor an answer that is not a
+ * number can throw here or cost the message its first line.
  */
-const branchMessage = async (options: {
-  cwd: string
-  env: NodeJS.ProcessEnv
-}): Promise<string | null> => {
+const branchMessage = async (options: RepoOptions): Promise<string | null> => {
   const current = await currentBranch(options)
   // `if not current or current == "HEAD"`: `null` here is git failing and
   // git answering with nothing at all, which `lib/git.ts` folds together.
   if (current === null || current === 'HEAD') return null
   const target = await localDefaultBranch(options)
   if (target === null || target === current) return null
-  return branchMessageText(current, target)
+  return branchMessageText({
+    current,
+    target,
+    behind: await behindCount(target, options),
+    candidates: await prunableCandidates(current, target, options),
+  })
 }
 
 /**
@@ -692,12 +1063,18 @@ export const runHookIo = async (argv: readonly string[], edges: HookEdges): Prom
   // `len(argv) == 4` refuses too.
   if (mode === 'branch' && typeof current === 'string' && typeof target === 'string') {
     if (argv.length === 3) {
-      edges.output.out.write(emit(branchMessageText(current, target)))
+      // No repository to read, so neither count has an answer here: the seam
+      // is given two names and nothing else.
+      edges.output.out.write(
+        emit(branchMessageText({ current, target, behind: null, candidates: null })),
+      )
       return 0
     }
   }
   if (mode === 'report') {
-    edges.output.out.write(emit(reportMessageText((await edges.stdin()).replace(/\n+$/, ''))))
+    // No summary: the seam wraps a body it was handed, and a summary is a
+    // statement about a fan-out this process ran.
+    edges.output.out.write(emit(reportMessageText((await edges.stdin()).replace(/\n+$/, ''), null)))
     return 0
   }
   edges.output.err.write(USAGE)
