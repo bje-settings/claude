@@ -20,18 +20,12 @@ export type FileFilter = (relativePath: string) => boolean
  * a newline (rare, but git allows it) split correctly; a newline-delimited
  * read would cut such a path in two.
  *
- * A `pathspec` without a slash is not anchored to `root`'s own directory: git
- * matches it against the whole tracked tree, so `'*.md'` finds
- * `plugins/gh/README.md` from the repository root exactly as it finds
- * `README.md`.
  */
 export const trackedPaths = async (
   root: string,
   env: NodeJS.ProcessEnv,
-  pathspec?: string,
 ): Promise<string[] | null> => {
-  const args = ['ls-files', '-z', ...(pathspec === undefined ? [] : [pathspec])]
-  const output = await gitOut(args, { cwd: root, env })
+  const output = await gitOut(['ls-files', '-z'], { cwd: root, env })
   if (output === null) return null
   return output
     .split('\0')
@@ -39,16 +33,14 @@ export const trackedPaths = async (
     .sort()
 }
 
-/** The tracked `.md` files `filter` keeps, or `null` when git would not answer. */
-export const discoverFiles = async (
-  root: string,
-  env: NodeJS.ProcessEnv,
-  filter: FileFilter,
-): Promise<string[] | null> => {
-  const files = await trackedPaths(root, env, '*.md')
-  if (files === null) return null
-  return files.filter(filter)
-}
+/** The tracked `.md` files `filter` keeps.
+ *
+ *  Filtered here rather than with a `'*.md'` pathspec, because tier 0 needs the
+ *  whole tracked list anyway: a path that is not where it is written is
+ *  answered against every tracked path (`refs.ts`, `tail_match`), and asking
+ *  git twice would be a second answer that could disagree with the first. */
+export const markdownFiles = (tracked: readonly string[], filter: FileFilter): string[] =>
+  tracked.filter((entry) => entry.endsWith('.md') && filter(entry))
 
 /**
  * The audit's own scope: `CLAUDE.md` and `README.md` anywhere in the tree, by

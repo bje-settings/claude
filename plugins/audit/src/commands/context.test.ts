@@ -391,3 +391,20 @@ it('falls back to the referencing file’s own directory when the root has no su
     },
   ])
 })
+
+it('answers tail_match for a path that ends a tracked path at a segment boundary', async () => {
+  // Prose names paths relative to a context the reader supplies, so this is
+  // neither found nor absent, and reporting it absent would be the noisiest
+  // false finding the audit can produce.
+  const audit = audited('tails')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[0]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'nest/thing.ts',
+      resolution: { status: 'tail_match', witness: 'deep/nest/thing.ts' },
+    },
+  ])
+})

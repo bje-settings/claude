@@ -12,7 +12,7 @@
 import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { discoverFiles, scopeFilter } from '../discover.ts'
+import { markdownFiles, scopeFilter, trackedPaths } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import type { GhClient } from '../lib/gh.ts'
@@ -200,11 +200,12 @@ export const runContext = async (
   // all, so discovery has one shape and the scope is decided here, where the
   // flag is read.
   const filter = options.scope === 'context' ? scopeFilter : () => true
-  const files = await discoverFiles(root, edges.env, filter)
-  if (files === null) return refused(`could not list the tracked files of ${root}`)
+  const tracked = await trackedPaths(root, edges.env)
+  if (tracked === null) return refused(`could not list the tracked files of ${root}`)
+  const files = markdownFiles(tracked, filter)
   const { units, opaque, warnings } = splitAll(root, files)
   for (const unit of units) {
-    unit.refs = resolveRefs(extractRefs(unit.text), { root, file: unit.file })
+    unit.refs = resolveRefs(extractRefs(unit.text), { root, file: unit.file, tracked })
   }
 
   const report: Report = {

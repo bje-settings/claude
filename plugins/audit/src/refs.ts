@@ -136,6 +136,8 @@ export const extractRefs = (text: string): Ref[] => {
 export type ResolveContext = {
   root: string
   file: string
+  /** Every tracked path, repo-relative, for the tail rule below. */
+  tracked: readonly string[]
 }
 
 const unchecked = (reason: 'machine_specific' | 'pattern' | 'unavailable'): Resolution => ({
@@ -163,6 +165,11 @@ const toRepoRelative = (root: string, absolutePath: string): string =>
  * the referencing file's own directory: prose names paths from the root far
  * more often than from the file, so when both exist the root's is the one
  * meant.
+ *
+ * Failing both, a tracked path the value ENDS, at a segment boundary, absolves
+ * it: prose names paths relative to a context the reader supplies, and that is
+ * not rot. A bare prefix or a mid-path substring is not enough, which is what
+ * the leading slash in the comparison buys.
  */
 const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
   if (isMachineSpecific(value)) return unchecked('machine_specific')
@@ -175,6 +182,10 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
   if (existsSync(fromFile)) {
     return { status: 'found', repoPath: toRepoRelative(ctx.root, fromFile) }
   }
+
+  const tail = value.replace(/^\.\//, '')
+  const witness = ctx.tracked.find((tracked) => tracked.endsWith(`/${tail}`))
+  if (witness !== undefined) return { status: 'tail_match', witness }
 
   return { status: 'absent' }
 }
