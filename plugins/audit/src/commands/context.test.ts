@@ -673,3 +673,16 @@ it('does not resolve a number-only reference that two files could answer to', as
     { kind: 'path', value: 'docs/adr/099', resolution: { status: 'absent' } },
   ])
 })
+
+it('answers ignored, not absent, for a path this repository’s own rules exclude', async () => {
+  // A build output is not in the tree because it is not meant to be. Reporting
+  // it absent would make every repository with a .gitignore noisy in exactly
+  // the places its own rules already explain.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[5]?.refs).toEqual([
+    { kind: 'path', value: 'build/output.js', resolution: { status: 'ignored' } },
+  ])
+})

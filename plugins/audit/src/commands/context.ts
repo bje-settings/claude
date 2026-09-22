@@ -22,6 +22,7 @@ import {
   extractBlockRefs,
   extractRefs,
   issueNumbers,
+  markIgnored,
   type PackageJsonCache,
   resolveRefs,
 } from '../refs.ts'
@@ -216,6 +217,7 @@ const tierZero = async (
       issueState: (n) => lookup.states[String(n)] ?? 'unavailable',
     })
   }
+  await markIgnored([...blocks.units, ...blocks.opaque], root, edges.env)
   return lookup.unavailable
 }
 

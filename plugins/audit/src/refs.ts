@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
+import { run } from './lib/process.ts'
 import type { IssueLookup, Ref, Resolution } from './types.ts'
 
 /** What every extracted ref carries until {@link resolveRefs} runs. */
@@ -644,6 +645,60 @@ const resolveIssue = (ref: Ref, ctx: ResolveContext): Resolution => {
   if (lookup === 'unavailable') return unchecked('unavailable')
   if (lookup === 'not_found') return { status: 'absent' }
   return { status: 'issue', state: lookup }
+}
+
+/** The value to ask `git check-ignore` about, or `null` for a ref that is not
+ *  an absent path. A script and an issue can be absent too, and neither is a
+ *  path git has an opinion about. */
+const ignorableValue = (ref: Ref): string | null => {
+  if (ref.resolution.status !== 'absent') return null
+  if (ref.kind === 'path') return ref.value
+  if (ref.kind !== 'file_line') return null
+  // Extraction only produces a value this pattern matches.
+  return (FILE_LINE_RE.exec(ref.value) as RegExpExecArray)[1] as string
+}
+
+/**
+ * Rewrite every `absent` path this repository's own ignore rules exclude to
+ * `ignored`.
+ *
+ * One batched `git check-ignore -z --stdin` for the whole run, asked after
+ * everything has resolved rather than per ref: a repository with a build
+ * directory writes dozens of these, and a child process each would cost more
+ * than the audit itself.
+ *
+ * `run` directly rather than `lib/git.ts` `gitOut`, for two reasons that file
+ * names itself: `gitOut` folds a non-zero exit into `null`, and check-ignore
+ * exits **1** to say "none of these are ignored", which is an answer and not a
+ * failure; and `runGit` carries no stdin, which is how the whole batch is sent
+ * in one argv-free call. Any status but 0 means nothing here is ignored, or
+ * the question could not be asked, and both leave the refs saying `absent`,
+ * which is what they already said.
+ */
+export const markIgnored = async (
+  blocks: ReadonlyArray<{ refs: Ref[] }>,
+  root: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> => {
+  const asked = [
+    ...new Set(blocks.flatMap((block) => block.refs.map(ignorableValue).filter((v) => v !== null))),
+  ]
+  if (asked.length === 0) return
+  const result = await run('git', ['check-ignore', '-z', '--stdin'], {
+    cwd: root,
+    env,
+    stdin: asked.join('\0'),
+  })
+  if (result.status !== 0) return
+  const ignored = new Set(result.stdout.split('\0').filter((entry) => entry !== ''))
+  for (const block of blocks) {
+    block.refs = block.refs.map((ref) => {
+      const value = ignorableValue(ref)
+      return value !== null && ignored.has(value)
+        ? { ...ref, resolution: { status: 'ignored' } }
+        : ref
+    })
+  }
 }
 
 /** Every issue number the refs name, deduplicated, for the one batched
