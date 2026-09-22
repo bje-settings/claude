@@ -12,15 +12,21 @@
 // missing plugins: the fix is a different one, and telling someone to install
 // what they already have sends them the wrong way.
 //
-// The list is a table so a later primitive extends it in one place. Layer 2
-// (#133) adds `pr-review-toolkit`, whose reviewers the review loop dispatches.
+// The list is a table so a later primitive extends it in one place.
+//
+// `pr-review-toolkit` is checked twice over: the registry says whether the
+// plugin is installed at all, and the install paths it records say whether
+// the five reviewer agents the review loop dispatches are in it. The second
+// check exists because a fork under another marketplace satisfies the first
+// while carrying a different set of agents, and because a round that found a
+// reviewer missing halfway through would already have spent the others.
 //
 // The command function is the seam (ADR 001), with the process runner and the
 // environment injected, so every arm is reachable in-process with no `gh` on
 // the machine. It answers with an exit status rather than an envelope,
 // because the missing list belongs on stdout even when the answer is 1 and
 // `lib/envelope.ts` writes nothing to stdout for a failure.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { parseArguments } from '../lib/args.ts'
@@ -33,13 +39,15 @@ Usage:
   workstreams.ts preflight [--json]
 
 Checks that gh is installed, that it is logged in, that the gh-stack
-extension is present, and that the plugins the skills dispatch to are
-installed. Prints one JSON object with --json:
+extension is present, that the plugins the skills dispatch to are installed,
+and that pr-review-toolkit carries every reviewer agent the review loop
+names. Prints one JSON object with --json:
 
   {"ok": true|false, "missing": [{"id": ..., "hint": ..., "detail": ...}]}
 
 and the same findings as lines without it. Each hint is a command to run,
-except for an unreadable registry, whose hint names the file. Exits 0 when
+except where the hint says what could not be checked instead: an unreadable
+registry names the file, and a missing reviewer names the agent. Exits 0 when
 everything is present, 1 when anything is missing, and 2 on a usage error.`
 
 /** How much of a tool's own message is carried, on one line. */
@@ -58,6 +66,28 @@ export interface Finding {
  *  dependency here and nowhere else. */
 export const REQUIRED_PLUGINS: ReadonlyArray<{ readonly id: string; readonly hint: string }> = [
   { id: 'gh', hint: '/plugin install gh@bje' },
+  { id: 'pr-review-toolkit', hint: '/plugin install pr-review-toolkit@claude-plugins-official' },
+]
+
+/**
+ * The reviewer subagents `skills/review` dispatches, and which of them a
+ * round picks is decided by the kind of change under review.
+ *
+ * Checked by name rather than inferred from the plugin being installed,
+ * because a fork of `pr-review-toolkit` under another marketplace satisfies
+ * the plugin row above while carrying a different set of agents, and a round
+ * that discovered a missing reviewer halfway through is a round that has
+ * already spent its reviewers' tokens. The registry does not list agents, so
+ * this is checked against the plugin's own `agents/` directory.
+ */
+export const REVIEWER_PLUGIN = 'pr-review-toolkit'
+
+export const REQUIRED_REVIEWERS: readonly string[] = [
+  'code-reviewer',
+  'comment-analyzer',
+  'silent-failure-hunter',
+  'pr-test-analyzer',
+  'type-design-analyzer',
 ]
 
 /** A tool's own message on one line, short enough to sit in a JSON field. */
@@ -84,6 +114,75 @@ export const registryPath = (env: NodeJS.ProcessEnv): string => {
 /** Whether the registry names the plugin under any marketplace at all. */
 const hasPlugin = (plugins: Record<string, unknown>, id: string): boolean =>
   Object.keys(plugins).some((key) => key.startsWith(`${id}@`))
+
+/**
+ * Every directory the registry records the plugin as installed in, under any
+ * marketplace and in any scope.
+ *
+ * One plugin has many entries, one per project that installed it, and they
+ * are different cache copies at different versions. Every one of them is
+ * checked, and a reviewer found under any is present: the session that runs
+ * the round resolves the plugin from whichever scope applies, and there is no
+ * project path here to compare against that would say which.
+ */
+export const installPathsFor = (plugins: Record<string, unknown>, id: string): string[] => {
+  const paths: string[] = []
+  for (const [key, value] of Object.entries(plugins)) {
+    if (!key.startsWith(`${id}@`)) continue
+    if (!Array.isArray(value)) continue
+    for (const entry of value) {
+      const record = entry as Record<string, unknown> | null
+      const installPath = record === null ? undefined : record.installPath
+      if (typeof installPath === 'string' && !paths.includes(installPath)) paths.push(installPath)
+    }
+  }
+  return paths
+}
+
+/**
+ * The reviewer agents `skills/review` dispatches that no installed copy of
+ * `pr-review-toolkit` carries.
+ *
+ * Checked against the plugin's own `agents/` directory, because the registry
+ * records where a plugin is installed and nothing about what is in it, and a
+ * fork under another marketplace satisfies the plugin row while carrying a
+ * different set of agents. A round that discovered a missing reviewer halfway
+ * through has already spent the other reviewers' tokens.
+ *
+ * A plugin the registry names with no install path at all is reported as
+ * ITSELF and never as five missing reviewers, for `registry-unreadable`'s
+ * reason: "the reviewers could not be checked" is a different instruction
+ * from "these reviewers are not there".
+ *
+ * A path that is RECORDED and not there is the same instruction again. The
+ * registry keeps an entry per project that installed the plugin and the cache
+ * copy under it is removed on an update or a reinstall, so a stale entry is
+ * ordinary. `existsSync` answers false for a directory that is gone, dangling
+ * or unreadable alike, so asking it about the agent file first would report
+ * five reviewers absent from a copy that may well carry all five, and send
+ * someone to update a plugin that is not the problem.
+ */
+export const reviewerFindings = (paths: readonly string[]): Finding[] => {
+  const reachable = paths.filter((root) => existsSync(root))
+  if (reachable.length === 0) {
+    return [
+      {
+        id: 'reviewers-unlocatable',
+        hint:
+          paths.length === 0
+            ? 'the installed plugins file records no install path for pr-review-toolkit, so its reviewer agents could not be checked'
+            : `no install path the installed plugins file records for pr-review-toolkit is there, so its reviewer agents could not be checked: ${paths.join(', ')}`,
+      },
+    ]
+  }
+  return REQUIRED_REVIEWERS.filter(
+    (reviewer) =>
+      !reachable.some((root) => existsSync(path.join(root, 'agents', `${reviewer}.md`))),
+  ).map((reviewer) => ({
+    id: `reviewer:${reviewer}`,
+    hint: `update pr-review-toolkit: no agents/${reviewer}.md in any installed copy that is there`,
+  }))
+}
 
 /**
  * What the registry says is missing.
@@ -141,9 +240,18 @@ export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] => {
       { id: 'registry-unreadable', hint: `installed plugins file has no plugins object: ${file}` },
     ]
   }
-  return REQUIRED_PLUGINS.filter(
-    (required) => !hasPlugin(plugins as Record<string, unknown>, required.id),
-  ).map((required) => ({ ...required }))
+  const installed = plugins as Record<string, unknown>
+  const missing = REQUIRED_PLUGINS.filter((required) => !hasPlugin(installed, required.id)).map(
+    (required) => ({ ...required }),
+  )
+  // The reviewers are only asked about when the plugin that carries them is
+  // there: a missing plugin already says everything, and adding five
+  // reviewer findings under it would send a reader after agents that arrive
+  // with the install.
+  if (hasPlugin(installed, REVIEWER_PLUGIN)) {
+    missing.push(...reviewerFindings(installPathsFor(installed, REVIEWER_PLUGIN)))
+  }
+  return missing
 }
 
 /**

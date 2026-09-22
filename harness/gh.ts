@@ -26,6 +26,7 @@
 import { type GhClient, type GhEndpoint, GhError, type GhResults } from '../lib/gh.ts'
 
 export type {
+  CheckContext,
   CommentText,
   GhClient,
   GhEndpoint,
@@ -36,10 +37,12 @@ export type {
   MergedPullRequestQuery,
   MilestoneSummary,
   PagedResult,
+  PullRequestDetail,
   PullRequestQuery,
   PullRequestSummary,
   RunQuery,
   WatchResult,
+  WorkflowRun,
 } from '../lib/gh.ts'
 export { GhError } from '../lib/gh.ts'
 
@@ -118,5 +121,8 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     listMilestones: async () => answer(replies, 'listMilestones'),
     listIssues: async () => answer(replies, 'listIssues'),
     listOpenPullRequests: async () => answer(replies, 'listOpenPullRequests'),
+    requiredContexts: async () => answer(replies, 'requiredContexts'),
+    viewPullRequestDetail: async () => answer(replies, 'viewPullRequestDetail'),
+    listWorkflowRuns: async () => answer(replies, 'listWorkflowRuns'),
   }
 }

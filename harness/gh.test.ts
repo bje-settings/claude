@@ -28,6 +28,9 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['listMilestones', (client) => client.listMilestones()],
   ['listIssues', (client) => client.listIssues({ milestone: '4' })],
   ['listOpenPullRequests', (client) => client.listOpenPullRequests()],
+  ['requiredContexts', (client) => client.requiredContexts({ branch: 'main' })],
+  ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
+  ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -80,6 +83,37 @@ it('answers every endpoint it declares', async () => {
     listOpenPullRequests: {
       rows: [
         { number: 177, title: 'audit L2', head: 'wktr-171-audit-split', base: 'main', draft: true },
+      ],
+      unavailable: null,
+    },
+    requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
+    viewPullRequestDetail: {
+      pullRequest: {
+        number: 178,
+        title: 'feat(workstreams): sweep command and skill (primitive 1)',
+        state: 'OPEN',
+        draft: true,
+        base: 'main',
+        head: 'wktr-130-ws-sweep',
+        headSha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
+        mergeable: 'MERGEABLE',
+        checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+        unresolvedThreadAuthors: [],
+        commentAuthors: ['github-code-quality'],
+      },
+      unavailable: null,
+    },
+    listWorkflowRuns: {
+      rows: [
+        {
+          name: 'CI',
+          event: 'pull_request',
+          headSha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
+          status: 'completed',
+          conclusion: 'success',
+          startedAt: '2026-09-22T06:31:17Z',
+          updatedAt: '2026-09-22T06:33:14Z',
+        },
       ],
       unavailable: null,
     },

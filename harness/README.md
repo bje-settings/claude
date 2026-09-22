@@ -61,14 +61,18 @@ const gh = createGhMock({
 after the operation rather than after gh's argv, so the interface survives gh changing a flag:
 `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`, `listRuns`,
 `readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`,
-`listMilestones`, `listIssues`, `listOpenPullRequests`.
+`listMilestones`, `listIssues`, `listOpenPullRequests`, `requiredContexts`,
+`viewPullRequestDetail`, `listWorkflowRuns`.
 
 `watchChecks` is the one endpoint whose exit status is itself the answer rather than a failure: the
 bounded watch answers with `{ status, timedOut, waitedMs, problem }`, because gh reports on the
 checks through its own exit status and a test about a red rollup has to be able to register one.
 (`issueStates` also answers with a record, `{ states, unavailable }`, but unlike `watchChecks` it
 never throws at all, so there is nothing else for a test to register beside its one reply. The
-three sweep reads answer `{ rows, unavailable }` and never throw for the same reason.)
+three sweep reads answer `{ rows, unavailable }` and never throw for the same reason, as do
+the three review-loop reads: `requiredContexts` answers `{ contexts, unavailable }`,
+`viewPullRequestDetail` answers `{ pullRequest, unavailable }` with a null pull request for one
+it could not read, and `listWorkflowRuns` answers `{ rows, unavailable }`.)
 
 The double answers `listIssues` with the same reply whatever milestone is asked for, since one
 registration holds no state and has no conditional logic. A test that needs a different answer
@@ -92,7 +96,9 @@ per milestone builds `createGhClient` over a runner that answers by argv instead
   implementation detail and turns a refactor red.
 
 `GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`,
-`WatchResult` and `IssueState` moved to `lib/gh.ts` at
+`WatchResult`, `IssueState`, and the result shapes the sweep and the review loop read
+(`MilestoneSummary`, `IssueSummary`, `PullRequestSummary`, `PagedResult`, `PullRequestDetail`,
+`CheckContext`, `WorkflowRun`) live in `lib/gh.ts`, the first of them moved there at
 [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
 against them; `gh.ts` imports them back and re-exports them, so a test reaches the double and the
 interface it implements through one module. What stays in the harness is what does not ship: the

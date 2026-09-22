@@ -20,10 +20,10 @@
 // the whole plugin. The import inside each arm is dynamic, so a command
 // nobody asked for is never loaded, and a new one changes no other line here.
 //
-// The two arms answer differently on purpose: `sweep` answers with an
-// envelope, because its whole output is one payload a caller either gets or
-// does not, and `preflight` answers with a status and writes its own report,
-// because its findings belong on stdout even when the answer is 1 and
+// The arms answer differently on purpose: `sweep` and `pr-state` answer with
+// an envelope, because each one's whole output is one payload a caller either
+// gets or does not, and `preflight` answers with a status and writes its own
+// report, because its findings belong on stdout even when the answer is 1 and
 // `lib/envelope.ts` deliberately writes nothing to stdout for a failure.
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
@@ -41,6 +41,10 @@ commands:
   sweep [--milestone 4,5] [--json]   what a round could start on: milestones,
                                      open pull requests, the unblocked set,
                                      the next tier, and what is further out
+  pr-state <number> [--round 0|1|2]  where the review loop is on one pull
+    [--substantial] [--rot-checked]  request: its required contexts, its
+    [--json]                         checks, its unresolved threads and the
+                                     state they add up to
   preflight [--json]                 what the workstreams skills depend on,
                                      and what of it is missing
 
@@ -73,6 +77,12 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     // `gh` resolves from its working directory.
     return write(
       await runSweep(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
+    )
+  }
+  if (name === 'pr-state') {
+    const { runPrState } = await import('../src/commands/pr-state.ts')
+    return write(
+      await runPrState(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
     )
   }
   if (name === 'preflight') {
