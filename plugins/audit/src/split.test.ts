@@ -289,4 +289,13 @@ describe('splitMarkdown', () => {
     expect(third?.prev).toBe(null)
     expect(third?.next).toBe(null)
   })
+
+  it('leaves refs empty from the splitter, on units and opaque blocks alike', () => {
+    const { units, opaque } = splitMarkdown(
+      FILE,
+      ['- item one', '', '```', 'code', '```'].join('\n'),
+    )
+    for (const u of units) expect(u.refs).toEqual([])
+    for (const o of opaque) expect(o.refs).toEqual([])
+  })
 })
