@@ -173,27 +173,37 @@ const OPENERS: readonly string[] = ['(', '{', 'then', 'do', 'else', '!']
 /** An environment assignment in front of a command (`GIT_DIR=x git ...`). */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
+/** What a destructive git command names: the tree it would act on, and the
+ *  paths inside it to ask about.
+ *
+ *  `directory` is the command's own `-C` argument, or `null` for "wherever the
+ *  tool call runs". An empty `pathspec` means the whole tree is the question;
+ *  anything else is the operands of a `git checkout` written without a `--`,
+ *  which {@link decide} hands to git rather than guessing at. */
+export interface Destructive {
+  readonly directory: string | null
+  readonly pathspec: readonly string[]
+}
+
 /**
- * The directory a destructive git command in `command` would act on, as the
- * repository's own `-C` argument or `null` for "wherever the tool call runs",
- * and `undefined` when the command asks for nothing of the kind.
+ * What a destructive git command in `command` would act on, or `undefined`
+ * when the command asks for nothing of the kind.
  *
- * `undefined` rather than a second nullable, because `null` already means
- * something here: "the tool call's own working directory" is an answer, and
- * "no such command" is the absence of one.
- *
- * Two commands qualify, and they are round 7's two:
+ * Three forms qualify:
  *
  *   - `git restore ...`, with or without `--staged`, which exists to
  *     overwrite working tree files.
- *   - `git checkout` with a `--` separator, which is the pathspec form and
- *     the one that took the file. A `git checkout <name>` with no separator
- *     is left alone deliberately: telling a branch name from a pathspec needs
- *     the repository, and a guard that denied a branch switch on a dirty tree
- *     would block ordinary work several times an hour to catch a case the
- *     separator already marks.
+ *   - `git checkout` with a `--` separator, the explicit pathspec form.
+ *   - `git checkout <operands>` with no separator. This is the spelling round
+ *     7's stream lost its file to (`git checkout hook-io.ts`), and `git
+ *     checkout .` is the same command with a wider reach. The same words may
+ *     be a branch, and only the repository can tell, so the operands are
+ *     carried out to {@link decide}, which scopes the one probe it already
+ *     runs to them: a branch name matches no path and answers clean, while a
+ *     path answers with the work about to be overwritten. Asking costs no
+ *     extra process and denies nothing a branch switch needs.
  */
-export const destructiveGit = (command: string): string | null | undefined => {
+export const destructiveGit = (command: string): Destructive | undefined => {
   for (const segment of command.split(SEGMENTS)) {
     const answer = readSegment(segment.trim().split(/\s+/))
     if (answer !== undefined) return answer
@@ -210,14 +220,15 @@ const at = (tokens: readonly string[], index: number): string => tokens[index] ?
 /** One segment's tokens, read the way a shell would start to: openers and
  *  environment assignments, then the command, then git's own options, then
  *  the subcommand. */
-const readSegment = (tokens: readonly string[]): string | null | undefined => {
+const readSegment = (tokens: readonly string[]): Destructive | undefined => {
   let start = 0
   while (OPENERS.includes(at(tokens, start)) || ASSIGNMENT.test(at(tokens, start))) start += 1
 
-  // `git`, `/usr/bin/git`, and nothing else. `sudo git` and `xargs git` are
-  // not read, and nothing this guard exists to catch has ever arrived that
-  // way.
-  if (!/(^|\/)git$/.test(at(tokens, start))) return undefined
+  // `git`, `/usr/bin/git`, and the two spellings Windows adds, since the
+  // matcher covers `PowerShell` on purpose (hooks.md, "PowerShell"): a `.exe`
+  // suffix and a backslash separator. `sudo git` and `xargs git` are not read,
+  // and nothing this guard exists to catch has ever arrived that way.
+  if (!/(^|[\\/])git(\.exe)?$/i.test(at(tokens, start))) return undefined
 
   let directory: string | null = null
   let cursor = start + 1
@@ -251,9 +262,16 @@ const readSegment = (tokens: readonly string[]): string | null | undefined => {
   }
 
   const verb = at(tokens, cursor)
-  if (verb === 'restore') return directory
-  if (verb === 'checkout' && tokens.slice(cursor + 1).includes('--')) return directory
-  return undefined
+  const operands = tokens.slice(cursor + 1)
+  if (verb === 'restore') return { directory, pathspec: [] }
+  if (verb !== 'checkout') return undefined
+  if (operands.includes('--')) return { directory, pathspec: [] }
+
+  // No separator. Everything that is not an option is carried out as the
+  // question to put to git; a `checkout` that names nothing at all (`git
+  // checkout`, `git checkout -f`) asks for no file and is left alone.
+  const named = operands.filter((token) => token !== '' && !token.startsWith('-'))
+  return named.length === 0 ? undefined : { directory, pathspec: named }
 }
 
 /** The subagent as a denial names it. */
@@ -261,11 +279,16 @@ const who = (call: ToolCall): string =>
   call.agentType === null ? 'this subagent' : `subagent ${call.agentType}`
 
 /** Only a tracked file's uncommitted state is work this command can destroy.
- *  `git status --porcelain` marks an untracked file `??` and an ignored one
- *  `!!`, and neither is touched by `git checkout --` or `git restore`, so a
- *  tree holding only those is clean for this purpose. `harness/git.ts` keeps
- *  the same two fixtures apart for the same reason ("an untracked file, which
- *  must NOT block a sync"). */
+ *  `git status --porcelain` marks an untracked file `??`, which neither `git
+ *  checkout` nor `git restore` touches, so a tree holding only those is clean
+ *  for this purpose. `harness/git.ts` keeps the same two fixtures apart for
+ *  the same reason ("an untracked file, which must NOT block a sync").
+ *
+ *  The `!!` arm is defence and not a case this probe can reach: git lists an
+ *  ignored file only when asked with `--ignored`, and {@link decide} never
+ *  asks. It is kept, and pinned by a test through the injected reader, so that
+ *  adding `--ignored` later cannot quietly turn an ignored file into a reason
+ *  to refuse someone's command. */
 const trackedChanges = (porcelain: string): readonly string[] =>
   porcelain
     .split('\n')
@@ -306,7 +329,7 @@ export const decide = async (
   const target = destructiveGit(call.command)
   if (target === undefined) return { decision: 'allow' }
 
-  const directory = target ?? call.cwd
+  const directory = target.directory ?? call.cwd
   if (directory === null) {
     context.output.err.write(
       'workstreams guard: the payload carries neither a -C directory nor a cwd, so the tree ' +
@@ -315,7 +338,15 @@ export const decide = async (
     return { decision: 'allow' }
   }
 
-  const porcelain = await context.git(['status', '--porcelain'], { cwd: directory })
+  // The whole tree, or only the paths a separatorless `checkout` named. Git
+  // resolves those the way it would have resolved them for the command
+  // itself, relative to the same directory, so a branch name answers with
+  // nothing and this stays silent for every ordinary branch switch.
+  const scoped = target.pathspec.length > 0
+  const porcelain = await context.git(
+    scoped ? ['status', '--porcelain', '--', ...target.pathspec] : ['status', '--porcelain'],
+    { cwd: directory },
+  )
   if (porcelain === null) {
     context.output.err.write(
       `workstreams guard: git could not report the state of ${directory}, so this command was ` +
@@ -327,10 +358,13 @@ export const decide = async (
   const changed = trackedChanges(porcelain)
   if (changed.length === 0) return { decision: 'allow' }
 
+  const where = scoped
+    ? `${directory}, under ${target.pathspec.join(' ')}, has`
+    : `${directory} has`
   return {
     decision: 'deny',
     reason:
-      `The workstreams guard refuses this command for ${who(call)}: ${directory} has ` +
+      `The workstreams guard refuses this command for ${who(call)}: ${where} ` +
       `${changed.length} uncommitted change${changed.length === 1 ? '' : 's'} to tracked files, ` +
       'and git checkout with a pathspec and git restore both overwrite them; commit first, ' +
       'because two rounds have lost work to exactly this command.',

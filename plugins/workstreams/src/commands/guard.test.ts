@@ -156,6 +156,12 @@ describe('reading the payload', () => {
     })
   })
 
+  it('treats a payload with no tool_input key at all as no tool input', () => {
+    const read = readToolCall(JSON.stringify({ agent_id: 'a', tool_name: 'Bash' }))
+
+    expect(read).toMatchObject({ outcome: 'ok', value: { command: null, background: false } })
+  })
+
   it('treats a tool_input that is not an object as no tool input at all', () => {
     const read = readToolCall(JSON.stringify({ agent_id: 'a', tool_input: ['command'] }))
 
@@ -194,13 +200,20 @@ describe('finding the destructive command', () => {
     'pnpm test || git restore .',
     'pnpm build | tee log\ngit restore .',
     '( git restore . )',
+    '{ git restore . ; }',
+    'if x; then git restore . ; fi',
+    'for f in a; do git restore . ; done',
+    'if x; then y; else git restore . ; fi',
+    '! git restore .',
     'GIT_PAGER=cat git restore .',
     '/usr/bin/git restore .',
+    'git.exe restore .',
+    'C:\\Program\\git.exe restore .',
     'git --no-pager restore .',
     'git -c core.hooksPath=/dev/null restore .',
   ]) {
     it(`finds it in ${JSON.stringify(command)}, targeting the call's own tree`, () => {
-      expect(destructiveGit(command)).toBeNull()
+      expect(destructiveGit(command)).toEqual({ directory: null, pathspec: [] })
     })
   }
 
@@ -211,17 +224,39 @@ describe('finding the destructive command', () => {
     'git -c a=b -C /w restore .',
   ]) {
     it(`reads the -C directory out of ${JSON.stringify(command)}`, () => {
-      expect(destructiveGit(command)).toBe('/w')
+      expect(destructiveGit(command)).toEqual({ directory: '/w', pathspec: [] })
     })
   }
+
+  // A `checkout` with no `--`: the operands are carried out for git to answer,
+  // because the same words may be a branch. This is the spelling round 7's
+  // stream lost `hook-io.ts` to.
+  for (const [command, pathspec] of [
+    ['git checkout hook-io.ts', ['hook-io.ts']],
+    ['git checkout .', ['.']],
+    ['git checkout main', ['main']],
+    ['git checkout --quiet src two.txt', ['src', 'two.txt']],
+    ['git checkout -b wktr-132-ws-stream', ['wktr-132-ws-stream']],
+  ] as const) {
+    it(`carries the operands of ${JSON.stringify(command)} out to be resolved`, () => {
+      expect(destructiveGit(command)).toEqual({ directory: null, pathspec })
+    })
+  }
+
+  it('reads the -C directory out of a checkout with no separator too', () => {
+    expect(destructiveGit('git -C /w checkout file.txt')).toEqual({
+      directory: '/w',
+      pathspec: ['file.txt'],
+    })
+  })
 
   for (const command of [
     'pnpm test',
     'git status --porcelain',
-    'git checkout main',
-    'git checkout -b wktr-132-ws-stream',
     'git commit -m "git restore is what lost it"',
     'sudo git restore .',
+    'git checkout',
+    'git checkout -f',
     'git -C',
     'git',
     ';;',
@@ -233,7 +268,10 @@ describe('finding the destructive command', () => {
   }
 
   it('reads a checkout whose pathspec separator comes after other options', () => {
-    expect(destructiveGit('git checkout --quiet HEAD -- src/index.ts')).toBeNull()
+    expect(destructiveGit('git checkout --quiet HEAD -- src/index.ts')).toEqual({
+      directory: null,
+      pathspec: [],
+    })
   })
 })
 
@@ -249,6 +287,17 @@ describe('the main thread and the tools this never reads', () => {
     expect(verdict).toEqual({ decision: 'allow' })
     expect(output.stdout()).toBe('')
     expect(output.stderr()).toBe('')
+  })
+
+  it('reads a PowerShell call, which is the only shell Windows may register', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ toolName: 'PowerShell', background: true }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      output,
+    })
+
+    expect(verdict).toMatchObject({ decision: 'deny' })
   })
 
   for (const toolName of ['Read', null]) {
@@ -306,6 +355,17 @@ describe('run_in_background', () => {
     expect(verdict).toMatchObject({ reason: expect.stringContaining('for this subagent:') })
   })
 
+  it('is asked before the command is read, so a background call with no command is still refused', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ background: true, command: null }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      output,
+    })
+
+    expect(verdict).toMatchObject({ decision: 'deny' })
+  })
+
   it('allows a foreground command a subagent asked for', async () => {
     const output = createOutputPair()
 
@@ -358,6 +418,63 @@ describe('git checkout and git restore, against real repositories', () => {
     })
   })
 
+  // Round 7's stream lost `hook-io.ts` to `git checkout hook-io.ts`, written
+  // without a separator, which the first shape of this guard allowed.
+  for (const [command, named] of [
+    ['git checkout file.txt', 'file.txt'],
+    ['git checkout .', 'under .'],
+  ] as const) {
+    it(`refuses ${JSON.stringify(command)}, written without a separator`, async () => {
+      const sandbox = createSandbox()
+      const git = createGitFixtures(sandbox)
+      const work = git.create(sandbox.join('r'))
+      git.dirty(work)
+      const output = createOutputPair()
+
+      const verdict = await decide(call({ command, cwd: work }), {
+        git: readerFor(sandbox),
+        output,
+      })
+
+      expect(verdict.decision).toBe('deny')
+      expect(verdict).toMatchObject({
+        reason: expect.stringContaining('1 uncommitted change to tracked files'),
+      })
+      // The denial names the worker, so a person reading it knows who was
+      // stopped, and the paths, so they know what would have gone.
+      expect(verdict).toMatchObject({
+        reason: expect.stringContaining('subagent workstreams:stream-high'),
+      })
+      expect(verdict).toMatchObject({ reason: expect.stringContaining(named) })
+      expect(output.stderr()).toBe('')
+    })
+  }
+
+  // The other half of the same decision: git is what tells a branch from a
+  // path, so none of these costs anyone a branch switch on a dirty tree.
+  for (const command of [
+    'git checkout main',
+    'git checkout -b a-new-branch',
+    'git checkout two.txt',
+  ]) {
+    it(`allows ${JSON.stringify(command)} on the same dirty tree`, async () => {
+      const sandbox = createSandbox()
+      const git = createGitFixtures(sandbox)
+      const work = git.create(sandbox.join('r'))
+      trackSecondFile(git, work)
+      git.dirty(work)
+      const output = createOutputPair()
+
+      const verdict = await decide(call({ command, cwd: work }), {
+        git: readerFor(sandbox),
+        output,
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toBe('')
+    })
+  }
+
   it('allows the command on a clean tree', async () => {
     const sandbox = createSandbox()
     const git = createGitFixtures(sandbox)
@@ -382,6 +499,21 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git checkout -- .', cwd: work }), {
       git: readerFor(sandbox),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+  })
+
+  it('would not count an ignored file either, if the probe ever asked for one', async () => {
+    const output = createOutputPair()
+
+    // A porcelain real git does not produce here: `!!` lines appear only under
+    // `--ignored`, which `decide` never passes. The reader is injected so the
+    // arm that keeps an ignored file from refusing someone's command stays
+    // pinned if that flag is ever added.
+    const verdict = await decide(call({ command: 'git restore .', cwd: '/w' }), {
+      git: () => Promise.resolve('!! build/out.js\n?? notes.md'),
       output,
     })
 

@@ -19,7 +19,7 @@ Every skill runs `preflight` first and stops with a hint per finding. It checks:
 | --- | --- |
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
-| The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens a stack of pull requests with it, where a layer does not open its own with `gh pr create`. |
+| The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` can open the whole stack with it. The alternative is `gh pr create --draft` per layer, which is what the last rounds used, so this is checked rather than required. |
 | The `gh` plugin, from any marketplace | Declared here for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs `/gh:sync` between rounds; the sweep itself does not call it. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that found a reviewer missing halfway through has already spent the others. |
@@ -146,6 +146,12 @@ things, and only to a subagent:
 | --- | --- |
 | `run_in_background` | A turn that ends on a background command reads to a caller as a worker that stopped short. It happened in three rounds with the rule written in the brief. |
 | `git checkout` with a pathspec, or `git restore`, on a tree with uncommitted changes to tracked files | Two agents lost uncommitted work to exactly this, one of them with the rule in its brief. The remedy is one commit. |
+
+A `git checkout` written without a `--` counts as a pathspec too. The same words may be a
+branch, so git is asked: the one `git status` the guard already runs is scoped to what the
+command named, which answers with nothing for `git checkout <branch>` and with the work at
+stake for `git checkout file.txt` or `git checkout .`. The second of those is what a stream
+lost a file to.
 
 **The main conversation is never denied.** The test is `agent_id`, which the input carries
 "only when the hook fires inside a subagent"

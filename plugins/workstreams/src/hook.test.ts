@@ -138,7 +138,15 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
   const work = git.create(sandbox.join('r'))
   git.dirty(work)
 
-  for (const command of ['pnpm test', 'git status --porcelain', 'git add -A', 'git commit -m x']) {
+  for (const command of [
+    'pnpm test',
+    'git status --porcelain',
+    'git add -A',
+    'git commit -m x',
+    // A branch switch, which git itself tells from a path, on a tree this
+    // guard has just been taught to protect against `git checkout <path>`.
+    'git checkout main',
+  ]) {
     const result = runScript(HOOK, {
       stdin: payload({
         agent_id: 'agent_01',
@@ -149,11 +157,12 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
       env: sandbox.env,
     })
 
-    expect({ command, status: result.status, stdout: result.stdout }).toEqual({
+    expect({
       command,
-      status: 0,
-      stdout: '',
-    })
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    }).toEqual({ command, status: 0, stdout: '', stderr: '' })
   }
 })
 
