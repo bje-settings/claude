@@ -29,7 +29,8 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
    `unavailable` non-empty means the sets are short of what was asked for. Say so and stop,
    unless the user tells you to plan on a partial read.
 
-   If `pullRequests` is not empty, name each one before going on.
+   If `pullRequests` is not empty, name each one before going on: a round planned around a
+   branch someone else is about to merge collides on files the sweep cannot see.
 
 3. Read, do not remember. For every issue in the unblocked set and the next tier, read the
    full body **and every comment**. A findings comment is often the specification; the body
@@ -40,11 +41,9 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
    against what has merged).
 
    Every factual claim you are about to write down gets cited to a line you have just read.
-   Grep for it; do not recall it. Three sweeps have asserted something about a test file, a
-   CI job or a caller that was not there.
+   Grep for it; do not recall it.
 
-4. Map the files. Apply every rule in [file-map.md](file-map.md), each one earned by a
-   round that lost time to it, before writing one.
+4. Map the files. Apply every rule in [file-map.md](file-map.md) before writing one.
 
 5. Classify and size each issue, in this shape:
 
@@ -74,9 +73,7 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
    the collisions, the recommended shape with its argument, the sizing, and the hidden
    dependencies, each cited.
 
-   Every hidden dependency is checked against the code before the comment is posted. The last
-   sweep that stated one from the issue bodies alone was wrong about it, and the correction
-   changed the round's scope.
+   Every hidden dependency is checked against the code before the comment is posted.
 
    End the comment with a line naming the effort and the date:
 
@@ -86,7 +83,7 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
 
    Show the comment before posting it.
 
-8. Report four things, in this order:
+8. Report four things:
 
    1. The unblocked set, with what each issue is.
    2. The stream shape, with the argument for it.
