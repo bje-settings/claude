@@ -5,21 +5,71 @@
 
 import type { SplitResult, Unit } from './types.ts'
 
+type HeadingFrame = { level: number; text: string }
+
 /** Splits `source` (the contents of `file`) into checkable units. */
 export const splitMarkdown = (file: string, source: string): SplitResult => {
-  const headingPath: string[] = []
-  const raw: Omit<Unit, 'id' | 'prev' | 'next'>[] = splitSentences(source).map((text) => ({
-    file,
-    startLine: 1,
-    endLine: 1,
-    block: 'sentence',
-    headingPath,
-    leadIn: null,
-    text,
-    refs: [],
-  }))
+  const lines = splitLines(source)
+  const units: Omit<Unit, 'id' | 'prev' | 'next'>[] = []
+  const total = lines.length
 
-  return { units: withNeighbours(assignIds(file, raw)), opaque: [], warnings: [] }
+  const headingStack: HeadingFrame[] = []
+  let i = 1
+
+  while (i <= total) {
+    const line = lines[i - 1] ?? ''
+
+    if (isBlank(line)) {
+      i++
+      continue
+    }
+
+    const heading = matchHeading(line)
+    if (heading) {
+      while (
+        headingStack.length > 0 &&
+        (headingStack[headingStack.length - 1]?.level ?? 0) >= heading.level
+      ) {
+        headingStack.pop()
+      }
+      headingStack.push({ level: heading.level, text: heading.text })
+      i++
+      continue
+    }
+
+    for (const text of splitSentences(line)) {
+      units.push({
+        file,
+        startLine: i,
+        endLine: i,
+        block: 'sentence',
+        headingPath: headingStack.map((h) => h.text),
+        leadIn: null,
+        text,
+        refs: [],
+      })
+    }
+    i++
+  }
+
+  return { units: withNeighbours(assignIds(file, units)), opaque: [], warnings: [] }
+}
+
+/** Splits on \n, \r\n and bare \r, without dropping a trailing empty line's count. */
+const splitLines = (source: string): string[] => {
+  if (source === '') return []
+  return source.split(/\r\n|\r|\n/)
+}
+
+const isBlank = (line: string): boolean => line.trim() === ''
+
+const matchHeading = (line: string): { level: number; text: string } | null => {
+  const m = line.match(/^(#{1,6})\s+(.*)$/)
+  if (!m) return null
+  const marks = m[1] ?? ''
+  const rest = m[2] ?? ''
+  const text = rest.replace(/\s+#+\s*$/, '').trim()
+  return { level: marks.length, text }
 }
 
 /** Splits paragraph text into sentence strings on `. ` `? ` `! ` boundaries. */

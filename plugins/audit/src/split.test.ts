@@ -19,4 +19,27 @@ describe('splitMarkdown', () => {
     expect(units[0]?.next).toBe('Baz qux!')
     expect(units[1]?.prev).toBe('Foo bar.')
   })
+
+  it('never turns an ATX heading into a unit, and pops the heading stack by level', () => {
+    const source = [
+      '# Top',
+      '',
+      'Intro sentence.',
+      '',
+      '## Child',
+      '',
+      'Child sentence.',
+      '',
+      '# Second Top ##',
+      '',
+      'Other sentence.',
+    ].join('\n')
+    const { units, opaque } = splitMarkdown(FILE, source)
+    expect(opaque).toHaveLength(0)
+    expect(units.some((u) => u.text.startsWith('#'))).toBe(false)
+    expect(units.find((u) => u.text === 'Intro sentence.')?.headingPath).toEqual(['Top'])
+    expect(units.find((u) => u.text === 'Child sentence.')?.headingPath).toEqual(['Top', 'Child'])
+    // A level-1 heading pops the level-2 child too.
+    expect(units.find((u) => u.text === 'Other sentence.')?.headingPath).toEqual(['Second Top'])
+  })
 })
