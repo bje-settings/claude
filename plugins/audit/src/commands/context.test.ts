@@ -686,3 +686,13 @@ it('answers ignored, not absent, for a path this repository’s own rules exclud
     { kind: 'path', value: 'build/output.js', resolution: { status: 'ignored' } },
   ])
 })
+
+it('answers ignored for a line reference into an ignored file too', async () => {
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[6]?.refs).toEqual([
+    { kind: 'file_line', value: 'build/output.js:12', resolution: { status: 'ignored' } },
+  ])
+})
