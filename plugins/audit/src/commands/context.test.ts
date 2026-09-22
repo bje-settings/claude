@@ -470,3 +470,57 @@ it('reads npm only in its explicit run form, and yarn the way it reads pnpm', as
     { kind: 'script', value: 'pnpm run test', resolution: { status: 'found', repoPath: null } },
   ])
 })
+
+it('walks up to the manifest that governs a nested file, and stops at one that will not parse', async () => {
+  // Two rules in one fixture: a nested file inherits the root manifest, and a
+  // manifest that cannot be read is `unavailable` rather than a missing
+  // script. Stopping there is the point: the file that governs this one could
+  // not be read, so what is further up does not answer the question. The
+  // unreadable manifest is a directory in the manifest's place, which is the
+  // one shape of "cannot be read" that can be committed here without a
+  // deliberately malformed .json file for the linter to reject.
+  const audit = audited('scripts')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  const refsIn = (file: string) => report.units.filter((unit) => unit.file === file)[0]?.refs
+  expect(refsIn('nested/CLAUDE.md')).toEqual([
+    { kind: 'script', value: 'pnpm test', resolution: { status: 'found', repoPath: null } },
+  ])
+  expect(refsIn('broken/CLAUDE.md')).toEqual([
+    {
+      kind: 'script',
+      value: 'pnpm test',
+      resolution: { status: 'unchecked', reason: 'unavailable' },
+    },
+  ])
+})
+
+it('says no_resolver for a script in a tree with no manifest at all', async () => {
+  // Nothing to resolve against is not the same finding as a script that is
+  // missing from a manifest that exists.
+  const audit = audited('tails')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[3]?.refs).toEqual([
+    {
+      kind: 'script',
+      value: 'pnpm test',
+      resolution: { status: 'unchecked', reason: 'no_resolver' },
+    },
+  ])
+})
+
+it('reads a manifest that declares no scripts as a manifest, not as a missing one', async () => {
+  const audit = audited('scripts')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  const unit = report.units.filter((entry) => entry.file === 'noscripts/CLAUDE.md')[0]
+  expect(unit?.refs).toEqual([
+    { kind: 'script', value: 'pnpm test', resolution: { status: 'absent' } },
+  ])
+})
