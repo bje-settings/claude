@@ -7,13 +7,13 @@
 // Every fixture repository is a directory under `fixtures/repos/`, copied in
 // and committed by `harness/git.ts` `importTree`, which undoes the two names a
 // fixture cannot be stored under (`_gitignore`, `<name>.fixture.md`).
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
 import { createGhMock, type GhClient, type GhReplies } from '../../../../harness/gh.ts'
-import { createGitFixtures } from '../../../../harness/git.ts'
+import { createGitFixtures, type GitFixtures } from '../../../../harness/git.ts'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
 import type { Report } from '../report.ts'
@@ -43,6 +43,7 @@ function capture() {
 
 interface Audited {
   readonly sandbox: Sandbox
+  readonly git: GitFixtures
   readonly work: string
   readonly edges: ContextEdges
   stdout(): string
@@ -72,7 +73,7 @@ function audited(name: string, replies: GhReplies = {}): Audited {
       return tick
     },
   }
-  return { sandbox, work, edges, stdout: captured.stdout, stderr: captured.stderr }
+  return { sandbox, git, work, edges, stdout: captured.stdout, stderr: captured.stderr }
 }
 
 /** The JSON report `--json` wrote, parsed. */
@@ -121,4 +122,21 @@ it('tells a git that is not installed apart from a directory outside any checkou
   const envelope = await runContext([audit.work], audit.edges)
 
   expect(envelope).toEqual({ outcome: 'refused', error: 'missing git: spawn git ENOENT' })
+})
+
+it('refuses when git will not list the tracked files', async () => {
+  // The shim fails `ls-files` alone, so the checkout still resolves and the
+  // audit reaches the one question it cannot do without. Reading an
+  // unanswerable question as an empty tree would report a clean repository.
+  const audit = audited('paths')
+  const shim = audit.git.gitShim('ls-files')
+  audit.sandbox.stubPath(shim.directory)
+  audit.sandbox.env.GIT_STUB_FAIL = shim.failing
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({
+    outcome: 'refused',
+    error: `could not list the tracked files of ${realpathSync(audit.work)}`,
+  })
 })
