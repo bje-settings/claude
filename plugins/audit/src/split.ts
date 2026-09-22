@@ -36,7 +36,8 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
   }
 
   while (i <= total) {
-    const raw = lines[i - 1] ?? ''
+    // i stays within 1..total by construction, so the index is always in range.
+    const raw = lines[i - 1] as string
     const line = stripBlockquote(raw)
 
     if (isBlank(line)) {
@@ -80,10 +81,13 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const heading = matchHeading(line)
     if (heading) {
-      while (
-        headingStack.length > 0 &&
-        (headingStack[headingStack.length - 1]?.level ?? 0) >= heading.level
-      ) {
+      // Stops at the top frame that is shallower than the new heading, or
+      // when the stack empties: both are real outcomes, not a fallback, so
+      // the loop reads the top fresh each time rather than defaulting a
+      // missing one to level 0.
+      while (true) {
+        const top = headingStack[headingStack.length - 1]
+        if (top === undefined || top.level < heading.level) break
         headingStack.pop()
       }
       headingStack.push({ level: heading.level, text: heading.text })
@@ -96,7 +100,11 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       continue
     }
 
-    const headerCells = matchTableHeader(line, lines[i] ? stripBlockquote(lines[i] ?? '') : null)
+    // A pipe line at EOF has no next line to check for a separator; `next`
+    // is undefined rather than falling back to '', so that state reaches
+    // matchTableHeader as "no next line" rather than as an empty one.
+    const next = lines[i]
+    const headerCells = next !== undefined ? matchTableHeader(line, stripBlockquote(next)) : null
     if (headerCells) {
       // The header's own line and the separator under it are not units.
       const table = readTableRows(lines, i + 2, headerCells, file, headingStack)
@@ -113,16 +121,18 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     const paraStart = i
     const paraEnd = paragraphEnd(lines, i)
     const paraLines: string[] = []
-    for (let k = paraStart; k <= paraEnd; k++) paraLines.push(stripBlockquote(lines[k - 1] ?? ''))
+    // k stays within paraStart..paraEnd, and paraEnd never exceeds total.
+    for (let k = paraStart; k <= paraEnd; k++)
+      paraLines.push(stripBlockquote(lines[k - 1] as string))
     const joined = paraLines.join(' ').trim()
 
     // "Directly before a list" also matches across blank lines: a blank line
     // (or several) between a lead-in paragraph and the list it introduces is
-    // still tolerated.
+    // still tolerated. Both loops stay within afterBlank <= total.
     let afterBlank = paraEnd + 1
-    while (afterBlank <= total && isBlank(stripBlockquote(lines[afterBlank - 1] ?? '')))
+    while (afterBlank <= total && isBlank(stripBlockquote(lines[afterBlank - 1] as string)))
       afterBlank++
-    const afterRaw = afterBlank <= total ? stripBlockquote(lines[afterBlank - 1] ?? '') : null
+    const afterRaw = afterBlank <= total ? stripBlockquote(lines[afterBlank - 1] as string) : null
     const nextIsList = afterRaw !== null && matchListMarker(afterRaw) !== null
 
     if (nextIsList && joined.endsWith(':')) {
@@ -135,8 +145,10 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     const { text: paraText, map } = buildLineMap(paraLines, paraStart)
     for (const span of splitSentences(paraText)) {
       const text = paraText.slice(span.start, span.end)
-      const startLine = map[span.start] ?? paraStart
-      const endLine = map[span.end - 1] ?? paraEnd
+      // Every kept span has end > start and end <= paraText.length, so both
+      // offsets always land inside map, which buildLineMap sized to match.
+      const startLine = map[span.start] as number
+      const endLine = map[span.end - 1] as number
       units.push({
         file,
         startLine,
@@ -165,8 +177,16 @@ const isBlank = (line: string): boolean => line.trim() === ''
 /** Strips one level of `>` blockquote marker; nested quoting is not modelled. */
 const stripBlockquote = (line: string): string => {
   const m = line.match(/^(\s*)>\s?(.*)$/)
-  return m ? (m[2] ?? '') : line
+  // The trailing `.*` always matches, even against an empty remainder, so a
+  // successful match always populates group 2; the cast is erased and adds
+  // no branch.
+  return m ? (m[2] as string) : line
 }
+
+/** The length of a line's leading run of spaces and tabs, without a regex
+ *  match whose result would need a fallback for TypeScript's sake: `\s*`
+ *  always matches, so that fallback could never actually fire. */
+const leadingSpaces = (line: string): number => line.length - line.trimStart().length
 
 // A line that is one comment and nothing else: the first `-->` is the end of
 // the line. Plain string tests rather than a pattern, so a line carrying
@@ -186,7 +206,8 @@ type CommentClose = { next: number; trailing: string | null }
 const skipHtmlComment = (lines: string[], start: number): CommentClose => {
   let i = start + 1
   while (i <= lines.length) {
-    const raw = lines[i - 1] ?? ''
+    // i stays within start+1..lines.length by construction.
+    const raw = lines[i - 1] as string
     const idx = raw.indexOf('-->')
     if (idx >= 0) {
       const trailing = raw.slice(idx + 3)
@@ -205,7 +226,8 @@ const isThematicBreak = (line: string): boolean =>
 const readFrontmatter = (lines: string[], file: string): OpaqueBlock | null => {
   if ((lines[0] ?? '').trim() !== '---') return null
   for (let close = 2; close <= lines.length; close++) {
-    if ((lines[close - 1] ?? '').trim() !== '---') continue
+    // close stays within 2..lines.length, so close - 1 is always in range.
+    if ((lines[close - 1] as string).trim() !== '---') continue
     return {
       file,
       startLine: 1,
@@ -222,8 +244,10 @@ const readFrontmatter = (lines: string[], file: string): OpaqueBlock | null => {
 const matchHeading = (line: string): { level: number; text: string } | null => {
   const m = line.match(/^(#{1,6})\s+(.*)$/)
   if (!m) return null
-  const marks = m[1] ?? ''
-  const rest = m[2] ?? ''
+  // Two mandatory capturing groups: a successful match always populates
+  // both, so the cast is erased and adds no branch.
+  const marks = m[1] as string
+  const rest = m[2] as string
   const text = rest.replace(/\s+#+\s*$/, '').trim()
   return { level: marks.length, text }
 }
@@ -233,10 +257,12 @@ type ListMatch = { indent: number; content: string; contentColumn: number }
 const matchListMarker = (line: string): ListMatch | null => {
   const m = line.match(/^(\s*)([-*+]|\d+\.)(\s+)(.*)$/)
   if (!m) return null
-  const indentStr = m[1] ?? ''
-  const marker = m[2] ?? ''
-  const gap = m[3] ?? ''
-  const content = m[4] ?? ''
+  // Four mandatory capturing groups: a successful match always populates
+  // all of them, so each cast is erased and adds no branch.
+  const indentStr = m[1] as string
+  const marker = m[2] as string
+  const gap = m[3] as string
+  const content = m[4] as string
   return {
     indent: indentStr.length,
     content: content.trim(),
@@ -268,27 +294,33 @@ const parseListBlock = (
   const total = lines.length
   let i = start
 
+  // Pops while the top item is at least as deep as `indent`, reading the top
+  // fresh on each pass rather than defaulting a missing one to -1: an empty
+  // stack is a real stopping condition, not a fallback value.
   const popTo = (indent: number) => {
-    while (stack.length > 0 && (stack[stack.length - 1]?.indent ?? -1) >= indent) {
-      const item = stack.pop()
-      if (item) finished.push(item)
+    while (true) {
+      const top = stack[stack.length - 1]
+      if (top === undefined || top.indent < indent) break
+      stack.pop()
+      finished.push(top)
     }
   }
 
   while (i <= total) {
-    const raw = lines[i - 1] ?? ''
+    // i stays within 1..total by construction.
+    const raw = lines[i - 1] as string
     const line = stripBlockquote(raw)
 
     if (isBlank(line)) {
       let peek = i + 1
-      while (peek <= total && isBlank(stripBlockquote(lines[peek - 1] ?? ''))) peek++
-      const nextLine = peek <= total ? stripBlockquote(lines[peek - 1] ?? '') : null
+      // Both loops stay within peek <= total.
+      while (peek <= total && isBlank(stripBlockquote(lines[peek - 1] as string))) peek++
+      const nextLine = peek <= total ? stripBlockquote(lines[peek - 1] as string) : null
       const innermostNow = stack[stack.length - 1]
-      const nextIndent = nextLine !== null ? (nextLine.match(/^\s*/)?.[0] ?? '').length : -1
       const listContinues =
         nextLine !== null &&
         (matchListMarker(nextLine) !== null ||
-          (!!innermostNow && nextIndent >= innermostNow.contentColumn))
+          (innermostNow !== undefined && leadingSpaces(nextLine) >= innermostNow.contentColumn))
       if (listContinues) {
         i = peek
         continue
@@ -315,10 +347,14 @@ const parseListBlock = (
       continue
     }
 
+    // Read once and shared by the fence check and the continuation check
+    // below: both need "the item this line might belong to," and stack.length
+    // > 0 would only be asking the same question through the array length.
+    const top = stack[stack.length - 1]
+
     const fence = matchFenceOpen(line)
-    if (fence && stack.length > 0) {
-      const strip = stack[stack.length - 1]?.contentColumn ?? 0
-      const read = readFence(lines, i, fence, raw !== line, file, strip)
+    if (fence && top !== undefined) {
+      const read = readFence(lines, i, fence, raw !== line, file, top.contentColumn)
       if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
       opaque.push(read.block)
       // The fence closes whatever item held it: continuation resumes as a
@@ -328,10 +364,9 @@ const parseListBlock = (
       continue
     }
 
-    const innermost = stack[stack.length - 1]
-    if (innermost && !matchHeading(line) && !isThematicBreak(line)) {
-      const lineIndent = (line.match(/^\s*/)?.[0] ?? '').length
-      if (lineIndent >= innermost.contentColumn) {
+    if (top !== undefined && !matchHeading(line) && !isThematicBreak(line)) {
+      const lineIndent = leadingSpaces(line)
+      if (lineIndent >= top.contentColumn) {
         if (isHtmlCommentOpen(line) && skipHtmlComment(lines, i).next < 0) {
           // Unclosed: end it at its own line rather than folding the rest of
           // the file into the item's text, and say so, as the top level does.
@@ -339,8 +374,8 @@ const parseListBlock = (
           i++
           continue
         }
-        innermost.text += ` ${line.trim()}`
-        innermost.endLine = i
+        top.text += ` ${line.trim()}`
+        top.endLine = i
         i++
         continue
       }
@@ -374,7 +409,8 @@ const parseListBlock = (
 const paragraphEnd = (lines: string[], start: number): number => {
   let end = start
   while (end + 1 <= lines.length) {
-    const next = stripBlockquote(lines[end] ?? '')
+    // end stays within start..lines.length - 1 by the loop guard above.
+    const next = stripBlockquote(lines[end] as string)
     if (
       isBlank(next) ||
       matchHeading(next) ||
@@ -416,11 +452,14 @@ type FenceOpen = { char: string; length: number; info: string }
 const matchFenceOpen = (line: string): FenceOpen | null => {
   const m = line.match(/^(\s*)(`{3,}|~{3,})(.*)$/)
   if (!m) return null
-  const marker = m[2] ?? ''
-  const info = m[3] ?? ''
+  // Two mandatory capturing groups: a successful match always populates
+  // both, so each cast is erased and adds no branch.
+  const marker = m[2] as string
+  const info = m[3] as string
   // A backtick fence's info string cannot itself contain a backtick.
   if (marker.startsWith('`') && info.includes('`')) return null
-  return { char: marker[0] ?? '`', length: marker.length, info }
+  // marker.length is always at least 3, so it always has a first character.
+  return { char: marker[0] as string, length: marker.length, info }
 }
 
 /**
@@ -435,7 +474,8 @@ const findFenceClose = (
   quoted: boolean,
 ): number => {
   for (let i = start; i <= lines.length; i++) {
-    const raw = lines[i - 1] ?? ''
+    // i stays within start..lines.length by the loop guard above.
+    const raw = lines[i - 1] as string
     const line = (quoted ? stripBlockquote(raw) : raw).trim()
     const re = fence.char === '`' ? /^`{3,}$/ : /^~{3,}$/
     if (re.test(line) && line.length >= fence.length) return i
@@ -468,7 +508,9 @@ const readFence = (
     .map((l) => stripLeading(quoted ? stripBlockquote(l) : l, strip))
     .join('\n')
   const info = fence.info.trim()
-  const lang = info.length > 0 ? (info.split(/\s+/)[0] ?? null) : null
+  // A non-empty string always splits into at least one element, so the cast
+  // is erased and adds no branch.
+  const lang = info.length > 0 ? (info.split(/\s+/)[0] as string) : null
   return {
     block: {
       file,
@@ -501,9 +543,9 @@ const isTableSeparator = (line: string): boolean => {
   if (s === '') return false
   if (s.startsWith('|')) s = s.slice(1)
   if (s.endsWith('|')) s = s.slice(0, -1)
-  const cells = s.split('|')
-  if (cells.length === 0) return false
-  return cells.every((c) => /^:?-+:?$/.test(c.trim()))
+  // String.split always returns at least one element, even for '', so there
+  // is no empty-array case here to guard against.
+  return s.split('|').every((c) => /^:?-+:?$/.test(c.trim()))
 }
 
 /** Splits a table row on unescaped, non-code-span pipes. */
@@ -558,12 +600,15 @@ const readTableRows = (
   const units: Omit<Unit, 'id' | 'prev' | 'next'>[] = []
   let i = start
   while (i <= lines.length) {
-    const rowLine = lines[i - 1] ?? ''
+    // i stays within start..lines.length by the loop guard above.
+    const rowLine = lines[i - 1] as string
     if (isBlank(rowLine) || !rowLine.includes('|')) break
     const cells = splitTableRow(rowLine)
     const text = headerCells
       .map((header, idx) => {
         const name = header.trim() === '' ? `col${idx + 1}` : header.trim()
+        // A row can carry fewer cells than the header; a missing one reads
+        // as empty rather than dropping the column.
         return `${name}: ${(cells[idx] ?? '').trim()}`
       })
       .join('\n')
@@ -634,8 +679,10 @@ const isAbbreviation = (text: string, periodIndex: number): boolean =>
 
 const trimSpan = (text: string, span: Span): Span => {
   let { start, end } = span
-  while (start < end && /\s/.test(text[start] ?? '')) start++
-  while (end > start && /\s/.test(text[end - 1] ?? '')) end--
+  // Every kept span has start < end <= text.length, so start and end - 1
+  // stay within text while their respective loop guards hold.
+  while (start < end && /\s/.test(text[start] as string)) start++
+  while (end > start && /\s/.test(text[end - 1] as string)) end--
   return { start, end }
 }
 
@@ -644,9 +691,11 @@ const trimSpan = (text: string, span: Span): Span => {
  * `!` followed by whitespace and then an uppercase letter, a backtick, or
  * `[`, outside code spans and links, skipping the abbreviations in
  * `ABBREVIATIONS` (`e.g.`, `i.e.`, `etc.`, `vs.`).
+ *
+ * Called only on a paragraph's joined text, which always starts from a
+ * non-blank line, so there is no blank-input case to guard against here.
  */
 const splitSentences = (text: string): Span[] => {
-  if (text.trim() === '') return []
   const mask = computeProtectedMask(text)
   const boundaries: { end: number; nextStart: number }[] = []
   const re = /[.?!]/g
@@ -654,11 +703,15 @@ const splitSentences = (text: string): Span[] => {
     const idx = m.index
     if (mask[idx]) continue
     const after = idx + 1
-    if (after >= text.length || !/\s/.test(text[after] ?? '')) continue
+    // The short-circuit above means text[after] is only read once after is
+    // already known to be less than text.length.
+    if (after >= text.length || !/\s/.test(text[after] as string)) continue
     let k = after
-    while (k < text.length && /\s/.test(text[k] ?? '')) k++
+    // k < text.length is checked by the loop guard before each read.
+    while (k < text.length && /\s/.test(text[k] as string)) k++
     if (k >= text.length) continue
-    const nextCh = text[k] ?? ''
+    // The check above already ruled out k reaching text.length.
+    const nextCh = text[k] as string
     if (!/[A-Z`[]/.test(nextCh)) continue
     if (text[idx] === '.' && isAbbreviation(text, idx)) continue
     boundaries.push({ end: after, nextStart: k })
