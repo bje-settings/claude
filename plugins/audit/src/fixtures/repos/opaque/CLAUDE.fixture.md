@@ -11,5 +11,5 @@ And the shape of it:
 
 ```mermaid
 graph TD
-  A[start] --> B[end]
+  A[fix #4242] --> B[docs/gone.md]
 ```

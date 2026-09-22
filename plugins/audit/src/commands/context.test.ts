@@ -544,3 +544,16 @@ it('reads the refs in a fenced code block, commands included', async () => {
     },
   ])
 })
+
+it('takes no refs at all out of a mermaid diagram', async () => {
+  // A diagram's `#`s are colours and its arrows are not paths, so every ref it
+  // could yield would be a false one. This fixture's diagram carries both
+  // shapes deliberately.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const diagram = reportOf(audit.stdout()).opaque[1]
+  expect(diagram?.kind).toBe('mermaid')
+  expect(diagram?.refs).toEqual([])
+})
