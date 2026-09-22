@@ -1,0 +1,11 @@
+{
+  "name": "audit",
+  "description": "/audit:context audits a repository's CLAUDE.md, README.md and .claude/**/*.md for rot: references that no longer resolve, statements whose named condition has ended, duplicated claims.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Brian Espinosa",
+    "email": "b@bje.co"
+  },
+  "keywords": ["audit", "documentation", "claude-md", "rot"]
+}
