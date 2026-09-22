@@ -714,3 +714,16 @@ it('skips a uses: value in a yaml block, which names another repository’s file
     },
   ])
 })
+
+it('takes no issue reference from a URL, a cross-repo slug, a colour or a padded number', async () => {
+  // The gh double has no reply registered at all, so an endpoint reached here
+  // throws: this fixture proves both that the four shapes yield nothing and
+  // that a repository naming no issue never reaches gh.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.units.slice(-4).map((unit) => unit.refs)).toEqual([[], [], [], []])
+  expect(report.issueLookup).toBe('ok')
+})

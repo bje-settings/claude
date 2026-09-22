@@ -23,3 +23,11 @@ jobs:
       - uses: ./.github/workflows/ci.yml
       - run: pnpm test
 ```
+
+The thread is at https://example.invalid/page#170 for anyone who wants it.
+
+Another repository's bje-settings/claude#4242 is not this one's issue.
+
+A diagram writes `classDef done fill:#000` for the colour it wants.
+
+A zero-padded #0170 is no issue number at all.
