@@ -83,4 +83,10 @@ describe('splitMarkdown', () => {
     expect(items[0]?.leadIn).toBe('Read the following:')
     expect(items[1]?.leadIn).toBe('Read the following:')
   })
+
+  it('keeps a paragraph ending in ":" a sentence when no list directly follows', () => {
+    const source = ['This is a claim:', '', 'It stands alone.'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toContain('This is a claim:')
+  })
 })
