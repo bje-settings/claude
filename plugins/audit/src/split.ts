@@ -677,10 +677,13 @@ const isAbbreviation = (text: string, periodIndex: number): boolean =>
     (a) => text.slice(periodIndex - a.length + 1, periodIndex + 1).toLowerCase() === a,
   )
 
+// Called on every span before the caller's `end > start` filter runs, so a
+// zero-length span (`start === end`) can reach here; the loop guards below,
+// not a property of the filtered output, are what keep both reads in range.
 const trimSpan = (text: string, span: Span): Span => {
   let { start, end } = span
-  // Every kept span has start < end <= text.length, so start and end - 1
-  // stay within text while their respective loop guards hold.
+  // start < end bounds the first read; end > start together with end never
+  // exceeding text.length (every span's invariant) bounds the second.
   while (start < end && /\s/.test(text[start] as string)) start++
   while (end > start && /\s/.test(text[end - 1] as string)) end--
   return { start, end }
