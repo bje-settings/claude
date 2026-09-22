@@ -36,10 +36,36 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
   }
 
   while (i <= total) {
-    const line = lines[i - 1] ?? ''
+    const raw = lines[i - 1] ?? ''
+    const line = stripBlockquote(raw)
 
     if (isBlank(line)) {
       i++
+      continue
+    }
+
+    if (isHtmlCommentFull(line)) {
+      i++
+      continue
+    }
+
+    if (isHtmlCommentOpen(line)) {
+      const closed = skipHtmlComment(lines, i)
+      if (closed.next < 0) {
+        // Unclosed: end the comment at its own line rather than swallowing
+        // everything after it, and say so.
+        warnings.push({ file, line: i, kind: 'unclosed_comment' })
+        i++
+        continue
+      }
+      if (closed.trailing !== null) {
+        // Prose after `-->` on the closing line is real content: rewrite that
+        // line in place so the outer loop parses it fresh, at its own line number.
+        lines[closed.next - 1] = closed.trailing
+        i = closed.next
+      } else {
+        i = closed.next + 1
+      }
       continue
     }
 
@@ -65,7 +91,12 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
       continue
     }
 
-    const headerCells = matchTableHeader(line, lines[i] ?? null)
+    if (isThematicBreak(line)) {
+      i++
+      continue
+    }
+
+    const headerCells = matchTableHeader(line, lines[i] ? stripBlockquote(lines[i] ?? '') : null)
     if (headerCells) {
       // The header's own line and the separator under it are not units.
       const table = readTableRows(lines, i + 2, headerCells, file, headingStack)
@@ -82,16 +113,17 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     const paraStart = i
     const paraEnd = paragraphEnd(lines, i)
     const paraLines: string[] = []
-    for (let k = paraStart; k <= paraEnd; k++) paraLines.push(lines[k - 1] ?? '')
+    for (let k = paraStart; k <= paraEnd; k++) paraLines.push(stripBlockquote(lines[k - 1] ?? ''))
     const joined = paraLines.join(' ').trim()
 
     // "Directly before a list" also matches across blank lines: a blank line
     // (or several) between a lead-in paragraph and the list it introduces is
     // still tolerated.
     let afterBlank = paraEnd + 1
-    while (afterBlank <= total && isBlank(lines[afterBlank - 1] ?? '')) afterBlank++
-    const afterLine = afterBlank <= total ? (lines[afterBlank - 1] ?? '') : null
-    const nextIsList = afterLine !== null && matchListMarker(afterLine) !== null
+    while (afterBlank <= total && isBlank(stripBlockquote(lines[afterBlank - 1] ?? '')))
+      afterBlank++
+    const afterRaw = afterBlank <= total ? stripBlockquote(lines[afterBlank - 1] ?? '') : null
+    const nextIsList = afterRaw !== null && matchListMarker(afterRaw) !== null
 
     if (nextIsList && joined.endsWith(':')) {
       // A lead-in paragraph is never a unit; it becomes the leadIn for the
@@ -129,6 +161,44 @@ const splitLines = (source: string): string[] => {
 }
 
 const isBlank = (line: string): boolean => line.trim() === ''
+
+/** Strips one level of `>` blockquote marker; nested quoting is not modelled. */
+const stripBlockquote = (line: string): string => {
+  const m = line.match(/^(\s*)>\s?(.*)$/)
+  return m ? (m[2] ?? '') : line
+}
+
+// A line that is one comment and nothing else: the first `-->` is the end of
+// the line. Plain string tests rather than a pattern, so a line carrying
+// prose between two comments (`<!-- a --> text <!-- b -->`) is not swallowed
+// whole.
+const isHtmlCommentFull = (line: string): boolean => {
+  const trimmed = line.trim()
+  return trimmed.startsWith('<!--') && trimmed.indexOf('-->', 4) === trimmed.length - 3
+}
+
+const isHtmlCommentOpen = (line: string): boolean =>
+  line.trim().startsWith('<!--') && !line.includes('-->')
+
+type CommentClose = { next: number; trailing: string | null }
+
+/** `next < 0` means unclosed. `trailing` is non-blank prose after `-->` on the closing line, if any. */
+const skipHtmlComment = (lines: string[], start: number): CommentClose => {
+  let i = start + 1
+  while (i <= lines.length) {
+    const raw = lines[i - 1] ?? ''
+    const idx = raw.indexOf('-->')
+    if (idx >= 0) {
+      const trailing = raw.slice(idx + 3)
+      return { next: i, trailing: trailing.trim() === '' ? null : trailing }
+    }
+    i++
+  }
+  return { next: -1, trailing: null }
+}
+
+const isThematicBreak = (line: string): boolean =>
+  /^ {0,3}([-*_])[ \t]*(?:\1[ \t]*){2,}$/.test(line)
 
 /** YAML frontmatter, which counts only when line 1 is a bare `---` and some
  *  later line closes it with another. */
@@ -268,8 +338,18 @@ const parseListBlock = (
 const paragraphEnd = (lines: string[], start: number): number => {
   let end = start
   while (end + 1 <= lines.length) {
-    const next = lines[end] ?? ''
-    if (isBlank(next) || matchHeading(next) || matchListMarker(next) || matchFenceOpen(next)) break
+    const next = stripBlockquote(lines[end] ?? '')
+    if (
+      isBlank(next) ||
+      matchHeading(next) ||
+      matchFenceOpen(next) ||
+      matchListMarker(next) ||
+      isThematicBreak(next) ||
+      isHtmlCommentOpen(next) ||
+      isHtmlCommentFull(next)
+    ) {
+      break
+    }
     end++
   }
   return end

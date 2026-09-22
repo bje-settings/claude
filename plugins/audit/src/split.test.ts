@@ -214,4 +214,21 @@ describe('splitMarkdown', () => {
     expect(opaque[0]?.endLine).toBe(4)
     expect(units.find((u) => u.text === 'Body sentence.')?.headingPath[0]).toBe('Heading')
   })
+
+  it('produces no units for HTML comments, blank lines, thematic breaks or blockquote markers', () => {
+    const source = [
+      '<!-- a full-line comment -->',
+      '',
+      '***',
+      '',
+      '> A quoted sentence.',
+      '',
+      '<!-- a multi-line',
+      'comment that spans lines -->',
+      '',
+      'A plain sentence.',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual(['A quoted sentence.', 'A plain sentence.'])
+  })
 })
