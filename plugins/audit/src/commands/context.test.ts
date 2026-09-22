@@ -785,9 +785,10 @@ it('names every line reference past the end of its file, with the count it has',
 
   expect(audit.stdout()).toContain(
     [
-      '## tier 0: line references past the end of the file (2)',
+      '## tier 0: line references past the end of the file (3)',
       '  CLAUDE.md:3  file_line `docs/short.md:99`  only 3 lines',
       '  CLAUDE.md:9  file_line `docs/short.md:1-99`  only 3 lines',
+      '  CLAUDE.md:11  file_line `docs/empty.txt:1`  only 0 lines',
     ].join('\n'),
   )
 })
@@ -881,6 +882,28 @@ it('reads the refs in a file’s frontmatter', async () => {
       kind: 'path',
       value: 'scripts/build.ts',
       resolution: { status: 'found', repoPath: 'scripts/build.ts' },
+    },
+  ])
+})
+
+it('counts lines the way wc does, for an empty file and one with no final newline', async () => {
+  // A trailing newline ends the last line rather than starting an empty one,
+  // so a one-line file without one still has a line 1, and an empty file has
+  // no line at all to point at.
+  const audit = audited('lines')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[4]?.refs).toEqual([
+    {
+      kind: 'file_line',
+      value: 'docs/empty.txt:1',
+      resolution: { status: 'line_out_of_range', repoPath: 'docs/empty.txt', lines: 0 },
+    },
+    {
+      kind: 'file_line',
+      value: 'docs/oneline.txt:1',
+      resolution: { status: 'found', repoPath: 'docs/oneline.txt' },
     },
   ])
 })
