@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import type { Runner, RunResult } from '../lib/process.ts'
 import type { Output, Writer } from '../lib/streams.ts'
-import { excerpt, type Finding, registryPath, runPreflight } from './preflight.ts'
+import { excerpt, type Finding, installPathsFor, registryPath, runPreflight } from './preflight.ts'
 
 const collector = (): Writer & { text: () => string } => {
   const chunks: string[] = []
@@ -538,6 +538,39 @@ describe('the reviewer agents the review loop dispatches', () => {
     const sandbox = createSandbox()
     const root = withReviewers(sandbox)
     const ran = await run(['--json'], withRegistry(sandbox, installed([root, root])))
+
+    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    // Asserted on the list itself: the command's answer is the same either
+    // way, so nothing above this line tells a repeated entry from one entry.
+    expect(
+      installPathsFor(
+        { 'pr-review-toolkit@x': [{ installPath: root }, { installPath: root }] },
+        'pr-review-toolkit',
+      ),
+    ).toEqual([root])
+  })
+
+  it('names a recorded install path that is not there, rather than five absent agents', async () => {
+    // The registry keeps an entry per project that installed the plugin, and
+    // the cache copy under it goes on an update. "The reviewers could not be
+    // checked" is a different instruction from "these are not there", and
+    // existsSync cannot tell the two apart on its own.
+    const sandbox = createSandbox()
+    const gone = sandbox.join('cache', 'removed-on-update')
+    const ran = await run(['--json'], withRegistry(sandbox, installed([gone])))
+
+    const found = findings(ran.stdout)
+    expect(found).toHaveLength(1)
+    expect(found[0]?.id).toBe('reviewers-unlocatable')
+    expect(found[0]?.hint).toContain(gone)
+  })
+
+  it('checks the copies that are there when another install path is gone', async () => {
+    const sandbox = createSandbox()
+    const ran = await run(
+      ['--json'],
+      withRegistry(sandbox, installed([sandbox.join('gone'), withReviewers(sandbox)])),
+    )
 
     expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
   })

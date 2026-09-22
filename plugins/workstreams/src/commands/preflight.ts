@@ -153,18 +153,31 @@ export const installPathsFor = (plugins: Record<string, unknown>, id: string): s
  * ITSELF and never as five missing reviewers, for `registry-unreadable`'s
  * reason: "the reviewers could not be checked" is a different instruction
  * from "these reviewers are not there".
+ *
+ * A path that is RECORDED and not there is the same instruction again. The
+ * registry keeps an entry per project that installed the plugin and the cache
+ * copy under it is removed on an update or a reinstall, so a stale entry is
+ * ordinary. `existsSync` answers false for a directory that is gone, dangling
+ * or unreadable alike, so asking it about the agent file first would report
+ * five reviewers absent from a copy that may well carry all five, and send
+ * someone to update a plugin that is not the problem.
  */
 export const reviewerFindings = (paths: readonly string[]): Finding[] => {
-  if (paths.length === 0) {
+  const reachable = paths.filter((root) => existsSync(root))
+  if (reachable.length === 0) {
     return [
       {
         id: 'reviewers-unlocatable',
-        hint: 'the installed plugins file records no install path for pr-review-toolkit, so its reviewer agents could not be checked',
+        hint:
+          paths.length === 0
+            ? 'the installed plugins file records no install path for pr-review-toolkit, so its reviewer agents could not be checked'
+            : `no install path the installed plugins file records for pr-review-toolkit is there, so its reviewer agents could not be checked: ${paths.join(', ')}`,
       },
     ]
   }
   return REQUIRED_REVIEWERS.filter(
-    (reviewer) => !paths.some((root) => existsSync(path.join(root, 'agents', `${reviewer}.md`))),
+    (reviewer) =>
+      !reachable.some((root) => existsSync(path.join(root, 'agents', `${reviewer}.md`))),
   ).map((reviewer) => ({
     id: `reviewer:${reviewer}`,
     hint: `update pr-review-toolkit: no agents/${reviewer}.md in any installed copy`,

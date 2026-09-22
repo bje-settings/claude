@@ -171,9 +171,10 @@ anything is missing, and 2 on a usage error.
 
 A registry that cannot be read is reported as itself and never as missing plugins: the fix
 is a different one, and telling someone to install what they already have sends them the
-wrong way. A `pr-review-toolkit` the registry names with no install path is the same rule
-one level down, reported as reviewers that could not be checked rather than as five that
-are not there.
+wrong way. A `pr-review-toolkit` the registry names with no install path it can reach is
+the same rule one level down, reported as reviewers that could not be checked rather than
+as five that are not there. That covers a path that is recorded and gone, which is what a
+stale entry from an update looks like, as well as one that was never recorded.
 
 ## Tests
 
