@@ -4,10 +4,13 @@
 // injected clients in, an envelope out, with `scripts/audit.ts` the thin adapter
 // over it.
 //
-// Tier 0 only in this layer, and complete on its own: everything it produces
-// is read from the tree and from one batched issue lookup, with no model call
-// anywhere. The model stages are reported as skipped, with the reason, so that
-// "skipped" can never be read as "nothing found".
+// Tier 0 is complete on its own: everything it produces is read from the tree
+// and from one batched issue lookup, with no model call anywhere. The three
+// model stages (#174) run on top of it when there is a key to spend, and are
+// reported as skipped with the reason when there is not, so that "skipped" can
+// never be read as "nothing found". A model call that failed is the one thing
+// this command calls its own failure: the findings still go to stdout, and the
+// exit status says the run was incomplete.
 
 import { closeSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'

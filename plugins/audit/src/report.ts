@@ -3,9 +3,10 @@
 // piece, so the command decides where it goes and a test asserts it without a
 // stream.
 //
-// Tier 0's sections only. The model stages have no findings to print in this
-// layer and appear as the one line saying they never ran, which is the whole
-// point of `SkippedStage`: "skipped" must never read as "nothing found".
+// Tier 0's sections, then one per model stage in the order the stages run, and
+// then what the run failed at and what it spent. A stage that never ran prints
+// the one line saying so in place of its findings, which is the whole point of
+// `SkippedStage`: "skipped" must never read as "nothing found".
 
 import type { PairCandidate } from './candidates.ts'
 import type {
@@ -282,9 +283,8 @@ export const renderFindings = (report: Report): string => {
   // Tier 0 knows each cited issue's state, and every state is in the JSON
   // report, but the state alone is not a finding: a history line legitimately
   // cites a closed issue, and this repository's own files are almost entirely
-  // that. The spike gated the finding on a model judgment instead, `volatile`
-  // at or above 0.8 and a unit that is not `history` (`cli.ts` `isExpired`),
-  // which makes it a model section and layer 5's to add.
+  // that. The finding is gated on a model judgment instead, and it is the
+  // classify stage's own section ({@link isExpired}).
 
   // No count in this heading: the lines are the counts, and a number of
   // distinct kinds beside them would be a second number meaning something

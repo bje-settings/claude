@@ -2,9 +2,11 @@
 // imports its shapes from here and from nowhere else, so the pieces can be
 // written in parallel. Types only: nothing in this file has runtime meaning.
 //
-// The judgment types (Classification, ChoiceAnswer, Usage, the verdict
-// unions) are left out of this layer: layer 4 defines them in lib/jev.ts and
-// layer 5 re-exports them here, once the Jev client that produces them exists.
+// The judgment types (Classification, ChoiceAnswer, Usage, the verdict unions)
+// are not here: lib/jev.ts defines them beside the client that produces them
+// (#173), and report.ts and commands/context.ts import them from there. They
+// are not re-exported here, because a second name for one type is a second
+// thing to keep in step.
 
 export type RefKind = 'path' | 'file_line' | 'issue' | 'script' | 'command'
 
