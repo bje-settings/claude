@@ -1606,3 +1606,21 @@ it('lets no unit be compared more than five times, whichever side it is on', asy
   expect(Math.max(...appearances.values())).toBe(5)
   expect(pairs.length).toBeLessThan(21)
 })
+
+it('spends a --max-pairs budget on the most similar candidates first', async () => {
+  // The cap is a budget, and what it buys depends entirely on the order: the
+  // pair most likely to be a real duplicate is the one the run should spend
+  // its last call on, and the coverage line is what tells a reader the other
+  // two were never asked about.
+  const ids = [3, 5, 7].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('ranked', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: picked<PairVerdict>('same_claim', 0.7),
+  })
+
+  await runContext([audit.work, '--json', '--max-pairs', '1'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.pairCoverage).toEqual({ judged: 1, available: 3 })
+  expect(report.pairs.map((pair) => [pair.a, pair.b])).toEqual([['CLAUDE.md:3-3', 'CLAUDE.md:5-5']])
+})

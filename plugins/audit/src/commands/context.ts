@@ -201,15 +201,18 @@ const judgePairs = async (
   jev: JevClient,
   units: readonly Unit[],
   kindOf: Map<string, UnitKind>,
+  maxPairs: number,
 ): Promise<{ pairs: PairJudgment[]; coverage: Coverage }> => {
   const comparable = units.filter((unit) => {
     const kind = kindOf.get(unit.id)
     return kind !== 'history' && kind !== 'structural'
   })
   const byId = new Map(units.map((unit) => [unit.id, unit]))
-  const candidates = candidatePairs(comparable)
+  // Descending similarity, then capped: a budget buys the pairs most likely to
+  // be a real duplicate, and `coverage` says how many it did not reach.
+  const candidates = candidatePairs(comparable).sort((x, y) => y.similarity - x.similarity)
   const pairs: PairJudgment[] = []
-  for (const candidate of candidates) {
+  for (const candidate of candidates.slice(0, maxPairs)) {
     // Both ids came from `units` a moment ago, so the lookups answer.
     const a = byId.get(candidate.a) as Unit
     const b = byId.get(candidate.b) as Unit
@@ -228,7 +231,7 @@ const judgePairs = async (
 const modelStages = async (
   edges: ContextEdges,
   units: readonly Unit[],
-  options: { noJev: boolean; shape: RequestShape },
+  options: { noJev: boolean; shape: RequestShape; maxPairs: number },
 ): Promise<ModelOutcome> => {
   const key = edges.env.TYPESAFE_API_KEY ?? ''
   if (options.noJev || key === '') {
@@ -246,7 +249,7 @@ const modelStages = async (
   const classified = await jev.classify(units, options.shape)
   const { classifications } = classified
   const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
-  const paired = await judgePairs(jev, units, kindOf)
+  const paired = await judgePairs(jev, units, kindOf, options.maxPairs)
   return {
     skipped: [],
     classifications,
@@ -413,6 +416,8 @@ export const runContext = async (
     noJev: options['no-jev'],
     // The parser held the value to the two the client declares.
     shape: options.shape as RequestShape,
+    // Checked against COUNT_RE above, so this is a whole number.
+    maxPairs: Number(options['max-pairs']),
   })
 
   const report: Report = {
