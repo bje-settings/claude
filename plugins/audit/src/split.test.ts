@@ -67,4 +67,11 @@ describe('splitMarkdown', () => {
     expect(items.find((u) => u.text === 'middle item')?.leadIn).toBe('top item')
     expect(items.find((u) => u.text === 'leaf item')?.leadIn).toBe('middle item')
   })
+
+  it('recognises an ordered list marker the same way as a bullet', () => {
+    const source = ['1. first', '2. second'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items.map((u) => u.text)).toEqual(['first', 'second'])
+  })
 })
