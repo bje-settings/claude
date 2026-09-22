@@ -172,9 +172,9 @@ describe('the plugin boundary', () => {
     const plugins = build({
       plugins: ['a'],
       files: {
-        'a/src/url.ts': "import { x } from './helpers.ts'\nimport { y } from '../bin/z.ts'\n",
+        'a/src/url.ts': "import { x } from './helpers.ts'\nimport { y } from '../scripts/z.ts'\n",
         'a/src/helpers.ts': '',
-        'a/bin/z.ts': '',
+        'a/scripts/z.ts': '',
       },
     })
     expect(crossPluginImports(plugins)).toEqual([])
@@ -186,7 +186,7 @@ describe('the plugin boundary', () => {
     // dereferenced the link into the cache.
     const plugins = build({
       plugins: ['a'],
-      files: { 'a/bin/a.ts': "import { assertNodeFloor } from '../src/lib/node-floor.ts'\n" },
+      files: { 'a/scripts/a.ts': "import { assertNodeFloor } from '../src/lib/node-floor.ts'\n" },
       links: { 'a/src/lib': LIB_LINK_TARGET },
     })
     expect(crossPluginImports(plugins)).toEqual([])

@@ -9,7 +9,7 @@ allowed-tools: Bash
 Pipe the diagram source into the script and post the link it prints.
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/mermaid.ts" --route view <<'EOF'
+node "${CLAUDE_PLUGIN_ROOT}/scripts/mermaid.ts" --route view <<'EOF'
 <diagram source>
 EOF
 ```

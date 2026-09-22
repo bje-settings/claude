@@ -4,7 +4,7 @@
 // `commands/hook-io.test.ts` is where the hook's decisions are exercised, in
 // process, against the captured Python. This file is the process boundary
 // itself: the floor guard in front of it, argv, stdin, both streams and the
-// exit status, plus the one run that starts the real `bin/gh.ts` child rather
+// exit status, plus the one run that starts the real `scripts/gh.ts` child rather
 // than an injected one.
 import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -182,7 +182,7 @@ it('stays silent in a checkout that is already on its default branch', () => {
   expect(result.stderr).toBe('')
 })
 
-it('starts the real bin/gh.ts child for a directory of checkouts', () => {
+it('starts the real scripts/gh.ts child for a directory of checkouts', () => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const fan = sandbox.join('fan')

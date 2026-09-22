@@ -1,4 +1,4 @@
-// The one spawned contract test for `bin/mermaid.ts` (harness/README.md):
+// The one spawned contract test for `scripts/mermaid.ts` (harness/README.md):
 // argv and stdin in, exit code and streams out. Everything else about this
 // plugin's decisions is exercised in-process in `url.test.ts`; this is the
 // only place the process boundary itself, and the floor guard placed in
@@ -9,7 +9,7 @@ import { expect, it } from 'vitest'
 
 import { runScript } from '../../../harness/spawn.ts'
 
-const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'mermaid.ts')
+const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'mermaid.ts')
 
 const DIAGRAM = 'graph TD; A-->B'
 

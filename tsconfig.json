@@ -37,9 +37,12 @@
   // shrinking include set is the quieter failure this repository refuses
   // everywhere. harness/, lib/ and plugins/*/src do not exist yet (#124,
   // #125, and the plugin ports); they are named now so those issues do not
-  // have to edit this file. `plugins/*/bin` is a real exception: #126, the
-  // first plugin port, ships a `bin/` entry point, which lives outside
-  // `src/` and nothing named until now. `plugins/*/hooks` is named the same
+  // have to edit this file. `plugins/*/scripts` is a real exception: #126, the
+  // first plugin port, ships an entry point that lives outside `src/` and
+  // nothing named until now. It sat at `plugins/*/bin` until #185 moved it,
+  // because claude.ai rejects a plugin carrying a top-level `bin/` (RFC 001
+  // decision 16); the root `scripts` entry above is a different directory,
+  // this repository's own tooling. `plugins/*/hooks` is named the same
   // preemptive way `harness`, `lib` and `plugins/*/src` were above, since no
   // plugin carries a hook yet.
   "include": [
@@ -48,7 +51,7 @@
     "lib",
     "scripts",
     "plugins/*/src",
-    "plugins/*/bin",
+    "plugins/*/scripts",
     "plugins/*/hooks",
     "vitest.config.ts"
   ]

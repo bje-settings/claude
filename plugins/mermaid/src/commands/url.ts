@@ -1,6 +1,6 @@
 // Build a mermaid.live / mermaid.ink preview URL for a diagram read from
 // stdin: the TypeScript port of `scripts/mermaid-url.py` (#126), the first
-// plugin to carry the root `lib/` symlink. `bin/mermaid.ts` is the thin
+// plugin to carry the root `lib/` symlink. `scripts/mermaid.ts` is the thin
 // adapter (RFC 001 decision 3); this is the command function, the seam a
 // test reaches without a process: parsed args and the stdin bytes in, an
 // envelope out.
@@ -115,7 +115,7 @@ function decodeAndTrim(bytes: Uint8Array): string {
  * checked before anything is parsed, the way argparse resolves `-h` the
  * instant it sees it and before validating anything else on the command
  * line: usage wins over a bad `--route` rather than losing to it.
- * `bin/mermaid.ts` calls this too, before it touches descriptor 0, so a
+ * `scripts/mermaid.ts` calls this too, before it touches descriptor 0, so a
  * session asking for `--help` is answered without blocking on a diagram
  * that was never going to be read: the decision of what help means and
  * what it prints stays here, in the seam a test reaches without a

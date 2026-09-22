@@ -173,7 +173,7 @@ interface Harness {
   sandbox: Sandbox
   git: ReturnType<typeof createGitFixtures>
   /** An entry point that exists and is readable, standing in for
-   *  `bin/gh.ts`. The hook only ever reads it to decide whether the install
+   *  `scripts/gh.ts`. The hook only ever reads it to decide whether the install
    *  is complete; the child itself is the injected runner. */
   entry: string
 }
@@ -181,9 +181,9 @@ interface Harness {
 const harness = (): Harness => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
-  const bin = sandbox.join('plugin', 'bin')
-  mkdirSync(bin, { recursive: true })
-  const entry = path.join(bin, 'gh.ts')
+  const scripts = sandbox.join('plugin', 'scripts')
+  mkdirSync(scripts, { recursive: true })
+  const entry = path.join(scripts, 'gh.ts')
   writeFileSync(entry, '// stands in for the entry point\n')
   return { sandbox, git, entry }
 }
@@ -817,7 +817,7 @@ it('notes a missing entry point and costs the check nothing else', async () => {
   const harnessed = harness()
   const elsewhere = harnessed.sandbox.join('elsewhere')
   mkdirSync(elsewhere, { recursive: true })
-  const missing = harnessed.sandbox.join('lonely', 'bin', 'gh.ts')
+  const missing = harnessed.sandbox.join('lonely', 'scripts', 'gh.ts')
 
   const output = createOutputPair()
   const calls: RunCall[] = []
@@ -838,7 +838,7 @@ it('notes a missing entry point and costs the check nothing else', async () => {
   expect(status).toBe(row?.status)
   expect(output.stdout()).toBe(row?.stdout)
   // The path is the one divergence: the entry point moved from
-  // `scripts/gh-sync.py` to `bin/gh.ts`, and the recorded row names both.
+  // `scripts/gh-sync.py` to `scripts/gh.ts`, and the recorded row names both.
   const moved = divergences.paths.find((entry) => entry.name === 'fan-out/missing-entry-point')
   expect(moved).toBeDefined()
   expect(row?.stderr).toContain(moved?.python)

@@ -2,7 +2,7 @@
 // the port of `run_script` and `Result` in tests/conftest.py.
 //
 // This is the only place the TypeScript suite spawns anything (ADR 001). A
-// command function is tested by calling it with injected clients; `bin/` is a
+// command function is tested by calling it with injected clients; `scripts/` is a
 // thin adapter over it, and the one thing an in-process call cannot cover is
 // the process boundary itself, so each entry point gets one spawned contract
 // test: argv in, exit code and streams out.

@@ -1,4 +1,4 @@
-// Stands in for `bin/gh.ts` in the one example that measures a real bound:
+// Stands in for `scripts/gh.ts` in the one example that measures a real bound:
 // it never answers, so the hook's timeout arm is reached by the timer firing
 // rather than by an injected result.
 //

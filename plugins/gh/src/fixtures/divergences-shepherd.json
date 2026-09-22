@@ -35,7 +35,7 @@
       "id": "internalError",
       "was": "gh-shepherd-pr.py: internal error: ",
       "now": "gh.ts shepherd-pr: internal error: ",
-      "why": "The file is bin/gh.ts for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged.",
+      "why": "The file is scripts/gh.ts for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged.",
       "cases": ["an_internal_error"]
     },
     {

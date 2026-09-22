@@ -12,9 +12,9 @@
 // through `harness/spawn.ts`, is the one spawned test, on the paths that need
 // no `gh` at all.
 //
-// **One dispatcher, not one `bin` per command.** RFC 001 "Shape" writes
-// `bin/<command>.ts`; `plugins/gh/bin/gh.ts` and
-// `plugins/mermaid/bin/mermaid.ts` both settled on one dispatcher instead,
+// **One dispatcher, not one entry point per command.** RFC 001 "Shape" wrote
+// one adapter per command; `plugins/gh/scripts/gh.ts` and
+// `plugins/mermaid/scripts/mermaid.ts` both settled on one dispatcher instead,
 // and round 8 ruling 6 amended the RFC in place rather than the other way
 // round. The argument is one floor guard and one spawned contract test for
 // the whole plugin. The import inside each arm is dynamic, so a command

@@ -2,7 +2,7 @@
 name: sweep
 description: Find the work a round can start on, and say how it should be sequenced.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob
 disable-model-invocation: true
 ---
 
@@ -13,7 +13,7 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
 1. Preflight.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" preflight
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight
    ```
 
    Exit 1 means something is missing. Print each hint verbatim and stop.
@@ -21,7 +21,7 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
 2. Sweep the tracker.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" sweep --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep --json
    ```
 
    Add `--milestone 4` or `--milestone 4,5` for the milestones named above.
