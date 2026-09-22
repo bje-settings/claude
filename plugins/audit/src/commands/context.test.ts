@@ -771,3 +771,17 @@ it('tallies what tier 0 did not settle, by kind and reason', async () => {
     ].join('\n'),
   )
 })
+
+it('names every line reference past the end of its file, with the count it has', async () => {
+  const audit = audited('lines')
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## tier 0: line references past the end of the file (2)',
+      '  CLAUDE.md:3  file_line `docs/short.md:99`  only 3 lines',
+      '  CLAUDE.md:9  file_line `docs/short.md:1-99`  only 3 lines',
+    ].join('\n'),
+  )
+})
