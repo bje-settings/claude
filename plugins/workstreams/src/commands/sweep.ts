@@ -293,6 +293,26 @@ export interface SweepContext {
   readonly gh: GhClient
 }
 
+/**
+ * Every milestone number the issues that were read name for themselves.
+ *
+ * The open milestones are what a sweep is asked about, but they are not the
+ * only milestones the issues carry: a milestone can close with an open issue
+ * still on it, and a failed milestone read leaves the list empty while the
+ * issue read still answers. An issue whose milestone is in neither the asked
+ * list nor `null` lands in no group at all, so it would be read, classified,
+ * and then invisible. Sweeping these too is what keeps every row that arrived
+ * in the report.
+ */
+const milestonesNamed = (issues: readonly IssueSummary[]): number[] => {
+  const numbers: number[] = []
+  for (const issue of issues) {
+    if (issue.milestone === null) continue
+    if (!numbers.includes(issue.milestone.number)) numbers.push(issue.milestone.number)
+  }
+  return numbers
+}
+
 /** A milestone header for a number, from the open milestones that were read. */
 const headerFor = (number: number, milestones: readonly MilestoneSummary[]): GroupHeader => {
   const found = milestones.find((milestone) => milestone.number === number)
@@ -340,10 +360,19 @@ export const runSweep = async (
   const everything = await context.gh.listIssues()
   note(everything.unavailable)
 
+  // Asked for a milestone, the report is scoped to it and to the issues on no
+  // milestone, which is the documented contract. Asked for none, the scope is
+  // every open milestone plus every milestone the issues themselves name, so
+  // that nothing that was read goes unreported.
   const numbers =
     requested.value.length > 0
       ? requested.value
-      : milestones.rows.map((milestone) => milestone.number)
+      : [
+          ...new Set([
+            ...milestones.rows.map((milestone) => milestone.number),
+            ...milestonesNamed(everything.rows),
+          ]),
+        ].sort((left, right) => left - right)
 
   const read: IssueSummary[] = [...everything.rows]
   const seen = new Set(read.map((issue) => issue.number))
@@ -357,7 +386,12 @@ export const runSweep = async (
     }
   }
 
-  if (read.length === 0 && unavailable.length > 0) {
+  // "Nothing at all could be read" is about all three reads, not the issues
+  // alone. A failure envelope writes nothing to stdout (`lib/envelope.ts`), so
+  // reporting one while the milestones or the open pull requests did arrive
+  // would throw away an answer the caller asked for.
+  const nothingRead = read.length === 0 && milestones.rows.length === 0 && pulls.rows.length === 0
+  if (nothingRead && unavailable.length > 0) {
     return failed(`the sweep read nothing: ${unavailable.join('; ')}`)
   }
 

@@ -273,6 +273,70 @@ describe('what the sweep does with a read it could not complete', () => {
     )
   })
 
+  it('still groups the issues it read when the milestone read was the one that failed', async () => {
+    // The milestone list is how the groups are named, not how the issues are
+    // found. Without this the issues that did arrive are classified and then
+    // reported in no group at all, which is a row read and then lost.
+    const report = await reportOf(
+      [],
+      createGhMock({
+        listMilestones: { rows: [], unavailable: 'gh: API rate limit exceeded' },
+        listOpenPullRequests: { rows: [], unavailable: null },
+        listIssues: { rows: [issue(130)], unavailable: null },
+      }),
+    )
+
+    expect(report.groups.map((group) => group.milestone?.number)).toEqual([4])
+    expect(report.groups[0]?.unblocked.map((entry) => entry.number)).toEqual([130])
+    expect(report.combined.unblocked).toEqual([130])
+    expect(renderReport(report)).toContain('milestone 4 (not an open milestone)')
+  })
+
+  it('sweeps a milestone that has closed with an open issue still on it', async () => {
+    // `listMilestones` asks for the OPEN milestones and the issue query filters
+    // on the issue's own state, so an open issue on a closed milestone is read
+    // and belongs to no open milestone and to no "on no milestone" set either.
+    const report = await reportOf(
+      [],
+      createGhMock({
+        listMilestones: {
+          rows: [{ number: 6, title: 'audit plugin', openIssues: 7, closedIssues: 0 }],
+          unavailable: null,
+        },
+        listOpenPullRequests: { rows: [], unavailable: null },
+        listIssues: {
+          rows: [
+            issue(130, { milestone: { number: 3, title: 'closed milestone' } }),
+            issue(170, { milestone: { number: 6, title: 'audit plugin' } }),
+          ],
+          unavailable: null,
+        },
+      }),
+    )
+
+    expect(report.groups.map((group) => group.milestone?.number)).toEqual([3, 6])
+    expect(report.combined.unblocked).toEqual([130, 170])
+  })
+
+  it('reports the pull requests it read rather than failing because the issues were empty', async () => {
+    // A failure writes nothing to stdout, so answering one here would destroy
+    // the open pull request list that did arrive.
+    const report = await reportOf(
+      [],
+      createGhMock({
+        listMilestones: { rows: [], unavailable: 'gh: API rate limit exceeded' },
+        listOpenPullRequests: {
+          rows: [{ number: 9, title: 'a change', head: 'topic', base: 'main', draft: false }],
+          unavailable: null,
+        },
+        listIssues: { rows: [], unavailable: 'gh: API rate limit exceeded' },
+      }),
+    )
+
+    expect(report.pullRequests.map((pull) => pull.number)).toEqual([9])
+    expect(renderReport(report)).toContain('INCOMPLETE: the sets below are short')
+  })
+
   it('answers with empty sets for a repository that simply has no open issues', async () => {
     // Nothing read and nothing wrong is a different answer from nothing read
     // because a read failed, and reporting the first as a failure would make
