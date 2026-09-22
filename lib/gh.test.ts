@@ -1084,9 +1084,12 @@ it("defaults to the root lib's own process runner", () => {
     'listOpenPullRequests',
     'listPullRequests',
     'listRuns',
+    'listWorkflowRuns',
     'readFailedRunLog',
+    'requiredContexts',
     'updateBranch',
     'viewPullRequest',
+    'viewPullRequestDetail',
     'viewRepository',
     'watchChecks',
   ])
@@ -1493,5 +1496,563 @@ describe('milestones, issues and pull requests', () => {
       unavailable: 'gh: could not resolve to a Repository',
     })
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('the review loop reads', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+
+  /** A `pullRequest` node as the detail query answers it, with `overrides`
+   *  replacing whichever fields a case is about. */
+  const prNode = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    number: 178,
+    title: 'feat(workstreams): sweep command and skill (primitive 1)',
+    state: 'OPEN',
+    isDraft: true,
+    mergeable: 'MERGEABLE',
+    baseRefName: 'main',
+    headRefName: 'wktr-130-ws-sweep',
+    reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+    comments: { pageInfo: { hasNextPage: false }, nodes: [] },
+    commits: {
+      nodes: [
+        {
+          commit: {
+            oid: '9b13a20',
+            statusCheckRollup: {
+              contexts: {
+                pageInfo: { hasNextPage: false },
+                nodes: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+              },
+            },
+          },
+        },
+      ],
+    },
+    ...overrides,
+  })
+
+  /** The detail query's reply, carrying `node` as the pull request. */
+  const prReply = (node: unknown, errors?: readonly unknown[]): Reply => ({
+    stdout: JSON.stringify({
+      data: { repository: { pullRequest: node } },
+      ...(errors === undefined ? {} : { errors }),
+    }),
+  })
+
+  const runRow = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    name: 'CI',
+    event: 'pull_request',
+    head_sha: '9b13a20',
+    status: 'completed',
+    conclusion: 'success',
+    run_started_at: '2026-09-22T06:31:17Z',
+    updated_at: '2026-09-22T06:33:14Z',
+    ...overrides,
+  })
+
+  describe('requiredContexts', () => {
+    it('asks the branch rules endpoint and unions every required-status-checks rule', async () => {
+      const { gh, calls } = clientAnsweringEach([
+        REPO,
+        {
+          stdout: JSON.stringify([
+            { type: 'pull_request' },
+            {
+              type: 'required_status_checks',
+              parameters: {
+                required_status_checks: [{ context: 'vitest' }, { context: 'types' }],
+              },
+            },
+            {
+              type: 'required_status_checks',
+              parameters: { required_status_checks: [{ context: 'types' }, { context: 'biome' }] },
+            },
+          ]),
+        },
+      ])
+
+      const result = await gh.requiredContexts({ branch: 'main' })
+
+      expect(calls[1]?.args).toEqual(['api', 'repos/acme/widgets/rules/branches/main'])
+      // Unioned and deduplicated, in the order the rules name them: two
+      // rulesets naming the same context require it once.
+      expect(result).toEqual({ contexts: ['vitest', 'types', 'biome'], unavailable: null })
+    })
+
+    it('percent-encodes a branch name with a slash into the path', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '[]' }])
+
+      await gh.requiredContexts({ branch: 'spike/context-audit' })
+
+      expect(calls[1]?.args[1]).toBe('repos/acme/widgets/rules/branches/spike%2Fcontext-audit')
+    })
+
+    it('answers an empty list for a branch no ruleset covers, which is an answer', async () => {
+      // The live case this exists for: a stacked pull request based on a
+      // topic branch is required to pass nothing, while the same head based
+      // on the default branch is required to pass nine contexts.
+      const { gh } = clientAnsweringEach([REPO, { stdout: '[]' }])
+
+      await expect(gh.requiredContexts({ branch: 'wktr-130-ws-sweep' })).resolves.toEqual({
+        contexts: [],
+        unavailable: null,
+      })
+    })
+
+    it('reports gh’s own words when the rules could not be read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' },
+      ])
+
+      await expect(gh.requiredContexts({ branch: 'gone' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'gh: Not Found (HTTP 404)',
+      })
+    })
+
+    it('reports a reply that is not a list of rules, rather than reading it as none', async () => {
+      const { gh } = clientAnsweringEach([REPO, { stdout: '{"message":"Not Found"}' }])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'the rules for main were not a list of rules',
+      })
+    })
+
+    for (const [what, rule] of [
+      ['whose check list is not a list', { required_status_checks: 'vitest' }],
+      ['whose check names a context that is not a string', { required_status_checks: [{}] }],
+    ] as const) {
+      it(`refuses the whole read for a rule ${what}, never a short list`, async () => {
+        // A required context silently dropped is a pull request reported
+        // green that the ruleset would refuse.
+        const { gh } = clientAnsweringEach([
+          REPO,
+          {
+            stdout: JSON.stringify([
+              {
+                type: 'required_status_checks',
+                parameters: { required_status_checks: [{ context: 'vitest' }] },
+              },
+              { type: 'required_status_checks', parameters: rule },
+            ]),
+          },
+        ])
+
+        await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+          contexts: [],
+          unavailable: 'a required-status-checks rule on main could not be read',
+        })
+      })
+    }
+
+    it('reports a repository it could not resolve, and asks nothing else', async () => {
+      const { gh, calls } = clientAnsweringEach([
+        { status: 1, stderr: 'gh: could not resolve to a Repository\n' },
+      ])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'gh: could not resolve to a Repository',
+      })
+      expect(calls).toHaveLength(1)
+    })
+  })
+
+  describe('viewPullRequestDetail', () => {
+    it('asks for the pull request with its number as an Int variable', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, prReply(prNode())])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(calls[1]?.args.slice(0, 8)).toEqual([
+        'api',
+        'graphql',
+        '-f',
+        'owner=acme',
+        '-f',
+        'name=widgets',
+        // `-F` and not `-f`: the query declares `$number: Int!` and gh sends
+        // an `-f` value as a string, which GraphQL refuses.
+        '-F',
+        'number=178',
+      ])
+      expect(calls[1]?.args[9]).toContain('$number: Int!')
+      expect(calls[1]?.args[9]).toContain('commits(last: 1)')
+      expect(result.unavailable).toBeNull()
+      expect(result.pullRequest).toEqual({
+        number: 178,
+        title: 'feat(workstreams): sweep command and skill (primitive 1)',
+        state: 'OPEN',
+        draft: true,
+        base: 'main',
+        head: 'wktr-130-ws-sweep',
+        headSha: '9b13a20',
+        mergeable: 'MERGEABLE',
+        checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+        unresolvedThreadAuthors: [],
+        commentAuthors: [],
+      })
+    })
+
+    it('counts only the unresolved review threads, and keeps every comment', async () => {
+      // The distinction the loop turns on: the enterprise coverage bot posts
+      // a COMMENT on every pull request here, and a loop that counted it as
+      // an unresolved review thread would never reach done.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({
+            reviewThreads: {
+              pageInfo: { hasNextPage: false },
+              nodes: [
+                { isResolved: true, comments: { nodes: [{ author: { login: 'settled' } }] } },
+                { isResolved: false, comments: { nodes: [{ author: { login: 'waiting' } }] } },
+                // An author GitHub no longer names, and a thread whose
+                // comments could not be read: both are one unresolved thread
+                // with an author nobody can be told.
+                { isResolved: false, comments: { nodes: [{ author: null }] } },
+                { isResolved: false, comments: null },
+              ],
+            },
+            comments: {
+              pageInfo: { hasNextPage: false },
+              nodes: [{ author: { login: 'github-code-quality' } }, { author: null }],
+            },
+          }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.pullRequest?.unresolvedThreadAuthors).toEqual(['waiting', 'unknown', 'unknown'])
+      expect(result.pullRequest?.commentAuthors).toEqual(['github-code-quality', 'unknown'])
+    })
+
+    it('reads a commit status, whose state is its conclusion and which has no status', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({
+            commits: {
+              nodes: [
+                {
+                  commit: {
+                    oid: '9b13a20',
+                    statusCheckRollup: {
+                      contexts: {
+                        pageInfo: { hasNextPage: false },
+                        nodes: [
+                          { context: 'vercel/preview', state: 'PENDING' },
+                          { name: 'types', status: 'IN_PROGRESS', conclusion: null },
+                        ],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.pullRequest?.checks).toEqual([
+        { name: 'vercel/preview', status: null, conclusion: 'PENDING' },
+        { name: 'types', status: 'IN_PROGRESS', conclusion: null },
+      ])
+    })
+
+    it('reads a head nothing has reported on as no checks, not as a failed read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({ commits: { nodes: [{ commit: { oid: 'abc1234', statusCheckRollup: null } }] } }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.pullRequest?.checks).toEqual([])
+      expect(result.unavailable).toBeNull()
+    })
+
+    for (const [what, field, value] of [
+      ['threads', 'reviewThreads', { pageInfo: { hasNextPage: true }, nodes: [] }],
+      ['comments', 'comments', { pageInfo: { hasNextPage: true }, nodes: [] }],
+    ] as const) {
+      it(`says so when there are more ${what} than one page`, async () => {
+        const { gh } = clientAnsweringEach([REPO, prReply(prNode({ [field]: value }))])
+
+        const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+        expect(result.pullRequest).not.toBeNull()
+        expect(result.unavailable).toContain('may be short')
+      })
+    }
+
+    it('says so when the head reported more checks than one page', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({
+            commits: {
+              nodes: [
+                {
+                  commit: {
+                    oid: '9b13a20',
+                    statusCheckRollup: {
+                      contexts: { pageInfo: { hasNextPage: true }, nodes: [] },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.unavailable).toBe(
+        'pull request 178 reported more checks than the 100 this reads',
+      )
+    })
+
+    for (const [what, overrides] of [
+      ['a number that is not one', { number: '178' }],
+      ['no title', { title: null }],
+      ['a state this does not recognise', { state: 'DRAFTED' }],
+      ['a draft flag that is not a boolean', { isDraft: 'yes' }],
+      ['no mergeability', { mergeable: null }],
+      ['no base ref', { baseRefName: null }],
+      ['no head ref', { headRefName: null }],
+      ['no commits connection', { commits: null }],
+      ['a head commit with no oid', { commits: { nodes: [{ commit: {} }] } }],
+      [
+        'a rollup whose contexts are not a connection',
+        {
+          commits: {
+            nodes: [{ commit: { oid: 'abc1234', statusCheckRollup: { contexts: null } } }],
+          },
+        },
+      ],
+      [
+        'a reported check that is neither kind',
+        {
+          commits: {
+            nodes: [
+              {
+                commit: {
+                  oid: 'abc1234',
+                  statusCheckRollup: {
+                    contexts: { pageInfo: { hasNextPage: false }, nodes: [{ id: 1 }] },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+      ['review threads that are not a connection', { reviewThreads: {} }],
+      [
+        'a review thread with no resolution',
+        { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{}] } },
+      ],
+      ['comments that are not a connection', { comments: [] }],
+    ] as const) {
+      it(`refuses a pull request with ${what}`, async () => {
+        const { gh } = clientAnsweringEach([REPO, prReply(prNode(overrides))])
+
+        await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
+          pullRequest: null,
+          unavailable: 'pull request 178 could not be read',
+        })
+      })
+    }
+
+    it('leads with what GraphQL said about a pull request it did not carry', async () => {
+      // "No such pull request" and "this token may not see it" arrive as the
+      // same missing node, and only the error tells them apart.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(null, [{ message: 'Could not resolve to a PullRequest' }]).stdout,
+        },
+      ])
+
+      await expect(gh.viewPullRequestDetail({ pullRequest: 999 })).resolves.toEqual({
+        pullRequest: null,
+        unavailable: 'pull request 999 could not be read: Could not resolve to a PullRequest',
+      })
+    })
+
+    it('keeps the pull request AND the error when a query partly succeeded', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: prReply(prNode(), [{ message: 'Something went wrong' }]).stdout },
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.pullRequest?.number).toBe(178)
+      expect(result.unavailable).toBe('Something went wrong')
+    })
+
+    it('reports gh’s own words when the reply is not JSON at all', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: 'gateway timeout', stderr: 'gh: HTTP 504\n' },
+      ])
+
+      await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
+        pullRequest: null,
+        unavailable: 'gh: HTTP 504',
+      })
+    })
+
+    it('reports a reply with no repository in it', async () => {
+      const { gh } = clientAnsweringEach([REPO, { status: 1, stdout: '{"data":{}}', stderr: '' }])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.pullRequest).toBeNull()
+      expect(result.unavailable).toBe('gh exited 1')
+    })
+
+    it('reports a repository it could not resolve, and asks nothing else', async () => {
+      const { gh, calls } = clientAnsweringEach([
+        { status: 1, stderr: 'gh: could not resolve to a Repository\n' },
+      ])
+
+      await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
+        pullRequest: null,
+        unavailable: 'gh: could not resolve to a Repository',
+      })
+      expect(calls).toHaveLength(1)
+    })
+  })
+
+  describe('listWorkflowRuns', () => {
+    it('filters by branch server-side, never by head sha, and reads every field', async () => {
+      // Round 7 finding 6: `?head_sha=` answered nothing for a head whose
+      // runs existed, and the agent closed and reopened a pull request over
+      // it. `?branch=` answered.
+      const { gh, calls } = clientAnsweringEach([
+        REPO,
+        { stdout: JSON.stringify({ workflow_runs: [runRow()] }) },
+      ])
+
+      const result = await gh.listWorkflowRuns({ branch: 'wktr-130-ws-sweep', perPage: 10 })
+
+      expect(calls[1]?.args).toEqual([
+        'api',
+        'repos/acme/widgets/actions/runs?per_page=10&branch=wktr-130-ws-sweep',
+      ])
+      expect(calls[1]?.args[1]).not.toContain('head_sha')
+      expect(result).toEqual({
+        rows: [
+          {
+            name: 'CI',
+            event: 'pull_request',
+            headSha: '9b13a20',
+            status: 'completed',
+            conclusion: 'success',
+            startedAt: '2026-09-22T06:31:17Z',
+            updatedAt: '2026-09-22T06:33:14Z',
+          },
+        ],
+        unavailable: null,
+      })
+    })
+
+    it('asks for one page of 30 and no branch filter when given neither', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '{"workflow_runs":[]}' }])
+
+      await gh.listWorkflowRuns()
+
+      expect(calls[1]?.args).toEqual(['api', 'repos/acme/widgets/actions/runs?per_page=30'])
+    })
+
+    it('percent-encodes a branch name with a slash into the query', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '{"workflow_runs":[]}' }])
+
+      await gh.listWorkflowRuns({ branch: 'spike/context-audit' })
+
+      expect(calls[1]?.args[1]).toContain('branch=spike%2Fcontext-audit')
+    })
+
+    it('carries a run that has not concluded as a null conclusion', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          stdout: JSON.stringify({
+            workflow_runs: [runRow({ status: 'in_progress', conclusion: null })],
+          }),
+        },
+      ])
+
+      const result = await gh.listWorkflowRuns({ branch: 'main' })
+
+      expect(result.rows[0]?.status).toBe('in_progress')
+      expect(result.rows[0]?.conclusion).toBeNull()
+    })
+
+    for (const field of ['name', 'event', 'head_sha', 'status', 'run_started_at', 'updated_at']) {
+      it(`counts a row with no ${field} as unreadable rather than dropping it in silence`, async () => {
+        // A dropped row is a caller reading "no run for this head" and
+        // closing and reopening a pull request over it.
+        const { gh } = clientAnsweringEach([
+          REPO,
+          {
+            stdout: JSON.stringify({
+              workflow_runs: [runRow(), runRow({ [field]: null })],
+            }),
+          },
+        ])
+
+        const result = await gh.listWorkflowRuns({ branch: 'main' })
+
+        expect(result.rows).toHaveLength(1)
+        expect(result.unavailable).toBe('1 workflow run row(s) could not be read')
+      })
+    }
+
+    it('reports a reply carrying no workflow_runs list', async () => {
+      const { gh } = clientAnsweringEach([REPO, { stdout: '{"message":"Not Found"}' }])
+
+      await expect(gh.listWorkflowRuns({ branch: 'main' })).resolves.toEqual({
+        rows: [],
+        unavailable: 'the runs reply carried no workflow_runs list',
+      })
+    })
+
+    it('reports gh’s own words when the runs could not be read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '', stderr: 'gh: API rate limit exceeded\n' },
+      ])
+
+      await expect(gh.listWorkflowRuns({ branch: 'main' })).resolves.toEqual({
+        rows: [],
+        unavailable: 'gh: API rate limit exceeded',
+      })
+    })
+
+    it('reports a repository it could not resolve, and asks nothing else', async () => {
+      const { gh, calls } = clientAnsweringEach([
+        { status: 1, stderr: 'gh: could not resolve to a Repository\n' },
+      ])
+
+      await expect(gh.listWorkflowRuns()).resolves.toEqual({
+        rows: [],
+        unavailable: 'gh: could not resolve to a Repository',
+      })
+      expect(calls).toHaveLength(1)
+    })
   })
 })

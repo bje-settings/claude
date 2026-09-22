@@ -190,6 +190,85 @@ export interface PullRequestSummary {
 }
 
 /**
+ * One status check reported on a commit, whichever of the two kinds GitHub
+ * reports it as.
+ *
+ * A check run and a commit status are different objects with different field
+ * names (`name`/`conclusion` against `context`/`state`) and a required context
+ * may be either, so they are read into one shape here rather than leaving
+ * every caller to handle both. `conclusion` is null while the check has not
+ * concluded, which is the difference between "pending" and "failed" that a
+ * caller reads before deciding anything.
+ */
+export interface CheckContext {
+  readonly name: string
+  /** `COMPLETED`, `IN_PROGRESS`, `QUEUED`, or null for a commit status, which
+   *  reports no status of its own. */
+  readonly status: string | null
+  /** `SUCCESS`, `FAILURE`, `SKIPPED` and the rest, or null while the check has
+   *  not concluded. */
+  readonly conclusion: string | null
+}
+
+/**
+ * One pull request, with the facts a review loop derives its state from.
+ *
+ * Not {@link GhClient.viewPullRequest}, which answers the shepherd's
+ * `--json` field list: that list carries neither ref name, and it carries no
+ * review threads at all, because thread resolution exists in GraphQL alone.
+ * Widening it would change what every existing consumer is handed for a
+ * question none of them asked, which is the rule `listOpenPullRequests`
+ * already follows.
+ *
+ * The two author lists are one entry per thread and one per comment, so a
+ * caller reports both a count and who is waiting on it. They are separate
+ * fields because they are separate facts: the enterprise coverage bot posts a
+ * COMMENT on every pull request here, and a loop that counted it as an
+ * unresolved review thread would never reach `done`.
+ */
+export interface PullRequestDetail {
+  readonly number: number
+  readonly title: string
+  readonly state: IssueState
+  readonly draft: boolean
+  readonly base: string
+  readonly head: string
+  /** The head commit's oid, which is what a workflow run names as its
+   *  `head_sha`. */
+  readonly headSha: string
+  /** `MERGEABLE`, `CONFLICTING` or `UNKNOWN`, as GitHub answers it. Carried as
+   *  the string GitHub uses rather than a boolean, because `UNKNOWN` means the
+   *  mergeability is still being computed and is not a third kind of "no". */
+  readonly mergeable: string
+  /** Every check reported on the head commit, in the order GitHub lists them.
+   *  Empty for a head no check has reported on yet. */
+  readonly checks: readonly CheckContext[]
+  /** One login per UNRESOLVED review thread, from the thread's first comment.
+   *  A thread whose author GitHub no longer names is `unknown`. */
+  readonly unresolvedThreadAuthors: readonly string[]
+  /** One login per issue comment on the pull request. */
+  readonly commentAuthors: readonly string[]
+}
+
+/** One workflow run, as `actions/runs` reports it. */
+export interface WorkflowRun {
+  /** The run's name, which is the workflow's `name:` (`CI` here). */
+  readonly name: string
+  /** `pull_request`, `push`, `pull_request_target` and the rest. A caller
+   *  asserting that a pull request's checks are running reads this: a
+   *  `pull_request_target` run on the same head is a different workflow. */
+  readonly event: string
+  readonly headSha: string
+  readonly status: string
+  /** Null while the run has not concluded. */
+  readonly conclusion: string | null
+  /** When the run actually started, which is what a duration is measured
+   *  from; `created_at` can precede it by the queue wait. */
+  readonly startedAt: string
+  readonly updatedAt: string
+}
+
+/**
  * What a paginated GraphQL read answers with: the rows it could read, and the
  * reason it could not read more, in the shape {@link GhClient.issueStates}
  * established.
@@ -241,6 +320,20 @@ export interface GhResults {
   listIssues: PagedResult<IssueSummary>
   /** Open pull requests, including ones no round opened. */
   listOpenPullRequests: PagedResult<PullRequestSummary>
+  /** The status-check contexts a branch's rulesets require. An empty list is
+   *  an answer: it means no ruleset requires anything of that branch. */
+  requiredContexts: {
+    readonly contexts: readonly string[]
+    readonly unavailable: string | null
+  }
+  /** One pull request with the facts a review loop reads, or null when it
+   *  could not be read. */
+  viewPullRequestDetail: {
+    readonly pullRequest: PullRequestDetail | null
+    readonly unavailable: string | null
+  }
+  /** Workflow runs, newest first. */
+  listWorkflowRuns: PagedResult<WorkflowRun>
 }
 
 export type GhEndpoint = keyof GhResults
@@ -353,6 +446,51 @@ export interface GhClient {
    * Never throws, for {@link PagedResult}'s reason.
    */
   listOpenPullRequests(): Promise<GhResults['listOpenPullRequests']>
+  /**
+   * The status-check contexts every ruleset that applies to `branch`
+   * requires, unioned and in the order the rules name them.
+   *
+   * REST (`repos/{owner}/{name}/rules/branches/{branch}`) rather than
+   * GraphQL, which exposes no equivalent, and per branch rather than per
+   * repository, because that endpoint answers for the rules that actually
+   * apply to one ref: a stacked pull request based on a topic branch is
+   * required to pass nothing at all by the rulesets, while the same head
+   * based on the default branch is required to pass every context. A caller
+   * that hard-coded the default branch's list would report the wrong answer
+   * for exactly the pull requests a stack is made of.
+   *
+   * An EMPTY list is an answer and not a failure: it says no ruleset requires
+   * anything of that branch. Never throws, for {@link PagedResult}'s reason.
+   */
+  requiredContexts(query: { readonly branch: string }): Promise<GhResults['requiredContexts']>
+  /**
+   * One pull request's refs, head commit, draft flag, mergeability, reported
+   * checks, unresolved review threads and comments, in one round trip.
+   *
+   * Never throws, for {@link PagedResult}'s reason: a review loop reads this
+   * on every tick and a read that failed is a tick that waits, not a loop
+   * that dies. A pull request the reply does not carry is `null` with the
+   * reason beside it.
+   */
+  viewPullRequestDetail(pull: {
+    readonly pullRequest: number
+  }): Promise<GhResults['viewPullRequestDetail']>
+  /**
+   * Workflow runs, newest first, through `actions/runs`.
+   *
+   * Not {@link GhClient.listRuns}, whose `--json` field list carries neither
+   * `event` nor the head commit, so a caller cannot tell a `pull_request` run
+   * from a `push` one, nor tell which head either ran on. `branch` is the
+   * filter the REST endpoint applies server-side; `head_sha` is NOT used,
+   * because it answered nothing once for a head whose runs existed (round 7
+   * finding 6) while `branch` answered.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listWorkflowRuns(query?: {
+    readonly branch?: string
+    readonly perPage?: number
+  }): Promise<GhResults['listWorkflowRuns']>
 }
 
 /**
@@ -503,6 +641,14 @@ const SWEEP_PAGE = 100
  * silently truncating the rows.
  */
 const SWEEP_PAGES = 20
+
+/**
+ * How many workflow runs `listWorkflowRuns` asks for when the caller names no
+ * number. 30 is `actions/runs`' own default page size, written out here so
+ * the argv says what it asks for rather than inheriting a number from the
+ * API; a caller measuring durations passes its own sample size.
+ */
+const RUN_PAGE = 30
 
 /** Every value {@link IssueState} can hold, as a `Record` rather than a bare
  *  array literal: adding a member to the union without adding its key here is
@@ -667,6 +813,57 @@ const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: Str
   }
 }`
 
+/**
+ * One pull request's whole state in one round trip.
+ *
+ * `commits(last: 1)` is how the head commit's rollup is reached: a pull
+ * request has no rollup field of its own, and `last: 1` is the head whatever
+ * the branch's length. The three connections each carry `pageInfo`, unlike
+ * the dependency connections in {@link ISSUES_QUERY}, because here there IS a
+ * page signal to ask for and a caller that must not under-report an
+ * unresolved thread needs to know when the list is short.
+ *
+ * A review thread's author is its FIRST comment's, which is who opened it.
+ */
+const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number
+      title
+      state
+      isDraft
+      mergeable
+      baseRefName
+      headRefName
+      reviewThreads(first: ${SWEEP_PAGE}) {
+        pageInfo { hasNextPage }
+        nodes { isResolved comments(first: 1) { nodes { author { login } } } }
+      }
+      comments(first: ${SWEEP_PAGE}) {
+        pageInfo { hasNextPage }
+        nodes { author { login } }
+      }
+      commits(last: 1) {
+        nodes {
+          commit {
+            oid
+            statusCheckRollup {
+              contexts(first: ${SWEEP_PAGE}) {
+                pageInfo { hasNextPage }
+                nodes {
+                  __typename
+                  ... on CheckRun { name status conclusion }
+                  ... on StatusContext { context state }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
 /** An integer, or null for anything else. GraphQL answers a count and a
  *  number as JSON numbers, and a value that is not one is a reply this file
  *  does not recognise rather than a zero to carry on with. */
@@ -785,6 +982,176 @@ const readPullRequest = (node: unknown): PullRequestSummary | null => {
   if (number === null || title === null || head === null || base === null) return null
   if (typeof draft !== 'boolean') return null
   return { number, title, head, base, draft }
+}
+
+/** Whether a connection said it has a page after the one that was read. */
+const truncated = (value: unknown): boolean =>
+  asRecord(asRecord(value)?.pageInfo)?.hasNextPage === true
+
+/** A node's author's login, or `unknown` for an author GitHub no longer
+ *  names, which is what a deleted account answers with. */
+const loginOf = (value: unknown): string => {
+  const login = asText(asRecord(asRecord(value)?.author)?.login)
+  return login === null ? 'unknown' : login
+}
+
+/**
+ * One reported check, from either object GitHub reports one as.
+ *
+ * Told apart by the fields present rather than by `__typename`: the two are
+ * `name`/`status`/`conclusion` and `context`/`state`, so asking which fields
+ * answered is asking the same question one step closer to what is read. A
+ * commit status carries no status of its own, so its `state` IS its
+ * conclusion and its `status` is null, which is what {@link CheckContext}
+ * promises.
+ */
+const readCheck = (node: unknown): CheckContext | null => {
+  const record = asRecord(node)
+  const name = asText(record?.name)
+  if (name !== null) {
+    return { name, status: asText(record?.status), conclusion: asText(record?.conclusion) }
+  }
+  // A node that is not a record at all lands here too, and is refused by the
+  // same arm: it has neither field, which is what "neither kind of check"
+  // means.
+  const context = asText(record?.context)
+  if (context === null) return null
+  return { name: context, status: null, conclusion: asText(record?.state) }
+}
+
+/** One pull request's facts, with every reason a list beside them is short,
+ *  or null when the reply is not the shape the query asked for. */
+const readPullRequestDetail = (
+  node: unknown,
+): { detail: PullRequestDetail; reasons: string[] } | null => {
+  const record = asRecord(node)
+  const number = asInteger(record?.number)
+  const title = asText(record?.title)
+  const state = record?.state
+  const draft = record?.isDraft
+  const mergeable = asText(record?.mergeable)
+  const base = asText(record?.baseRefName)
+  const head = asText(record?.headRefName)
+  if (number === null || title === null || !isIssueState(state)) return null
+  if (typeof draft !== 'boolean' || mergeable === null || base === null || head === null)
+    return null
+
+  const commits = nodesOf(record?.commits)
+  const commit = commits === null ? undefined : asRecord(asRecord(commits[0])?.commit)
+  const headSha = asText(commit?.oid)
+  if (headSha === null) return null
+
+  const reasons: string[] = []
+  const checks: CheckContext[] = []
+  // A null `statusCheckRollup` is a head nothing has reported on yet, which
+  // is an answer about the checks and not a read that fell short. Whether
+  // that means the run has not started is a question about workflow runs, and
+  // `listWorkflowRuns` is where it is asked.
+  const rollup = asRecord(commit?.statusCheckRollup)
+  if (rollup !== undefined) {
+    const nodes = nodesOf(rollup.contexts)
+    if (nodes === null) return null
+    for (const entry of nodes) {
+      const check = readCheck(entry)
+      if (check === null) return null
+      checks.push(check)
+    }
+    if (truncated(rollup.contexts)) {
+      reasons.push(`pull request ${number} reported more checks than the ${SWEEP_PAGE} this reads`)
+    }
+  }
+
+  const threads = nodesOf(record?.reviewThreads)
+  if (threads === null) return null
+  const unresolvedThreadAuthors: string[] = []
+  for (const entry of threads) {
+    const thread = asRecord(entry)
+    if (typeof thread?.isResolved !== 'boolean') return null
+    if (thread.isResolved) continue
+    unresolvedThreadAuthors.push(loginOf(nodesOf(thread.comments)?.[0]))
+  }
+  if (truncated(record?.reviewThreads)) {
+    reasons.push(
+      `pull request ${number} has more review threads than the ${SWEEP_PAGE} this reads, ` +
+        'so the unresolved count may be short',
+    )
+  }
+
+  const comments = nodesOf(record?.comments)
+  if (comments === null) return null
+  if (truncated(record?.comments)) {
+    reasons.push(
+      `pull request ${number} has more comments than the ${SWEEP_PAGE} this reads, ` +
+        'so the comment count may be short',
+    )
+  }
+
+  return {
+    detail: {
+      number,
+      title,
+      state,
+      draft,
+      base,
+      head,
+      headSha,
+      mergeable,
+      checks,
+      unresolvedThreadAuthors,
+      commentAuthors: comments.map(loginOf),
+    },
+    reasons,
+  }
+}
+
+/** One `actions/runs` row, or null when it is not the shape REST promises.
+ *  The field names are REST's own, which are not GraphQL's. */
+const readWorkflowRun = (node: unknown): WorkflowRun | null => {
+  const record = asRecord(node)
+  const name = asText(record?.name)
+  const event = asText(record?.event)
+  const headSha = asText(record?.head_sha)
+  const status = asText(record?.status)
+  const startedAt = asText(record?.run_started_at)
+  const updatedAt = asText(record?.updated_at)
+  if (name === null || event === null || headSha === null) return null
+  if (status === null || startedAt === null || updatedAt === null) return null
+  // A run that has not concluded reports `conclusion: null`, which is the
+  // difference between "still going" and "failed" and is carried as null.
+  return {
+    name,
+    event,
+    headSha,
+    status,
+    conclusion: asText(record?.conclusion),
+    startedAt,
+    updatedAt,
+  }
+}
+
+/**
+ * Every context the branch rules require, unioned across the rules, or null
+ * when a rule is not the shape the endpoint promises.
+ *
+ * Null for the whole read rather than for the one bad rule, on
+ * {@link readRefs}' grounds one domain over: a required context silently
+ * dropped is a pull request reported green that the ruleset would refuse, and
+ * a caller told nothing cannot know it happened.
+ */
+const requiredContextsOf = (rules: readonly unknown[]): string[] | null => {
+  const contexts: string[] = []
+  for (const entry of rules) {
+    const rule = asRecord(entry)
+    if (rule?.type !== 'required_status_checks') continue
+    const checks = asRecord(rule.parameters)?.required_status_checks
+    if (!Array.isArray(checks)) return null
+    for (const check of checks) {
+      const context = asText(asRecord(check)?.context)
+      if (context === null) return null
+      if (!contexts.includes(context)) contexts.push(context)
+    }
+  }
+  return contexts
 }
 
 /** What one page of a paginated read yielded. */
@@ -1079,6 +1446,73 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     return { rows, unavailable: joinedReasons(reasons) }
   }
 
+  /**
+   * One GraphQL read that is not paginated: the repository resolved the one
+   * way, the body read through `invoke` whatever gh's exit status (a partial
+   * body is still an answer), and every reason there is no answer returned as
+   * a sentence rather than thrown.
+   *
+   * `data` is the `repository` object, so a caller reads its own field off it
+   * exactly as {@link parseConnection} does for the paginated reads. `data`
+   * and `unavailable` are independent: GraphQL answers a `repository` and an
+   * `errors` list together for a query that partly succeeded, and dropping
+   * either would be reporting half an answer as a whole one.
+   */
+  const queryOnce = async (
+    query: string,
+    variables: readonly string[],
+  ): Promise<{ data: Record<string, unknown> | null; unavailable: string | null }> => {
+    const parts = await repositoryParts()
+    if (parts.unavailable !== null) return { data: null, unavailable: parts.unavailable }
+    const result = await invoke([
+      'api',
+      'graphql',
+      '-f',
+      `owner=${parts.owner}`,
+      '-f',
+      `name=${parts.name}`,
+      ...variables,
+      '-f',
+      `query=${query}`,
+    ])
+    let reply: Record<string, unknown> | undefined
+    try {
+      reply = asRecord(JSON.parse(result.stdout))
+    } catch {
+      return { data: null, unavailable: accountOf(result) }
+    }
+    const repository = asRecord(asRecord(reply?.data)?.repository)
+    if (repository === undefined) return { data: null, unavailable: accountOf(result) }
+    const errorsField = reply?.errors
+    const entries = Array.isArray(errorsField) ? errorsField : []
+    const messages = entries
+      .map((entry) => asRecord(entry)?.message)
+      .filter((message): message is string => typeof message === 'string')
+    return { data: repository, unavailable: joinedReasons(messages) }
+  }
+
+  /**
+   * One REST read under this repository's path, as whatever JSON it answered,
+   * or the reason there is none.
+   *
+   * Read through `invoke` for `issueStates`' reason: `gh api` exits non-zero
+   * on a 404 and on a 403 alike, and the body it printed is still the best
+   * account of which it was, so the status decides nothing here and
+   * `accountOf` reports what gh said.
+   */
+  const restJson = async (
+    path: string,
+  ): Promise<{ value: unknown; unavailable: null } | { value: null; unavailable: string }> => {
+    const parts = await repositoryParts()
+    if (parts.unavailable !== null) return { value: null, unavailable: parts.unavailable }
+    const result = await invoke(['api', `repos/${parts.owner}/${parts.name}/${path}`])
+    try {
+      return { value: JSON.parse(result.stdout), unavailable: null }
+    } catch {
+      return { value: null, unavailable: accountOf(result) }
+    }
+  }
+
   // A `const` bound and then returned, rather than a plain `return`, because
   // `issueStates` reads the repository through `client.viewRepository` (round
   // 6's ruling on #170: "the existing viewRepository()", not a second copy of
@@ -1306,6 +1740,83 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
 
     listOpenPullRequests: async () =>
       collect('pullRequests', PULL_REQUESTS_QUERY, [], readPullRequest),
+
+    // The branch is percent-encoded into the path because a branch name may
+    // carry a `/` (`spike/context-audit`), and an unencoded one would name a
+    // path segment that is not the branch and answer 404 for a branch that
+    // exists.
+    requiredContexts: async (query) => {
+      const answer = await restJson(`rules/branches/${encodeURIComponent(query.branch)}`)
+      if (answer.unavailable !== null) return { contexts: [], unavailable: answer.unavailable }
+      if (!Array.isArray(answer.value)) {
+        return {
+          contexts: [],
+          unavailable: `the rules for ${query.branch} were not a list of rules`,
+        }
+      }
+      const contexts = requiredContextsOf(answer.value)
+      if (contexts === null) {
+        return {
+          contexts: [],
+          unavailable: `a required-status-checks rule on ${query.branch} could not be read`,
+        }
+      }
+      return { contexts, unavailable: null }
+    },
+
+    viewPullRequestDetail: async (pull) => {
+      const answer = await queryOnce(PULL_REQUEST_DETAIL_QUERY, [
+        // `-F` and not `-f`: `number` is an `Int!`, and `-f` would send it as
+        // the string "178", which GraphQL refuses outright.
+        '-F',
+        `number=${pull.pullRequest}`,
+      ])
+      if (answer.data === null) return { pullRequest: null, unavailable: answer.unavailable }
+      const read = readPullRequestDetail(answer.data.pullRequest)
+      if (read === null) {
+        const said = `pull request ${pull.pullRequest} could not be read`
+        return {
+          pullRequest: null,
+          // Whatever GraphQL said about it leads, because "no such pull
+          // request" and "this token may not see it" arrive as the same
+          // missing node and only the error tells them apart.
+          unavailable: answer.unavailable === null ? said : `${said}: ${answer.unavailable}`,
+        }
+      }
+      return {
+        pullRequest: read.detail,
+        unavailable: joinedReasons(
+          answer.unavailable === null ? read.reasons : [...read.reasons, answer.unavailable],
+        ),
+      }
+    },
+
+    listWorkflowRuns: async (query = {}) => {
+      const perPage = query.perPage === undefined ? RUN_PAGE : query.perPage
+      const filters = [`per_page=${perPage}`]
+      if (query.branch !== undefined) filters.push(`branch=${encodeURIComponent(query.branch)}`)
+      const answer = await restJson(`actions/runs?${filters.join('&')}`)
+      if (answer.unavailable !== null) return { rows: [], unavailable: answer.unavailable }
+      const runs = asRecord(answer.value)?.workflow_runs
+      if (!Array.isArray(runs)) {
+        return { rows: [], unavailable: 'the runs reply carried no workflow_runs list' }
+      }
+      const rows: WorkflowRun[] = []
+      let unreadable = 0
+      for (const entry of runs) {
+        const row = readWorkflowRun(entry)
+        if (row === null) unreadable += 1
+        else rows.push(row)
+      }
+      return {
+        rows,
+        // A row left out is never silence, for `collect`'s reason: a caller
+        // asserting that a run exists for a head would read a dropped row as
+        // "no run" and close and reopen a pull request over it.
+        unavailable:
+          unreadable === 0 ? null : `${unreadable} workflow run row(s) could not be read`,
+      }
+    },
   }
   return client
 }
