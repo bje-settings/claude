@@ -188,4 +188,29 @@ describe('parseCommandLine', () => {
       },
     })
   })
+
+  it('answers with no positionals on a command line that names none', () => {
+    // Never partial, the same promise `parseArguments` makes for options:
+    // `positionals` is always an array, empty rather than absent.
+    expect(parseCommandLine([], MERMAID)).toEqual({
+      outcome: 'ok',
+      value: { options: { route: 'view', theme: 'default', help: false }, positionals: [] },
+    })
+  })
+
+  it('still refuses a bad flag, exactly as parseArguments does', () => {
+    // The core is shared; only `allowPositionals` differs, so a bad flag or a
+    // bad choice is refused before positionals ever enter it.
+    expect(parseCommandLine(['--route', 'ink-pdf'], MERMAID)).toEqual({
+      outcome: 'refused',
+      error: '--route must be one of edit, ink-img, ink-svg, view, not "ink-pdf"',
+    })
+  })
+})
+
+it('parseArguments still refuses a positional now that parseCommandLine exists beside it', () => {
+  // The split is `allowPositionals` alone: a caller of the narrower function
+  // must keep getting the narrower refusal, not silently widen because the
+  // core it shares learned to allow one.
+  expect(parseArguments(['138'], MERMAID)).toMatchObject({ outcome: 'refused' })
 })
