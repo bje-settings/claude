@@ -1850,3 +1850,30 @@ it('hands the client the plugin’s own unit, with no shape in between', async (
   const asJevUnit: JevUnit = unit
   expect(asJevUnit.refs.map((ref) => ref.value)).toEqual(['lib/x.ts'])
 })
+
+it('finds the one distinctive pair in a large repository without comparing every pair', async () => {
+  // Ten thousand units is a repository this audit is meant for, and comparing
+  // every pair of them is fifty million dot products. The index finds this
+  // pair by construction, from the shared tokens almost nothing else carries,
+  // and never scans the postings list of the token everything carries.
+  const audit = modelled('absent', {
+    classify: { classifications: [], failures: [] },
+    judgePair: picked<PairVerdict>('unrelated'),
+  })
+  const lines = ['# Scale', '']
+  for (let i = 0; i < 10_000; i++) lines.push(`commontoken bg${i}x bg${i}y bg${i}z`, '')
+  for (const n of [0, 1]) {
+    lines.push(
+      `commontoken distinctivematch1 distinctivematch2 distinctivematch3 specialown${n}`,
+      '',
+    )
+  }
+  writeFileSync(path.join(audit.work, 'CLAUDE.md'), lines.join('\n'))
+
+  const startedAt = Date.now()
+  await runContext([audit.work, '--json'], audit.edges)
+  const elapsedMs = Date.now() - startedAt
+
+  expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 1, available: 1 })
+  expect(elapsedMs).toBeLessThan(6000)
+})

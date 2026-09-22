@@ -102,6 +102,65 @@ const repeatedCell = (unit: Unit, other: Unit): boolean => {
   return group !== null && group === tableGroup(other)
 }
 
+/**
+ * The document-frequency ceiling for a token to be worth looking OTHER units
+ * up by, as an absolute number of units. A token above it still WEIGHTS a
+ * comparison (its `idf` is simply small); it just stops being used to find
+ * candidates, because scanning a postings list holding a large share of the
+ * corpus, once per unit, is most of the way back to the full pairwise
+ * comparison this index exists to avoid.
+ */
+const POSTINGS_DF_CAP = 200
+
+/** The same ceiling as a share of the corpus, so the rule holds on a small one
+ *  too: a token in a quarter of 40 units is as unselective there as a token in
+ *  200 of 20,000. */
+const POSTINGS_DF_SHARE = 0.25
+
+/** Below this the share rule would empty the index (a quarter of four units is
+ *  one, and every token two units share sits above that), so a corpus of a
+ *  handful of units keeps every token; scanning it is free at that size. */
+const POSTINGS_DF_FLOOR = 8
+
+const postingsDfCap = (corpusSize: number): number =>
+  Math.max(POSTINGS_DF_FLOOR, Math.min(POSTINGS_DF_CAP, Math.floor(corpusSize * POSTINGS_DF_SHARE)))
+
+/** The inverted index: each token below the cap, to the units carrying it. */
+const postingsOf = (
+  tokensByUnit: Map<string, string[]>,
+  documentFrequency: Map<string, number>,
+): Map<string, string[]> => {
+  const cap = postingsDfCap(tokensByUnit.size)
+  const postings = new Map<string, string[]>()
+  for (const [id, tokens] of tokensByUnit) {
+    for (const token of new Set(tokens)) {
+      // Every token here was counted into `documentFrequency` first.
+      if ((documentFrequency.get(token) as number) > cap) continue
+      const list = postings.get(token)
+      if (list === undefined) postings.set(token, [id])
+      else list.push(id)
+    }
+  }
+  return postings
+}
+
+/** The units sharing at least one indexed token with `id`, which is every unit
+ *  the scoring below could possibly score above zero. */
+const coOccurring = (
+  id: string,
+  tokensByUnit: Map<string, string[]>,
+  postings: Map<string, string[]>,
+): Set<string> => {
+  const found = new Set<string>()
+  // `id` is a key of `tokensByUnit`: every caller takes it from there.
+  for (const token of new Set(tokensByUnit.get(id) as string[])) {
+    for (const other of postings.get(token) ?? []) {
+      if (other !== id) found.add(other)
+    }
+  }
+  return found
+}
+
 const pairKey = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`)
 
 /** The dot product of two token-weight maps, iterating the smaller one: both
@@ -117,19 +176,25 @@ const dot = (a: Map<string, number>, b: Map<string, number>): number => {
   return sum
 }
 
+/** How many units a token appears in. */
+const documentFrequencies = (tokensByUnit: Map<string, string[]>): Map<string, number> => {
+  const counts = new Map<string, number>()
+  for (const tokens of tokensByUnit.values()) {
+    for (const token of new Set(tokens)) counts.set(token, (counts.get(token) ?? 0) + 1)
+  }
+  return counts
+}
+
 /** Each unit's L2-normalised TF-IDF vector, keyed by id.
  *
  *  The idf is smoothed (`+1` on both sides and on the result): a token in
  *  every unit still gets a small positive weight rather than exactly zero,
  *  which keeps a unit made entirely of very common tokens comparable at all
  *  instead of vanishing to a zero vector. */
-const vectorsOf = (tokensByUnit: Map<string, string[]>): Map<string, Map<string, number>> => {
-  const documentFrequency = new Map<string, number>()
-  for (const tokens of tokensByUnit.values()) {
-    for (const token of new Set(tokens)) {
-      documentFrequency.set(token, (documentFrequency.get(token) ?? 0) + 1)
-    }
-  }
+const vectorsOf = (
+  tokensByUnit: Map<string, string[]>,
+  documentFrequency: Map<string, number>,
+): Map<string, Map<string, number>> => {
   const corpusSize = tokensByUnit.size
   const idf = new Map<string, number>()
   for (const [token, count] of documentFrequency) {
@@ -174,13 +239,17 @@ export const candidatePairs = (
 
   const tokensByUnit = new Map<string, string[]>()
   const eligible: Unit[] = []
+  const byId = new Map<string, Unit>()
   for (const unit of units) {
     const tokens = tokenize(unit.text)
     if (tokens.length < MIN_TOKENS) continue
     tokensByUnit.set(unit.id, tokens)
     eligible.push(unit)
+    byId.set(unit.id, unit)
   }
-  const vectors = vectorsOf(tokensByUnit)
+  const documentFrequency = documentFrequencies(tokensByUnit)
+  const vectors = vectorsOf(tokensByUnit, documentFrequency)
+  const postings = postingsOf(tokensByUnit, documentFrequency)
   // Sorted for a deterministic processing order: which unit is the query side
   // first decides which pairs fill a cap up.
   eligible.sort((a, b) => (a.id < b.id ? -1 : 1))
@@ -194,8 +263,9 @@ export const candidatePairs = (
     if (countOf(unit.id) >= MAX_PER_UNIT) continue
     const vector = vectors.get(unit.id) as Map<string, number>
     const scored: Array<{ other: Unit; similarity: number }> = []
-    for (const other of eligible) {
-      if (other.id === unit.id) continue
+    for (const otherId of coOccurring(unit.id, tokensByUnit, postings)) {
+      // Every posting is an eligible unit's id.
+      const other = byId.get(otherId) as Unit
       if (seen.has(pairKey(unit.id, other.id))) continue
       const similarity = dot(vector, vectors.get(other.id) as Map<string, number>)
       if (similarity < threshold) continue
