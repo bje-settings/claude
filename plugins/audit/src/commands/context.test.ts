@@ -1355,3 +1355,23 @@ it('reports a pair the model says contradicts, naming both units', async () => {
     ].join('\n'),
   )
 })
+
+it('compares no history or structural unit, whatever they look like', async () => {
+  // A record of the past and a heading assert nothing about the repository as
+  // it stands, so neither can be the duplicate or the contradiction a pair
+  // finding is about. `judgePair` has no reply registered, so a candidate that
+  // reached the model would throw rather than pass quietly.
+  const audit = modelled('pairs', {
+    classify: {
+      classifications: [
+        classified('CLAUDE.md:3-3', { kind: picked<UnitKind>('history') }),
+        classified('CLAUDE.md:5-5'),
+      ],
+      failures: [],
+    },
+  })
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('## pairs: contradicts (0; 0 of 0 judged)')
+})
