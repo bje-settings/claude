@@ -18,7 +18,13 @@ import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
-import type { Classification, JevClient, RequestShape, UnitKind } from '../lib/jev.ts'
+import {
+  type Classification,
+  type JevClient,
+  JevError,
+  type RequestShape,
+  type UnitKind,
+} from '../lib/jev.ts'
 import type { Output } from '../lib/streams.ts'
 import {
   extractBlockRefs,
@@ -34,6 +40,7 @@ import {
   type Report,
   renderFindings,
   type SkippedStage,
+  type Stage,
   type StageFailure,
 } from '../report.ts'
 import { splitMarkdown } from '../split.ts'
@@ -180,6 +187,41 @@ const skippedStages = (reason: SkippedStage['reason']): SkippedStage[] =>
  */
 const skipReason = (noJev: boolean): SkippedStage['reason'] => (noJev ? 'no_jev' : 'no_key')
 
+/**
+ * A failed model call, as the report names it.
+ *
+ * `JevError`'s own account when the call was rejected, and the plain message
+ * otherwise: the client rejects with a `JevError` for anything the transport
+ * refused, and throws a plain `Error` when an answer arrived but would not
+ * parse (`lib/README.md`). There is no third shape to account for.
+ */
+const failureMessage = (error: unknown): string => {
+  if (error instanceof JevError)
+    return `HTTP ${error.status}: ${error.message} ${error.body}`.trim()
+  return (error as Error).message
+}
+
+/**
+ * One stage's work, each item settled on its own: a rejected call costs only
+ * itself, and the rest of the stage still answers. The spike's `settle`.
+ */
+const settle = async <T, R>(
+  stage: Stage,
+  items: readonly T[],
+  id: (item: T) => string,
+  work: (item: T) => Promise<R>,
+  failures: StageFailure[],
+): Promise<R[]> => {
+  const results = await Promise.allSettled(items.map(work))
+  const done: R[] = []
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') done.push(result.value)
+    // `index` indexes the array the results were built from.
+    else failures.push({ stage, id: id(items[index] as T), message: failureMessage(result.reason) })
+  })
+  return done
+}
+
 /** What the model stages produced, or what they did instead. */
 type ModelOutcome = {
   skipped: SkippedStage[]
@@ -202,6 +244,7 @@ const judgePairs = async (
   units: readonly Unit[],
   kindOf: Map<string, UnitKind>,
   options: { maxPairs: number; threshold: number },
+  failures: StageFailure[],
 ): Promise<{ pairs: PairJudgment[]; coverage: Coverage }> => {
   const comparable = units.filter((unit) => {
     const kind = kindOf.get(unit.id)
@@ -213,13 +256,18 @@ const judgePairs = async (
   const candidates = candidatePairs(comparable, { threshold: options.threshold }).sort(
     (x, y) => y.similarity - x.similarity,
   )
-  const pairs: PairJudgment[] = []
-  for (const candidate of candidates.slice(0, options.maxPairs)) {
-    // Both ids came from `units` a moment ago, so the lookups answer.
-    const a = byId.get(candidate.a) as Unit
-    const b = byId.get(candidate.b) as Unit
-    pairs.push({ ...candidate, verdict: await jev.judgePair(a, b) })
-  }
+  const pairs = await settle(
+    'pairs',
+    candidates.slice(0, options.maxPairs),
+    (candidate) => `${candidate.a} <> ${candidate.b}`,
+    async (candidate) => {
+      // Both ids came from `units` a moment ago, so the lookups answer.
+      const a = byId.get(candidate.a) as Unit
+      const b = byId.get(candidate.b) as Unit
+      return { ...candidate, verdict: await jev.judgePair(a, b) }
+    },
+    failures,
+  )
   return { pairs, coverage: { judged: pairs.length, available: candidates.length } }
 }
 
@@ -251,13 +299,17 @@ const modelStages = async (
   const classified = await jev.classify(units, options.shape)
   const { classifications } = classified
   const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
-  const paired = await judgePairs(jev, units, kindOf, options)
+  const failures: StageFailure[] = classified.failures.map((failure) => ({
+    stage: 'classify',
+    ...failure,
+  }))
+  const paired = await judgePairs(jev, units, kindOf, options, failures)
   return {
     skipped: [],
     classifications,
     pairs: paired.pairs,
     pairCoverage: paired.coverage,
-    failures: classified.failures.map((failure) => ({ stage: 'classify', ...failure })),
+    failures,
   }
 }
 

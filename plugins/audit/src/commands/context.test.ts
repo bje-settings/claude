@@ -19,6 +19,7 @@ import {
   type Classification,
   createJevMock,
   type EvidenceNeed,
+  JevError,
   type JevReplies,
   type PairVerdict,
   type UnitKind,
@@ -1637,4 +1638,31 @@ it('asks nothing when --pair-threshold is set above what any pair scores', async
   await runContext([audit.work, '--json', '--pair-threshold', '0.9'], audit.edges)
 
   expect(reportOf(audit.stdout()).pairCoverage).toEqual({ judged: 0, available: 0 })
+})
+
+it('records every pair call that failed and keeps going, rather than ending the run', async () => {
+  // One rejected call must not cost the other two, and each one has to be
+  // named: a stage that stopped at the first failure would report a clean
+  // pair section it never earned. Built as a real `JevError` so `message` and
+  // `body` differ the way they do on a live failure, and a report line that
+  // quoted only one of them would still read as complete.
+  const ids = [3, 5, 7].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('ranked', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: new JevError(529, 'the model is overloaded', 'request failed'),
+  })
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'failed', error: '3 model calls failed' })
+  const text = audit.stdout()
+  expect(text).toContain('## pairs: contradicts (0; 0 of 3 judged)')
+  expect(text).toContain(
+    [
+      '## failures (3)',
+      '  pairs CLAUDE.md:3-3 <> CLAUDE.md:5-5: HTTP 529: request failed the model is overloaded',
+      '  pairs CLAUDE.md:3-3 <> CLAUDE.md:7-7: HTTP 529: request failed the model is overloaded',
+      '  pairs CLAUDE.md:5-5 <> CLAUDE.md:7-7: HTTP 529: request failed the model is overloaded',
+    ].join('\n'),
+  )
 })
