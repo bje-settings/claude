@@ -32,9 +32,7 @@ flowchart TD
     O -->|Yes| P[Watch CI in the foreground] --> C
 
     E -->|rot-check| Q[Title and body against the final diff]
-    Q --> R{round 1 substantial and round 2 not run?}
-    R -->|Yes| I
-    R -->|No| S([Report: state, applied, rejected,<br/>corrections, lower_layer])
+    Q --> S([Report: state, applied, rejected,<br/>corrections, lower_layer])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```

@@ -24,8 +24,12 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    The diff is this layer's own, against `<base>`, and it is what you review.
 2. `git status --porcelain` in the worktree AND the root checkout. Both must be clean.
    Say so in your return.
-3. Run `pr-review-toolkit:review-pr` with ONLY these reviewers, all sized small:
-   `<reviewers>`. Tell every one of them, verbatim:
+3. Dispatch ONLY these `pr-review-toolkit` reviewer agents, all sized small, each with the
+   `Agent` tool and all in one message: `<reviewers>`. Dispatch the agents yourself
+   rather than invoking the `review-pr` skill: that skill is written to run in a main
+   session, where the analyzers it dispatches wake their caller, and a subagent invoking
+   it gets no such wake and falls back to timed waits. Dispatching the agents directly
+   does wake you. Tell every one of them, verbatim:
 
    > You are READ-ONLY. Do not edit, create or delete any file, anywhere. Do not spawn
    > agents or background work. Run NO test suite and no build. Work only by reading
@@ -33,7 +37,7 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    > concluded reaches you through this message or not at all. If you want a mutation
    > tried, describe it and I will run it. Report only to me, and to nobody else.
 
-   Four rounds have paid for each of those sentences: a reviewer edited a file in a
+   Five rounds have paid for each of those sentences: a reviewer edited a file in a
    shared worktree, another wrote into the ROOT checkout, three concurrent suites in
    one worktree took the load average to 33 and made a test flake, a reviewer sent its
    finding to the orchestrator's session instead of to the round, and one went looking
@@ -57,6 +61,11 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    - **A redundancy claim is a mutation target, not a verdict.** "X is redundant with Y"
      is checked by removing X and watching Y fail. One such claim was withdrawn when
      the mutation showed the two assertions pinned different halves of a name.
+   - **One real call per endpoint, for any client over a command line.** An in-process
+     stand-in answers whatever it was registered with, so it cannot notice an argv the
+     real binary refuses: one such client built `gh pr checks --watch --json`, which gh
+     rejects outright, and every test passed. Run one read-only call per new or changed
+     endpoint against the real binary and check the parser against what came back.
    - **For a port, the guard sweep.** Re-derive the guard list from the old code, revert
      every guard in the new code at once, run the suite, and treat every guard that
      stays green as a finding; then revert them one at a time. 100% branch coverage

@@ -380,7 +380,10 @@ carrying neither `event` nor the head commit, so a caller cannot tell a `pull_re
 `push` one nor say which head either ran on. It filters with `?branch=` and never `?head_sha=`,
 which answered nothing once for a head whose runs existed and cost a close-and-reopen and a whole
 CI run. A row that is not the shape REST promises is counted into `unavailable`, never dropped: a
-caller asserting that a run exists for a head would read a dropped row as "no run".
+caller asserting that a run exists for a head would read a dropped row as "no run". It reads ONE
+page, newest first, bounded by `perPage`, and does not claim to be the whole list: this repository
+held 1,733 runs when that was measured, and every caller wants the recent ones. Ask it only what
+the newest page answers.
 
 ## Decisions not taken
 

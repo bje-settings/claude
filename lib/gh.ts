@@ -485,6 +485,13 @@ export interface GhClient {
    * because it answered nothing once for a head whose runs existed (round 7
    * finding 6) while `branch` answered.
    *
+   * ONE page, newest first, and not a complete list: `perPage` is the bound
+   * and nothing reports that the repository holds more, because every caller
+   * wants recent runs rather than all of them (this repository had 1,733 when
+   * that was measured). Ask it only what the newest page can answer, such as
+   * whether a run exists for the head that was just pushed, or how long
+   * recent runs took. `unavailable` is for a row that could not be READ.
+   *
    * Never throws, for {@link PagedResult}'s reason.
    */
   listWorkflowRuns(query?: {

@@ -1,8 +1,9 @@
 # The rot check
 
-The caller's job, once, after the last round. It is not small: every pull request in the
-last two rounds needed five to ten corrections after two review rounds, and the round
-agents' consolidated rot lists made it a fifteen minute job instead of an hour.
+The caller's job, once, after the last round. It is not small: a pull request that has
+been through two review rounds has needed five to ten corrections every time it has been
+measured, and the round agents' consolidated rot lists make it a fifteen minute job
+instead of an hour.
 
 Do it even when every round returned "rot list: empty". Two rounds returned that on
 pull requests whose bodies had ten stale claims, because a round does not count the

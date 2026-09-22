@@ -6,7 +6,7 @@ description: >
   rejection against the code, applies what holds, commits, pushes and waits for CI, in
   at most two rounds, then checks the title and body against the final diff. Use it on
   any pull request with green CI, whoever opened it.
-allowed-tools: Bash, Read, Grep, Glob, Agent
+allowed-tools: Bash, Read, Grep, Glob, Agent, SendMessage
 disable-model-invocation: true
 ---
 
@@ -41,13 +41,16 @@ nobody has seen.
 
 `contextsFrom: "head"` is not that. It means the base branch is one no ruleset covers,
 which every layer of a stack is, so the verdict is over what has reported on the head.
-Say so once and carry on.
+Say so once and carry on, and say the rest of it too: that verdict cannot see a check
+nobody has created, so `green` there means everything that reported is satisfying, not
+that the pull request would pass the default branch's ruleset. A layer is fully checked
+only when it is rebased onto a branch that has one.
 
 ## Step 3: act on the state
 
 | State | What to do |
 | --- | --- |
-| `awaiting-pr` | No pull request answered for. Stop and say so. |
+| `awaiting-pr` | Nothing answered for this number. Read `unavailable` before saying there is no such pull request: a read gh refused lands here too. Stop either way. |
 | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`, once, then step 2 again. A second `no-run` after a reopen is a stop. |
 | `ci-pending` | Wait, then step 2 again. |
 | `red` | CI was red before any round ran. That belongs to whoever opened the pull request: report it and stop. |
