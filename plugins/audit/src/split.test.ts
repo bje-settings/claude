@@ -2,11 +2,15 @@
 // wktr-164-context-audit-spike, spike/context-audit/split.test.ts), as
 // independent literal expectations rather than a computed oracle. Order
 // follows the spike file so a diff against it is easy to audit.
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { splitMarkdown } from './split.ts'
 
 const FILE = 'a.md'
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
 describe('splitMarkdown', () => {
   it('splits one paragraph of two sentences into two linked sentence units', () => {
@@ -297,5 +301,36 @@ describe('splitMarkdown', () => {
     )
     for (const u of units) expect(u.refs).toEqual([])
     for (const o of opaque) expect(o.refs).toEqual([])
+  })
+
+  // A fixture with hand-written expected units, standing in for the spike's
+  // real-CLAUDE.md line-invariant check: that check computed its expectations
+  // from the source it was checking, which is a tautological test, and it
+  // read this repository's own CLAUDE.md, which a plugin meant to work on any
+  // repository cannot depend on. Every expectation below is a literal typed
+  // by hand against fixtures/sample.fixture.md.
+  it('splits a hand-written fixture into the exact units it was written to produce', () => {
+    const source = readFileSync(path.join(FIXTURES, 'sample.fixture.md'), 'utf8')
+    const { units } = splitMarkdown('sample.fixture.md', source)
+
+    const intro = units.find((u) => u.text === 'Intro sentence here.')
+    const second = units.find((u) => u.text === 'Second one follows.')
+    expect(intro?.id).toBe('sample.fixture.md:3-3')
+    expect(second?.id).toBe('sample.fixture.md:3-3#2')
+    expect(intro?.headingPath).toEqual(['Guide'])
+    expect(intro?.next).toBe('Second one follows.')
+    expect(second?.prev).toBe('Intro sentence here.')
+
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items.map((u) => u.text)).toEqual(['First item', 'Second item'])
+    expect(items[0]?.startLine).toBe(7)
+    expect(items[0]?.headingPath).toEqual(['Guide', 'Details'])
+    expect(items[0]?.next).toBe('Second item')
+    expect(items[1]?.prev).toBe('First item')
+
+    const row = units.find((u) => u.block === 'table_row')
+    expect(row?.text).toBe('Name: a\nNote: b')
+    expect(row?.startLine).toBe(12)
+    expect(row?.headingPath).toEqual(['Guide', 'Details'])
   })
 })
