@@ -180,6 +180,27 @@ describe('what gh can be missing', () => {
     expect(findings(ran.stdout)[0]?.id).toBe('gh')
   })
 
+  it('reports a gh that runs but exits some other non-zero status as unusable, not as an auth problem', async () => {
+    // A corrupted install or a crashing binary can fail `--version` with a
+    // code other than the shell's 126 or 127. Falling through to `gh auth
+    // status` for it would misdiagnose a binary that does not run at all as
+    // a login problem, telling someone to `gh auth login` a binary that
+    // cannot even report its version.
+    const sandbox = createSandbox()
+    const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {
+      '--version': { status: 3, stderr: 'gh: error while loading shared libraries\n' },
+      'auth status': { status: 1, stderr: 'You are not logged into any GitHub hosts.\n' },
+    })
+
+    expect(findings(ran.stdout)).toEqual([
+      {
+        id: 'gh',
+        hint: 'install the GitHub CLI: https://cli.github.com',
+        detail: 'gh: error while loading shared libraries',
+      },
+    ])
+  })
+
   it('reports a login that is not there, carrying gh’s own words', async () => {
     const sandbox = createSandbox()
     const ran = await run(['--json'], withRegistry(sandbox, INSTALLED), {

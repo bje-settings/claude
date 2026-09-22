@@ -155,11 +155,21 @@ export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] => {
  */
 export const ghFindings = async (run: Runner): Promise<Finding[]> => {
   const version = await run('gh', ['--version'])
-  // 127 and 126 are the shell's own statuses for a command that is not there
-  // or cannot be run, which is the convention `lib/process.ts` keeps for a
-  // child that never started.
-  if (version.startFailure !== null || version.status === 127 || version.status === 126) {
-    return [{ id: 'gh', hint: 'install the GitHub CLI: https://cli.github.com' }]
+  // Any non-zero status from `--version` is "gh is not usable": 127 and 126
+  // are the shell's own statuses for a command that is not there or cannot
+  // be run (`lib/process.ts`'s convention for a child that never started),
+  // but a corrupted install or a crashing binary can exit with any other
+  // code, and falling through to the auth check for those would report
+  // "gh auth login" as the remedy for a binary that does not run at all.
+  if (version.startFailure !== null || version.status !== 0) {
+    const message = version.startFailure === null ? excerpt(version.stderr || version.stdout) : ''
+    return [
+      {
+        id: 'gh',
+        hint: 'install the GitHub CLI: https://cli.github.com',
+        ...(message === '' ? {} : { detail: message }),
+      },
+    ]
   }
 
   const auth = await run('gh', ['auth', 'status'])
