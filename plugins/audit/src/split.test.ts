@@ -343,4 +343,29 @@ describe('splitMarkdown', () => {
   it('treats a comment holding only its own markers as a full comment', () => {
     expect(splitMarkdown('a.md', '<!---->\n<!-- -->\n').units).toHaveLength(0)
   })
+
+  it('suffixes a third unit sharing one span with #3', () => {
+    const { units } = splitMarkdown('a.md', 'One. Two. Three sentences here.')
+    expect(units.map((u) => u.id)).toEqual(['a.md:1-1', 'a.md:1-1#2', 'a.md:1-1#3'])
+  })
+
+  it('keeps list items in document order even when a sibling closes before its parent', () => {
+    const source = ['- A', '  - B', '  - C', '- D'].join('\n')
+    const { units } = splitMarkdown('a.md', source)
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items.map((u) => u.text)).toEqual(['A', 'B', 'C', 'D'])
+    const a = items.find((u) => u.text === 'A')
+    const b = items.find((u) => u.text === 'B')
+    const d = items.find((u) => u.text === 'D')
+    expect(a?.next).toBe('B')
+    expect(b?.prev).toBe('A')
+    expect(d?.prev).toBe('C')
+  })
+
+  it('keeps three-level nested lists in document order too', () => {
+    const source = ['- A', '  - B', '    - C', '    - D', '  - E', '- F'].join('\n')
+    const { units } = splitMarkdown('a.md', source)
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items.map((u) => u.text)).toEqual(['A', 'B', 'C', 'D', 'E', 'F'])
+  })
 })
