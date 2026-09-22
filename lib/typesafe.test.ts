@@ -4,7 +4,7 @@
 // jitter actually ran.
 
 import { expect, it } from 'vitest'
-import { createJev, JevError, redact, retryAfterMs } from './typesafe.ts'
+import { choice, createJev, JevError, noul, redact, retryAfterMs } from './typesafe.ts'
 
 const KEY = 'sk-test-do-not-log-me'
 
@@ -210,6 +210,42 @@ it('a network error is retried', async () => {
   })
   await jev.ask('s', Q)
   expect(calls).toBe(2)
+})
+
+it('a transport failure that is not an Error instance is still retried and reported', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    maxRetries: 0,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      // Not every rejection is an Error: this pins messageOf's String(error) arm.
+      throw 'boom'
+    },
+  })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.message).toMatch(/gave up after 1 attempts, last a transport failure/)
+  expect(error.body).toBe('boom')
+  expect(calls).toBe(1)
+})
+
+it('with no fetch injected, the global fetch is used', async () => {
+  const original = globalThis.fetch
+  const seen: { url?: string } = {}
+  globalThis.fetch = (async (url: string | URL) => {
+    seen.url = String(url)
+    return reply(200, OK_BODY)
+  }) as typeof fetch
+  try {
+    const jev = createJev({ apiKey: KEY })
+    const answers = await jev.ask('s', Q)
+    expect(seen.url).toBe('https://api.typesafe.ai/v1/systemone')
+    expect(noulOf(answers, 'q')).toBe(0.75)
+  } finally {
+    globalThis.fetch = original
+  }
 })
 
 it('a stalled request is aborted by the timeout and retried as a transport failure', async () => {
@@ -504,4 +540,89 @@ it('usage() returns a copy, not the live totals', async () => {
   await jev.ask('s', Q)
   expect(before.requests).toBe(0)
   expect(jev.usage().requests).toBe(1)
+})
+
+it('concurrency never exceeds the limit', async () => {
+  let inFlight = 0
+  let peak = 0
+  const jev = createJev({
+    apiKey: KEY,
+    concurrency: 3,
+    fetch: async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight -= 1
+      return reply(200, OK_BODY)
+    },
+  })
+
+  await Promise.all(Array.from({ length: 20 }, () => jev.ask('s', Q)))
+
+  expect(peak).toBe(3)
+  expect(jev.usage().requests).toBe(20)
+})
+
+it('a rejected request still releases its slot', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    concurrency: 1,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(400, 'nope') : reply(200, OK_BODY)
+    },
+  })
+
+  await expect(jev.ask('s', Q)).rejects.toThrow()
+  const answers = await jev.ask('s', Q)
+  expect(noulOf(answers, 'q')).toBe(0.75)
+})
+
+it('noul omits criteria when none is given, and carries it when given', () => {
+  expect(noul('is it true?')).toEqual({ type: 'noul', instructions: 'is it true?' })
+  expect(noul('is it true?', { true: 'yes', false: 'no' })).toEqual({
+    type: 'noul',
+    instructions: 'is it true?',
+    criteria: { true: 'yes', false: 'no' },
+  })
+})
+
+it('choice carries the options as criteria keys', () => {
+  expect(choice('which?', { a: 'first', b: 'second' })).toEqual({
+    type: 'choice',
+    instructions: 'which?',
+    criteria: { a: 'first', b: 'second' },
+  })
+})
+
+it('a retry sleeps through the real default sleep when none is injected', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    // random: 0 makes backoffMs(0, random) floor to 0ms, so the real
+    // (non-injected) sleep resolves near-instantly rather than slowing the
+    // suite down.
+    random: () => 0,
+    fetch: async () => {
+      calls += 1
+      return calls === 1 ? reply(429, 'slow down') : reply(200, OK_BODY)
+    },
+  })
+
+  const answers = await jev.ask('s', Q)
+  expect(calls).toBe(2)
+  expect(noulOf(answers, 'q')).toBe(0.75)
+})
+
+it('an empty 2xx body is refused as "not an object", not read as an answer', async () => {
+  // payload becomes `undefined` here (`text === '' ? undefined : ...`), which
+  // also exercises safeStringify's `JSON.stringify(undefined) ?? String()`
+  // fallback in the error it builds.
+  const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, '') })
+  const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
+  expect(error).toBeInstanceOf(JevError)
+  expect(error.message).toMatch(/not an object/)
+  expect(error.body).toBe('undefined')
 })

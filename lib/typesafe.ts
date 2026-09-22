@@ -232,12 +232,14 @@ export function redact(text: string, apiKey: string): string {
     .replace(new RegExp(escaped, 'g'), '[redacted]')
 }
 
+/**
+ * `payload` only ever comes from `JSON.parse` (or is `undefined`, for an
+ * empty body), so `JSON.stringify` here can never throw the way it can on
+ * arbitrary input: no circular reference or `BigInt` can have survived the
+ * parse. No `try`, so there is no branch a test could only fake reaching.
+ */
 function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? String(value)
-  } catch {
-    return String(value)
-  }
+  return JSON.stringify(value) ?? String(value)
 }
 
 /**
