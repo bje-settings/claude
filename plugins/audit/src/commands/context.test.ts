@@ -79,6 +79,12 @@ function audited(name: string, replies: GhReplies = {}): Audited {
 /** The JSON report `--json` wrote, parsed. */
 const reportOf = (stdout: string): Report => JSON.parse(stdout) as Report
 
+/** The opaque blocks of one file, in document order. Indexed by file rather
+ *  than by position in the whole report, so a fixture that grows another file
+ *  does not renumber every assertion. */
+const blocksIn = (report: Report, file: string) =>
+  report.opaque.filter((block) => block.file === file)
+
 it('resolves a path its CLAUDE.md names, and skips every model stage with no key', async () => {
   const audit = audited('paths')
 
@@ -537,7 +543,7 @@ it('reads the refs in a fenced code block, commands included', async () => {
 
   await runContext([audit.work, '--json'], audit.edges)
 
-  expect(reportOf(audit.stdout()).opaque[0]?.refs).toEqual([
+  expect(blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[0]?.refs).toEqual([
     { kind: 'command', value: 'pnpm', resolution: { status: 'unchecked', reason: 'no_resolver' } },
     { kind: 'script', value: 'pnpm test', resolution: { status: 'found', repoPath: null } },
     { kind: 'command', value: 'node', resolution: { status: 'unchecked', reason: 'no_resolver' } },
@@ -557,7 +563,7 @@ it('takes no refs at all out of a mermaid diagram', async () => {
 
   await runContext([audit.work, '--json'], audit.edges)
 
-  const diagram = reportOf(audit.stdout()).opaque[1]
+  const diagram = blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[1]
   expect(diagram?.kind).toBe('mermaid')
   expect(diagram?.refs).toEqual([])
 })
@@ -808,7 +814,7 @@ it('reads a file:line inside a code block, and leaves a ../ example unchecked', 
 
   await runContext([audit.work, '--json'], audit.edges)
 
-  expect(reportOf(audit.stdout()).opaque[2]?.refs).toEqual([
+  expect(blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[2]?.refs).toEqual([
     {
       kind: 'file_line',
       value: 'scripts/build.ts:1',
@@ -851,7 +857,26 @@ it('reads the paths in a fence with no info string, but takes no commands from i
 
   await runContext([audit.work, '--json'], audit.edges)
 
-  expect(reportOf(audit.stdout()).opaque[3]?.refs).toEqual([
+  expect(blocksIn(reportOf(audit.stdout()), 'CLAUDE.md')[3]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'scripts/build.ts',
+      resolution: { status: 'found', repoPath: 'scripts/build.ts' },
+    },
+  ])
+})
+
+it('reads the refs in a file’s frontmatter', async () => {
+  // Frontmatter never goes to the model either, and a skill's frontmatter is
+  // exactly where a path to a renamed script sits unnoticed.
+  const audit = audited('opaque')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  const front = blocksIn(report, '.claude/notes.md')[0]
+  expect(front?.file).toBe('.claude/notes.md')
+  expect(front?.refs).toEqual([
     {
       kind: 'path',
       value: 'scripts/build.ts',
