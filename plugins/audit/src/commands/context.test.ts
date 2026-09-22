@@ -315,6 +315,8 @@ it('reports a path that is not there as the finding, in the findings text', asyn
       '',
       '## evidence: skipped (no_key)',
       '',
+      '## failures (0)',
+      '',
     ].join('\n'),
   )
 })
@@ -1459,4 +1461,32 @@ it('does not judge a volatile unit whose issue could not be looked up, and says 
   expect(audit.stdout()).toContain(
     '## volatile and the issue it names is closed (0; 1 volatile units not judged, issue lookup unavailable)',
   )
+})
+
+it('reports a classify request that failed, and fails the run while still printing', async () => {
+  // A model call that failed is the one thing this command calls its own
+  // failure: the findings are still what a reader acts on, so they go to
+  // stdout and the status alone says the run was incomplete. Nothing was
+  // classified, so no unit is expired and none is counted as unjudged either:
+  // an unlabelled unit is not a volatile one.
+  const audit = modelled(
+    'stale',
+    {
+      classify: {
+        classifications: [],
+        failures: [{ id: 'request 0', message: 'HTTP 500: boom' }],
+      },
+      judgePair: picked<PairVerdict>('unrelated'),
+    },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  const envelope = await runContext([audit.work], audit.edges)
+
+  expect(envelope).toEqual({ outcome: 'failed', error: '1 model call failed' })
+  const text = audit.stdout()
+  expect(text).toContain('1 files, 2 units, 0 opaque')
+  expect(text).toContain('## volatile and the issue it names is closed (0)\n')
+  expect(text).toContain('## pairs: contradicts (0; 1 of 1 judged)')
+  expect(text).toContain(['## failures (1)', '  classify request 0: HTTP 500: boom'].join('\n'))
 })

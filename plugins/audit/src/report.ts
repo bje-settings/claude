@@ -15,6 +15,10 @@ import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
  *  are kept beside the verdict: a reader acting on a finding needs both. */
 export type PairJudgment = PairCandidate & { verdict: ChoiceAnswer<PairVerdict> }
 
+/** A model call that failed. The run carries on and reports it: a stage that
+ *  lost one request still answers for the rest. */
+export type StageFailure = { stage: Stage; id: string; message: string }
+
 /** How much of a stage's work was done, so "0 found" can be told from "0
  *  looked at". */
 export type Coverage = { judged: number; available: number }
@@ -50,6 +54,7 @@ export type Report = {
   classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
+  failures: StageFailure[]
   wallClockMs: number
 }
 
@@ -233,6 +238,14 @@ export const renderFindings = (report: Report): string => {
   // else.
   lines.push('', '## tier 0: refs not checked', ...uncheckedTally(report))
   lines.push(...modelSections(report))
+  // Always, and with its count, whether or not a stage ran: a report with no
+  // failures section would leave a reader guessing whether there were none or
+  // whether nobody looked.
+  lines.push(
+    '',
+    `## failures (${report.failures.length})`,
+    ...report.failures.map((failure) => `  ${failure.stage} ${failure.id}: ${failure.message}`),
+  )
 
   return `${lines.join('\n')}\n`
 }

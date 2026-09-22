@@ -15,7 +15,7 @@ import path from 'node:path'
 import { candidatePairs } from '../candidates.ts'
 import { markdownFiles, scopeFilter, trackedPaths } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
-import { type Envelope, ok, refused } from '../lib/envelope.ts'
+import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
 import type { Classification, JevClient, RequestShape, UnitKind } from '../lib/jev.ts'
@@ -34,6 +34,7 @@ import {
   type Report,
   renderFindings,
   type SkippedStage,
+  type StageFailure,
 } from '../report.ts'
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
@@ -185,6 +186,7 @@ type ModelOutcome = {
   classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
+  failures: StageFailure[]
 }
 
 /**
@@ -235,13 +237,23 @@ const modelStages = async (
       classifications: [],
       pairs: [],
       pairCoverage: { judged: 0, available: 0 },
+      failures: [],
     }
   }
   const jev = edges.createJev({ apiKey: key })
-  const { classifications } = await jev.classify(units, options.shape)
+  // The client folds a rejected request into its own failures rather than
+  // rejecting, so there is nothing to catch here (`lib/README.md`).
+  const classified = await jev.classify(units, options.shape)
+  const { classifications } = classified
   const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
   const paired = await judgePairs(jev, units, kindOf)
-  return { skipped: [], classifications, pairs: paired.pairs, pairCoverage: paired.coverage }
+  return {
+    skipped: [],
+    classifications,
+    pairs: paired.pairs,
+    pairCoverage: paired.coverage,
+    failures: classified.failures.map((failure) => ({ stage: 'classify', ...failure })),
+  }
 }
 
 /** What the issue lookup answered, with the numbers as `gh` reports them.
@@ -415,6 +427,7 @@ export const runContext = async (
     classifications: models.classifications,
     pairs: models.pairs,
     pairCoverage: models.pairCoverage,
+    failures: models.failures,
     // Rounded: the clock a caller passes is `performance.now()`, whose
     // fractional milliseconds are noise in a report and noise in a diff.
     wallClockMs: Math.round(edges.now() - started),
@@ -424,5 +437,11 @@ export const runContext = async (
   // The text as well as the file: `--out` is what a caller keeps, and the
   // findings are what the caller reads now.
   if (out !== '') writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
+  // A model call that failed is this code going wrong rather than the caller's
+  // request being impossible, so it is `failed` and not `refused`, and the
+  // findings are already on stdout: the status says the run was incomplete,
+  // and the report says which part of it.
+  const count = report.failures.length
+  if (count > 0) return failed(`${count} model call${count === 1 ? '' : 's'} failed`)
   return ok('')
 }
