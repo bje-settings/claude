@@ -58,11 +58,11 @@ const describe = (ref: Ref): string => {
  *  does not resolve is the same finding wherever it was written. */
 const blocksOf = (report: Report): Array<Unit | OpaqueBlock> => [...report.units, ...report.opaque]
 
-/** One line per ref `keep` selects, naming where it was written. */
-const linesFor = (report: Report, keep: (ref: Ref) => boolean): string[] =>
+/** One line per ref resolved to `status`, naming where it was written. */
+const linesFor = (report: Report, status: Ref['resolution']['status']): string[] =>
   blocksOf(report).flatMap((block) =>
     block.refs
-      .filter(keep)
+      .filter((ref) => ref.resolution.status === status)
       .map(
         (ref) =>
           `  ${block.file}:${block.startLine}  ${ref.kind} \`${ref.value}\`  ${describe(ref)}`,
@@ -94,6 +94,13 @@ const uncheckedTally = (report: Report): string[] => {
   return [...counts].sort().map(([key, n]) => `  ${n}  ${key}`)
 }
 
+/** The resolutions tier 0 reports as findings, each under its own heading and
+ *  in this order. These are the two statuses {@link describe} prints. */
+const FINDING_SECTIONS = [
+  ['absent', 'tier 0: refs that do not resolve'],
+  ['line_out_of_range', 'tier 0: line references past the end of the file'],
+] as const satisfies ReadonlyArray<readonly [Ref['resolution']['status'], string]>
+
 /** A section: its heading, its count, and one line per finding. */
 const section = (heading: string, entries: string[]): string[] => [
   '',
@@ -112,18 +119,9 @@ export const renderFindings = (report: Report): string => {
   if (report.issueLookup !== 'ok') lines.push(`  issue lookup unavailable: ${report.issueLookup}`)
   if (report.ignoreCheck !== 'ok') lines.push(`  ignore check unavailable: ${report.ignoreCheck}`)
 
-  lines.push(
-    ...section(
-      'tier 0: refs that do not resolve',
-      linesFor(report, (ref) => ref.resolution.status === 'absent'),
-    ),
-  )
-  lines.push(
-    ...section(
-      'tier 0: line references past the end of the file',
-      linesFor(report, (ref) => ref.resolution.status === 'line_out_of_range'),
-    ),
-  )
+  for (const [status, heading] of FINDING_SECTIONS) {
+    lines.push(...section(heading, linesFor(report, status)))
+  }
   // There is deliberately no "issues cited that are not open" section here.
   // Tier 0 knows each cited issue's state, and every state is in the JSON
   // report, but the state alone is not a finding: a history line legitimately

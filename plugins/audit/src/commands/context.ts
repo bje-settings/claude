@@ -287,17 +287,11 @@ export const runContext = async (
   // the file it was told to write cannot be opened. It catches a missing
   // directory, a directory in the file's place and a read-only file alike.
   //
-  // `a` rather than `w`, because this is a probe and `w` truncates: with `w` a
-  // run that then refused would have emptied the caller's previous report on
-  // its way to writing nothing. The refusals that can still follow are the
-  // ones below: a root inside no checkout, a git that will not run, a git that
-  // will not list the tracked files, and a tracked file that cannot be read. A
-  // bad flag value is not among them, because every one of those is refused
-  // above, before the probe. Both modes create the file and both fail on all
-  // three cases above; only `w` destroys what is already there before the run
-  // has earned the right to. The write that earns it is a separate call, with
-  // `writeFileSync`'s own default of `w`, so the report replaces the file
-  // rather than being appended to it.
+  // `a` rather than `w`, because this is a probe: both modes create the file
+  // and both fail on those three cases, but `w` would also empty the caller's
+  // previous report on the way to a run that still refuses below. The write
+  // that earns it is a separate call, at `writeFileSync`'s own default of `w`,
+  // so the report replaces the file rather than being appended to it.
   const out = options.out
   if (out !== '') {
     try {

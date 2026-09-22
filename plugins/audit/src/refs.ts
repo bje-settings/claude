@@ -203,15 +203,13 @@ const scriptsFromManager = (
   requireRun: boolean,
   builtins: Set<string> | null,
 ): Located[] => {
-  const pattern = requireRun
-    ? new RegExp(`\\b${manager}\\s+run\\s+(${SCRIPT_NAME})`, 'g')
-    : new RegExp(`\\b${manager}\\s+(run\\s+)?(${SCRIPT_NAME})`, 'g')
+  // The `run` group is captured either way, required or optional, so one body
+  // reads both rules: under `requireRun` only the explicit form matches at
+  // all, so `explicit` is always true and no builtin can be reached.
+  const runGroup = requireRun ? '(run\\s+)' : '(run\\s+)?'
+  const pattern = new RegExp(`\\b${manager}\\s+${runGroup}(${SCRIPT_NAME})`, 'g')
   const located: Located[] = []
   for (const match of text.matchAll(pattern)) {
-    if (requireRun) {
-      located.push({ at: match.index, ref: scriptRef(`${manager} run ${match[1]}`) })
-      continue
-    }
     const explicit = match[1] !== undefined
     const name = match[2] as string
     if (!explicit && builtins?.has(name)) continue
@@ -390,7 +388,7 @@ const locateIssues = (text: string): Located[] => {
   const located: Located[] = []
   for (const match of text.matchAll(/#(\d+)\b/g)) {
     const start = match.index
-    if (ranges.some(([from, to]) => start >= from && start < to)) continue
+    if (inRanges(start, ranges)) continue
     const digits = match[1] as string
     if (digits.startsWith('0')) continue
     const before = text.slice(0, start)
@@ -440,12 +438,13 @@ export const extractBlockRefs = (
   kind: 'code' | 'frontmatter' | 'mermaid',
 ): Ref[] => {
   if (kind === 'mermaid') return []
+  const info = (lang ?? '').toLowerCase()
   const located: Located[] = []
-  if (kind === 'code' && COMMAND_LANGS.has((lang ?? '').toLowerCase())) {
+  if (kind === 'code' && COMMAND_LANGS.has(info)) {
     located.push(...locateCommands(text))
   }
   located.push(...locateScripts(text))
-  const yaml = kind === 'frontmatter' || YAML_LANGS.has((lang ?? '').toLowerCase())
+  const yaml = kind === 'frontmatter' || YAML_LANGS.has(info)
   located.push(...locatePathsInCode(text, yaml ? usesRanges(text) : []))
   located.push(...locateIssues(text))
   return inSourceOrder(located)
@@ -495,13 +494,8 @@ const isMachineSpecific = (value: string): boolean => value.startsWith('~/') || 
  *  (`${CLAUDE_PLUGIN_ROOT}/bin/audit.ts`), each on its own because either
  *  character alone is enough to make the value a template; `NNN` and `...`
  *  are the prose spellings of the same thing. */
-const isPattern = (value: string): boolean =>
-  value.includes('*') ||
-  value.includes('<') ||
-  value.includes('{') ||
-  value.includes('$') ||
-  value.includes('NNN') ||
-  value.includes('...')
+const PATTERN_RE = /[*<{$]|NNN|\.\.\./
+const isPattern = (value: string): boolean => PATTERN_RE.test(value)
 
 const toRepoRelative = (root: string, absolutePath: string): string =>
   relative(root, absolutePath).split(sep).join('/')
@@ -539,8 +533,8 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
     const named = ctx.tracked.filter(
       (tracked) => tracked.startsWith(`${value}-`) || tracked.startsWith(`${value}.`),
     )
-    const only = named.length === 1 ? named[0] : undefined
-    if (only !== undefined) return { status: 'found', repoPath: only }
+    // One match, so index 0 is present.
+    if (named.length === 1) return { status: 'found', repoPath: named[0] as string }
   }
 
   // A trailing slash says the value names a directory, which no tracked path
@@ -736,14 +730,14 @@ export const markIgnored = async (
   root: string,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> => {
-  const asked = [
-    ...new Set(blocks.flatMap((block) => block.refs.map(ignorableValue).filter((v) => v !== null))),
-  ]
-  if (asked.length === 0) return null
+  const asked = new Set(
+    blocks.flatMap((block) => block.refs.map(ignorableValue)).filter((value) => value !== null),
+  )
+  if (asked.size === 0) return null
   const result = await run('git', ['check-ignore', '-z', '--stdin'], {
     cwd: root,
     env,
-    stdin: asked.join('\0'),
+    stdin: [...asked].join('\0'),
   })
   // 1 is git's own "none of these are ignored", which needs no rewrite. Any
   // other non-zero status is a failure, including the 127 and 126 a child that
