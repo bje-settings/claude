@@ -1,0 +1,22 @@
+// Cases ported one at a time from the spike's split.test.ts (#164,
+// wktr-164-context-audit-spike, spike/context-audit/split.test.ts), as
+// independent literal expectations rather than a computed oracle. Order
+// follows the spike file so a diff against it is easy to audit.
+import { describe, expect, it } from 'vitest'
+
+import { splitMarkdown } from './split.ts'
+
+const FILE = 'a.md'
+
+describe('splitMarkdown', () => {
+  it('splits one paragraph of two sentences into two linked sentence units', () => {
+    const { units } = splitMarkdown(FILE, 'Foo bar. Baz qux!')
+    expect(units).toHaveLength(2)
+    expect(units[0]?.id).toBe('a.md:1-1')
+    expect(units[1]?.id).toBe('a.md:1-1#2')
+    expect(units[0]?.headingPath).toEqual([])
+    expect(units[1]?.headingPath).toEqual([])
+    expect(units[0]?.next).toBe('Baz qux!')
+    expect(units[1]?.prev).toBe('Foo bar.')
+  })
+})
