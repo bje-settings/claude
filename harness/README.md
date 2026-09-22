@@ -13,6 +13,7 @@ the one cleanup hook.
 | --- | --- |
 | `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, no credentials, and an `env` object to hand to children. |
 | `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
+| `jev.ts` | `createJevMock`: one reply per method (`classify`, `judgePair`, `judgeEvidence`), a fail switch per method, an unhandled method throws, `usage()` always answers zeros. `JevClient` itself lives in the root `lib/` and is re-exported here. |
 | `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle, and `importTree` to commit a fixture directory into one. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
@@ -118,6 +119,28 @@ double, its reply map and its fail switch. `GhError`, the failure the real clien
 re-exported beside them so a test reaches the double, the interface and the error through one
 module. Inputs and outputs are still plain JSON values on purpose: the commands that consume them
 (#127 layers 2 and 3) shape them with their own types.
+
+## The Jev mock
+
+```ts
+const jev = createJevMock({
+  classify: { classifications: [oneClassification], failures: [] },
+  judgeEvidence: new Error('jev: rate limited'), // the fail switch, for this one method alone
+})
+```
+
+`createJevMock` is the same shape as `createGhMock`, over `JevClient` (`lib/jev.ts`, #173): a reply
+registered per method (`classify`, `judgePair`, `judgeEvidence`) comes back on **every** call, an
+`Error` in its place is that method's own fail switch, and a method with **no** registration throws
+and names itself. `usage()` is not registrable: it always answers zeros, because the mock holds no
+state to accumulate a real total against, and a test that cares what a run actually spent belongs
+against `lib/jev.test.ts`'s transport (`typesafe.ts`), which is where the counting logic lives.
+
+`JevClient`, `ChoiceAnswer`, `Classification`, `ClassifyOutcome`, `EvidenceNeed`, `EvidenceVerdict`,
+`JevRequest`, `JevUnit`, `PairVerdict`, `RequestShape` and `UnitKind` moved to `lib/jev.ts` at #173,
+where `createJevClient` is written against them; `jev.ts` imports them back and re-exports them, the
+same as `gh.ts` does for `lib/gh.ts`'s types. `JevError`, the failure the real client throws, is
+re-exported beside them.
 
 ## The `gh` server
 

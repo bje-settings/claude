@@ -40,6 +40,8 @@ coverage, and still linted and type-checked.
 | `git.ts` | The git calls the ported scripts make more than once, over `process.ts`. Not a git SDK. |
 | `streams.ts` | Writers that go quiet on a broken pipe and on nothing else, and UTF-8 stdin. |
 | `gh.ts` | `GhClient` and `createGhClient`: one method per operation, `gh` as the transport, failure as a thrown `GhError`. |
+| `typesafe.ts` | `createJev`: the generic ask/usage transport for TypeSafe's System One endpoint, with retry, backoff and redaction. Failure as a thrown `JevError`. |
+| `jev.ts` | `JevClient` and `createJevClient`: the audit's five judgment questions over `typesafe.ts`, with the request batching and answer parsers. |
 
 ## The floor guard is the one static import
 
@@ -385,6 +387,75 @@ caller asserting that a run exists for a head would read a dropped row as "no ru
 page, newest first, bounded by `perPage`, and does not claim to be the whole list: this repository
 held 1,733 runs when that was measured, and every caller wants the recent ones. Ask it only what
 the newest page answers.
+
+## The TypeSafe transport and the Jev client
+
+```ts
+const jev = createJevClient({ apiKey: process.env.TYPESAFE_API_KEY })
+const { classifications, failures } = await jev.classify(units, 'per_unit')
+```
+
+Two files, ported from the context-audit spike (#164, `spike/context-audit/jev.ts` and
+`questions.ts`), split the way `lib/process.ts` and `lib/gh.ts` are: `typesafe.ts` is the generic
+`POST /v1/systemone` transport (`ask(state, questions)` and `usage()`, retried and redacted, with no
+idea what a question is *about*), and `jev.ts` is the audit's own client, built on it, that knows the
+five judgment questions and their answers. Nothing outside these two files needs to know the split
+exists; `jev.ts` re-exports `AnswerBag`, `Entry` and `TypeSafeOptions` from `typesafe.ts` so a caller
+reaches both through one import.
+
+**`typesafe.ts`.** `createJev(options)` takes `apiKey` and, for a test, every other knob that could
+otherwise sit in a branch nothing could steer: `fetch`, `sleep`, `random` and `timeoutMs`. A 429, a
+529 or a 5xx is retried with full-jitter backoff (`backoffMs`), capped at 30s before jitter; a
+server-stated `Retry-After`, in seconds or as an HTTP date (`retryAfterMs`), wins over the computed
+backoff and is itself capped at 120s, since that number is the server's choice and not this code's. A
+timeout abort (`AbortSignal.timeout`) is a transport failure and is retried the same way a network
+error is. A malformed 2xx body, and a 2xx whose body read itself fails, are each a non-retryable
+`JevError` carrying the real status: the request was already billed and answered, just not the way
+the contract promises, and resending it would only re-bill it. `requests` (logical calls, one per
+`ask`) and `attempts` (every HTTP attempt, retries included) are counted separately, because a call
+retried twice is one request and three attempts.
+
+The API key is redacted, both bare and as `Bearer <key>`, from every string this file attaches to a
+thrown `JevError`: a server's error body, a foreign `Error#message` that happened to echo a request
+header, and a malformed body that happens to contain the key. `JevError` carries `status` (0 for a
+transport failure that never got a response) and `body`, and, like `GhError`, has no private member:
+a class exported from `lib/` is seen by `tsc` under two identities, its real path and
+`plugins/<p>/src/lib/typesafe.ts` through the committed symlink, and a `private` or `protected` field
+would make the two identities stop being assignable to each other.
+
+**`jev.ts`.** `JevClient` wraps `typesafe.ts`'s `ask` with the five per-unit judgments
+(`kind`, `volatile`, `self_contained`, `evidence`, `multi_assertion`), the pair check and the
+evidence check, in either of two request shapes (`per_unit`: one request per unit; `per_section`:
+one request per heading path, batched against a token budget, `batchSections`). The instructions and
+criteria for all seven questions are copied VERBATIM from the spike's `questions.ts`: they were tuned
+against the live model, and every measurement the spike made (including that Jev has no
+question-count limit of its own, and refuses first on the 64k token budget, HTTP 400
+`max_tokens_exceeded`) depends on the wording staying exactly as written. A pull request touching
+this prose is reviewed as a rubric change, not a refactor.
+
+`lib/` cannot import a plugin, so the `Unit` type these methods take is not
+`plugins/audit/src/types.ts`'s `Unit`. `JevUnit` is the minimal structural shape the client actually
+reads off a unit (`id`, `file`, `headingPath`, `leadIn`, `prev`, `next`, `text`,
+`refs: { value: string }[]`); the plugin's richer `Unit` satisfies it structurally, with no import in
+either direction. `judgePair` and `judgeEvidence` answer with the bare `ChoiceAnswer`, not the
+spike's `PairJudgment`/`EvidenceJudgment`: those wrapper types carry a candidate's ids and similarity,
+or a unit's source and excerpt, which are facts the plugin already has, so attaching the verdict to
+that context is the plugin's job.
+
+`classify`'s failure rule, ported from the spike's `cli.ts` `classifyUnits`: every request is settled
+on its own (`Promise.allSettled`), so one bad request never costs the others. A **rejected request**
+loses only the units it covered — they are simply absent from `classifications` — with one failure
+recorded naming the request, not each unit, because the request is what actually failed. A unit whose
+answer DID arrive but does not parse (an unknown option, an out-of-range probability, a NaN
+confidence) gets its own failure, named by the unit, since that unit alone is what is wrong.
+
+Every parser (`readChoice`, `readNoul`) refuses rather than defaults: a Noul or a probability outside
+`[0, 1]`, a non-finite value, an array where an object is expected, or a chosen option with no
+probability of its own, is a thrown `Error`, never silently clamped or filled in with zero. An option
+Jev omits from `probabilities` because it scored zero DOES read as `0`, since that is the one
+omission the API's own contract promises; the chosen option's own probability is the one field that
+is never defaulted, because an answer that names its choice but carries no confidence in it is not
+one this code can trust.
 
 ## Decisions not taken
 
