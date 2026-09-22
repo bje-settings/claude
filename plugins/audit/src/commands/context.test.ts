@@ -645,3 +645,21 @@ it('treats an env-templated path as a placeholder rather than a missing file', a
     },
   ])
 })
+
+it('resolves a number-only record reference against the one file that starts with it', async () => {
+  // Prose names a record by its number, `docs/adr/022`, while the file carries
+  // a slug after it. One tracked path starting with the value and a separator
+  // is that file; reporting it absent would be a finding about a naming
+  // convention rather than about rot.
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[3]?.refs).toEqual([
+    {
+      kind: 'path',
+      value: 'docs/adr/022',
+      resolution: { status: 'found', repoPath: 'docs/adr/022-slug.md' },
+    },
+  ])
+})

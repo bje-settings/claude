@@ -499,6 +499,18 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
     return { status: 'found', repoPath: toRepoRelative(ctx.root, fromFile) }
   }
 
+  // A value with no extension may be a record named by its number, with the
+  // file carrying a slug after it (`docs/adr/022` for `docs/adr/022-slug.md`).
+  // Exactly one tracked path starting with the value and a separator is that
+  // file; two or more is a prefix that names none of them in particular.
+  if (extname(value) === '' && !value.endsWith('/')) {
+    const named = ctx.tracked.filter(
+      (tracked) => tracked.startsWith(`${value}-`) || tracked.startsWith(`${value}.`),
+    )
+    const only = named.length === 1 ? named[0] : undefined
+    if (only !== undefined) return { status: 'found', repoPath: only }
+  }
+
   // A trailing slash says the value names a directory, which no tracked path
   // ever is: git tracks files, so a directory is absolved by a file inside it
   // rather than by a path that ends with it.
