@@ -473,7 +473,7 @@ describe('the reviewer agents the review loop dispatches', () => {
     expect(findings(ran.stdout)).toEqual([
       {
         id: 'reviewer:type-design-analyzer',
-        hint: 'update pr-review-toolkit: no agents/type-design-analyzer.md in any installed copy',
+        hint: 'update pr-review-toolkit: no agents/type-design-analyzer.md in any installed copy that is there',
       },
     ])
   })

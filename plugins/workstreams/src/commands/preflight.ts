@@ -180,7 +180,7 @@ export const reviewerFindings = (paths: readonly string[]): Finding[] => {
       !reachable.some((root) => existsSync(path.join(root, 'agents', `${reviewer}.md`))),
   ).map((reviewer) => ({
     id: `reviewer:${reviewer}`,
-    hint: `update pr-review-toolkit: no agents/${reviewer}.md in any installed copy`,
+    hint: `update pr-review-toolkit: no agents/${reviewer}.md in any installed copy that is there`,
   }))
 }
 
