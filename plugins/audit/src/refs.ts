@@ -76,10 +76,16 @@ const KNOWN_BARE_FILENAMES = new Set([
  *  and is not a path, and a repository with dependencies writes several. */
 const SCOPED_PACKAGE_RE = /^@[\w.-]+\/[\w.-]+/
 
+/** A repository or action pinned at a ref (`owner/name@v1.2.3`,
+ *  `owner/name/sub@main`). The `@` is what separates it from a path: no file
+ *  in this tree is named after one repository at one ref. */
+const PINNED_REF_RE = /^[\w.-]+\/[\w./-]*@[\w./-]+$/
+
 const looksLikePath = (value: string): boolean => {
   if (/\s/.test(value)) return false
   if (value.includes('://')) return false
   if (SCOPED_PACKAGE_RE.test(value)) return false
+  if (PINNED_REF_RE.test(value)) return false
   if (value.includes('/')) return true
   if (KNOWN_BARE_FILENAMES.has(value)) return true
   return KNOWN_EXTENSIONS.has(extname(value))

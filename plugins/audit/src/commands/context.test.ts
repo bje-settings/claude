@@ -621,3 +621,11 @@ it('does not read a scoped package name as a path', async () => {
 
   expect(reportOf(audit.stdout()).units[0]?.refs).toEqual([])
 })
+
+it('does not read an owner/name@ref pin as a path', async () => {
+  const audit = audited('noise')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(reportOf(audit.stdout()).units[1]?.refs).toEqual([])
+})
