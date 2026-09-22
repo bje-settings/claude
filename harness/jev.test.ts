@@ -1,9 +1,17 @@
 // The mock's own claims (#173), mirroring harness/gh.test.ts: a reply
-// registered per method comes back on every call, a fail switch fails only
-// its own method, an unregistered method throws and names itself, and
-// usage() always answers zeros.
+// registered per method comes back on every call, a sequence takes one reply
+// per call with the last repeating (#174), a fail switch fails only its own
+// method, an unregistered method throws and names itself, and usage() always
+// answers zeros.
 import { expect, it } from 'vitest'
-import { createJevMock, JevError, jevFails } from './jev.ts'
+import {
+  type ChoiceAnswer,
+  createJevMock,
+  JevError,
+  type JevUnit,
+  jevFails,
+  type PairVerdict,
+} from './jev.ts'
 
 it('answers with the reply registered for classify, on every call', async () => {
   const outcome = { classifications: [], failures: [] }
@@ -229,4 +237,104 @@ it('usage() always answers zeros, whatever classify was told to answer', async (
     outputTokens: 0,
     requestMsSum: 0,
   })
+})
+
+/** The two arguments `judgePair` takes, which no test here varies: the double
+ *  reads neither, so they exist only to satisfy the interface. */
+const PAIR: [JevUnit, JevUnit] = [
+  {
+    id: 'a',
+    file: 'a.md',
+    headingPath: [],
+    leadIn: null,
+    prev: null,
+    next: null,
+    text: 'a',
+    refs: [],
+  },
+  {
+    id: 'b',
+    file: 'a.md',
+    headingPath: [],
+    leadIn: null,
+    prev: null,
+    next: null,
+    text: 'b',
+    refs: [],
+  },
+]
+
+/** A `judgePair` answer that chose `same_claim` with `confidence`. */
+const pairAnswer = (confidence: number): ChoiceAnswer<PairVerdict> => ({
+  choice: 'same_claim',
+  probabilities: { same_claim: 1, contradicts: 0, unrelated: 0 },
+  confidence,
+})
+
+it('takes one reply per call from a sequence, and repeats the last one', async () => {
+  // The fact a single reply cannot state: two calls of the same kind coming
+  // back with different confidences, which is what a ranked findings list is
+  // built out of. The third call is past the end and reads the last entry, so
+  // a stage that makes one call more than the test expected does not fall off.
+  const jev = createJevMock({}, { judgePair: [pairAnswer(0.4), pairAnswer(0.9)] })
+
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.4)
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.9)
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.9)
+})
+
+it('advances each method’s cursor on its own', async () => {
+  // One cursor per method, not one for the double: a stage that judges pairs
+  // and then evidence must not have the first stage's calls decide what the
+  // second one reads.
+  const jev = createJevMock(
+    {},
+    {
+      judgePair: [pairAnswer(0.4), pairAnswer(0.9)],
+      judgeEvidence: [
+        {
+          choice: 'contradicts',
+          probabilities: { contradicts: 1, says_nothing: 0, supports: 0 },
+          confidence: 0.7,
+        },
+        {
+          choice: 'supports',
+          probabilities: { contradicts: 0, says_nothing: 0, supports: 1 },
+          confidence: 0.2,
+        },
+      ],
+    },
+  )
+
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.4)
+  expect((await jev.judgeEvidence(PAIR[0], 'source.ts', 'excerpt')).choice).toBe('contradicts')
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.9)
+})
+
+it('throws a sequence entry that is an Error, for that call alone', async () => {
+  const jev = createJevMock(
+    {},
+    { judgePair: [jevFails('jev: rate limited', 429), pairAnswer(0.6)] },
+  )
+
+  await expect(jev.judgePair(...PAIR)).rejects.toThrow('jev: rate limited')
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.6)
+})
+
+it('outranks the single reply registered for the same method', async () => {
+  // Precedence, so a test that means "this call, then that one" is not
+  // quietly answered by a reply it left in place for another reason.
+  const jev = createJevMock({ judgePair: pairAnswer(0.1) }, { judgePair: [pairAnswer(0.8)] })
+
+  expect((await jev.judgePair(...PAIR)).confidence).toBe(0.8)
+})
+
+it('refuses an empty sequence rather than falling through to the reply', async () => {
+  // An empty array is a test that meant to register something and did not;
+  // answering it from the single reply, or from nothing, would hide that.
+  const jev = createJevMock({ judgePair: pairAnswer(0.1) }, { judgePair: [] })
+
+  await expect(jev.judgePair(...PAIR)).rejects.toThrow(
+    'jev mock: the sequence registered for judgePair is empty',
+  )
 })

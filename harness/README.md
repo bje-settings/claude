@@ -13,7 +13,7 @@ the one cleanup hook.
 | --- | --- |
 | `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, no credentials, and an `env` object to hand to children. |
 | `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
-| `jev.ts` | `createJevMock`: one reply per method (`classify`, `judgePair`, `judgeEvidence`), a fail switch on every method except `classify`, an unhandled method throws, `usage()` always answers zeros. `JevClient` itself lives in the root `lib/` and is re-exported here. |
+| `jev.ts` | `createJevMock`: one reply per method (`classify`, `judgePair`, `judgeEvidence`), or a sequence of them for `judgePair` and `judgeEvidence`; a fail switch on every method except `classify`, an unhandled method throws, `usage()` always answers zeros. `JevClient` itself lives in the root `lib/` and is re-exported here. |
 | `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle, and `importTree` to commit a fixture directory into one. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
@@ -139,6 +139,21 @@ the same gap `ghFails` closes for `GhError`. `usage()` is not registrable: it al
 because the mock holds no state to accumulate a real total against, and a test that cares what a run
 actually spent belongs against `lib/jev.test.ts`'s transport (`typesafe.ts`), which is where the
 counting logic lives.
+
+A second argument registers a **sequence** for `judgePair` or `judgeEvidence`, the same shape
+`createGhServer` has (see below) and with the same rules: one entry per call, the last entry
+repeats, and an entry that is an `Error` is thrown for that call alone. A sequence outranks the
+single reply for that method; an empty one throws rather than falling through to it.
+
+```ts
+const jev = createJevMock({}, { judgePair: [saysSameClaim(0.4), saysSameClaim(0.9)] })
+```
+
+One reply per method answers every call with the same value, which is right for a stage whose
+calls are interchangeable. It cannot state the fact a ranked findings list turns on: that two
+judgments of the same kind came back with DIFFERENT confidences, which is what `report.ts` orders
+its findings by. `classify` takes no sequence, because a run asks it once however many units there
+are.
 
 `classify` has no fail switch: `classifyImpl` settles every request with `Promise.allSettled` and
 folds a rejected one into `ClassifyOutcome.failures` rather than rejecting its own promise, so
