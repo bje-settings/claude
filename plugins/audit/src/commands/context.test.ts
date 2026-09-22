@@ -1583,3 +1583,26 @@ it('still compares the same cell written under two different headings', async ()
     ].join('\n'),
   )
 })
+
+it('lets no unit be compared more than five times, whichever side it is on', async () => {
+  // Seven units that all say nearly the same thing would be twenty-one calls,
+  // and the twenty-first buys nothing a reader did not already have from the
+  // first few. The cap binds on both sides of a pair: a unit that sorts last
+  // is never the query side, so without the second check its own cap would
+  // never bind at all.
+  const ids = [3, 5, 7, 9, 11, 13, 15].map((line) => `CLAUDE.md:${line}-${line}`)
+  const audit = modelled('hub', {
+    classify: { classifications: ids.map((id) => classified(id)), failures: [] },
+    judgePair: picked<PairVerdict>('unrelated'),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const pairs = reportOf(audit.stdout()).pairs
+  const appearances = new Map<string, number>()
+  for (const pair of pairs) {
+    for (const id of [pair.a, pair.b]) appearances.set(id, (appearances.get(id) ?? 0) + 1)
+  }
+  expect(Math.max(...appearances.values())).toBe(5)
+  expect(pairs.length).toBeLessThan(21)
+})

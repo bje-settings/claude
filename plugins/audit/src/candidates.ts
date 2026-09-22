@@ -15,6 +15,11 @@ export type PairCandidate = { a: string; b: string; similarity: number }
 
 const DEFAULT_THRESHOLD = 0.5
 
+/** How many pairs one unit may appear in, on either side. A unit that says
+ *  nearly what a dozen others say is worth a second look a few times over,
+ *  and the twelfth call buys nothing the first few did not. */
+const MAX_PER_UNIT = 5
+
 /** A unit shorter than this, in tokens, is never paired: there is not enough
  *  text for a shared-vocabulary match to mean anything, and a short line
  *  ("See below.") would otherwise pair with everything that happens to share
@@ -97,6 +102,8 @@ const repeatedCell = (unit: Unit, other: Unit): boolean => {
   return group !== null && group === tableGroup(other)
 }
 
+const pairKey = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`)
+
 /** The dot product of two token-weight maps, iterating the smaller one: both
  *  vectors are already L2-normalised below, so this dot product IS the cosine
  *  similarity. */
@@ -154,8 +161,10 @@ const vectorsOf = (tokensByUnit: Map<string, string[]>): Map<string, Map<string,
  * Candidate pairs of similar units, lexical only, chosen before any model
  * call.
  *
- * Never pairs a unit with itself, emits each pair once (`a < b` by id), and
- * skips a unit under {@link MIN_TOKENS} tokens entirely.
+ * Never pairs a unit with itself, emits each pair once (`a < b` by id), skips
+ * a unit under {@link MIN_TOKENS} tokens entirely, drops a cell repeated down
+ * one table ({@link repeatedCell}), and lets no unit appear in more than
+ * {@link MAX_PER_UNIT} pairs.
  */
 export const candidatePairs = (
   units: readonly Unit[],
@@ -172,19 +181,40 @@ export const candidatePairs = (
     eligible.push(unit)
   }
   const vectors = vectorsOf(tokensByUnit)
+  // Sorted for a deterministic processing order: which unit is the query side
+  // first decides which pairs fill a cap up.
+  eligible.sort((a, b) => (a.id < b.id ? -1 : 1))
 
+  const seen = new Set<string>()
+  const taken = new Map<string, number>()
+  const countOf = (id: string): number => taken.get(id) ?? 0
   const pairs: PairCandidate[] = []
-  for (const [index, unit] of eligible.entries()) {
-    for (const other of eligible.slice(index + 1)) {
-      // Both ids are keys of `tokensByUnit`, so both have a vector.
-      const similarity = dot(
-        vectors.get(unit.id) as Map<string, number>,
-        vectors.get(other.id) as Map<string, number>,
-      )
+
+  for (const unit of eligible) {
+    if (countOf(unit.id) >= MAX_PER_UNIT) continue
+    const vector = vectors.get(unit.id) as Map<string, number>
+    const scored: Array<{ other: Unit; similarity: number }> = []
+    for (const other of eligible) {
+      if (other.id === unit.id) continue
+      if (seen.has(pairKey(unit.id, other.id))) continue
+      const similarity = dot(vector, vectors.get(other.id) as Map<string, number>)
       if (similarity < threshold) continue
       if (repeatedCell(unit, other)) continue
-      const [a, b] = unit.id < other.id ? [unit.id, other.id] : [other.id, unit.id]
-      pairs.push({ a, b, similarity })
+      scored.push({ other, similarity })
+    }
+    scored.sort((x, y) => y.similarity - x.similarity)
+
+    for (const candidate of scored) {
+      // Both counts are re-read here rather than in `scored`: earlier turns of
+      // this same loop change them.
+      if (countOf(unit.id) >= MAX_PER_UNIT) break
+      if (countOf(candidate.other.id) >= MAX_PER_UNIT) continue
+      seen.add(pairKey(unit.id, candidate.other.id))
+      taken.set(unit.id, countOf(unit.id) + 1)
+      taken.set(candidate.other.id, countOf(candidate.other.id) + 1)
+      const [a, b] =
+        unit.id < candidate.other.id ? [unit.id, candidate.other.id] : [candidate.other.id, unit.id]
+      pairs.push({ a, b, similarity: candidate.similarity })
     }
   }
   return pairs
