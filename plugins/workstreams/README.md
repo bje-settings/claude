@@ -185,6 +185,12 @@ commit and never costs anyone their work.
 
 Anything it cannot read is one line on stderr and an allow. It never fails a session.
 
+It costs one node process, about 0.1 s, in front of every Bash and PowerShell call in any
+session that has the plugin enabled, the main conversation's included. An
+[`if` condition](https://code.claude.com/docs/en/hooks#common-fields) cannot narrow that
+away: `run_in_background` is a tool input the permission rule syntax cannot match, so the
+background half has to see every command.
+
 Run it by hand with a payload on stdin, which is how Claude Code runs it:
 
 ```bash

@@ -48,8 +48,3 @@ has read, which no later check can undo. A head with no workflow run twice is no
 waiting fixes, and a watch that exited 0 is not evidence it has one.
 
 Nothing merges in this flow. The layers exist so that a person can merge them in order.
-
-Why the layers are strictly serial, rather than one agent for the stack or one agent per layer
-in parallel: a review fix on the lower branch rewrites every branch above it, so nothing may be
-writing above at that moment; and the upper layer is then written once, against the names the
-lower layer's review settled, instead of twice.
