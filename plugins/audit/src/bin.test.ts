@@ -6,7 +6,11 @@
 // The real run at the end uses a fixture with no issue reference in it, so the
 // child needs no `gh`: a spawned child cannot be handed the injected client
 // (ADR 001), and a fixture that named an issue would be reaching for the real
-// one.
+// one. The same goes for Jev, and one step further: the sandbox sweeps
+// `TYPESAFE_API_KEY`, and this adapter builds the REAL client from whatever
+// key there is, so the only model path a spawned test may take is the one
+// where there is no key and no client is built at all. A fake key here would
+// not make a fake call, it would make a real one.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -88,4 +92,7 @@ it('audits a real checkout end to end, with no key and no gh to reach', () => {
   expect(result.stderr).toBe('')
   expect(result.stdout).toContain('  CLAUDE.md:3  path `lib/gone.ts`  absent')
   expect(result.stdout).toContain('## classify: skipped (no_key)')
+  // Nothing was spent, which is the other half of "no client was built".
+  expect(result.stdout).toContain('## failures (0)')
+  expect(result.stdout).toMatch(/## usage: 0 requests \(0 attempts\), 0 input tokens,/)
 })
