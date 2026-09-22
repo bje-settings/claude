@@ -12,7 +12,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 
-import { createGhMock, type GhClient, type GhReplies } from '../../../../harness/gh.ts'
+import { createGhMock, type GhClient, type GhReplies, ghFails } from '../../../../harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '../../../../harness/git.ts'
 import { createSandbox, type Sandbox } from '../../../../harness/sandbox.ts'
 import { createOutput, type OutputStream } from '../lib/streams.ts'
@@ -589,4 +589,24 @@ it('carries the lookup’s own reason into the report and the findings text', as
   await runContext([audit.work], audit.edges)
 
   expect(audit.stdout()).toContain('  issue lookup unavailable: API rate limit exceeded')
+})
+
+it('catches a gh failure into the lookup reason, leaving every issue unchecked', async () => {
+  // The real client folds its own failures into `unavailable` and never
+  // throws, but a caller that trusted that and reached for `.states` on a
+  // rejection would take the whole audit down over one lookup.
+  const audit = audited('issues', {
+    issueStates: ghFails('gh: could not resolve to a Repository'),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.issueLookup).toBe('gh: could not resolve to a Repository')
+  expect(report.units.map((unit) => unit.refs[0]?.resolution)).toEqual([
+    { status: 'unchecked', reason: 'unavailable' },
+    { status: 'unchecked', reason: 'unavailable' },
+    { status: 'unchecked', reason: 'unavailable' },
+    { status: 'unchecked', reason: 'unavailable' },
+  ])
 })

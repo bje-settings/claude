@@ -15,7 +15,7 @@ import path from 'node:path'
 import { markdownFiles, scopeFilter, trackedPaths } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
-import type { GhClient, GhResults } from '../lib/gh.ts'
+import type { GhClient, GhError, GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
 import {
@@ -158,7 +158,16 @@ const issueStates = async (
   numbers: readonly number[],
 ): Promise<GhResults['issueStates']> => {
   if (numbers.length === 0) return { states: {}, unavailable: null }
-  return await edges.createGh(root).issueStates({ numbers })
+  try {
+    return await edges.createGh(root).issueStates({ numbers })
+  } catch (error) {
+    // The real client folds its own failures into `unavailable` and never
+    // throws (`lib/README.md`), so this is the belt to that braces: a client
+    // that did throw would otherwise take the whole audit down over one
+    // lookup. `GhError` is the only failure it declares, and `detail` is gh's
+    // own account of it without the argv prefix the message carries.
+    return { states: {}, unavailable: (error as GhError).detail }
+  }
 }
 
 /** A block tier 0 fills in: a unit or an opaque block, both of which carry
