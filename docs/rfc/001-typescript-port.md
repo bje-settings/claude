@@ -503,7 +503,7 @@ It absorbs six `field-test` issues: [#93](https://github.com/bje-settings/claude
 
 ## Decisions & Follow-ups
 
-Fifteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
+Sixteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
 and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions 1, 6, 7 and
 13 by [ADR 002](../adr/002-quality-gate-venues.md).
 
@@ -614,8 +614,8 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     settings. claude.ai rejects a plugin that has one, whether the plugin arrives by marketplace
     sync or by direct upload ... Keep executables in another directory, such as `scripts/`, and
     reference them as `${CLAUDE_PLUGIN_ROOT}/scripts/<name>` from your skills, hooks, or MCP
-    server configs." Every plugin in this marketplace
-    shipped `bin/<plugin>.ts`, so none of them was eligible for that distribution path at all.
+    server configs." Every plugin here that had shipped a TypeScript entry point shipped it at
+    `bin/<plugin>.ts`, so none of the three was eligible for that distribution path at all.
     `bin/` also has a side effect nothing here wants: the
     [file locations reference](https://code.claude.com/docs/en/plugins-reference#file-locations-reference)
     adds it to the Bash tool's `PATH` while the plugin is enabled, which makes every entry point a
