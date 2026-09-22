@@ -8,7 +8,7 @@
 // point of `SkippedStage`: "skipped" must never read as "nothing found".
 
 import type { PairCandidate } from './candidates.ts'
-import type { ChoiceAnswer, PairVerdict } from './lib/jev.ts'
+import type { ChoiceAnswer, Classification, PairVerdict } from './lib/jev.ts'
 import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
 
 /** A candidate the model has ruled on. The candidate's own ids and similarity
@@ -47,6 +47,7 @@ export type Report = {
   ignoreCheck: string
   /** Stages that did not run at all, and why. */
   skipped: SkippedStage[]
+  classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
   wallClockMs: number
@@ -137,13 +138,21 @@ const pairSections = (report: Report): string[] => {
   ]
 }
 
-/** A unit that names an expiry, where an issue it cites is no longer open. */
-const isExpired = (unit: Unit): boolean =>
+/** A unit that names an expiry, where an issue it cites is no longer open.
+ *
+ *  A record of the past cites a closed issue correctly, so `history` is never
+ *  a finding here however the issue resolved. The model is not asked WHICH
+ *  issue the expiry refers to, so a unit citing several is reported when any
+ *  of them has closed. */
+const isExpired = (unit: Unit, judged: Classification | undefined): boolean =>
+  judged !== undefined &&
+  judged.kind.choice !== 'history' &&
   unit.refs.some((ref) => ref.resolution.status === 'issue' && ref.resolution.state !== 'OPEN')
 
 /** The units the classify stage makes findings of. */
 const expiredSections = (report: Report): string[] => {
-  const expired = report.units.filter(isExpired)
+  const judged = new Map(report.classifications.map((entry) => [entry.unitId, entry]))
+  const expired = report.units.filter((unit) => isExpired(unit, judged.get(unit.id)))
   return [
     '',
     `## volatile and the issue it names is closed (${expired.length})`,

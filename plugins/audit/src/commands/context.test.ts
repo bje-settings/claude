@@ -1394,3 +1394,23 @@ it('reports a volatile unit whose cited issue has closed', async () => {
     ].join('\n'),
   )
 })
+
+it('never calls a history unit expired, whatever the issue it cites says', async () => {
+  // A line about a past round cites a closed issue correctly, and this
+  // repository's own files are almost entirely that: without the kind, the
+  // section would report every one of them.
+  const audit = modelled(
+    'history',
+    {
+      classify: {
+        classifications: [classified('CLAUDE.md:3-3', { kind: picked<UnitKind>('history') })],
+        failures: [],
+      },
+    },
+    { issueStates: { states: { '164': 'CLOSED' }, unavailable: null } },
+  )
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain('## volatile and the issue it names is closed (0)')
+})

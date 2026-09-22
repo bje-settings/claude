@@ -18,7 +18,7 @@ import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
-import type { JevClient, RequestShape, UnitKind } from '../lib/jev.ts'
+import type { Classification, JevClient, RequestShape, UnitKind } from '../lib/jev.ts'
 import type { Output } from '../lib/streams.ts'
 import {
   extractBlockRefs,
@@ -182,6 +182,7 @@ const skipReason = (noJev: boolean): SkippedStage['reason'] => (noJev ? 'no_jev'
 /** What the model stages produced, or what they did instead. */
 type ModelOutcome = {
   skipped: SkippedStage[]
+  classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
 }
@@ -231,6 +232,7 @@ const modelStages = async (
   if (options.noJev || key === '') {
     return {
       skipped: skippedStages(skipReason(options.noJev)),
+      classifications: [],
       pairs: [],
       pairCoverage: { judged: 0, available: 0 },
     }
@@ -239,7 +241,7 @@ const modelStages = async (
   const { classifications } = await jev.classify(units, options.shape)
   const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
   const paired = await judgePairs(jev, units, kindOf)
-  return { skipped: [], pairs: paired.pairs, pairCoverage: paired.coverage }
+  return { skipped: [], classifications, pairs: paired.pairs, pairCoverage: paired.coverage }
 }
 
 /** What the issue lookup answered, with the numbers as `gh` reports them.
@@ -410,6 +412,7 @@ export const runContext = async (
     issueLookup: tier0.issueLookup ?? 'ok',
     ignoreCheck: tier0.ignoreCheck ?? 'ok',
     skipped: models.skipped,
+    classifications: models.classifications,
     pairs: models.pairs,
     pairCoverage: models.pairCoverage,
     // Rounded: the clock a caller passes is `performance.now()`, whose
