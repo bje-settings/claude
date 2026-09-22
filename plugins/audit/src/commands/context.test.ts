@@ -276,6 +276,8 @@ it('reports a path that is not there as the finding, in the findings text', asyn
       '',
       '## tier 0: issues cited that are not open (0)',
       '',
+      '## tier 0: refs not checked',
+      '',
       '## classify: skipped (no_key)',
       '',
       '## pairs: skipped (no_key)',
@@ -750,4 +752,22 @@ it('lists the issues a file cites that are no longer open', async () => {
     ),
   )
   expect(text).toContain('  CLAUDE.md:7  issue `#4242`  absent')
+})
+
+it('tallies what tier 0 did not settle, by kind and reason', async () => {
+  // Without this, "unchecked" reads as "fine": a reader has no way to tell a
+  // repository whose refs all resolved from one whose refs were mostly never
+  // looked at.
+  const audit = audited('tails')
+
+  await runContext([audit.work], audit.edges)
+
+  expect(audit.stdout()).toContain(
+    [
+      '## tier 0: refs not checked',
+      '  1  path pattern',
+      '  2  path tail_match',
+      '  1  script no_resolver',
+    ].join('\n'),
+  )
 })

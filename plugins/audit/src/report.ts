@@ -55,6 +55,31 @@ const linesFor = (report: Report, keep: (ref: Ref) => boolean): string[] =>
       ),
   )
 
+/** How a ref tier 0 did not settle is tallied, or `null` for one it did.
+ *  `unchecked` carries its own reason; `tail_match` and `ignored` are answers
+ *  that are neither "there" nor "missing", and a reader counting findings has
+ *  to be able to see how many of them there were. */
+const uncheckedKey = (ref: Ref): string | null => {
+  const resolution = ref.resolution
+  if (resolution.status === 'unchecked') return `${ref.kind} ${resolution.reason}`
+  if (resolution.status === 'tail_match' || resolution.status === 'ignored') {
+    return `${ref.kind} ${resolution.status}`
+  }
+  return null
+}
+
+/** The tally, one line per kind and reason, in key order. */
+const uncheckedTally = (report: Report): string[] => {
+  const counts = new Map<string, number>()
+  for (const block of blocksOf(report)) {
+    for (const ref of block.refs) {
+      const key = uncheckedKey(ref)
+      if (key !== null) counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+  }
+  return [...counts].sort().map(([key, n]) => `  ${n}  ${key}`)
+}
+
 /** A section: its heading, its count, and one line per finding. */
 const section = (heading: string, entries: string[]): string[] => [
   '',
@@ -95,6 +120,11 @@ export const renderFindings = (report: Report): string => {
       ),
     ),
   )
+
+  // No count in this heading: the lines are the counts, and a number of
+  // distinct kinds beside them would be a second number meaning something
+  // else.
+  lines.push('', '## tier 0: refs not checked', ...uncheckedTally(report))
 
   for (const skipped of report.skipped) {
     lines.push('', `## ${skipped.stage}: skipped (${skipped.reason})`)
