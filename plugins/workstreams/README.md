@@ -74,7 +74,9 @@ Reports the open milestones with their issue counts, every open pull request inc
 ones no round opened, and the three sets for each milestone asked for plus the issues on
 no milestone at all. `--milestone` takes one number or a comma-separated list and is
 refused if given twice, because `parseArgs` would otherwise keep only the last one
-silently. `--json` prints one object for a skill to read.
+silently. Left out, the report covers every open milestone and any other milestone the
+issues name, so an open issue left on a closed milestone is still reported. `--json`
+prints one object for a skill to read.
 
 Exit 2 on a usage error, 1 only when nothing at all could be read. A read that partly
 failed is still an answer: the rows that arrived are reported and every reason the answer

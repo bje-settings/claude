@@ -28,9 +28,12 @@ for plus the issues on no milestone at all:
   next tier   exactly one open blocker, and that blocker is itself unblocked
   blocked     everything else, with its open blockers named
 
---milestone takes one number or a comma-separated list; left out, every open
-milestone is swept. It is not repeatable: a second --milestone would silently
-replace the first, so it is refused and the comma list named instead.
+--milestone takes one number or a comma-separated list, and scopes the report
+to those milestones and the issues on none. Left out, every open milestone is
+swept, and so is any other milestone the issues that were read name for
+themselves, so that nothing read goes unreported. It is not repeatable: a
+second --milestone would silently replace the first, so it is refused and the
+comma list named instead.
 
 --json prints the report as one JSON object for a skill to read; without it
 the same report is printed for a person.
@@ -338,6 +341,10 @@ const headerFor = (number: number, milestones: readonly MilestoneSummary[]): Gro
  * and what makes the unblocked set one set rather than one per group; the
  * per-milestone ones are what a milestone read still answers when the
  * unfiltered read did not.
+ *
+ * With no `--milestone`, the groups are the open milestones and any other
+ * milestone the issues themselves name, so a row that was read is never left
+ * out of every set.
  */
 export const runSweep = async (
   argv: readonly string[],
