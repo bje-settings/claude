@@ -49,7 +49,22 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     }
 
     if (matchListMarker(line)) {
-      i = parseListBlock(lines, i, headingStack, file, units)
+      i = parseListBlock(lines, i, headingStack, null, file, units)
+      continue
+    }
+
+    // "Directly before a list" also matches across blank lines: a blank line
+    // (or several) between a lead-in paragraph and the list it introduces is
+    // still tolerated.
+    let afterBlank = i + 1
+    while (afterBlank <= total && isBlank(lines[afterBlank - 1] ?? '')) afterBlank++
+    const afterLine = afterBlank <= total ? (lines[afterBlank - 1] ?? '') : null
+    const nextIsList = afterLine !== null && matchListMarker(afterLine) !== null
+
+    if (nextIsList && line.trim().endsWith(':')) {
+      // A lead-in line is never a unit; it becomes the leadIn for the list
+      // that follows it.
+      i = parseListBlock(lines, afterBlank, headingStack, line.trim(), file, units)
       continue
     }
 
@@ -112,6 +127,7 @@ const parseListBlock = (
   lines: string[],
   start: number,
   headingStack: HeadingFrame[],
+  topLeadIn: string | null,
   file: string,
   units: Omit<Unit, 'id' | 'prev' | 'next'>[],
 ): number => {
@@ -145,7 +161,7 @@ const parseListBlock = (
       // a sibling of the item it replaces, not its continuation.
       popTo(marker.indent)
       const parent = stack[stack.length - 1]
-      const leadIn = parent ? parent.text : null
+      const leadIn = parent ? parent.text : topLeadIn
       stack.push({
         indent: marker.indent,
         contentColumn: marker.contentColumn,

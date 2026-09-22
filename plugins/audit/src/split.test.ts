@@ -74,4 +74,13 @@ describe('splitMarkdown', () => {
     const items = units.filter((u) => u.block === 'list_item')
     expect(items.map((u) => u.text)).toEqual(['first', 'second'])
   })
+
+  it('turns a paragraph line ending in ":" directly before a list into leadIn, never a unit', () => {
+    const source = ['Read the following:', '', '- alpha', '- beta'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).not.toContain('Read the following:')
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items[0]?.leadIn).toBe('Read the following:')
+    expect(items[1]?.leadIn).toBe('Read the following:')
+  })
 })
