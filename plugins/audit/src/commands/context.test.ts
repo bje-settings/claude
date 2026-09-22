@@ -557,3 +557,26 @@ it('takes no refs at all out of a mermaid diagram', async () => {
   expect(diagram?.kind).toBe('mermaid')
   expect(diagram?.refs).toEqual([])
 })
+
+it('gives each issue reference the state the lookup answered with', async () => {
+  // A number the lookup left out is `unavailable`, never absent: the reason it
+  // is missing may be a permissions error or a rate limit, and reporting that
+  // as "no such issue" is a finding invented out of a failure to ask.
+  const audit = audited('issues', {
+    issueStates: {
+      states: { '170': 'OPEN', '164': 'CLOSED', '4242': 'not_found' },
+      unavailable: null,
+    },
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.units.map((unit) => unit.refs)).toEqual([
+    [{ kind: 'issue', value: '#170', resolution: { status: 'issue', state: 'OPEN' } }],
+    [{ kind: 'issue', value: '#164', resolution: { status: 'issue', state: 'CLOSED' } }],
+    [{ kind: 'issue', value: '#4242', resolution: { status: 'absent' } }],
+    [{ kind: 'issue', value: '#999', resolution: { status: 'unchecked', reason: 'unavailable' } }],
+  ])
+  expect(report.issueLookup).toBe('ok')
+})

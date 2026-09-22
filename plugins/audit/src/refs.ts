@@ -9,7 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-import type { Ref, Resolution } from './types.ts'
+import type { IssueLookup, Ref, Resolution } from './types.ts'
 
 /** What every extracted ref carries until {@link resolveRefs} runs. */
 const UNRESOLVED: Resolution = { status: 'unchecked', reason: 'not_resolved_yet' }
@@ -307,6 +307,58 @@ const locatePathsInCode = (content: string): Located[] => {
   return located
 }
 
+/** `https://...` up to the next whitespace or an enclosing bracket or quote,
+ *  as ranges over `text`, so an issue match whose `#` falls inside one is
+ *  dropped as part of the URL rather than read as a reference of its own. */
+const urlRanges = (text: string): Array<[number, number]> => {
+  const ranges: Array<[number, number]> = []
+  for (const match of text.matchAll(/https?:\/\/[^\s)\]>"'`]+/g)) {
+    ranges.push([match.index, match.index + match[0].length])
+  }
+  return ranges
+}
+
+/** An `owner/repo` slug written immediately before a `#`: the reference is to
+ *  another repository's issue, which this audit cannot resolve against the
+ *  checkout it was given. */
+const CROSS_REPO_RE = /[\w.-]+\/[\w.-]+$/
+
+/** A `:` or `,` touching the `#`, as in a mermaid `classDef ... color:#000` or
+ *  a CSS declaration. Deliberately NOT tolerant of a space between them: prose
+ *  writes "#116, #129" and "blocked by: #123", and every one of those is an
+ *  issue number of exactly the three digits a colour has. A style declaration
+ *  writes no space there, so adjacency is what separates the two. The accepted
+ *  cost is a deliberate false negative on "blocked by:#123". */
+const COLOUR_PREFIX_RE = /[:,]$/
+
+/**
+ * `#123` anywhere in `text`, in prose or inside a code span alike, with four
+ * exclusions: a `#` inside a URL is part of the URL; a `#` preceded by an
+ * `owner/repo` slug names another repository's issue; a number with a leading
+ * zero is no issue number, which is what keeps `#000` out; and a `#` touching
+ * a preceding `:` or `,` with three or six digits after it is a colour.
+ *
+ * Two further exclusions fall out of the pattern itself: a hex colour
+ * containing a letter never matches, because the pattern is built from `\d`
+ * only, and an ATX heading never matches, because CommonMark requires a space
+ * after the `#` while this pattern requires a digit.
+ */
+const locateIssues = (text: string): Located[] => {
+  const ranges = urlRanges(text)
+  const located: Located[] = []
+  for (const match of text.matchAll(/#(\d+)\b/g)) {
+    const start = match.index
+    if (ranges.some(([from, to]) => start >= from && start < to)) continue
+    const digits = match[1] as string
+    if (digits.startsWith('0')) continue
+    const before = text.slice(0, start)
+    if (CROSS_REPO_RE.test(before)) continue
+    if ((digits.length === 3 || digits.length === 6) && COLOUR_PREFIX_RE.test(before)) continue
+    located.push({ at: start, ref: { kind: 'issue', value: `#${digits}`, resolution: UNRESOLVED } })
+  }
+  return located
+}
+
 /** `located` in source order, stably: two refs found at the same offset keep
  *  the order the passes produced them in. */
 const inSourceOrder = (located: Located[]): Ref[] =>
@@ -327,6 +379,7 @@ export const extractRefs = (text: string): Ref[] => {
       located.push({ at: base + entry.at, ref: entry.ref })
     }
   }
+  located.push(...locateIssues(text))
   return inSourceOrder(located)
 }
 
@@ -351,6 +404,7 @@ export const extractBlockRefs = (
   }
   located.push(...locateScripts(text))
   located.push(...locatePathsInCode(text))
+  located.push(...locateIssues(text))
   return inSourceOrder(located)
 }
 
@@ -365,6 +419,9 @@ export type ResolveContext = {
   /** Shared across every unit of one run, so each `package.json` is read
    *  once rather than once per unit. */
   packageJson: PackageJsonCache
+  /** What the caller's one batched lookup said about a number. Nothing here
+   *  reaches the network. */
+  issueState: (n: number) => IssueLookup
 }
 
 /** One `package.json`, read once: its `scripts` object, or why there is none
@@ -547,6 +604,21 @@ const resolveScript = (ref: Ref, ctx: ResolveContext): Resolution => {
 
 /** `refs`, each carrying the `Resolution` `types.ts` declares. Order is
  *  preserved. */
+/** An issue's resolution. `unavailable` is "could not ask", which is a
+ *  different fact from "no such issue", and only the second is a finding. */
+const resolveIssue = (ref: Ref, ctx: ResolveContext): Resolution => {
+  const lookup = ctx.issueState(Number(ref.value.slice(1)))
+  if (lookup === 'unavailable') return unchecked('unavailable')
+  if (lookup === 'not_found') return { status: 'absent' }
+  return { status: 'issue', state: lookup }
+}
+
+/** Every issue number the refs name, deduplicated, for the one batched
+ *  lookup. */
+export const issueNumbers = (refs: readonly Ref[]): number[] => [
+  ...new Set(refs.filter((ref) => ref.kind === 'issue').map((ref) => Number(ref.value.slice(1)))),
+]
+
 const resolveOne = (
   ref: Ref,
   ctx: ResolveContext,
@@ -564,6 +636,7 @@ const resolveOne = (
   // The contract for a command is extract-only: what a shell would find on
   // PATH is a fact about the machine, not about this repository.
   if (ref.kind === 'command') return unchecked('no_resolver')
+  if (ref.kind === 'issue') return resolveIssue(ref, ctx)
   return resolvePathValue(ref.value, ctx)
 }
 

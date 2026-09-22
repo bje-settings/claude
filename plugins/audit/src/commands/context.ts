@@ -15,10 +15,16 @@ import path from 'node:path'
 import { markdownFiles, scopeFilter, trackedPaths } from '../discover.ts'
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
-import type { GhClient } from '../lib/gh.ts'
+import type { GhClient, GhResults } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
-import { extractBlockRefs, extractRefs, type PackageJsonCache, resolveRefs } from '../refs.ts'
+import {
+  extractBlockRefs,
+  extractRefs,
+  issueNumbers,
+  type PackageJsonCache,
+  resolveRefs,
+} from '../refs.ts'
 import { type Report, renderFindings, type SkippedStage } from '../report.ts'
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
@@ -140,6 +146,70 @@ const skipReason = (env: NodeJS.ProcessEnv, noJev: boolean): SkippedStage['reaso
   return key !== '' || noJev ? 'no_jev' : 'no_key'
 }
 
+/** What the issue lookup answered, with the numbers as `gh` reports them.
+ *
+ *  `gh` is not reached at all when nothing names an issue: the client resolves
+ *  the repository on its first call, so asking it for an empty list would be a
+ *  network round trip to answer a question nobody asked.
+ */
+const issueStates = async (
+  root: string,
+  edges: ContextEdges,
+  numbers: readonly number[],
+): Promise<GhResults['issueStates']> => {
+  if (numbers.length === 0) return { states: {}, unavailable: null }
+  return await edges.createGh(root).issueStates({ numbers })
+}
+
+/** A block tier 0 fills in: a unit or an opaque block, both of which carry
+ *  `file` and `refs` and are read the same way here. */
+type Blocks = {
+  readonly units: Unit[]
+  readonly opaque: OpaqueBlock[]
+  readonly tracked: readonly string[]
+}
+
+/**
+ * Tier 0: every unit and opaque block gets its refs, resolved against the tree
+ * and against one batched issue lookup. Answers why that lookup was
+ * unavailable, or `null`.
+ *
+ * Extraction runs first for everything, so every issue number in the whole run
+ * goes to `gh` in one call rather than one call per unit. A repository whose
+ * files name no issue at all never reaches `gh`, which is what the injected
+ * mock proves: an endpoint with no registered reply throws.
+ */
+const tierZero = async (
+  root: string,
+  edges: ContextEdges,
+  blocks: Blocks,
+): Promise<string | null> => {
+  const extracted = [
+    ...blocks.units.map((block) => ({ block, refs: extractRefs(block.text) })),
+    ...blocks.opaque.map((block) => ({
+      block,
+      refs: extractBlockRefs(block.text, block.lang, block.kind),
+    })),
+  ]
+  const numbers = [...new Set(extracted.flatMap((entry) => issueNumbers(entry.refs)))]
+  const lookup = await issueStates(root, edges, numbers)
+  // One cache for the whole run: a `package.json` governs every file under it,
+  // so reading it once per unit would read the same file dozens of times.
+  const packageJson: PackageJsonCache = new Map()
+  for (const { block, refs } of extracted) {
+    block.refs = resolveRefs(refs, {
+      root,
+      file: block.file,
+      tracked: blocks.tracked,
+      packageJson,
+      // A number the lookup left out is one it gave no usable answer for,
+      // never "no such issue".
+      issueState: (n) => lookup.states[String(n)] ?? 'unavailable',
+    })
+  }
+  return lookup.unavailable
+}
+
 /**
  * The command function.
  *
@@ -204,25 +274,7 @@ export const runContext = async (
   if (tracked === null) return refused(`could not list the tracked files of ${root}`)
   const files = markdownFiles(tracked, filter)
   const { units, opaque, warnings } = splitAll(root, files)
-  // One cache for the whole run: a `package.json` governs every file under it,
-  // so reading it once per unit would read the same file dozens of times.
-  const packageJson: PackageJsonCache = new Map()
-  for (const unit of units) {
-    unit.refs = resolveRefs(extractRefs(unit.text), {
-      root,
-      file: unit.file,
-      tracked,
-      packageJson,
-    })
-  }
-  for (const block of opaque) {
-    block.refs = resolveRefs(extractBlockRefs(block.text, block.lang, block.kind), {
-      root,
-      file: block.file,
-      tracked,
-      packageJson,
-    })
-  }
+  const unavailable = await tierZero(root, edges, { units, opaque, tracked })
 
   const report: Report = {
     root,
@@ -230,7 +282,7 @@ export const runContext = async (
     units,
     opaque,
     warnings,
-    issueLookup: 'ok',
+    issueLookup: unavailable ?? 'ok',
     skipped: skippedStages(skipReason(edges.env, options['no-jev'])),
     wallClockMs: edges.now() - started,
   }
