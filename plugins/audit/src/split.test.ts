@@ -57,4 +57,14 @@ describe('splitMarkdown', () => {
     expect(items[0]?.endLine).toBe(2)
     expect(items[1]?.text).toBe('Second item')
   })
+
+  it('nests three deep, a leaf item leading in from its immediate parent', () => {
+    const source = ['- top item', '  - middle item', '    - leaf item'].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items).toHaveLength(3)
+    expect(items.find((u) => u.text === 'top item')?.leadIn).toBe(null)
+    expect(items.find((u) => u.text === 'middle item')?.leadIn).toBe('top item')
+    expect(items.find((u) => u.text === 'leaf item')?.leadIn).toBe('middle item')
+  })
 })
