@@ -265,4 +265,28 @@ describe('splitMarkdown', () => {
     expect(units).toEqual([])
     expect(opaque).toEqual([])
   })
+
+  it('links prev/next only within the same heading section', () => {
+    const source = [
+      '# Section',
+      '',
+      'First sentence.',
+      '',
+      'Second sentence.',
+      '',
+      '## Sub',
+      '',
+      'Third sentence.',
+    ].join('\n')
+    const { units } = splitMarkdown(FILE, source)
+    const first = units.find((u) => u.text === 'First sentence.')
+    const second = units.find((u) => u.text === 'Second sentence.')
+    const third = units.find((u) => u.text === 'Third sentence.')
+    expect(first?.prev).toBe(null)
+    expect(first?.next).toBe('Second sentence.')
+    expect(second?.prev).toBe('First sentence.')
+    expect(second?.next).toBe(null)
+    expect(third?.prev).toBe(null)
+    expect(third?.next).toBe(null)
+  })
 })
