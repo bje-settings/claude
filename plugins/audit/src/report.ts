@@ -12,8 +12,13 @@ import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
 /** A stage that asks the model something. Layer 5 gives each one findings. */
 export type Stage = 'classify' | 'pairs' | 'evidence'
 
-/** Why a stage never ran. `no_key` is no `TYPESAFE_API_KEY` in the
- *  environment; `no_jev` is `--no-jev`, the caller asking for tier 0 alone. */
+/** Why a stage never ran.
+ *
+ *  `no_key` is an environment holding no `TYPESAFE_API_KEY`, which is what a
+ *  machine that has never been set up reports. `no_jev` is every other reason
+ *  there was no model call: the caller asked for tier 0 alone with `--no-jev`,
+ *  or there is a key and no client to spend it, since `lib/jev.ts` lands at
+ *  layer 4. `commands/context.ts` `skipReason` is where the two are chosen. */
 export type SkippedStage = { stage: Stage; reason: 'no_key' | 'no_jev' }
 
 export type Report = {
@@ -37,11 +42,15 @@ export type Report = {
 }
 
 /** How one resolution reads in the report, for the statuses the sections below
- *  print. Everything else is a status word of its own. */
+ *  print. Everything else is a status word of its own.
+ *
+ *  Only `absent` and `line_out_of_range` reach it: those are the two the
+ *  sections select. The spike's `issue` arm, which prints the state, belongs
+ *  with the section that prints issues, and comes back with it at layer 5
+ *  rather than sitting here as a branch no input can reach. */
 const describe = (ref: Ref): string => {
   const resolution = ref.resolution
   if (resolution.status === 'line_out_of_range') return `only ${resolution.lines} lines`
-  if (resolution.status === 'issue') return resolution.state
   return resolution.status
 }
 

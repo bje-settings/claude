@@ -286,10 +286,16 @@ export const runContext = async (
   // adds are paid for, so a run must not spend them and only then find that
   // the file it was told to write cannot be opened. It catches a missing
   // directory, a directory in the file's place and a read-only file alike.
+  //
+  // `a` rather than `w`, because this is a probe and `w` truncates: with `w` a
+  // run that then refused, over a bad root or a bad count, would have emptied
+  // the caller's previous report on its way to writing nothing. Both modes
+  // create the file and both fail on all three cases above; only `w` destroys
+  // what is already there before the run has earned the right to.
   const out = options.out
   if (out !== '') {
     try {
-      closeSync(openSync(out, 'w'))
+      closeSync(openSync(out, 'a'))
     } catch (error) {
       return refused(`could not open ${out} for writing: ${(error as Error).message}`)
     }

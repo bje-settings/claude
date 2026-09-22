@@ -62,17 +62,6 @@ const KNOWN_BARE_FILENAMES = new Set([
   '.editorconfig',
 ])
 
-/**
- * Whether `value` reads as a path.
- *
- * Rejected outright: a value containing whitespace (a command line that
- * happens to name a path, where no existence check on the whole string can
- * ever succeed) and a value containing `://` (a URL has slashes and is no path
- * in the tree).
- *
- * Accepted: a value with a directory component, a narrowly-specific extension,
- * or a well-known bare filename.
- */
 /** A scoped package name (`@scope/name`, `@scope/name@1.2.3`). It has a slash
  *  and is not a path, and a repository with dependencies writes several. */
 const SCOPED_PACKAGE_RE = /^@[\w.-]+\/[\w.-]+/
@@ -82,6 +71,18 @@ const SCOPED_PACKAGE_RE = /^@[\w.-]+\/[\w.-]+/
  *  in this tree is named after one repository at one ref. */
 const PINNED_REF_RE = /^[\w.-]+\/[\w./-]*@[\w./-]+$/
 
+/**
+ * Whether `value` reads as a path.
+ *
+ * Rejected outright: a value containing whitespace (a command line that
+ * happens to name a path, where no existence check on the whole string can
+ * ever succeed); a value containing `://` (a URL has slashes and is no path in
+ * the tree); a scoped package name ({@link SCOPED_PACKAGE_RE}); and a
+ * repository or action pinned at a ref ({@link PINNED_REF_RE}).
+ *
+ * Accepted: a value with a directory component, a narrowly-specific extension,
+ * or a well-known bare filename.
+ */
 const looksLikePath = (value: string): boolean => {
   if (/\s/.test(value)) return false
   if (value.includes('://')) return false
@@ -559,8 +560,11 @@ const resolvePathValue = (value: string, ctx: ResolveContext): Resolution => {
   return { status: 'absent' }
 }
 
-/** A file's line count the way `wc -l` counts it: a trailing newline ends the
- *  last line rather than starting an empty one. */
+/** A file's line count as a reader numbers them: a trailing newline ends the
+ *  last line rather than starting an empty one, and a last line written
+ *  without one still counts. Deliberately not `wc -l`, which counts newline
+ *  characters and so answers 0 for a one-line file with no final newline,
+ *  where this audit has to be able to point at line 1. */
 const countLines = (contents: string): number => {
   if (contents === '') return 0
   const lines = contents.split('\n').length
@@ -666,8 +670,6 @@ const resolveScript = (ref: Ref, ctx: ResolveContext): Resolution => {
     : { status: 'absent' }
 }
 
-/** `refs`, each carrying the `Resolution` `types.ts` declares. Order is
- *  preserved. */
 /** An issue's resolution. `unavailable` is "could not ask", which is a
  *  different fact from "no such issue", and only the second is a finding. */
 const resolveIssue = (ref: Ref, ctx: ResolveContext): Resolution => {
@@ -699,11 +701,13 @@ const escapesRoot = (value: string): boolean => posix.normalize(value).split('/'
  *  neither is a path git has an opinion about. */
 const ignorableValue = (ref: Ref): string | null => {
   if (ref.resolution.status !== 'absent') return null
-  if (ref.kind === 'path') return escapesRoot(ref.value) ? null : ref.value
-  if (ref.kind !== 'file_line') return null
-  // Extraction only produces a value this pattern matches.
-  const file = (FILE_LINE_RE.exec(ref.value) as RegExpExecArray)[1] as string
-  return escapesRoot(file) ? null : file
+  if (ref.kind !== 'path' && ref.kind !== 'file_line') return null
+  // Extraction only produces a `file_line` value this pattern matches.
+  const value =
+    ref.kind === 'path'
+      ? ref.value
+      : ((FILE_LINE_RE.exec(ref.value) as RegExpExecArray)[1] as string)
+  return escapesRoot(value) ? null : value
 }
 
 /**
@@ -759,11 +763,12 @@ export const markIgnored = async (
   return null
 }
 
-/** Every issue number the refs name, deduplicated, for the one batched
- *  lookup. */
-export const issueNumbers = (refs: readonly Ref[]): number[] => [
-  ...new Set(refs.filter((ref) => ref.kind === 'issue').map((ref) => Number(ref.value.slice(1)))),
-]
+/** Every issue number the refs name, for the one batched lookup. Not
+ *  deduplicated here: the caller pools these across every block and
+ *  deduplicates the pool, so a second set at this level could never change an
+ *  answer and nothing could hold it to anything. */
+export const issueNumbers = (refs: readonly Ref[]): number[] =>
+  refs.filter((ref) => ref.kind === 'issue').map((ref) => Number(ref.value.slice(1)))
 
 const resolveOne = (
   ref: Ref,
@@ -786,6 +791,8 @@ const resolveOne = (
   return resolvePathValue(ref.value, ctx)
 }
 
+/** `refs`, each carrying the `Resolution` `types.ts` declares. Order is
+ *  preserved. */
 export const resolveRefs = (refs: Ref[], ctx: ResolveContext): Ref[] => {
   // Keyed by repo-relative path, so the counts are safe to share across the
   // refs of one call and no file is read twice.

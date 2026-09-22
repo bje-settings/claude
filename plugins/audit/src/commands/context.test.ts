@@ -7,7 +7,7 @@
 // Every fixture repository is a directory under `fixtures/repos/`, copied in
 // and committed by `harness/git.ts` `importTree`, which undoes the two names a
 // fixture cannot be stored under (`_gitignore`, `<name>.fixture.md`).
-import { mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -392,7 +392,7 @@ it('falls back to the referencing file’s own directory when the root has no su
 
   const report = reportOf(audit.stdout())
   expect(report.files).toEqual(['CLAUDE.md', 'plugins/demo/CLAUDE.md'])
-  expect(report.units[3]?.refs).toEqual([
+  expect(unitNaming(report, 'beside this file')).toEqual([
     {
       kind: 'path',
       value: 'own.ts',
@@ -904,10 +904,11 @@ it('reads the refs in a file’s frontmatter, issue numbers included', async () 
   ])
 })
 
-it('counts lines the way wc does, for an empty file and one with no final newline', async () => {
+it('counts a last line with no final newline, and an empty file as no lines', async () => {
   // A trailing newline ends the last line rather than starting an empty one,
   // so a one-line file without one still has a line 1, and an empty file has
-  // no line at all to point at.
+  // no line at all to point at. Not `wc -l`, which counts newlines and would
+  // answer 0 for that one-line file.
   const audit = audited('lines')
 
   await runContext([audit.work, '--json'], audit.edges)
@@ -1200,4 +1201,30 @@ it('audits the checkout a subdirectory belongs to, and asks gh about that root',
   expect(report.root).toBe(realpathSync(audit.work))
   expect(report.files).toEqual(['CLAUDE.md'])
   expect(asked).toEqual([realpathSync(audit.work)])
+})
+
+it('trims a code span before reading it, so padding is not part of the value', async () => {
+  // A writer pads a span for readability. Without the trim the value carries
+  // the spaces, `looksLikePath` refuses it for containing whitespace, and the
+  // reference is dropped rather than resolved.
+  const audit = audited('paths')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  expect(unitNaming(reportOf(audit.stdout()), 'written with padding')).toEqual([
+    { kind: 'path', value: 'lib/x.ts', resolution: { status: 'found', repoPath: 'lib/x.ts' } },
+  ])
+})
+
+it('leaves an existing --out file alone when the run refuses', async () => {
+  // The pre-open is a probe, and a probe that truncates destroys the caller's
+  // last report on the way to writing nothing.
+  const audit = audited('paths')
+  const out = audit.sandbox.join('report.json')
+  writeFileSync(out, 'previous\n')
+
+  const envelope = await runContext([audit.work, '--max-pairs', 'nope', '--out', out], audit.edges)
+
+  expect(envelope.outcome).toBe('refused')
+  expect(readFileSync(out, 'utf8')).toBe('previous\n')
 })
