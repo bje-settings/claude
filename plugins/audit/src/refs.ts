@@ -7,7 +7,7 @@
 // state arrives here as an answer the caller already has.
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { Ref, Resolution } from './types.ts'
 
@@ -80,6 +80,86 @@ const looksLikePath = (value: string): boolean => {
   return KNOWN_EXTENSIONS.has(extname(value))
 }
 
+/** pnpm and yarn subcommands that are real CLI operations rather than a
+ *  package.json script name, so `pnpm install` is not read as a script called
+ *  "install". `test` is deliberately absent from both: `pnpm test` and
+ *  `yarn test` run the "test" script. `npm` needs no such list, because only
+ *  its explicit `npm run <name>` form is read as a script at all. */
+const PNPM_BUILTINS = new Set([
+  'install',
+  'i',
+  'add',
+  'remove',
+  'rm',
+  'uninstall',
+  'update',
+  'up',
+  'upgrade',
+  'outdated',
+  'link',
+  'unlink',
+  'why',
+  'list',
+  'ls',
+  'audit',
+  'licenses',
+  'pack',
+  'publish',
+  'init',
+  'create',
+  'dlx',
+  'exec',
+  'env',
+  'store',
+  'import',
+  'rebuild',
+  'prune',
+  'patch',
+  'root',
+  'config',
+  'set',
+  'get',
+  'deploy',
+  'doctor',
+  'recursive',
+  'run',
+])
+
+const YARN_BUILTINS = new Set([
+  'install',
+  'add',
+  'remove',
+  'upgrade',
+  'why',
+  'list',
+  'link',
+  'unlink',
+  'info',
+  'init',
+  'create',
+  'dlx',
+  'exec',
+  'config',
+  'cache',
+  'audit',
+  'licenses',
+  'pack',
+  'publish',
+  'workspace',
+  'workspaces',
+  'set',
+  'unplug',
+  'plugin',
+  'node',
+  'version',
+  'versions',
+  'bin',
+  'tag',
+  'run',
+])
+
+const SCRIPT_NAME = '[\\w:.-]+'
+
 /** A path, then `:`, then a line or a line range. The path part is checked
  *  against {@link looksLikePath} as well, so `note:1` is prose and
  *  `lib/git.ts:115` is a reference. */
@@ -94,10 +174,56 @@ const isFileLineToken = (token: string): boolean => {
  *  in source order however many passes produced them. */
 type Located = { at: number; ref: Ref }
 
+const scriptRef = (value: string): Ref => ({ kind: 'script', value, resolution: UNRESOLVED })
+
+/** Script invocations for one manager. `requireRun` is `npm`'s rule: only the
+ *  explicit `npm run <name>` form is a script, because most bare npm
+ *  subcommands, unlike pnpm's and yarn's, are not also valid script
+ *  shorthands. Everywhere else the bare form is a script unless `builtins`
+ *  says it is a real subcommand. */
+const scriptsFromManager = (
+  text: string,
+  manager: string,
+  requireRun: boolean,
+  builtins: Set<string> | null,
+): Located[] => {
+  const pattern = requireRun
+    ? new RegExp(`\\b${manager}\\s+run\\s+(${SCRIPT_NAME})`, 'g')
+    : new RegExp(`\\b${manager}\\s+(run\\s+)?(${SCRIPT_NAME})`, 'g')
+  const located: Located[] = []
+  for (const match of text.matchAll(pattern)) {
+    if (requireRun) {
+      located.push({ at: match.index, ref: scriptRef(`${manager} run ${match[1]}`) })
+      continue
+    }
+    const explicit = match[1] !== undefined
+    const name = match[2] as string
+    if (!explicit && builtins?.has(name)) continue
+    located.push({
+      at: match.index,
+      ref: scriptRef(explicit ? `${manager} run ${name}` : `${manager} ${name}`),
+    })
+  }
+  return located
+}
+
+/** Every `pnpm`, `npm` or `yarn` script invocation in `text`. Never called on
+ *  plain prose, so a sentence that happens to say "pnpm test" outside
+ *  backticks is not extracted. */
+const locateScripts = (text: string): Located[] => [
+  ...scriptsFromManager(text, 'pnpm', false, PNPM_BUILTINS),
+  ...scriptsFromManager(text, 'npm', true, null),
+  ...scriptsFromManager(text, 'yarn', false, YARN_BUILTINS),
+]
+
 /** One inline code span's content. A token that is not a path is not a
  *  reference. */
 const locateInCodeSpan = (token: string): Located[] => {
   const trimmed = token.trim()
+  // A script invocation first: it is the only kind whose token carries
+  // whitespace, which every other rule here refuses.
+  const scripts = locateScripts(trimmed)
+  if (scripts.length > 0) return scripts
   if (isFileLineToken(trimmed)) {
     return [{ at: 0, ref: { kind: 'file_line', value: trimmed, resolution: UNRESOLVED } }]
   }
@@ -138,9 +264,23 @@ export type ResolveContext = {
   file: string
   /** Every tracked path, repo-relative, for the tail rule below. */
   tracked: readonly string[]
+  /** Shared across every unit of one run, so each `package.json` is read
+   *  once rather than once per unit. */
+  packageJson: PackageJsonCache
 }
 
-const unchecked = (reason: 'machine_specific' | 'pattern' | 'unavailable'): Resolution => ({
+/** One `package.json`, read once: its `scripts` object, or why there is none
+ *  to read. */
+export type PackageJsonEntry =
+  | { found: true; scripts: Record<string, unknown> }
+  | { found: false; reason: 'none' | 'unreadable' }
+
+/** Absolute `package.json` path to what reading it produced. */
+export type PackageJsonCache = Map<string, PackageJsonEntry>
+
+const unchecked = (
+  reason: 'machine_specific' | 'pattern' | 'unavailable' | 'no_resolver',
+): Resolution => ({
   status: 'unchecked',
   reason,
 })
@@ -251,17 +391,80 @@ const readLineCount = (absolute: string): number | null => {
   }
 }
 
+const readPackageJson = (file: string): PackageJsonEntry => {
+  if (!existsSync(file)) return { found: false, reason: 'none' }
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { scripts?: unknown }
+    if (typeof parsed.scripts === 'object' && parsed.scripts !== null) {
+      return { found: true, scripts: parsed.scripts as Record<string, unknown> }
+    }
+    return { found: true, scripts: {} }
+  } catch {
+    return { found: false, reason: 'unreadable' }
+  }
+}
+
+/** The nearest `package.json` from the referencing file's directory up to and
+ *  including the audited root. One that does not parse stops the walk: the
+ *  answer is then "the manifest governing this file could not be read", not
+ *  "look further up". */
+const findScripts = (ctx: ResolveContext): PackageJsonEntry => {
+  const rootAbs = resolve(ctx.root)
+  let dir = dirname(join(ctx.root, ctx.file))
+  for (;;) {
+    const candidate = join(dir, 'package.json')
+    let entry = ctx.packageJson.get(candidate)
+    if (entry === undefined) {
+      entry = readPackageJson(candidate)
+      ctx.packageJson.set(candidate, entry)
+    }
+    if (entry.found || entry.reason === 'unreadable') return entry
+    // The walk starts inside the audited root and stops at it, so there is no
+    // filesystem root to guard against here.
+    if (resolve(dir) === rootAbs) return entry
+    dir = dirname(dir)
+  }
+}
+
+const scriptName = (value: string): string => {
+  // Extraction only ever produces one of these three shapes, so the match is
+  // read without a null arm nothing can reach.
+  const match = /^(?:pnpm|npm|yarn)\s+(?:run\s+)?(\S+)$/.exec(value) as RegExpExecArray
+  return match[1] as string
+}
+
+/** A script's resolution. No manifest at all means there is nothing to resolve
+ *  against; one that does not parse means the question could not be asked.
+ *  Neither is a missing script, and the two are not the same finding. */
+const resolveScript = (ref: Ref, ctx: ResolveContext): Resolution => {
+  const entry = findScripts(ctx)
+  if (!entry.found) {
+    return unchecked(entry.reason === 'none' ? 'no_resolver' : 'unavailable')
+  }
+  // `repoPath` is null: a script is a name in a manifest rather than a file.
+  return Object.hasOwn(entry.scripts, scriptName(ref.value))
+    ? { status: 'found', repoPath: null }
+    : { status: 'absent' }
+}
+
 /** `refs`, each carrying the `Resolution` `types.ts` declares. Order is
  *  preserved. */
+const resolveOne = (
+  ref: Ref,
+  ctx: ResolveContext,
+  lineCounts: Map<string, number | null>,
+): Resolution => {
+  if (ref.kind === 'file_line') return resolveFileLine(ref, ctx, lineCounts)
+  if (ref.kind === 'script') return resolveScript(ref, ctx)
+  return resolvePathValue(ref.value, ctx)
+}
+
 export const resolveRefs = (refs: Ref[], ctx: ResolveContext): Ref[] => {
   // Keyed by repo-relative path, so the counts are safe to share across the
   // refs of one call and no file is read twice.
   const lineCounts = new Map<string, number | null>()
   return refs.map((ref) => ({
     ...ref,
-    resolution:
-      ref.kind === 'file_line'
-        ? resolveFileLine(ref, ctx, lineCounts)
-        : resolvePathValue(ref.value, ctx),
+    resolution: resolveOne(ref, ctx, lineCounts),
   }))
 }

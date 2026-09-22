@@ -18,7 +18,7 @@ import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import type { GhClient } from '../lib/gh.ts'
 import { runGit, toplevel } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
-import { extractRefs, resolveRefs } from '../refs.ts'
+import { extractRefs, type PackageJsonCache, resolveRefs } from '../refs.ts'
 import { type Report, renderFindings, type SkippedStage } from '../report.ts'
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
@@ -204,8 +204,16 @@ export const runContext = async (
   if (tracked === null) return refused(`could not list the tracked files of ${root}`)
   const files = markdownFiles(tracked, filter)
   const { units, opaque, warnings } = splitAll(root, files)
+  // One cache for the whole run: a `package.json` governs every file under it,
+  // so reading it once per unit would read the same file dozens of times.
+  const packageJson: PackageJsonCache = new Map()
   for (const unit of units) {
-    unit.refs = resolveRefs(extractRefs(unit.text), { root, file: unit.file, tracked })
+    unit.refs = resolveRefs(extractRefs(unit.text), {
+      root,
+      file: unit.file,
+      tracked,
+      packageJson,
+    })
   }
 
   const report: Report = {

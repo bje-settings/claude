@@ -435,3 +435,21 @@ it('leaves a one-segment directory reference unchecked rather than absolving it'
     { kind: 'path', value: 'bin/', resolution: { status: 'unchecked', reason: 'pattern' } },
   ])
 })
+
+it('resolves a package script against the manifest that governs the file', async () => {
+  // `pnpm install` is pnpm's own subcommand, not a script called "install", so
+  // it is not a reference at all: reporting it absent would be a finding about
+  // pnpm rather than about this repository.
+  const audit = audited('scripts')
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.units[0]?.refs).toEqual([
+    { kind: 'script', value: 'pnpm test', resolution: { status: 'found', repoPath: null } },
+  ])
+  expect(report.units[1]?.refs).toEqual([
+    { kind: 'script', value: 'pnpm build', resolution: { status: 'absent' } },
+  ])
+  expect(report.units[2]?.refs).toEqual([])
+})
