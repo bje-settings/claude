@@ -1013,7 +1013,7 @@ const shepherdPr = async (
  * on stdout must not read a crash as an answer, and the agent gets a line
  * naming what broke instead of a stack trace it cannot act on. The line names
  * this command rather than the script file the Python named, because the file
- * is `bin/gh.ts` for every command now.
+ * is `scripts/gh.ts` for every command now.
  */
 export const runShepherdPr = async (
   argv: readonly string[],

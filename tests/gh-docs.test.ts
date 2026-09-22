@@ -94,7 +94,7 @@ it('reclassifies a blocked entry with one merged read', () => {
   // Scoped to the step: `merged` alone appears in the report table too.
   const step = section(SKILL, '## Step 4', '## Step 5')
 
-  expect(step).toContain('bin/gh.ts" shepherd-pr <path> <n> merged')
+  expect(step).toContain('scripts/gh.ts" shepherd-pr <path> <n> merged')
   expect(step).toContain('autoMerge')
   expect(step).toContain('CLEAN')
   expect(step).toContain('UNKNOWN')

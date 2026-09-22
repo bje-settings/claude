@@ -161,7 +161,7 @@ is no 24 matrix leg until 22 leaves LTS; the argument against that is recorded b
 lib/                          # shared across plugins; the only thing that crosses a boundary
   ...
 plugins/<plugin>/
-  bin/<plugin>.ts             # thin adapter: one dispatcher, parse argv, build clients, exit
+  scripts/<plugin>.ts         # thin adapter: one dispatcher, parse argv, build clients, exit
   src/
     lib -> ../../../lib       # committed symlink, dereferenced into the cache copy on install
     commands/*.ts             # one exported function per command; the test seam
@@ -172,12 +172,21 @@ plugins/<plugin>/
 
 ~~`bin/<command>.ts`: one thin adapter per command.~~ **Revised at
 [#130](https://github.com/bje-settings/claude/issues/130)** (round 8 ruling 6, and Decisions &
-Follow-ups 15): one `bin/<plugin>.ts` dispatcher per plugin, with an arm per command. Every
-plugin that has shipped an entry point chose it, `plugins/gh/bin/gh.ts` and
-`plugins/mermaid/bin/mermaid.ts`, so the RFC's wording is what drifted; `plugins/workstreams`
-follows the precedent rather than the sentence.
+Follow-ups 15): one ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, with an arm
+per command. Every plugin that has shipped an entry point chose it, ~~`plugins/gh/bin/gh.ts`~~
+`plugins/gh/scripts/gh.ts` and ~~`plugins/mermaid/bin/mermaid.ts`~~
+`plugins/mermaid/scripts/mermaid.ts` (the directory revised at #185, decision 16 below), so the
+RFC's wording is what drifted; `plugins/workstreams` follows the precedent rather than the
+sentence.
 
-`bin/` is an adapter and nothing else: it turns `process.argv` into the command function's
+~~The directory is `bin/`.~~ **Revised at
+[#185](https://github.com/bje-settings/claude/issues/185)** (Decisions & Follow-ups 16): it is
+`scripts/`, so the dispatcher is `scripts/<plugin>.ts` and the three entry points are
+`plugins/gh/scripts/gh.ts`, `plugins/mermaid/scripts/mermaid.ts` and
+`plugins/workstreams/scripts/workstreams.ts`. `plugins/audit/` is on another open stack (#177,
+#179, #182) and follows once that lands.
+
+`scripts/` is an adapter and nothing else: it turns `process.argv` into the command function's
 arguments, constructs the real clients, calls the function, and maps its result onto an exit code
 and a stream. It holds no decisions, which is what lets one spawned contract test per plugin cover
 all of it.
@@ -226,7 +235,7 @@ because that copy is read by another team as the plugin's source.~~ **Revised at
 
 **The shared test harness lives at the repository root** and is imported only from test files, so
 it is never inside a plugin and never reaches a cache copy. It carries a sandbox, an in-process
-`gh` mock, a git repository builder and a spawn helper for the `bin/` contract tests.
+`gh` mock, a git repository builder and a spawn helper for the `scripts/` contract tests.
 
 ### The testing seam
 
@@ -243,7 +252,7 @@ No call-count assertions. A test asserts the verdict the command reached and the
 how many times it asked. Counting calls pins an implementation detail and turns a refactor into a
 red suite.
 
-Each `bin/` entry point gets one spawned contract test, which is where the process boundary is
+Each `scripts/` entry point gets one spawned contract test, which is where the process boundary is
 still real: argv in, exit code and stream out. That is the only place the suite spawns anything.
 
 **Divergence from `SurveyMonkey/skills` RFC 002:** its test layout was left as an open question and
@@ -494,7 +503,7 @@ It absorbs six `field-test` issues: [#93](https://github.com/bje-settings/claude
 
 ## Decisions & Follow-ups
 
-Fifteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
+Sixteen decisions, each with the argument against it recorded beside it. Decisions 2, 3, 4, 5, 10
 and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); decisions 1, 6, 7 and
 13 by [ADR 002](../adr/002-quality-gate-venues.md).
 
@@ -511,7 +520,8 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    nothing runs the suite on 24, so a behavioral difference between 22 and 24 would ship
    unnoticed, and users are more likely to be on 24 than on the floor.
 3. **The command function is the test seam.** Parsed arguments and injected clients in, exit code
-   and output out. `bin/` is a thin adapter with one spawned contract test per ~~command~~
+   and output out. ~~`bin/`~~ **`scripts/`** (revised at #185, decision 16 below) is a thin adapter
+   with one spawned contract test per ~~command~~
    **plugin** (revised at #130, decision 15 below). `gh` is an
    injected per-endpoint mock, SDK-shaped, with one reply per endpoint, a fail switch, and an
    unhandled endpoint throwing. `git` is real temporary repositories. No call-count assertions.
@@ -585,14 +595,35 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     `sm-incubator/org-claude`, which is left on `gh` 0.3.0 and unmaintained until this repository is
     public and that marketplace points here directly instead.
 
-15. **One `bin/<plugin>.ts` dispatcher per plugin, not one `bin` per command.** Decided on
+15. **One ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, not one ~~`bin`~~
+    adapter per command.** Decided on
     2026-09-21 (round 8 ruling 6) and amended into "Shape" above. Both plugins that had shipped an
     entry point by then, `gh` (five arms) and `mermaid` (one), had already written it this way, so
     the RFC's `bin/<command>.ts` was a sentence nothing implemented; `.claude/rules/type-ts.md` is
     corrected with it. The plugin gets one node floor guard, one EPIPE guard and one spawned
-    contract test whose examples are the arms. *Against:* every command in a plugin then shares one
+    contract test whose examples are the arms. The directory name is revised by decision 16 below;
+    the one-dispatcher decision is unchanged. *Against:* every command in a plugin then shares one
     usage string and one dispatch table, so adding a command touches a file the other commands own,
     and a caller that wants one command still installs the whole entry point.
+
+16. **The entry point directory is `scripts/`, not `bin/`.** Decided on 2026-09-22
+    ([#185](https://github.com/bje-settings/claude/issues/185)) and amended into "Shape",
+    decision 3 and decision 15 above. The docs are explicit
+    ([plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces#keep-executables-out-of-the-top-level-bin-directory)):
+    "Don't include a top-level `bin/` directory in any plugin you distribute through organization
+    settings. claude.ai rejects a plugin that has one, whether the plugin arrives by marketplace
+    sync or by direct upload ... Keep executables in another directory, such as `scripts/`, and
+    reference them as `${CLAUDE_PLUGIN_ROOT}/scripts/<name>` from your skills, hooks, or MCP
+    server configs." Every plugin here that had shipped a TypeScript entry point shipped it at
+    `bin/<plugin>.ts`, so none of the three was eligible for that distribution path at all.
+    `bin/` also has a side effect nothing here wants: the
+    [file locations reference](https://code.claude.com/docs/en/plugins-reference#file-locations-reference)
+    adds it to the Bash tool's `PATH` while the plugin is enabled, which makes every entry point a
+    bare command in any session. `gh`, `mermaid` and `workstreams` moved with this decision;
+    `plugins/audit/` is on another open stack (#177, #179, #182), is untouched here, and follows
+    once that lands. *Against:* the move renames a path every skill, agent, README, hook and
+    spawned contract test names, and `scripts/` is the name this repository already uses for its
+    retiring Python layer and for its own root tooling, so the two meanings now share a word.
 
 **The fresh slate is literal.** #129 removes `plugins/workstreams` and `tests/workstreams` as soon
 as this RFC merges; the primitives are written into an empty directory.

@@ -104,7 +104,9 @@ the root-script rule today: a violation's failure mode is otherwise a confusing 
 unrelated plugin's tests.
 
 **The command function is the test seam.** A command is an exported function taking parsed
-arguments and injected clients and returning an exit code and output. `bin/` is a thin adapter that
+arguments and injected clients and returning an exit code and output. ~~`bin/`~~ **Deviation
+([#185](https://github.com/bje-settings/claude/issues/185)):** `scripts/`, because claude.ai
+rejects a plugin that carries a top-level `bin/` (RFC 001 decision 16). It is a thin adapter that
 parses `process.argv`, constructs the real clients, calls the function and maps the result onto a
 stream and an exit code; it holds no decisions, and one spawned contract test per command covers
 it. `gh` is an injected mock rather than a stub binary on `PATH`: SDK-shaped, one reply registered

@@ -624,7 +624,7 @@ export interface HookEdges {
   /** The interpreter the child is started with: this process's own, as the
    *  Python used `sys.executable` and for the same reason. */
   readonly nodePath: string
-  /** `<plugin root>/bin/gh.ts`, derived once by the entry point. */
+  /** `<plugin root>/scripts/gh.ts`, derived once by the entry point. */
   readonly entry: string
 }
 

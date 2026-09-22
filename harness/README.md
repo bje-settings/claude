@@ -16,7 +16,7 @@ the one cleanup hook.
 | `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
-| `spawn.ts` | One `bin/` or `hooks/` entry point run as its own process: argv in, status and streams out (`runScript`), or started with its pipes still open so a test can take the reader away (`startScript`). |
+| `spawn.ts` | One `scripts/` or `hooks/` entry point run as its own process: argv in, status and streams out (`runScript`), or started with its pipes still open so a test can take the reader away (`startScript`). |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
 
 Each module's own claims are asserted in the `*.test.ts` beside it, the way
@@ -255,7 +255,7 @@ result.stdout // decoded with replacement, never strictly
 result.stdoutBytes // the raw bytes, for a contract that is about bytes
 ```
 
-One spawned contract test per `bin/` entry point, which is where the process boundary is still
+One spawned contract test per `scripts/` entry point, which is where the process boundary is still
 real; everything else is tested by calling the command function with injected clients. The child
 runs under `process.execPath`, so a run on the 22.18 floor leg genuinely exercises 22.18. A child
 that could not be started at all throws, rather than handing back a result full of empty strings.

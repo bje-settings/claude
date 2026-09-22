@@ -212,9 +212,9 @@ resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
 The deterministic parts are two commands; the agent only decides between their results.
 
 ```bash
-node <plugin>/bin/gh.ts shepherd-status <path>               # the work list, as JSON
-node <plugin>/bin/gh.ts shepherd-pr <path> <n> state|rebase|recreate|wait|settle|merged
-node <plugin>/bin/gh.ts shepherd-pr <path> <n> skip <reason-file>
+node <plugin>/scripts/gh.ts shepherd-status <path>               # the work list, as JSON
+node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|recreate|wait|settle|merged
+node <plugin>/scripts/gh.ts shepherd-pr <path> <n> skip <reason-file>
 ```
 
 `shepherd-status` changes nothing. `shepherd-pr` writes only through `rebase` (the branch update),
@@ -247,10 +247,10 @@ answered rather than refused, since that is the answer `settle` is asked for.
 
 Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
 `SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`) are listed by
-`node <plugin>/bin/gh.ts shepherd-pr --help`.
+`node <plugin>/scripts/gh.ts shepherd-pr --help`.
 
 Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
-rule, and `node <plugin>/bin/gh.ts discover <path>` is that rule on its own, one checkout root
+rule, and `node <plugin>/scripts/gh.ts discover <path>` is that rule on its own, one checkout root
 per line. A directory with no checkouts in it prints nothing and exits **0**: that is an answer,
 not a failure. Exit **1** means the target could not be read at all, with the reason on stderr;
 exit **2** means the arguments were refused. `sync` answers 2 where `discover` answers 1 on the
@@ -294,7 +294,7 @@ hook checks the running version first and exits 0 without writing anything, beca
 explains itself on stderr writes into the session. In fan-out mode it does fetch, which updates
 remote-tracking refs, and that is one network round trip per repository against the hook's 60
 second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
-out. A degraded run (a missing `bin/gh.ts`, no git on PATH, `sync` itself timing out or leaving no
+out. A degraded run (a missing `scripts/gh.ts`, no git on PATH, `sync` itself timing out or leaving no
 report at all) leaves a line on stderr for `claude --debug`, and says so in the session only when
 there is something to act on. A `sync` that ran to completion but answered exit 1 because a
 repository's own job failed is not degraded: the report it already wrote is what the session sees,
@@ -320,14 +320,14 @@ From an installed copy of the plugin, `<plugin>` below is the plugin's own direc
 Claude Code the skills use `${CLAUDE_PLUGIN_ROOT}` for it.
 
 ```bash
-node <plugin>/bin/gh.ts sync --dry-run /path/to/a/directory-of-repos
-node <plugin>/bin/gh.ts sync-repo --dry-run /path/to/a/repo
-node <plugin>/bin/gh.ts discover /path/to/a/directory-of-repos
-node <plugin>/bin/gh.ts shepherd-status /path/to/a/repo
-node <plugin>/bin/gh.ts shepherd-pr /path/to/a/repo 12 state
+node <plugin>/scripts/gh.ts sync --dry-run /path/to/a/directory-of-repos
+node <plugin>/scripts/gh.ts sync-repo --dry-run /path/to/a/repo
+node <plugin>/scripts/gh.ts discover /path/to/a/directory-of-repos
+node <plugin>/scripts/gh.ts shepherd-status /path/to/a/repo
+node <plugin>/scripts/gh.ts shepherd-pr /path/to/a/repo 12 state
 ```
 
-`node <plugin>/bin/gh.ts` with no command prints the list, and each command prints its own usage
+`node <plugin>/scripts/gh.ts` with no command prints the list, and each command prints its own usage
 for `--help`.
 
 Everything in this plugin is TypeScript, run directly by node with no build step, and it needs

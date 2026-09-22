@@ -21,7 +21,7 @@ import { createSandbox } from '../../../harness/sandbox.ts'
 import { startScript } from '../../../harness/spawn.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const BIN = path.join(HERE, '..', 'bin', 'gh.ts')
+const BIN = path.join(HERE, '..', 'scripts', 'gh.ts')
 const HOOK = path.join(HERE, '..', 'hooks', 'hook-io.ts')
 
 /** Neither stream may carry an internals stack trace: with no `error`

@@ -373,5 +373,5 @@ export const createSyncCommand =
     return failedCount > 0 ? failed(fanOutFailureMessage(failedCount, repos.length)) : ok('')
   }
 
-/** The command as `bin/gh.ts` dispatches it. */
+/** The command as `scripts/gh.ts` dispatches it. */
 export const runSync: Command = createSyncCommand()

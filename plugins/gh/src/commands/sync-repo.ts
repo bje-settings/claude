@@ -90,7 +90,7 @@ outcome, not a failure. 2 means the arguments were refused.`
 
 /** Everything a command function is given: the process's edges, as arguments.
  *
- *  Shared with `sync.ts` and with `bin/gh.ts`, which is what lets both
+ *  Shared with `sync.ts` and with `scripts/gh.ts`, which is what lets both
  *  commands be dispatched through one signature and lets either be driven from
  *  a test with no process at all (ADR 001, "the command function is the
  *  seam"). `createGh` is a factory rather than a client because the fan-out

@@ -2,7 +2,7 @@
 name: review
 description: Review one draft pull request through to done, in at most two rounds.
 argument-hint: [pr-number]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Agent SendMessage
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Agent SendMessage
 disable-model-invocation: true
 ---
 
@@ -17,7 +17,7 @@ pull request.
 1. Preflight.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" preflight
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight
    ```
 
    Exit 1 means something is missing. Print each hint verbatim and stop.
@@ -25,7 +25,7 @@ pull request.
 2. Read the state.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" pr-state <number> --round <0|1|2> --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0|1|2> --json
    ```
 
    Add `--substantial` once round 1 has returned substantial, and `--rot-checked` once

@@ -222,13 +222,13 @@ It posts comments, so it is not model-invocable: a person runs it.
 The skills run these; they also run by hand, from any repository, on any machine.
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" --help
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" --help
 ```
 
 ### `sweep`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" sweep [--milestone 4,5] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep [--milestone 4,5] [--json]
 ```
 
 Reports the open milestones with their issue counts, every open pull request including
@@ -248,7 +248,7 @@ The repository is whatever `gh` resolves from the working directory.
 ### `pr-state`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" pr-state <number> [--round 0|1|2] [--substantial] [--rot-checked] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0|1|2] [--substantial] [--rot-checked] [--json]
 ```
 
 Reports one pull request's head, draft flag, base and mergeability, the status-check
@@ -278,7 +278,7 @@ Exit 2 on a usage error, and 1 only when nothing at all could be read.
 ### `preflight`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" preflight [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight [--json]
 ```
 
 Prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}]}` with `--json`

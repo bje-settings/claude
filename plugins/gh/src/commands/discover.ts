@@ -38,7 +38,7 @@ A directory with no checkouts in it prints nothing and exits 0: that is an
 answer. Exit 1 means the target could not be read at all, which is a different
 fact and says so on stderr. Exit 2 means the arguments were refused.`
 
-/** The edges this command reads. The same three `bin/gh.ts` hands every
+/** The edges this command reads. The same three `scripts/gh.ts` hands every
  *  envelope command, and no `gh`: discovery asks git and nothing else. */
 export interface DiscoverContext {
   readonly cwd: string

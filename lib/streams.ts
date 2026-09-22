@@ -35,7 +35,7 @@
 // **Only EPIPE is swallowed.** Registering a listener at all silences node's
 // default crash for every error code on that stream, so an `ENOSPC` or `EIO`
 // is re-thrown here rather than disappearing with the broken pipe. That is
-// round 5's review finding on #156, and `plugins/mermaid/bin/mermaid.ts` is
+// round 5's review finding on #156, and `plugins/mermaid/scripts/mermaid.ts` is
 // where the same rule landed for an entry point.
 //
 // This file ships. It imports nothing at all, and stays inside the erasable

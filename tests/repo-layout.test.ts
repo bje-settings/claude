@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  binDirectories,
   crossPluginImports,
   LIB_LINK_TARGET,
   libLinkViolations,
@@ -172,9 +173,9 @@ describe('the plugin boundary', () => {
     const plugins = build({
       plugins: ['a'],
       files: {
-        'a/src/url.ts': "import { x } from './helpers.ts'\nimport { y } from '../bin/z.ts'\n",
+        'a/src/url.ts': "import { x } from './helpers.ts'\nimport { y } from '../scripts/z.ts'\n",
         'a/src/helpers.ts': '',
-        'a/bin/z.ts': '',
+        'a/scripts/z.ts': '',
       },
     })
     expect(crossPluginImports(plugins)).toEqual([])
@@ -186,7 +187,7 @@ describe('the plugin boundary', () => {
     // dereferenced the link into the cache.
     const plugins = build({
       plugins: ['a'],
-      files: { 'a/bin/a.ts': "import { assertNodeFloor } from '../src/lib/node-floor.ts'\n" },
+      files: { 'a/scripts/a.ts': "import { assertNodeFloor } from '../src/lib/node-floor.ts'\n" },
       links: { 'a/src/lib': LIB_LINK_TARGET },
     })
     expect(crossPluginImports(plugins)).toEqual([])
@@ -377,13 +378,39 @@ describe('the plugin boundary', () => {
     })
     expect(libLinkViolations(plugins)).toEqual([])
   })
+
+  it('refuses a top-level bin directory, by either route to one', () => {
+    // #185 and RFC 001 decision 16: claude.ai refuses a plugin that carries
+    // one, so nothing in this repository goes red on its own when a `bin/`
+    // comes back. A link to a directory installs as a directory and is the
+    // same violation; a plain file named `bin`, a link to nothing, and the
+    // `scripts/` the entry point actually lives in are not.
+    const plugins = build({
+      plugins: ['carries', 'linked', 'afile', 'dangling', 'clean'],
+      files: {
+        'carries/bin/carries.ts': '',
+        'afile/bin': '',
+        'clean/scripts/clean.ts': '',
+        'elsewhere/linked.ts': '',
+      },
+      links: {
+        'linked/bin': path.join('..', 'elsewhere'),
+        'dangling/bin': path.join('..', 'nowhere'),
+      },
+    })
+    expect(binDirectories(plugins)).toEqual([
+      'carries/bin is a directory, and claude.ai refuses one',
+      'linked/bin is a directory, and claude.ai refuses one',
+    ])
+  })
 })
 
-it('holds both rules over the real plugins tree', () => {
-  // The synthetic trees above prove the rules; this is the guard. No plugin
-  // carries TypeScript or the symlink yet, so today both lists are empty
-  // because there is nothing to violate, and they stay empty as #126 and
-  // #127 land.
+it('holds all three rules over the real plugins tree', () => {
+  // The synthetic trees above prove the rules; this is the guard. Every
+  // plugin's entry point is in `scripts/` since #185, and the third list is
+  // the one that has no other way of going red: `bin/` is refused by
+  // claude.ai at publish time rather than by anything here.
   expect(crossPluginImports()).toEqual([])
   expect(libLinkViolations()).toEqual([])
+  expect(binDirectories()).toEqual([])
 })

@@ -2,7 +2,7 @@
 name: question
 description: Turn a sweep report into an approved plan, one question at a time.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion
 disable-model-invocation: true
 ---
 
@@ -19,7 +19,7 @@ reaches step 4 and cannot ask.
 1. Preflight.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" preflight
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight
    ```
 
    Exit 1 means something is missing. Print each hint verbatim and stop.
@@ -29,7 +29,7 @@ reaches step 4 and cannot ask.
    If there is none yet, run the command instead:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" sweep --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep --json
    ```
 
    Its JSON carries the sets, the milestones and the open pull requests, and none of the

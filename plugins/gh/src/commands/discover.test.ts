@@ -20,7 +20,7 @@ import { HELP, runDiscover } from './discover.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURES = path.join(HERE, '..', 'fixtures')
-const BIN = path.join(HERE, '..', '..', 'bin', 'gh.ts')
+const BIN = path.join(HERE, '..', '..', 'scripts', 'gh.ts')
 
 interface CapturedRun {
   argv: string[]
@@ -278,7 +278,7 @@ it('records every divergence from the Python as data, and no more', () => {
   }
 })
 
-it('is reachable through bin/gh.ts, as the shepherd skill reaches it', () => {
+it('is reachable through scripts/gh.ts, as the shepherd skill reaches it', () => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const fan = sandbox.join('fan')
@@ -292,7 +292,7 @@ it('is reachable through bin/gh.ts, as the shepherd skill reaches it', () => {
   expect(result.stderr).toBe('')
 })
 
-it('lists itself in the command list bin/gh.ts prints', () => {
+it('lists itself in the command list scripts/gh.ts prints', () => {
   const sandbox = createSandbox()
 
   const result = runScript(BIN, { args: [], env: sandbox.env })

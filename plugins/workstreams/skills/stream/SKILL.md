@@ -2,7 +2,7 @@
 name: stream
 description: Build one issue, or one stack of them, in one worktree, a layer at a time.
 argument-hint: [issue-or-stack]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Write Agent SendMessage
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Write Agent SendMessage
 disable-model-invocation: true
 ---
 
@@ -17,7 +17,7 @@ layer is reviewed to `done` before the next is written.
 1. Preflight.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" preflight
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight
    ```
 
    Exit 1 means something is missing. Print each hint verbatim and stop.
@@ -57,7 +57,7 @@ layer is reviewed to `done` before the next is written.
 
    ```bash
    gh pr diff <number> --name-only
-   node "${CLAUDE_PLUGIN_ROOT}/bin/workstreams.ts" pr-state <number> --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --json
    git -C <worktree> status --porcelain
    git -C <root checkout> status --porcelain
    ```

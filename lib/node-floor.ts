@@ -11,7 +11,7 @@
 // point runs, so a guard with a module graph behind it would load that graph
 // on the very runtime it exists to refuse, and the sentence a user should
 // have read would be a syntax error from inside a dependency instead.
-// `plugins/mermaid/bin/mermaid.ts` (#126) makes this its one static import
+// `plugins/mermaid/scripts/mermaid.ts` (#126) makes this its one static import
 // and reaches everything else by `await import` after the check, the way
 // `bin/gh-security.ts` does in the SurveyMonkey/skills baseline.
 //

@@ -230,7 +230,7 @@ jobs:
       - name: Refuse a run that finds no TypeScript
         run: |
           git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
-            'plugins/*/src/*.ts' 'plugins/*/bin/*.ts' 'plugins/*/hooks/*.ts' \
+            'plugins/*/src/*.ts' 'plugins/*/scripts/*.ts' 'plugins/*/hooks/*.ts' \
             'vitest.config.ts' | grep -q .
       # noEmit lives in tsconfig.json rather than on this line: the same
       # invocation then means the same thing from an editor or a hook.

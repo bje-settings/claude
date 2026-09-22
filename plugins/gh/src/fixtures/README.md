@@ -65,14 +65,14 @@ every git call answers `null` on failure rather than throwing, and every `gh` fa
 `GhError`, which `sync-repo.ts`'s `ask()` always catches), so `src/bin.test.ts`'s one spawned case
 for the #81 exit-1 contract imports the real `createSyncCommand` with a throwing stand-in in place
 of `syncRepo`, in a real process rather than in-process. What it proves is narrower than "the same
-production wiring `bin/gh.ts` uses": `bin/gh.ts`'s own `write` helper and its `sync` dispatch arm
-are an unexported `const` and a dispatch branch respectively, neither importable from outside that
-file, so this fixture MIRRORS that wiring rather than calling it (review round 1, #165: proved by
-mutating `bin/gh.ts`'s `write` to always return exit 0 and confirming the spawned test in
-`bin.test.ts` stayed green). A future edit to `bin/gh.ts`'s `write` or its `sync` arm that broke
-the exit-1 case would not be caught here; it would only be caught by an edit that also broke one of
-the OTHER spawned `bin.test.ts` cases (the refusals, `--help`), which exercise the real `write` at
-exit 0 and exit 2. Closing this gap outright needs `write` exported from `bin/gh.ts` or otherwise
-made importable, which is outside this fixture's own scope. It is excluded from collection and
-coverage the same way the other `.ts` fixtures are (`vitest.config.ts` `**/fixtures/**`), so it is
-linted and type-checked and never measured.
+production wiring `scripts/gh.ts` uses": `scripts/gh.ts`'s own `write` helper and its `sync`
+dispatch arm are an unexported `const` and a dispatch branch respectively, neither importable from
+outside that file, so this fixture MIRRORS that wiring rather than calling it (review round 1,
+#165: proved by mutating `scripts/gh.ts`'s `write` to always return exit 0 and confirming the
+spawned test in `bin.test.ts` stayed green). A future edit to `scripts/gh.ts`'s `write` or its
+`sync` arm that broke the exit-1 case would not be caught here; it would only be caught by an edit
+that also broke one of the OTHER spawned `bin.test.ts` cases (the refusals, `--help`), which
+exercise the real `write` at exit 0 and exit 2. Closing this gap outright needs `write` exported
+from `scripts/gh.ts` or otherwise made importable, which is outside this fixture's own scope. It
+is excluded from collection and coverage the same way the other `.ts` fixtures are
+(`vitest.config.ts` `**/fixtures/**`), so it is linted and type-checked and never measured.

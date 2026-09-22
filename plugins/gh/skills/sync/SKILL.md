@@ -15,7 +15,7 @@ Sync the current checkout, or every checkout one level down.
 ## Step 1 — Run
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/gh.ts" sync $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" sync $ARGUMENTS
 ```
 
 The command detects its own scope, so do not inspect the directory or classify it first.

@@ -1,7 +1,7 @@
 // The spawn helper's own claims, against the tiny programs in fixtures/.
-// Those run under node's type stripping exactly as a plugin's bin/ entry point
-// will, so this file also proves the harness can run a `.ts` file as a process
-// at all.
+// Those run under node's type stripping exactly as a plugin's scripts/ entry
+// point will, so this file also proves the harness can run a `.ts` file as a
+// process at all.
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -1,7 +1,8 @@
-// The one spawned contract test for `bin/workstreams.ts` (`harness/README.md`):
-// argv in, exit code and streams out. Everything else about these commands is
-// exercised in process in `commands/*.test.ts`; this is the only place the
-// process boundary itself, and the floor guard in front of it, are real.
+// The one spawned contract test for `scripts/workstreams.ts`
+// (`harness/README.md`): argv in, exit code and streams out. Everything else
+// about these commands is exercised in process in `commands/*.test.ts`; this
+// is the only place the process boundary itself, and the floor guard in front
+// of it, are real.
 //
 // Only the paths that need no `gh` and touch no real checkout: the usage, the
 // refusals, and each arm's own `--help`. A spawned child cannot be handed the
@@ -15,7 +16,12 @@ import { expect, it } from 'vitest'
 import { createSandbox } from '../../../harness/sandbox.ts'
 import { runScript } from '../../../harness/spawn.ts'
 
-const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'workstreams.ts')
+const BIN = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'scripts',
+  'workstreams.ts',
+)
 
 /** The sandbox's environment, so the child carries no `GIT_` or `GH_`
  *  variable this test did not choose. */

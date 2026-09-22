@@ -43,8 +43,8 @@
     {
       "name": "fan-out/missing-entry-point",
       "python": "scripts/gh-sync.py",
-      "port": "bin/gh.ts",
-      "why": "The note a broken install leaves on stderr names the file that is missing, and the file moved with the port: the fan-out is now a subcommand of bin/gh.ts rather than a script of its own. The sentence, the stream it goes to and the silence on stdout are unchanged."
+      "port": "scripts/gh.ts",
+      "why": "The note a broken install leaves on stderr names the file that is missing, and the file moved with the port: the fan-out is now a subcommand of scripts/gh.ts rather than a script of its own. It was bin/gh.ts until #185 moved every plugin entry point out of bin/, because claude.ai rejects a plugin carrying a top-level bin/ (RFC 001 decision 16), so the tail of the path this note prints moved with it. The sentence, the stream it goes to and the silence on stdout are unchanged."
     }
   ],
   "syncTimeout": [

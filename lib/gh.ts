@@ -1356,7 +1356,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    *
    * Read through `client.viewRepository` rather than from `options`, because
    * a client built with a `cwd` and no `repository` is the mode
-   * `gh-sync-repo.py` used and the one `bin/gh.ts` still builds: the
+   * `gh-sync-repo.py` used and the one `scripts/gh.ts` still builds: the
    * repository is whatever gh resolves from that directory, and asking the
    * existing endpoint is how this file finds out (round 6's ruling on #170).
    *

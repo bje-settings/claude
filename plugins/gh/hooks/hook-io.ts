@@ -44,8 +44,8 @@ if (meetsNodeFloor(process.version)) {
   const output = createOutput(process.stdout, process.stderr)
 
   // Derived once, here, and passed in: the hook sits one level across from
-  // `bin/`, the way it sat one level across from `scripts/` in Python.
-  const entry = path.join(import.meta.dirname, '..', 'bin', 'gh.ts')
+  // `scripts/`, the way it did in Python.
+  const entry = path.join(import.meta.dirname, '..', 'scripts', 'gh.ts')
 
   try {
     process.exitCode = await runHookIo(process.argv.slice(2), {
