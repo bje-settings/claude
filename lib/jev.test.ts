@@ -381,6 +381,67 @@ it('a NaN confidence is refused, not passed through as a valid number', () => {
   ).toThrow(/no choice answer/)
 })
 
+function classificationReply(index: number) {
+  return {
+    [`kind__u${index}`]: {
+      type: 'choice',
+      choice: 'repo_fact',
+      probabilities: { repo_fact: 1 },
+      confidence: 0.9,
+    },
+    [`volatile__u${index}`]: { type: 'noul', noul: 0.1 },
+    [`self_contained__u${index}`]: { type: 'noul', noul: 0.9 },
+    [`evidence__u${index}`]: {
+      type: 'choice',
+      choice: 'config_value',
+      probabilities: { config_value: 1 },
+      confidence: 0.8,
+    },
+    [`multi_assertion__u${index}`]: { type: 'noul', noul: 0.05 },
+  }
+}
+
+it('a rejected request loses only its own units, and the failure names the request', async () => {
+  // per_unit sends one request per unit, so a failure on the first request
+  // must not cost the second unit's own request, made in parallel.
+  let calls = 0
+  const client = createJevClient({
+    apiKey: KEY,
+    maxRetries: 0,
+    fetch: async () => {
+      calls += 1
+      if (calls === 1) return reply(400, 'refused: bad question')
+      return reply(200, { model: 'x', answers: classificationReply(1), usage: {} })
+    },
+  })
+
+  const outcome = await client.classify([unit({ id: 'a' }), unit({ id: 'b' })], 'per_unit')
+
+  expect(outcome.classifications).toHaveLength(1)
+  expect(outcome.classifications[0]?.unitId).toBe('b')
+  expect(outcome.failures).toEqual([{ id: 'request 0', message: expect.stringContaining('400') }])
+})
+
+it('a parse failure on an answer that arrived records one failure naming the unit', async () => {
+  const client = createJevClient({
+    apiKey: KEY,
+    fetch: async () =>
+      reply(200, {
+        model: 'x',
+        // A malformed volatile answer: out of range.
+        answers: { ...classificationReply(0), volatile__u0: { type: 'noul', noul: 7 } },
+        usage: {},
+      }),
+  })
+
+  const outcome = await client.classify([unit({ id: 'bad-unit' })], 'per_unit')
+
+  expect(outcome.classifications).toEqual([])
+  expect(outcome.failures).toEqual([
+    { id: 'bad-unit', message: expect.stringMatching(/out of range/) },
+  ])
+})
+
 it('a probability of 42 is refused, not accepted as a raw score', () => {
   expect(() =>
     parseClassification([ONE], {
