@@ -735,6 +735,15 @@ const readIssue = (node: unknown): IssueSummary | null => {
   ) {
     return null
   }
+  // The dependency connections are asked for with a `first:` and no page
+  // signal of their own, so a list answered at exactly the ceiling cannot be
+  // told from the first page of a longer one. The classification reads
+  // `blockedBy`, and a blocker list one entry short is a blocked issue
+  // reported as unblocked, which is the one mistake a sweep must not make, so
+  // the ambiguity is read the same conservative way a malformed entry is:
+  // the whole issue is unreadable and is counted as such. `labels` and
+  // `closedByPullRequestsReferences` classify nothing and are left alone.
+  if (blockedBy.length === SWEEP_PAGE || blocking.length === SWEEP_PAGE) return null
   const labels: string[] = []
   for (const entry of labelNodes) {
     const name = asText(asRecord(entry)?.name)
@@ -1026,9 +1035,14 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       if (answer.errors !== null) reasons.push(answer.errors)
       // An `endCursor` of null with `hasNextPage` true is a reply this cannot
       // follow, and asking again with the same cursor would ask the same
-      // question forever. Ending here is the short answer; the rows already
-      // read are still an answer.
-      if (!answer.hasNextPage || answer.endCursor === null) break
+      // question forever. Ending here is the short answer, and it is a reason
+      // like any other: the rows already read are still an answer, but a
+      // caller told nothing would read a truncated set as a complete one.
+      if (answer.hasNextPage && answer.endCursor === null) {
+        reasons.push(`${field} has more pages and the reply named no cursor to ask with`)
+        break
+      }
+      if (!answer.hasNextPage) break
       if (page === SWEEP_PAGES - 1) {
         reasons.push(`${field} has more pages than the ${SWEEP_PAGES} this reads`)
         break

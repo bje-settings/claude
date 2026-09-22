@@ -1270,9 +1270,11 @@ describe('milestones, issues and pull requests', () => {
     expect(result.unavailable).toBeNull()
   })
 
-  it('stops when the reply wants another page but names no cursor to ask with', async () => {
+  it('stops when the reply wants another page but names no cursor to ask with, and says so', async () => {
     // Asking again with the cursor already used would ask the same question
-    // forever. The rows already read are still an answer.
+    // forever. The rows already read are still an answer, and the reason the
+    // answer is short is reported: without it a truncated set is handed over
+    // as a complete one.
     const { gh, calls } = clientAnsweringEach([
       REPO,
       page('milestones', [milestoneNode], { hasNextPage: true, endCursor: null }),
@@ -1282,6 +1284,9 @@ describe('milestones, issues and pull requests', () => {
 
     expect(calls).toHaveLength(2)
     expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe(
+      'milestones has more pages and the reply named no cursor to ask with',
+    )
   })
 
   it('stops after twenty pages and says the answer is short', async () => {
@@ -1339,6 +1344,30 @@ describe('milestones, issues and pull requests', () => {
 
     expect(result.rows).toHaveLength(1)
     expect(result.unavailable).toBe('9 issues row(s) were not the shape the query asked for')
+  })
+
+  it('refuses an issue whose dependency list came back at the page ceiling', async () => {
+    // A `blockedBy` of exactly 100 is either a complete list or the first page
+    // of a longer one, and the query asks for no page signal to tell them
+    // apart. Read as complete, an issue whose only OPEN blocker sat past the
+    // ceiling would report as unblocked. `labels` at the ceiling classifies
+    // nothing, so it is still a readable row.
+    const full = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({ number: index + 1, state: 'CLOSED' }))
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('issues', [
+        { ...issueNode, blockedBy: { nodes: full(100) } },
+        { ...issueNode, blocking: { nodes: full(100) } },
+        { ...issueNode, blockedBy: { nodes: full(99) } },
+        { ...issueNode, labels: { nodes: full(100).map(() => ({ name: 'enhancement' })) } },
+      ]),
+    ])
+
+    const result = await gh.listIssues()
+
+    expect(result.rows).toHaveLength(2)
+    expect(result.unavailable).toBe('2 issues row(s) were not the shape the query asked for')
   })
 
   it('refuses a whole blocker list when one entry of it cannot be read', async () => {
