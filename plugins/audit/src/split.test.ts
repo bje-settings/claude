@@ -112,4 +112,13 @@ describe('splitMarkdown', () => {
       'Next one starts.',
     ])
   })
+
+  it('does not split on a period inside a markdown link', () => {
+    const source = 'Read [the docs. See it](https://example.com/a.b) for more. Then this.'
+    const { units } = splitMarkdown(FILE, source)
+    expect(units.map((u) => u.text)).toEqual([
+      'Read [the docs. See it](https://example.com/a.b) for more.',
+      'Then this.',
+    ])
+  })
 })
