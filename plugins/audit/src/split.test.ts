@@ -231,4 +231,22 @@ describe('splitMarkdown', () => {
     const { units } = splitMarkdown(FILE, source)
     expect(units.map((u) => u.text)).toEqual(['A quoted sentence.', 'A plain sentence.'])
   })
+
+  it('turns a fence inside a list item into its own opaque block', () => {
+    const source = [
+      '- an item with code',
+      '',
+      '  ```bash',
+      '  echo hi',
+      '  ```',
+      '',
+      '- next item',
+    ].join('\n')
+    const { units, opaque } = splitMarkdown(FILE, source)
+    expect(opaque).toHaveLength(1)
+    expect(opaque[0]?.kind).toBe('code')
+    expect(opaque[0]?.text).toBe('echo hi')
+    const items = units.filter((u) => u.block === 'list_item')
+    expect(items.map((u) => u.text)).toEqual(['an item with code', 'next item'])
+  })
 })

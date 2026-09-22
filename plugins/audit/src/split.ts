@@ -106,7 +106,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     }
 
     if (matchListMarker(line)) {
-      i = parseListBlock(lines, i, headingStack, null, file, units)
+      i = parseListBlock(lines, i, headingStack, null, file, units, opaque, warnings)
       continue
     }
 
@@ -128,7 +128,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     if (nextIsList && joined.endsWith(':')) {
       // A lead-in paragraph is never a unit; it becomes the leadIn for the
       // list that follows it.
-      i = parseListBlock(lines, afterBlank, headingStack, joined, file, units)
+      i = parseListBlock(lines, afterBlank, headingStack, joined, file, units, opaque, warnings)
       continue
     }
 
@@ -255,6 +255,8 @@ const parseListBlock = (
   topLeadIn: string | null,
   file: string,
   units: Omit<Unit, 'id' | 'prev' | 'next'>[],
+  opaque: OpaqueBlock[],
+  warnings: SplitWarning[],
 ): number => {
   const stack: OpenItem[] = []
   // Items are finished (popped) in an order driven by list structure, not by
@@ -274,9 +276,23 @@ const parseListBlock = (
   }
 
   while (i <= total) {
-    const line = lines[i - 1] ?? ''
+    const raw = lines[i - 1] ?? ''
+    const line = stripBlockquote(raw)
 
     if (isBlank(line)) {
+      let peek = i + 1
+      while (peek <= total && isBlank(stripBlockquote(lines[peek - 1] ?? ''))) peek++
+      const nextLine = peek <= total ? stripBlockquote(lines[peek - 1] ?? '') : null
+      const innermostNow = stack[stack.length - 1]
+      const nextIndent = nextLine !== null ? (nextLine.match(/^\s*/)?.[0] ?? '').length : -1
+      const listContinues =
+        nextLine !== null &&
+        (matchListMarker(nextLine) !== null ||
+          (!!innermostNow && nextIndent >= innermostNow.contentColumn))
+      if (listContinues) {
+        i = peek
+        continue
+      }
       break
     }
 
@@ -296,6 +312,19 @@ const parseListBlock = (
         leadIn,
       })
       i++
+      continue
+    }
+
+    const fence = matchFenceOpen(line)
+    if (fence && stack.length > 0) {
+      const strip = stack[stack.length - 1]?.contentColumn ?? 0
+      const read = readFence(lines, i, fence, file, strip)
+      if (!read.closed) warnings.push({ file, line: i, kind: 'unclosed_fence' })
+      opaque.push(read.block)
+      // The fence closes whatever item held it: continuation resumes as a
+      // new paragraph rather than being folded back into the item's text.
+      popTo(0)
+      i = read.endLine + 1
       continue
     }
 
