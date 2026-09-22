@@ -196,3 +196,45 @@ it('a 400 is not retried and carries its status and body', async () => {
   expect((error as JevError).body).toBe('{"error":"questions.q.criteria is required"}')
   expect(calls).toBe(1)
 })
+
+it('a network error is retried', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    sleep: async () => {},
+    fetch: async () => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed')
+      return reply(200, OK_BODY)
+    },
+  })
+  await jev.ask('s', Q)
+  expect(calls).toBe(2)
+})
+
+it('a stalled request is aborted by the timeout and retried as a transport failure', async () => {
+  let calls = 0
+  const jev = createJev({
+    apiKey: KEY,
+    timeoutMs: 20,
+    sleep: async () => {},
+    fetch: (_url, init) => {
+      calls += 1
+      if (calls === 1) {
+        // A socket that never answers: the only way it ever settles is the
+        // abort signal firing when the timeout elapses.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'TimeoutError'))
+          })
+        })
+      }
+      return Promise.resolve(reply(200, OK_BODY))
+    },
+  })
+
+  const answers = await jev.ask('s', Q)
+  expect(calls).toBe(2)
+  expect(noulOf(answers, 'q')).toBe(0.75)
+  expect(jev.usage().attempts).toBe(2)
+})
