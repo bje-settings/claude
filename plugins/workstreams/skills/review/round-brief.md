@@ -37,11 +37,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    > concluded reaches you through this message or not at all. If you want a mutation
    > tried, describe it and I will run it. Report only to me, and to nobody else.
 
-   Five rounds have paid for each of those sentences: a reviewer edited a file in a
-   shared worktree, another wrote into the ROOT checkout, three concurrent suites in one
-   worktree took the load average to 33 and made a test flake, one sent its finding to
-   the orchestrator's session instead of to the round, and one read the previous rounds'
-   findings files before forming its own.
+   Five rounds have paid for each of those sentences, one of them when three concurrent
+   suites in one worktree took the load average to 33 and made a test flake.
 4. Wait for EVERY reviewer to finish before you edit anything. A reviewer that saw a
    round's own uncommitted edits has reviewed a diff nobody will ever merge.
 5. Write the findings file `<scratchpad>/findings-<number>-r<round>.md` BEFORE any
@@ -56,14 +53,15 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 7. Verification rules that have each found what reading could not:
    - **Mutation before you accept "tested".** Disable the thing a test claims to prove,
      run the suite, and watch it go red. A suite that stays green is the finding; a suite
-     already red on the mutation is a rejection.
+     already red on the mutation is a rejection. A mutation script asserts that it changed
+     something: a substitution that silently failed to apply reports green and reads like a
+     hole in the tests.
    - **A redundancy claim is a mutation target, not a verdict.** "X is redundant with Y"
      is checked by removing X and watching Y fail.
    - **One real call per endpoint, for any client over a command line.** An in-process
-     stand-in cannot notice an argv the real binary refuses, such as the
-     `gh pr checks --watch --json` one client built while every test passed. Run one
-     read-only call per new or changed endpoint against the real binary and check the
-     parser against what came back.
+     stand-in cannot notice an argv the real binary refuses, such as
+     `gh pr checks --watch --json`. Run one read-only call per new or changed endpoint
+     against the real binary and check the parser against what came back.
    - **For a port, the guard sweep.** Re-derive the guard list from the old code, revert
      every guard in the new code at once, run the suite, and treat every guard that
      stays green as a finding; then revert them one at a time. 100% branch coverage

@@ -8,9 +8,9 @@ disable-model-invocation: true
 
 Pull request: $ARGUMENTS. Ask the caller for anything you were not given: the pull request
 number, the absolute path of its worktree, and the model to size the round agent with.
-Never guess a worktree. Both commands below run in that worktree: they take no repository
-argument and read it from the working directory, so outside a checkout they report on git
-rather than on the pull request.
+Both commands below run in that worktree: they take no repository argument and read it
+from the working directory, so outside a checkout they report on git rather than on the
+pull request.
 
 ## Process
 
@@ -82,8 +82,7 @@ rather than on the pull request.
    round stopped short: send it back with `SendMessage` rather than dispatching a second
    one.
 
-5. After the round, read the return. Then step 2 again, with `--round` raised and
-   `--substantial` if the round said so.
+5. Step 2 again, with `--round` raised and `--substantial` if the round said so.
 
    Findings under `lower_layer` are never applied here: they belong to a branch this
    round does not own. Pass them to the caller.
@@ -92,7 +91,7 @@ rather than on the pull request.
    Two rounds is the ceiling whatever round 2 returns.
 
 6. Rot check. Read [rot-check.md](rot-check.md) and do what it says with the rot lists the
-   rounds returned. It is the caller's job, not the round agent's.
+   rounds returned.
 
 7. Report four things: the state reached, what each round applied and rejected with its
    reason, the rot check's corrections, and anything returned under `lower_layer`. Name
