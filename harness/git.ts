@@ -231,6 +231,15 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     run(directory, args, false).stdout.trim()
   const tryGit = (directory: string, ...args: string[]): GitRun => run(directory, args, true)
 
+  /** Turns one repository's background housekeeping off. Every repository this
+   *  harness creates goes through it, including the throwaway clones
+   *  {@link cloneOrigin} makes, which are the ones removed soonest after a
+   *  commit and a push and so the ones that race the removal hardest. */
+  function quiesce(repo: string): void {
+    git(repo, 'config', 'gc.auto', '0')
+    git(repo, 'config', 'maintenance.auto', 'false')
+  }
+
   /** A bare origin, a clone of it, and one commit pushed to the default branch.
    *
    *  `--initial-branch` rather than a fallback for an older git: it has been
@@ -255,10 +264,8 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     // is the one that actually fires on git 2.54; `gc.auto` is its older name
     // and is set beside it so an older git is covered too. A fixture repository
     // holds a handful of objects and has nothing to gain from repacking.
-    for (const repo of [bare, work]) {
-      git(repo, 'config', 'gc.auto', '0')
-      git(repo, 'config', 'maintenance.auto', 'false')
-    }
+    quiesce(bare)
+    quiesce(work)
     git(work, 'checkout', '-q', '-B', DEFAULT_BRANCH)
     writeFileSync(path.join(work, 'file.txt'), 'base\n')
     git(work, 'add', '-A')
@@ -276,7 +283,16 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     const origin = git(work, 'remote', 'get-url', 'origin')
     const scratch = mkdtempSync(path.join(sandbox.path, 'scratch-'))
     git(scratch, 'clone', '-q', origin, path.join(scratch, 'c'))
+    quiesce(path.join(scratch, 'c'))
     return path.join(scratch, 'c')
+  }
+
+  /** The scratch directory a {@link cloneOrigin} clone lives in, removed. The
+   *  same retries `sandbox.ts` gives its own cleanup: `force` forgives only a
+   *  directory that is already gone, and this one is removed within
+   *  milliseconds of a commit and a push. */
+  function dropScratch(clone: string): void {
+    rmSync(path.dirname(clone), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
 
   const fixtures: GitFixtures = {
@@ -384,7 +400,7 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       const clone = cloneOrigin(work)
       fixtures.commit(clone, 'origin side')
       fixtures.push(clone)
-      rmSync(path.dirname(clone), { recursive: true, force: true })
+      dropScratch(clone)
       fixtures.commit(work, 'local side', 'local.txt', 'local')
     },
 
@@ -400,7 +416,7 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       const clone = cloneOrigin(work)
       fixtures.commit(clone, 'remote advance', file, 'advanced')
       fixtures.push(clone)
-      rmSync(path.dirname(clone), { recursive: true, force: true })
+      dropScratch(clone)
     },
 
     removeOrigin(work: string): void {

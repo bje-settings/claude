@@ -25,6 +25,19 @@ function repository(): { sandbox: Sandbox; git: GitFixtures; work: string } {
   return { sandbox, git, work: git.create(sandbox.join('r')) }
 }
 
+/** Asserts that a repository will run no background housekeeping. git spawns
+ *  `gc` and `maintenance` detached and they outlive the git that started them,
+ *  so one landing after a sandbox has walked its tree fails the removal with
+ *  ENOTEMPTY and fails a test that had already passed. The claim is per
+ *  repository, so every repository a builder leaves behind is asked, the bare
+ *  origin as much as the work tree. The throwaway clones `diverge` and
+ *  `remoteAdvance` make are configured the same way and cannot be asked here,
+ *  because the builder removes them before it returns. */
+function expectQuiet(git: GitFixtures, repo: string): void {
+  expect(git.git(repo, 'config', '--get', 'gc.auto')).toBe('0')
+  expect(git.git(repo, 'config', '--get', 'maintenance.auto')).toBe('false')
+}
+
 /** The branches git itself reports as merged into origin's default branch. */
 function mergedInto(git: GitFixtures, work: string): string[] {
   return git
@@ -51,6 +64,8 @@ it('creates a repo with a real origin and a resolvable default branch', () => {
   expect(git.currentBranch(work)).toBe(DEFAULT_BRANCH)
   expect(git.branches(work)).toEqual([DEFAULT_BRANCH])
   expect(git.headSha(work)).toBe(git.sha(work, `refs/remotes/origin/${DEFAULT_BRANCH}`))
+  expectQuiet(git, work)
+  expectQuiet(git, sandbox.join('r', 'origin.git'))
 })
 
 it('places fan-out repos directly under the scanned directory, origins hidden', () => {
@@ -63,6 +78,8 @@ it('places fan-out repos directly under the scanned directory, origins hidden', 
     realpathSync(sandbox.join('fan', 'one')),
   )
   expect(readdirSync(sandbox.join('fan')).filter((name) => !name.startsWith('.'))).toEqual(['one'])
+  expectQuiet(git, work)
+  expectQuiet(git, sandbox.join('fan', '.origins', 'one.git'))
 })
 
 // --- commits, branches and merges ---------------------------------------------
