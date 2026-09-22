@@ -19,6 +19,7 @@ import {
   type Classification,
   createJevMock,
   type EvidenceNeed,
+  type EvidenceVerdict,
   JevError,
   type JevReplies,
   type PairVerdict,
@@ -1689,4 +1690,23 @@ it('reports an answer that would not parse in its own words', async () => {
       '  pairs CLAUDE.md:3-3 <> CLAUDE.md:5-5: answer pair chose banana, which is not one of the options',
     ].join('\n'),
   )
+})
+
+it('judges a repository fact against the head of the file it names', async () => {
+  // The claim and the file it points at are the cheapest evidence the audit
+  // has, and the excerpt is bounded on purpose: accuracy falls as unrelated
+  // state grows, so the head of the file is a crude bound rather than a
+  // retrieval strategy.
+  const audit = modelled('evidence', {
+    classify: { classifications: [classified('CLAUDE.md:3-3')], failures: [] },
+    judgeEvidence: picked<EvidenceVerdict>('contradicts', 0.88),
+  })
+
+  await runContext([audit.work, '--json'], audit.edges)
+
+  const report = reportOf(audit.stdout())
+  expect(report.evidenceCoverage).toEqual({ judged: 1, available: 1 })
+  expect(
+    report.evidence.map((entry) => [entry.unitId, entry.source, entry.excerpt.length]),
+  ).toEqual([['CLAUDE.md:3-3', 'docs/retry.md', 6000]])
 })

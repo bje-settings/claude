@@ -8,12 +8,21 @@
 // point of `SkippedStage`: "skipped" must never read as "nothing found".
 
 import type { PairCandidate } from './candidates.ts'
-import type { ChoiceAnswer, Classification, PairVerdict } from './lib/jev.ts'
+import type { ChoiceAnswer, Classification, EvidenceVerdict, PairVerdict } from './lib/jev.ts'
 import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
 
 /** A candidate the model has ruled on. The candidate's own ids and similarity
  *  are kept beside the verdict: a reader acting on a finding needs both. */
 export type PairJudgment = PairCandidate & { verdict: ChoiceAnswer<PairVerdict> }
+
+/** A claim ruled on against an excerpt of the file it names. */
+export type EvidenceJudgment = {
+  unitId: string
+  /** The file the excerpt came from, relative to the audited root. */
+  source: string
+  excerpt: string
+  verdict: ChoiceAnswer<EvidenceVerdict>
+}
 
 /** A model call that failed. The run carries on and reports it: a stage that
  *  lost one request still answers for the rest. */
@@ -54,6 +63,10 @@ export type Report = {
   classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
+  evidence: EvidenceJudgment[]
+  /** `available` counts the repo_fact units; one with no readable source file
+   *  is in neither `judged` nor a failure. */
+  evidenceCoverage: Coverage
   failures: StageFailure[]
   wallClockMs: number
 }
@@ -154,6 +167,23 @@ const pairSections = (report: Report): string[] => {
  *  own expiry. */
 const VOLATILE_BAR = 0.8
 
+/** The claims an excerpt refutes. A claim the excerpt supports, or says
+ *  nothing about, is not a finding: only the contradiction is something to
+ *  act on. */
+const evidenceSections = (report: Report): string[] => {
+  const byId = new Map(report.units.map((unit) => [unit.id, unit]))
+  const refuted = report.evidence.filter((entry) => entry.verdict.choice === 'contradicts')
+  return [
+    '',
+    `## evidence: contradicts (${refuted.length}; ${cov(report.evidenceCoverage)})`,
+    // Every judgment names a unit of this same run.
+    ...refuted.flatMap((entry) => [
+      `  conf ${entry.verdict.confidence.toFixed(2)}  ${entry.unitId}  against ${entry.source}`,
+      `    ${(byId.get(entry.unitId) as Unit).text}`,
+    ]),
+  ]
+}
+
 /** A unit that names an expiry, where an issue it cites is no longer open.
  *
  *  0.8 is the spike's own bar, tuned against the live model.
@@ -200,14 +230,11 @@ const expiredSections = (report: Report): string[] => {
   ]
 }
 
-/** A stage with nothing to print yet. */
-const noSections = (): string[] => []
-
 /** What each model stage prints when it ran, in the order the stages run. */
 const STAGE_SECTIONS: Record<Stage, (report: Report) => string[]> = {
   classify: expiredSections,
   pairs: pairSections,
-  evidence: noSections,
+  evidence: evidenceSections,
 }
 
 /** Each model stage's own findings, or the one line saying it never ran. */

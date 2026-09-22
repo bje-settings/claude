@@ -36,6 +36,7 @@ import {
 } from '../refs.ts'
 import {
   type Coverage,
+  type EvidenceJudgment,
   type PairJudgment,
   type Report,
   renderFindings,
@@ -228,7 +229,61 @@ type ModelOutcome = {
   classifications: Classification[]
   pairs: PairJudgment[]
   pairCoverage: Coverage
+  evidence: EvidenceJudgment[]
+  evidenceCoverage: Coverage
   failures: StageFailure[]
+}
+
+/** The excerpt a claim is judged against. Accuracy falls as unrelated state
+ *  grows, so the head of the file is a deliberate, crude bound; choosing the
+ *  relevant span is a retrieval problem this port has not solved either. */
+const EXCERPT_CHARS = 6000
+
+/** The file a claim is most likely about: its first reference, in the order
+ *  the writer wrote them, that resolved to a real file of this repository
+ *  other than the one the claim is written in. */
+const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: string } | null => {
+  for (const ref of unit.refs) {
+    if (ref.kind !== 'path' && ref.kind !== 'file_line') continue
+    if (ref.resolution.status !== 'found' || ref.resolution.repoPath === null) continue
+    const repoPath = ref.resolution.repoPath
+    if (repoPath === unit.file) continue
+    const text = readFileSync(path.join(root, repoPath), 'utf8')
+    return { source: repoPath, excerpt: text.slice(0, EXCERPT_CHARS) }
+  }
+  return null
+}
+
+/**
+ * The evidence stage: every repository fact, against the head of the file it
+ * names. A fact naming no readable file is in neither the judgments nor the
+ * failures, which is what `available` counts.
+ */
+const judgeEvidence = async (
+  jev: JevClient,
+  root: string,
+  units: readonly Unit[],
+  kindOf: Map<string, UnitKind>,
+  failures: StageFailure[],
+): Promise<{ evidence: EvidenceJudgment[]; coverage: Coverage }> => {
+  const facts = units.filter((unit) => kindOf.get(unit.id) === 'repo_fact')
+  const checkable = facts.flatMap((unit) => {
+    const found = evidenceSource(root, unit)
+    return found === null ? [] : [{ unit, ...found }]
+  })
+  const evidence = await settle(
+    'evidence',
+    checkable,
+    (entry) => entry.unit.id,
+    async ({ unit, source, excerpt }) => ({
+      unitId: unit.id,
+      source,
+      excerpt,
+      verdict: await jev.judgeEvidence(unit, source, excerpt),
+    }),
+    failures,
+  )
+  return { evidence, coverage: { judged: evidence.length, available: facts.length } }
 }
 
 /**
@@ -281,7 +336,13 @@ const judgePairs = async (
 const modelStages = async (
   edges: ContextEdges,
   units: readonly Unit[],
-  options: { noJev: boolean; shape: RequestShape; maxPairs: number; threshold: number },
+  options: {
+    root: string
+    noJev: boolean
+    shape: RequestShape
+    maxPairs: number
+    threshold: number
+  },
 ): Promise<ModelOutcome> => {
   const key = edges.env.TYPESAFE_API_KEY ?? ''
   if (options.noJev || key === '') {
@@ -290,6 +351,8 @@ const modelStages = async (
       classifications: [],
       pairs: [],
       pairCoverage: { judged: 0, available: 0 },
+      evidence: [],
+      evidenceCoverage: { judged: 0, available: 0 },
       failures: [],
     }
   }
@@ -304,11 +367,14 @@ const modelStages = async (
     ...failure,
   }))
   const paired = await judgePairs(jev, units, kindOf, options, failures)
+  const checked = await judgeEvidence(jev, options.root, units, kindOf, failures)
   return {
     skipped: [],
     classifications,
     pairs: paired.pairs,
     pairCoverage: paired.coverage,
+    evidence: checked.evidence,
+    evidenceCoverage: checked.coverage,
     failures,
   }
 }
@@ -467,6 +533,7 @@ export const runContext = async (
   if (unreadable !== null) return refused(`could not read ${unreadable}`)
   const tier0 = await tierZero(root, edges, { units, opaque, tracked })
   const models = await modelStages(edges, units, {
+    root,
     noJev: options['no-jev'],
     // The parser held the value to the two the client declares.
     shape: options.shape as RequestShape,
@@ -488,6 +555,8 @@ export const runContext = async (
     classifications: models.classifications,
     pairs: models.pairs,
     pairCoverage: models.pairCoverage,
+    evidence: models.evidence,
+    evidenceCoverage: models.evidenceCoverage,
     failures: models.failures,
     // Rounded: the clock a caller passes is `performance.now()`, whose
     // fractional milliseconds are noise in a report and noise in a diff.
