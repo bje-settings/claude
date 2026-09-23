@@ -62,7 +62,9 @@ touches, classifies and sizes each one, chooses between parallel streams, a stac
 pull request, and posts the sequencing comment on every affected issue. `skills/sweep/`
 carries the rules, with `file-map.md` holding the mapping rules a file map has to apply.
 
-Both the user and the model can invoke it: it starts a round.
+Both the user and the model can invoke it: it starts a round. Its own last step continues
+into `/workstreams:question` with the same scope, so nobody has to ask for the question
+phase separately.
 
 ## `/workstreams:review`
 
@@ -282,11 +284,13 @@ Exit 2 on a usage error, and 1 only when nothing at all could be read.
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight [--json]
 ```
 
-Prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}]}` with `--json`
-and the same findings as lines without it. Each hint is a command to run, except where
-the hint says what could not be checked instead: an unreadable registry names the file,
-and a missing reviewer names the agent. Exit 0 when everything is present, 1 when
-anything is missing, and 2 on a usage error.
+Prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}], "optional":
+[{"id": ..., "present": ...}]}` with `--json` and the same findings as lines without it;
+the optional array has no line form, since a missing optional plugin is never a finding
+and never moves the exit status. Each hint is a command to run, except where the hint says
+what could not be checked instead: an unreadable registry names the file, and a missing
+reviewer names the agent. Exit 0 when everything required is present, 1 when anything
+required is missing, and 2 on a usage error.
 
 A registry that cannot be read is reported as itself and never as missing plugins: the fix
 is a different one, and telling someone to install what they already have sends them the
