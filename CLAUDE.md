@@ -21,7 +21,8 @@ mode keeps only the symlinks resolving inside the plugin's own directory, so a p
 
 Plugins are listed in `README.md`; each has its own README. New `gh` skills belong in the `gh`
 plugin, and repo discovery shared by its skills is `plugins/gh/src/discover.ts`, reachable from a
-skill as `node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover <path>`.
+skill as `node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover <path>`. A new skill about auditing
+a repository's context files for rot belongs in the `audit` plugin.
 
 New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
 has the rules. A command is an exported function at `plugins/<plugin>/src/commands/<command>.ts`
