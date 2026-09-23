@@ -31,6 +31,8 @@ and report per milestone.
    If `pullRequests` is not empty, name each one before going on: a round planned around a
    branch someone else is about to merge collides on files the sweep cannot see.
 
+   If nothing is unblocked, stop and say what the next tier is waiting on.
+
 3. Read, do not remember. For every issue in the unblocked set and the next tier, read the
    full body **and every comment**. A findings comment is often the specification; the body
    is often out of date.
