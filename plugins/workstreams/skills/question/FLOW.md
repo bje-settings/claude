@@ -8,9 +8,8 @@ flowchart TD
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
     B -->|No| C{sequencing comment posted?}
     C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, sizing,<br/>hidden dependencies]
-    C -->|No| C2[Invoke /workstreams:sweep, then read it]
+    C -->|No| C2([Invoke /workstreams:sweep: it continues into<br/>the question phase itself; stop here on return]):::stop
     C1 --> D
-    C2 --> D
 
     D[Open the file, the record, or the docs an open item names]
     D --> E{answer already in the tree?}
@@ -30,8 +29,7 @@ flowchart TD
     L --> M{gh plugin present?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
     M -->|No| M3[Fast-forward the default branch itself] --> M2
-    M2[Clear ignored leftovers under plugins/] --> N
-    M3 --> N
+    M2[Ask the person about ignored leftovers under plugins/] --> N
     N{a local hook runs a full suite?}
     N -->|No| P[Note any open pull request that shares files]
     N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> P

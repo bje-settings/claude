@@ -2,7 +2,7 @@
 name: question
 description: Turn a sweep report into an approved plan, one question at a time.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Bash(git -C * pull --ff-only) Read Grep Glob AskUserQuestion Skill EnterPlanMode ExitPlanMode
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion Skill EnterPlanMode ExitPlanMode
 user-invocable: false
 ---
 
@@ -25,8 +25,9 @@ reaches step 4 and cannot ask.
 
 2. Read the sequencing comment the sweep posted.
 
-   If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool) to produce one, then
-   read it.
+   If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool). Its own last step
+   continues into the question phase itself, so once it returns the round has already been
+   questioned and planned: stop here rather than repeating steps 3 onward.
 
 3. Explore before asking. For every open item the sweep names: open the file, the record
    (`docs/rfc`, `docs/adr`, the repository's own rules), or the docs it turns on, and say
@@ -61,10 +62,15 @@ reaches step 4 and cannot ask.
    every issue in the round, ending with the same `_Recorded by <effort name>, <date>._`
    line.
 
-9. Housekeeping, before the first worktree. Only when preflight reports the `gh` plugin
-   present, ask the person to run `/gh:sync`; otherwise fast-forward the default branch
-   yourself (`git -C <repository root> pull --ff-only`) and go on. Remove any ignored
-   leftover under `plugins/` that a deletion left behind.
+9. Housekeeping, before the first worktree.
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight --json
+   ```
+
+   Read `optional` for `gh`. Present: ask the person to run `/gh:sync`. Absent: fast-forward
+   the default branch yourself (`git -C <repository root> pull --ff-only`) and go on. Ask
+   the person to remove any ignored leftover under `plugins/` that a deletion left behind.
 
    Then the hook preflight, gated on one question: does a local hook run a full test suite
    on every push? Detect it from `core.hooksPath`, `.githooks/`, `.husky/`, `lefthook.yml`,

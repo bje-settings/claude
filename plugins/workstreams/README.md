@@ -207,12 +207,14 @@ against it in its own description; a ruling that is cheap to reverse is taken th
 recorded with the argument for and against it rather than asked.
 
 Both are recorded in one rulings comment, posted on every issue in the round. The skill then
-hands back: the human enters plan mode, and `skills/stream/brief.md` is the template the plan
-feeds, so the plan answers what that template needs. Once approved, the plan comment goes on
-every issue in the round, and housekeeping runs before the first worktree: `/gh:sync`, any
-ignored leftover under `plugins/`, and a preflight for a local hook that runs a full suite on
-every push, which is disabled for the round only when the repository's own records say CI is
-the enforcement boundary, or asked about once with the per-push cost stated when they do not.
+enters plan mode itself and writes the plan; `ExitPlanMode` is the approval, not a hand-back,
+and `skills/stream/brief.md` is the template the plan feeds, so the plan answers what that
+template needs. Once approved, the plan comment goes on every issue in the round, and
+housekeeping runs before the first worktree: `/gh:sync` when the `gh` plugin is present
+(otherwise the skill fast-forwards the default branch itself), any ignored leftover under
+`plugins/`, and a preflight for a local hook that runs a full suite on every push, which is
+disabled for the round only when the repository's own records say CI is the enforcement
+boundary, or asked about once with the per-push cost stated when they do not.
 
 It is `user-invocable: false`: only the model invokes it, right after a sweep.
 
