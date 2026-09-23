@@ -2,7 +2,7 @@
 name: stream
 description: Build one issue, or one stack of them, in one worktree, a layer at a time.
 argument-hint: [issue-or-stack]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Write Agent SendMessage Skill
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh issue view *) Read Grep Glob Write Agent SendMessage Skill
 user-invocable: false
 ---
 
