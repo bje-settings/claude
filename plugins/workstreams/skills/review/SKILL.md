@@ -8,9 +8,12 @@ user-invocable: false
 
 Pull request: $ARGUMENTS. Its worktree comes from `git worktree list`, matched against the
 pull request's head branch; the model to size the round agent with comes from the plan
-comment on the round's issues. Both commands below run in that worktree: they take no
-repository argument and read it from the working directory, so outside a checkout they
-report on git rather than on the pull request.
+comment on the round's issues. No match, more than one match, or no model named for this
+pull request in the plan comment is a stop, with what is missing named: a round dispatched
+into a guessed worktree or with a guessed model is a round that will guess again inside it.
+Both commands below run in that worktree: they take no repository argument and read it from
+the working directory, so outside a checkout they report on git rather than on the pull
+request.
 
 ## Process
 

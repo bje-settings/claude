@@ -6,8 +6,9 @@ What `/workstreams:stream` does to one issue or one stack, and every way it decl
 flowchart TD
     A[preflight] --> B{anything missing?}
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| C[Issue order, model and effort per layer,<br/>from the plan comment on the round's issues]
-    C --> D[One worktree from the default branch, installed from its lock file]
+    B -->|No| C{order, model and effort in the plan<br/>comment for every issue in $ARGUMENTS?}
+    C -->|No| C1([Stop: say which is missing; never guess a layer's sizing]):::stop
+    C -->|Yes| D[One worktree from the default branch, installed from its lock file]
 
     D --> E[Write this layer's brief from the template into a file]
     E --> F{does the repository contradict the brief?}

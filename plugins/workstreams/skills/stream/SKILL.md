@@ -7,7 +7,10 @@ user-invocable: false
 ---
 
 Issues to build: $ARGUMENTS. The issue order, the model and effort per layer come from the
-plan comment on the round's issues; the briefs go in the session's scratchpad.
+plan comment on the round's issues; the briefs go in the session's scratchpad. If the plan
+comment does not name the order, model and effort for every issue in `$ARGUMENTS`, stop and
+say which is missing rather than guessing: a placeholder left in a brief is a layer that
+will guess too.
 
 One stream is one worktree, one branch per layer, one agent per layer, in sequence. The lower
 layer is reviewed to `done` before the next is written.
