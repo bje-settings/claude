@@ -70,9 +70,12 @@ reaches step 4 and cannot ask.
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight --json
    ```
 
-   Read `optional` for `gh`. Present: ask the person to run `/gh:sync`. Absent: fast-forward
-   the default branch yourself (`git -C <repository root> pull --ff-only`) and go on. Remove
-   any ignored leftover under `plugins/` that a deletion left behind.
+   Read `ok`. False means something present at step 1 no longer is: print each hint from
+   `missing` verbatim and stop. True: read `optional` for `gh`. Present: ask the person to
+   run `/gh:sync`. Absent: fast-forward the default branch yourself (`git -C <repository
+   root> fetch origin <default branch>:<default branch>`, which only ever fast-forwards a
+   named ref and refuses otherwise; say so if it refuses) and go on. Remove any ignored
+   leftover under `plugins/` that a deletion left behind.
 
    Then the hook preflight, gated on one question: does a local hook run a full test suite
    on every push? Detect it from `core.hooksPath`, `.githooks/`, `.husky/`, `lefthook.yml`,

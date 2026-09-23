@@ -29,7 +29,10 @@ flowchart TD
     K -->|No| J
     K -->|Yes| L[Plan comment on every issue in the round]
 
-    L --> M{gh plugin present?}
+    L --> L1[preflight --json, second time]
+    L1 --> L2{ok?}
+    L2 -->|No| L3([Stop: print each hint verbatim]):::stop
+    L2 -->|Yes| M{gh plugin present?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
     M -->|No| M3[Fast-forward the default branch itself] --> M2
     M2[Remove ignored leftovers under plugins/] --> N
