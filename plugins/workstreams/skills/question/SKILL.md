@@ -25,9 +25,11 @@ reaches step 4 and cannot ask.
 
 2. Read the sequencing comment the sweep posted.
 
-   If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool). Its own last step
-   continues into the question phase itself, so once it returns the round has already been
-   questioned and planned: stop here rather than repeating steps 3 onward.
+   If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool) with the same
+   milestone or issue set. If it stops before posting one (its own preflight, an incomplete
+   read, or nothing unblocked), report what it returned and stop here too. Otherwise its own
+   last step continues into the question phase itself, so once it returns the round has
+   already been questioned and planned: stop here rather than repeating steps 3 onward.
 
 3. Explore before asking. For every open item the sweep names: open the file, the record
    (`docs/rfc`, `docs/adr`, the repository's own rules), or the docs it turns on, and say

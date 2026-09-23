@@ -8,7 +8,10 @@ flowchart TD
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
     B -->|No| C{sequencing comment posted?}
     C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, sizing,<br/>hidden dependencies]
-    C -->|No| C2([Invoke /workstreams:sweep: it continues into<br/>the question phase itself; stop here on return]):::stop
+    C -->|No| C2[Invoke /workstreams:sweep with the same milestone or issue set]
+    C2 --> C3{sweep stopped before posting one?}
+    C3 -->|Yes| C3a([Stop: report what sweep returned]):::stop
+    C3 -->|No| C3b([Stop: sweep continued into the question<br/>phase itself; stop here on return]):::stop
     C1 --> D
 
     D[Open the file, the record, or the docs an open item names]
