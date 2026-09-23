@@ -29,7 +29,7 @@ flowchart TD
     L --> M{gh plugin present?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
     M -->|No| M3[Fast-forward the default branch itself] --> M2
-    M2[Ask the person about ignored leftovers under plugins/] --> N
+    M2[Remove ignored leftovers under plugins/] --> N
     N{a local hook runs a full suite?}
     N -->|No| P[Note any open pull request that shares files]
     N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> P

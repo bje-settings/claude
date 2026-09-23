@@ -69,8 +69,8 @@ reaches step 4 and cannot ask.
    ```
 
    Read `optional` for `gh`. Present: ask the person to run `/gh:sync`. Absent: fast-forward
-   the default branch yourself (`git -C <repository root> pull --ff-only`) and go on. Ask
-   the person to remove any ignored leftover under `plugins/` that a deletion left behind.
+   the default branch yourself (`git -C <repository root> pull --ff-only`) and go on. Remove
+   any ignored leftover under `plugins/` that a deletion left behind.
 
    Then the hook preflight, gated on one question: does a local hook run a full test suite
    on every push? Detect it from `core.hooksPath`, `.githooks/`, `.husky/`, `lefthook.yml`,
