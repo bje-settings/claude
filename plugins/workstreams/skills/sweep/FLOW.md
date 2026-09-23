@@ -42,7 +42,8 @@ flowchart TD
     S --> T{hidden dependencies checked against the code?}
     T -->|No| T1[Check them; the last one stated from bodies alone was wrong]
     T1 --> S
-    T -->|Yes| U([Report: unblocked set, shape, what it unlocks,<br/>what nothing can reach yet])
+    T -->|Yes| U[Report: unblocked set, shape, what it unlocks,<br/>what nothing can reach yet]
+    U --> V([Invoke /workstreams:question])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
