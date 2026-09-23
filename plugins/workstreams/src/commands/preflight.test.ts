@@ -156,6 +156,32 @@ describe('when everything is present', () => {
       optional: [{ id: 'gh', present: true }],
     })
   })
+
+  it('exits 0 with the required plugin present and the optional one absent', async () => {
+    // The optional row must never move the exit status on its own: this is
+    // the one case that isolates it, since every other `ok:true` fixture
+    // above also happens to carry `gh`.
+    const sandbox = createSandbox()
+    const registry = JSON.stringify({
+      plugins: {
+        'pr-review-toolkit@claude-plugins-official': [
+          { scope: 'user', installPath: withReviewers(sandbox) },
+        ],
+      },
+    })
+    const ran = await run(['--json'], withRegistry(sandbox, registry))
+
+    expect(ran.status).toBe(0)
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: false }],
+    })
+
+    const text = await run([], withRegistry(sandbox, registry))
+    expect(text.status).toBe(0)
+    expect(text.stdout).toBe('everything the workstreams skills depend on is present\n')
+  })
 })
 
 describe('the command line', () => {
@@ -552,6 +578,7 @@ describe('the reviewer agents the review loop dispatches', () => {
         hint: '/plugin install pr-review-toolkit@claude-plugins-official',
       },
     ])
+    expect(JSON.parse(ran.stdout).optional).toEqual([{ id: 'gh', present: true }])
   })
 
   it('reads one install path named twice as one place to look', async () => {

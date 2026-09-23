@@ -12,7 +12,9 @@
 // missing plugins: the fix is a different one, and telling someone to install
 // what they already have sends them the wrong way.
 //
-// The list is a table so a later primitive extends it in one place.
+// The lists are two tables so a later primitive extends the right one in one
+// place: REQUIRED_PLUGINS for a dependency a skill cannot work around, and
+// OPTIONAL_PLUGINS for one it works around when absent.
 //
 // `pr-review-toolkit` is checked twice over: the registry says whether the
 // plugin is installed at all, and the install paths it records say whether
@@ -208,9 +210,10 @@ export const reviewerFindings = (paths: readonly string[]): Finding[] => {
   }))
 }
 
-/** The registry, read once: either the plugins object, or the findings that
- *  explain why there isn't one. Shared by `registryFindings` and
- *  `optionalStatus` so the file is parsed the same way for both. */
+/** Either the plugins object, or the findings that explain why there isn't
+ *  one. `runPreflight` reads the registry once per invocation and passes the
+ *  result to both the required and the optional computation, so the two
+ *  never see different snapshots of a registry that changed between them. */
 type RegistryRead =
   | { readonly ok: true; readonly plugins: Record<string, unknown> }
   | { readonly ok: false; readonly findings: Finding[] }
@@ -291,8 +294,7 @@ const readRegistry = (env: NodeJS.ProcessEnv): RegistryRead => {
 /**
  * What the registry says is missing, among the REQUIRED plugins.
  */
-export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] => {
-  const registry = readRegistry(env)
+const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
   if (!registry.ok) return registry.findings
   const missing = REQUIRED_PLUGINS.filter(
     (required) => !hasPlugin(registry.plugins, required.id),
@@ -307,6 +309,9 @@ export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] => {
   return missing
 }
 
+export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] =>
+  findingsFromRegistry(readRegistry(env))
+
 /**
  * Whether each OPTIONAL plugin is installed, never a finding and never
  * moving the exit status.
@@ -317,14 +322,16 @@ export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] => {
  * than asking for `/gh:sync`) is the safe default when presence cannot be
  * confirmed.
  */
-export const optionalStatus = (env: NodeJS.ProcessEnv): OptionalStatus[] => {
-  const registry = readRegistry(env)
+const optionalFromRegistry = (registry: RegistryRead): OptionalStatus[] => {
   const plugins = registry.ok ? registry.plugins : {}
   return OPTIONAL_PLUGINS.map((optional) => ({
     id: optional.id,
     present: hasPlugin(plugins, optional.id),
   }))
 }
+
+export const optionalStatus = (env: NodeJS.ProcessEnv): OptionalStatus[] =>
+  optionalFromRegistry(readRegistry(env))
 
 /**
  * What `gh` is missing: the binary, the login, or the stack extension.
@@ -407,8 +414,9 @@ export const runPreflight = async (
     return 0
   }
 
-  const missing = [...(await ghFindings(context.run)), ...registryFindings(context.env)]
-  const optional = optionalStatus(context.env)
+  const registry = readRegistry(context.env)
+  const missing = [...(await ghFindings(context.run)), ...findingsFromRegistry(registry)]
+  const optional = optionalFromRegistry(registry)
 
   if (parsed.value.json) {
     context.output.out.write(`${JSON.stringify({ ok: missing.length === 0, missing, optional })}\n`)
