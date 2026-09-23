@@ -49,7 +49,8 @@ Cross-plugin dependencies, declared through a preflight script rather than vendo
 - `workstreams` depends on `gh` and the `gh stack` extension, through
   `plugins/workstreams/src/commands/preflight.ts`, which is the TypeScript form of the
   registry read `plugins/field-test/scripts/lib/preflight.py` does. A new cross-plugin
-  dependency is a row in its `REQUIRED_PLUGINS` table, never a vendored copy.
+  dependency is a row in its `REQUIRED_PLUGINS` table, or `OPTIONAL_PLUGINS` when a skill
+  works around its absence, never a vendored copy.
 
 ### Plugin domains
 
