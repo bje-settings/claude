@@ -88,6 +88,13 @@ convention: `gh` and this plugin's own issue lookup (`commands/context.ts:22`) b
   which is what `SkippedStage` exists to keep a reader from misreading as "nothing found".
 - Any later use of the model in this plugin inherits the same rule: the key is read at the point
   it would be spent, through the factory `scripts/audit.ts` hands over, not earlier and not twice.
+- The key stays an environment variable rather than a `userConfig` entry, although the plugin
+  docs recommend `userConfig` with `sensitive: true` for credentials. A sensitive value reaches
+  hook processes (as `CLAUDE_PLUGIN_OPTION_<KEY>`) and MCP or LSP server configs, and never skill
+  content; the skill runs `scripts/audit.ts` through the Bash tool in the user's own shell
+  environment, which is not a hook process, so a key declared there would never reach it. If the
+  plugin ever gains a hook or an MCP server that spends the key, `userConfig` becomes the right
+  home for it and this entry is the one to revise.
 - No test, CI gate, or command exit status may read a Jev probability as pass or fail. The
   mitigation is the same one ADR 002 states for coverage: a number is a fact the report carries,
   not a threshold anything enforces, unless the rubric behind it is itself pinned by a test the
