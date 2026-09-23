@@ -1,5 +1,6 @@
 // The in-process Jev double (#173), mirroring harness/gh.ts: one reply
-// registered per method, a fail switch on every method except `classify`
+// registered per method, or a sequence of them for the two methods a stage
+// calls repeatedly (#174), a fail switch on every method except `classify`
 // (whose own promise never rejects, see `JevReplies`'s doc comment below), an
 // unregistered method throwing rather than returning empty (ADR 001, "The
 // command function is the test seam"). That last property is the one a stub
@@ -84,6 +85,26 @@ export type JevReplies = {
   judgeEvidence?: JevResults['judgeEvidence'] | Error
 }
 
+/** The two methods a stage calls more than once in a run, and so the two a
+ *  sequence is worth having for. `classify` is asked once however many units
+ *  there are, so a sequence would have nothing to advance through. */
+type SequencedMethod = 'judgePair' | 'judgeEvidence'
+
+/** A sequence of replies for one method, in the order the calls take them.
+ *
+ *  The shape of `harness/pulls.ts`'s `GhSequences`, for the same reason and
+ *  with the same rules: the last entry repeats, so a stage that makes one call
+ *  more than the test expected reads the last answer rather than falling off
+ *  the end, and an entry that is an `Error` is thrown for that call alone.
+ *
+ *  `createJevMock`'s one reply per method answers every call with the same
+ *  value, which is the right double for a stage whose calls are
+ *  interchangeable. It cannot state the one fact a ranked findings list turns
+ *  on: that two judgments of the same kind came back with DIFFERENT
+ *  confidences. A sequence is that fact, with no state in the double beyond a
+ *  cursor per method. */
+export type JevSequences = { [K in SequencedMethod]?: readonly (JevResults[K] | Error)[] }
+
 /** `usage()`'s one answer: zeros. The mock holds no state, so there is
  *  nothing here for a real total to accumulate against; a test that cares
  *  what a run spent belongs against `lib/jev.test.ts`'s transport, not this
@@ -118,17 +139,42 @@ function answer<K extends JevMethod>(replies: JevReplies, method: K): JevResults
   return registered as JevResults[K]
 }
 
-/** A `JevClient` answering from `replies`.
+/** A `JevClient` answering from `replies`, or from `sequences` where one is
+ *  registered.
  *
- *  Each method returns its registered reply on every call: the mock holds no
- *  state and has no conditional logic, so what a command does with the reply
- *  is the only thing a test built on it can be measuring.
+ *  Precedence, highest first: the method's sequence, then its single reply,
+ *  then the unregistered method's throw. Each level is a different fact a test
+ *  is stating, and a lower one never silently overrides a higher one.
+ *
+ *  Without a sequence each method returns its registered reply on every call:
+ *  the mock holds no state and has no conditional logic, so what a command
+ *  does with the reply is the only thing a test built on it can be measuring.
+ *  A sequence adds one cursor per method and nothing else; the answer at each
+ *  position was still written by the test.
  */
-export function createJevMock(replies: JevReplies = {}): JevClient {
+export function createJevMock(replies: JevReplies = {}, sequences: JevSequences = {}): JevClient {
+  // One cursor per method, which is the whole of this double's state.
+  const taken = new Map<SequencedMethod, number>()
+
+  /** The next entry of `method`'s sequence, or `undefined` when it has none.
+   *  The last entry repeats. */
+  const fromSequence = <K extends SequencedMethod>(method: K): JevResults[K] | undefined => {
+    const registered = sequences[method]
+    if (registered === undefined) return undefined
+    if (registered.length === 0) {
+      throw new Error(`jev mock: the sequence registered for ${method} is empty`)
+    }
+    const position = Math.min(taken.get(method) ?? 0, registered.length - 1)
+    taken.set(method, position + 1)
+    const reply = registered[position] as JevResults[K] | Error
+    if (reply instanceof Error) throw reply
+    return reply
+  }
+
   return {
     classify: async () => answer(replies, 'classify'),
-    judgePair: async () => answer(replies, 'judgePair'),
-    judgeEvidence: async () => answer(replies, 'judgeEvidence'),
+    judgePair: async () => fromSequence('judgePair') ?? answer(replies, 'judgePair'),
+    judgeEvidence: async () => fromSequence('judgeEvidence') ?? answer(replies, 'judgeEvidence'),
     usage: () => ZERO_USAGE,
   }
 }

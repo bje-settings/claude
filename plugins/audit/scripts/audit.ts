@@ -16,6 +16,7 @@ import { assertNodeFloor } from '../src/lib/node-floor.ts'
 assertNodeFloor(process.version)
 
 const { createGhClient } = await import('../src/lib/gh.ts')
+const { createJevClient } = await import('../src/lib/jev.ts')
 const { ok, refused, renderText } = await import('../src/lib/envelope.ts')
 const { createOutput } = await import('../src/lib/streams.ts')
 
@@ -48,12 +49,15 @@ const write = (envelope: Parameters<typeof renderText>[0]): number => {
 /** The process's edges, as the command function takes them. `gh` resolves the
  *  repository from its working directory, so the client is built with the
  *  audited root; `performance.now()` is node's monotonic clock, which is what
- *  a duration should be measured on. */
+ *  a duration should be measured on. The Jev client is a factory rather than a
+ *  client, because whether there is a key to spend is the command's decision
+ *  and this adapter holds none. */
 const edges = {
   cwd: process.cwd(),
   env: process.env,
   output,
   createGh: (cwd: string) => createGhClient({ cwd, env: process.env }),
+  createJev: (options: { apiKey: string }) => createJevClient(options),
   now: () => performance.now(),
 }
 
