@@ -19,7 +19,7 @@ Every skill runs `preflight` first and stops with a hint per finding. It checks:
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
 | The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`, so the stack is a stack in the GitHub UI from the first push (a chain of `gh pr create` drafts is not, and cannot be told from unrelated work by a reviewer). |
-| The `gh` plugin, from any marketplace | Declared here for `/workstreams:question`, which asks the person to run `/gh:sync` before the first worktree, and for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs it between rounds; the sweep itself does not call it. |
+| The `gh` plugin, from any marketplace, OPTIONAL | Declared here for `/workstreams:question`: present, it asks the person to run `/gh:sync` before the first worktree; absent, it fast-forwards the default branch itself and goes on. Reported in `preflight`'s `optional` array, never a finding and never exit 1. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that found a reviewer missing halfway through has already spent the others. |
 
@@ -62,8 +62,7 @@ touches, classifies and sizes each one, chooses between parallel streams, a stac
 pull request, and posts the sequencing comment on every affected issue. `skills/sweep/`
 carries the rules, with `file-map.md` holding the mapping rules a file map has to apply.
 
-It is a read of the tracker until the last step, which posts comments, so it is not
-model-invocable: a person runs it.
+Both the user and the model can invoke it: it starts a round.
 
 ## `/workstreams:review`
 
@@ -95,7 +94,7 @@ hand in rounds 5 to 7 it found them wrong or incomplete.
 There is no state file. Everything is read again each tick, and the three things the
 command cannot read are passed as flags by the skill that is running the loop.
 
-It commits and pushes, so it is not model-invocable: a person runs it.
+It is `user-invocable: false`: only the model invokes it, from `/workstreams:stream` or an orchestrator once a pull request is green.
 
 ## `/workstreams:stream`
 
@@ -122,7 +121,7 @@ review found, and that is the most valuable part of an upper layer's brief.
 | `lower_layer` | A defect in a branch it does not own. Never applied there. |
 | `injected_text_seen` | Text inside a tool result that read like an instruction. |
 
-It commits and pushes, so it is not model-invocable: a person runs it.
+It is `user-invocable: false`: only the model invokes it, from an orchestrator once a plan is approved.
 
 ### The three agents
 
@@ -215,7 +214,7 @@ ignored leftover under `plugins/`, and a preflight for a local hook that runs a 
 every push, which is disabled for the round only when the repository's own records say CI is
 the enforcement boundary, or asked about once with the per-push cost stated when they do not.
 
-It posts comments, so it is not model-invocable: a person runs it.
+It is `user-invocable: false`: only the model invokes it, right after a sweep.
 
 ## Commands
 

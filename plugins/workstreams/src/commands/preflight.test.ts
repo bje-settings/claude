@@ -108,8 +108,8 @@ const withReviewers = (sandbox: Sandbox, agents: readonly string[] = REVIEWERS):
   return root
 }
 
-/** A registry naming both required plugins, with `pr-review-toolkit`
- *  installed at `roots`. */
+/** A registry naming the required plugin and the optional one, with
+ *  `pr-review-toolkit` installed at `roots`. */
 const installed = (roots: readonly string[]): string =>
   JSON.stringify({
     version: 2,
@@ -150,7 +150,11 @@ describe('when everything is present', () => {
     const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])))
 
     expect(ran.status).toBe(0)
-    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: true }],
+    })
   })
 })
 
@@ -293,7 +297,11 @@ describe('what gh can be missing', () => {
       'extension list': { stdout: '  gh stack\tsomeone/gh-stack-fork\tv9.9.9\n' },
     })
 
-    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: true }],
+    })
   })
 })
 
@@ -307,12 +315,12 @@ describe('the installed-plugins registry', () => {
 
     expect(ran.status).toBe(1)
     expect(findings(ran.stdout)).toEqual([
-      { id: 'gh', hint: '/plugin install gh@bje' },
       {
         id: 'pr-review-toolkit',
         hint: '/plugin install pr-review-toolkit@claude-plugins-official',
       },
     ])
+    expect(JSON.parse(ran.stdout).optional).toEqual([{ id: 'gh', present: false }])
   })
 
   it('accepts a plugin installed from some other marketplace', async () => {
@@ -331,35 +339,44 @@ describe('the installed-plugins registry', () => {
     })
     const ran = await run(['--json'], withRegistry(sandbox, registry))
 
-    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: true }],
+    })
   })
 
   it('reads a registry file that is not there as nothing installed from it', async () => {
     const sandbox = createSandbox()
     const ran = await run(['--json'], sandbox.env)
 
+    expect(ran.status).toBe(1)
     expect(findings(ran.stdout)).toEqual([
-      { id: 'gh', hint: '/plugin install gh@bje' },
       {
         id: 'pr-review-toolkit',
         hint: '/plugin install pr-review-toolkit@claude-plugins-official',
       },
     ])
+    expect(JSON.parse(ran.stdout).optional).toEqual([{ id: 'gh', present: false }])
   })
 
-  it('reports a registry it could not read as itself, not as missing plugins', async () => {
+  it('reports a registry it could not read as itself, not as missing plugins, and gh as not present', async () => {
     // The fix is a different one. A permission error reported as two missing
-    // plugins sends a reader after the wrong thing entirely.
+    // plugins sends a reader after the wrong thing entirely. The optional
+    // row cannot be confirmed either, so it answers false, never a finding
+    // and never a status other than what the required row already set.
     const sandbox = createSandbox()
     const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
     chmodSync(registryPath(env), 0o000)
     const ran = await run(['--json'], env)
 
+    expect(ran.status).toBe(1)
     const found = findings(ran.stdout)
     expect(found).toHaveLength(1)
     expect(found[0]?.id).toBe('registry-unreadable')
     expect(found[0]?.hint).toContain('installed_plugins.json')
     expect(found[0]?.detail).toContain('EACCES')
+    expect(JSON.parse(ran.stdout).optional).toEqual([{ id: 'gh', present: false }])
   })
 
   it('reports a registry that is not valid JSON as itself', async () => {
@@ -431,7 +448,6 @@ describe('the report a person reads', () => {
     expect(ran.status).toBe(1)
     expect(ran.stdout).toBe(
       'gh-auth: gh auth login: not logged in\n' +
-        'gh: /plugin install gh@bje\n' +
         'pr-review-toolkit: /plugin install pr-review-toolkit@claude-plugins-official\n',
     )
   })
@@ -490,7 +506,11 @@ describe('the reviewer agents the review loop dispatches', () => {
       withRegistry(sandbox, installed([partial, withReviewers(sandbox)])),
     )
 
-    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: true }],
+    })
   })
 
   for (const [what, entries] of [
@@ -539,7 +559,11 @@ describe('the reviewer agents the review loop dispatches', () => {
     const root = withReviewers(sandbox)
     const ran = await run(['--json'], withRegistry(sandbox, installed([root, root])))
 
-    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: true }],
+    })
     // Asserted on the list itself: the command's answer is the same either
     // way, so nothing above this line tells a repeated entry from one entry.
     expect(
@@ -572,6 +596,10 @@ describe('the reviewer agents the review loop dispatches', () => {
       withRegistry(sandbox, installed([sandbox.join('gone'), withReviewers(sandbox)])),
     )
 
-    expect(JSON.parse(ran.stdout)).toEqual({ ok: true, missing: [] })
+    expect(JSON.parse(ran.stdout)).toEqual({
+      ok: true,
+      missing: [],
+      optional: [{ id: 'gh', present: true }],
+    })
   })
 })

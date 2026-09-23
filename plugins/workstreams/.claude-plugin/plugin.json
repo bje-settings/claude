@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "workstreams",
   "description": "Round primitives for issue-tracker work. /workstreams:sweep reads a repository's milestones and issue dependencies, reports the unblocked set and the tier behind it, maps the files each issue touches, and sequences them into streams, stacks, or one pull request. /workstreams:review takes one draft pull request through verified review rounds to done. /workstreams:stream builds one issue, or one stack of them, in one worktree: a brief and a sized agent per layer, a draft pull request each, reviewed to done before the next is written. /workstreams:question turns a sweep report into an approved plan: explores every open item before asking, asks one question at a time with a recommendation and the argument against it, records the rulings that are cheap to reverse instead, and posts the plan comment on every issue in the round once it is approved.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "MIT",
   "repository": "https://github.com/bje-settings/claude",
   "author": {

@@ -91,11 +91,14 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 - Anything deterministic runs in a script, not an agent. Split work so the script emits
   structured output and the agent decides from it. Where an agent is still needed, set `model`
   and `effort` in its frontmatter to the smallest that passes the specs.
-- Skills with side effects set `disable-model-invocation: true`, unless the skill exists to be
-  invoked by another skill: the flag hides it from the `Skill` tool, so its callers cannot reach
-  it at all. Keep `SKILL.md` under 500 lines;
-  reference material goes in supporting files. Put the key use case first in `description`,
-  since the listing truncates at 1,536 characters.
+- A skill that exists to be invoked by another skill or an orchestrator never sets
+  `disable-model-invocation: true`: the flag hides it from the `Skill` tool, so its callers
+  cannot reach it at all. Use `user-invocable: false` instead when only the model should start
+  it; the workstreams primitives are the example, `question`, `stream` and `review` model-only
+  and `sweep` open to both. Reserve `disable-model-invocation: true` for a workflow a person
+  alone should trigger. Keep `SKILL.md` under 500 lines; reference material goes in supporting
+  files. Put the key use case first in `description`, since the listing truncates at 1,536
+  characters.
 - New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
 - Plugin state lives under `${CLAUDE_PLUGIN_DATA}`. `${CLAUDE_PLUGIN_ROOT}` changes on update.
 - Derive what a plugin needs each time it runs, rather than writing a file to remember it. State
