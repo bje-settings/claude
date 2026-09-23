@@ -2,15 +2,15 @@
 name: review
 description: Review one draft pull request through to done, in at most two rounds.
 argument-hint: [pr-number]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Agent SendMessage
-disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(git worktree list *) Read Grep Glob Agent SendMessage
+user-invocable: false
 ---
 
-Pull request: $ARGUMENTS. Ask the caller for anything you were not given: the pull request
-number, the absolute path of its worktree, and the model to size the round agent with.
-Both commands below run in that worktree: they take no repository argument and read it
-from the working directory, so outside a checkout they report on git rather than on the
-pull request.
+Pull request: $ARGUMENTS. Its worktree comes from `git worktree list`, matched against the
+pull request's head branch; the model to size the round agent with comes from the plan
+comment on the round's issues. Both commands below run in that worktree: they take no
+repository argument and read it from the working directory, so outside a checkout they
+report on git rather than on the pull request.
 
 ## Process
 

@@ -2,13 +2,12 @@
 name: question
 description: Turn a sweep report into an approved plan, one question at a time.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion
-disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Bash(git -C * pull --ff-only) Read Grep Glob AskUserQuestion Skill EnterPlanMode ExitPlanMode
+user-invocable: false
 ---
 
-Round: $ARGUMENTS. Ask the caller for anything you were not given: the effort name and tag
-line that close the rulings and plan comments, the milestone or issue set the round covers,
-and where the plan file goes once the human writes one.
+Round: $ARGUMENTS. The effort name and tag line come from the `_Recorded by <effort>, <date>._`
+line already on the round's issues; the milestone or issue set comes from the sweep report.
 
 Run this in the main conversation. `AskUserQuestion` is removed from every subagent
 ([sub-agents](https://code.claude.com/docs/en/sub-agents#available-tools)), so a subagent
@@ -26,14 +25,8 @@ reaches step 4 and cannot ask.
 
 2. Read the sequencing comment the sweep posted.
 
-   If there is none yet, run the command instead:
-
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep --json
-   ```
-
-   Its JSON carries the sets, the milestones and the open pull requests, and none of the
-   judgement `/workstreams:sweep` adds; run that skill first if any of that is needed.
+   If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool) to produce one, then
+   read it.
 
 3. Explore before asking. For every open item the sweep names: open the file, the record
    (`docs/rfc`, `docs/adr`, the repository's own rules), or the docs it turns on, and say
@@ -59,23 +52,23 @@ reaches step 4 and cannot ask.
    _Recorded by <effort name>, <date>._
    ```
 
-   Show the comment before posting it.
-
-7. Hand back for plan mode. Stop here and say so: the human enters plan mode next. The
-   plan's shape is the caller's; [plan-shape.md](plan-shape.md) is the one this repository
-   uses.
+7. Enter plan mode yourself (`EnterPlanMode`) and write the plan in the shape
+   [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval: the human approves
+   or edits the plan there.
 
 8. After approval, post the plan comment. Trim the approved plan to layers, file sets,
    sizing, the done condition, the review shape, and an estimate. Post it as a comment on
    every issue in the round, ending with the same `_Recorded by <effort name>, <date>._`
-   line. Show it before posting.
+   line.
 
-9. Housekeeping, before the first worktree. Ask the person to run `/gh:sync` and to remove
-   any ignored leftover under `plugins/` that a deletion left behind.
+9. Housekeeping, before the first worktree. Only when preflight reports the `gh` plugin
+   present, ask the person to run `/gh:sync`; otherwise fast-forward the default branch
+   yourself (`git -C <repository root> pull --ff-only`) and go on. Remove any ignored
+   leftover under `plugins/` that a deletion left behind.
 
-   Then the hook preflight: detect a local hook that would run on every push, from
-   `core.hooksPath`, `.githooks/`, `.husky/`, `lefthook.yml`, or `.pre-commit-config.yaml`.
-   If one runs a full test suite:
+   Then the hook preflight, gated on one question: does a local hook run a full test suite
+   on every push? Detect it from `core.hooksPath`, `.githooks/`, `.husky/`, `lefthook.yml`,
+   or `.pre-commit-config.yaml`. If one does:
 
    - The repository's own records (its ADRs, its CI comments) say CI is the enforcement
      boundary: propose pointing `core.hooksPath` at an empty directory for the life of the

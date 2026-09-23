@@ -8,7 +8,7 @@ flowchart TD
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
     B -->|No| C{sequencing comment posted?}
     C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, sizing,<br/>hidden dependencies]
-    C -->|No| C2[Run sweep --json: only the<br/>sets, milestones, open pull requests]
+    C -->|No| C2[Invoke /workstreams:sweep, then read it]
     C1 --> D
     C2 --> D
 
@@ -22,13 +22,17 @@ flowchart TD
     H -->|Yes| D
     H -->|No| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
 
-    I --> J([Hand back: the human enters plan mode]):::pause
-    J --> K{plan approved?}
+    I --> J[EnterPlanMode: write the plan]
+    J --> K{ExitPlanMode: approved?}
     K -->|No| J
     K -->|Yes| L[Plan comment on every issue in the round]
 
-    L --> M[Ask the person to run /gh:sync and clear ignored leftovers]
-    M --> N{a local hook runs a full suite?}
+    L --> M{gh plugin present?}
+    M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
+    M -->|No| M3[Fast-forward the default branch itself] --> M2
+    M2[Clear ignored leftovers under plugins/] --> N
+    M3 --> N
+    N{a local hook runs a full suite?}
     N -->|No| P[Note any open pull request that shares files]
     N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> P
     N -->|Yes, records silent| O2([Ask: disable it, per-push cost stated]):::pause --> P

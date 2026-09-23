@@ -6,10 +6,8 @@ What `/workstreams:stream` does to one issue or one stack, and every way it decl
 flowchart TD
     A[preflight] --> B{anything missing?}
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| C{sizing and order given for every layer?}
-    C -->|No| C1([Ask the caller; never guess a layer's sizing]):::pause
-    C1 --> D
-    C -->|Yes| D[One worktree from the default branch, installed from its lock file]
+    B -->|No| C[Issue order, model and effort per layer,<br/>from the plan comment on the round's issues]
+    C --> D[One worktree from the default branch, installed from its lock file]
 
     D --> E[Write this layer's brief from the template into a file]
     E --> F{does the repository contradict the brief?}
@@ -30,7 +28,7 @@ flowchart TD
     L -->|Undeclared files| L2[Have the layer declare them under outside_set] --> M
     L -->|Declared, or none| M{every required context reported success?}
     M -->|No| M1[The layer's own problem: send it back] --> I
-    M -->|Yes| N[Hand the pull request to the review loop]
+    M -->|Yes| N[Invoke /workstreams:review]
 
     N --> O{review reached done?}
     O -->|No| O1([Stop: the layer is not finished and the next cannot start]):::stop

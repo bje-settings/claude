@@ -2,12 +2,12 @@
 name: stream
 description: Build one issue, or one stack of them, in one worktree, a layer at a time.
 argument-hint: [issue-or-stack]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Write Agent SendMessage
-disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Write Agent SendMessage Skill
+user-invocable: false
 ---
 
-Issues to build: $ARGUMENTS. Ask the caller for anything you were not given: the issue
-numbers and their order, the model and effort per layer, and where the briefs go.
+Issues to build: $ARGUMENTS. The issue order, the model and effort per layer come from the
+plan comment on the round's issues; the briefs go in the session's scratchpad.
 
 One stream is one worktree, one branch per layer, one agent per layer, in sequence. The lower
 layer is reviewed to `done` before the next is written.
@@ -72,10 +72,8 @@ layer is reviewed to `done` before the next is written.
    `brief_vs_code` entry is a correction to the next layer's brief, and [brief.md](brief.md)'s
    Return section says what each field carries.
 
-   Then the pull request goes through `/workstreams:review`. That skill has side effects, so a
-   person runs it; ask for it and wait rather than reaching for it yourself. Only when it
-   reaches `done` is the next layer written, and its brief's lessons section gains what this
-   layer's review found.
+   Then invoke `/workstreams:review` on the pull request. Only when it reaches `done` is the
+   next layer written, and its brief's lessons section gains what this layer's review found.
 
 7. Report: the pull request per layer with its head and CI state, what each layer returned
    under the five fields above, the cost of each agent from its task notification, and the
