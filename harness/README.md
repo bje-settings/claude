@@ -11,10 +11,10 @@ the one cleanup hook.
 
 | Module | What it gives a test |
 | --- | --- |
-| `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, and an `env` object to hand to children. |
+| `sandbox.ts` | A private temp directory, a `HOME` inside it, no `CLAUDE_PLUGIN_DATA`, no credentials, and an `env` object to hand to children. |
 | `gh.ts` | `createGhMock`: one reply per endpoint, a fail switch per endpoint, an unhandled endpoint throws. `GhClient` itself lives in the root `lib/` and is re-exported here. |
 | `pulls.ts` | The pull-request rows a test answers `gh` with (`pr`, `writePrs`, `noPrs`, `manyPrs`, `depPr`), and `createGhServer`: the same mock with a server's filtering over those rows, and a sequence of replies for an endpoint a command polls. |
-| `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle. |
+| `git.ts` | Real repositories with real (local, bare) origins, in the states the commands have to handle, and `importTree` to commit a fixture directory into one. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
 | `spawn.ts` | One `scripts/` or `hooks/` entry point run as its own process: argv in, status and streams out (`runScript`), or started with its pipes still open so a test can take the reader away (`startScript`). |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
@@ -41,6 +41,18 @@ take, and which a test may edit freely because nobody else can see it.
 
 Cleanup is registered with vitest's `onTestFinished`, so a test that throws still removes its
 directory; `sandbox.cleanup()` removes it sooner.
+
+Every fixture repository turns `maintenance.auto` and `gc.auto` off in its own config. git spawns
+both detached, and they outlive the git that started them: a repack landing after the sandbox has
+walked the tree fails the removal with `ENOTEMPTY`, and so fails a test that had already passed.
+Retrying does not help, because node retries the `rmdir` rather than the walk. It is set in the
+repository's config rather than on the harness's own command lines, since the git processes that
+race the cleanup are the ones the command under test runs.
+
+`sandboxEnv` sweeps every `GIT_` and `GH_` variable, `GITHUB_TOKEN` and `TYPESAFE_API_KEY`, so
+nothing the suite spawns can reach a real account with a developer's own credentials or answer
+differently on that machine than in CI. A test that wants one back sets it on the sandbox's own
+`env`.
 
 `pathWithout` refuses a name that is not in `COMMON_TOOLS` (a typo would remove nothing and the test
 would pass for the wrong reason) and refuses to return a PATH missing an essential tool (`sh`,
@@ -179,6 +191,7 @@ Two constructors, because the two scopes need different shapes:
 | --- | --- |
 | `commit` / `push` / `branch` | One commit appending to a tracked file; a push of one branch; a branch created without moving the checkout. |
 | `branchWithWork` | A branch carrying one real commit. |
+| `importTree` | A whole fixture directory copied in and committed, undoing the two names a fixture cannot be stored under: `_gitignore` becomes `.gitignore`, and a `.fixture.md` suffix becomes `.md` so a fixture `CLAUDE.md` is never read as guidance for this repository. |
 | `mergeFf` | Fast-forwarded, leaving the branch **at** the default tip, which is where the tip guard takes over instead of ancestry. |
 | `mergeCommit` | Merged with a merge commit, leaving the branch strictly **behind** the default branch, which is where ancestry is the interesting signal. |
 | `mergeSquash` | Squashed, leaving **no** ancestry, so only a pull-request signal can prove it. |

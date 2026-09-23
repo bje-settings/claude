@@ -19,7 +19,7 @@
 // would also skip on a machine without all three managers, which would leave
 // this directory below its own coverage floor locally.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { findOnPath, type Sandbox } from './sandbox.ts'
 
@@ -87,6 +87,18 @@ done
 exec "$real" "$@"
 `
 
+const FIXTURE_SUFFIX = '.fixture.md'
+
+/** A fixture file's real name. Two names cannot be stored as themselves inside
+ *  this repository: a committed `.gitignore` would apply to the fixture
+ *  directory it sits in, and a committed `CLAUDE.md` under `fixtures/` would
+ *  be read as guidance for this repository by every session that opened it. */
+const undisguise = (name: string): string => {
+  if (name === '_gitignore') return '.gitignore'
+  if (!name.endsWith(FIXTURE_SUFFIX)) return name
+  return `${name.slice(0, -FIXTURE_SUFFIX.length)}.md`
+}
+
 export interface GitFixtures {
   /** git in `directory`, isolated from the developer's config. Throws on a
    *  non-zero exit, naming the command and git's own stderr. */
@@ -99,6 +111,10 @@ export interface GitFixtures {
   createAt(parent: string, name: string): string
   /** One commit appending to a tracked file. */
   commit(work: string, message: string, file?: string, content?: string): void
+  /** Copy a fixture directory into `work` and commit it, undoing the two
+   *  disguises a committed fixture tree needs: `_gitignore` becomes
+   *  `.gitignore` and a `.fixture.md` suffix becomes `.md`. */
+  importTree(work: string, fromDir: string): void
   /** Push a branch to origin. */
   push(work: string, branch?: string): void
   /** Create a branch and leave the checkout on the default branch. */
@@ -215,6 +231,15 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     run(directory, args, false).stdout.trim()
   const tryGit = (directory: string, ...args: string[]): GitRun => run(directory, args, true)
 
+  /** Turns one repository's background housekeeping off. Every repository this
+   *  harness creates goes through it, including the throwaway clones
+   *  {@link cloneOrigin} makes, which are the ones removed soonest after a
+   *  commit and a push and so the ones that race the removal hardest. */
+  function quiesce(repo: string): void {
+    git(repo, 'config', 'gc.auto', '0')
+    git(repo, 'config', 'maintenance.auto', 'false')
+  }
+
   /** A bare origin, a clone of it, and one commit pushed to the default branch.
    *
    *  `--initial-branch` rather than a fallback for an older git: it has been
@@ -226,6 +251,21 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     const parent = path.dirname(bare)
     git(parent, 'init', '-q', '--bare', `--initial-branch=${DEFAULT_BRANCH}`, bare)
     git(parent, 'clone', '-q', bare, work)
+    // No background housekeeping, written into each repository's own config
+    // rather than passed with `-c`: the git processes that matter here are not
+    // this harness's, since the command under test runs its own, and those
+    // would still inherit the default.
+    //
+    // git spawns both of these detached and they outlive the git that started
+    // them, finishing by writing `info/refs` and `objects/info/packs`. When
+    // that lands after the sandbox has walked the tree, the removal fails with
+    // ENOTEMPTY and fails a test that had already passed. Retrying cannot help,
+    // because node retries the `rmdir` rather than the walk. `maintenance.auto`
+    // is the one that actually fires on git 2.54; `gc.auto` is its older name
+    // and is set beside it so an older git is covered too. A fixture repository
+    // holds a handful of objects and has nothing to gain from repacking.
+    quiesce(bare)
+    quiesce(work)
     git(work, 'checkout', '-q', '-B', DEFAULT_BRANCH)
     writeFileSync(path.join(work, 'file.txt'), 'base\n')
     git(work, 'add', '-A')
@@ -243,7 +283,16 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     const origin = git(work, 'remote', 'get-url', 'origin')
     const scratch = mkdtempSync(path.join(sandbox.path, 'scratch-'))
     git(scratch, 'clone', '-q', origin, path.join(scratch, 'c'))
+    quiesce(path.join(scratch, 'c'))
     return path.join(scratch, 'c')
+  }
+
+  /** The scratch directory a {@link cloneOrigin} clone lives in, removed. The
+   *  same retries `sandbox.ts` gives its own cleanup: `force` forgives only a
+   *  directory that is already gone, and this one is removed within
+   *  milliseconds of a commit and a push. */
+  function dropScratch(clone: string): void {
+    rmSync(path.dirname(clone), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
 
   const fixtures: GitFixtures = {
@@ -267,6 +316,19 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       writeFileSync(target, `${content}\n`, { flag: 'a' })
       git(work, 'add', '-A')
       git(work, 'commit', '-qm', message)
+    },
+
+    importTree(work: string, fromDir: string): void {
+      for (const entry of readdirSync(fromDir, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        const from = path.join(entry.parentPath, entry.name)
+        const under = path.relative(fromDir, entry.parentPath)
+        const target = path.join(work, under, undisguise(entry.name))
+        mkdirSync(path.dirname(target), { recursive: true })
+        copyFileSync(from, target)
+      }
+      git(work, 'add', '-A')
+      git(work, 'commit', '-qm', `import ${path.basename(fromDir)}`)
     },
 
     push(work: string, branch = DEFAULT_BRANCH): void {
@@ -338,7 +400,7 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       const clone = cloneOrigin(work)
       fixtures.commit(clone, 'origin side')
       fixtures.push(clone)
-      rmSync(path.dirname(clone), { recursive: true, force: true })
+      dropScratch(clone)
       fixtures.commit(work, 'local side', 'local.txt', 'local')
     },
 
@@ -354,7 +416,7 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       const clone = cloneOrigin(work)
       fixtures.commit(clone, 'remote advance', file, 'advanced')
       fixtures.push(clone)
-      rmSync(path.dirname(clone), { recursive: true, force: true })
+      dropScratch(clone)
     },
 
     removeOrigin(work: string): void {

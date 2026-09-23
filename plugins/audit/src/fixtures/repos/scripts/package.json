@@ -1,0 +1,6 @@
+{
+  "name": "fixture",
+  "scripts": {
+    "test": "vitest run"
+  }
+}

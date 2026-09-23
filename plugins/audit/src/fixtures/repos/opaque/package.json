@@ -1,0 +1,6 @@
+{
+  "name": "opaque-fixture",
+  "scripts": {
+    "test": "vitest run"
+  }
+}

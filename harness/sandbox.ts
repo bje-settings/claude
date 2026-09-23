@@ -137,6 +137,12 @@ export function sandboxEnv(base: NodeJS.ProcessEnv, home: string): NodeJS.Proces
     if (key.startsWith('GIT_') || key.startsWith('GH_')) delete env[key]
   }
   delete env.GITHUB_TOKEN
+  // `plugins/audit` decides whether its model stages run by reading this key,
+  // so a developer's shell exporting one would make a spawned audit test call
+  // the real API, bill a real account, and answer differently there than in
+  // CI. Same argument as `GH_` above, for the other credential the suite must
+  // not be able to reach.
+  delete env.TYPESAFE_API_KEY
   env.HOME = home
   env.GIT_CONFIG_GLOBAL = path.join(home, '.gitconfig')
   env.GIT_CONFIG_NOSYSTEM = '1'
@@ -182,7 +188,14 @@ export function createSandbox(): Sandbox {
   const env = sandboxEnv(process.env, home)
 
   const cleanup = () => {
-    rmSync(root, { recursive: true, force: true })
+    // `force` only forgives a directory that is already gone. A sandbox
+    // holding a real repository can still be being written when the test ends
+    // (git's own `gc --auto` outlives the commit that triggered it), and the
+    // removal then fails with ENOTEMPTY and fails the test that had already
+    // passed. `maxRetries` is node's own answer to exactly that race; without
+    // it the suite's flake rate rises with the number of repositories a file
+    // builds, which is why it surfaced as more fixtures were added.
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
   onTestFinished(cleanup)
 
