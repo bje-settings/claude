@@ -293,8 +293,13 @@ const readRegistry = (env: NodeJS.ProcessEnv): RegistryRead => {
 
 /**
  * What the registry says is missing, among the REQUIRED plugins.
+ *
+ * Takes an already-read registry rather than `env`, because `runPreflight`
+ * is the only caller and reads the registry once, sharing the result with
+ * `optionalFromRegistry` below so the two can never see different snapshots
+ * of a registry that changed between them.
  */
-const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
+export const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
   if (!registry.ok) return registry.findings
   const missing = REQUIRED_PLUGINS.filter(
     (required) => !hasPlugin(registry.plugins, required.id),
@@ -309,9 +314,6 @@ const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
   return missing
 }
 
-export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] =>
-  findingsFromRegistry(readRegistry(env))
-
 /**
  * Whether each OPTIONAL plugin is installed, never a finding and never
  * moving the exit status.
@@ -322,16 +324,13 @@ export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] =>
  * than asking for `/gh:sync`) is the safe default when presence cannot be
  * confirmed.
  */
-const optionalFromRegistry = (registry: RegistryRead): OptionalStatus[] => {
+export const optionalFromRegistry = (registry: RegistryRead): OptionalStatus[] => {
   const plugins = registry.ok ? registry.plugins : {}
   return OPTIONAL_PLUGINS.map((optional) => ({
     id: optional.id,
     present: hasPlugin(plugins, optional.id),
   }))
 }
-
-export const optionalStatus = (env: NodeJS.ProcessEnv): OptionalStatus[] =>
-  optionalFromRegistry(readRegistry(env))
 
 /**
  * What `gh` is missing: the binary, the login, or the stack extension.
