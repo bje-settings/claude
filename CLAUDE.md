@@ -209,20 +209,12 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
 
 ## Language server
 
-Sessions on this checkout run the TypeScript language server: `.claude/settings.json` enables
-`typescript-lsp@claude-plugins-official`, which expects the server on `PATH`, so install it once
-per machine:
+`.claude/settings.json` enables this marketplace's `typescript7-lsp` and turns
+`typescript-lsp@claude-plugins-official` off (#193), so `tsc` and the language server run the same
+pinned `node_modules/typescript`.
 
-```bash
-npm install -g typescript-language-server typescript
-```
-
-`package.json` pins `typescript`, so in a checkout that has run `pnpm install` the server resolves
-that copy and `tsc` and the editor answer from the same version.
-
-`.claude/settings.json` is SurveyMonkey/skills' settings verbatim, so it also turns off auto
-memory (`autoMemoryEnabled`) and strips the Claude Code attribution trailer from commits and PR
-descriptions (`attribution`), matching this repo's own git conventions.
+Otherwise `.claude/settings.json` matches SurveyMonkey/skills' settings: it turns off auto memory
+(`autoMemoryEnabled`) and strips the attribution trailer (`attribution`).
 
 ## Enterprise CLAUDE.md
 
