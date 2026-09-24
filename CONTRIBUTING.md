@@ -47,12 +47,9 @@ because that is what macOS ships at `/usr/bin/python3`.
 
 ## Language server
 
-Sessions on this checkout run the TypeScript language server, which expects the server on `PATH`.
-Install it once per machine (`CLAUDE.md`'s "Language server" section has the why):
-
-```bash
-npm install -g typescript-language-server typescript
-```
+Sessions on this checkout run TypeScript 7's native language server from the checkout's own
+`node_modules/typescript`, through this marketplace's `typescript7-lsp` plugin, so run `pnpm install`
+first; nothing is installed globally. `CLAUDE.md`'s "Language server" section has the why.
 
 ## Git hooks
 
