@@ -47,8 +47,8 @@ because that is what macOS ships at `/usr/bin/python3`.
 
 ## Language server
 
-The TypeScript language server runs from `node_modules/typescript` through this marketplace's
-`typescript7-lsp` plugin: add the marketplace and run `pnpm install` before starting a session.
+This marketplace's `typescript7-lsp` runs the language server from `node_modules/typescript`: add
+the marketplace and run `pnpm install` before starting a session.
 
 ## Git hooks
 
