@@ -1,6 +1,6 @@
 {
   "name": "typescript7-lsp",
-  "description": "TypeScript 7 language server. Runs the project's own TypeScript 7 native language server (tsc --lsp --stdio) for go to definition, find references, hover types and diagnostics, in place of typescript-lsp, which fails on TypeScript 7 because it ships no tsserver.",
+  "description": "TypeScript 7's native language server (tsc --lsp --stdio) from the project's own TypeScript. Replaces typescript-lsp, which needs the tsserver TypeScript 7 no longer ships.",
   "version": "0.1.0",
   "license": "MIT",
   "author": {

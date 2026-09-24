@@ -47,9 +47,8 @@ because that is what macOS ships at `/usr/bin/python3`.
 
 ## Language server
 
-Sessions on this checkout run TypeScript 7's native language server from the checkout's own
-`node_modules/typescript`, through this marketplace's `typescript7-lsp` plugin, so run `pnpm install`
-first; nothing is installed globally. `CLAUDE.md`'s "Language server" section has the why.
+The TypeScript language server runs from `node_modules/typescript` through this marketplace's
+`typescript7-lsp` plugin: add the marketplace and run `pnpm install` before starting a session.
 
 ## Git hooks
 
