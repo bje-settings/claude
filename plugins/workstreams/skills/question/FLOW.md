@@ -7,9 +7,9 @@ flowchart TD
     A[preflight] --> B{anything missing?}
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
     B -->|No| C{sequencing comment posted?}
-    C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, sizing,<br/>hidden dependencies]
+    C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, size,<br/>hidden dependencies]
     C -->|No| C2[Invoke /workstreams:sweep with the same milestone or issue set]
-    C2 --> C3{sweep stopped before posting one?}
+    C2 --> C3{sweep stopped before it posted one?}
     C3 -->|Yes| C3a([Stop: report what sweep returned]):::stop
     C3 -->|No| C3b([Stop: sweep continued into the question<br/>phase itself; stop here on return]):::stop
     C1 --> D
@@ -47,6 +47,7 @@ flowchart TD
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
 ```
 
-The hook question, when the records are silent, is the one case in the whole skill where a
-cheap ruling is not taken: disabling a push-time suite changes what protects the round, so
-it is asked rather than ruled even though it is, in every other sense, reversible.
+The hook question is the one case in the whole skill where a cheap ruling is not taken,
+when the records are silent. If you disable a push-time suite, you change what protects
+the round. So this question is asked, not ruled, even though it is, in every other
+sense, reversible.

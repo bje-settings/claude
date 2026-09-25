@@ -1,34 +1,36 @@
-// What every workstreams skill depends on, checked before a round starts
+// What every workstreams skill depends on, checked before a round starts,
 // rather than halfway through one.
 //
-// CLAUDE.md: "Cross-plugin dependencies, declared through a preflight script
-// rather than vendored." The Python precedent was
-// `plugins/field-test/scripts/lib/preflight.py` (deleted at #138), and the
-// idea ported from it is the registry read: a plugin is present when
+// CLAUDE.md: "Cross-plugin dependencies, declared through a preflight
+// script rather than vendored." The Python precedent was
+// `plugins/field-test/scripts/lib/preflight.py` (deleted at #138). The idea
+// ported from it is the registry read: a plugin counts as present when
 // Claude's installed-plugins file names it under ANY marketplace, because a
-// fork of `gh` under another marketplace is still `gh` to the skill that runs
-// its commands.
+// fork of `gh` under another marketplace is still `gh` to the skill that
+// runs its commands.
 //
-// A registry that cannot be read is reported as ITSELF and never as two
-// missing plugins: the fix is a different one, and telling someone to install
-// what they already have sends them the wrong way.
+// A registry that cannot be read is reported as ITSELF, never as two
+// missing plugins: the fix is a different one, and telling someone to
+// install what they already have sends them the wrong way.
 //
-// The lists are two tables so a later primitive extends the right one in one
-// place: REQUIRED_PLUGINS for a dependency a skill cannot work around, and
-// OPTIONAL_PLUGINS for one it works around when absent.
+// The lists are two tables, so a later primitive extends the right one in
+// one place: REQUIRED_PLUGINS for a dependency a skill cannot work around,
+// and OPTIONAL_PLUGINS for one it works around when absent.
 //
-// `pr-review-toolkit` is checked twice over: the registry says whether the
-// plugin is installed at all, and the install paths it records say whether
-// the five reviewer agents the review loop dispatches are in it. The second
-// check exists because a fork under another marketplace satisfies the first
-// while carrying a different set of agents, and because a round that found a
-// reviewer missing halfway through would already have spent the others.
+// `pr-review-toolkit` is checked twice over. The registry says whether the
+// plugin is installed at all. The install paths it records say whether the
+// five reviewer agents the review loop dispatches are in it. The second
+// check exists because a fork under another marketplace satisfies the
+// first while it carries a different set of agents, and because a round
+// that finds a reviewer missing halfway through would already have spent
+// the others.
 //
-// The command function is the seam (ADR 001), with the process runner and the
-// environment injected, so every arm is reachable in-process with no `gh` on
-// the machine. It answers with an exit status rather than an envelope,
-// because the missing list belongs on stdout even when the answer is 1 and
-// `lib/envelope.ts` writes nothing to stdout for a failure.
+// The command function is the seam (ADR 001), with the process runner and
+// the environment injected, so every arm is reachable in-process with no
+// `gh` on the machine. It answers with an exit status, rather than an
+// envelope, because the missing list belongs on stdout even when the
+// answer is 1, and `lib/envelope.ts` writes nothing to stdout for a
+// failure.
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -97,15 +99,16 @@ export interface OptionalStatus {
 }
 
 /**
- * The reviewer subagents `skills/review` dispatches, and which of them a
- * round picks is decided by the kind of change under review.
+ * The reviewer subagents `skills/review` dispatches. Which of them a round
+ * picks is decided by the kind of change under review.
  *
- * Checked by name rather than inferred from the plugin being installed,
- * because a fork of `pr-review-toolkit` under another marketplace satisfies
- * the plugin row above while carrying a different set of agents, and a round
- * that discovered a missing reviewer halfway through is a round that has
- * already spent its reviewers' tokens. The registry does not list agents, so
- * this is checked against the plugin's own `agents/` directory.
+ * Checked by name, rather than inferred from whether the plugin is
+ * installed, because a fork of `pr-review-toolkit` under another
+ * marketplace satisfies the plugin row above while it carries a different
+ * set of agents, and a round that discovers a missing reviewer halfway
+ * through is a round that has already spent its reviewers' tokens. The
+ * registry does not list agents, so this is checked against the plugin's
+ * own `agents/` directory.
  */
 export const REVIEWER_PLUGIN = 'pr-review-toolkit'
 
@@ -170,24 +173,25 @@ export const installPathsFor = (plugins: Record<string, unknown>, id: string): s
  * The reviewer agents `skills/review` dispatches that no installed copy of
  * `pr-review-toolkit` carries.
  *
- * Checked against the plugin's own `agents/` directory, because the registry
- * records where a plugin is installed and nothing about what is in it, and a
- * fork under another marketplace satisfies the plugin row while carrying a
- * different set of agents. A round that discovered a missing reviewer halfway
- * through has already spent the other reviewers' tokens.
+ * Checked against the plugin's own `agents/` directory, because the
+ * registry records where a plugin is installed, and nothing about what is
+ * in it. A fork under another marketplace satisfies the plugin row while
+ * it carries a different set of agents. A round that discovers a missing
+ * reviewer halfway through has already spent the other reviewers' tokens.
  *
  * A plugin the registry names with no install path at all is reported as
- * ITSELF and never as five missing reviewers, for `registry-unreadable`'s
+ * ITSELF, never as five missing reviewers, for `registry-unreadable`'s
  * reason: "the reviewers could not be checked" is a different instruction
  * from "these reviewers are not there".
  *
- * A path that is RECORDED and not there is the same instruction again. The
- * registry keeps an entry per project that installed the plugin and the cache
- * copy under it is removed on an update or a reinstall, so a stale entry is
- * ordinary. `existsSync` answers false for a directory that is gone, dangling
- * or unreadable alike, so asking it about the agent file first would report
- * five reviewers absent from a copy that may well carry all five, and send
- * someone to update a plugin that is not the problem.
+ * A path that is RECORDED and not there gets the same instruction again.
+ * The registry keeps an entry per project that installed the plugin, and
+ * the cache copy under it is removed on an update or a reinstall, so a
+ * stale entry is ordinary. `existsSync` answers false for a directory that
+ * is gone, dangling, or unreadable alike. If the code asked it about the
+ * agent file first, it would report five reviewers absent from a copy
+ * that may well carry all five, and send someone to update a plugin that
+ * is not the problem.
  */
 export const reviewerFindings = (paths: readonly string[]): Finding[] => {
   const reachable = paths.filter((root) => existsSync(root))
@@ -295,20 +299,20 @@ const readRegistry = (env: NodeJS.ProcessEnv): RegistryRead => {
 /**
  * What the registry says is missing, among the REQUIRED plugins.
  *
- * Takes an already-read registry rather than `env`, because `runPreflight`
- * is the only caller and reads the registry once, sharing the result with
- * `optionalFromRegistry` below so the two can never see different snapshots
- * of a registry that changed between them.
+ * Takes an already-read registry, rather than `env`, because `runPreflight`
+ * is the only caller. It reads the registry once, and shares the result
+ * with `optionalFromRegistry` below, so the two can never see different
+ * snapshots of a registry that changed between them.
  */
 export const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
   if (!registry.ok) return registry.findings
   const missing = REQUIRED_PLUGINS.filter(
     (required) => !hasPlugin(registry.plugins, required.id),
   ).map((required) => ({ ...required }))
-  // The reviewers are only asked about when the plugin that carries them is
-  // there: a missing plugin already says everything, and adding five
-  // reviewer findings under it would send a reader after agents that arrive
-  // with the install.
+  // The reviewers are only asked about when the plugin that carries them
+  // is there. A missing plugin already says everything, and five reviewer
+  // findings under it would send a reader after agents that arrive with
+  // the install.
   if (hasPlugin(registry.plugins, REVIEWER_PLUGIN)) {
     missing.push(...reviewerFindings(installPathsFor(registry.plugins, REVIEWER_PLUGIN)))
   }
@@ -316,13 +320,13 @@ export const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
 }
 
 /**
- * Whether each OPTIONAL plugin is installed, never a finding and never
- * moving the exit status.
+ * Whether each OPTIONAL plugin is installed. This is never a finding, and
+ * it never moves the exit status.
  *
  * A registry that could not be read answers `present: false` for every
- * optional plugin, the same as one that was read and found empty: the
+ * optional plugin, the same as one that was read and found empty. The
  * caller's fallback path (fast-forward the default branch itself, rather
- * than asking for `/gh:sync`) is the safe default when presence cannot be
+ * than ask for `/gh:sync`) is the safe default when presence cannot be
  * confirmed.
  */
 export const optionalFromRegistry = (registry: RegistryRead): OptionalStatus[] => {
@@ -336,18 +340,19 @@ export const optionalFromRegistry = (registry: RegistryRead): OptionalStatus[] =
 /**
  * What `gh` is missing: the binary, the login, or the stack extension.
  *
- * One finding stops the rest: a machine with no `gh` cannot be asked whether
- * it is logged in, and reporting three findings for one cause sends a reader
- * after two things that are not wrong.
+ * One finding stops the rest. A machine with no `gh` cannot be asked
+ * whether it is logged in, and to report three findings for one cause
+ * would send a reader after two things that are not wrong.
  */
 export const ghFindings = async (run: Runner): Promise<Finding[]> => {
   const version = await run('gh', ['--version'])
-  // Any non-zero status from `--version` is "gh is not usable": 127 and 126
-  // are the shell's own statuses for a command that is not there or cannot
-  // be run (`lib/process.ts`'s convention for a child that never started),
-  // but a corrupted install or a crashing binary can exit with any other
-  // code, and falling through to the auth check for those would report
-  // "gh auth login" as the remedy for a binary that does not run at all.
+  // Any non-zero status from `--version` means "gh is not usable". 127
+  // and 126 are the shell's own statuses for a command that is not there
+  // or cannot run (`lib/process.ts`'s convention for a child that never
+  // started). But a corrupted install, or a binary that crashes, can exit
+  // with any other code. To fall through to the auth check for those
+  // would report "gh auth login" as the remedy for a binary that does not
+  // run at all.
   if (version.startFailure !== null || version.status !== 0) {
     const message = version.startFailure === null ? excerpt(version.stderr || version.stdout) : ''
     return [
@@ -397,8 +402,9 @@ const SPEC = { json: { type: 'boolean' }, help: { type: 'boolean' } } as const
 /**
  * Check everything, report it, and answer 0 when nothing is missing.
  *
- * Nothing here throws: a check that cannot be made is a finding, which is the
- * whole point of running it before a round rather than during one.
+ * Nothing here throws. A check that cannot be made is a finding. That is
+ * the whole point of a check that runs before a round, rather than during
+ * one.
  */
 export const runPreflight = async (
   argv: readonly string[],

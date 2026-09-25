@@ -1,11 +1,12 @@
-// The guard's decisions, in process. git is real throughout: every tree below
-// is a repository `harness/git.ts` built, and the reader passed in is
-// `lib/git.ts`'s own `gitOut` with the sandbox's environment bound, so a
-// clean tree, a dirty tree and a directory git refuses are all genuinely
-// those things (`.claude/rules/type-ts.md`, "git is not mocked").
+// The guard's decisions, in process. git is real throughout. Every tree
+// below is a repository `harness/git.ts` built. The reader passed in is
+// `lib/git.ts`'s own `gitOut`, with the sandbox's environment bound. So a
+// clean tree, a dirty tree, and a directory git refuses, are all
+// genuinely those things (`.claude/rules/type-ts.md`, "git is not
+// mocked").
 //
-// The process boundary, the floor guard and the wiring `hooks.json` carries
-// are in `src/hook.test.ts`.
+// The process boundary, the floor guard, and the wiring `hooks.json`
+// carries, are in `src/hook.test.ts`.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -63,10 +64,11 @@ const readerFor =
   (args, options) =>
     gitOut(args, { cwd: options.cwd, env: sandbox.env })
 
-/** A second TRACKED file, committed, so that a case wanting two uncommitted
- *  changes gets two. `seed` tracks `file.txt` and nothing else, and the
- *  fixtures' `dirty` on any other name would leave an untracked file, which
- *  is the one thing this guard deliberately ignores. */
+/** A second TRACKED file, committed, so that a case that wants two
+ *  uncommitted changes gets two. `seed` tracks `file.txt` and nothing
+ *  else, and the fixtures' `dirty` on any other name would leave an
+ *  untracked file, which is the one thing this guard deliberately
+ *  ignores. */
 const trackSecondFile = (git: GitFixtures, work: string): void => {
   writeFileSync(path.join(work, 'two.txt'), 'base\n')
   git.git(work, 'add', '-A')
@@ -474,8 +476,9 @@ describe('git checkout and git restore, against real repositories', () => {
       expect(verdict).toMatchObject({
         reason: expect.stringContaining('1 uncommitted change to tracked files'),
       })
-      // The denial names the worker, so a person reading it knows who was
-      // stopped, and the paths, so they know what would have gone.
+      // The denial names the worker, so a person who reads it knows who
+      // was stopped, and it names the paths, so they know what would
+      // have gone.
       expect(verdict).toMatchObject({
         reason: expect.stringContaining('subagent workstreams:stream'),
       })
@@ -490,10 +493,11 @@ describe('git checkout and git restore, against real repositories', () => {
     'git checkout main',
     'git checkout -b a-new-branch',
     'git checkout two.txt',
-    // The branch being created is called exactly what the dirty tracked file
-    // is called. `git.dirty` writes to `file.txt`, so these are the collision
-    // the operand filter used to refuse: git creates the branch and leaves
-    // the file alone, and a case where the two names differ cannot show it.
+    // The branch the checkout creates is called exactly what the dirty
+    // tracked file is called. `git.dirty` writes to `file.txt`, so these
+    // are the collision the operand filter used to refuse: git creates
+    // the branch and leaves the file alone, and a case where the two
+    // names differ cannot show it.
     'git checkout -b file.txt',
     'git checkout -B file.txt',
     'git checkout --orphan file.txt',

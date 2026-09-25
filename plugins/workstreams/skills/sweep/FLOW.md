@@ -11,10 +11,10 @@ flowchart TD
     C --> D{read complete?}
     D -->|No, unavailable is not empty| D1([Stop: the blocker graph has a hole in it]):::stop
     D -->|Yes| E{open pull requests?}
-    E -->|Yes| E1([Name each one before going on]):::pause
+    E -->|Yes| E1([Name each one first]):::pause
     E -->|No| F
     E1 --> F{anything unblocked?}
-    F -->|No| F1([Stop: say what the next tier is waiting on]):::stop
+    F -->|No| F1([Stop: say what blocks the next tier]):::stop
     F -->|Yes| G[Read every body and every comment]
 
     G --> H[Read the Decisions lists in docs/rfc and docs/adr]
@@ -31,7 +31,7 @@ flowchart TD
     L --> M{touch the same file, region, or CI workflow?}
     M -->|No| N[Parallel streams]
     M -->|Yes| O{would one layer reference what the next introduces?}
-    O -->|Yes| P[One pull request closing both issues]
+    O -->|Yes| P[One pull request that closes both issues]
     O -->|No| Q{each layer has independent review or merge value?}
     Q -->|Yes| R[A stack, bottom to top]
     Q -->|No| P

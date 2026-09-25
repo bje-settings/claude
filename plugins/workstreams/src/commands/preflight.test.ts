@@ -1,8 +1,8 @@
-// The preflight command. Every arm in process: the process runner is
-// injected, so no `gh` is started and none has to be on the machine, and the
-// registry is a real file in a sandbox whose `HOME` is inside it, so the read
-// itself, the permission failure and the absent file are all real rather than
-// mocked.
+// The preflight command. Every arm runs in process. The process runner
+// is injected, so no `gh` starts, and none has to be on the machine. The
+// registry is a real file in a sandbox whose `HOME` is inside it. So the
+// read itself, the permission failure, and the absent file, are all
+// real, rather than mocked.
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -58,9 +58,9 @@ const result = (reply: Partial<RunResult> = {}): RunResult => ({
   ...reply,
 })
 
-/** A runner answering each `gh` subcommand from a table, and recording what
- *  it was asked. A subcommand with no entry answers as a child that succeeded
- *  and said nothing. */
+/** A runner that answers each `gh` subcommand from a table, and records
+ *  what it was asked. A subcommand with no entry answers as a child that
+ *  succeeded and said nothing. */
 const runnerFor = (
   table: Record<string, Partial<RunResult>>,
   asked: string[] = [],
@@ -89,8 +89,8 @@ const withRegistry = (sandbox: Sandbox, contents: string): NodeJS.ProcessEnv => 
 }
 
 /** The five reviewer agents the review loop dispatches. Written out here
- *  rather than imported from the command, so a reviewer quietly dropped from
- *  `REQUIRED_REVIEWERS` fails this suite instead of passing it. */
+ *  rather than imported from the command, so a reviewer quietly dropped
+ *  from `REQUIRED_REVIEWERS` fails this suite, rather than pass it. */
 const REVIEWERS = [
   'code-reviewer',
   'comment-analyzer',
@@ -99,8 +99,8 @@ const REVIEWERS = [
   'type-design-analyzer',
 ]
 
-/** A cache copy of `pr-review-toolkit` inside the sandbox, carrying `agents`
- *  and nothing else, and its path. */
+/** A cache copy of `pr-review-toolkit` inside the sandbox, that carries
+ *  `agents` and nothing else, and its path. */
 const withReviewers = (sandbox: Sandbox, agents: readonly string[] = REVIEWERS): string => {
   const root = sandbox.join('cache', 'pr-review-toolkit')
   mkdirSync(path.join(root, 'agents'), { recursive: true })
@@ -108,7 +108,7 @@ const withReviewers = (sandbox: Sandbox, agents: readonly string[] = REVIEWERS):
   return root
 }
 
-/** A registry naming the required plugin and the optional one, with
+/** A registry that names the required plugin and the optional one, with
  *  `pr-review-toolkit` installed at `roots`. */
 const installed = (roots: readonly string[]): string =>
   JSON.stringify({
@@ -240,11 +240,11 @@ describe('what gh can be missing', () => {
   })
 
   it('reports a gh that runs but exits some other non-zero status as unusable, not as an auth problem', async () => {
-    // A corrupted install or a crashing binary can fail `--version` with a
-    // code other than the shell's 126 or 127. Falling through to `gh auth
-    // status` for it would misdiagnose a binary that does not run at all as
-    // a login problem, telling someone to `gh auth login` a binary that
-    // cannot even report its version.
+    // A corrupted install, or a binary that crashes, can fail `--version`
+    // with a code other than the shell's 126 or 127. To fall through to
+    // `gh auth status` for it would misdiagnose a binary that does not run
+    // at all as a login problem, and tell someone to `gh auth login` a
+    // binary that cannot even report its version.
     const sandbox = createSandbox()
     const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {
       '--version': { status: 3, stderr: 'gh: error while loading shared libraries\n' },
@@ -289,7 +289,7 @@ describe('what gh can be missing', () => {
 
   it('reports an extension listing that could not be read, rather than calling the extension absent', async () => {
     // A listing that failed says nothing about which extensions are
-    // installed, and telling someone to install one they already have sends
+    // installed. To tell someone to install one they already have sends
     // them the wrong way.
     const sandbox = createSandbox()
     const ran = await run(['--json'], withRegistry(sandbox, installed([withReviewers(sandbox)])), {

@@ -7,7 +7,7 @@ flowchart TD
     A[preflight] --> B{anything missing?}
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
     B -->|No| C{order and model in the plan<br/>comment for every issue in $ARGUMENTS?}
-    C -->|No| C1([Stop: say which is missing; never guess a layer's sizing]):::stop
+    C -->|No| C1([Stop: say which is missing; never guess a layer's size]):::stop
     C -->|Yes| D[One worktree from the default branch, installed from its lock file]
 
     D --> E[Write this layer's brief from the template into a file]
@@ -18,7 +18,7 @@ flowchart TD
     G -->|No| H[Dispatch ONE sized agent for this layer]
 
     H --> I{returned, or still waiting?}
-    I -->|Still waiting| I1[Stopped short: SendMessage with the narrowed instruction] --> I
+    I -->|Still waiting| I1[Stopped short: SendMessage with a narrower instruction] --> I
     I -->|Returned| J[Check the head: files, lower SHAs, run, both checkouts]
 
     J --> K{a pull_request run for the head?}

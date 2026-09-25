@@ -1,67 +1,70 @@
-// The workstreams guard: the `PreToolUse` hook that holds the two rules a
-// brief line has failed to hold on its own.
+// The workstreams guard: the `PreToolUse` hook that holds two rules a
+// brief line failed to hold on its own.
 //
-// CLAUDE.md, "Plugin design": "Hook when the action must happen the same way
-// every time and needs no reasoning. Guardrails belong in `PreToolUse` hooks;
-// an instruction in CLAUDE.md or a skill is a request, not enforcement."
-// Both rules below were requests first, in three different briefs, and were
-// ignored anyway:
+// CLAUDE.md, "Plugin design": "Hook when the action must happen the same
+// way every time and needs no reasoning. Guardrails belong in
+// `PreToolUse` hooks; an instruction in CLAUDE.md or a skill is a
+// request, not enforcement." Both rules below were requests first, in
+// three different briefs, and were ignored anyway:
 //
-//   - **`run_in_background`.** In round 2 two of three streams ended their
-//     turn on a backgrounded test run and returned "waiting", which a caller
-//     can only read as stopped short; in round 3 two of five turns did the
-//     same; the audit L1 stream hit it again (#132, the round 2, round 3 and
-//     audit L1 findings). Each cost a resume message and idle minutes.
+//   - **`run_in_background`.** In round 2, two of three streams ended
+//     their turn on a backgrounded test run, and returned "waiting",
+//     which a caller can only read as stopped short. In round 3, two of
+//     five turns did the same. The audit L1 stream hit it again (#132,
+//     the round 2, round 3, and audit L1 findings). Each case cost a
+//     resume message and idle minutes.
 //   - **A command that overwrites uncommitted work in a tracked file.**
-//     Round 7's stream lost its uncommitted hook entry point to its own `git
-//     checkout` mid mutation sweep and rebuilt the file from memory; a round 2
-//     agent lost edits the same way with the rule in its brief (#132, the
-//     round 7 finding 1). The fix is one commit away and always was. The
-//     spellings are `git restore`, `git checkout` with a pathspec written with
-//     or without a `--`, and `git checkout` or `git switch` carrying a force,
-//     patch or `--pathspec-from-file` option, which throw the tree away while
-//     naming nothing.
+//     Round 7's stream lost its uncommitted hook entry point to its own
+//     `git checkout`, mid mutation sweep, and rebuilt the file from
+//     memory. A round 2 agent lost edits the same way, with the rule in
+//     its brief (#132, the round 7 finding 1). The fix was always one
+//     commit away. The spellings are `git restore`, `git checkout` with
+//     a pathspec written with or without a `--`, and `git checkout` or
+//     `git switch` carrying a force, patch, or `--pathspec-from-file`
+//     option. Each of these throws the tree away while naming nothing.
 //
-// **Who it binds.** Round 8 ruling 5: a subagent, never the main thread. The
-// input carries `agent_id` "only when the hook fires inside a subagent"
-// (hooks.md, "Common input fields"), and that is the whole test.
-// `agent_type` is reported in the reason, so a person reading the denial
-// knows which worker was stopped, but is never matched on: a plugin
-// subagent's `agent_type` is the plugin-scoped name (sub-agents.md, "Project
-// level hooks for subagent events"), so matching it would bind the
-// `workstreams:stream` agent and leave every reviewer, round agent and
-// general purpose worker the same briefs are handed to unguarded. The
-// orchestrator keeps backgrounding, because completion is what wakes it.
+// **Who it binds.** Round 8 ruling 5: a subagent, never the main thread.
+// The input carries `agent_id` "only when the hook fires inside a
+// subagent" (hooks.md, "Common input fields"), and that is the whole
+// test. The refusal reports `agent_type`, so a person who reads the
+// denial knows which worker was stopped. The guard never matches on it: a
+// plugin subagent's `agent_type` is the plugin-scoped name (sub-agents.md,
+// "Project level hooks for subagent events"). To match it would bind
+// only the `workstreams:stream` agent, and leave every reviewer, round
+// agent, and general purpose worker that gets the same briefs unguarded.
+// The orchestrator keeps backgrounding commands, because completion is
+// what wakes it.
 //
 // **What it cannot see.** A command Claude asked to background carries
-// `run_in_background: true` and is denied here. A command the harness MOVES
-// to the background when it reaches its timeout is a different mechanism,
-// after the tool call has started, with no hook in front of it
-// (tools-reference.md, "Background commands": "When a command reaches its
-// timeout without finishing, Claude Code moves it to the background instead
-// of stopping it"). The remedy for that half is the brief's, and it is the
-// same remedy: pass an explicit timeout long enough to finish in, and re-run
-// in the foreground what was moved.
+// `run_in_background: true`, and is denied here. A command the harness
+// MOVES to the background when it reaches its timeout is a different
+// mechanism, after the tool call has started, with no hook in front of it
+// (tools-reference.md, "Background commands": "When a command reaches
+// its timeout without finishing, Claude Code moves it to the background
+// instead of stopping it"). The remedy for that half is the brief's, and
+// it is the same remedy: pass an explicit timeout long enough to finish
+// in, and re-run in the foreground whatever was moved.
 //
-// **Never the reason a session stops.** This decides a tool call on every
-// Bash command of every session the plugin is installed in. Anything it
-// cannot read is one line on stderr and an allow: `hooks/guard.ts` holds the
-// outer half of that promise and this file holds the inner one. An allow is
-// silent and returns no decision at all, rather than a
-// `permissionDecision: "allow"`, which would skip the permission prompt the
-// user's own settings asked for (hooks.md, "PreToolUse decision control").
+// **Never the reason a session stops.** This decides a tool call on
+// every Bash command of every session the plugin is installed in.
+// Anything it cannot read is one line on stderr, and an allow.
+// `hooks/guard.ts` holds the outer half of that promise, and this file
+// holds the inner one. An allow is silent, and returns no decision at
+// all, rather than a `permissionDecision: "allow"`, which would skip the
+// permission prompt the user's own settings asked for (hooks.md,
+// "PreToolUse decision control").
 //
 // **Neither `additionalContext` nor `systemMessage`.**
 // `.claude/rules/path-hooks.md` is about a hook with something to tell a
-// person; this one has something to tell the worker it just stopped, and
-// `permissionDecisionReason` is the field the docs say is "shown to Claude"
-// for a deny. A `systemMessage` beside it would render in the main terminal
-// on every denial, where the person is not the one who has to act and the
-// subagent's own transcript already carries the reason.
+// person. This one has something to tell the worker it just stopped, and
+// `permissionDecisionReason` is the field the docs call "shown to
+// Claude" for a deny. A `systemMessage` beside it would render in the
+// main terminal on every denial, where the person is not the one who has
+// to act, and the subagent's own transcript already carries the reason.
 //
-// The command function is the seam (ADR 001, RFC 001 decision 3): the payload
-// text, the output pair and a reader for git come in, a status goes out, and
-// no test here needs a process.
+// The command function is the seam (ADR 001, RFC 001 decision 3): the
+// payload text, the output pair, and a reader for git come in. A status
+// goes out. No test here needs a process.
 import type { Envelope } from '../lib/envelope.ts'
 import { failed, ok } from '../lib/envelope.ts'
 import type { Output } from '../lib/streams.ts'
@@ -78,10 +81,10 @@ export type GitReader = (
 ) => Promise<string | null>
 
 /** The fields of a `PreToolUse` payload this hook reads, and no others
- *  (hooks.md, "Common input fields" and "PreToolUse input"). Every one is
- *  optional in the document, so every one is nullable here: the payload is
- *  Claude Code's, not ours, and a field that is missing is a fact about the
- *  call rather than a reason to fail. */
+ *  (hooks.md, "Common input fields" and "PreToolUse input"). Every field
+ *  is optional in the document, so every one is nullable here. The
+ *  payload is Claude Code's, not ours. A field that is missing is a fact
+ *  about the call, rather than a reason to fail. */
 export interface ToolCall {
   /** Present only inside a subagent. Its presence is the whole of who this
    *  guard binds. */
@@ -105,11 +108,12 @@ export type Verdict =
   | { readonly decision: 'allow' }
   | { readonly decision: 'deny'; readonly reason: string }
 
-/** The shell tools whose `tool_input.command` this reads. Both, because on
- *  Windows Claude Code routes shell commands through PowerShell and may not
- *  register the Bash tool at all, and "a hook that matches only `Bash` never
- *  fires there" (hooks.md, "PowerShell"). The matcher in `hooks.json` says
- *  the same thing; this is the half that survives someone narrowing it. */
+/** The shell tools whose `tool_input.command` this reads. Both, because
+ *  on Windows Claude Code routes shell commands through PowerShell, and
+ *  may not register the Bash tool at all: "a hook that matches only
+ *  `Bash` never fires there" (hooks.md, "PowerShell"). The matcher in
+ *  `hooks.json` says the same thing. This is the half that survives if
+ *  someone narrows it. */
 const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell']
 
 /** The bound the brief gives a foreground command, named in the denial so the
@@ -141,11 +145,12 @@ export const readToolCall = (payload: string): Envelope<ToolCall> => {
   try {
     parsed = JSON.parse(payload) as unknown
   } catch (error) {
-    // `String(error)`, with no `instanceof Error` arm in front of it: the one
-    // statement inside this `try` is `JSON.parse`, which throws a `SyntaxError`
-    // and nothing else, so an arm for a non-Error throw is a branch no test can
-    // reach and the coverage rule says to restructure it away rather than
-    // excuse it (`.claude/rules/type-ts.md`, "Coverage").
+    // `String(error)`, with no `instanceof Error` arm in front of it. The
+    // one statement inside this `try` is `JSON.parse`, which throws a
+    // `SyntaxError` and nothing else. So an arm for a non-Error throw is a
+    // branch no test can reach. The coverage rule says to restructure it
+    // away, rather than excuse it (`.claude/rules/type-ts.md`,
+    // "Coverage").
     return failed(`payload is not JSON (${String(error)})`)
   }
   const document = asRecord(parsed)
@@ -163,15 +168,17 @@ export const readToolCall = (payload: string): Envelope<ToolCall> => {
   })
 }
 
-/** The shell operators a command line is cut at before any segment is read.
- *  A segment is what a shell would run as one command, near enough: the
- *  guard is a guardrail and not a security boundary, so a `git restore`
- *  hidden inside a quoted argument is read as a real one and denied, which
- *  costs a person one commit and never costs anyone their work. */
+/** The shell operators a command line is cut at, before any segment is
+ *  read. A segment is what a shell would run as one command, near
+ *  enough. The guard is a guardrail, not a security boundary, so a `git
+ *  restore` hidden inside a quoted argument is read as a real one, and
+ *  denied. That costs a person one commit, and never costs anyone their
+ *  work. */
 const SEGMENTS = /[;\n]|&&|\|\|?/
 
-/** Shell syntax that can open a segment without being part of the command:
- *  a subshell, a group, or a `then` or `do` from a compound statement. */
+/** Shell syntax that can open a segment, though it is not itself part of
+ *  the command: a subshell, a group, or a `then` or `do` from a compound
+ *  statement. */
 const OPENERS: readonly string[] = ['(', '{', 'then', 'do', 'else', '!']
 
 /** An environment assignment in front of a command (`GIT_DIR=x git ...`). */
@@ -198,20 +205,21 @@ const WHOLE_TREE = /^(-f|--force|-p|--patch|--discard-changes|--pathspec-from-fi
 
 /** The options whose argument is a ref and never a path. `git checkout -h`
  *  gives `checkout` two forms, `[<options>] <branch>` and `[<options>]
- *  [<branch>] -- <file>...`, and with any of these the command creates or
- *  tracks a branch and accepts no pathspec at all, so there is nothing to put
- *  to git. Without this the argument of a `-b` was probed as a path, and
- *  `git checkout -b <name>` was refused whenever a dirty tracked file, or a
- *  directory holding one, was called `<name>`. */
+ *  [<branch>] -- <file>...`. With any of these, the command creates or
+ *  tracks a branch, and accepts no pathspec at all, so there is nothing to
+ *  put to git. Without this list, the argument of a `-b` was probed as a
+ *  path, and `git checkout -b <name>` was refused whenever a dirty
+ *  tracked file, or a directory that held one, was called `<name>`. */
 const REF_OPTIONS: readonly string[] = ['-b', '-B', '--orphan', '-t', '--track']
 
 /** What a destructive git command names: the tree it would act on, and the
  *  paths inside it to ask about.
  *
- *  `directory` is the command's own `-C` argument, or `null` for "wherever the
- *  tool call runs". An empty `pathspec` means the whole tree is the question;
- *  anything else is the operands of a `git checkout` written without a `--`,
- *  which {@link decide} hands to git rather than guessing at. */
+ *  `directory` is the command's own `-C` argument, or `null` for "wherever
+ *  the tool call runs". An empty `pathspec` means the whole tree is the
+ *  question. Anything else is the operands of a `git checkout` written
+ *  without a `--`, which {@link decide} hands to git, rather than guess
+ *  at them. */
 export interface Destructive {
   readonly directory: string | null
   readonly pathspec: readonly string[]
@@ -237,13 +245,13 @@ export interface Destructive {
  *     runs to them: a path answers with the work about to be overwritten,
  *     while a name that is only a branch matches no path and answers clean.
  *
- * Asking costs no extra process. It costs one false refusal, and only one: a
+ * This check costs no extra process. It costs one false refusal, and only one: a
  * name that is BOTH an existing branch and a dirty tracked path reads as the
- * path, while git would have resolved the branch and carried the change over
- * (measured against git 2.54.0). Telling those apart needs a second question
- * to git; the refusal costs a commit and never costs work, so the one probe
- * stands. The options that name a branch are the case that is NOT ambiguous,
- * and {@link REF_OPTIONS} keeps them out of the probe.
+ * path, while git would have resolved the branch and carried the change
+ * over (measured against git 2.54.0). To tell those apart needs a second
+ * question to git. The refusal costs a commit and never costs work, so
+ * the one probe stands. The options that name a branch are the case that
+ * is NOT ambiguous, and {@link REF_OPTIONS} keeps them out of the probe.
  */
 export const destructiveGit = (command: string): Destructive | undefined => {
   for (const segment of command.split(SEGMENTS)) {
@@ -311,10 +319,10 @@ const readSegment = (tokens: readonly string[]): Destructive | undefined => {
   // A spelling that overwrites the working tree without naming a path: the
   // whole tree is the question, as it is for an explicit `--`.
   if (operands.some((token) => WHOLE_TREE.test(token))) return { directory, pathspec: [] }
-  // Everything else a `switch` can do carries uncommitted work across with it
-  // rather than overwriting it (measured: `git switch <branch>` on a modified
-  // tracked file leaves it modified on the new branch), so only the spellings
-  // above make a switch destructive.
+  // Everything else a `switch` can do carries uncommitted work across with
+  // it, rather than overwrite it (measured: `git switch <branch>` on a
+  // modified tracked file leaves it modified on the new branch). So only
+  // the spellings above make a switch destructive.
   if (verb === 'switch') return undefined
   if (operands.includes('--')) return { directory, pathspec: [] }
   // An option that names the branch rules a pathspec out of the whole command.
@@ -331,17 +339,18 @@ const readSegment = (tokens: readonly string[]): Destructive | undefined => {
 const who = (call: ToolCall): string =>
   call.agentType === null ? 'this subagent' : `subagent ${call.agentType}`
 
-/** Only a tracked file's uncommitted state is work this command can destroy.
- *  `git status --porcelain` marks an untracked file `??`, which neither `git
- *  checkout` nor `git restore` touches, so a tree holding only those is clean
- *  for this purpose. `harness/git.ts` keeps the same two fixtures apart for
- *  the same reason ("an untracked file, which must NOT block a sync").
+/** Only a tracked file's uncommitted state is work this command can
+ *  destroy. `git status --porcelain` marks an untracked file `??`, which
+ *  neither `git checkout` nor `git restore` touches, so a tree that holds
+ *  only those is clean for this purpose. `harness/git.ts` keeps the same
+ *  two fixtures apart for the same reason ("an untracked file, which must
+ *  NOT block a sync").
  *
- *  The `!!` arm is defence and not a case this probe can reach: git lists an
+ *  The `!!` arm is defence, not a case this probe can reach: git lists an
  *  ignored file only when asked with `--ignored`, and {@link decide} never
- *  asks. It is kept, and pinned by a test through the injected reader, so that
- *  adding `--ignored` later cannot quietly turn an ignored file into a reason
- *  to refuse someone's command. */
+ *  asks. It is kept, and pinned by a test through the injected reader, so
+ *  that if someone adds `--ignored` later, that change cannot quietly
+ *  turn an ignored file into a reason to refuse someone's command. */
 const trackedChanges = (porcelain: string): readonly string[] =>
   porcelain
     .split('\n')
@@ -350,16 +359,17 @@ const trackedChanges = (porcelain: string): readonly string[] =>
 /**
  * The verdict on one tool call, with git asked only when it has to be.
  *
- * The order is the cost order. A main thread call, or a call of any tool but
- * a shell, is answered without reading the command at all; a shell command
- * that asks for nothing destructive is answered without starting git. The
- * one probe this runs is `git status --porcelain`, on the command's own
- * target tree, scoped with `-- <pathspec>` when a separatorless `checkout`
- * named operands and over the whole tree otherwise.
+ * The order is the cost order. A main thread call, or a call of any tool
+ * but a shell, is answered with no read of the command at all. A shell
+ * command that asks for nothing destructive is answered with no call to
+ * git. The one probe this runs is `git status --porcelain`, on the
+ * command's own target tree, scoped with `-- <pathspec>` when a
+ * separatorless `checkout` named operands, and over the whole tree
+ * otherwise.
  *
- * A git that cannot answer allows, and says why on stderr: an unreadable tree
- * is not evidence of a dirty one, and a guard that denied on a failed probe
- * would deny every command run outside a repository.
+ * A git that cannot answer allows, and says why on stderr: an unreadable
+ * tree is not evidence of a dirty one, and a guard that denied on a
+ * failed probe would deny every command run outside a repository.
  */
 export const decide = async (
   call: ToolCall,
@@ -425,12 +435,12 @@ export const decide = async (
   }
 }
 
-/** The denial, in the documented shape: `hookSpecificOutput` carrying
- *  `permissionDecision` and `permissionDecisionReason` (hooks.md, "PreToolUse
- *  decision control"). Chosen over the exit 2 form, which `hooks.json`'s
- *  trailing `; exit 0` would swallow: that wrapper is what keeps a broken
- *  install from failing a session, and the price of it is that this hook's
- *  decision has to live on stdout. */
+/** The denial, in the documented shape: `hookSpecificOutput` carries
+ *  `permissionDecision` and `permissionDecisionReason` (hooks.md,
+ *  "PreToolUse decision control"). Chosen over the exit 2 form, which
+ *  `hooks.json`'s trailing `; exit 0` would swallow: that wrapper is what
+ *  stops a broken install from failing the whole session. The price of
+ *  that is that this hook's decision must live on stdout. */
 export const denial = (reason: string): string =>
   JSON.stringify({
     hookSpecificOutput: {
@@ -454,8 +464,8 @@ export const runGuard = async (context: {
   readonly output: Output
 }): Promise<number> => {
   const read = readToolCall(await context.stdin())
-  // The discriminant rather than `isOk`, so that the failure arm narrows to
-  // the shape carrying `error`.
+  // The discriminant rather than `isOk`, so that the failure arm narrows
+  // to the shape that carries `error`.
   if (read.outcome !== 'ok') {
     context.output.err.write(`workstreams guard: ${read.error}; allowing the tool call.\n`)
     return 0

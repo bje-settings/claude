@@ -49,7 +49,7 @@ const run = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
   ...overrides,
 })
 
-/** Every read answering, with whichever of them a case is about replaced. */
+/** Every read, answered, with whichever of them a case is about replaced. */
 const replies = (overrides: GhReplies = {}): GhReplies => ({
   viewPullRequestDetail: { pullRequest: detail(), unavailable: null },
   requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
@@ -281,8 +281,8 @@ describe('the verdict over the required contexts', () => {
 
   for (const conclusion of ['SUCCESS', 'SKIPPED', 'NEUTRAL']) {
     it(`treats a required context that concluded ${conclusion} as satisfied`, async () => {
-      // GitHub's own merge gate accepts all three. Reporting a skipped
-      // required job red would be a loop that never finishes on any
+      // GitHub's own merge gate accepts all three. To report a skipped
+      // required job as red would be a loop that never finishes, on any
       // repository whose workflow skips a job by path filter.
       const report = await reportOf(
         ['178'],
@@ -508,8 +508,8 @@ describe('a base branch no ruleset covers', () => {
 describe('what it does with a read that fell short', () => {
   it('names no state when the pull request itself was read only in part', async () => {
     // A thread list longer than one page reads as fewer unresolved threads
-    // than there are, and a report that believed it would reach done on a
-    // pull request somebody is still waiting on.
+    // than there are. A report that believed it would reach done on a
+    // pull request somebody still waits on.
     const report = await reportOf(
       ['178', '--round', '2', '--rot-checked'],
       replies({
@@ -541,7 +541,7 @@ describe('what it does with a read that fell short', () => {
     expect(report.state).toBe('awaiting-pr')
     expect(report.verdict).toBe('unavailable')
     // Neither source: no pull request means no base branch to ask about, so
-    // no list was asked for. Saying `ruleset` would claim an empty answer
+    // no list was asked for. To say `ruleset` would claim an empty answer
     // from a question nobody put.
     expect(report.contextsFrom).toBe('unread')
     expect(report.title).toBeNull()
@@ -550,8 +550,8 @@ describe('what it does with a read that fell short', () => {
   })
 
   it('asks nothing about rules or runs for a pull request it could not read', async () => {
-    // There is no base and no head to ask about, and asking about a guess
-    // would be worse than not asking. An unregistered endpoint throws.
+    // There is no base and no head to ask about. To ask about a guess
+    // would be worse than to ask nothing. An unregistered endpoint throws.
     const answer = await ran(['--json', '178'], {
       viewPullRequestDetail: { pullRequest: null, unavailable: 'not found' },
       listWorkflowRuns: { rows: [run()], unavailable: null },
@@ -565,9 +565,9 @@ describe('what it does with a read that fell short', () => {
     ['the runs', { listWorkflowRuns: { rows: [], unavailable: 'gh: HTTP 403' } }],
   ] as const) {
     it(`names no state at all when ${what} could not be read`, async () => {
-      // A state is an instruction to the caller, and naming one from facts
-      // nobody could read would send a round to review a pull request whose
-      // checks nobody has seen.
+      // A state is an instruction to the caller. To name one from facts
+      // nobody could read would send a round to review a pull request
+      // whose checks nobody has seen.
       const report = await reportOf(['178'], replies(overrides))
 
       expect(report.verdict).toBe('unavailable')
@@ -608,9 +608,9 @@ describe('what it does with a read that fell short', () => {
   })
 
   it('lets a thrown endpoint through rather than reporting a state it did not read', async () => {
-    // Every endpoint this command uses answers rather than throwing, so a
-    // throw here is the double saying an endpoint was reached that the test
-    // did not register.
+    // Every endpoint this command uses answers, rather than throw. So a
+    // throw here means the double found an endpoint the test did not
+    // register.
     await expect(ran(['178'], { viewPullRequestDetail: ghFails('gh: HTTP 500') })).rejects.toThrow(
       'gh: HTTP 500',
     )
@@ -655,8 +655,8 @@ describe('the state the facts add up to', () => {
   })
 
   it('never schedules a third round', () => {
-    // The two-round ceiling: round 2 being substantial does not buy a
-    // round 3.
+    // The two-round ceiling: a substantial round 2 does not buy a round
+    // 3.
     expect(facts({ ...green, round: 2, substantial: true })).toBe('rot-check')
   })
 
@@ -678,7 +678,7 @@ describe('the wait hint', () => {
   it('is scoped to the head’s own workflows by the command, not only by the helper', async () => {
     // The sample carries a slower workflow that never ran on this head. The
     // hint must still answer for the head's own, or a caller waits on a
-    // number measured from something it is not waiting for.
+    // number measured from a workflow it does not wait for.
     const gh = createGhMock(replies())
     const answer = await runPrState(['--json', '178'], {
       gh: {

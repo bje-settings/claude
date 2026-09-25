@@ -1,34 +1,35 @@
-// The workstreams guard's entry point: `hooks.json` runs this file directly
-// on every shell tool call, in the main conversation and inside every
-// subagent.
+// The workstreams guard's entry point. `hooks.json` runs this file
+// directly on every shell tool call, in the main conversation and inside
+// every subagent.
 //
-// This file ships and holds no decisions. `src/commands/guard.ts` is the
-// guard, reached with this process's own edges as arguments, which is the
-// seam the tests call without a process (ADR 001, RFC 001 decision 3).
+// This file ships, and holds no decisions. `src/commands/guard.ts` is the
+// guard. It is reached with this process's own edges as arguments, which is
+// the seam the tests call without a process (ADR 001, RFC 001 decision 3).
 //
-// **One static import, and it is the floor guard.** `import` declarations are
-// hoisted and evaluated before any statement here runs, so a second static
-// import would load its whole module graph on the runtime this guard exists
-// to refuse. `meetsNodeFloor` and not `assertNodeFloor`: a hook that writes
-// to stderr writes into the session, so under the floor this exits 0 in
-// silence rather than explaining itself (RFC 001 "Hooks", ADR 001,
-// `plugins/gh/hooks/hook-io.ts`). The other half of that guarantee is
-// `hooks.json`'s `command -v node ... ; exit 0`, for a machine with no node
-// at all and for a hooks directory this file was never installed into.
+// **One static import, and it is the floor guard.** `import` declarations
+// are hoisted and evaluated before any statement here runs. So a second
+// static import would load its whole module graph on the runtime this
+// guard exists to refuse. This file uses `meetsNodeFloor`, not
+// `assertNodeFloor`: a hook that writes to stderr writes into the session,
+// so under the floor this exits 0 in silence, rather than explain itself
+// (RFC 001 "Hooks", ADR 001, `plugins/gh/hooks/hook-io.ts`). The other half
+// of that guarantee is `hooks.json`'s `command -v node ... ; exit 0`, for a
+// machine with no node at all, and for a hooks directory this file was
+// never installed into.
 //
-// **Nothing that happens in here may deny a tool call by accident.** A denial
-// is a JSON document on stdout and nothing else writes there, so any failure
-// leaves stdout empty and the tool call proceeds. Anything unforeseen inside
-// the `try` leaves its account on stderr, where Claude Code's debug log keeps
+// **Nothing in here may deny a tool call by accident.** A denial is a JSON
+// document on stdout, and nothing else writes there. So any failure leaves
+// stdout empty, and the tool call proceeds. Anything unforeseen inside the
+// `try` leaves its account on stderr, where Claude Code's debug log keeps
 // it, and the status is 0 all the same. The only statements outside the try
-// are the three `await import`s and `createOutput`; a failure there is an
-// unhandled top-level rejection and a non-zero status from node itself, which
-// `hooks.json`'s `; exit 0` absorbs, and stdout is still empty.
+// are the three `await import`s and `createOutput`. A failure there is an
+// unhandled top-level rejection and a non-zero status from node itself.
+// `hooks.json`'s `; exit 0` absorbs that, and stdout stays empty.
 //
 // **It reads stdin inside the guard.** A `PreToolUse` payload arrives on
-// stdin (hooks.md, "Hook input and output"), and reading it is a promise that
-// can reject like any other, so it is called from inside the try rather than
-// awaited on the way in.
+// stdin (hooks.md, "Hook input and output"). Reading it is a promise that
+// can reject like any other, so the code calls it from inside the try,
+// rather than await it on the way in.
 import { meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
@@ -36,10 +37,10 @@ if (meetsNodeFloor(process.version)) {
   const { gitOut } = await import('../src/lib/git.ts')
   const { runGuard } = await import('../src/commands/guard.ts')
 
-  // Both streams are guarded here rather than at each write: a reader that
-  // closed the pipe makes the write fail asynchronously, as an `error` event,
-  // so there is nothing to wrap in a `try`, and with no listener node crashes
-  // with an internals stack trace (`lib/streams.ts`).
+  // Both streams are guarded here, rather than at each write. A reader that
+  // closed the pipe makes the write fail asynchronously, as an `error`
+  // event. There is nothing to wrap in a `try`, and with no listener node
+  // crashes with an internals stack trace (`lib/streams.ts`).
   const output = createOutput(process.stdout, process.stderr)
 
   try {

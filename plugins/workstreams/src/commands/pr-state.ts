@@ -1,26 +1,26 @@
 // The deterministic half of the review loop: one pull request's state,
 // derived from the pull request and its checks on every call.
 //
-// **Nothing is remembered.** Round 8 ruling 8 and CLAUDE.md's "derive what a
-// plugin needs each time it runs": there is no state file, so every fact here
-// is read again each tick and the only things the caller carries are the three
-// it alone knows, how many review rounds it has completed, whether the first
-// one was substantial, and whether the rot check is done. A file would be the
-// copy that goes stale, and a loop resumed from one would review a head that
-// had already moved.
+// **Nothing is remembered.** Round 8 ruling 8, and CLAUDE.md's "derive what
+// a plugin needs each time it runs": there is no state file. Every fact
+// here is read again each tick. The only facts the caller carries are the
+// three it alone knows: how many review rounds it has completed, whether
+// the first one was substantial, and whether the rot check is done. A file
+// would be the copy that goes stale, and a loop resumed from one would
+// review a head that had already moved.
 //
 // **Nothing is hard-coded about the repository either.** The required
-// status-check contexts come from the rules that apply to the pull request's
-// OWN base branch, read at run time. On this repository a pull request based
-// on the default branch is required to pass nine contexts and one based on a
-// topic branch, which is what every layer of a stack is, is required to pass
-// none; a command carrying either list in its source would report the wrong
+// status-check contexts come from the rules for the pull request's OWN
+// base branch, read at run time. On this repository, a pull request based
+// on the default branch must pass nine contexts, and one based on a topic
+// branch, which is what every layer of a stack is, must pass none. A
+// command that carried either list in its source would report the wrong
 // answer for half the pull requests a stack is made of.
 //
-// The judgement is in `skills/review`: this command says what is true and
-// which state that adds up to, and says nothing about what to do next. The
-// close-and-reopen remedy for a head with no workflow run, the waiting, the
-// dispatching and the rot check are all the skill's.
+// The judgement is in `skills/review`. This command says what is true, and
+// which state that adds up to. It says nothing about what to do next. The
+// close-and-reopen remedy for a head with no workflow run, the wait, the
+// dispatch, and the rot check are all the skill's.
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
@@ -61,11 +61,12 @@ Nothing here throws. Every read that fell short is listed under "unavailable",
 and a verdict of "unavailable" means the sets below it are not an answer.
 Exits 2 on a usage error, and 1 only when nothing at all could be read.`
 
-// `as const` alone, as `plugins/mermaid/src/commands/url.ts` and `preflight.ts`
-// write it and as `lib/README.md` asks for. A broken spec is refused either
-// way: `parseCommandLine`'s own `ExactSpec` guard answers `never` at the call
-// site, verified by removing `round`'s default and watching `tsc` refuse it
-// with and without a `satisfies` clause.
+// `as const` alone, the way `plugins/mermaid/src/commands/url.ts` and
+// `preflight.ts` write it, and the way `lib/README.md` asks for. A broken
+// spec is refused either way. `parseCommandLine`'s own `ExactSpec` guard
+// answers `never` at the call site. A test verified this: it removed
+// `round`'s default and watched `tsc` refuse it, with and without a
+// `satisfies` clause.
 const SPEC = {
   round: { type: 'string', default: '0', choices: ['0', '1', '2'] },
   substantial: { type: 'boolean' },
@@ -83,18 +84,18 @@ const HINT_SAMPLE = 30
  *
  * `success` covers the three conclusions that SATISFY a required check:
  * `SUCCESS`, and `SKIPPED` and `NEUTRAL`, which GitHub's own merge gate
- * accepts. Reporting a skipped required job red would leave a loop that never
- * finishes on any repository whose workflow skips a job by path filter, and
- * the raw conclusion is carried beside the verdict so a caller can still see
- * which of the three it was.
+ * accepts. If this reported a skipped required job as red, a loop would
+ * never finish, on any repository whose workflow skips a job by path
+ * filter. The raw conclusion is carried beside the verdict, so a caller
+ * can still see which of the three it was.
  */
 export type ContextVerdict = 'success' | 'failed' | 'pending'
 
 /** The whole pull request's verdict over its required contexts. */
 export type Verdict = 'green' | 'red' | 'pending' | 'no-run' | 'unavailable'
 
-/** Where the loop is. `null` is not a state: it is this command declining to
- *  name one from facts it could not read. */
+/** Where the loop is. `null` is not a state: it means this command will
+ *  not name one, from facts it could not read. */
 export type LoopState =
   | 'awaiting-pr'
   | 'ci-pending'
@@ -127,7 +128,7 @@ export interface ReportedRun {
   readonly conclusion: string | null
 }
 
-/** How long to wait before asking again. */
+/** How long to wait before the caller asks again. */
 export interface WaitHint {
   /** The workflow the hint is measured over: the slowest of those that ran
    *  recently, because the loop waits for the last context to report and not
@@ -153,15 +154,15 @@ export interface PrStateReport {
   /**
    * Where the names in `contexts` came from.
    *
-   * `head` is the fallback for a base branch no ruleset covers, and it is a
-   * DESIGN fact rather than a read that fell short, so it is a field of its
-   * own and not a line in `unavailable`. A caller keys on `unavailable` to
-   * decide whether the report is an answer at all; putting this there would
-   * make every stacked pull request look unreadable.
+   * `head` is the fallback for a base branch no ruleset covers. It is a
+   * DESIGN fact, not a read that fell short, so it is a field of its own,
+   * not a line in `unavailable`. A caller keys on `unavailable` to decide
+   * whether the report is an answer at all. To put this there would make
+   * every stacked pull request look unreadable.
    *
-   * `unread` is neither: there was no pull request to find a base branch on,
-   * so no list was asked for. Saying `ruleset` there would claim an empty
-   * answer from a question nobody put.
+   * `unread` is neither: there was no pull request to find a base branch
+   * on, so no list was asked for. To say `ruleset` there would claim an
+   * empty answer from a question nobody put.
    */
   readonly contextsFrom: 'ruleset' | 'head' | 'unread'
   readonly contexts: readonly ReportedContext[]
@@ -208,18 +209,18 @@ const reportedAs = (checks: readonly CheckContext[], name: string): ReportedCont
 /**
  * The verdict over the required contexts.
  *
- * A failure outranks a pending context: a round told "pending" would wait for
- * a run that has already lost, and the failure is the thing to act on either
- * way.
+ * A failure outranks a pending context. A round told "pending" would wait
+ * for a run that has already lost, and the failure is the thing to act on
+ * either way.
  *
- * `green` needs one more thing than "nothing failed and nothing is pending":
- * that the names themselves are the whole list. Under a ruleset they are, and
- * `namesFinal` is true. Under the head fallback they are only what has
- * reported so far, so a head whose checks have not appeared yet would
- * otherwise be green over NOTHING, and a head where one workflow has finished
- * while another is still creating its checks would be green over a fraction.
- * Both are `pending`: the answer is not that the pull request passed, it is
- * that nobody knows yet.
+ * `green` needs one more thing than "nothing failed and nothing is
+ * pending": the names themselves must be the whole list. Under a ruleset
+ * they are, and `namesFinal` is true. Under the head fallback they are
+ * only what has reported so far. So a head whose checks have not appeared
+ * yet would otherwise be green over NOTHING, and a head where one
+ * workflow has finished while another has not yet added all its checks
+ * would be green over a fraction. Both cases are `pending`: the answer is
+ * not that the pull request passed, it is that nobody knows yet.
  */
 export const verdictOf = (
   contexts: readonly ReportedContext[],
@@ -235,14 +236,15 @@ export const verdictOf = (
 /**
  * Where the loop is, from the facts plus the three the caller carries.
  *
- * `null` rather than a guess when the verdict is `unavailable`: a state is an
- * instruction to the caller, and naming one from facts that could not be read
- * would send a round to review a pull request whose checks nobody has seen.
+ * `null`, rather than a guess, when the verdict is `unavailable`. A state
+ * is an instruction to the caller. To name one from facts that could not
+ * be read would send a round to review a pull request whose checks
+ * nobody has seen.
  *
- * An unresolved review THREAD keeps the loop in `fixing` however green CI is,
- * because a thread is work someone is waiting on. A comment does not: the
- * enterprise coverage bot posts one on every pull request here, and a loop
- * that counted it would never reach `done`.
+ * An unresolved review THREAD keeps the loop in `fixing`, however green
+ * CI is, because a thread is work someone waits on. A comment does not:
+ * the enterprise coverage bot posts one on every pull request here, and a
+ * loop that counted it would never reach `done`.
  */
 export const deriveState = (facts: {
   readonly hasPullRequest: boolean
@@ -260,13 +262,14 @@ export const deriveState = (facts: {
     if (facts.verdict === 'pending') return 'ci-pending'
     return 'review-1'
   }
-  // A round has already run, so CI that is not green is that round's own
-  // fixes landing rather than the stream's problem.
+  // A round has already run, so CI that is not green means that round's
+  // own fixes have not landed, not the stream's problem.
   if (facts.verdict !== 'green') return 'fixing'
   if (facts.unresolvedThreads > 0) return 'fixing'
-  // The two-round ceiling. Round 2 never schedules a third: on nine of the
+  // The two-round ceiling. Round 2 never schedules a third. On nine of the
   // ten pull requests reviewed by hand in rounds 5 to 7 (#133's findings),
-  // round 2 found round 1 wrong or incomplete, so "substantial" is read generously, but two is the limit.
+  // round 2 found round 1 wrong or incomplete. So the code reads
+  // "substantial" generously. But two rounds is the limit.
   if (facts.round === 1 && facts.substantial) return 'review-2'
   return facts.rotChecked ? 'done' : 'rot-check'
 }
@@ -274,30 +277,32 @@ export const deriveState = (facts: {
 /** The middle of a sorted list of durations, rounded to whole milliseconds. */
 const median = (sorted: readonly number[]): number => {
   const middle = Math.floor(sorted.length / 2)
-  // The cast is `noUncheckedIndexedAccess` being exact about an array of
-  // unknown length; the caller never passes an empty one.
+  // The cast exists because `noUncheckedIndexedAccess` is exact about an
+  // array of unknown length. The caller never passes an empty one.
   if (sorted.length % 2 === 1) return sorted[middle] as number
   return Math.round(((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2)
 }
 
 /**
- * How long to wait before asking again, from how long recent runs took.
+ * How long to wait before the caller asks again, from how long recent
+ * runs took.
  *
- * Scoped to `workflows`, the names that ran on THIS head, because those are
- * the runs the loop is waiting for: measured over every workflow in the
- * repository, the hint is whichever unrelated workflow happens to be slowest,
- * and on the first measurement here that was a `push` workflow with one
- * sample. An empty `workflows` means nothing has run on the head yet, and the
- * hint is then over everything, which is the best guess there is.
+ * Scoped to `workflows`, the names that ran on THIS head, because those
+ * are the runs the loop waits for. Measured over every workflow in the
+ * repository, the hint would be whichever unrelated workflow happens to
+ * be slowest; on the first measurement here that was a `push` workflow
+ * with one sample. An empty `workflows` means nothing has run on the head
+ * yet, so the hint is then over everything, the best guess there is.
  *
- * Grouped by workflow and answered for the SLOWEST group, because the loop
- * waits for the LAST required context to report: one median over the runs
- * mixed together is dominated by whichever cheap workflow ran most often, and
- * a hint shorter than the wait is a caller polling a hundred times.
+ * Grouped by workflow, and answered for the SLOWEST group, because the
+ * loop waits for the LAST required context to report. One median over
+ * the runs mixed together would be dominated by whichever cheap workflow
+ * ran most often. A hint shorter than the wait would make a caller poll a
+ * hundred times.
  *
- * Only completed runs, and only durations that make sense: a run whose
- * timestamps do not parse, or that reports finishing before it started, is
- * not a measurement.
+ * Only completed runs count, and only durations that make sense: a run
+ * whose timestamps do not parse, or that reports it finished before it
+ * started, is not a measurement.
  */
 export const waitHintFrom = (
   runs: readonly WorkflowRun[],
@@ -324,17 +329,18 @@ export const waitHintFrom = (
   return hint
 }
 
-/** The pull request number the caller named, or a refusal saying what was
- *  wrong with what it named instead. */
+/** The pull request number the caller named, or a refusal that says what
+ *  was wrong with what it named instead. */
 export const requestedPullRequest = (positionals: readonly string[]): Envelope<number> => {
   if (positionals.length === 0) return refused('pr-state takes a pull request number')
   if (positionals.length > 1) {
     return refused(`pr-state takes one pull request number, not ${positionals.length}`)
   }
   const word = positionals[0] as string
-  // Asserted before the conversion rather than inferred from it:
-  // `Number.parseInt` reads "178x" as 178, and reporting on pull request 178
-  // for someone who typed "178x" is answering a question nobody asked.
+  // The code asserts this before conversion, rather than infer it from the
+  // result: `Number.parseInt` reads "178x" as 178. To report on pull
+  // request 178 for someone who typed "178x" would answer a question
+  // nobody asked.
   if (!/^[1-9][0-9]*$/.test(word)) {
     return refused(`pr-state takes a pull request number, not "${word}"`)
   }
@@ -349,11 +355,11 @@ const asDuration = (ms: number): string =>
 export const renderReport = (report: PrStateReport): string => {
   const lines: string[] = []
   if (report.unavailable.length > 0) {
-    // INCOMPLETE only when the shortfall cost the answer. A read can fall
-    // short without doing that: the wait hint's sample is deliberately left
-    // out of the verdict, so a report can name a state and still carry a
-    // reason. Calling that one INCOMPLETE tells a reader to distrust a verdict
-    // that is sound.
+    // INCOMPLETE applies only when the shortfall cost the answer. A read
+    // can fall short without that cost: the wait hint's sample is
+    // deliberately left out of the verdict, so a report can name a state
+    // and still carry a reason. To call that one INCOMPLETE would tell a
+    // reader to distrust a verdict that is sound.
     lines.push(
       report.state === null
         ? 'INCOMPLETE: something needed to answer could not be read.'
@@ -459,12 +465,12 @@ const pullRequestFields = (
 /**
  * Read the pull request and answer with its state.
  *
- * Four reads, each of which answers or says why it could not, and none of
- * which throws: the pull request itself, the contexts its base branch
- * requires, the workflow runs on its head branch, and a sample of recent runs
- * for the wait hint. A read that failed costs its own fact and nothing else,
- * which is why a wait hint that could not be measured does not stop the
- * verdict.
+ * Four reads. Each one answers, or says why it could not; none of them
+ * throws. They cover the pull request itself, the contexts its base
+ * branch requires, the workflow runs on its head branch, and a sample of
+ * recent runs for the wait hint. A read that failed costs its own fact
+ * and nothing else. That is why a wait hint that could not be measured
+ * does not stop the verdict.
  */
 export const runPrState = async (
   argv: readonly string[],
@@ -478,12 +484,13 @@ export const runPrState = async (
   const round = Number(parsed.value.options.round)
   const substantial = parsed.value.options.substantial
   const rotChecked = parsed.value.options['rot-checked']
-  // Both flags say something about a round that has finished, so at round 0
-  // neither can be true of anything. `deriveState` returns from its round-0
-  // arms before it reads either, so without this they are accepted and
-  // silently discarded, and a caller that miscounted its own rounds is told
-  // nothing. `--round 2` without `--substantial` is NOT refused: substantial
-  // describes round 1 and stops mattering once round 2 has run.
+  // Both flags say something about a round that has finished, so at round
+  // 0 neither can be true of anything. `deriveState` returns from its
+  // round-0 arms before it reads either. Without this check, they would be
+  // accepted and silently discarded, and a caller that miscounted its own
+  // rounds would be told nothing. `--round 2` without `--substantial` is
+  // NOT refused: substantial describes round 1, and no longer matters once
+  // round 2 has run.
   if (round === 0 && (substantial || rotChecked)) {
     return refused(
       '--substantial and --rot-checked describe a completed round, so neither holds with --round 0',
@@ -499,9 +506,9 @@ export const runPrState = async (
   note(viewed.unavailable)
   const detail = viewed.pullRequest
 
-  // The base branch's own rules, not the default branch's: see the header.
-  // With no pull request read there is no base to ask about, and asking about
-  // a guess would be worse than not asking.
+  // The base branch's own rules apply, not the default branch's: see the
+  // header. With no pull request read, there is no base to ask about. To
+  // ask about a guess would be worse than to ask nothing.
   const required =
     detail === null
       ? { contexts: [], unavailable: null }
@@ -517,22 +524,22 @@ export const runPrState = async (
   const sample = await context.gh.listWorkflowRuns({ perPage: HINT_SAMPLE })
   note(sample.unavailable)
 
-  // Nothing at all could be read. With no pull request there was no base and
-  // no head to ask the other two about, so the run sample is the one read
-  // left, and a gh that could not answer either is a gh that answered
-  // nothing. A pull request that could not be read while the sample WAS read
-  // is a different fact and a reportable one: gh works and there is no such
-  // pull request yet, which is `awaiting-pr`.
+  // Nothing at all could be read. With no pull request, there was no base
+  // and no head to ask the other two about, so the run sample is the one
+  // read left. A gh that could not answer that either is a gh that
+  // answered nothing. A pull request that could not be read, while the
+  // sample WAS read, is a different fact, and a reportable one: gh works,
+  // and there is no such pull request yet. That is `awaiting-pr`.
   if (detail === null && sample.unavailable !== null) {
     return failed(`pr-state read nothing about #${requested.value}: ${unavailable.join('; ')}`)
   }
 
   const checks = detail === null ? [] : detail.checks
-  // The ruleset's list when it names one; otherwise the names that have
-  // reported on this head. A base branch no ruleset covers requires nothing,
-  // which is true and useless on its own: every layer of a stack is based on
-  // one, and a verdict over an empty list would be green before a single
-  // check had run.
+  // This is the ruleset's list, when it names one; otherwise it is the
+  // names that have reported on this head. A base branch no ruleset
+  // covers requires nothing. That fact is true, and useless on its own:
+  // every layer of a stack is based on one, and a verdict over an empty
+  // list would be green before a single check had run.
   const fromRuleset = required.contexts.length > 0
   const names = fromRuleset ? required.contexts : checks.map((check) => check.name)
   const contexts = [...new Set(names)].map((name) => reportedAs(checks, name))
@@ -542,19 +549,20 @@ export const runPrState = async (
       ? []
       : runs.rows.filter((run) => run.event === 'pull_request' && run.headSha === detail.headSha)
 
-  // `viewed.unavailable` counts as much as the other two. It is not only "no
-  // pull request": it is also a reply whose check, thread or comment list was
-  // longer than one page, and a GraphQL body that came back with `errors`
-  // beside the data. A thread list short by truncation reads as zero
-  // unresolved threads, which is how a report reaches `done` on a pull request
-  // someone is still waiting on.
+  // `viewed.unavailable` counts as much as the other two. It is not only
+  // "no pull request": it is also a reply whose check, thread, or comment
+  // list ran longer than one page, and a GraphQL body that came back with
+  // `errors` beside the data. A thread list cut short by truncation reads
+  // as zero unresolved threads. That is how a report reaches `done` on a
+  // pull request someone still waits on.
   const unreadable =
     detail === null ||
     viewed.unavailable !== null ||
     required.unavailable !== null ||
     runs.unavailable !== null
-  // The ruleset's list is the whole list. The head's is whatever has reported,
-  // so it is settled only once every run on the head has stopped adding to it.
+  // The ruleset's list is the whole list. The head's list is whatever has
+  // reported so far. It is settled only once every run on the head has
+  // finished, so nothing more can be added.
   const namesFinal = fromRuleset || runsForHead.every((run) => run.status === 'completed')
   const verdict: Verdict = unreadable
     ? 'unavailable'
