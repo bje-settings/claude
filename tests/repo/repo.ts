@@ -353,8 +353,9 @@ function directoriesUnder(dir: string, prefix = ''): string[] {
   return found
 }
 
-// Every file under `dir`, at any depth, as a path relative to `dir`, with
-// the same rule for symlinks as `directoriesUnder`.
+// Every file under `dir`, at any depth, as a path relative to `dir`. This
+// walk does not go into a symlink either. It lists each link as one file,
+// by its own name, so a test file inside a linked directory is not seen.
 function filesUnder(dir: string, prefix = ''): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -389,6 +390,48 @@ export function developmentFiles(roots: readonly string[] = [PLUGINS, LIB]): str
       if (file.endsWith('.test.ts') || file.endsWith('.test-support.ts')) {
         violations.push(`${path.join(name, file)} is test code, and it would ship`)
       }
+    }
+  }
+  return violations.sort()
+}
+
+// The directories `testsOutsideTests` does not walk: other checkouts of
+// this repository, installed packages, git's own store, and `tests/`,
+// where a test belongs.
+const NOT_WALKED = [path.join('.claude', 'worktrees'), '.git', 'node_modules', 'tests']
+
+// Every file under `dir` outside NOT_WALKED, as a path relative to `top`.
+// This walk does not go into a symlink, for the reason `directoriesUnder`
+// gives. `node_modules` is not walked at any depth.
+function repositoryFiles(top: string, dir: string = top): string[] {
+  const found: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const relative = path.relative(top, path.join(dir, entry.name))
+    if (NOT_WALKED.includes(relative) || entry.name === 'node_modules') continue
+    if (entry.isDirectory()) found.push(...repositoryFiles(top, path.join(dir, entry.name)))
+    else found.push(relative)
+  }
+  return found
+}
+
+/**
+ * Test files and test helpers outside `tests/`.
+ *
+ * vitest collects only the `.test.ts` files under `tests/`. So a test
+ * file in any other place never runs, and no test fails. A test helper
+ * goes beside the tests that use it. `developmentFiles` refuses both in a
+ * plugin or in `lib/`, because they would ship. This rule refuses them in
+ * every other place too, for example `harness/` or the repository root
+ * (ADR 004).
+ *
+ * `root` is a parameter, so a test can run the rule against a synthetic
+ * tree. Each report names the path relative to `root`.
+ */
+export function testsOutsideTests(root: string = ROOT): string[] {
+  const violations: string[] = []
+  for (const file of repositoryFiles(root)) {
+    if (file.endsWith('.test.ts') || file.endsWith('.test-support.ts')) {
+      violations.push(`${file} is test code outside tests/`)
     }
   }
   return violations.sort()

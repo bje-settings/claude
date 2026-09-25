@@ -27,6 +27,7 @@ import {
   ROOT,
   rel,
   reservedDirectoryNames,
+  testsOutsideTests,
 } from './repo.ts'
 
 it('expresses a path relative to the repo root', () => {
@@ -547,8 +548,47 @@ describe('what a plugin ships', () => {
   })
 })
 
+describe('test code outside tests/', () => {
+  let scratch = ''
+
+  afterEach(() => {
+    if (scratch) rmSync(scratch, { recursive: true, force: true })
+  })
+
+  it('refuses a test file or a test helper that vitest never collects', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-stray-'))
+    for (const name of [
+      'root.test.ts',
+      'harness/gh.test.ts',
+      'scripts/deep/build.test-support.ts',
+      '.claude/skills/s/check.test.ts',
+      'harness/gh.ts',
+      'tests/lib/args.test.ts',
+      'tests/plugins/a/sync.test-support.ts',
+      '.claude/worktrees/w/harness/gh.test.ts',
+      '.git/hooks/x.test.ts',
+      'node_modules/p/index.test.ts',
+      'harness/node_modules/p/index.test.ts',
+      'elsewhere/linked.test.ts',
+    ]) {
+      mkdirSync(path.dirname(path.join(scratch, name)), { recursive: true })
+      writeFileSync(path.join(scratch, name), '')
+    }
+    // A link is not followed, the way the other walks here do not follow one.
+    symlinkSync('elsewhere', path.join(scratch, 'linked'))
+    expect(testsOutsideTests(scratch)).toEqual([
+      '.claude/skills/s/check.test.ts is test code outside tests/',
+      'elsewhere/linked.test.ts is test code outside tests/',
+      'harness/gh.test.ts is test code outside tests/',
+      'root.test.ts is test code outside tests/',
+      'scripts/deep/build.test-support.ts is test code outside tests/',
+    ])
+  })
+})
+
 it('holds the ADR 004 rules over the real plugins and lib trees', () => {
   expect(developmentFiles()).toEqual([])
   expect(reservedDirectoryNames()).toEqual([])
   expect(packageImports()).toEqual([])
+  expect(testsOutsideTests()).toEqual([])
 })
