@@ -1,7 +1,8 @@
 # typescript7-lsp
 
 Runs TypeScript 7's native language server (`tsc --lsp --stdio`) from the project's
-`node_modules/typescript` for `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs` and `.cjs`.
+`node_modules/typescript`. It covers `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, and
+`.cjs`.
 
 Replaces `typescript-lsp@claude-plugins-official`, which needs the `tsserver.js` TypeScript 7 no
 longer ships
@@ -24,6 +25,6 @@ starts.
 - `typescript` 7+ at `${CLAUDE_PROJECT_DIR}/node_modules/typescript` (install first). Use
   `typescript-lsp` for TypeScript 6 or older.
 
-Without that path the server fails to start and Claude Code reports it: Yarn Plug'n'Play, pnpm
-`node-linker=pnp`, a custom pnpm `modules-dir`, or a pnpm (isolated) monorepo with `typescript`
-only in a workspace package.
+Without that path the server fails to start, and Claude Code reports it. Causes include Yarn
+Plug'n'Play, pnpm `node-linker=pnp`, or a custom pnpm `modules-dir`. Another cause is a pnpm
+(isolated) monorepo with `typescript` only in a workspace package.

@@ -1,16 +1,17 @@
 // `/audit:context`: read a checkout's context files, and report the references
-// in them that no longer resolve. The TypeScript port of the spike's `cli.ts`
-// (#164) as a command function (RFC 001 decision 3): parsed arguments and
-// injected clients in, an envelope out, with `scripts/audit.ts` the thin adapter
-// over it.
+// in them that no longer resolve. This file is the TypeScript port of the
+// spike's `cli.ts` (#164). It is a command function, as RFC 001 decision 3
+// states. Parsed arguments and injected clients go in; an envelope comes out.
+// `scripts/audit.ts` is the thin adapter over it.
 //
-// Tier 0 is complete on its own: everything it produces is read from the tree
-// and from one batched issue lookup, with no model call anywhere. The three
-// model stages (#174) run on top of it when there is a key to spend, and are
-// reported as skipped with the reason when there is not, so that "skipped" can
-// never be read as "nothing found". A model call that failed is the one thing
-// this command calls its own failure: the findings still go to stdout, and the
-// exit status says the run was incomplete.
+// Tier 0 is complete on its own. It builds everything it produces from the
+// tree and from one batched issue lookup. It makes no model call. The three
+// model stages (#174) run on top of tier 0 when a key is present to spend.
+// When no key is present, the report marks each stage skipped and states the
+// reason. The word skipped never means nothing found.
+//
+// A failed model call is the one failure this command calls its own. The
+// findings still go to stdout. The exit status says the run is incomplete.
 
 import { closeSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -51,26 +52,26 @@ import {
 import { splitMarkdown } from '../split.ts'
 import type { OpaqueBlock, SplitWarning, Unit } from '../types.ts'
 
-/** The process's edges, as `scripts/audit.ts` builds them. `now` is the clock, so
- *  that a report's `wallClockMs` is a value a test states rather than a
- *  duration it has to tolerate. */
+/** The process's edges, as `scripts/audit.ts` builds them. `now` is the clock.
+ *  This makes a report's `wallClockMs` a value a test states, not a duration
+ *  it must tolerate. */
 export interface ContextEdges {
   /** The directory the caller started in, which is the default root. */
   readonly cwd: string
   readonly env: NodeJS.ProcessEnv
   readonly output: Output
   readonly createGh: (cwd: string) => GhClient
-  /** Built only when there is a key to spend, so a run that skips the model
+  /** Built only when there is a key to spend. A run that skips the model
    *  stages never constructs a client at all. */
   readonly createJev: (options: { apiKey: string }) => JevClient
   readonly now: () => number
 }
 
-// `as const`, never `: ArgSpec` or `satisfies ArgSpec`: either annotation
-// widens `choices` to `readonly string[]` and collapses the parsed options to
-// an index signature (`lib/README.md`). Every count and the threshold are
-// string options with a default, checked below rather than by the parser,
-// which has no numeric kind.
+// Use `as const`, never `: ArgSpec` or `satisfies ArgSpec`. Either annotation
+// widens `choices` to `readonly string[]`. It also collapses the parsed
+// options to an index signature (`lib/README.md`). Every count and the
+// threshold are string options with a default. This command checks them
+// below, not the parser, because the parser has no numeric kind.
 const ARG_SPEC = {
   scope: { type: 'string', default: 'context', choices: ['context', 'all'] },
   shape: { type: 'string', default: 'per_section', choices: ['per_section', 'per_unit'] },
@@ -95,30 +96,38 @@ model stages need TYPESAFE_API_KEY and are reported as skipped without it, or
 with --no-jev. --json writes the whole report instead of the findings text;
 --out writes it to a file as well.`
 
-/** A whole number, written out. A pattern rather than `Number.isInteger`, for
- *  the reason `sync.ts` gives its own `-j` check: the value reaches an
- *  arithmetic context, where anything this does not refuse is reinterpreted
- *  silently, and a pattern refuses `2.5`, `-1`, `1e3` and `abc` as one rule
- *  rather than as four arms a test would have to reach separately. */
+/**
+ * A whole number, written out. This command uses a pattern, not
+ * `Number.isInteger`. `sync.ts` gives the same reason for its own `-j` check.
+ *
+ * The value reaches an arithmetic context. In that context, anything this
+ * pattern does not refuse is reinterpreted silently. A pattern refuses
+ * `2.5`, `-1`, `1e3`, and `abc` as one rule. A test would otherwise need
+ * four separate arms to reach these four cases.
+ */
 const COUNT_RE = /^\d+$/
 
-/** A fraction from 0 to 1, written out. Same argument as {@link COUNT_RE}, and
- *  the bound is part of the pattern: a threshold above 1 compares against a
- *  similarity that can never reach it, so every pair is dropped and the run
- *  reports nothing found. 1 itself is admitted and means near-exact only; two
- *  identical texts score within one float step of 1, on either side of it, so
- *  which of them it keeps is arithmetic rather than a contract. */
+/**
+ * A fraction from 0 to 1, written out. This uses the same argument as
+ * {@link COUNT_RE}. The bound is part of the pattern. A threshold above 1
+ * compares against a similarity that can never reach it. So the run drops
+ * every pair and reports nothing found.
+ *
+ * The pattern admits 1 itself, which means near-exact only. Two identical
+ * texts can score within one float step of 1, on either side of it. So the
+ * run keeps one of them by arithmetic, not by a fixed contract.
+ */
 const FRACTION_RE = /^(?:0(?:\.\d+)?|1(?:\.0+)?)$/
 
-/** The count options, checked together: `lib/args.ts` has no numeric kind, and
- *  each of these is a bound layer 5 slices work down to. */
+/** The count options are checked together. `lib/args.ts` has no numeric kind.
+ *  Each of these is a bound that layer 5 slices work down to. */
 const COUNT_FLAGS = ['max-pairs', 'max-evidence'] as const
 
 /**
- * True when `argv` asks for help. A raw scan of the tokens themselves, checked
- * before anything is parsed, so usage wins over a bad `--scope` rather than
- * losing to it. `plugins/mermaid/src/commands/url.ts` is where this shape was
- * settled and why.
+ * True when `argv` asks for help. This is a raw scan of the tokens
+ * themselves. It runs before anything is parsed. So usage wins over a bad
+ * `--scope`, and does not lose to it. `plugins/mermaid/src/commands/url.ts`
+ * is where this shape was settled and why.
  */
 export const wantsHelp = (argv: readonly string[]): boolean =>
   argv.includes('-h') || argv.includes('--help')
@@ -126,11 +135,13 @@ export const wantsHelp = (argv: readonly string[]): boolean =>
 /**
  * Every file's blocks, in file order, or why one of them could not be read.
  *
- * Discovery lists the index and the read comes from the working tree, and the
- * two differ in ordinary use: a staged deletion, a `git mv` in flight, a
- * sparse checkout, a symlink whose target is gone. Letting the read throw ends
- * the run with node's own `fs` stack trace, no envelope and no exit code from
- * the contract, so the reason is carried back instead and the caller refuses
+ * Discovery lists the index. The read comes from the working tree. The two
+ * differ in ordinary use. Examples: a staged deletion, a `git mv` in flight,
+ * a sparse checkout, or a symlink whose target is gone.
+ *
+ * If the read is allowed to throw, the run ends with node's own `fs` stack
+ * trace. The run would have no envelope and no exit code from the contract.
+ * So instead, this function carries the reason back, and the caller refuses
  * with the file named.
  */
 const splitAll = (
@@ -168,41 +179,44 @@ const splitAll = (
 /**
  * Why git could not be run at all, or `null` when it ran.
  *
- * It asks git rather than the PATH: running the command answers the question
- * the caller has, and `lib/process.ts` already separates "never started" from
- * "ran and said no" for it. `--version` because it is git's cheapest
- * subcommand and needs no repository to answer in. node's own message is
- * passed through, since it names both the command and the code.
+ * It asks git itself, not the PATH. The command's answer settles the
+ * caller's question. `lib/process.ts` already tells "never started" apart
+ * from "ran and said no". `--version` because it is git's cheapest
+ * subcommand and needs no repository to answer in. It passes node's own
+ * message through, since it names both the command and the code.
  */
 const gitMissing = async (env: NodeJS.ProcessEnv): Promise<string | null> => {
   const probe = await runGit(['--version'], { env })
   return probe.startFailure === null ? null : probe.startFailure.message
 }
 
-/** The stages a run never got to, each carrying the same reason. */
+/** Each stage a run never reached carries the same reason. */
 const skippedStages = (stages: readonly Stage[], reason: SkippedStage['reason']): SkippedStage[] =>
   stages.map((stage) => ({ stage, reason }))
 
 /**
  * Why the model stages did not run.
  *
- * Both reasons are true as written, and they are the only two that can reach
- * this decision: `--no-jev` is the caller asking for tier 0 alone, and
- * `no_key` is an environment holding no `TYPESAFE_API_KEY`, which is what a
- * machine that has never been set up reports. The flag is read first, so a
- * caller who asked for no model call is told that rather than being told about
- * a key they did not offer. `classify_failed`, the third `SkippedStage`
- * reason, is decided in {@link modelStages} after a stage has actually run.
+ * Both reasons are true as written. They are the only two reasons that can
+ * reach this decision. `--no-jev` means the caller asks for tier 0 alone.
+ * `no_key` means the environment holds no `TYPESAFE_API_KEY`. This is what a
+ * machine reports when nobody has set it up.
+ *
+ * This function checks the flag first. It tells a caller who asked for no
+ * model call that reason. It does not mention a key they did not offer.
+ * `classify_failed`, the third `SkippedStage` reason, is decided in
+ * {@link modelStages} after a stage has actually run.
  */
 const skipReason = (noJev: boolean): SkippedStage['reason'] => (noJev ? 'no_jev' : 'no_key')
 
 /**
  * A failed model call, as the report names it.
  *
- * `JevError`'s own account when the call was rejected, and the plain message
- * otherwise: the client rejects with a `JevError` for anything the transport
- * refused, and throws a plain `Error` when an answer arrived but would not
- * parse (`lib/README.md`). There is no third shape to account for.
+ * This uses `JevError`'s own account when the call was rejected. Otherwise
+ * it uses the plain message. The client rejects with a `JevError` for
+ * anything the transport refused. It throws a plain `Error` when an answer
+ * arrived but would not parse (`lib/README.md`). There is no third shape to
+ * account for.
  */
 const failureMessage = (error: unknown): string => {
   if (error instanceof JevError)
@@ -211,8 +225,9 @@ const failureMessage = (error: unknown): string => {
 }
 
 /**
- * One stage's work, each item settled on its own: a rejected call costs only
- * itself, and the rest of the stage still answers. The spike's `settle`.
+ * This is one stage's work; it settles each item on its own. A rejected
+ * call costs only itself. The rest of the stage still answers. The spike's
+ * `settle`.
  */
 const settle = async <T, R>(
   stage: Stage,
@@ -252,9 +267,10 @@ const NO_USAGE: Usage = {
   requestMsSum: 0,
 }
 
-/** An outcome in which neither the pair nor the evidence stage ran, so both
- *  are empty and both coverages are `0 of 0`: what one such outcome carries
- *  over another is only why it stopped and what it had spent by then. */
+/** This is an outcome in which neither the pair nor the evidence stage ran.
+ *  So both are empty, and both coverages are `0 of 0`. One such outcome
+ *  carries over another only two things: why it stopped, and what it had
+ *  spent by then. */
 const noJudgments = (
   reached: Pick<ModelOutcome, 'skipped' | 'classifications' | 'failures' | 'usage'>,
 ): ModelOutcome => ({
@@ -266,13 +282,15 @@ const noJudgments = (
 })
 
 /** The excerpt a claim is judged against. Accuracy falls as unrelated state
- *  grows, so the head of the file is a deliberate, crude bound; choosing the
- *  relevant span is a retrieval problem this port has not solved either. */
+ *  grows. So the head of the file is a deliberate, crude bound. How to
+ *  choose the relevant span is a retrieval problem this port has not solved
+ *  either. */
 const EXCERPT_CHARS = 6000
 
 /** A resolved path that leaves the audited root. A `../` reference resolves
- *  against the root like any other, and the file it finds is in a tree this
- *  run was not asked about and has no business reading. */
+ *  against the root like any other. But the file it finds is in a
+ *  different tree. This run was not asked about that tree and should not
+ *  read it. */
 const escapesRoot = (repoPath: string): boolean => repoPath.split('/')[0] === '..'
 
 /**
@@ -280,15 +298,18 @@ const escapesRoot = (repoPath: string): boolean => repoPath.split('/')[0] === '.
  *
  * A directory resolves as found and has no contents to excerpt.
  *
- * Neither does a path git lists but the working tree does not hold: `refs.ts`
- * resolves a record named by its number against the TRACKED list rather than
- * by reading, so a staged deletion, a `git mv` in flight or a sparse checkout
- * leaves a `found` ref whose file is not there, and a mode the reader cannot
- * open does the same. `splitAll` above refuses rather than letting that throw,
- * and this is the same hazard one stage later, where a throw would also
- * discard the tier 0 findings and the model calls this run has already paid
- * for. A file that cannot be read is no evidence, exactly like the directory
- * and the binary beside it.
+ * The same is true of a path that git lists but the working tree does not
+ * hold. `refs.ts` resolves a record named by its number against the
+ * TRACKED list. It does not read the file to do this. So a staged
+ * deletion, a `git mv` in flight, or a sparse checkout can leave a `found`
+ * ref. That ref's file is not there. A file mode the reader cannot open
+ * does the same.
+ *
+ * `splitAll` above already refuses this, so the read never throws. This is
+ * the same hazard one stage later. Here, a throw would also discard the
+ * tier 0 findings and the model calls this run has already paid for. A
+ * file that cannot be read is no evidence, exactly like the directory and
+ * the binary beside it.
  */
 const excerptOf = (root: string, repoPath: string): string | null => {
   const full = path.join(root, repoPath)
@@ -305,9 +326,10 @@ const excerptOf = (root: string, repoPath: string): string | null => {
   return text.slice(0, EXCERPT_CHARS)
 }
 
-/** The file a claim is most likely about: its first reference, in the order
- *  the writer wrote them, that resolved to a readable file of this repository
- *  other than the one the claim is written in. */
+/** This is the file a claim is most likely about. It is the claim's first
+ *  reference, in the order the writer wrote them. That reference must have
+ *  resolved to a readable file of this repository. That file must differ
+ *  from the one the claim is written in. */
 const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: string } | null => {
   for (const ref of unit.refs) {
     if (ref.kind !== 'path' && ref.kind !== 'file_line') continue
@@ -321,9 +343,9 @@ const evidenceSource = (root: string, unit: Unit): { source: string; excerpt: st
 }
 
 /**
- * The evidence stage: every repository fact, against the head of the file it
- * names. A fact naming no readable file is in neither the judgments nor the
- * failures, which is what `available` counts.
+ * The evidence stage: every repository fact, against the head of the file
+ * it names. A fact that names no readable file appears in neither the
+ * judgments nor the failures. But `available` still counts it.
  */
 const judgeEvidence = async (
   jev: JevClient,
@@ -339,8 +361,8 @@ const judgeEvidence = async (
       const found = evidenceSource(root, unit)
       return found === null ? [] : [{ unit, ...found }]
     })
-    // Document order: there is no ranking here the way there is for pairs, so
-    // a budget buys the facts a reader would reach first.
+    // Document order: there is no ranking here, unlike for pairs. So a
+    // budget buys the facts a reader would reach first.
     .slice(0, maxEvidence)
   const evidence = await settle(
     'evidence',
@@ -360,10 +382,10 @@ const judgeEvidence = async (
 /**
  * The pair stage: candidates chosen lexically, then ruled on one at a time.
  *
- * History is a record of the past and structural text asserts nothing, so
- * neither can be a duplicate worth removing or a claim worth refuting. A unit
- * the classify stage said nothing about keeps its place, since an unlabelled
- * unit is not a labelled one.
+ * History is a record of the past. Structural text asserts nothing. So
+ * neither one can be a duplicate that should be removed, or a claim that
+ * should be refuted. A unit the classify stage said nothing about keeps
+ * its place, since an unlabelled unit is not a labelled one.
  */
 const judgePairs = async (
   jev: JevClient,
@@ -377,8 +399,8 @@ const judgePairs = async (
     return kind !== 'history' && kind !== 'structural'
   })
   const byId = new Map(units.map((unit) => [unit.id, unit]))
-  // Descending similarity, then capped: a budget buys the pairs most likely to
-  // be a real duplicate, and `coverage` says how many it did not reach.
+  // Descending similarity, then capped: a budget buys the pairs most likely
+  // to be a real duplicate. `coverage` says how many it did not reach.
   const candidates = candidatePairs(comparable, { threshold: options.threshold }).sort(
     (x, y) => y.similarity - x.similarity,
   )
@@ -400,9 +422,9 @@ const judgePairs = async (
 /**
  * The model stages, or the reason there were none.
  *
- * The client is built here and nowhere else: `scripts/audit.ts` hands over a
- * factory rather than a client, so a run with no key to spend never constructs
- * one and never reads the environment twice.
+ * The client is built here and nowhere else. `scripts/audit.ts` hands over
+ * a factory, not a client. So a run with no key to spend never constructs
+ * one. It also never reads the environment twice.
  */
 const modelStages = async (
   edges: ContextEdges,
@@ -426,8 +448,9 @@ const modelStages = async (
     })
   }
   const jev = edges.createJev({ apiKey: key })
-  // The client folds a rejected request into its own failures rather than
-  // rejecting, so there is nothing to catch here (`lib/README.md`).
+  // The client folds a rejected request into its own failures; it does not
+  // reject the call itself. So there is nothing to catch here
+  // (`lib/README.md`).
   const classified = await jev.classify(units, options.shape)
   const { classifications } = classified
   const kindOf = new Map(classifications.map((entry) => [entry.unitId, entry.kind.choice]))
@@ -436,23 +459,26 @@ const modelStages = async (
     ...failure,
   }))
   // Nothing downstream can be routed without a label. The pair stage reads
-  // `kindOf` to leave history and structural units out, and the evidence stage
-  // reads it to select the repository facts: against an empty map the first
-  // compares everything and the second checks nothing, so a run that had
-  // learned nothing would go on to spend a whole pair budget and then report
-  // an evidence section that read as "nothing found". The spike's own guard
-  // (`cli.ts:521-537`).
+  // `kindOf` to leave out history and structural units. The evidence stage
+  // reads `kindOf` to select the repository facts. Against an empty map, the
+  // pair stage compares everything, and the evidence stage checks nothing.
   //
-  // A run with no units at all is not that case: there was nothing to
-  // classify, so nothing failed and nothing was skipped, and `0 of 0 judged`
-  // is the honest answer the two stages below already give for it.
+  // So a run that had learned nothing would still spend a whole pair budget.
+  // It would then report an evidence section that read as "nothing found".
+  // The spike's own guard (`cli.ts:521-537`).
+  //
+  // A run with no units at all is not that case. There was nothing to
+  // classify, so nothing failed and nothing was skipped. `0 of 0 judged` is
+  // the honest answer the two stages below already give for it.
   if (units.length > 0 && classifications.length === 0) {
-    // Only when the stage said nothing about why, which is the spike's rule:
-    // `*` stands for the whole stage, and beside a failure that names the
-    // request or the unit that actually broke it would be a second entry for
-    // one fault. Every failure in hand here is the classify stage's own, so
-    // "none at all" is the same test the spike writes as "none of them is a
-    // classify failure".
+    // This applies only when the stage said nothing about why. That is the
+    // spike's rule. `*` stands for the whole stage. A failure entry can also
+    // name the request or the unit that broke it.
+    //
+    // A `*` entry beside that failure would be a second entry for one
+    // fault. Every failure in hand here is the classify stage's own. "None at
+    // all" is the same test the spike writes as "none of them is a classify
+    // failure".
     if (failures.length === 0) {
       failures.push({ stage: 'classify', id: '*', message: 'no unit was classified' })
     }
@@ -486,9 +512,10 @@ const modelStages = async (
 
 /** What the issue lookup answered, with the numbers as `gh` reports them.
  *
- *  `gh` is not reached at all when nothing names an issue: the client resolves
- *  the repository on its first call, so asking it for an empty list would be a
- *  network round trip to answer a question nobody asked.
+ *  `gh` is not reached at all when nothing names an issue. The client
+ *  resolves the repository on its first call. So a call with an empty list
+ *  would be a network round trip. That round trip would answer a question
+ *  nobody asked.
  */
 const issueStates = async (
   root: string,
@@ -500,23 +527,23 @@ const issueStates = async (
     return await edges.createGh(root).issueStates({ numbers })
   } catch (error) {
     // The real client folds its own failures into `unavailable` and never
-    // throws (`lib/README.md`), so this is the belt to that braces: a client
+    // throws (`lib/README.md`). So this is the belt to that braces. A client
     // that did throw would otherwise take the whole audit down over one
-    // lookup. `GhError` is the only failure it declares, and `detail` is gh's
-    // own account of it without the argv prefix the message carries.
+    // lookup. `GhError` is the only failure it declares. `detail` is gh's
+    // own account of it, without the argv prefix the message carries.
     //
     // Tested rather than cast, the way every other command here reads one
     // (`plugins/gh/src/commands/shepherd-pr.ts:248`). A cast reads `detail`
-    // off whatever was thrown, and `undefined` is folded into `ok` by the
-    // caller, so a client that failed some other way would report a lookup
-    // that succeeded while every issue ref said unavailable.
+    // off whatever was thrown. The caller then folds `undefined` into `ok`.
+    // So a client that failed some other way would report a lookup that
+    // succeeded, while every issue ref said unavailable.
     if (error instanceof GhError) return { states: {}, unavailable: error.detail }
     return { states: {}, unavailable: `issue lookup threw: ${String(error)}` }
   }
 }
 
-/** A block tier 0 fills in: a unit or an opaque block, both of which carry
- *  `file` and `refs` and are read the same way here. */
+/** This is a block tier 0 fills in: a unit or an opaque block. Both
+ *  carry `file` and `refs`. Both are read the same way here. */
 type Blocks = {
   readonly units: Unit[]
   readonly opaque: OpaqueBlock[]
@@ -524,14 +551,14 @@ type Blocks = {
 }
 
 /**
- * Tier 0: every unit and opaque block gets its refs, resolved against the tree
- * and against one batched issue lookup. Answers why that lookup was
+ * Tier 0: every unit and opaque block gets its refs, resolved against the
+ * tree and against one batched issue lookup. Answers why that lookup was
  * unavailable, or `null`.
  *
- * Extraction runs first for everything, so every issue number in the whole run
- * goes to `gh` in one call rather than one call per unit. A repository whose
- * files name no issue at all never reaches `gh`, which is what the injected
- * mock proves: an endpoint with no registered reply throws.
+ * Extraction runs first for everything. So every issue number in the whole
+ * run goes to `gh` in one call, not one call per unit. A repository whose
+ * files name no issue at all never reaches `gh`. The injected mock proves
+ * this: an endpoint with no registered reply throws.
  */
 const tierZero = async (
   root: string,
@@ -547,8 +574,9 @@ const tierZero = async (
   ]
   const numbers = [...new Set(extracted.flatMap((entry) => issueNumbers(entry.refs)))]
   const lookup = await issueStates(root, edges, numbers)
-  // One cache for the whole run: a `package.json` governs every file under it,
-  // so reading it once per unit would read the same file dozens of times.
+  // One cache serves the whole run: a `package.json` governs every file
+  // under it. If this command read it once per unit, it would read the
+  // same file dozens of times.
   const packageJson: PackageJsonCache = new Map()
   for (const { block, refs } of extracted) {
     block.refs = resolveRefs(refs, {
@@ -568,8 +596,9 @@ const tierZero = async (
 /**
  * The command function.
  *
- * The report goes to `output` as it is built, and the envelope carries only
- * the status: a payload here would be written a second time by the adapter.
+ * The report goes to `output` as it is built. The envelope carries only
+ * the status. A payload here would make the adapter write it a second
+ * time.
  */
 export const runContext = async (
   argv: readonly string[],
@@ -580,9 +609,10 @@ export const runContext = async (
   const parsed = parseCommandLine(argv, ARG_SPEC)
   if (parsed.outcome !== 'ok') return parsed
   // `parseCommandLine` admits positionals so that this command can take its
-  // root as one; how many it takes is this command's own rule. A second word
-  // is far more often a quoting mistake than a request, and auditing the first
-  // and ignoring the rest would hide it.
+  // root as one. How many it takes is this command's own rule. A second
+  // word is far more often a quoting mistake than a request. If this
+  // command audited the first word and ignored the rest, it would hide
+  // that mistake.
   const { options, positionals } = parsed.value
   if (positionals.length > 1) return refused(`one root at most, not: ${positionals.join(' ')}`)
   for (const flag of COUNT_FLAGS) {
@@ -594,16 +624,19 @@ export const runContext = async (
   if (!FRACTION_RE.test(threshold)) {
     return refused(`--pair-threshold must be 0 to 1, not "${threshold}"`)
   }
-  // Opened before anything is read, and closed again: the model stages layer 5
-  // adds are paid for, so a run must not spend them and only then find that
-  // the file it was told to write cannot be opened. It catches a missing
-  // directory, a directory in the file's place and a read-only file alike.
+  // This probe opens the file before anything is read, then closes it
+  // again. By this point, a run has already paid for the model stages
+  // layer 5 adds. So the run must not spend them and only then find that
+  // it cannot open the file. The file is the one it was told to write. It
+  // catches a missing directory, a directory in the file's place and a
+  // read-only file alike.
   //
-  // `a` rather than `w`, because this is a probe: both modes create the file
-  // and both fail on those three cases, but `w` would also empty the caller's
-  // previous report on the way to a run that still refuses below. The write
-  // that earns it is a separate call, at `writeFileSync`'s own default of `w`,
-  // so the report replaces the file rather than being appended to it.
+  // This uses `a` rather than `w`, because this is a probe. Both modes
+  // create the file, and both fail on those three cases. But `w` would
+  // also empty the caller's previous report, on the way to a run that
+  // still refuses below. The write that earns it is a separate call, at
+  // `writeFileSync`'s own default of `w`. So the report replaces the
+  // file; it does not append to the file.
   const out = options.out
   if (out !== '') {
     try {
@@ -617,19 +650,20 @@ export const runContext = async (
   const target = positionals[0] ?? edges.cwd
   const root = await toplevel({ cwd: target, env: edges.env })
   if (root === null) {
-    // `toplevel` answers `null` for a directory outside any checkout and for a
-    // git that could not be run at all, and a reader sent to look for a
-    // checkout when git is simply missing is sent to the wrong place. Asked
-    // only here, on the failing path, because a machine with git has nothing
-    // to learn from the probe.
+    // `toplevel` answers `null` for two cases. One is a directory outside
+    // any checkout. The other is a git that could not be run at all. A
+    // reader sent to look for a checkout, when git is simply missing, is
+    // sent to the wrong place. The code asks only here, on the path that
+    // fails, because a machine with git has nothing to learn from the
+    // probe.
     const missing = await gitMissing(edges.env)
     if (missing !== null) return refused(`missing git: ${missing}`)
     return refused(`not a git repository: ${target}`)
   }
 
-  // `all` passes a predicate that keeps everything rather than no predicate at
-  // all, so discovery has one shape and the scope is decided here, where the
-  // flag is read.
+  // `all` passes a predicate that keeps everything, rather than no predicate
+  // at all. So discovery always has one shape. The scope is decided here,
+  // where the flag is read.
   const filter = options.scope === 'context' ? scopeFilter : () => true
   const tracked = await trackedPaths(root, edges.env)
   if (tracked === null) return refused(`could not list the tracked files of ${root}`)
@@ -665,19 +699,19 @@ export const runContext = async (
     evidenceCoverage: models.evidenceCoverage,
     failures: models.failures,
     usage: models.usage,
-    // Rounded: the clock a caller passes is `performance.now()`, whose
+    // Rounded: the clock a caller passes is `performance.now()`. Its
     // fractional milliseconds are noise in a report and noise in a diff.
     wallClockMs: Math.round(edges.now() - started),
   }
 
   edges.output.out.write(options.json ? `${JSON.stringify(report)}\n` : renderFindings(report))
-  // The text as well as the file: `--out` is what a caller keeps, and the
+  // The text as well as the file: `--out` is what a caller keeps. The
   // findings are what the caller reads now.
   if (out !== '') writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
-  // A model call that failed is this code going wrong rather than the caller's
-  // request being impossible, so it is `failed` and not `refused`, and the
-  // findings are already on stdout: the status says the run was incomplete,
-  // and the report says which part of it.
+  // A failed model call means this code went wrong. It does not mean the
+  // caller's request was impossible. So the status is `failed`, not
+  // `refused`. The findings are already on stdout. The exit status says
+  // the run was incomplete. The report says which part of it.
   const count = report.failures.length
   if (count > 0) return failed(`${count} model call${count === 1 ? '' : 's'} failed`)
   return ok('')

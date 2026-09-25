@@ -1,12 +1,13 @@
-// The audit's answer, and the text a reader starts from. The port of the
-// spike's `printFindings` (#164) without its write callback: a string in one
-// piece, so the command decides where it goes and a test asserts it without a
-// stream.
+// The audit's answer, and the text a reader starts from. This is the port
+// of the spike's `printFindings` (#164), without its write callback. It
+// returns a string in one piece. So the command decides where the string
+// goes. A test can assert it without a stream.
 //
-// Tier 0's sections, then one per model stage in the order the stages run, and
-// then what the run failed at and what it spent. A stage that never ran prints
-// the one line saying so in place of its findings, which is the whole point of
-// `SkippedStage`: "skipped" must never read as "nothing found".
+// Tier 0's sections come first. Then one section per model stage, in the
+// order the stages run. Then what the run failed at, and what it spent. A
+// stage that never ran prints one line that says so, in place of its
+// findings. This is the whole point of `SkippedStage`: "skipped" must never
+// read as "nothing found".
 
 import type { PairCandidate } from './candidates.ts'
 import type {
@@ -18,8 +19,9 @@ import type {
 } from './lib/jev.ts'
 import type { OpaqueBlock, Ref, SplitWarning, Unit } from './types.ts'
 
-/** A candidate the model has ruled on. The candidate's own ids and similarity
- *  are kept beside the verdict: a reader acting on a finding needs both. */
+/** A candidate the model has ruled on. The candidate's own ids and
+ *  similarity are kept beside the verdict. A reader who acts on a finding
+ *  needs both. */
 export type PairJudgment = PairCandidate & { verdict: ChoiceAnswer<PairVerdict> }
 
 /** A claim ruled on against an excerpt of the file it names. */
@@ -45,16 +47,16 @@ export type Stage = 'classify' | 'pairs' | 'evidence'
 
 /** Why a stage never ran.
  *
- *  `no_key` is an environment holding no `TYPESAFE_API_KEY`, which is what a
- *  machine that has never been set up reports. `no_jev` is the caller asking
- *  for tier 0 alone with `--no-jev`. `commands/context.ts` `skipReason` is
- *  where those two are chosen, and they are the only two that can reach the
- *  classify stage.
+ *  `no_key` is an environment that holds no `TYPESAFE_API_KEY`. This is what
+ *  a machine that has never been set up reports. `no_jev` is when the
+ *  caller asks for tier 0 alone, with `--no-jev`. `commands/context.ts`
+ *  `skipReason` is where the code chooses those two. They are the only two
+ *  that can reach the classify stage.
  *
- *  `classify_failed` is the third, and it reaches only `pairs` and `evidence`:
- *  the classify stage ran and came back with no label at all, so there is
+ *  `classify_failed` is the third. It reaches only `pairs` and `evidence`.
+ *  The classify stage ran and came back with no label at all. So there is
  *  nothing to route the two stages below it by. `commands/context.ts`
- *  `modelStages` is where it is chosen. */
+ *  `modelStages` is where the code chooses it. */
 export type SkippedStage = { stage: Stage; reason: 'no_key' | 'no_jev' | 'classify_failed' }
 
 export type Report = {
@@ -68,9 +70,9 @@ export type Report = {
   /** `ok`, or why no issue state could be read. */
   issueLookup: string
   /** `ok`, or why git could not say which absent paths this repository
-   *  ignores. Without it a reader cannot tell a repository that ignores
-   *  nothing from one the question could not be asked about, and the refs it
-   *  leaves saying `absent` are the section a reader acts on first. */
+   *  ignores. Without it, a reader cannot tell a repository that ignores
+   *  nothing from one where the question could not be asked. The refs it
+   *  leaves marked `absent` are the section a reader acts on first. */
   ignoreCheck: string
   /** Stages that did not run at all, and why. */
   skipped: SkippedStage[]
@@ -90,22 +92,23 @@ export type Report = {
 /** How one resolution reads in the report, for the statuses the sections below
  *  print. Everything else is a status word of its own.
  *
- *  Only `absent` and `line_out_of_range` reach it: those are the two the
+ *  Only `absent` and `line_out_of_range` reach it. Those are the two the
  *  sections select. The spike's `issue` arm, which printed the state, was
- *  already dead there for the same reason, and no section prints a ref's issue
- *  state here either: a cited issue's state is a finding only once a model
- *  judgment gates it, which is {@link isExpired}'s section and not this one. */
+ *  already dead there for the same reason. No section prints a ref's issue
+ *  state here either. A cited issue's state is a finding only once a model
+ *  judgment gates it. That gate is {@link isExpired}'s section, not this
+ *  one. */
 const describe = (ref: Ref): string => {
   const resolution = ref.resolution
   if (resolution.status === 'line_out_of_range') return `only ${resolution.lines} lines`
   return resolution.status
 }
 
-/** Every block that carries refs, units and opaque blocks alike: a path that
- *  does not resolve is the same finding wherever it was written. */
+/** Every block that carries refs, units and opaque blocks alike. A path
+ *  that does not resolve is the same finding, wherever it was written. */
 const blocksOf = (report: Report): Array<Unit | OpaqueBlock> => [...report.units, ...report.opaque]
 
-/** One line per ref resolved to `status`, naming where it was written. */
+/** One line per ref resolved to `status`. It names where it was written. */
 const linesFor = (report: Report, status: Ref['resolution']['status']): string[] =>
   blocksOf(report).flatMap((block) =>
     block.refs
@@ -117,9 +120,9 @@ const linesFor = (report: Report, status: Ref['resolution']['status']): string[]
   )
 
 /** How a ref tier 0 did not settle is tallied, or `null` for one it did.
- *  `unchecked` carries its own reason; `tail_match` and `ignored` are answers
- *  that are neither "there" nor "missing", and a reader counting findings has
- *  to be able to see how many of them there were. */
+ *  `unchecked` carries its own reason. `tail_match` and `ignored` are
+ *  answers that are neither "there" nor "missing". A reader who counts
+ *  findings has to be able to see how many of them there were. */
 const uncheckedKey = (ref: Ref): string | null => {
   const resolution = ref.resolution
   if (resolution.status === 'unchecked') return `${ref.kind} ${resolution.reason}`
@@ -149,29 +152,32 @@ const FINDING_SECTIONS = [
 ] as const satisfies ReadonlyArray<readonly [Ref['resolution']['status'], string]>
 
 /** A section: a blank line, the heading, and one line per finding. Every
- *  section of the report is built here, so the blank line separating them is
- *  written once. A heading counts its own findings, in the form that section
- *  needs, rather than being counted for it. */
+ *  section of the report is built here. So the code writes the blank line
+ *  that separates them only once. A heading counts its own findings, in the
+ *  form that section needs. No other code counts them for it. */
 const section = (heading: string, entries: string[] = []): string[] => [
   '',
   `## ${heading}`,
   ...entries,
 ]
 
-/** The longest a unit's text may be in a findings list. The text is there to
- *  recognise a unit by rather than to read in full, and one finding is one
- *  line: a table row carries a newline between its cells, and a paragraph runs
- *  for as long as its writer wanted. */
+/** The longest a unit's text may be, in a findings list. The text is there
+ *  to recognise a unit by, not to read in full. One finding is one line. A
+ *  table row carries a newline between its cells. A paragraph runs for as
+ *  long as its writer wanted. */
 const LINE_CHARS = 110
 
 /** `text` cut to at most `chars`, never through a character.
  *
- *  `slice` counts UTF-16 code units, and everything outside the basic plane is
- *  two of them: an emoji or a rarer CJK codepoint straddling the cut would
- *  leave its high half behind, which is not a character and reaches the reader
- *  as a replacement mark in the middle of the text the finding is recognised
- *  by. Dropping that half is one code unit shorter and is still the source's
- *  own words, which is the property every unit text in this report has. */
+ *  `slice` counts UTF-16 code units. Everything outside the basic plane is
+ *  two of them. An emoji or a rarer CJK codepoint that straddles the cut
+ *  would leave its high half behind. That leftover is not a character. It
+ *  reaches the reader as a replacement mark, in the middle of the text the
+ *  finding is recognised by.
+ *
+ *  The code drops that half instead. The result is one code unit shorter.
+ *  It is still the source's own words. That is the property every unit
+ *  text in this report has. */
 const cutTo = (text: string, chars: number): string => {
   const head = text.slice(0, chars)
   // D800 to DBFF is the high half of a pair; its low half was just cut off.
@@ -186,16 +192,17 @@ const short = (text: string): string => {
 
 const cov = (coverage: Coverage): string => `${coverage.judged} of ${coverage.available} judged`
 
-/** The two verdicts that are findings, each its own: one is a line to delete,
- *  the other a disagreement to settle. `unrelated` is the answer that is not a
- *  finding, which is why it has no section. */
+/** The two verdicts that are findings, each its own. One is a line to
+ *  delete, the other a disagreement to settle. `unrelated` is the answer
+ *  that is not a finding, which is why it has no section. */
 const PAIR_FINDINGS = ['contradicts', 'same_claim'] as const
 
 /** Most confident first, which is what turns a verdict's findings into a
- *  review queue rather than a list. Both callers sort the array `filter` has
- *  already copied for them, so `report.pairs` and `report.evidence` keep the
- *  order the stages judged them in: the JSON report is a record, not a queue,
- *  and the order a run made its calls in is part of what it records. */
+ *  review queue rather than a list. Both callers sort the array `filter`
+ *  has already copied for them. So `report.pairs` and `report.evidence`
+ *  keep the order the stages judged them in. The JSON report is a record,
+ *  not a queue. The order a run made its calls in is part of what it
+ *  records. */
 const byConfidence = <T extends { verdict: { confidence: number } }>(x: T, y: T): number =>
   y.verdict.confidence - x.verdict.confidence
 
@@ -224,12 +231,12 @@ const pairSections = (report: Report): string[] => {
   })
 }
 
-/** The probability at which the model is taken to have said a unit names its
- *  own expiry. */
+/** The probability at which the audit accepts the model's answer that a
+ *  unit names its own expiry. */
 const VOLATILE_BAR = 0.8
 
 /** The claims an excerpt refutes. A claim the excerpt supports, or says
- *  nothing about, is not a finding: only the contradiction is something to
+ *  nothing about, is not a finding. Only the contradiction is something to
  *  act on. */
 const evidenceSections = (report: Report): string[] => {
   const textOf = shortTextById(report)
@@ -247,11 +254,11 @@ const evidenceSections = (report: Report): string[] => {
 
 /** A unit that names an expiry, where an issue it cites is no longer open.
  *
- *  0.8 is the spike's own bar, tuned against the live model.
- *  A record of the past cites a closed issue correctly, so `history` is never
- *  a finding here however the issue resolved. The model is not asked WHICH
- *  issue the expiry refers to, so a unit citing several is reported when any
- *  of them has closed. */
+ *  0.8 is the spike's own bar, tuned against the live model. A record of
+ *  the past cites a closed issue correctly. So `history` is never a
+ *  finding here, however the issue resolved. The model is not asked WHICH
+ *  issue the expiry refers to. So a unit that cites several is reported
+ *  when any of them has closed. */
 const isExpired = (unit: Unit, judged: Classification | undefined): boolean =>
   judged !== undefined &&
   judged.volatile >= VOLATILE_BAR &&
@@ -262,9 +269,9 @@ const isExpired = (unit: Unit, judged: Classification | undefined): boolean =>
 const namesExpiry = (judged: Classification | undefined): boolean =>
   judged !== undefined && judged.volatile >= VOLATILE_BAR
 
-/** A unit citing an issue the lookup could not answer about. The closed issue
- *  may be exactly the one the expiry hangs on, so such a unit is judged
- *  neither way and is counted in the heading instead. */
+/** A unit that cites an issue the lookup could not answer about. The closed
+ *  issue may be exactly the one the expiry hangs on. So such a unit is
+ *  judged neither way. It is counted in the heading instead. */
 const hasUnreachableIssue = (unit: Unit): boolean =>
   unit.refs.some(
     (ref) =>
@@ -285,8 +292,8 @@ const expiredSections = (report: Report): string[] => {
   const unjudged =
     notJudged > 0 ? `; ${notJudged} volatile units not judged, issue lookup unavailable` : ''
   // When classify labelled nothing, a heading of 0 would read as "no unit
-  // expired" when no unit was ever judged; the stages below say the same with
-  // their skipped line, and this section has no skipped entry of its own.
+  // expired." But no unit was ever judged. The stages below say the same
+  // with their skipped line. This section has no skipped entry of its own.
   const classifyFailed = report.skipped.some((entry) => entry.reason === 'classify_failed')
   const entries = classifyFailed
     ? ['  not judged: classify failed']
@@ -298,15 +305,15 @@ const expiredSections = (report: Report): string[] => {
 }
 
 /** What each model stage prints when it ran, in the order the stages run. A
- *  list rather than a record keyed by {@link Stage}, so the order is the
- *  array's own rather than something read back out of the keys. */
+ *  list, rather than a record keyed by {@link Stage}. So the order is the
+ *  array's own, not something read back out of the keys. */
 const STAGE_SECTIONS = [
   ['classify', expiredSections],
   ['pairs', pairSections],
   ['evidence', evidenceSections],
 ] as const satisfies ReadonlyArray<readonly [Stage, (report: Report) => string[]]>
 
-/** Each model stage's own findings, or the one line saying it never ran. */
+/** Each model stage's own findings, or the one line that says it never ran. */
 const modelSections = (report: Report): string[] =>
   STAGE_SECTIONS.flatMap(([stage, sectionsFor]) => {
     const skipped = report.skipped.find((entry) => entry.stage === stage)
@@ -330,19 +337,21 @@ export const renderFindings = (report: Report): string => {
     lines.push(...section(`${heading} (${entries.length})`, entries))
   }
   // There is deliberately no "issues cited that are not open" section here.
-  // Tier 0 knows each cited issue's state, and every state is in the JSON
-  // report, but the state alone is not a finding: a history line legitimately
-  // cites a closed issue, and this repository's own files are almost entirely
-  // that. The finding is gated on a model judgment instead, and it is the
+  // Tier 0 knows each cited issue's state. Every state is in the JSON
+  // report. But the state alone is not a finding. A history line
+  // legitimately cites a closed issue. This repository's own files are
+  // almost entirely that.
+  //
+  // The finding is gated on a model judgment instead, and it is the
   // classify stage's own section ({@link isExpired}).
 
-  // No count in this heading: the lines are the counts, and a number of
-  // distinct kinds beside them would be a second number meaning something
-  // else.
+  // No count in this heading. The lines are the counts. A number of
+  // distinct kinds beside them would be a second number, and it would mean
+  // something else.
   lines.push(...section('tier 0: refs not checked', uncheckedTally(report)))
   lines.push(...modelSections(report))
-  // Always, and with its count, whether or not a stage ran: a report with no
-  // failures section would leave a reader guessing whether there were none or
+  // Always, and with its count, whether or not a stage ran. Without a
+  // failures section, a reader could not tell whether there were none, or
   // whether nobody looked.
   lines.push(
     ...section(

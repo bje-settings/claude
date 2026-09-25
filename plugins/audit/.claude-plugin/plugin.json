@@ -1,6 +1,6 @@
 {
   "name": "audit",
-  "description": "/audit:context audits a repository's CLAUDE.md, README.md and .claude/**/*.md for rot: references that no longer resolve, statements whose named condition has ended, duplicated claims.",
+  "description": "/audit:context checks a repository's CLAUDE.md, README.md and .claude/**/*.md files for rot. Rot is a reference that no longer resolves, a statement whose condition has ended, or a duplicate claim.",
   "version": "0.1.0",
   "license": "MIT",
   "author": {

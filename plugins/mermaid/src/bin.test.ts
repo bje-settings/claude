@@ -1,8 +1,8 @@
 // The one spawned contract test for `scripts/mermaid.ts` (harness/README.md):
 // argv and stdin in, exit code and streams out. Everything else about this
-// plugin's decisions is exercised in-process in `url.test.ts`; this is the
-// only place the process boundary itself, and the floor guard placed in
-// front of it, are real.
+// plugin's decisions is exercised in-process in `url.test.ts`. This is the
+// only place the process boundary itself, and the floor guard in front of
+// it, are real.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -47,11 +47,11 @@ it('defaults to --route view with no --route flag at all, as a real process', ()
 })
 
 it('answers --help as a real process, exit 0, and never decodes stdin', () => {
-  // Invalid UTF-8 on stdin would exit 2 if bin.ts read and url.ts decoded
-  // it, so a clean exit 0 here also proves the adapter's own stdin read is
-  // skipped for --help, not only url.ts's decode step (the in-process
-  // version of this test in url.test.ts cannot see that half, since it
-  // never touches bin.ts's readFileSync(0) at all).
+  // Invalid UTF-8 on stdin would exit 2, if bin.ts read it and url.ts
+  // decoded it. So a clean exit 0 here proves something more. The adapter
+  // also skips its own stdin read for --help, not only url.ts's decode
+  // step. The in-process version of this test, in url.test.ts, cannot see
+  // that half. It never touches bin.ts's readFileSync(0) at all.
   const invalid = Uint8Array.from([0x61, 0xff, 0x62])
 
   const result = runScript(BIN, { args: ['--help'], stdin: invalid })
@@ -69,9 +69,9 @@ it('answers -h the same way --help does, as a real process', () => {
 })
 
 it('answers --help over a bad --route, as a real process, not the route refusal', () => {
-  // Pins the ordering at the process boundary: without the wantsHelp
+  // This pins the ordering at the process boundary. Without the wantsHelp
   // pre-scan in both bin.ts and url.ts, this would exit 2 with the --route
-  // refusal instead, the way it did before this round.
+  // refusal instead. That is how it behaved before this round.
   const result = runScript(BIN, { args: ['--help', '--route', 'bogus'], stdin: '' })
 
   expect(result.status).toBe(0)

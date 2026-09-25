@@ -1,6 +1,6 @@
-// Cases ported one at a time from the spike's split.test.ts (#164,
-// wktr-164-context-audit-spike, spike/context-audit/split.test.ts), as
-// independent literal expectations rather than a computed oracle. Order
+// This file ports cases one at a time from the spike's split.test.ts (#164,
+// wktr-164-context-audit-spike, spike/context-audit/split.test.ts). Each case
+// is an independent literal expectation, not a computed oracle. Order
 // follows the spike file so a diff against it is easy to audit.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -153,10 +153,10 @@ describe('splitMarkdown', () => {
   })
 
   it('keeps line numbers correct across a hard-wrapped sentence that carries an astral character', () => {
-    // A surrogate pair is one code point but two UTF-16 code units: buildLineMap
-    // must size its line map in the same units splitSentences indexes with, or
-    // every offset after the emoji drifts and the last unit's endLine reads
-    // past the end of the map.
+    // A surrogate pair is one code point but two UTF-16 code units.
+    // buildLineMap must size its line map in the same units that
+    // splitSentences indexes with. Otherwise every offset after the emoji
+    // drifts, and the last unit's endLine reads past the end of the map.
     const source = [
       'Line \u{1F680} one starts a thought that',
       'wraps onto line two.',
@@ -345,9 +345,9 @@ describe('splitMarkdown', () => {
   })
 
   it('links prev/next across an opaque block, since only headingPath adjacency governs it', () => {
-    // Opaque blocks (fences, frontmatter) never enter `units`, so two units
-    // under one heading are still document-order neighbours in `units` even
-    // with a fenced block between them in the source.
+    // Opaque blocks (fences, frontmatter) never enter `units`. So two units
+    // under one heading are still document-order neighbours in `units`. This
+    // holds even with a fenced block between them in the source.
     const source = [
       '# Sec',
       '',
@@ -375,11 +375,11 @@ describe('splitMarkdown', () => {
     for (const o of opaque) expect(o.refs).toEqual([])
   })
 
-  // A fixture with hand-written expected units, standing in for the spike's
-  // real-CLAUDE.md line-invariant check: that check computed its expectations
-  // from the source it was checking, which is a tautological test, and it
-  // read this repository's own CLAUDE.md, which a plugin meant to work on any
-  // repository cannot depend on. Every expectation below is a literal typed
+  // A fixture with hand-written expected units. It stands in for the spike's
+  // real-CLAUDE.md line-invariant check. That check computed its expectations
+  // from the source it checked, which is a tautological test. It also read
+  // this repository's own CLAUDE.md, which a plugin meant to work on any
+  // repository cannot depend on. Every expectation below is a literal, typed
   // by hand against fixtures/sample.fixture.md.
   it('splits a hand-written fixture into the exact units it was written to produce', () => {
     const source = readFileSync(path.join(FIXTURES, 'sample.fixture.md'), 'utf8')
@@ -500,9 +500,10 @@ describe('splitMarkdown', () => {
   })
 
   it('protects a code span that opens on one hard-wrapped line and closes on the next', () => {
-    // computeProtectedMask runs once over buildLineMap's already-joined text,
-    // so the span stays masked across the line break: a mask computed per
-    // physical line and concatenated would wrongly split at the period inside it.
+    // computeProtectedMask runs once over buildLineMap's already-joined
+    // text, so the span stays masked across the line break. A mask that the
+    // code computed per physical line and then concatenated would wrongly
+    // split at the period inside it.
     const source = ['Note `run(x). Y', 'continues` after this. New one.'].join('\n')
     const { units } = splitMarkdown(FILE, source)
     expect(units.map((u) => u.text)).toEqual(['Note `run(x). Y continues` after this.', 'New one.'])

@@ -1,16 +1,19 @@
 // The one spawned contract test for `scripts/audit.ts` (`harness/README.md`):
 // argv in, exit code and streams out. Everything else about this command is
-// exercised in-process in `commands/context.test.ts`; this is the only place
-// the process boundary itself, and the floor guard in front of it, are real.
+// exercised in-process in `commands/context.test.ts`. This is the only place
+// where the process boundary itself, and the floor guard in front of it, are
+// real.
 //
-// The real run at the end uses a fixture with no issue reference in it, so the
-// child needs no `gh`: a spawned child cannot be handed the injected client
-// (ADR 001), and a fixture that named an issue would be reaching for the real
-// one. The same goes for Jev, and one step further: the sandbox sweeps
-// `TYPESAFE_API_KEY`, and this adapter builds the REAL client from whatever
-// key there is, so the only model path a spawned test may take is the one
-// where there is no key and no client is built at all. A fake key here would
-// not make a fake call, it would make a real one.
+// The real run at the end uses a fixture with no issue reference in it. So
+// the child needs no `gh`. A spawned child cannot be handed the injected
+// client (ADR 001). A fixture that named an issue would reach for the real
+// `gh`.
+//
+// The same is true for Jev, one step further. The sandbox sweeps
+// `TYPESAFE_API_KEY`. This adapter builds the REAL client from whatever key
+// exists. So the only model path a spawned test can take has no key and no
+// client at all. A fake key here would not make a fake call. It would make
+// a real one.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -55,8 +58,8 @@ it('refuses a subcommand nobody answers to, with the list on stderr', () => {
   const result = runScript(BIN, { args: ['nope'], env: env() })
 
   expect(result.status).toBe(2)
-  // Nothing on stdout: a caller parsing it can never parse a refusal into a
-  // result (`lib/envelope.ts`).
+  // Nothing on stdout: a caller that parses it can never parse a refusal
+  // into a result (`lib/envelope.ts`).
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('unknown command: nope')
   expect(result.stderr).toContain('usage: audit.ts <command>')
@@ -92,7 +95,7 @@ it('audits a real checkout end to end, with no key and no gh to reach', () => {
   expect(result.stderr).toBe('')
   expect(result.stdout).toContain('  CLAUDE.md:3  path `lib/gone.ts`  absent')
   expect(result.stdout).toContain('## classify: skipped (no_key)')
-  // Nothing was spent, which is the other half of "no client was built".
+  // Nothing was spent. This is the other half of "no client was built".
   expect(result.stdout).toContain('## failures (0)')
   expect(result.stdout).toMatch(/## usage: 0 requests \(0 attempts\), 0 input tokens,/)
 })
