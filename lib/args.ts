@@ -1,38 +1,45 @@
-// Argument parsing, over `node:util`'s `parseArgs` (#125's scope line names
-// it). Written once here rather than in each `bin`, because RFC 001 decision
-// 3 keeps `bin` a thin adapter with no decisions in it, and because a parse
-// with a return value is testable without a process.
+// This file parses arguments. It wraps `node:util`'s `parseArgs` (#125's
+// scope line names it). This file writes the wrapper once, instead of in
+// each `bin`. RFC 001 decision 3 keeps `bin` a thin adapter with no
+// decisions in it. A parse with a return value is also testable without a
+// process.
 //
-// **What this adds to `parseArgs`, and why each addition has a caller.** node
-// answers a bad command line by throwing a `TypeError`, which a `bin` would
-// have to catch and translate; here it comes back as a `refused` envelope, so
-// a bad flag exits 2 exactly as `argparse` does in the scripts being ported.
-// `choices` is the one piece of `argparse` node has no answer for, and
-// `mermaid-url.py`'s `--route` is the caller that needs it (#126).
+// **What this file adds to `parseArgs`, and why each addition has a
+// caller.** node answers a bad command line with a thrown `TypeError`. A
+// `bin` would have to catch the error and translate it. Here, the answer
+// comes back as a `refused` envelope.
 //
-// **What it deliberately does not add, to `parseArguments`.** No positionals:
-// `parseArgs` refuses them and the refusal travels as an envelope, which is
-// what every command but one wants; `parseCommandLine` is the widened sibling
-// for the one command that needs them (`plugins/audit`'s `/audit:context`,
-// #170), so every other caller keeps the untested path closed rather than
-// inheriting a positional it never asked for. No `--help` handling: help text
-// is a command's own sentence about itself, so a command declares a `help`
-// boolean and prints its own, which is one line there against a text
-// generator here that every command would then have to fit.
+// A bad flag then exits with code 2, the same code `argparse` uses in the
+// scripts this file ports. `choices` is the one piece of `argparse` that
+// node has no answer for. `mermaid-url.py`'s `--route` flag is the caller
+// that needs it (#126).
 //
-// This file ships. It imports nothing outside the root lib and nothing from
-// node beyond `util`, and stays inside the erasable subset (ADR 001).
+// **What `parseArguments` deliberately does not add.** It does not add
+// positionals. `parseArgs` refuses them, and the refusal travels as an
+// envelope. This is what every command but one wants. `parseCommandLine` is
+// the widened sibling for the one command that needs positionals
+// (`plugins/audit`'s `/audit:context`, #170). Every other caller keeps the
+// untested path closed. It does not inherit a positional it never asked
+// for.
+//
+// This file also does not add support for `--help`. Help text is a
+// command's own sentence about itself. A command declares a `help` boolean
+// and prints its own text. That is one line there, against a text generator
+// here that every command would then have to fit.
+//
+// This file ships. It imports nothing outside the root lib, and nothing
+// from node beyond `util`. It stays inside the erasable subset (ADR 001).
 
 import { parseArgs } from 'node:util'
 
 import { type Envelope, failed, ok, refused } from './envelope.ts'
 
 /**
- * One option. A string option carries a default, rather than admitting
- * `undefined`: every read is then a value, so no caller needs a fallback
- * branch for "the flag was not passed" that a test would have to reach.
- * A command that wants to know whether a flag was passed at all asks for a
- * boolean beside it.
+ * One option. A string option carries a default value. It never allows
+ * `undefined`. Every read is then a value. No caller needs a fallback
+ * branch for "the flag was not passed", so no test has to reach that
+ * branch. A command that wants to know whether a flag was passed asks for
+ * a boolean option beside it.
  */
 export type OptionSpec =
   | { readonly type: 'boolean' }
@@ -42,10 +49,10 @@ export type ArgSpec = Readonly<Record<string, OptionSpec>>
 
 /**
  * What one option parses to. An option that declares `choices` parses to
- * those choices and not to a bare `string`: the check below refuses anything
- * else before the envelope is built, so the narrower type is a fact about the
- * value rather than a hope, and a command switching on it does not re-prove
- * what the parser already refused.
+ * those choices, not to a bare `string`. The check below refuses any other
+ * value before the envelope is built. The narrower type is then a fact
+ * about the value, not a hope. A command that switches on the value does
+ * not have to re-prove what the parser already refused.
  */
 type ValueOf<S extends OptionSpec> = S extends { type: 'boolean' }
   ? boolean
@@ -56,41 +63,46 @@ type ValueOf<S extends OptionSpec> = S extends { type: 'boolean' }
 /** The parsed command line: one property per declared option, never partial. */
 export type Options<S extends ArgSpec> = { readonly [K in keyof S]: ValueOf<S[K]> }
 
-/** What a parsed command line answers with when it may carry positionals:
- *  every declared option, and the words `parseArgs` did not consume as one. */
+/** What a parsed command line answers with, when it may carry positionals.
+ *  This is every declared option, and the words that `parseArgs` did not
+ *  read as an option or its value. */
 export type CommandLine<S extends ArgSpec> = {
   readonly options: Options<S>
   readonly positionals: readonly string[]
 }
 
 /**
- * A spec as the two exports take it. The intersection is what makes
- * {@link Options}'s promise above true rather than merely written down.
+ * A spec, as the two exports below take it. The intersection makes
+ * {@link Options}'s promise above true, not merely written down.
+ *
  * `const S` at the call site fixes literal types at the argument
- * *expression*, so an inline spec or one declared `as const` keeps its keys
- * and its `choices`; a spec that arrives already annotated `: ArgSpec` does
- * not, and `Options<S>` silently degrades to an index signature, where every
- * value gains `| undefined` and an option nobody declared reads clean.
- * `string extends keyof S` is true of exactly that degraded spec and of
- * nothing else, so it is refused at the call site with the type of the
- * argument named, rather than surfacing later as a missing narrowing the
- * caller works around.
+ * expression. An inline spec, or one declared `as const`, keeps its keys
+ * and its `choices`. A spec that arrives already annotated `: ArgSpec` does
+ * not keep them. `Options<S>` then silently degrades to an index
+ * signature. Every value gains `| undefined`, and an option nobody
+ * declared reads clean.
+ *
+ * `string extends keyof S` is true of exactly that degraded spec, and of
+ * nothing else. Such a spec is refused at the call site, with the type of
+ * the named argument. It does not surface later as a missing narrowing the
+ * caller must work around.
  */
 type ExactSpec<S extends ArgSpec> = S & (string extends keyof S ? never : unknown)
 
 /**
- * The core both exports share: build `parseArgs`' own option table from
- * `spec`, audit defaults against their own `choices`, parse, and check the
- * parsed values against `choices` again. `allowPositionals` is the one
- * difference between {@link parseArguments} and {@link parseCommandLine}, so
- * it is a parameter here rather than two copies of the checks around it.
+ * The core both exports share. It builds `parseArgs`' own option table from
+ * `spec`. It checks each default against its own `choices`. Then it
+ * parses, and checks the parsed values against `choices` again.
+ * `allowPositionals` is the one difference between {@link parseArguments}
+ * and {@link parseCommandLine}. It is a parameter here, so the checks
+ * around it need no second copy.
  */
-// No {@link ExactSpec} here: both callers already carry that constraint on
-// their own type parameter before they reach this function, and repeating it
-// on a second, independently inferred type parameter is what defeated `tsc`
-// (the two conditional types normalise differently, so the call site's
-// already-narrowed spec stopped satisfying the callee's version of the same
-// check).
+// No {@link ExactSpec} here. Both callers already carry that constraint on
+// their own type parameter, before they reach this function. A second,
+// independent type parameter that repeats the constraint is what defeated
+// `tsc`. The two conditional types normalise differently. The call site's
+// already-narrowed spec then no longer satisfied the callee's version of
+// the same check.
 const parseCore = <S extends ArgSpec>(
   argv: readonly string[],
   spec: S,
@@ -102,18 +114,19 @@ const parseCore = <S extends ArgSpec>(
       options[name] = { type: 'boolean', default: false }
       continue
     }
-    // A default outside the option's own choices is `failed` and not
-    // `refused`, because `parseArgs` fills the default in whenever the flag is
-    // absent: such a spec refuses every command line, naming a flag the caller
-    // never typed and cannot correct. `envelope.ts` states the split this
-    // keeps, that a refusal is the caller's input to fix and a failure is this
-    // code's.
+    // A default outside the option's own choices is `failed`, not
+    // `refused`. `parseArgs` fills in the default whenever the flag is
+    // absent. Such a spec then refuses every command line, and names a
+    // flag the caller never typed and cannot correct. `envelope.ts` states
+    // the split this keeps. A refusal is the caller's input to fix, and a
+    // failure is this code's own fault.
     //
-    // Audited here, over the spec alone and before the command line is parsed,
-    // so the verdict does not depend on argv. Asked from the loop below it
-    // would lose to whatever returned first: an unparsable command line, or an
-    // earlier option's bad value, would answer `refused` and leave the broken
-    // spec unreported for as long as anyone kept mistyping.
+    // This check runs here, over the spec alone, before the command line
+    // is parsed. The verdict then does not depend on argv. Asked from the
+    // loop below, it would lose to whatever answer returned first. That
+    // could be an unparsable command line, or an earlier option's bad
+    // value. The broken spec would then stay unreported, for as long as
+    // anyone typed the wrong value.
     if (option.choices !== undefined && !option.choices.includes(option.default)) {
       return failed(
         `--${name} declares a default of "${option.default}", ` +
@@ -127,17 +140,17 @@ const parseCore = <S extends ArgSpec>(
   try {
     parsed = parseArgs({ args: [...argv], options, strict: true, allowPositionals })
   } catch (error) {
-    // `parseArgs` throws a `TypeError` and nothing else, so the message is
-    // read directly. An `instanceof` guard here would add an arm no input can
-    // reach, which is the branch the coverage rule says to restructure away
-    // rather than to exclude.
+    // `parseArgs` throws only a `TypeError`, so the message is read
+    // directly. An `instanceof` guard here would add a branch no input can
+    // reach. The coverage rule says to restructure that branch away, not
+    // to exclude it.
     return refused((error as Error).message)
   }
 
   for (const [name, option] of Object.entries(spec)) {
     if (option.type !== 'string' || option.choices === undefined) continue
-    // Every declared option has a default, so this is a string by
-    // construction; the cast is erased and adds no branch.
+    // Every declared option has a default, so this value is a string by
+    // construction. The cast is erased, and adds no branch.
     const value = parsed.values[name] as string
     if (!option.choices.includes(value)) {
       return refused(`--${name} must be one of ${option.choices.join(', ')}, not "${value}"`)
@@ -148,14 +161,16 @@ const parseCore = <S extends ArgSpec>(
 }
 
 /**
- * Parse `process.argv.slice(2)` against `spec`. A stray positional is refused
- * here; a command that wants one asks for {@link parseCommandLine} instead
- * (the header says why that is the default).
+ * Parse `process.argv.slice(2)` against `spec`. A stray positional is
+ * refused here. A command that wants a positional asks for
+ * {@link parseCommandLine} instead (the header above says why that is the
+ * default).
  *
- * A refusal is exit 2 (`envelope.ts`), carrying node's own wording for an
- * unknown option, a missing value or a stray positional. Its message is not
- * rewritten: node names the offending token, which is what a caller needs,
- * and a tidied spelling would be one this repository then owns.
+ * A refusal is exit 2 (`envelope.ts`). It carries node's own wording for
+ * an unknown option, a missing value, or a stray positional. Its message
+ * is not rewritten: node names the token that is wrong, which is what a
+ * caller needs. A tidied spelling would be wording this repository then
+ * owns.
  */
 export const parseArguments = <const S extends ArgSpec>(
   argv: readonly string[],
@@ -166,8 +181,9 @@ export const parseArguments = <const S extends ArgSpec>(
 }
 
 /**
- * `parseArguments` widened to also hand back the words `parseArgs` did not
- * consume as an option or its value, for the one command that needs them.
+ * `parseArguments`, widened to also hand back the words `parseArgs` did
+ * not read as an option or its value. This is for the one command that
+ * needs them.
  */
 export const parseCommandLine = <const S extends ArgSpec>(
   argv: readonly string[],

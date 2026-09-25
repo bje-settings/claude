@@ -1,28 +1,35 @@
-// The TypeSafe System One transport (#173, porting the context-audit spike's
-// `jev.ts`, #164). `POST https://api.typesafe.ai/v1/systemone`, Bearer auth,
-// body `{state, model, questions}`, response `{model, answers,
-// usage:{input_tokens, output_tokens}}` (docs.typesafe.ai/api). No SDK: node
-// built-ins and global `fetch` only, matching every other file here (ADR 001).
+// This file is the TypeSafe System One transport (#173). It ports the
+// context-audit spike's `jev.ts` (#164).
+//
+// The call is `POST https://api.typesafe.ai/v1/systemone`, with Bearer auth.
+// The body is `{state, model, questions}`. The response is `{model, answers,
+// usage:{input_tokens, output_tokens}}` (docs.typesafe.ai/api). This file
+// uses no SDK. It uses node built-ins and the global `fetch` only, like
+// every other file here (ADR 001).
 //
 // This is the generic ask/usage transport. `lib/jev.ts` is the audit's own
-// client on top of it, with the five judgment questions and their parsers;
-// this file knows nothing about the audit.
+// client on top of it. It adds the five judgment questions and their
+// parsers. This file knows nothing about the audit.
 //
-// Every knob that could otherwise sit in an untestable branch is injected:
-// `fetch`, `sleep`, `random` and a clock reached only through `Date.now`
-// inside the request loop (a test steers it by injecting `sleep` and reading
-// what it was called with, since the loop's own timing is what a test cares
-// about, not wall time). Erasable-syntax subset (ADR 001): no `enum`, no
-// parameter properties, no namespaces, explicit `.ts` on every import.
+// This file injects every value that could sit in an untestable branch.
+// These are `fetch`, `sleep`, `random`, and a clock. The clock is reached
+// only through `Date.now` inside the request loop. A test steers the loop:
+// it injects `sleep` and reads what it was called with. The loop's own
+// timing is what a test checks, not wall time.
+//
+// This file uses the erasable-syntax subset (ADR 001). It has no `enum`, no
+// parameter properties, and no namespaces. Every import names its `.ts`
+// extension.
 
-/** The endpoint, from the API reference. Not configurable: this file calls one service. */
+/** The endpoint, from the API reference. This file calls one service, so it does not change. */
 const ENDPOINT = 'https://api.typesafe.ai/v1/systemone'
 
 /**
- * Anything `instructions` and `criteria` accept. The "Advanced: structure"
- * page calls this an `EntryType` and allows a string, an object, an array or
- * null in every one of those positions; `lib/jev.ts` uses objects for the
- * option rubrics, so the loose type is load bearing rather than laziness.
+ * Anything `instructions` and `criteria` accept. The API's "Advanced:
+ * structure" page calls this an `EntryType`. It allows a string, an object,
+ * an array, or null in every one of those positions. `lib/jev.ts` uses
+ * objects for the option rubrics. So this loose type is necessary, not a
+ * shortcut.
  */
 export type Entry =
   | string
@@ -35,7 +42,7 @@ export type Entry =
 export type NoulQuestion = {
   readonly type: 'noul'
   readonly instructions: Entry
-  /** Optional. What a yes and a no mean; the docs recommend it where the boundary is subtle. */
+  /** Optional. This says what a yes and a no mean. The docs recommend it when the boundary is not clear. */
   readonly criteria?: { readonly true: Entry; readonly false: Entry }
 }
 
@@ -51,12 +58,13 @@ export type AnyQuestion = NoulQuestion | ChoiceQuestion<string>
 export type QuestionMap = Readonly<Record<string, AnyQuestion>>
 
 /**
- * Every answer of a run, keyed by the question ids `ask` was given. Untyped
- * on purpose: a request is built as `Record<string, AnyQuestion>` (the
- * per-unit and per-section ids are computed, not literal), so a mapped answer
- * type keyed off the question map has never described what a caller actually
- * has in hand. `lib/jev.ts`'s parsers narrow this into the contract's real
- * types at runtime, which is where that validation belongs.
+ * Every answer of a run, keyed by the question ids that `ask` receives.
+ * This type stays untyped on purpose. A request takes shape as
+ * `Record<string, AnyQuestion>`. Its per-unit and per-section ids are
+ * computed values, not literal ones. So a mapped answer type keyed off the
+ * question map would never describe what a caller actually holds.
+ * `lib/jev.ts`'s parsers narrow this into the contract's real types at run
+ * time, which is where that check belongs.
  */
 export type AnswerBag = Record<string, unknown>
 
@@ -68,9 +76,9 @@ export function noul(instructions: Entry, criteria?: { true: Entry; false: Entry
 }
 
 /**
- * A Choice question. The options are the keys of `criteria`; the docs are
- * explicit that both the option names and their descriptions reach the model,
- * so `lib/jev.ts` writes both to separate the options from each other.
+ * A Choice question. The options are the keys of `criteria`. The docs state
+ * clearly that both the option names and their descriptions reach the model.
+ * So `lib/jev.ts` writes both, to keep the options distinct from each other.
  */
 export function choice<const T extends string>(
   instructions: Entry,
@@ -80,24 +88,28 @@ export function choice<const T extends string>(
 }
 
 /**
- * A response the API refused, or a run that gave up on one. `status` and
- * `body` are carried so a caller can tell a 422 (a question this code built
- * wrong) from a 401 (stop, do not retry) from a transport failure, where
- * `status` is 0: there was no response to read one from. `ask` throws this
- * class for every failure it can raise, including a body the contract does
- * not recognise, so a caller only ever has one class to catch.
+ * A response the API refused, or a run that gave up on one. This class
+ * carries `status` and `body`, so a caller can tell three cases apart. A 422
+ * means this code built a bad question. A 401 means stop; do not retry. A
+ * transport failure has `status` 0, because there was no response to read
+ * one from.
  *
- * The API key never reaches `message` or `body`: every string that could
- * carry it (a server's error text, a foreign `Error#message`) is redacted
- * before it is attached here, and no foreign error is kept as `cause`, since
- * that would smuggle the unredacted original back in through
- * `JSON.stringify(error)`.
+ * `ask` throws this class for every failure it can raise. A body the
+ * contract does not recognize is one example. So a caller only ever has one
+ * class to catch.
  *
- * Both members are public, like `GhError` (`lib/gh.ts`): a class exported
- * from `lib/` is seen by `tsc` under two identities, its real path and
- * `plugins/<p>/src/lib/typesafe.ts` through the committed symlink, and a
- * `private` or `protected` member would make it nominal per declaration, so
- * the two identities would stop being assignable to each other.
+ * The API key never reaches `message` or `body` on this class. Every string
+ * that could carry the key is redacted first. This covers a server's error
+ * text and a foreign `Error#message`. This class also never keeps a foreign
+ * error as `cause`. A kept error could send the unredacted original text
+ * back out through `JSON.stringify(error)`.
+ *
+ * Both members are public, like `GhError` (`lib/gh.ts`). `tsc` sees a class
+ * exported from `lib/` under two identities: its real path, and
+ * `plugins/<p>/src/lib/typesafe.ts` through the committed symlink. A
+ * `private` or `protected` member would make the class nominal per
+ * declaration. Then the two identities would no longer be assignable to
+ * each other.
  */
 export class JevError extends Error {
   readonly status: number
@@ -105,9 +117,9 @@ export class JevError extends Error {
 
   constructor(status: number, body: string, message?: string) {
     super(message ?? `TypeSafe request failed with HTTP ${status}`)
-    // Set explicitly rather than inherited: `Error` names itself after its
-    // own constructor, so without this a caught failure reports as a plain
-    // `Error`.
+    // This name is set here, not inherited. `Error` names itself after its
+    // own constructor. Without this line, a caught failure would report as a
+    // plain `Error`.
     this.name = 'JevError'
     this.status = status
     this.body = body
@@ -130,21 +142,22 @@ export type TypeSafeOptions = {
   readonly maxRetries?: number
   /**
    * Per-attempt socket timeout, enforced with `AbortSignal.timeout`. A
-   * stalled request aborts and is handled as a transport failure like any
-   * other, so it is retried the same way. Defaults to 60s so one dead socket
-   * cannot hang the whole run.
+   * stalled request aborts. This code handles it as a transport failure,
+   * like any other, so it retries the request the same way. The default is
+   * 60s, so one dead socket cannot hang the whole run.
    */
   readonly timeoutMs?: number
   /**
-   * The test seam for backoff (RFC 001 decision 3: inject the client, keep
-   * the function pure otherwise). Without it a test that proves `Retry-After`
-   * is honoured has to wait the header out in real time.
+   * The test seam for backoff. RFC 001 decision 3 says to inject the client
+   * and keep the function pure otherwise. Without this seam, a test that
+   * proves the code honors `Retry-After` would have to wait. It would wait
+   * out the header in real time.
    */
   readonly sleep?: (ms: number) => Promise<void>
   /**
-   * The test seam for jitter. Without it, the ceiling `backoffMs` computes is
-   * knowable but the value inside it is not, and a test asserting a specific
-   * slept duration would be reading `Math.random`'s own output.
+   * The test seam for jitter. Without it, a test can know the ceiling that
+   * `backoffMs` computes, but not the value inside it. A test that asserts
+   * one exact sleep duration would then read `Math.random`'s own output.
    */
   readonly random?: () => number
 }
@@ -156,10 +169,10 @@ export type Jev = {
 
 /**
  * Statuses the API reference names as "back off and retry", plus the
- * standard proxy-layer statuses (500, 502, 503, 504): a proxy sitting in
- * front of the API can produce these even when the API itself would not, and
- * they mean the same thing as a 429 or 529 here. A transport failure is
- * retried too.
+ * standard proxy-layer statuses (500, 502, 503, 504). A proxy in front of
+ * the API can produce these even when the API itself would not. Here, they
+ * mean the same thing as a 429 or 529. This code retries a transport
+ * failure too.
  */
 const RETRYABLE = new Set([429, 500, 502, 503, 504, 529])
 
@@ -168,20 +181,20 @@ const DEFAULT_MAX_RETRIES = 4
 const DEFAULT_TIMEOUT_MS = 60_000
 const BASE_DELAY_MS = 500
 /**
- * The ceiling on the computed backoff. With the default `maxRetries` (4) the
- * loop only ever reaches `backoffMs(3)`, about 4s before jitter, so this 30s
- * ceiling does nothing unless a caller raises `maxRetries` well past the
- * default.
+ * The ceiling on the computed backoff. With the default `maxRetries` of 4,
+ * the loop only ever reaches `backoffMs(3)`, about 4s before jitter. So this
+ * 30s ceiling does nothing, unless a caller raises `maxRetries` well past
+ * the default.
  */
 const MAX_DELAY_MS = 30_000
 /**
  * The ceiling on a server-stated `Retry-After`. Unlike the computed backoff,
- * this is chosen by the server, not by this code, and the API reference does
- * not bound it, so an ill-behaved response asking for an hour cannot stall
- * the run past two minutes.
+ * the server chooses this value, not this code. The API reference does not
+ * bound it. So a bad response that asks for an hour cannot stall the run
+ * past two minutes.
  */
 const RETRY_AFTER_CEILING_MS = 120_000
-/** The cap on `JevError.body`: a human skims it, so it need not be the whole thing. */
+/** The cap on `JevError.body`. A human skims this text, so it need not be the whole thing. */
 const BODY_LIMIT = 2_000
 
 function defaultSleep(ms: number): Promise<void> {
@@ -189,10 +202,10 @@ function defaultSleep(ms: number): Promise<void> {
 }
 
 /**
- * `Retry-After` in milliseconds, or null when absent or unreadable. The HTTP
- * spec allows both a delay in seconds and an HTTP date, and the docs say the
- * SDKs honour the header without saying which form the API sends, so both are
- * read here.
+ * `Retry-After` in milliseconds, or null when the header is absent or
+ * unreadable. The HTTP spec allows both a delay in seconds and an HTTP date.
+ * The docs say the SDKs honor the header, but do not say which form the API
+ * sends. So this function reads both forms.
  */
 export function retryAfterMs(header: string | null, now: number): number | null {
   if (header === null) return null
@@ -206,8 +219,9 @@ export function retryAfterMs(header: string | null, now: number): number | null 
 
 /**
  * Full jitter over an exponential base, capped. Jitter matters more than the
- * base here: this transport fans out to `concurrency` requests at once, so a
- * shared 429 would otherwise retry every one of them at the same instant.
+ * base here. This transport fans out to `concurrency` requests at once.
+ * Without jitter, a shared 429 would make every one of them retry at the
+ * same instant.
  */
 export function backoffMs(attempt: number, random: () => number): number {
   const ceiling = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt)
@@ -219,10 +233,11 @@ function escapeForRegExp(value: string): string {
 }
 
 /**
- * Scrubs the API key, and `Bearer <key>` as a unit, from text that came from
- * outside this module: a server's error body, or a foreign `Error#message`
- * that happened to echo a request header. `Bearer <key>` is replaced first so
- * the result reads `[redacted]` rather than `Bearer [redacted]`.
+ * Scrubs the API key from text that came from outside this module.
+ * Examples are a server's error body, or a foreign `Error#message` that
+ * echoed a request header. It also scrubs `Bearer <key>` as a unit. This
+ * function replaces `Bearer <key>` first, so the result reads `[redacted]`
+ * rather than `Bearer [redacted]`.
  */
 export function redact(text: string, apiKey: string): string {
   if (apiKey === '') return text
@@ -232,35 +247,37 @@ export function redact(text: string, apiKey: string): string {
     .replace(new RegExp(escaped, 'g'), '[redacted]')
 }
 
-/** A foreign error's own text, on its way to being redacted into a `JevError`. */
+/** A foreign error's own text, read here before this file redacts it into a `JevError`. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
 /**
  * A plain JSON object. `typeof` answers `'object'` for `null` and for an
- * array too, so both are excluded here: every caller is checking something the
- * API sent, where an array would otherwise read as an object carrying none of
- * the properties the contract promises.
+ * array too, so this function excludes both. Every caller here checks
+ * something the API sent. Without this check, an array would read as an
+ * object that carries none of the properties the contract promises.
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
- * `payload` only ever comes from `JSON.parse` (or is `undefined`, for an
- * empty body), so `JSON.stringify` here can never throw the way it can on
- * arbitrary input: no circular reference or `BigInt` can have survived the
- * parse. No `try`, so there is no branch a test could only fake reaching.
+ * `payload` only ever comes from `JSON.parse`, or is `undefined` for an
+ * empty body. So `JSON.stringify` here can never throw the way it can on
+ * arbitrary input. No circular reference or `BigInt` can survive the parse.
+ * This function has no `try`, so it has no branch that a test could only
+ * fake.
  */
 function safeStringify(value: unknown): string {
   return JSON.stringify(value) ?? String(value)
 }
 
 /**
- * A counting semaphore. The slot is handed straight from a finishing task to
- * a waiting one rather than released and re-taken, so a caller arriving
- * between the two cannot slip in and push the in-flight count over the limit.
+ * A counting semaphore. This function does not release the slot and then
+ * let another task take it. Instead, it hands the slot straight from a task
+ * that just finished to one that waits. So a caller that arrives between the
+ * two cannot slip in and push the in-flight count over the limit.
  */
 export function createLimiter(limit: number): <T>(task: () => Promise<T>) => Promise<T> {
   let active = 0
@@ -291,7 +308,7 @@ export function createJev(opts: TypeSafeOptions): Jev {
   const random = opts.random ?? Math.random
   const limit = createLimiter(opts.concurrency ?? DEFAULT_CONCURRENCY)
 
-  /** Everything that reaches `JevError.body` goes through here: redacted, then capped. */
+  /** Everything that reaches `JevError.body` passes through this function. It redacts the text, then caps it. */
   function asBody(text: string): string {
     return redact(text, opts.apiKey).slice(0, BODY_LIMIT)
   }
@@ -317,11 +334,12 @@ export function createJev(opts: TypeSafeOptions): Jev {
   }
 
   /**
-   * The payload of a response the server answered OK. Read once as text, then
-   * parsed, so a malformed body is settled here rather than inside the retry
-   * machinery. Neither failure is retried, which is why both are thrown as a
-   * {@link JevError}: the response was received and billed, so resending would
-   * only re-bill a request that already succeeded.
+   * The payload of a response the server marked OK. This function reads the
+   * body once as text, then parses it. So a malformed body is settled here,
+   * not inside the retry machinery. This function throws both failures as a
+   * {@link JevError} and retries neither. The reason: the server already
+   * received and billed the request. A resend would only re-bill a request
+   * that already succeeded.
    */
   async function readOk(response: Response): Promise<{ status: number; payload: unknown }> {
     let text: string
@@ -346,13 +364,13 @@ export function createJev(opts: TypeSafeOptions): Jev {
   }
 
   /**
-   * One request, with retries. A retryable answer is a 429, a 529 or a
-   * transport failure (a network error, an aborted timeout, or a 2xx whose
-   * body cannot be parsed as JSON is NOT one of these: the request was billed
-   * and answered, just not the way the contract promises, so resending it
-   * would only re-bill it); everything else is either the payload or a
-   * {@link JevError} the caller has to look at. `Retry-After` wins over the
-   * computed backoff when the response carries one.
+   * One request, with retries. A retryable answer is a 429, a 529, or a
+   * transport failure like a network error or an aborted timeout. A 2xx
+   * response whose body cannot be parsed as JSON is NOT retryable. The
+   * server already billed and answered it, not as the contract promises, so
+   * a resend would only re-bill it. Everything else is either the payload or
+   * a {@link JevError} that the caller must look at. `Retry-After` wins over
+   * the computed backoff when the response carries one.
    */
   async function request(body: string): Promise<{ status: number; payload: unknown }> {
     const started = Date.now()
@@ -365,10 +383,11 @@ export function createJev(opts: TypeSafeOptions): Jev {
         try {
           const response = await send(body)
           if (response.ok) return await readOk(response)
-          // Unlike the JSON body in `readOk`, an unreadable non-OK body is not
-          // discarded as an empty string: an empty body and an unreadable one
-          // are different failures, and folding them together would hide a
-          // read failure as if the server had said nothing.
+          // Unlike the JSON body in `readOk`, this code does not discard an
+          // unreadable non-OK body as an empty string. An empty body and an
+          // unreadable one are different failures. If this code folded them
+          // together, it would hide a read failure. The result would look
+          // as if the server said nothing.
           const text = asBody(await response.text().catch(() => '(body unreadable)'))
           if (!RETRYABLE.has(response.status)) throw new JevError(response.status, text)
           lastStatus = response.status
@@ -409,8 +428,9 @@ export function createJev(opts: TypeSafeOptions): Jev {
     if (!isRecord(answers)) {
       throw refuse('TypeSafe returned no answers')
     }
-    // Optional on purpose: the contract promises the counts, and a response
-    // that omits them still carries answers worth returning.
+    // This field is optional on purpose. The contract promises the counts,
+    // but a response that omits them still carries answers this code must
+    // return.
     const counts = usage as { input_tokens?: number; output_tokens?: number } | undefined
     totals.inputTokens += counts?.input_tokens ?? 0
     totals.outputTokens += counts?.output_tokens ?? 0

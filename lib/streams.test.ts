@@ -1,14 +1,15 @@
-// The stream handling's own claims, including the two the port does NOT
-// implement because node already holds them. Those two are pinned against a
-// real child rather than asserted in prose: if a future node stopped opening
-// /dev/null over a closed descriptor, or started encoding stdout with the
-// locale, this file goes red instead of a session losing its report.
+// Tests for the stream handling's own claims, including the two the port
+// does NOT implement because node already holds them. Those two are
+// pinned against a real child, not asserted in prose. Suppose a future
+// node no longer opens /dev/null over a closed descriptor. Suppose it
+// begins to encode stdout with the locale instead. Then this file goes
+// red, and a session does not silently lose its report instead.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; the
-// file and line references below are to what they held at `cd0d515`, kept
-// because each says where a rule came from. Nothing here changed with the
-// deletion.
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree. The
+// file and line references below point to what they held at `cd0d515`.
+// They stay because each one says where a rule came from. Nothing here
+// changed with the deletion.
 import { expect, it } from 'vitest'
 import { createSandbox } from '../harness/sandbox.ts'
 import { run } from './process.ts'
@@ -16,10 +17,10 @@ import { createOutput, createWriter, readStdinText, streamFailures } from './str
 
 const HARNESS_FIXTURES = `${import.meta.dirname}/../harness/fixtures`
 
-/** A stand-in for `process.stdout`: what was written, and a way to raise the
- *  error node would raise. Not a mock of a system boundary (the boundary is
- *  covered against a real child below); it is the only way to deliver an
- *  `ENOSPC` on demand. */
+/** A stand-in for `process.stdout`: what was written, and a way to raise
+ *  the error node would raise. This is not a mock of a system boundary
+ *  (the boundary is covered against a real child below). It is the only
+ *  way to deliver an `ENOSPC` on demand. */
 const fake = () => {
   const written: string[] = []
   const listeners: Array<(error: NodeJS.ErrnoException) => void> = []
@@ -57,9 +58,9 @@ it('writes through to the stream it was given', () => {
 })
 
 it('goes quiet for good once the reader has gone away', () => {
-  // `gh-sync.py:79`: the jobs have already run and may have deleted branches,
-  // so the run finishes rather than abandoning the loop, and every later line
-  // is dropped instead of raising again.
+  // `gh-sync.py:79`: the jobs have already run, and may have deleted
+  // branches. The run finishes, and the loop does not stop early. Every
+  // later line is then dropped. It does not raise an error again.
   const stdout = fake()
   const writer = createWriter(stdout.stream)
 
@@ -72,9 +73,9 @@ it('goes quiet for good once the reader has gone away', () => {
 })
 
 it('re-throws every error that is not a broken pipe', () => {
-  // Round 5's review finding on #156: registering a listener silences node's
-  // default crash for EVERY code on that stream, so a disk that filled up
-  // would disappear along with the broken pipe.
+  // Round 5's review finding on #156: a listener, once registered,
+  // silences node's default crash for EVERY code on that stream. A disk
+  // that filled up would then disappear along with the broken pipe.
   const stdout = fake()
   createWriter(stdout.stream)
 
@@ -94,7 +95,7 @@ it('can be silenced deliberately, with nothing having gone wrong', () => {
 
 it('keeps stderr alive when stdout loses its reader', () => {
   // `include_stderr=False` (`gh-sync.py:83`): the pipe is the reader's
-  // business, and a real failure after that point still has to reach the
+  // business. A real failure after that point still has to reach the
   // terminal.
   const stdout = fake()
   const stderr = fake()
@@ -134,8 +135,9 @@ it('reads an empty stdin as an empty string', async () => {
 })
 
 it('writes UTF-8 whatever the locale says, so `use_utf8` has nothing to port', async () => {
-  // Python encodes stdout with the locale's codec, so under LC_ALL=C the
-  // report's ✓ is a UnicodeEncodeError on its first line. node does not.
+  // Python encodes stdout with the locale's codec. Under LC_ALL=C, the
+  // report's ✓ is a UnicodeEncodeError on its first line. node does not
+  // encode this way.
   const sandbox = createSandbox()
 
   const result = await run(process.execPath, [`${HARNESS_FIXTURES}/echo-argv.ts`, '✓ done'], {
@@ -146,10 +148,10 @@ it('writes UTF-8 whatever the locale says, so `use_utf8` has nothing to port', a
 })
 
 it('survives a descriptor that was closed before it started, so `bind_closed_streams` has nothing to port', async () => {
-  // Python sets `sys.stdout` to None here and raises an AttributeError after
-  // the work is already done (`streams.py`'s `bind_closed_streams`). node
-  // opens /dev/null over a closed stdio descriptor during startup, so the
-  // writes are discarded and the child still exits 0.
+  // Python sets `sys.stdout` to None here, and raises an AttributeError
+  // after the work is already done (`streams.py`'s `bind_closed_streams`).
+  // node opens /dev/null over a closed stdio descriptor during startup.
+  // The writes are discarded, and the child still exits 0.
   const result = await run('sh', [
     '-c',
     'exec 1>&- ; "$0" "$1" ok',
@@ -163,9 +165,10 @@ it('survives a descriptor that was closed before it started, so `bind_closed_str
 })
 
 it('reports every stream error that is not a broken pipe, and none that is', () => {
-  // The one place "only EPIPE is swallowed" is decided, tested directly rather
-  // than through a child, which is what lets `process.ts` attach it to stdin,
-  // stdout and stderr without an arm no real child can reach.
+  // This is the one place "only EPIPE is swallowed" is decided. It is
+  // tested directly, instead of through a child. This is what lets
+  // `process.ts` attach it to stdin, stdout and stderr without a branch no
+  // real child can reach.
   const broken: NodeJS.ErrnoException = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' })
   const full: NodeJS.ErrnoException = Object.assign(new Error('write ENOSPC'), { code: 'ENOSPC' })
 
@@ -174,9 +177,10 @@ it('reports every stream error that is not a broken pipe, and none that is', () 
 })
 
 it('falls back to the name for a stream error carrying no code', () => {
-  // Node's own stream errors all carry one, but a stream is an interface here
-  // and a caller's own can emit anything. An account with an empty `code` would
-  // read as "no error", so the name stands in.
+  // node's own stream errors all carry a code. A stream is an interface
+  // here, though, and a caller's own stream can emit anything. An account
+  // with an empty `code` would read as "no error", so the name stands in
+  // instead.
   expect(streamFailures(new Error('something went wrong'))).toEqual([
     { code: 'Error', message: 'something went wrong' },
   ])

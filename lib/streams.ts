@@ -1,57 +1,61 @@
-// The stdout and stderr handling every ported script repeats: the port of
-// `plugins/gh/scripts/lib/streams.py`, whose three duties are UTF-8 text, a
-// descriptor that is gone outright, and a reader that went away partway
-// through (`cmd | head`).
+// This file is the stdout and stderr handling every ported script repeats.
+// It is the port of `plugins/gh/scripts/lib/streams.py`. That script has
+// three duties. They are UTF-8 text, and a descriptor that is gone
+// outright. They are also a reader that went away partway through
+// (`cmd | head`).
 //
-// **Two of the three duties are node's already, and are pinned rather than
-// reimplemented** (`streams.test.ts` proves each against a real child):
+// **node already does two of the three duties. This file pins them, and
+// does not build them again** (`streams.test.ts` proves each against
+// a real child):
 //
 //   - *UTF-8*. `use_utf8` exists because Python encodes stdout with the
-//     locale's codec, so `LC_ALL=en_US.ISO8859-1` turns the report's ✓ into a
+//     locale's codec. `LC_ALL=en_US.ISO8859-1` turns the report's ✓ into a
 //     UnicodeEncodeError on the first line. node writes a string as UTF-8
-//     whatever the locale says, so there is nothing to configure on the way
-//     out. The one place the duty is real is on the way **in**, which is what
-//     {@link readStdinText} is for.
-//   - *A closed descriptor*. `bind_closed_streams` exists because Python sets
-//     `sys.stdout` to None when fd 1 was closed before launch, so every write
-//     afterwards is an AttributeError raised after the work is done. node
-//     opens /dev/null over any closed stdio descriptor during startup, so
-//     `process.stdout` is always a real stream and the writes are discarded,
-//     which is what a caller who ran `exec 1>&- ; ...` asked for.
+//     whatever the locale says, so there is nothing to configure on the
+//     way out. The one place the duty is real is on the way **in**, which
+//     is {@link readStdinText}'s job.
+//   - *A closed descriptor*. `bind_closed_streams` exists because Python
+//     sets `sys.stdout` to None when fd 1 was closed before launch. Every
+//     write afterward then raises an AttributeError, after the work is
+//     done. node opens /dev/null over any closed stdio descriptor during
+//     startup. `process.stdout` is then always a real stream, and the
+//     writes are discarded. This is what a caller that ran `exec 1>&- ;
+//     ...` asked for.
 //
-// The third duty is real here and is what this file is:
+// The third duty is real here, and it is what this file is for:
 //
-//   - *EPIPE*. A closed reader makes the write fail **asynchronously**, as an
-//     `error` event on the stream rather than as an exception at the call, so
-//     there is nothing to wrap in a `try`. With no listener node treats that
-//     event as uncaught and crashes with an internals stack trace, which is
-//     how `gh-sync.py | head` would end. `silence_output` is the answer the
-//     Python gives and {@link createWriter} is the same answer: the writer
-//     goes quiet and the run finishes normally, because by then the jobs have
-//     already run and may already have deleted branches, and abandoning the
-//     rest of the loop would only lose the account of it (`gh-sync.py:63` to
-//     `83`).
+//   - *EPIPE*. A closed reader makes the write fail **asynchronously**, as
+//     an `error` event on the stream, not as an exception at the call.
+//     There is nothing to wrap in a `try`. With no listener, node treats
+//     that event as uncaught, and crashes with an internal stack trace.
+//     That is how `gh-sync.py | head` would end.
 //
-// **Only EPIPE is swallowed.** Registering a listener at all silences node's
-// default crash for every error code on that stream, so an `ENOSPC` or `EIO`
-// is re-thrown here rather than disappearing with the broken pipe. That is
-// round 5's review finding on #156, and `plugins/mermaid/scripts/mermaid.ts` is
-// where the same rule landed for an entry point.
+//     `silence_output` is the answer the Python gives.
+//     {@link createWriter} gives the same answer: the writer goes quiet
+//     and the run finishes normally. By then the jobs have already run,
+//     and may already have deleted branches. To abandon the rest of the
+//     loop would only lose the account of it (`gh-sync.py:63` to `83`).
+//
+// **Only EPIPE is swallowed.** A listener, once registered, silences
+// node's default crash for every error code on that stream. An `ENOSPC`
+// or `EIO` is then re-thrown here, and does not disappear with the broken
+// pipe. That is round 5's review finding on #156. The same rule also
+// landed in `plugins/mermaid/scripts/mermaid.ts`, for an entry point.
 //
 // This file ships. It imports nothing at all, and stays inside the erasable
 // subset (ADR 001).
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; the
-// file and line references below are to what they held at `cd0d515`, kept
-// because each says where a rule came from. Nothing here changed with the
-// deletion.
+// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree. The
+// file and line references below point to what they held at `cd0d515`.
+// They stay because each one says where a rule came from. Nothing here
+// changed with the deletion.
 
-/** One stream error worth reporting: node's code and node's message. */
+/** One stream error to report: node's code and node's message. */
 export interface StreamFailure {
   /** node's own code, or the error's name for the rare error that carries
-   *  none. Only `EPIPE` is ever absent from this account, because only a
-   *  broken pipe is a reader that left rather than a write that failed. */
+   *  none. Only `EPIPE` is ever absent from this account. Only a broken
+   *  pipe is a reader that left, instead of a write that failed. */
   readonly code: string
   readonly message: string
 }
@@ -59,14 +63,16 @@ export interface StreamFailure {
 /**
  * A stream `error` event as the zero or one failure to report.
  *
- * The one place the rule "only EPIPE is swallowed" is written down, so the
- * writer below and `process.ts`'s three child pipes decide it the same way
- * rather than twice. It is a pure function taking the error and returning the
- * account of it, which is what lets `process.ts` attach it to stdin, stdout
- * and stderr with no branch of its own: a caller that asked "is this EPIPE"
- * would need an `if` whose non-EPIPE arm nothing can produce on a real child,
- * and an arm no test can reach is the branch the coverage rule says to
- * restructure away rather than exclude.
+ * This is the one place the rule "only EPIPE is swallowed" is written
+ * down. The writer below and `process.ts`'s three child pipes then decide
+ * it the same way, instead of twice. It is a pure function: it takes the
+ * error, and returns the account of it.
+ *
+ * This is what lets `process.ts` attach it to stdin, stdout and stderr
+ * with no branch of its own. A caller that asked "is this EPIPE" would
+ * need an `if`. Its non-EPIPE arm is a branch nothing can produce on a
+ * real child. An arm no test can reach is the branch the coverage rule
+ * says to restructure away, not to exclude.
  */
 export const streamFailures = (error: NodeJS.ErrnoException): readonly StreamFailure[] =>
   error.code === 'EPIPE' ? [] : [{ code: error.code ?? error.name, message: error.message }]
@@ -74,10 +80,11 @@ export const streamFailures = (error: NodeJS.ErrnoException): readonly StreamFai
 /**
  * As much of a writable stream as this file uses.
  *
- * Structural, so `process.stdout` satisfies it and a test satisfies it with
- * an object; an interface and not a class because every type that crosses the
- * `src/lib` symlink is seen by `tsc` under two identities and only a
- * structural one survives that (round 5's rule, reproduced on #156).
+ * This type is structural, so `process.stdout` satisfies it, and a test
+ * satisfies it with a plain object. It is an interface, not a class,
+ * because `tsc` sees every type that crosses the `src/lib` symlink under
+ * two identities. Only a structural type survives that (round 5's rule,
+ * reproduced on #156).
  */
 export interface OutputStream {
   write(text: string): boolean
@@ -88,27 +95,27 @@ export interface OutputStream {
 export interface Writer {
   /** Write, unless this writer has gone quiet. */
   write(text: string): void
-  /** Go quiet for good. The port of `silence_output` called deliberately, as
-   *  `gh-sync.py:269` does once the report is over. */
+  /** Go quiet for good. This is the port of `silence_output`, called
+   *  deliberately, as `gh-sync.py:269` does once the report is over. */
   silence(): void
-  /** Whether anything is still being written. `gh-sync-repo.py:173` keeps the
-   *  same flag (`self.quiet`) so that a report that lost its reader stops
-   *  building lines nobody will read. */
+  /** Whether this writer still writes. `gh-sync-repo.py:173` keeps the
+   *  same flag (`self.quiet`), so a report that lost its reader does not
+   *  build lines nobody will read. */
   readonly silenced: boolean
 }
 
 /**
  * A writer over `stream` that goes quiet on a broken pipe.
  *
- * The EPIPE guard is installed once, here, rather than at each write, because
- * the failure is an event and not a return value. Every other error code is
- * re-thrown, which node then reports as the uncaught exception it would have
- * been with no listener at all.
+ * The EPIPE guard is installed once, here, instead of at each write. The
+ * reason is that the failure is an event, not a return value. Every other
+ * error code is re-thrown. node then reports it as the uncaught exception
+ * it would have been, with no listener at all.
  */
 export const createWriter = (stream: OutputStream): Writer => {
   let silenced = false
   stream.on('error', (error) => {
-    // {@link streamFailures} is the rule; an empty account is the broken pipe.
+    // {@link streamFailures} is the rule. An empty account means a broken pipe.
     if (streamFailures(error).length === 0) {
       silenced = true
       return
@@ -141,15 +148,15 @@ export interface Output {
 /**
  * stdout and stderr as two independently guarded writers.
  *
- * Independent on purpose, and it is the whole of `include_stderr=False`
- * (`gh-sync.py:83`): a reader that closed the pipe took stdout with it, while
- * the jobs are still running and a real failure afterwards still has to be
- * able to reach the terminal.
+ * They are independent on purpose. This is the whole point of
+ * `include_stderr=False` (`gh-sync.py:83`). A reader that closed the pipe
+ * took stdout with it, while the jobs still run. A real failure afterward
+ * still has to reach the terminal.
  *
- * The streams are arguments rather than defaults reaching for
- * `process.stdout`, so a command holds no reference to the process it happens
- * to be running in and this file's suite needs no process at all (ADR 001,
- * "the command function is the seam").
+ * The streams are arguments, not defaults that reach for `process.stdout`.
+ * A command then holds no reference to the process it runs in. This
+ * file's suite also needs no process at all (ADR 001, "the command
+ * function is the seam").
  */
 export const createOutput = (out: OutputStream, err: OutputStream): Output => {
   const stdout = createWriter(out)
@@ -167,11 +174,12 @@ export const createOutput = (out: OutputStream, err: OutputStream): Output => {
 /**
  * Everything on `stream`, decoded as UTF-8 with replacement.
  *
- * The port of `use_utf8(sys.stdin)`, whose caller is `hook-io.py report`:
- * it reads a report carrying ✓, ✗ and ·, and an unreconfigured Python stream
- * raises UnicodeDecodeError instead of handing back a line. Replacement
- * rather than strict decoding, exactly as the Python's `errors="replace"`: a
- * stray byte must cost one character, not the whole report.
+ * This is the port of `use_utf8(sys.stdin)`, whose caller is `hook-io.py
+ * report`. That caller reads a report that carries ✓, ✗ and ·. An
+ * unreconfigured Python stream raises UnicodeDecodeError, and does not
+ * hand back a line. This file uses replacement, not strict decoding, the
+ * same as the Python's `errors="replace"`. A stray byte must cost one
+ * character, not the whole report.
  *
  * The parameter is the stream, not `process.stdin`, for the same reason
  * {@link createOutput} takes its streams.
