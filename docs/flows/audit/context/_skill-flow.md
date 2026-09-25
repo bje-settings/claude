@@ -1,4 +1,13 @@
-# context: flow
+---
+type: Reference
+description: What the /audit:context skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /audit:context skill flow
 
 What `/audit:context` does, and every way it can decline to act or come back incomplete.
 

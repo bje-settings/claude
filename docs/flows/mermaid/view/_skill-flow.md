@@ -1,4 +1,13 @@
-# view: flow
+---
+type: Reference
+description: What the /mermaid:view skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /mermaid:view skill flow
 
 ```mermaid
 flowchart TD

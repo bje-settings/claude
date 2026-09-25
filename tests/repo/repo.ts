@@ -17,6 +17,14 @@ export const LIB = path.join(ROOT, 'lib')
 // either returns.
 export const REPO_SKILLS = path.join(ROOT, '.claude', 'skills')
 export const SKILL_ROOTS = [PLUGINS, REPO_SKILLS] as const
+// The flow diagrams of every skill and of every subcommand a skill runs
+// (ADR 004, .claude/rules/file-skill-md.md). They live here, not in the
+// skill directory, because a skill directory ships to each user.
+export const FLOWS = path.join(ROOT, 'docs', 'flows')
+/** The flow directory for a repo-local skill, under FLOWS. */
+export const REPO_FLOWS = '_repo'
+/** The flow of the skill itself, in a skill's flow directory. */
+export const SKILL_FLOW = '_skill-flow.md'
 
 // This recursively finds every file named `name` under `dir`. It
 // descends into directories without limit; it compares anything else by
@@ -386,4 +394,38 @@ export function reservedDirectoryNames(root: string = PLUGINS): string[] {
     }
   }
   return violations.sort()
+}
+
+/**
+ * The flow directory for one SKILL.md. `plugins/<p>/skills/<s>/SKILL.md`
+ * maps to `docs/flows/<p>/<s>/`, and `.claude/skills/<s>/SKILL.md` maps to
+ * `docs/flows/_repo/<s>/`. The roots are parameters, so a test can run
+ * both arms: no repo-local skill exists today.
+ */
+export function flowDirFor(
+  skill: string,
+  roots: { plugins: string; repoSkills: string; flows: string } = {
+    plugins: PLUGINS,
+    repoSkills: REPO_SKILLS,
+    flows: FLOWS,
+  },
+): string {
+  const dir = path.dirname(skill)
+  if (isInside(roots.repoSkills, dir)) {
+    return path.join(roots.flows, REPO_FLOWS, path.relative(roots.repoSkills, dir))
+  }
+  // `<p>/skills/<s>`: the plugin name, then the path below `skills/`.
+  const parts = path.relative(roots.plugins, dir).split(path.sep)
+  return path.join(roots.flows, parts[0] as string, ...parts.slice(2))
+}
+
+// A call to a plugin's dispatcher with a subcommand, as a SKILL.md spells
+// it out: `node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" sync`. The
+// subcommand starts with a lowercase letter, so a pattern such as `*)` in
+// `allowed-tools` and a flag such as `--route` are not subcommands.
+const SUBCOMMAND_CALL = /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/[\w-]+\.ts" ([a-z][\w-]*)/g
+
+/** The dispatcher subcommands a SKILL.md runs, each once, sorted. */
+export function subcommandsRun(text: string): string[] {
+  return [...new Set([...text.matchAll(SUBCOMMAND_CALL)].map((match) => match[1] as string))].sort()
 }

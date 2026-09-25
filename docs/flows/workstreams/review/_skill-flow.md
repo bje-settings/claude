@@ -1,4 +1,13 @@
-# review, flow
+---
+type: Reference
+description: What the /workstreams:review skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /workstreams:review skill flow
 
 What `/workstreams:review` does to one pull request, and every way it declines to act.
 

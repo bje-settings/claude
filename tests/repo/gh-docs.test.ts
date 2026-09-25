@@ -25,12 +25,12 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
-import { PLUGINS } from './repo.ts'
+import { FLOWS, PLUGINS } from './repo.ts'
 
 const GH = path.join(PLUGINS, 'gh')
 const AGENT = path.join(GH, 'agents', 'shepherd-repo.md')
 const SKILL = path.join(GH, 'skills', 'shepherd', 'SKILL.md')
-const FLOW = path.join(GH, 'skills', 'shepherd', 'FLOW.md')
+const FLOW = path.join(FLOWS, 'gh', 'shepherd', '_skill-flow.md')
 
 const read = (file: string): string => readFileSync(file, 'utf8')
 
@@ -125,7 +125,7 @@ it('draws the settle branch in the shepherd diagram', () => {
 /** The `subgraph discover ... end` block of one FLOW.md, indentation
  *  stripped. */
 const discoverBlock = (skill: string): string => {
-  const lines = read(path.join(GH, 'skills', skill, 'FLOW.md')).split('\n')
+  const lines = read(path.join(FLOWS, 'gh', skill, '_skill-flow.md')).split('\n')
   const block: string[] = []
   let inside = false
   for (const line of lines) {

@@ -1,4 +1,13 @@
-# /gh:shepherd flow
+---
+type: Reference
+description: What the /gh:shepherd skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /gh:shepherd skill flow
 
 ```mermaid
 flowchart TD

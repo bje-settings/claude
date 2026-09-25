@@ -1,4 +1,13 @@
-# sweep, flow
+---
+type: Reference
+description: What the /workstreams:sweep skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /workstreams:sweep skill flow
 
 What `/workstreams:sweep` does, and every way it declines to act.
 

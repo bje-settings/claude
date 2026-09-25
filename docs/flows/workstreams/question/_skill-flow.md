@@ -1,4 +1,13 @@
-# question, flow
+---
+type: Reference
+description: What the /workstreams:question skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /workstreams:question skill flow
 
 What `/workstreams:question` does to one sweep report, and every way it declines to act.
 

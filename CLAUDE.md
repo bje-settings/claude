@@ -107,9 +107,10 @@ If a plugin grows and needs a different mechanism, raise it before the work star
 
 ### Skills
 
-Every skill directory carries a `FLOW.md` beside its `SKILL.md`. It holds a mermaid flow diagram.
-The diagram stays out of `SKILL.md`, which is loaded on every invocation. `tests/repo/skills.test.ts`
-enforces this rule across the plugins and `.claude/skills/`. See `.claude/rules/file-skill-md.md`.
+Every skill has a flow directory, `docs/flows/<plugin>/<skill>/`, with `_skill-flow.md` and one
+`<subcommand>-flow.md` for each dispatcher subcommand the skill runs. The diagrams stay out of
+`SKILL.md`, which is loaded on every invocation, and out of the skill directory, which ships.
+`tests/repo/skills.test.ts` enforces this rule. See `.claude/rules/file-skill-md.md`.
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 

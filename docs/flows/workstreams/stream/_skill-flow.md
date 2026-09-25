@@ -1,4 +1,13 @@
-# stream, flow
+---
+type: Reference
+description: What the /workstreams:stream skill does, and every way it declines to act.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# /workstreams:stream skill flow
 
 What `/workstreams:stream` does to one issue or one stack, and every way it declines to act.
 
