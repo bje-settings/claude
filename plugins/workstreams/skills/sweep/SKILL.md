@@ -51,8 +51,10 @@ and report per milestone.
    - **Classification**: work now, defer with a reason, or blocked on another issue.
    - **Touched files and regions**, from step 4, including the ones it may touch in comments
      only.
-   - **Sizing**: model and effort, with the reason. Say what the review is likely to cost as
-     well as the stream; [file-map.md](file-map.md) carries the figures to size against.
+   - **Sizing**: the model per layer and the session effort the round runs at, with the
+     reason; the stream agent inherits the session's effort. Say what the review is likely
+     to cost as well as the stream; [file-map.md](file-map.md) carries the figures to size
+     against.
    - **Cross-repository dependencies**, if any.
 
 6. Sequence. Collisions first. Two issues collide when they touch the same file or region,

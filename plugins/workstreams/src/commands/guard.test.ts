@@ -77,7 +77,7 @@ const trackSecondFile = (git: GitFixtures, work: string): void => {
  *  a real one from a subagent would carry them. */
 const call = (fields: Partial<ToolCall> = {}): ToolCall => ({
   agentId: 'agent_01',
-  agentType: 'workstreams:stream-high',
+  agentType: 'workstreams:stream',
   toolName: 'Bash',
   command: null,
   background: false,
@@ -93,7 +93,7 @@ describe('reading the payload', () => {
         cwd: '/w',
         hook_event_name: 'PreToolUse',
         agent_id: 'agent_01',
-        agent_type: 'workstreams:stream-high',
+        agent_type: 'workstreams:stream',
         tool_name: 'Bash',
         tool_input: { command: 'pnpm test', run_in_background: true },
       }),
@@ -103,7 +103,7 @@ describe('reading the payload', () => {
       outcome: 'ok',
       value: {
         agentId: 'agent_01',
-        agentType: 'workstreams:stream-high',
+        agentType: 'workstreams:stream',
         toolName: 'Bash',
         command: 'pnpm test',
         background: true,
@@ -370,7 +370,7 @@ describe('run_in_background', () => {
 
     expect(verdict.decision).toBe('deny')
     expect(verdict).toMatchObject({
-      reason: expect.stringContaining('subagent workstreams:stream-high'),
+      reason: expect.stringContaining('subagent workstreams:stream'),
     })
     expect(verdict).toMatchObject({ reason: expect.stringContaining('590000 ms') })
     // Nothing is written here: the decision is the caller's to render.
@@ -477,7 +477,7 @@ describe('git checkout and git restore, against real repositories', () => {
       // The denial names the worker, so a person reading it knows who was
       // stopped, and the paths, so they know what would have gone.
       expect(verdict).toMatchObject({
-        reason: expect.stringContaining('subagent workstreams:stream-high'),
+        reason: expect.stringContaining('subagent workstreams:stream'),
       })
       expect(verdict).toMatchObject({ reason: expect.stringContaining(named) })
       expect(output.stderr()).toBe('')
@@ -696,7 +696,7 @@ describe('what the hook writes', () => {
         Promise.resolve(
           JSON.stringify({
             agent_id: 'a',
-            agent_type: 'workstreams:stream-low',
+            agent_type: 'workstreams:stream',
             tool_name: 'Bash',
             tool_input: { command: 'pnpm test', run_in_background: true },
           }),
@@ -710,7 +710,7 @@ describe('what the hook writes', () => {
       hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string }
     }
     expect(body.hookSpecificOutput.permissionDecision).toBe('deny')
-    expect(body.hookSpecificOutput.permissionDecisionReason).toContain('workstreams:stream-low')
+    expect(body.hookSpecificOutput.permissionDecisionReason).toContain('workstreams:stream')
     expect(output.stderr()).toBe('')
   })
 
@@ -754,7 +754,7 @@ describe('what the hook writes', () => {
         Promise.resolve(
           JSON.stringify({
             agent_id: 'a',
-            agent_type: 'workstreams:stream-medium',
+            agent_type: 'workstreams:stream',
             cwd: work,
             tool_name: 'Bash',
             tool_input: { command: 'git checkout -- file.txt' },

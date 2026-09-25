@@ -28,8 +28,8 @@
 // `agent_type` is reported in the reason, so a person reading the denial
 // knows which worker was stopped, but is never matched on: a plugin
 // subagent's `agent_type` is the plugin-scoped name (sub-agents.md, "Project
-// level hooks for subagent events"), so matching it would bind the three
-// `workstreams:stream-*` agents and leave every reviewer, round agent and
+// level hooks for subagent events"), so matching it would bind the
+// `workstreams:stream` agent and leave every reviewer, round agent and
 // general purpose worker the same briefs are handed to unguarded. The
 // orchestrator keeps backgrounding, because completion is what wakes it.
 //

@@ -57,7 +57,7 @@ it('denies a subagent the background command it asked for', () => {
   const result = runScript(HOOK, {
     stdin: payload({
       agent_id: 'agent_01',
-      agent_type: 'workstreams:stream-high',
+      agent_type: 'workstreams:stream',
       cwd: sandbox.path,
       tool_input: { command: 'pnpm test', run_in_background: true },
     }),
@@ -65,7 +65,7 @@ it('denies a subagent the background command it asked for', () => {
   })
 
   expect(result.status).toBe(0)
-  expect(denialIn(result.stdout)).toContain('subagent workstreams:stream-high')
+  expect(denialIn(result.stdout)).toContain('subagent workstreams:stream')
   expect(result.stderr).toBe('')
 })
 
@@ -96,7 +96,7 @@ it('denies a subagent git checkout with a pathspec on a tree holding uncommitted
   const result = runScript(HOOK, {
     stdin: payload({
       agent_id: 'agent_01',
-      agent_type: 'workstreams:stream-medium',
+      agent_type: 'workstreams:stream',
       cwd: work,
       tool_input: { command: 'git checkout -- file.txt' },
     }),
@@ -121,7 +121,7 @@ it('allows the same command on a clean tree, in silence', () => {
   const result = runScript(HOOK, {
     stdin: payload({
       agent_id: 'agent_01',
-      agent_type: 'workstreams:stream-medium',
+      agent_type: 'workstreams:stream',
       cwd: work,
       tool_input: { command: 'git restore .' },
     }),
@@ -151,7 +151,7 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
     const result = runScript(HOOK, {
       stdin: payload({
         agent_id: 'agent_01',
-        agent_type: 'workstreams:stream-low',
+        agent_type: 'workstreams:stream',
         cwd: work,
         tool_input: { command },
       }),

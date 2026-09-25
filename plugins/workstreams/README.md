@@ -125,17 +125,17 @@ review found, and that is the most valuable part of an upper layer's brief.
 
 It is `user-invocable: false`: only the model invokes it, from an orchestrator once a plan is approved.
 
-### The three agents
+### The agent
 
-`agents/stream-low.md`, `stream-medium.md` and `stream-high.md` are one body with one
-frontmatter field between them. Effort can only come from a shipped agent definition, which
-is why there are three; the model is passed per call, so a layer's sizing is the caller's
-decision and not the definition's.
+`agents/stream.md` sets no `effort` and no `model`. The model is passed per call; effort
+cannot be ([sub-agents](https://code.claude.com/docs/en/sub-agents)), so the agent inherits
+the dispatching session's effort, and a layer sized at a different effort waits for the
+session to change it (#197, after #99).
 
 A plugin subagent ignores the `hooks`, `mcpServers` and `permissionMode` frontmatter fields
 ([sub-agents](https://code.claude.com/docs/en/sub-agents#choose-the-subagent-scope)), so
-nothing else can ride in these files and the guard below is a plugin hook rather than a line
-in them.
+nothing else can ride in this file and the guard below is a plugin hook rather than a line
+in it.
 
 ### The guard hook
 
@@ -168,7 +168,7 @@ Separating them needs a second question to git; the refusal costs a commit and n
 "only when the hook fires inside a subagent"
 ([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). `agent_type` is named
 in the refusal so a reader knows which worker was stopped, and is never matched on: matching
-it would bind the three agents above and leave every reviewer and round agent the same rules
+it would bind the agent above and leave every reviewer and round agent the same rules
 are handed to unguarded.
 
 An allow writes nothing at all, so the permission rules the user configured still decide the
@@ -194,7 +194,7 @@ own code decides on every call instead.
 Run it by hand with a payload on stdin, which is how Claude Code runs it:
 
 ```bash
-echo '{"hook_event_name":"PreToolUse","cwd":"'"$PWD"'","agent_id":"a","agent_type":"workstreams:stream-high","tool_name":"Bash","tool_input":{"command":"pnpm test","run_in_background":true}}' | node "${CLAUDE_PLUGIN_ROOT}/hooks/guard.ts"
+echo '{"hook_event_name":"PreToolUse","cwd":"'"$PWD"'","agent_id":"a","agent_type":"workstreams:stream","tool_name":"Bash","tool_input":{"command":"pnpm test","run_in_background":true}}' | node "${CLAUDE_PLUGIN_ROOT}/hooks/guard.ts"
 ```
 
 ## `/workstreams:question`

@@ -6,9 +6,9 @@ allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(
 user-invocable: false
 ---
 
-Issues to build: $ARGUMENTS. The issue order, the model and effort per layer come from the
-plan comment on the round's issues; the briefs go in the session's scratchpad. If the plan
-comment does not name the order, model and effort for every issue in `$ARGUMENTS`, stop and
+Issues to build: $ARGUMENTS. The issue order and the model per layer come from the plan
+comment on the round's issues; the briefs go in the session's scratchpad. If the plan
+comment does not name the order and model for every issue in `$ARGUMENTS`, stop and
 say which is missing rather than guessing: a placeholder left in a brief is a layer that
 will guess too.
 
@@ -41,10 +41,9 @@ layer is reviewed to `done` before the next is written.
 
    Check the brief against the repository before you send it.
 
-4. Dispatch one agent per layer: one subagent, `workstreams:stream-low`,
-   `workstreams:stream-medium` or `workstreams:stream-high` for the effort, with the `model`
-   the caller sized it at. The effort can only come from the agent definition; the model is
-   passed per call.
+4. Dispatch one agent per layer: one `workstreams:stream` subagent, with the `model` the
+   caller sized it at. The agent inherits this session's effort; effort cannot be passed
+   per call.
 
    Dispatch once and wait. A return that says it is still waiting is a layer stopped short:
    send it back with `SendMessage` and the narrowed instruction rather than dispatching a

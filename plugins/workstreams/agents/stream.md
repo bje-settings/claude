@@ -1,9 +1,8 @@
 ---
-name: stream-medium
+name: stream
 description: >
   Build one layer of one stack from one brief file, to a draft pull request with green CI.
-  Medium effort: a port or a command with its tests. Dispatched by /workstreams:stream only.
-effort: medium
+  Dispatched by /workstreams:stream only, with the model chosen per call.
 tools: Bash, Read, Edit, Write, Glob, Grep, WebFetch
 ---
 
