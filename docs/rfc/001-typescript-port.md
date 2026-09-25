@@ -1,6 +1,6 @@
 ---
 type: RFC
-description: Moves the marketplace's plugin scripts off Python 3.9 onto TypeScript executed directly by Node 22.18 or newer, with one root `lib/` symlinked into every plugin, tests co-located beside the code, and the local and CI quality gates split by venue.
+description: Moves the marketplace's plugin scripts off Python 3.9 onto TypeScript executed directly by Node 22.18 or newer, with one root `lib/` symlinked into every plugin, tests co-located beside the code (superseded by ADR 004), and the local and CI quality gates split by venue.
 status: stable
 created: 2026-09-12
 owner: brianespinosa
@@ -55,9 +55,10 @@ coverage apparatus.
 
 This RFC proposes moving plugin code, the hooks, ~~and `publish-plugin`~~ to TypeScript executed
 directly by Node 22.18 or newer, with no build step; one root `lib/` shared into each plugin by a
-committed symlink; tests co-located with the code they cover; and the quality gates split so the
-local hooks are staged-only and CI runs everything. **Revised at #128** (see Decisions &
-Follow-ups 14): `publish-plugin` is deleted rather than ported. The runtime decision is
+committed symlink; tests co-located with the code they cover (superseded by ADR 004); and the
+quality gates split so the local hooks are staged-only and CI runs everything. **Revised at
+#128** (see Decisions & Follow-ups 14): `publish-plugin` is deleted rather than ported. The
+runtime decision is
 [ADR 001](../adr/001-typescript-on-node-22-18.md); the gate venues are
 [ADR 002](../adr/002-quality-gate-venues.md).
 
