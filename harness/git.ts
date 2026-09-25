@@ -20,8 +20,18 @@
 // managers, which would leave this directory below its own coverage floor
 // locally.
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { afterAll } from 'vitest'
 import { findOnPath, type Sandbox } from './sandbox.ts'
 
 export const DEFAULT_BRANCH = 'main'
@@ -180,6 +190,32 @@ export interface GitFixtures {
   gitShim(...failing: string[]): { directory: string; failing: string }
 }
 
+/** The seeded origin and work tree that `create` and `createAt` copy, built
+ *  once per test file. vitest loads this module again for each test file, so
+ *  the template does not go from one file to the next. A new repository
+ *  starts as a copy of it and one `git remote set-url`, not the ten git
+ *  commands `seed` runs (#205). No caller gets a path into it, so no test can
+ *  change it. */
+let template: string | undefined
+
+/** Every template directory this module made, the template that is in use
+ *  and also one that a failed build left. All of them go at the end of the
+ *  file. */
+const templateDirs: string[] = []
+
+afterAll(() => {
+  for (const directory of templateDirs.splice(0)) {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  }
+  template = undefined
+})
+
+export interface GitFixturesOptions {
+  /** Seed each repository with git, and do not copy the template. Only the
+   *  test that proves a copy and a seeded repository agree needs this. */
+  readonly fresh?: boolean
+}
+
 /** Builders for repositories in known states, all inside one sandbox.
  *
  *  Every git call is isolated from the developer's own configuration. That
@@ -190,7 +226,7 @@ export interface GitFixtures {
  *  config lookup inside the sandbox, instead of leaving it to HOME alone
  *  (see `sandboxEnv`).
  */
-export function createGitFixtures(sandbox: Sandbox): GitFixtures {
+export function createGitFixtures(sandbox: Sandbox, options: GitFixturesOptions = {}): GitFixtures {
   function run(directory: string, args: string[], allowFailure: boolean): GitRun {
     const result = spawnSync(
       'git',
@@ -286,6 +322,32 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     return work
   }
 
+  /** The template, seeded on first use with this sandbox's git. When the
+   *  seed fails, `template` stays unset, so the next call tries again. */
+  function templateDir(): string {
+    if (template === undefined) {
+      const directory = mkdtempSync(path.join(os.tmpdir(), 'git-fixture-template-'))
+      templateDirs.push(directory)
+      seed(path.join(directory, 'origin.git'), path.join(directory, 'work'))
+      template = directory
+    }
+    return template
+  }
+
+  /** A repository at `bare` and `work`: a copy of the template, with origin
+   *  moved to its own `bare`. The copy has the template's config, branches,
+   *  upstream and `origin/HEAD`, because `seed` made all of them before the
+   *  copy. `set-url` runs with this sandbox's environment, so a git that
+   *  cannot start still fails here as it does in `seed`. */
+  function place(bare: string, work: string): string {
+    if (options.fresh === true) return seed(bare, work)
+    const from = templateDir()
+    cpSync(path.join(from, 'origin.git'), bare, { recursive: true })
+    cpSync(path.join(from, 'work'), work, { recursive: true })
+    git(work, 'remote', 'set-url', 'origin', bare)
+    return work
+  }
+
   /** A throwaway clone of the same origin, for builders that must move
    *  origin without a change to the work tree under test. */
   function cloneOrigin(work: string): string {
@@ -310,14 +372,14 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
 
     create(root: string): string {
       mkdirSync(root, { recursive: true })
-      return seed(path.join(root, 'origin.git'), path.join(root, 'work'))
+      return place(path.join(root, 'origin.git'), path.join(root, 'work'))
     },
 
     createAt(parent: string, name: string): string {
       // The origins directory is hidden, so a non-recursive scan of `parent`
       // finds work trees and nothing else.
       mkdirSync(path.join(parent, '.origins'), { recursive: true })
-      return seed(path.join(parent, '.origins', `${name}.git`), path.join(parent, name))
+      return place(path.join(parent, '.origins', `${name}.git`), path.join(parent, name))
     },
 
     commit(work: string, message: string, file = 'file.txt', content = message): void {

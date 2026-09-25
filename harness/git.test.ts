@@ -85,6 +85,80 @@ it('places fan-out repos directly under the scanned directory, origins hidden', 
   expectQuiet(git, sandbox.join('fan', '.origins', 'one.git'))
 })
 
+// --- the template copy (#205) ---------------------------------------------------
+
+/** What a test can see of a repository and its origin. A commit hash contains
+ *  its time, so this uses the tree and the message, not the hash. */
+function shape(git: GitFixtures, work: string, bare: string) {
+  const local = git
+    .git(work, 'config', '--local', '--list')
+    .split('\n')
+    .map((line) => line.replace(bare, '<bare>'))
+    .sort()
+  return {
+    branches: git.branches(work),
+    current: git.currentBranch(work),
+    originHead: git.git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD'),
+    upstream: git.git(work, 'rev-parse', '--abbrev-ref', '@{upstream}'),
+    tree: git.git(work, 'rev-parse', 'HEAD^{tree}'),
+    log: git.git(work, 'log', '--format=%s'),
+    status: git.git(work, 'status', '--porcelain'),
+    config: local,
+    bareRefs: git.git(bare, 'for-each-ref', '--format=%(refname)'),
+    bareConfig: git.git(bare, 'config', '--local', '--list').split('\n').sort(),
+  }
+}
+
+it('copies a repository that a test cannot tell from a seeded one', () => {
+  const sandbox = createSandbox()
+  const copied = createGitFixtures(sandbox)
+  const seeded = createGitFixtures(sandbox, { fresh: true })
+
+  const copy = copied.create(sandbox.join('copy'))
+  const fresh = seeded.create(sandbox.join('fresh'))
+
+  expect(copied.git(copy, 'remote', 'get-url', 'origin')).toBe(sandbox.join('copy', 'origin.git'))
+  expect(seeded.git(fresh, 'remote', 'get-url', 'origin')).toBe(sandbox.join('fresh', 'origin.git'))
+  expect(shape(copied, copy, sandbox.join('copy', 'origin.git'))).toEqual(
+    shape(seeded, fresh, sandbox.join('fresh', 'origin.git')),
+  )
+})
+
+it('pushes a copy to its own origin and to no other', () => {
+  const sandbox = createSandbox()
+  const git = createGitFixtures(sandbox)
+  const one = git.create(sandbox.join('one'))
+  const two = git.create(sandbox.join('two'))
+
+  git.commit(one, 'only in one')
+  git.push(one)
+  git.git(two, 'fetch', '-q', 'origin')
+
+  expect(git.git(sandbox.join('one', 'origin.git'), 'log', '--format=%s', DEFAULT_BRANCH)).toBe(
+    'only in one\nbase',
+  )
+  expect(git.git(two, 'log', '--format=%s', `origin/${DEFAULT_BRANCH}`)).toBe('base')
+  // A repository made after the push still starts from the template, so the
+  // push did not change the template.
+  const three = git.create(sandbox.join('three'))
+  expect(git.git(three, 'log', '--format=%s', `origin/${DEFAULT_BRANCH}`)).toBe('base')
+})
+
+it('fails a create when git cannot start, and does not break the next create', () => {
+  // The failure comes from the seed when the template is not there yet, and
+  // from `set-url` when it is. Both run with this sandbox's PATH.
+  const sandbox = createSandbox()
+  const git = createGitFixtures(sandbox)
+  const saved = sandbox.env.PATH
+  sandbox.env.PATH = sandbox.pathWithout('git')
+
+  expect(() => git.create(sandbox.join('none'))).toThrow(/ENOENT/)
+
+  sandbox.env.PATH = saved
+  const work = git.create(sandbox.join('r'))
+  expect(git.git(work, 'log', '--format=%s')).toBe('base')
+})
+
 // --- commits, branches and merges ---------------------------------------------
 
 it('appends to a tracked file on every commit', () => {
