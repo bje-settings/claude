@@ -1,7 +1,7 @@
-// A hand-rolled, line-based markdown splitter (#164, #171). No dependencies:
-// node built-ins only, so tier 0 stays auditable by reading this one file. It
-// trades full CommonMark generality for rules that are simple to verify by
-// hand against the fixtures in split.test.ts.
+// A hand-rolled, line-based markdown splitter (#164, #171). It has no
+// dependencies: it uses only node built-ins, so a reader can audit tier 0 in
+// this one file. It trades full CommonMark generality for rules that are
+// simple to verify by hand against the fixtures in split.test.ts.
 
 import type { OpaqueBlock, SplitResult, SplitWarning, Unit } from './types.ts'
 
@@ -10,9 +10,9 @@ type HeadingFrame = { level: number; text: string }
 /** A unit before `assignIds` and `withNeighbours` fill the remaining fields. */
 type DraftUnit = Omit<Unit, 'id' | 'prev' | 'next'>
 
-// The three growing outputs plus the file they all name. Threaded as one value
-// because every helper that emits anything needs all four, and a helper that
-// emits into them has no other result worth returning.
+// The three outputs that grow, plus the file they all name. The code threads
+// them as one value. Every helper that emits anything needs all four fields.
+// A helper that emits into them has no other result to return.
 type Sink = {
   file: string
   units: DraftUnit[]
@@ -20,8 +20,8 @@ type Sink = {
   warnings: SplitWarning[]
 }
 
-// One list item under construction while a list block is being scanned. Kept
-// mutable until the list block finishes, at which point it becomes a Unit.
+// One list item under construction while the parser scans a list block. It
+// stays mutable until the list block finishes, and then it becomes a Unit.
 type OpenItem = {
   indent: number
   contentColumn: number
@@ -59,15 +59,16 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     if (isHtmlCommentOpen(line)) {
       const closed = skipHtmlComment(lines, i)
       if (closed.next < 0) {
-        // Unclosed: end the comment at its own line rather than swallowing
-        // everything after it, and say so.
+        // Unclosed comment: end it at its own line. Do not swallow everything
+        // after it. Report a warning.
         sink.warnings.push({ file, line: i, kind: 'unclosed_comment' })
         i++
         continue
       }
       if (closed.trailing !== null) {
-        // Prose after `-->` on the closing line is real content: rewrite that
-        // line in place so the outer loop parses it fresh, at its own line number.
+        // Prose after `-->` on the closing line is real content. The code rewrites
+        // that line in place, so the outer loop parses it fresh, at its own line
+        // number.
         lines[closed.next - 1] = closed.trailing
         i = closed.next
       } else {
@@ -84,10 +85,10 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const heading = matchHeading(line)
     if (heading) {
-      // Stops at the top frame that is shallower than the new heading, or
-      // when the stack empties: both are real outcomes, not a fallback, so
-      // the loop reads the top fresh each time rather than defaulting a
-      // missing one to level 0.
+      // The loop stops at the top frame that is shallower than the new heading.
+      // It also stops when the stack empties. Both are real outcomes, not a
+      // fallback. The loop reads the top value fresh each time. It does not
+      // default a missing value to level 0.
       while (true) {
         const top = headingStack[headingStack.length - 1]
         if (top === undefined || top.level < heading.level) break
@@ -105,8 +106,8 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const headingPath = headingStack.map((h) => h.text)
 
-    // A pipe line at EOF has no next line to check for a separator, so it can
-    // never open a table.
+    // A pipe line at EOF has no next line to check for a separator. As a
+    // result, it can never open a table.
     const headerCells = i < total ? matchTableHeader(line, lineAt(lines, i + 1)) : null
     if (headerCells) {
       // The header's own line and the separator under it are not units.
@@ -126,9 +127,9 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
     for (let k = paraStart; k <= paraEnd; k++) paraLines.push(lineAt(lines, k))
     const joined = paraLines.join(' ').trim()
 
-    // "Directly before a list" also matches across blank lines: a blank line
-    // (or several) between a lead-in paragraph and the list it introduces is
-    // still tolerated. Both loops stay within afterBlank <= total.
+    // "Directly before a list" also matches across blank lines. A blank line, or
+    // several, between a lead-in paragraph and the list it introduces is still
+    // tolerated. Both loops stay within afterBlank <= total.
     let afterBlank = paraEnd + 1
     while (afterBlank <= total && isBlank(lineAt(lines, afterBlank))) afterBlank++
     const afterRaw = afterBlank <= total ? lineAt(lines, afterBlank) : null
@@ -142,8 +143,8 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
 
     const { text: paraText, map } = buildLineMap(paraLines, paraStart)
     for (const span of splitSentences(paraText)) {
-      // Every kept span has end > start and end <= paraText.length, so both
-      // offsets always land inside map, which buildLineMap sized to match.
+      // Every kept span has end > start and end <= paraText.length. Both offsets
+      // always land inside map, which buildLineMap sized to match.
       sink.units.push({
         file,
         startLine: map[span.start] as number,
@@ -165,7 +166,7 @@ export const splitMarkdown = (file: string, source: string): SplitResult => {
   }
 }
 
-/** Splits on \n, \r\n and bare \r, without dropping a trailing empty line's count. */
+/** Splits on \n, \r\n and bare \r. It does not drop a trailing empty line's count. */
 const splitLines = (source: string): string[] => {
   if (source === '') return []
   return source.split(/\r\n|\r|\n/)
@@ -173,11 +174,11 @@ const splitLines = (source: string): string[] => {
 
 const isBlank = (line: string): boolean => line.trim() === ''
 
-/** Strips one level of `>` blockquote marker; nested quoting is not modelled. */
+/** Strips one level of `>` blockquote marker. This function does not model nested quoting. */
 const stripBlockquote = (line: string): string => {
   const m = line.match(/^(\s*)>\s?(.*)$/)
-  // The trailing `.*` always matches, even against an empty remainder, so a
-  // successful match always populates group 2; the cast is erased and adds
+  // The trailing `.*` always matches, even against an empty remainder. So a
+  // successful match always populates group 2. The cast is erased and adds
   // no branch.
   return m ? (m[2] as string) : line
 }
@@ -186,15 +187,15 @@ const stripBlockquote = (line: string): string => {
  *  1..lines.length, so the cast is erased and adds no branch. */
 const lineAt = (lines: string[], no: number): string => stripBlockquote(lines[no - 1] as string)
 
-/** The length of a line's leading run of spaces and tabs, without a regex
- *  match whose result would need a fallback for TypeScript's sake: `\s*`
- *  always matches, so that fallback could never actually fire. */
+/** The length of a line's leading run of spaces and tabs. The regex match
+ *  needs no fallback for TypeScript's sake. `\s*` always matches, so the
+ *  fallback could never fire. */
 const leadingSpaces = (line: string): number => line.length - line.trimStart().length
 
 // A line that is one comment and nothing else: the first `-->` is the end of
-// the line. Plain string tests rather than a pattern, so a line carrying
-// prose between two comments (`<!-- a --> text <!-- b -->`) is not swallowed
-// whole.
+// the line. It uses plain string tests, not a pattern. This way the parser
+// does not swallow prose between two comments, for example
+// `<!-- a --> text <!-- b -->`.
 const isHtmlCommentFull = (line: string): boolean => {
   const trimmed = line.trim()
   return trimmed.startsWith('<!--') && trimmed.indexOf('-->', 4) === trimmed.length - 3
@@ -259,8 +260,8 @@ type ListMatch = { indent: number; content: string; contentColumn: number }
 const matchListMarker = (line: string): ListMatch | null => {
   const m = line.match(/^(\s*)([-*+]|\d+\.)(\s+)(.*)$/)
   if (!m) return null
-  // Four mandatory capturing groups: a successful match always populates
-  // all of them, so each cast is erased and adds no branch.
+  // Four mandatory capturing groups. A successful match always populates all
+  // of them, so each cast is erased and adds no branch.
   const indentStr = m[1] as string
   const marker = m[2] as string
   const gap = m[3] as string
@@ -273,8 +274,8 @@ const matchListMarker = (line: string): ListMatch | null => {
 }
 
 /**
- * Scans a list block starting at `start`, pushing one `list_item` unit per
- * item onto the sink. Returns the line to resume the outer loop from.
+ * Scans a list block that starts at `start`. It pushes one `list_item` unit
+ * per item onto the sink. It returns the line to resume the outer loop from.
  */
 const parseListBlock = (
   sink: Sink,
@@ -284,17 +285,19 @@ const parseListBlock = (
   topLeadIn: string | null,
 ): number => {
   const stack: OpenItem[] = []
-  // Items are finished (popped) in an order driven by list structure, not by
-  // where they started in the source: a sibling can close before its parent
-  // does. Collect them here and sort by startLine at the end, so units still
-  // come out in true document order regardless of pop order.
+  // The order in which items finish, that is, when they are popped, depends
+  // on list structure. It does not depend on where they started in the
+  // source. A sibling can close before its parent does. This code collects
+  // finished items here and sorts them by startLine at the end. Units then
+  // come out in true document order, regardless of pop order.
   const finished: OpenItem[] = []
   const total = lines.length
   let i = start
 
-  // Pops while the top item is at least as deep as `indent`, reading the top
-  // fresh on each pass rather than defaulting a missing one to -1: an empty
-  // stack is a real stopping condition, not a fallback value.
+  // Pops the stack while the top item is at least as deep as `indent`. It
+  // reads the top value fresh on each pass. It does not default a missing
+  // value to -1. An empty stack is a real stopping condition, not a
+  // fallback value.
   const popTo = (indent: number) => {
     while (true) {
       const top = stack[stack.length - 1]
@@ -328,8 +331,8 @@ const parseListBlock = (
 
     const marker = matchListMarker(line)
     if (marker) {
-      // Closes any open item at this depth or deeper: a same-indent line is
-      // a sibling of the item it replaces, not its continuation.
+      // This closes any open item at this depth or deeper. A same-indent
+      // line is a sibling of the item it replaces, not its continuation.
       popTo(marker.indent)
       const parent = stack[stack.length - 1]
       stack.push({
@@ -344,16 +347,17 @@ const parseListBlock = (
       continue
     }
 
-    // Read once and shared by the fence check and the continuation check
-    // below: both need "the item this line might belong to," and stack.length
-    // > 0 would only be asking the same question through the array length.
+    // The code reads it once and shares it between the fence check and the
+    // continuation check below. Both checks need "the item this line might
+    // belong to." A check of stack.length > 0 would only ask the same
+    // question through the array length.
     const top = stack[stack.length - 1]
 
     const fence = matchFenceOpen(line)
     if (fence && top !== undefined) {
       const resume = takeFence(sink, lines, i, fence, raw !== line, top.contentColumn)
-      // The fence closes whatever item held it: continuation resumes as a
-      // new paragraph rather than being folded back into the item's text.
+      // The fence closes whatever item held it. Continuation resumes as a
+      // new paragraph. It is not folded back into the item's text.
       popTo(0)
       i = resume
       continue
@@ -363,8 +367,9 @@ const parseListBlock = (
       const lineIndent = leadingSpaces(line)
       if (lineIndent >= top.contentColumn) {
         if (isHtmlCommentOpen(line) && skipHtmlComment(lines, i).next < 0) {
-          // Unclosed: end it at its own line rather than folding the rest of
-          // the file into the item's text, and say so, as the top level does.
+          // Unclosed comment: end it at its own line. Do not fold the rest
+          // of the file into the item's text. Report the warning, as the
+          // top level does.
           sink.warnings.push({ file: sink.file, line: i, kind: 'unclosed_comment' })
           i++
           continue
@@ -398,8 +403,9 @@ const parseListBlock = (
   return i
 }
 
-/** The last line of the hard-wrapped paragraph starting at `start`: the scan
- *  stops before the first line that opens a different kind of block, or at EOF. */
+/** The last line of the hard-wrapped paragraph that starts at `start`. The
+ *  scan stops before the first line that opens a different kind of block, or
+ *  at EOF. */
 const paragraphEnd = (lines: string[], start: number): number => {
   let end = start
   while (end + 1 <= lines.length) {
@@ -420,8 +426,8 @@ const paragraphEnd = (lines: string[], start: number): number => {
   return end
 }
 
-/** The paragraph's joined text, with one map entry per character giving the
- *  source line that character came from. */
+/** The paragraph's joined text, with one map entry per character; each entry
+ *  gives the source line that character came from. */
 const buildLineMap = (
   paraLines: string[],
   startLineNo: number,
@@ -433,10 +439,10 @@ const buildLineMap = (
     // line before it.
     const chunk = idx < paraLines.length - 1 ? `${line} ` : line
     text += chunk
-    // Indexed by UTF-16 code unit, not code point: `text`'s length and every
-    // offset splitSentences reads from it (`.length`, match indices) are code
-    // units too, so a surrogate pair must still cost exactly one map entry
-    // per unit or later offsets drift off the end of map.
+    // Indexed by UTF-16 code unit, not code point. `text`'s length and every
+    // offset that splitSentences reads from it (`.length`, match indices) are
+    // code units too. A surrogate pair must still cost exactly one map entry
+    // per unit. Otherwise later offsets drift off the end of map.
     for (let k = 0; k < chunk.length; k++) map.push(startLineNo + idx)
   })
   return { text, map }
@@ -458,9 +464,9 @@ const matchFenceOpen = (line: string): FenceOpen | null => {
 }
 
 /**
- * `quoted` is true when the fence opener was found on a blockquoted line: the
- * closer is then matched on the stripped line too, since `>` still prefixes
- * every line of the quoted fence body.
+ * `quoted` is true when the fence opener sits on a blockquoted line. Then
+ * the closer must also match on the stripped line. This is because `>`
+ * still prefixes every line of the quoted fence body.
  */
 const findFenceClose = (
   lines: string[],
@@ -479,15 +485,17 @@ const findFenceClose = (
 }
 
 /**
- * Pushes the opaque block a fence opener on line `start` produces, warning
- * when nothing closes it (the block then ends at the last line of the file),
- * and returns the line the caller resumes from. Serves both fence sites: at
- * the top level and inside a list item, which differ only in `strip`.
+ * Pushes the opaque block that a fence opener on line `start` produces. It
+ * warns when nothing closes the fence; the block then ends at the last line
+ * of the file. It returns the line the caller resumes from. It serves both
+ * fence sites, at the top level and inside a list item, which differ only
+ * in `strip`.
  *
- * `strip` undoes a containing list item's own indentation, so a nested
- * block's text reads the way it would unnested. The `>` comes off first:
- * inside a blockquote it sits before that indentation, so stripping spaces
- * alone would leave the marker in the block's text.
+ * `strip` undoes the indentation of the list item that contains the fence.
+ * A nested block's text then reads the way it would if it were not nested.
+ * The `>` comes off first. Inside a blockquote it sits before that
+ * indentation. If the code stripped spaces alone, the marker would stay in
+ * the block's text.
  */
 const takeFence = (
   sink: Sink,
@@ -533,8 +541,8 @@ const matchTableHeader = (line: string, next: string): string[] | null => {
   return splitTableRow(line)
 }
 
-// A separator row has no cell content, so its trailing pipe is unconditional:
-// unlike a body row, it can never end in an escaped `\|`.
+// A separator row has no cell content, so its trailing pipe is
+// unconditional. Unlike a body row, it can never end in an escaped `\|`.
 const isTableSeparator = (line: string): boolean => {
   let s = line.trim()
   if (s === '') return false
@@ -545,7 +553,7 @@ const isTableSeparator = (line: string): boolean => {
   return s.split('|').every((c) => /^:?-+:?$/.test(c.trim()))
 }
 
-/** The number of consecutive backticks starting at `from`. */
+/** The number of consecutive backticks that start at `from`. */
 const backtickRun = (text: string, from: number): number => {
   let n = 0
   while (text[from + n] === '`') n++
@@ -591,9 +599,10 @@ const splitTableRow = (line: string): string[] => {
   return cells
 }
 
-/** One unit per body row of a table, from `start` to the first line that is
- *  blank or carries no pipe. Each row's text is the header's own cell names
- *  paired with the row's values. Returns the line to resume from. */
+/** One unit per body row of a table. This runs from `start` to the first
+ *  line that is blank or carries no pipe. Each row's text pairs the
+ *  header's own cell names with the row's values. It returns the line to
+ *  resume from. */
 const readTableRows = (
   sink: Sink,
   lines: string[],
@@ -609,8 +618,8 @@ const readTableRows = (
     const text = headerCells
       .map((header, idx) => {
         const name = header.trim() === '' ? `col${idx + 1}` : header.trim()
-        // A row can carry fewer cells than the header; a missing one reads
-        // as empty rather than dropping the column.
+        // A row can carry fewer cells than the header. A missing one reads
+        // as empty; it does not drop the column.
         return `${name}: ${(cells[idx] ?? '').trim()}`
       })
       .join('\n')
@@ -677,10 +686,11 @@ const isAbbreviation = (text: string, periodIndex: number): boolean =>
     (a) => text.slice(periodIndex - a.length + 1, periodIndex + 1).toLowerCase() === a,
   )
 
-// Called on every span before the caller's `end > start` filter runs, so a
-// zero-length span (`start === end`) can reach here. The loop guards are what
-// keep both reads in range: `start < end` bounds the first, and `end > start`
-// with end never exceeding text.length (every span's invariant) the second.
+// The code calls this on every span before the caller's `end > start`
+// filter runs. So a zero-length span (`start === end`) can reach here. The
+// loop guards keep both reads in range. `start < end` bounds the first
+// read. `end > start`, with end no greater than text.length (every span's
+// invariant), bounds the second read.
 const trimSpan = (text: string, span: Span): Span => {
   let { start, end } = span
   while (start < end && /\s/.test(text[start] as string)) start++
@@ -689,13 +699,15 @@ const trimSpan = (text: string, span: Span): Span => {
 }
 
 /**
- * Splits paragraph text into sentence spans. The rule: split at `.`, `?` or
- * `!` followed by whitespace and then an uppercase letter, a backtick, or
- * `[`, outside code spans and links, skipping the abbreviations in
- * `ABBREVIATIONS` (`e.g.`, `i.e.`, `etc.`, `vs.`).
+ * Splits paragraph text into sentence spans. The rule: the code splits at
+ * `.`, `?` or `!` when whitespace follows. It also requires an uppercase
+ * letter, a backtick, or `[` right after that whitespace. It works outside
+ * code spans and links. It skips the abbreviations in `ABBREVIATIONS`
+ * (`e.g.`, `i.e.`, `etc.`, `vs.`).
  *
- * Called only on a paragraph's joined text, which always starts from a
- * non-blank line, so there is no blank-input case to guard against here.
+ * The code calls this function only on a paragraph's joined text. That text
+ * always starts from a non-blank line, so there is no blank-input case to
+ * guard against here.
  */
 const splitSentences = (text: string): Span[] => {
   const mask = computeProtectedMask(text)
@@ -709,10 +721,10 @@ const splitSentences = (text: string): Span[] => {
     // already known to be less than text.length.
     if (after >= text.length || !/\s/.test(text[after] as string)) continue
     let k = after
-    // k < text.length is checked by the loop guard before each read.
+    // The loop guard checks k < text.length before each read.
     while (k < text.length && /\s/.test(text[k] as string)) k++
     if (k >= text.length) continue
-    // The check above already ruled out k reaching text.length.
+    // The check above already shows that k cannot reach text.length.
     const nextCh = text[k] as string
     if (!/[A-Z`[]/.test(nextCh)) continue
     if (text[idx] === '.' && isAbbreviation(text, idx)) continue
@@ -725,9 +737,10 @@ const splitSentences = (text: string): Span[] => {
 }
 
 /**
- * Assigns ids in document order: `<file>:<start>-<end>` for the first unit on
- * a span, `#2`, `#3`... for later units that share the same span (two
- * sentences on one source line, for instance).
+ * Assigns ids in document order. The first unit on a span gets
+ * `<file>:<start>-<end>`. Later units that share the same span get `#2`,
+ * `#3`, and so on. This happens, for example, when two sentences sit on one
+ * source line.
  */
 const assignIds = (file: string, units: DraftUnit[]): Omit<Unit, 'prev' | 'next'>[] => {
   const seen = new Map<string, number>()

@@ -36,5 +36,5 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-A stage marked skipped is never read as "nothing found": the report says which reason applied,
-and a reviewer acts on tier 0's findings the same way whether or not the model stages ran.
+A stage marked skipped is never read as "nothing found." The report states which reason applied.
+A reviewer acts on tier 0's findings the same way, whether or not the model stages ran.

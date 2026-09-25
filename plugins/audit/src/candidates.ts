@@ -1,33 +1,34 @@
-// Candidate pairing for the context audit (#164, #174): the units worth asking
-// the model to compare, chosen with no model call. Lexical only (TF-IDF,
-// cosine), which is cheap enough to run over every unit and precise enough to
-// be worth a second look; deciding whether two units actually agree or
-// contradict is the model's job, not this file's.
+// This file pairs candidates for the context audit (#164, #174). It finds
+// which units the model should compare, without any model call. The method
+// is lexical only, TF-IDF and cosine similarity. This is cheap enough to run
+// over every unit. It is precise enough to be worth a second look. Whether
+// two units actually agree or contradict is the model's job, not this
+// file's job.
 //
-// The port of the spike's `candidates.ts`. Reached only through
-// `commands/context.ts`, which is where its behaviour is asserted: a candidate
-// is not an answer anybody consumes on its own.
+// This is the port of the spike's `candidates.ts`. Tests reach it only
+// through `commands/context.ts`. That is where its behaviour is checked. A
+// candidate is not an answer anybody consumes on its own.
 
 import type { Unit } from './types.ts'
 
-/** Two units worth comparing, `a < b` by id. */
+/** Two units to compare, `a < b` by id. */
 export type PairCandidate = { a: string; b: string; similarity: number }
 
 /** How many pairs one unit may appear in, on either side. A unit that says
- *  nearly what a dozen others say is worth a second look a few times over,
- *  and the twelfth call buys nothing the first few did not. */
+ *  nearly what a dozen others say is worth a second look, a few times over.
+ *  The twelfth call buys nothing the first few did not. */
 const MAX_PER_UNIT = 5
 
-/** A unit shorter than this, in tokens, is never paired: there is not enough
- *  text for a shared-vocabulary match to mean anything, and a short line
- *  ("See below.") would otherwise pair with everything that happens to share
- *  one common word. */
+/** A unit shorter than this, in tokens, is never paired. There is not
+ *  enough text for a shared-vocabulary match to mean anything. Without this
+ *  floor, a short line, such as "See below.", would pair with anything that
+ *  shares one common word. */
 const MIN_TOKENS = 4
 
-/** A short, generic list: articles, conjunctions and the like. Domain words
- *  ("plugin", "test", "issue") are left in on purpose, because `idf` already
- *  discounts whatever turns out to be common in a given corpus; a longer
- *  hand-picked list here would be tuned to one repository's own prose. */
+/** A short, generic list: articles, conjunctions and the like. Domain
+ *  words, such as "plugin", "test", and "issue", stay on purpose. `idf`
+ *  already discounts whatever is common in a given corpus. A longer
+ *  hand-picked list here would fit only one repository's own prose. */
 const STOPWORDS = new Set([
   'a',
   'an',
@@ -67,10 +68,10 @@ const STOPWORDS = new Set([
 ])
 
 /**
- * `text` as a token list: a backticked code span's content is kept as one
- * lowercased token (so `` `lib/git.ts` `` is a single term, not three), and
- * the remaining prose is lowercased, split on word boundaries and filtered
- * against {@link STOPWORDS}.
+ * `text` as a token list. A backticked code span's content becomes one
+ * lowercased token. For example, `` `lib/git.ts` `` is a single term, not
+ * three. The remaining prose is lowercased, split on word boundaries, and
+ * filtered against {@link STOPWORDS}.
  */
 const tokenize = (text: string): string[] => {
   const tokens: string[] = []
@@ -78,8 +79,9 @@ const tokenize = (text: string): string[] => {
     tokens.push(code.toLowerCase())
     return ' '
   })
-  // `matchAll` rather than `match`, which answers `null` for a text holding no
-  // word at all and would leave a branch here nothing could reach.
+  // This uses `matchAll`, not `match`. `match` answers `null` for a text
+  // that holds no word at all. That would leave a branch here that nothing
+  // could reach.
   for (const match of prose.toLowerCase().matchAll(/[a-z0-9]+(?:[-'_][a-z0-9]+)*/g)) {
     const word = match[0]
     if (!STOPWORDS.has(word)) tokens.push(word)
@@ -87,16 +89,18 @@ const tokenize = (text: string): string[] => {
   return tokens
 }
 
-/** A table row's grouping key: same file, same heading path. Two rows with
- *  that key and identical text are one column value repeated down a table
- *  rather than duplicated content, so a pair between them is dropped whatever
- *  their similarity. Any other block kind gets `null`, which is never treated
- *  as equal to another `null`: two rows under DIFFERENT headings get different
- *  keys and so still pair. */
+/** A table row's group key: same file, same heading path. Two rows with
+ *  that key and identical text are one column value, repeated down a table.
+ *  This is not duplicated content. So the audit drops a pair between them,
+ *  whatever their similarity.
+ *
+ *  Any other block kind gets `null`. The audit never treats one `null` as
+ *  equal to another. So two rows under DIFFERENT headings get different
+ *  keys, and can still pair. */
 const tableGroup = (unit: Unit): string | null =>
   unit.block === 'table_row' ? `${unit.file}\u0000${unit.headingPath.join('>')}` : null
 
-/** Two rows of one table holding the same value. */
+/** Two rows of one table that hold the same value. */
 const repeatedCell = (unit: Unit, other: Unit): boolean => {
   if (unit.text !== other.text) return false
   const group = tableGroup(unit)
@@ -104,23 +108,27 @@ const repeatedCell = (unit: Unit, other: Unit): boolean => {
 }
 
 /**
- * The document-frequency ceiling for a token to be worth looking OTHER units
- * up by, as an absolute number of units. A token above it still WEIGHTS a
- * comparison (its `idf` is simply small); it just stops being used to find
- * candidates, because scanning a postings list holding a large share of the
- * corpus, once per unit, is most of the way back to the full pairwise
- * comparison this index exists to avoid.
+ * The document-frequency ceiling for a token, as an absolute count of
+ * units. Below this ceiling, the audit uses the token to look up other
+ * units. A token above the ceiling still weights a comparison, since its
+ * `idf` is simply small. The audit no longer uses it to find candidates.
+ *
+ * The reason: a postings list that covers a large share of the corpus
+ * takes a long time to scan. The audit repeats that scan once per unit.
+ * That comes close to the full pairwise comparison this index exists to
+ * avoid.
  */
 const POSTINGS_DF_CAP = 200
 
-/** The same ceiling as a share of the corpus, so the rule holds on a small one
- *  too: a token in a quarter of 40 units is as unselective there as a token in
- *  200 of 20,000. */
+/** The same ceiling, as a share of the corpus. This makes the rule hold on
+ *  a small corpus too. A token in a quarter of 40 units is as unselective
+ *  there as a token in 200 of 20,000. */
 const POSTINGS_DF_SHARE = 0.25
 
-/** Below this the share rule would empty the index (a quarter of four units is
- *  one, and every token two units share sits above that), so a corpus of a
- *  handful of units keeps every token; scanning it is free at that size. */
+/** Below this floor, the share rule would empty the index. A quarter of
+ *  four units is one, and every token that two units share sits above
+ *  that. So a corpus of a handful of units keeps every token. At that
+ *  size, a full scan is free. */
 const POSTINGS_DF_FLOOR = 8
 
 const postingsDfCap = (corpusSize: number): number =>
@@ -145,8 +153,8 @@ const postingsOf = (
   return postings
 }
 
-/** The units sharing at least one indexed token with `id`, which is every unit
- *  the scoring below could possibly score above zero. */
+/** The units that share at least one indexed token with `id`. This is every
+ *  unit that the code below could score above zero. */
 const coOccurring = (
   id: string,
   tokensByUnit: Map<string, string[]>,
@@ -164,9 +172,9 @@ const coOccurring = (
 
 const pairKey = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`)
 
-/** The dot product of two token-weight maps, iterating the smaller one: both
- *  vectors are already L2-normalised below, so this dot product IS the cosine
- *  similarity. */
+/** The dot product of two token-weight maps. It iterates over the smaller
+ *  one. Both vectors are already L2-normalised below. So this dot product
+ *  IS the cosine similarity. */
 const dot = (a: Map<string, number>, b: Map<string, number>): number => {
   const [small, large] = a.size <= b.size ? [a, b] : [b, a]
   let sum = 0
@@ -188,10 +196,10 @@ const documentFrequencies = (tokensByUnit: Map<string, string[]>): Map<string, n
 
 /** Each unit's L2-normalised TF-IDF vector, keyed by id.
  *
- *  The idf is smoothed (`+1` on both sides and on the result): a token in
- *  every unit still gets a small positive weight rather than exactly zero,
- *  which keeps a unit made entirely of very common tokens comparable at all
- *  instead of vanishing to a zero vector. */
+ *  The idf is smoothed: `+1` on both sides and on the result. A token in
+ *  every unit still gets a small positive weight, not exactly zero. This
+ *  keeps a unit made entirely of very common tokens comparable at all.
+ *  Otherwise it would vanish to a zero vector. */
 const vectorsOf = (
   tokensByUnit: Map<string, string[]>,
   documentFrequency: Map<string, number>,
@@ -209,13 +217,13 @@ const vectorsOf = (
     const weights = new Map<string, number>()
     let normSquared = 0
     for (const [token, count] of termFrequency) {
-      // Every token counted here was counted into `documentFrequency` first.
+      // `documentFrequency` already counted every token here.
       const weight = count * (idf.get(token) as number)
       weights.set(token, weight)
       normSquared += weight * weight
     }
-    // A unit of at least four tokens has at least one non-zero weight, so the
-    // norm is never zero and there is nothing to guard against here.
+    // A unit of at least four tokens has at least one non-zero weight. So
+    // the norm is never zero. There is nothing to guard against here.
     const norm = Math.sqrt(normSquared)
     for (const [token, weight] of weights) weights.set(token, weight / norm)
     vectors.set(id, weights)
@@ -227,28 +235,29 @@ const vectorsOf = (
  * Candidate pairs of similar units, lexical only, chosen before any model
  * call.
  *
- * Never pairs a unit with itself, emits each pair once (`a < b` by id), skips
- * a unit under {@link MIN_TOKENS} tokens entirely, drops a cell repeated down
- * one table ({@link repeatedCell}), and lets no unit appear in more than
- * {@link MAX_PER_UNIT} pairs.
+ * It never pairs a unit with itself. It emits each pair once, `a < b` by
+ * id. It skips a unit under {@link MIN_TOKENS} tokens entirely. It drops a
+ * cell repeated down one table ({@link repeatedCell}). It lets no unit
+ * appear in more than {@link MAX_PER_UNIT} pairs.
  */
 export const candidatePairs = (
   units: readonly Unit[],
   options: { threshold: number },
 ): PairCandidate[] => {
-  // Sorted BEFORE the index is built, not after. Id order is what makes the
-  // run deterministic twice over: which unit is the query side first decides
-  // which pairs fill a cap up, and the order the postings lists are written in
-  // decides which of two EQUALLY similar candidates is scored first, since the
-  // sort below is stable. Built in document order instead, the same repository
-  // spends a tight `--max-pairs` on a different pair depending on where its
-  // units happen to sit in the file.
+  // Sorted BEFORE the index is built, not after, so id order makes the run
+  // deterministic twice over. First, which unit is the query side decides
+  // which pairs fill a cap. Second, the order in which the postings lists
+  // are written decides which of two EQUALLY similar candidates scores
+  // first. This is because the sort below is stable. Built in document
+  // order instead, the same repository would spend a tight `--max-pairs` on
+  // a different pair. That pair depends on where its units happen to sit in
+  // the file.
   //
-  // Two arms and not three: ids are unique by construction (`split.ts`
-  // disambiguates a collision with `#2`), so an equal-ids arm is a branch no
+  // Two arms, and not three. Ids are unique by construction: `split.ts`
+  // disambiguates a collision with `#2`. So an equal-ids arm is a branch no
   // input can reach.
-  // One pass: the eligibility test and the index want the same tokens, so a
-  // unit's text is tokenized once rather than once for each.
+  // One pass: the eligibility test and the index want the same tokens. So
+  // the code tokenizes a unit's text once, not once for each.
   const eligible: Unit[] = []
   const tokensByUnit = new Map<string, string[]>()
   const byId = new Map<string, Unit>()
@@ -284,15 +293,16 @@ export const candidatePairs = (
     scored.sort((x, y) => y.similarity - x.similarity)
 
     for (const candidate of scored) {
-      // Both counts are re-read here rather than in `scored`: earlier turns of
-      // this same loop change them.
+      // The code re-reads both counts here, rather than in `scored`, because
+      // earlier turns of this same loop change them.
       if (countOf(unit.id) >= MAX_PER_UNIT) break
       if (countOf(candidate.other.id) >= MAX_PER_UNIT) continue
       seen.add(pairKey(unit.id, candidate.other.id))
       taken.set(unit.id, countOf(unit.id) + 1)
       taken.set(candidate.other.id, countOf(candidate.other.id) + 1)
-      // Sorted rather than compared: which of the two was the query side is an
-      // artefact of the loop, and a pair is named the same way whichever it was.
+      // Sorted, rather than compared. Which of the two was the query side is
+      // an artefact of the loop. A pair is named the same way, whichever
+      // one it was.
       const [a, b] = [unit.id, candidate.other.id].sort() as [string, string]
       pairs.push({ a, b, similarity: candidate.similarity })
     }

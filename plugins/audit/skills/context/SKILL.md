@@ -1,10 +1,10 @@
 ---
 name: context
 description: >
-  Audit a checkout's CLAUDE.md, README.md and .claude/**/*.md for rot:
-  references that no longer resolve, statements whose named condition has
-  ended, and duplicated claims. Runs fully without a key; repository text
-  reaches TypeSafe only when TYPESAFE_API_KEY is set.
+  Audit a checkout's CLAUDE.md, README.md, and .claude/**/*.md for rot. Rot
+  is a reference that no longer resolves, a statement whose condition has
+  ended, or a duplicate claim. The audit runs fully without a key. Repository
+  text reaches TypeSafe only when TYPESAFE_API_KEY is set.
 allowed-tools: Bash
 disable-model-invocation: true
 ---
@@ -24,10 +24,10 @@ without one. Pass the user's arguments straight through; supported flags are `--
 
 ## Step 2: Report
 
-Print the findings verbatim. A non-zero exit changes what that means: exit 1 says at least one
-model call failed, so say the audit is incomplete before triaging (the report's own `failures`
-section names which call); exit 2 means the request was refused, and there is nothing on stdout
-to print.
+Print the findings verbatim. A non-zero exit changes what that means. Exit 1 means at least one
+model call failed. State that the audit is incomplete before you triage the findings. The
+report's own `failures` section names which call failed. Exit 2 means the audit refused the
+request, and there is nothing on stdout to print.
 
 ## Step 3: Triage
 
@@ -36,8 +36,9 @@ Tell the reviewer which findings to verify first, in this order:
 1. Absent references (tier 0, near-certain).
 2. Volatile units whose named issue has closed.
 3. Duplicate pairs, highest confidence first.
-4. Evidence contradictions last: the excerpt a claim is judged against is only the cited file's
-   first 6,000 characters, so a claim about something further down can read as contradicted.
+4. Evidence contradictions last. The evidence stage judges a claim only against the first 6,000
+   characters of the cited file's excerpt. A claim about something further down can look
+   contradicted when it is not.
 
-Verify each finding against the actual files before treating it as true, and never edit
-anything on a finding alone.
+Verify each finding against the actual files before you treat it as true. Never edit anything
+based on a finding alone.
