@@ -395,14 +395,14 @@ export function developmentFiles(roots: readonly string[] = [PLUGINS, LIB]): str
   return violations.sort()
 }
 
-// The directories `testsOutsideTests` does not walk: other checkouts of
-// this repository, installed packages, git's own store, and `tests/`,
+// The paths below the repository root that `testsOutsideTests` does not
+// walk: other checkouts of this repository, git's own store, and `tests/`,
 // where a test belongs.
-const NOT_WALKED = [path.join('.claude', 'worktrees'), '.git', 'node_modules', 'tests']
+const NOT_WALKED = [path.join('.claude', 'worktrees'), '.git', 'tests']
 
-// Every file under `dir` outside NOT_WALKED, as a path relative to `top`.
-// This walk does not go into a symlink, for the reason `directoriesUnder`
-// gives. `node_modules` is not walked at any depth.
+// Every file under `dir`, as a path relative to `top`. This walk skips
+// NOT_WALKED, and a `node_modules` directory at any depth. It does not go
+// into a symlink, for the reason `directoriesUnder` gives.
 function repositoryFiles(top: string, dir: string = top): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
