@@ -145,8 +145,9 @@ it('pushes a copy to its own origin and to no other', () => {
 })
 
 it('fails a create when git cannot start, and does not break the next create', () => {
-  // The failure comes from the seed when the template is not there yet, and
-  // from `set-url` when it is. Both run with this sandbox's PATH.
+  // An earlier test in this file made the template, so the failure comes from
+  // `set-url`, which runs with this sandbox's PATH. `git.template.test.ts`
+  // proves the case where the seed fails.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const saved = sandbox.env.PATH
