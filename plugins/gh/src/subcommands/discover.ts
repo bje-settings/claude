@@ -10,10 +10,10 @@
 // `python3 "$S/lib/discover.py" "$PWD"` until this port. The plugin then
 // owed it a node form.
 //
-// `fixtures/python-cli-output.json`'s `discover` rows are what the Python
+// `tests/plugins/gh/fixtures/python-cli-output.json`'s `discover` rows are what the Python
 // printed for each of these states. The rows were captured before any of
-// it was ported. `discover.test.ts` compares against them.
-// `fixtures/divergences-discover.json` is what this file deliberately
+// it was ported. `tests/plugins/gh/subcommands/discover.test.ts` compares against them.
+// `tests/plugins/gh/fixtures/divergences-discover.json` is what this file deliberately
 // says instead.
 //
 // The command function is the seam (ADR 001). Arguments and the process's

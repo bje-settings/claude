@@ -12,7 +12,7 @@
 // `process.argv` and stdin into its arguments. It turns its envelope into
 // an exit code and a stream.
 //
-// Its own spawned contract test, `src/bin.test.ts`, exercises it this way.
+// Its own spawned contract test, `tests/plugins/mermaid/bin.test.ts`, exercises it this way.
 // `harness/spawn.ts` is only the runner that test uses.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'

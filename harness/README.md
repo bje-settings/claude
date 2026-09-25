@@ -17,9 +17,10 @@ than node built-ins. It uses `vitest` only for one cleanup hook.
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands must handle. `importTree` commits a fixture directory into one repository. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
 | `spawn.ts` | One `scripts/` or `hooks/` entry point, run as its own process. `runScript` gives argv in, and status and streams out. `startScript` starts the process with its pipes open, so a test can take the reader. |
-| `fixtures/` | The tiny programs that `spawn.test.ts` runs. Vitest and the coverage tool skip them. Biome and `tsc` still check them. |
+| `paths.ts` | `ROOT` and `pluginFile`: the path to a plugin's script or hook, for a test that runs it as a process. |
 
-Each module's `*.test.ts` file asserts that module's own claims. Without this, a builder could
+Each module's claims are asserted in `tests/harness/<module>.test.ts`. The tiny programs that
+`tests/harness/spawn.test.ts` runs are in `tests/harness/fixtures/`. Without these tests, a builder could
 quietly stop producing its state. Every test built on that builder would then pass for the wrong
 reason.
 
@@ -97,7 +98,7 @@ a null pull request for one it could not read. `listWorkflowRuns` answers `{ row
 
 The double answers `listIssues` with the same reply for any milestone. One registration holds no
 state and has no conditional logic. A test that needs a different answer per milestone must build
-`createGhClient` over a runner that answers by argv instead. `plugins/workstreams/src/subcommands/sweep.test.ts`
+`createGhClient` over a runner that answers by argv instead. `tests/plugins/workstreams/subcommands/sweep.test.ts`
 does this with its captured replies.
 
 - A registered reply comes back on **every** call. The mock holds no state and has no
@@ -153,7 +154,7 @@ leave a command's own `error instanceof JevError && error.status === ...` branch
 its tests. `ghFails` closes the same gap for `GhError`.
 
 `usage()` is not registrable. It always answers zeros, because the mock holds no state to add a
-real total against. A test that cares what a run actually spent must use `lib/jev.test.ts`'s
+real total against. A test that cares what a run actually spent must use `tests/lib/jev.test.ts`'s
 transport (`typesafe.ts`) instead, where the counting logic lives.
 
 A second argument registers a **sequence** for `judgePair` or `judgeEvidence`. This has the same
@@ -259,7 +260,7 @@ Two constructors, because the two scopes need different shapes:
 Both constructors copy one template repository, then point `origin` at the copy's own bare
 repository with `git remote set-url`. The template is seeded with git one time for each test file
 and removed when that file ends. A seed is about ten git processes, and a copy is one (#205).
-`git.test.ts` proves that a test cannot tell a copy from a seeded repository.
+`tests/harness/git.test.ts` proves that a test cannot tell a copy from a seeded repository.
 `createGitFixtures(sandbox, { fresh: true })` seeds each repository and makes no copy. Only that
 proof uses it.
 
@@ -308,7 +309,7 @@ suite runs. `GH_` variables go with them, because `gh` is an injected mock. Noth
 reach the real `gh`. A child holding the developer's token would turn that mistake into a live
 API call, instead of a failure.
 
-The distinction between the three merge builders is load-bearing. `git.test.ts` asserts each of
+The distinction between the three merge builders is load-bearing. `tests/harness/git.test.ts` asserts each of
 those claims directly.
 
 ## The package-manager builders
@@ -359,10 +360,9 @@ empty strings.
 
 ```bash
 pnpm test                                        # the whole suite, with coverage
-pnpm exec vitest run harness                     # this directory alone
-pnpm exec tsc -p tsconfig.json                   # types, including fixtures/
+pnpm exec vitest run tests/harness               # this directory's tests alone
+pnpm exec tsc -p tsconfig.json                   # types, including the fixtures
 pnpm exec biome ci . --error-on-warnings         # lint and format
 ```
 
-`harness/**/*.ts` is measured at 100 on lines, branches, functions, and statements. Test files
-and `fixtures/` are excluded from that count.
+`harness/**/*.ts` is measured at 100 on lines, branches, functions, and statements.

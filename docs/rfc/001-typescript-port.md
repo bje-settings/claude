@@ -384,7 +384,8 @@ and that entry is load-bearing here.
   installed plugin is larger than the plugin. It is dead weight rather than a hazard, but it is
   weight~~, and the mirror filter that keeps it out of the downstream copy is one more rule to keep
   in sync with the layout~~. **Revised at #128:** there is no mirror filter; the downstream mirror
-  was frozen rather than kept clean.
+  was frozen rather than kept clean. **Superseded at #205:** nothing test-only ships now
+  ([ADR 004](../adr/004-plugins-ship-runtime-files-only.md)).
 - **Symlinks need git symlink support.** A clone on Windows without `core.symlinks` gets a text
   file where `plugins/<p>/src/lib` should be, and the failure is an unresolved import rather than a
   clear message. The repository's own tooling already assumes a POSIX checkout, but this makes the
@@ -580,7 +581,9 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     whole plugin directory into the cache with no exclusion mechanism, so tests and fixtures ship
     inertly. *Against:* the cache copy carries fixture trees for no one's benefit~~, and the mirror
     filter is one more rule that has to stay in sync with the layout, enforced by a test rather
-    than by the structure~~.
+    than by the structure~~. **Superseded at #205** by
+    [ADR 004](../adr/004-plugins-ship-runtime-files-only.md): tests and fixtures live under
+    `tests/`, outside every plugin, and do not ship.
 11. **The records live in `docs/rfc/` and `docs/adr/`**, under the `path-docs`, `path-docs-adr` and
     `path-docs-rfc` rules copied from `SurveyMonkey/skills` unchanged. *Against:* it is a docs tree
     to maintain, with an index to keep current on every landing, in a repository that has managed

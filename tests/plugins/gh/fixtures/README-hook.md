@@ -8,7 +8,7 @@ the commit that made it, and nobody edits the file that documents it either.
 | --- | --- |
 | `hook-output.json` | 54 runs of `plugins/gh/hooks/hook-io.py`, one per case, plus the `syncTimeout` table. |
 
-`plugins/gh/src/subcommands/hook-io.test.ts` and `plugins/gh/src/hook.test.ts` read this, beside
+`tests/plugins/gh/subcommands/hook-io.test.ts` and `tests/plugins/gh/hook.test.ts` read this, beside
 `divergences-hook.json`, which is the table of what the port deliberately says instead. That file
 is not a capture. It grows when someone finds a divergence. That is the only way a divergence
 stays countable, instead of turning into a silently rewritten expectation. A test reads every row
@@ -20,7 +20,7 @@ raises there, and the payload has no cwd to use instead. So the failure arrives 
 hook's own guards run. `slow-entry.ts` and `quick-entry.ts` are the other two. They stand in for
 `scripts/gh.ts` in the one example that measures a real bound. One never answers, so the timer,
 not an injected result, fires the timeout arm. The other answers at once, so the same bound must
-not fire. All three are programs, not data, for the same reason `lib/fixtures/`'s five are: the
+not fire. All three are programs, not data, for the same reason `tests/lib/fixtures/`'s five are: the
 suite that needs them has nowhere else to put a program. `vitest.config.ts` excludes
 `**/fixtures/**` from collection and from coverage. So the suite lints and type-checks both, but
 never measures them.
@@ -104,7 +104,7 @@ for row in rows:
         timeout = row["rows"]
         continue
     runs[name] = row
-pathlib.Path("plugins/gh/src/fixtures/hook-output.json").write_text(
+pathlib.Path("tests/plugins/gh/fixtures/hook-output.json").write_text(
     json.dumps({"runs": runs, "syncTimeout": timeout}, indent=2, ensure_ascii=False) + "\n",
     encoding="utf-8",
 )
@@ -134,7 +134,7 @@ Run once, from the repository root, before a line of the hook port is written:
     rm tests/gh/test_capture_hook.py
 
 It writes one JSON object per line to `$HOOK_CAPTURE/lines.jsonl`. The fixture
-file `plugins/gh/src/fixtures/hook-output.json` is that stream regrouped by
+file `tests/plugins/gh/fixtures/hook-output.json` is that stream regrouped by
 `name`, in the order the run produced them.
 
 Every case records the hook's own run (`argv`, `stdin`, `env`, `status`,

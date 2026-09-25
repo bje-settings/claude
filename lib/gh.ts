@@ -621,7 +621,7 @@ export interface GhClientOptions {
    *  drives every endpoint, and every arm of the failure each one reports,
    *  in-process, with nothing spawned and no `gh` on the machine. The
    *  runner itself is the thing tested against real children
-   *  (`process.test.ts`); a copy of that test here would only prove node
+   *  (`tests/lib/process.test.ts`); a copy of that test here would only prove node
    *  twice. */
   readonly run?: Runner
 }

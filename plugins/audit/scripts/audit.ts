@@ -10,7 +10,7 @@
 // This file ships. It holds no decisions. `src/subcommands/context.ts` is the
 // seam a test reaches without a process. This adapter only turns
 // `process.argv` and this process's streams into that function's arguments.
-// It turns the function's answer into an exit code. `src/bin.test.ts`,
+// It turns the function's answer into an exit code. `tests/plugins/audit/bin.test.ts`,
 // through `harness/spawn.ts`, is the one spawned test.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'

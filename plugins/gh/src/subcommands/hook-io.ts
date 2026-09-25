@@ -35,7 +35,7 @@
 // the key order, the `", "` and `": "` separators that Python's
 // `json.dump` writes, the `\uXXXX` escaping that `ensure_ascii` applies,
 // and the trailing newline. {@link emit} is where that contract lives.
-// `fixtures/hook-output.json` is the only thing the tests compare against.
+// `tests/plugins/gh/fixtures/hook-output.json` is the only thing the tests compare against.
 //
 // This file keeps the three subcommands beside `session-start`. They are
 // the seams that the tests use, and that a person can use to debug the
@@ -750,7 +750,7 @@ export const repoCount = async (cwd: string, env: NodeJS.ProcessEnv): Promise<nu
  * child as its positional argument instead. To name the target as the
  * child's `cwd` would read as the more explicit form, but it is a
  * behaviour change. A directory that cannot be entered (mode 000, which
- * `fixtures/hook-output.json` captures) would then give a child that could
+ * `tests/plugins/gh/fixtures/hook-output.json` captures) would then give a child that could
  * not start, and a hook that says nothing. Today, instead, the child runs,
  * refuses the directory in its own words, and the session gets that
  * sentence.

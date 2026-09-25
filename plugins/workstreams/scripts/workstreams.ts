@@ -8,7 +8,7 @@
 // This file ships. It holds no decisions. Each command function under
 // `src/subcommands/` is the seam a test reaches without a process. This adapter
 // only turns `process.argv` and this process's streams into that function's
-// arguments, and its answer into an exit code. `src/bin.test.ts`, through
+// arguments, and its answer into an exit code. `tests/plugins/workstreams/bin.test.ts`, through
 // `harness/spawn.ts`, is the one spawned test, on the paths that need no
 // `gh` at all.
 //

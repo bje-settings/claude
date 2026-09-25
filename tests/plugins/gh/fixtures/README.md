@@ -1,4 +1,4 @@
-# plugins/gh/src/fixtures
+# tests/plugins/gh/fixtures
 
 This is the captured contract for the TypeScript sync commands. Everything here came out of the
 Python that is still in the tree at `plugins/gh/scripts/`, **before** anyone ported any of it.

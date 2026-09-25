@@ -8,10 +8,10 @@
 // **Parity ruling (maintainer, 2026-09-20): parity is of MEANING, not of the
 // URL string.** Python's `zlib.compress(..., 9)` and node's `deflateSync` at
 // level 9 give different bytes for the same input. Node ships its own zlib
-// build. So `url.test.ts` never asserts a URL against a fixed string.
+// build. So `tests/plugins/mermaid/subcommands/url.test.ts` never asserts a URL against a fixed string.
 //
 // It inflates what this file produced. It compares the parsed values
-// against `fixtures/*.json`. These fixtures were captured from the Python
+// against `tests/plugins/mermaid/fixtures/*.json`. These fixtures were captured from the Python
 // code before deletion. The comparison checks both levels: the outer state
 // object, and its `mermaid` value. The `mermaid` value is JSON inside JSON.
 import { deflateSync } from 'node:zlib'
@@ -47,7 +47,7 @@ const ROUTE_CHOICES = Object.keys(ROUTE_PREFIXES) as Route[]
 // This uses `as const`, not `: ArgSpec` and not `satisfies ArgSpec`. Either
 // annotation widens `choices` to `readonly string[]` and every key to
 // `string`. That collapses `Options<typeof ARG_SPEC>` to an index signature
-// (lib/README.md, lib/args.test.ts). This is the same shape lib/args.test.ts
+// (lib/README.md, tests/lib/args.test.ts). This is the same shape tests/lib/args.test.ts
 // writes as mermaid's own command line. It is the first caller
 // `parseArguments` has, minus `help`. `-h`/`--help` is resolved by
 // `wantsHelp` below, before `argv` ever reaches `parseArguments`.
@@ -111,7 +111,7 @@ function buildUrl(diagram: string, route: Route, theme: string): string {
  * characters. A diagram that carries one of those characters at either
  * edge keeps it here. The old script would have removed it there.
  *
- * `url.test.ts` pins exactly this case, instead of a workaround. To match
+ * `tests/plugins/mermaid/subcommands/url.test.ts` pins exactly this case, instead of a workaround. To match
  * Python here, this repository would need to write its own stripper by
  * hand. This repository would then own that code.
  */

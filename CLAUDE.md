@@ -108,7 +108,7 @@ If a plugin grows and needs a different mechanism, raise it before the work star
 ### Skills
 
 Every skill directory carries a `FLOW.md` beside its `SKILL.md`. It holds a mermaid flow diagram.
-The diagram stays out of `SKILL.md`, which is loaded on every invocation. `tests/skills.test.ts`
+The diagram stays out of `SKILL.md`, which is loaded on every invocation. `tests/repo/skills.test.ts`
 enforces this rule across the plugins and `.claude/skills/`. See `.claude/rules/file-skill-md.md`.
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
@@ -125,7 +125,7 @@ Two things would differ from a plugin:
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
 
-`tests/skills.test.ts` checks a repo-local skill too, including the frontmatter that `--strict`
+`tests/repo/skills.test.ts` checks a repo-local skill too, including the frontmatter that `--strict`
 would otherwise cover.
 
 ### Tests
@@ -134,10 +134,16 @@ would otherwise cover.
 
 #### Layout and fixtures
 
-- TypeScript tests sit beside the code, at `plugins/<plugin>/src/**/*.test.ts`, with fixtures at
-  `src/fixtures/`. The shared harness lives in `harness/` at the repository root (see
-  `harness/README.md`). Only test files import it, so it never ships. `tests/` holds this
-  repository's own checks.
+- Every test lives under `tests/`, never in a plugin or in `lib/`, because Claude Code copies a
+  plugin's whole directory into each user's cache (ADR 004, `.claude/rules/path-plugins.md`).
+  `tests/plugins/<plugin>/` mirrors `plugins/<plugin>/src/`, with fixtures at
+  `tests/plugins/<plugin>/fixtures/`. `tests/lib/` and `tests/harness/` hold the tests of `lib/`
+  and `harness/`, and `tests/repo/` holds this repository's own checks.
+- A test imports plugin code through the `#<plugin>/*` aliases in the root `package.json`, and
+  the harness through `#harness/*`. `harness/paths.ts` names a plugin's scripts and hooks for a
+  test that runs them as a process.
+- The shared harness lives in `harness/` at the repository root (see `harness/README.md`). No
+  plugin file imports it, so it never ships.
 
 #### Coverage
 
@@ -173,7 +179,7 @@ would otherwise cover.
 - Assert against real repositories that the fixtures build. Do not mock git. `harness/git.ts`
   builds these repositories.
 - A fixture may claim what state it produces. Assert that claim in the fixture's own test too
-  (`harness/*.test.ts`). Then the other tests cannot pass for the wrong reason.
+  (`tests/harness/*.test.ts`). Then the other tests cannot pass for the wrong reason.
 - Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
   repositories outside the `bje` enterprise into this repository. Reconstruct the shape of the
   case instead.

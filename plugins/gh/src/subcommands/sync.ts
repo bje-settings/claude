@@ -76,7 +76,7 @@ order, never in the order the jobs happened to finish.`
  * exit status of its own. It can still throw. `syncRepo` deliberately
  * lets anything that is not a `GhError` escape. The wording here is this
  * file's own, not the Python's, because the Python names a script and a
- * status that no longer exist. `fixtures/divergences.json` records this
+ * status that no longer exist. `tests/plugins/gh/fixtures/divergences.json` records this
  * wording against the line it replaces.
  *
  * The mark comes from {@link REPORT}, not a literal string, because this
@@ -92,7 +92,7 @@ export const failureLine = (error: unknown): string =>
 /**
  * What a job says when it returns a non-zero status and does not throw.
  * It uses the same vocabulary {@link failureLine} uses for a job that
- * threw. See #81, round 7 ruling 2, `fixtures/divergences.json`
+ * threw. See #81, round 7 ruling 2, `tests/plugins/gh/fixtures/divergences.json`
  * "exitStatus". `RepoJob` promises a status, but the real job, `syncRepo`,
  * never answers anything but 0. A test can reach this code only through a
  * stand-in it drives. This is the same way a test reaches `failureLine`,
@@ -346,7 +346,7 @@ export const createSyncCommand =
     if (only !== undefined && (await toplevel(found.resolved, context.env)) !== null) {
       // #81: this code used to drop the status outright, the way the
       // shell version dropped it at its lines 72 to 73. See
-      // `fixtures/divergences.json` "exitStatus". A skipped repository
+      // `tests/plugins/gh/fixtures/divergences.json` "exitStatus". A skipped repository
       // is still exit 0 (`sync-repo.ts` always answers 0 for one). That
       // has not changed. Only a job that threw, or answered non-zero, now
       // makes this path answer `failed`.

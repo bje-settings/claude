@@ -24,9 +24,10 @@ plugins/<plugin>/
   src/
     lib -> ../../../lib        # committed symlink
     subcommands/<command>.ts   # one exported function per subcommand: the seam
-    subcommands/<command>.test.ts # co-located with the code it covers
-    fixtures/                  # for the tests under commands/
   hooks/*.ts
+tests/plugins/<plugin>/        # mirrors plugins/<plugin>/src/; never shipped (ADR 004)
+  subcommands/<command>.test.ts
+  fixtures/
 ```
 
 ## The command function is the seam
@@ -59,7 +60,7 @@ The directory is `scripts/`, never `bin/`. claude.ai rejects a plugin that carri
 organization settings at all
 ([plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces#keep-executables-out-of-the-top-level-bin-directory)).
 While the plugin is enabled, the Bash tool also adds `bin/` to its own `PATH`. Nothing here wants
-that. RFC 001 decision 16. `tests/repo-layout.test.ts` refuses a plugin that carries one
+that. RFC 001 decision 16. `tests/repo/repo-layout.test.ts` refuses a plugin that carries one
 (`binDirectories`), because nothing else here goes red when it comes back.
 
 One dispatcher serves each plugin, with an arm per command. So the plugin carries one floor
@@ -77,15 +78,17 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 
 ## Tests
 
-- A test sits beside the code it covers: `lib/args.test.ts` next to `lib/args.ts`, and
-  `plugins/<p>/src/subcommands/<command>.test.ts` next to the command. Fixtures for that plugin sit
-  at `plugins/<p>/src/fixtures/`. `vitest.config.ts` names the collected globs. It does not find
-  them on its own. So you add a new source directory there deliberately.
-- The shared harness is `harness/` at the repository root. Only test files import it, so it never
-  ships. `harness/README.md` has the rest of the test side.
+- A test lives under `tests/`, at the mirror of the code it covers: `tests/lib/args.test.ts` for
+  `lib/args.ts`, `tests/plugins/<p>/subcommands/<command>.test.ts` for
+  `plugins/<p>/src/subcommands/<command>.ts`. Fixtures go in `tests/plugins/<p>/fixtures/`.
+  `.claude/rules/path-plugins.md` says why nothing test-only goes in a plugin.
+- A test imports plugin code as `#<p>/...` and the harness as `#harness/...`, from the `imports`
+  map in the root `package.json`. A plugin test reaches `lib/` as `#<p>/lib/...`, through the
+  plugin's symlink, so it sees the same module the plugin sees.
+- The shared harness is `harness/` at the repository root. `harness/README.md` has the rest of
+  the test side.
 - A slow test file can be in parts, `<command>.<part>.test.ts`, so that vitest runs the parts at
-  the same time. The helpers of the parts go in `<command>.test-support.ts`. That file is test
-  code: it can import `harness/`, and coverage does not measure it (#205).
+  the same time. The helpers of the parts go in `<command>.test-support.ts` beside them (#205).
 - `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
   `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
   and names itself. This is the property a stub binary cannot give. A command that reached for
@@ -99,9 +102,8 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 
 ## Boundaries
 
-- The committed symlink `plugins/<p>/src/lib -> ../../../lib` is the only path out of a plugin. A
-  test file may additionally import `harness/`. `tests/repo-layout.test.ts` enforces both
-  (`crossPluginImports`, `libLinkViolations`).
+- The committed symlink `plugins/<p>/src/lib -> ../../../lib` is the only path out of a plugin.
+  `tests/repo/repo-layout.test.ts` enforces this (`crossPluginImports`, `libLinkViolations`).
 - The link target is compared as the exact string `../../../lib`, not resolved to a path. This
   string is what Claude Code's installer classifies. A link elsewhere in the same marketplace is
   dereferenced into the cache copy. But another spelling that resolves here installs differently.

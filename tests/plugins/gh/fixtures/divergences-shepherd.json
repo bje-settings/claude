@@ -1,5 +1,5 @@
 {
-  "why": "Every place the shepherd port answers differently from the Python it replaces, as data a test reads rather than as prose in a README. The rule is layer 2's, recorded at fixtures/README.md: a divergence stays countable, and a ninth cannot appear without a row here. README-shepherd.md explains each one at length; this file is what the parity blocks in commands/shepherd-pr.parity-*.test.ts and commands/shepherd-status.test.ts are driven from.",
+  "why": "Every place the shepherd port answers differently from the Python it replaces, as data a test reads rather than as prose in a README. The rule is layer 2's, recorded at fixtures/README.md: a divergence stays countable, and a ninth cannot appear without a row here. README-shepherd.md explains each one at length; this file is what the parity blocks in subcommands/shepherd-pr.parity-*.test.ts and subcommands/shepherd-status.test.ts are driven from.",
   "notReplayed": {
     "shepherd-pr": {
       "help": {

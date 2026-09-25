@@ -9,7 +9,7 @@
 // `src/subcommands/` is the seam a test reaches without a process. This
 // adapter only turns `process.argv` and this process's streams into that
 // function's arguments. It turns the function's answer into an exit code.
-// `src/bin.test.ts`, through `harness/spawn.ts`, is the one spawned test.
+// `tests/plugins/gh/bin.test.ts`, through `harness/spawn.ts`, is the one spawned test.
 // It covers the paths that need no `gh` at all.
 //
 // **The dispatch is `run` below and nothing else.** The import inside each
@@ -20,7 +20,7 @@
 // `python3 "$S/lib/discover.py" "$PWD"` until the port deleted the Python.
 // The port then owed this command a node form. It answers with its own
 // status, not an envelope. Its two refusals are exit 1, in the contract
-// that `fixtures/python-cli-output.json` captured.
+// that `tests/plugins/gh/fixtures/python-cli-output.json` captured.
 //
 // The hook is not here. `hooks/hook-io.ts` is its own entry point, the way
 // `hooks/hook-io.py` was. `hooks.json` runs one file this way. The three

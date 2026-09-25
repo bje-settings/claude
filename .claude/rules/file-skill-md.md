@@ -41,7 +41,7 @@ Do NOT hold the command in a variable and expand it (`S="node ...ts"` then `$S s
 not word-split an unquoted expansion. So it looks up the whole string as one command name, and
 the call exits 127. The Bash tool's shell is whatever the user's login shell is. It discards
 shell state between calls. So a variable or function defined in one block is not there for the
-next. `tests/skills.test.ts` enforces this.
+next. `tests/repo/skills.test.ts` enforces this.
 
 Mermaid renders natively in GitHub and in Claude Code. It needs no build step or image. Keep the
 source readable. If a reader must render the diagram to understand it, the diagram defeats its

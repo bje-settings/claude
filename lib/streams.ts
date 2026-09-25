@@ -5,7 +5,7 @@
 // (`cmd | head`).
 //
 // **node already does two of the three duties. This file pins them, and
-// does not build them again** (`streams.test.ts` proves each against
+// does not build them again** (`tests/lib/streams.test.ts` proves each against
 // a real child):
 //
 //   - *UTF-8*. `use_utf8` exists because Python encodes stdout with the

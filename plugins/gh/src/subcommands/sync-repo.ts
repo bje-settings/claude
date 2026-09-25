@@ -2,8 +2,8 @@
 // fast-forwards it, and installs if a lock file changed. It also prunes
 // branches whose work has landed. It is the port of
 // `plugins/gh/scripts/gh-sync-repo.py`. Its report is a byte-pinned contract
-// (`src/fixtures/bash-output.json`, captured from the shell version before
-// the port deleted it). `sync-repo.parity.test.ts` asserts that contract line for
+// (`tests/plugins/gh/fixtures/bash-output.json`, captured from the shell version before
+// the port deleted it). `tests/plugins/gh/subcommands/sync-repo.parity.test.ts` asserts that contract line for
 // line.
 //
 // Exit status is 0 for a synced repository, and also for a skipped one. A
@@ -183,7 +183,7 @@ const lastLine = (text: string): string => text.replace(/\n+$/, '').split('\n').
  *
  * That is the same rule the Python applies to a multi-line stderr. It means
  * the wording for those arms now belongs to `lib/gh.ts`, not this file.
- * `fixtures/divergences.json` lists each one.
+ * `tests/plugins/gh/fixtures/divergences.json` lists each one.
  *
  * This uses `detail`, not `message`. The message carries a
  * `gh <argv> failed: ` prefix. gh's ordinary refusal is a SINGLE line of

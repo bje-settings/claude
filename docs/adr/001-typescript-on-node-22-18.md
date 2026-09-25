@@ -124,7 +124,10 @@ copy and sit there inert, imported by nothing and executed by nothing. ~~The dow
 different audience, read by another team as the plugin's source, so `publish-plugin` filters
 `*.test.ts`, fixture directories and `evals/` out of it.~~ **Deviation ([#128](https://github.com/bje-settings/claude/issues/128)):**
 as above, `publish-plugin` was removed rather than ported, so this filter was never built; the
-downstream mirror it would have applied to stops receiving updates instead.
+downstream mirror it would have applied to stops receiving updates instead. **Superseded
+([#205](https://github.com/bje-settings/claude/issues/205)):** tests and fixtures no longer ship.
+They live under `tests/`, outside every plugin; see
+[ADR 004](004-plugins-ship-runtime-files-only.md).
 
 ~~**Both hook scripts port**, the `gh` SessionStart hook and `field-test`'s PreToolUse, PostToolUse,
 PostToolUseFailure, SubagentStop and Stop hooks, with a silent Node floor guard replacing
@@ -173,7 +176,9 @@ dereferenced into it, and nothing else.
   plugin, permanently, because there is no exclusion mechanism to ask for. ~~The mirror filter keeps
   the downstream copy clean and is one more rule to keep in sync with the layout.~~ **Deviation
   ([#128](https://github.com/bje-settings/claude/issues/128)):** there is no mirror filter; the
-  downstream mirror was frozen rather than kept clean.
+  downstream mirror was frozen rather than kept clean. **Superseded
+  ([#205](https://github.com/bje-settings/claude/issues/205)):** nothing test-only ships now
+  ([ADR 004](004-plugins-ship-runtime-files-only.md)).
 - **Symlink support becomes load-bearing for contributors.** A clone without git symlink support
   gets a text file where `plugins/<plugin>/src/lib` should be, and the symptom is an unresolved
   import rather than a message naming the cause.
