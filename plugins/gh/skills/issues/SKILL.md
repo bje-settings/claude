@@ -1,11 +1,15 @@
 ---
 name: issues
 description: >
-  File, link and triage GitHub issues with hygiene. Check for duplicates, set
-  blocked-by, blocking and parent in their fields, suggest a milestone, set the
-  issue type and a priority, and use one issue format. Use whenever you create
-  an issue, link issues, or fill in fields on issues that already exist, in any
-  repository.
+  Files, links and triages GitHub issues. Checks for duplicates, puts blocked-by,
+  blocking and parent in their fields, and sets the milestone, issue type,
+  labels and priority, in one issue format. Use for all work that creates or
+  changes an issue, in any repository: file, open, log or track a bug, feature,
+  task, ticket or follow-up; split work into sub-issues; mark an issue as
+  blocked by, blocking or part of another; add an issue to a milestone; set or
+  review priority, type or labels; move a dependency from an issue body to its
+  field. Also use it when work on an issue finds a follow-up or a dependency,
+  and when another skill or agent creates issues.
 allowed-tools: Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue create *) Bash(gh issue edit *) Bash(gh label list *) Bash(gh api graphql *) Bash(gh api repos/*/milestones *) Read AskUserQuestion
 user-invocable: false
 ---
