@@ -126,7 +126,7 @@ const COUNT_FLAGS = ['max-pairs', 'max-evidence'] as const
 /**
  * True when `argv` asks for help. This is a raw scan of the tokens
  * themselves. It runs before anything is parsed. So usage wins over a bad
- * `--scope`, and does not lose to it. `plugins/mermaid/src/commands/url.ts`
+ * `--scope`, and does not lose to it. `plugins/mermaid/src/subcommands/url.ts`
  * is where this shape was settled and why.
  */
 export const wantsHelp = (argv: readonly string[]): boolean =>
@@ -533,7 +533,7 @@ const issueStates = async (
     // own account of it, without the argv prefix the message carries.
     //
     // Tested rather than cast, the way every other command here reads one
-    // (`plugins/gh/src/commands/shepherd-pr.ts:248`). A cast reads `detail`
+    // (`plugins/gh/src/subcommands/shepherd-pr.ts:248`). A cast reads `detail`
     // off whatever was thrown. The caller then folds `undefined` into `ok`.
     // So a client that failed some other way would report a lookup that
     // succeeded, while every issue ref said unavailable.

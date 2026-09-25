@@ -2,7 +2,7 @@
 // `hooks.json` runs this file directly, the way it ran `hook-io.py` before
 // #127.
 //
-// This file ships and holds no decisions. `src/commands/hook-io.ts` is the
+// This file ships and holds no decisions. `src/subcommands/hook-io.ts` is the
 // hook. It takes the process's own edges as arguments. This is the seam the
 // tests call without a process (ADR 001, RFC 001 decision 3).
 //
@@ -38,7 +38,7 @@ if (meetsNodeFloor(process.version)) {
   const path = await import('node:path')
   const { createOutput, readStdinText } = await import('../src/lib/streams.ts')
   const { run } = await import('../src/lib/process.ts')
-  const { runHookIo } = await import('../src/commands/hook-io.ts')
+  const { runHookIo } = await import('../src/subcommands/hook-io.ts')
 
   // This code guards both streams here, not at each write. A reader that
   // closes the pipe makes the write fail later, as an `error` event. There

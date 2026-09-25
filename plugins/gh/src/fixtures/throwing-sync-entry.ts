@@ -9,7 +9,7 @@
 // always catches that error.
 //
 // The #81 exit-1 contract needs proof at a real process boundary, not
-// inside the in-process `commands/sync.*.test.ts` suite. The only way to
+// inside the in-process `subcommands/sync.*.test.ts` suite. The only way to
 // prove it there is to import the real `createSyncCommand`, with a
 // throwing stand-in in place of `syncRepo`.
 //
@@ -23,9 +23,10 @@
 //
 // argv is passed straight through to `sync`, as `scripts/gh.ts sync` would
 // take it.
-import { createSyncCommand } from '../commands/sync.ts'
+
 import { renderText } from '../lib/envelope.ts'
 import { createOutput } from '../lib/streams.ts'
+import { createSyncCommand } from '../subcommands/sync.ts'
 
 const output = createOutput(process.stdout, process.stderr)
 

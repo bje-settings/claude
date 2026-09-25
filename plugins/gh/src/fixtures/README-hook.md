@@ -8,7 +8,7 @@ the commit that made it, and nobody edits the file that documents it either.
 | --- | --- |
 | `hook-output.json` | 54 runs of `plugins/gh/hooks/hook-io.py`, one per case, plus the `syncTimeout` table. |
 
-`plugins/gh/src/commands/hook-io.test.ts` and `plugins/gh/src/hook.test.ts` read this, beside
+`plugins/gh/src/subcommands/hook-io.test.ts` and `plugins/gh/src/hook.test.ts` read this, beside
 `divergences-hook.json`, which is the table of what the port deliberately says instead. That file
 is not a capture. It grows when someone finds a divergence. That is the only way a divergence
 stays countable, instead of turning into a silently rewritten expectation. A test reads every row

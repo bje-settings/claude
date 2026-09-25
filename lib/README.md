@@ -88,7 +88,7 @@ the one command that widens itself on purpose. That command is `plugins/audit`'s
 (#172, RFC 001), which takes the root it audits as a positional argument rather than inherit an
 untested path. `parseCommandLine` answers with `Envelope<{ options; positionals: readonly
 string[] }>`. `parseArguments` stays the no-positionals wrapper, so every other caller, including
-`plugins/mermaid/src/commands/url.ts`, stays untouched.
+`plugins/mermaid/src/subcommands/url.ts`, stays untouched.
 
 Every declared option carries a default. So a parsed command line is never partial, and no command
 needs a fallback branch for a flag nobody passed. A bad flag, a missing value, a stray positional

@@ -4,7 +4,7 @@
 //
 // The judgment types, Classification, ChoiceAnswer, Usage, and the verdict
 // unions, are not here. `lib/jev.ts` defines them beside the client that
-// produces them (#173). `report.ts` and `commands/context.ts` import them
+// produces them (#173). `report.ts` and `subcommands/context.ts` import them
 // from there. They are not re-exported here. A second name for one type
 // would be a second thing to keep in step.
 

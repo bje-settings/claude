@@ -1,7 +1,7 @@
 // This is the one spawned contract test for the hook entry point. It also
 // tests the wiring that `hooks.json` carries.
 //
-// `commands/hook-io.test.ts` exercises the hook's decisions, in process,
+// `subcommands/hook-io.test.ts` exercises the hook's decisions, in process,
 // against the captured Python. This file tests the process boundary itself.
 // It tests the floor guard in front of it, argv, stdin, both streams, and
 // the exit status. It also runs the one test that starts the real
@@ -31,7 +31,7 @@ interface Divergences {
 }
 
 /** This fills a case's own state into the placeholders a divergence row
- *  carries. `commands/hook-io.test.ts` documents the mechanism, and
+ *  carries. `subcommands/hook-io.test.ts` documents the mechanism, and
  *  `fixtures/divergences-hook.json` names every placeholder. */
 type Fields = Record<string, string>
 

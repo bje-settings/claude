@@ -1,7 +1,7 @@
 // The one spawned contract test for the guard's entry point, and the wiring
 // `hooks.json` actually carries.
 //
-// `commands/guard.test.ts` is where the decisions are exercised, in process.
+// `subcommands/guard.test.ts` is where the decisions are exercised, in process.
 // This file is the process boundary itself: the floor guard in front of it,
 // stdin, both streams and the exit status, against real repositories, with
 // the payloads Claude Code would really send.

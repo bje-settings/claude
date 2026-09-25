@@ -507,7 +507,7 @@ describe('refusals', () => {
     // The field a report quotes. The Python prints `last_line(stderr)`, and
     // the ordinary refusal is ONE line. So a tail of the message would hand
     // a reader the whole argv: before this existed,
-    // `plugins/gh/src/commands/sync-repo.ts` put forty characters of
+    // `plugins/gh/src/subcommands/sync-repo.ts` put forty characters of
     // `--json` fields inside a rate-limit line.
     const { gh } = clientAnswering({
       status: 1,

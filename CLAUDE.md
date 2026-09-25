@@ -25,8 +25,8 @@ as `node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover <path>`. A new skill tha
 repository's context files for rot belongs in the `audit` plugin.
 
 Plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
-has the rules. A command is an exported function. It lives at
-`plugins/<plugin>/src/commands/<command>.ts`, behind one thin dispatcher at
+has the rules. Each dispatcher subcommand is an exported function, the command function. It
+lives at `plugins/<plugin>/src/subcommands/<command>.ts`, behind one thin dispatcher at
 `plugins/<plugin>/scripts/<plugin>.ts`. A hook goes at `plugins/<plugin>/hooks/*.ts`. Code
 shared between plugins lives in the root `lib/`. Each plugin reaches it through the committed
 symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
@@ -37,7 +37,7 @@ A command's exit codes and stdout are a contract with its callers.
 Cross-plugin dependencies, declared through a preflight script rather than vendored:
 
 - `workstreams` depends on `gh` and the `gh stack` extension, through
-  `plugins/workstreams/src/commands/preflight.ts`. A new cross-plugin dependency is a row in its
+  `plugins/workstreams/src/subcommands/preflight.ts`. A new cross-plugin dependency is a row in its
   `REQUIRED_PLUGINS` table. It goes in `OPTIONAL_PLUGINS` instead when a skill works around its
   absence. It is never a vendored copy.
 

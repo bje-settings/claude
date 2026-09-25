@@ -133,7 +133,7 @@ export interface SyncRepoOptions {
  *
  * The SessionStart hook classifies each section of a `--dry-run` report by
  * these terms. It uses them to compute the summary it leads with (#110,
- * `commands/hook-io.ts` `fanOutSummary`). So the words are a contract with a
+ * `subcommands/hook-io.ts` `fanOutSummary`). So the words are a contract with a
  * second reader, not only prose. Because this file names them here, a
  * person who rewords a line will see the hook's dependency. A reworded
  * reference then moves with the text. A plain text match would instead stop

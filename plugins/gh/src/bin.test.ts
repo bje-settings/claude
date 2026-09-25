@@ -1,6 +1,6 @@
 // This file is the one spawned contract test for `scripts/gh.ts`
 // (`harness/README.md`). Argv goes in. Exit code and streams come out. Every
-// other check on these commands runs in-process, in `commands/*.test.ts`.
+// other check on these commands runs in-process, in `subcommands/*.test.ts`.
 // Only this file makes the process boundary itself, and the floor guard in
 // front of it, real.
 //

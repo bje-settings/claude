@@ -485,7 +485,7 @@ export const settleEnv = (sandbox: Sandbox, bound = '3', poll = '1'): NodeJS.Pro
 
 /** stdout whose reader leaves on the first line, the way `| head` does. The
  *  failure arrives as an event, not at the call
- *  (`commands/sync-repo.worktrees.test.ts` uses the same shape). */
+ *  (`subcommands/sync-repo.worktrees.test.ts` uses the same shape). */
 export const closedPipe = (into: string[]): OutputStream => {
   let listener: ((error: NodeJS.ErrnoException) => void) | undefined
   return {

@@ -81,7 +81,7 @@ order, never in the order the jobs happened to finish.`
  *
  * The mark comes from {@link REPORT}, not a literal string, because this
  * is a report line like any other. The SessionStart hook classifies it by
- * that constant (#110, `commands/hook-io.ts` `fanOutSummary`). That
+ * that constant (#110, `subcommands/hook-io.ts` `fanOutSummary`). That
  * function counts this line as a repository that no check could fully
  * cover. A literal here would let someone reword the mark in one place.
  * The hook would then silently count nothing.

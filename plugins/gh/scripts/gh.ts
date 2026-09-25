@@ -6,7 +6,7 @@
 // reaches everything else by `await import`, after the check passes.
 //
 // This file ships. It holds no decisions. Each command function under
-// `src/commands/` is the seam a test reaches without a process. This
+// `src/subcommands/` is the seam a test reaches without a process. This
 // adapter only turns `process.argv` and this process's streams into that
 // function's arguments. It turns the function's answer into an exit code.
 // `src/bin.test.ts`, through `harness/spawn.ts`, is the one spawned test.
@@ -105,23 +105,23 @@ const shepherdEdges = {
 /** The command `name` asks for, run, or `null` when nothing answers to it. */
 const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
   if (name === 'discover') {
-    const { runDiscover } = await import('../src/commands/discover.ts')
+    const { runDiscover } = await import('../src/subcommands/discover.ts')
     return runDiscover(argv, edges)
   }
   if (name === 'sync') {
-    const { runSync } = await import('../src/commands/sync.ts')
+    const { runSync } = await import('../src/subcommands/sync.ts')
     return write(await runSync(argv, { ...edges, createGh: repositoryClient }))
   }
   if (name === 'sync-repo') {
-    const { runSyncRepo } = await import('../src/commands/sync-repo.ts')
+    const { runSyncRepo } = await import('../src/subcommands/sync-repo.ts')
     return write(await runSyncRepo(argv, { ...edges, createGh: repositoryClient }))
   }
   if (name === 'shepherd-status') {
-    const { runShepherdStatus } = await import('../src/commands/shepherd-status.ts')
+    const { runShepherdStatus } = await import('../src/subcommands/shepherd-status.ts')
     return runShepherdStatus(argv, { ...edges, ...shepherdEdges })
   }
   if (name === 'shepherd-pr') {
-    const { runShepherdPr } = await import('../src/commands/shepherd-pr.ts')
+    const { runShepherdPr } = await import('../src/subcommands/shepherd-pr.ts')
     return runShepherdPr(argv, { ...edges, ...shepherdEdges })
   }
   return null

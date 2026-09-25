@@ -991,7 +991,7 @@ it('writes nothing at all for a child that failed with an empty stderr', async (
 it('uses the report on stdout rather than the could-not-run line when sync itself answers non-zero (#81)', async () => {
   // `gh.ts sync` now exits 1 when one of its own repositories failed. It
   // exits after it writes the whole report to stdout (round 7,
-  // `commands/sync.ts`). If the check fell back to the could-not-run line
+  // `subcommands/sync.ts`). If the check fell back to the could-not-run line
   // here, it would throw that report away. It would then say something
   // strictly less true about a check that ran to completion.
   const harnessed = harness()

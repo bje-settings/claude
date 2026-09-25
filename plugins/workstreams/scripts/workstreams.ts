@@ -6,7 +6,7 @@
 // reached by `await import`, after the check has passed.
 //
 // This file ships. It holds no decisions. Each command function under
-// `src/commands/` is the seam a test reaches without a process. This adapter
+// `src/subcommands/` is the seam a test reaches without a process. This adapter
 // only turns `process.argv` and this process's streams into that function's
 // arguments, and its answer into an exit code. `src/bin.test.ts`, through
 // `harness/spawn.ts`, is the one spawned test, on the paths that need no
@@ -74,7 +74,7 @@ const write = (envelope: Parameters<typeof renderText>[0]): number => {
 /** The command `name` asks for, run, or `null` when nothing answers to it. */
 const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
   if (name === 'sweep') {
-    const { runSweep } = await import('../src/commands/sweep.ts')
+    const { runSweep } = await import('../src/subcommands/sweep.ts')
     // One client for the repository the caller stands in, which is what
     // `gh` resolves from its working directory.
     return write(
@@ -82,13 +82,13 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     )
   }
   if (name === 'pr-state') {
-    const { runPrState } = await import('../src/commands/pr-state.ts')
+    const { runPrState } = await import('../src/subcommands/pr-state.ts')
     return write(
       await runPrState(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
     )
   }
   if (name === 'preflight') {
-    const { runPreflight } = await import('../src/commands/preflight.ts')
+    const { runPreflight } = await import('../src/subcommands/preflight.ts')
     return runPreflight(argv, { env: process.env, output, run: runChild })
   }
   return null

@@ -23,8 +23,8 @@ plugins/<plugin>/
   scripts/<plugin>.ts          # thin adapter: one dispatcher, one arm per command
   src/
     lib -> ../../../lib        # committed symlink
-    commands/<command>.ts      # one exported function per command: the seam
-    commands/<command>.test.ts # co-located with the code it covers
+    subcommands/<command>.ts   # one exported function per subcommand: the seam
+    subcommands/<command>.test.ts # co-located with the code it covers
     fixtures/                  # for the tests under commands/
   hooks/*.ts
 ```
@@ -78,7 +78,7 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 ## Tests
 
 - A test sits beside the code it covers: `lib/args.test.ts` next to `lib/args.ts`, and
-  `plugins/<p>/src/commands/<command>.test.ts` next to the command. Fixtures for that plugin sit
+  `plugins/<p>/src/subcommands/<command>.test.ts` next to the command. Fixtures for that plugin sit
   at `plugins/<p>/src/fixtures/`. `vitest.config.ts` names the collected globs. It does not find
   them on its own. So you add a new source directory there deliberately.
 - The shared harness is `harness/` at the repository root. Only test files import it, so it never

@@ -1,7 +1,7 @@
 // The one spawned contract test for `scripts/workstreams.ts`
 // (`harness/README.md`): argv in, exit code and streams out. Everything
 // else about these commands is exercised in process, in
-// `commands/*.test.ts`. This is the only place the process boundary
+// `subcommands/*.test.ts`. This is the only place the process boundary
 // itself, and the floor guard in front of it, are real.
 //
 // Only the paths that need no `gh` and touch no real checkout: the usage,

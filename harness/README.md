@@ -97,7 +97,7 @@ a null pull request for one it could not read. `listWorkflowRuns` answers `{ row
 
 The double answers `listIssues` with the same reply for any milestone. One registration holds no
 state and has no conditional logic. A test that needs a different answer per milestone must build
-`createGhClient` over a runner that answers by argv instead. `plugins/workstreams/src/commands/sweep.test.ts`
+`createGhClient` over a runner that answers by argv instead. `plugins/workstreams/src/subcommands/sweep.test.ts`
 does this with its captured replies.
 
 - A registered reply comes back on **every** call. The mock holds no state and has no

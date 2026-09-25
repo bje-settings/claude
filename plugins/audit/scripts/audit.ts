@@ -7,7 +7,7 @@
 // This file reaches everything else by `await import`, after the check
 // passes.
 //
-// This file ships. It holds no decisions. `src/commands/context.ts` is the
+// This file ships. It holds no decisions. `src/subcommands/context.ts` is the
 // seam a test reaches without a process. This adapter only turns
 // `process.argv` and this process's streams into that function's arguments.
 // It turns the function's answer into an exit code. `src/bin.test.ts`,
@@ -68,7 +68,7 @@ const edges = {
 /** The command `name` asks for, run, or `null` when nothing answers to it. */
 const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
   if (name === 'context') {
-    const { runContext } = await import('../src/commands/context.ts')
+    const { runContext } = await import('../src/subcommands/context.ts')
     return write(await runContext(argv, edges))
   }
   return null
