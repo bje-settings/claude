@@ -2,7 +2,7 @@
 # request. Each label is made by hand; the workflow cannot create one.
 #
 # A plugin's label applies to its source, its tests and its flow diagrams.
-# `plugin:field-test` has no rule until the plugin returns (#196).
+# Every plugin has all three patterns, even where a directory does not exist yet.
 
 "plugin:audit":
   - changed-files:
@@ -29,6 +29,8 @@
   - changed-files:
       - any-glob-to-any-file:
           - "plugins/typescript7-lsp/**"
+          - "tests/plugins/typescript7-lsp/**"
+          - "docs/flows/typescript7-lsp/**"
 
 "plugin:workstreams":
   - changed-files:
@@ -36,3 +38,10 @@
           - "plugins/workstreams/**"
           - "tests/plugins/workstreams/**"
           - "docs/flows/workstreams/**"
+
+"plugin:field-test":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/field-test/**"
+          - "tests/plugins/field-test/**"
+          - "docs/flows/field-test/**"
