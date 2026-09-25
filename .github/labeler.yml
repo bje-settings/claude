@@ -1,0 +1,30 @@
+# Config for bje-actions/labeler, which the enterprise ruleset "Labeler" runs on every pull
+# request. Each label is made by hand; the workflow cannot create one.
+#
+# A plugin's label applies to its source, its tests and its flow diagrams, in one brace
+# pattern. Every plugin has the full pattern, even where a directory does not exist yet.
+# tests/repo/labeler.test.ts requires a rule for each directory in plugins/.
+
+"plugin:audit":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/audit/**"
+
+"plugin:field-test":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/field-test/**"
+
+"plugin:gh":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/gh/**"
+
+"plugin:mermaid":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/mermaid/**"
+
+"plugin:typescript7-lsp":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/typescript7-lsp/**"
+
+"plugin:workstreams":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/workstreams/**"
