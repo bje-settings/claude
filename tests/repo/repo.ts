@@ -236,10 +236,10 @@ export function crossPluginImports(root: string = PLUGINS): string[] {
  * The `imports` map in the root `package.json` gives the tests short
  * names, such as `#lib/*` and `#harness/*`. Node, `tsc` and vitest all
  * read that map in this checkout, so such an import in a plugin passes
- * every check here. An installed plugin has no `package.json` above it,
- * so node refuses the import there (ADR 004). This rule reads every `.ts`
- * file under each root, `lib/` included, because `lib/` ships through
- * `src/lib`.
+ * the type check and every test that runs it. An installed plugin has no
+ * `package.json` above it, so node refuses the import there (ADR 004).
+ * This rule reads every `.ts` file under each root, `lib/` included,
+ * because `lib/` ships through `src/lib`.
  *
  * `roots` is a parameter, so a test can run the rule against a synthetic
  * tree. Each report names the path relative to the parent of its root.
