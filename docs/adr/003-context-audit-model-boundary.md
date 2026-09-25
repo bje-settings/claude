@@ -19,10 +19,10 @@ judged.
 Tier 0 of `/audit:context` reads only the checkout and, for the issue numbers a unit cites, one
 batched `gh` lookup. Every other capability in this marketplace stays inside that same boundary:
 `gh` reaches the user's own remotes and GitHub through the same injected client, and `mermaid`
-builds a link but sends nothing itself. Tier 0 alone
-cannot decide whether a claim still holds, whether two units say the same thing, or whether a
-cited file still backs what a unit asserts; those are judgments, and answering them means sending
-the unit's text, and sometimes an excerpt of a file it cites, to something that can read prose.
+builds a link but sends nothing itself. Tier 0 alone cannot decide whether a claim still holds,
+whether two units say the same thing, or whether a cited file still backs what a unit asserts;
+those are judgments, and answering them means sending the unit's text, and sometimes an excerpt of
+a file it cites, to something that can read prose.
 Once one plugin does that, a repository running it needs a way to tell, without reading
 `plugins/audit/src/commands/context.ts`, whether its own words are about to leave the machine on
 a given run.

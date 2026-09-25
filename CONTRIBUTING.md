@@ -19,8 +19,8 @@ TypeScript tests are co-located with the code they cover, at `plugins/<plugin>/s
 with fixtures at `plugins/<plugin>/src/fixtures/`; the shared harness is `harness/` at the
 repository root, imported only from test files. See `harness/README.md`.
 
-vitest's thresholds gate TypeScript at 100 on lines, branches, functions and statements, and
-`pnpm test` enforces them.
+`pnpm test` enforces vitest's coverage thresholds: 100 on lines, branches, functions and
+statements.
 
 ## Language server
 
@@ -42,19 +42,19 @@ clone and every worktree of it.
 
 The hook script it installs finds the lefthook binary through a hardcoded absolute path into
 whichever checkout ran the install, or the checkout the commit runs in. Each pnpm-based step still
-needs that checkout's own `node_modules`. As long as the installing checkout's
-`node_modules` still exists, a worktree that has not run its own `pnpm install` yet still finds
-lefthook through it and runs the hooks; each pnpm-based step's own `node_modules` guard is what
-then warns and skips, letting the commit through unchecked. Only when no checkout with a working
-lefthook binary can be found at all does the hook script itself print `Can't find lefthook in PATH`
-and let the commit through the same way. Either way, the worktree gains real hooks the moment it
-runs its own `pnpm install`.
+needs that checkout's own `node_modules`. As long as the installing checkout's `node_modules` still
+exists, a worktree that has not run its own `pnpm install` yet still finds lefthook through it and
+runs the hooks; each pnpm-based step's own `node_modules` guard is what then warns and skips,
+letting the commit through unchecked. Only when no checkout with a working lefthook binary can be
+found at all does the hook script itself print `Can't find lefthook in PATH` and let the commit
+through the same way. Either way, the worktree gains real hooks the moment it runs its own
+`pnpm install`.
 
-`pre-commit` runs Biome, `tsc`, `vitest related`, and `claude plugin validate --strict`,
-each scoped to what is staged, except `tsc` which checks the whole project.
-None of them runs a suite (ADR 002); `lefthook.yml` holds the exact steps. There is no `pre-push`
-key, so a fresh `lefthook install` writes no pre-push hook file; it does not remove one a prior
-install already wrote under an earlier revision of `lefthook.yml` that did have the key, for which
+`pre-commit` runs Biome, `tsc`, `vitest related`, and `claude plugin validate --strict`, each
+scoped to what is staged, except `tsc` which checks the whole project. None of them runs a suite
+(ADR 002); `lefthook.yml` holds the exact steps. There is no `pre-push` key, so a fresh
+`lefthook install` writes no pre-push hook file; it does not remove one a prior install already
+wrote under an earlier revision of `lefthook.yml` that did have the key, for which
 `pnpm exec lefthook uninstall` (then reinstall) is the fix. Nothing here is the enforcement layer:
 CI runs the same checks whether or not the hooks ran.
 
