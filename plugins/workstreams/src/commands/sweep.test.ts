@@ -1,18 +1,19 @@
-// The sweep command. Two kinds of example here, and the difference matters.
+// The sweep command. Two kinds of example here, and the difference
+// matters.
 //
-// The acceptance case replays `fixtures/sweep-capture.json`, which is every
-// child process the real client started while answering the four reads
-// against this repository on 2026-09-21, and it drives the REAL
-// `createGhClient` over a runner that answers by argv. So it exercises the
-// query text, the argv, the parsing in `lib/gh.ts` and this command's own
-// classification together, against GitHub's own bytes, and the sets it
-// asserts are round 8's hand sweep of milestone 4. That is the issue's
-// acceptance line ("the report matches a hand sweep") held by a test rather
-// than by a memory of one.
+// The acceptance case replays `fixtures/sweep-capture.json`. That file
+// holds every child process the real client started while it answered
+// the four reads against this repository, on 2026-09-21. The case drives
+// the REAL `createGhClient`, over a runner that answers by argv. So it
+// exercises the query text, the argv, the parsing in `lib/gh.ts`, and
+// this command's own classification, together, against GitHub's own
+// bytes. The sets it asserts are round 8's hand sweep of milestone 4.
+// That is the issue's acceptance line ("the report matches a hand
+// sweep"), held by a test, rather than by a memory of one.
 //
-// Everything else uses the in-process `gh` double, where a reply is written
-// to reach one arm: the refusals, the partial reads, and the tiers a real
-// tracker does not happen to contain.
+// Everything else uses the in-process `gh` double, where a reply is
+// written to reach one arm: the refusals, the partial reads, and the
+// tiers a real tracker does not happen to contain.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,10 +35,11 @@ interface Capture {
   }>
 }
 
-/** A runner that answers only the calls the capture recorded, matched on the
- *  whole argv. An argv that was never recorded throws and says so: a runner
- *  that answered an unrecorded call with an empty body would let a query this
- *  command changed pass as though the capture still covered it. */
+/** A runner that answers only the calls the capture recorded, matched on
+ *  the whole argv. An argv that was never recorded throws, and says so: a
+ *  runner that answered an unrecorded call with an empty body would let a
+ *  query this command changed pass as though the capture still covered
+ *  it. */
 const replaying = (): Runner => {
   const capture = JSON.parse(readFileSync(CAPTURE, 'utf8')) as Capture
   return async (_command, args = []) => {
@@ -72,7 +74,7 @@ const issue = (number: number, fields: Partial<IssueSummary> = {}): IssueSummary
   ...fields,
 })
 
-/** A double answering every read, with the issues given. */
+/** A double that answers every read, with the issues given. */
 const mockWith = (issues: readonly IssueSummary[], unavailable: string | null = null) =>
   createGhMock({
     listMilestones: {
@@ -251,7 +253,7 @@ describe('the command line', () => {
 describe('what the sweep does with a read it could not complete', () => {
   it('reports the reason, marks the report incomplete, and still answers', async () => {
     // A partial answer is an answer, and a caller is told to read
-    // `unavailable` before acting on the sets. Losing the rows that did
+    // `unavailable` before it acts on the sets. To lose the rows that did
     // arrive would help nobody.
     const report = await reportOf([], mockWith([issue(130)], 'gh: API rate limit exceeded'))
 
@@ -370,8 +372,8 @@ describe('what the sweep does with a read it could not complete', () => {
 
   it('answers with empty sets for a repository that simply has no open issues', async () => {
     // Nothing read and nothing wrong is a different answer from nothing read
-    // because a read failed, and reporting the first as a failure would make
-    // a quiet repository look broken.
+    // because a read failed. To report the first as a failure would make a
+    // quiet repository look broken.
     const answer = await runSweep([], {
       gh: createGhMock({
         listMilestones: { rows: [], unavailable: null },
@@ -471,9 +473,9 @@ describe('a milestone read that knows more than the unfiltered one', () => {
       },
     })
 
-  /** A runner answering the unfiltered issue read with nothing and the
-   *  milestone read with one issue, which is what a rate limit hitting one
-   *  call of the four looks like from here. */
+  /** A runner that answers the unfiltered issue read with nothing, and the
+   *  milestone read with one issue. This is what a rate limit that hits
+   *  one call of the four looks like from here. */
   const onlyInTheMilestoneRead =
     (): Runner =>
     async (_command, args = []) => {
@@ -510,9 +512,9 @@ describe('a milestone read that knows more than the unfiltered one', () => {
     }
 
   it('keeps an issue only the milestone read returned', async () => {
-    // A milestone read that succeeded where the unfiltered one did not still
-    // knows about its own issues, and dropping them would report an empty
-    // milestone as an answer.
+    // A milestone read that succeeded where the unfiltered one did not
+    // still knows about its own issues. To drop them would report an
+    // empty milestone as an answer.
     const gh = createGhClient({ repository: 'acme/widgets', run: onlyInTheMilestoneRead() })
 
     const answer = await runSweep(['--milestone', '4', '--json'], { gh })

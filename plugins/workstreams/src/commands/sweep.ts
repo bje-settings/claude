@@ -1,13 +1,13 @@
-// The sweep: primitive 1 of #111. What a round could start on, read from the
-// issue tracker, which is the source of truth.
+// The sweep: primitive 1 of #111. It reads the issue tracker, the source of
+// truth, and reports what a round could start on.
 //
-// The deterministic half of the sweep is here and the judgement is in
-// `skills/sweep` (CLAUDE.md, "Plugin design"): this command answers which
+// The deterministic half of the sweep is here. The judgement is in
+// `skills/sweep` (CLAUDE.md, "Plugin design"). This command answers which
 // issues are unblocked, which are one issue behind that, and which are
-// further out, and it answers nothing about what any of them touches or how
-// they should be sequenced. Those are readings of the issue bodies and of the
-// tree, and a script that guessed at them would be guessing where the skill
-// can look.
+// further out. It answers nothing about what any of them touches, or how
+// they should be sequenced. Those come from readings of the issue bodies
+// and of the tree. A script that guessed at them would guess where the
+// skill can look instead.
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
@@ -56,8 +56,8 @@ const SPEC = {
 } as const
 
 /** Which of the three sets an issue falls in. Each value is also the key its
- *  set has on a {@link Group}, so a caller holding a tier can read the set
- *  without a lookup table between them. */
+ *  set has on a {@link Group}, so a caller that holds a tier can read the
+ *  set without a lookup table between them. */
 export type Tier = 'unblocked' | 'next' | 'blocked'
 
 const TIERS: readonly Tier[] = ['unblocked', 'next', 'blocked']
@@ -76,12 +76,13 @@ export interface ReportedRef {
 }
 
 /**
- * One issue as the report carries it.
+ * One issue, as the report carries it.
  *
- * `blockedBy` is kept whole beside `openBlockers` because "no blockers at
+ * `blockedBy` sits whole beside `openBlockers`, because "no blockers at
  * all" and "every blocker closed" are different facts about an unblocked
- * issue, and a reader of the unblocked set acts on the difference: the first
- * is work nothing was waiting for, the second is work a round just released.
+ * issue. A reader of the unblocked set acts on the difference. The first
+ * case is work nothing blocked. The second case is work a round just
+ * released.
  */
 export interface ReportedIssue {
   readonly number: number
@@ -98,8 +99,8 @@ export interface ReportedIssue {
 }
 
 /** A milestone as a group's header. `title` and the counts are null for a
- *  milestone that was asked for and is not among the open ones: it was still
- *  swept, and saying so is not the same as inventing a title for it. */
+ *  milestone that was asked for but is not among the open ones. The sweep
+ *  still swept it. Null here is not the same as a made-up title. */
 export interface GroupHeader {
   readonly number: number
   readonly title: string | null
@@ -133,22 +134,24 @@ const refs = (list: readonly IssueRef[]): ReportedRef[] =>
   list.map((ref) => ({ number: ref.number, state: ref.state }))
 
 /**
- * Every issue's tier, computed over the whole set that was read rather than
- * once per milestone.
+ * Every issue's tier, computed over the whole set that was read, rather
+ * than once per milestone.
  *
- * The next tier is defined against the unblocked set, and a blocker is
- * frequently on another milestone or on none at all, so a per-milestone
- * computation would answer a different question for each group depending on
- * where its blockers happened to live. Reading the unfiltered issue list once
- * is what makes one answer possible.
+ * The next tier is defined against the unblocked set. A blocker is
+ * frequently on another milestone, or on none at all, so a per-milestone
+ * computation would answer a different question for each group; the
+ * answer would depend on where its blockers happened to live. The command
+ * reads the unfiltered issue list once. That is what makes one answer
+ * possible.
  *
  * An issue whose single open blocker was not read at all cannot be in the
  * unblocked set, so it reports as blocked. That is the conservative
- * direction: a page that could not be read makes the sweep claim less, never
- * more.
+ * direction: a page that could not be read makes the sweep claim less,
+ * never more.
  *
- * A blocker that is not OPEN does not block, whether it is CLOSED or MERGED:
- * a pull request recorded as a dependency is done when it has merged.
+ * A blocker that is not OPEN does not block, whether it is CLOSED or
+ * MERGED. A pull request recorded as a dependency is done once it has
+ * merged.
  */
 export const classify = (issues: readonly IssueSummary[]): ReportedIssue[] => {
   const entries = issues.map((issue) => ({
@@ -162,10 +165,11 @@ export const classify = (issues: readonly IssueSummary[]): ReportedIssue[] => {
   return entries.map(({ issue, openBlockers }) => {
     let tier: Tier = 'blocked'
     if (openBlockers.length === 0) tier = 'unblocked'
-    // The cast is `noUncheckedIndexedAccess` being exact about an array of
-    // unknown length: the count was just checked, so index 0 is there. Worth
-    // saying, because a weakened count check would not fail here, it would
-    // make `has(undefined)` quietly false and misfile the issue.
+    // The cast exists because `noUncheckedIndexedAccess` is exact about an
+    // array of unknown length: the count was just checked, so index 0 is
+    // there. This is worth saying, because a weakened count check would not
+    // fail here. It would make `has(undefined)` quietly false, and misfile
+    // the issue.
     else if (openBlockers.length === 1 && unblocked.has(openBlockers[0] as number)) tier = 'next'
     return {
       number: issue.number,
@@ -194,16 +198,16 @@ const groupOf = (milestone: GroupHeader | null, issues: readonly ReportedIssue[]
   }
 }
 
-/** The milestone numbers asked for, or a refusal naming what was wrong. */
+/** The milestone numbers asked for, or a refusal that names what was wrong. */
 export const requestedMilestones = (value: string): Envelope<number[]> => {
   if (value === '') return ok([])
   const numbers: number[] = []
   for (const word of value.split(',')) {
     const trimmed = word.trim()
-    // The shape is asserted before the conversion rather than inferred from
-    // it: `Number.parseInt` reads "4x" as 4 and "" as NaN, and a sweep that
-    // quietly swept milestone 4 for someone who typed "4x" would be answering
-    // a question nobody asked.
+    // The code asserts the shape before conversion, rather than infer it
+    // from the result: `Number.parseInt` reads "4x" as 4 and "" as NaN. A
+    // sweep that quietly swept milestone 4 for someone who typed "4x" would
+    // answer a question nobody asked.
     if (!/^[1-9][0-9]*$/.test(trimmed)) {
       return refused(`--milestone takes milestone numbers, not "${trimmed}"`)
     }
@@ -216,12 +220,13 @@ export const requestedMilestones = (value: string): Envelope<number[]> => {
 /**
  * Whether the command line names `--milestone` more than once.
  *
- * `lib/args.ts` declares no repeatable option, and `parseArgs` answers a
- * repeated one with its LAST value and no complaint, so `--milestone 4
- * --milestone 5` would sweep milestone 5 and say nothing about the 4 the
- * caller also asked for. Scanned here rather than solved in `lib/args.ts`,
- * because one command wanting a list is not yet an argument for a repeatable
- * option every other command would inherit untested.
+ * `lib/args.ts` declares no repeatable option. `parseArgs` answers a
+ * repeated one with its LAST value, and no complaint. So `--milestone 4
+ * --milestone 5` would sweep milestone 5, and say nothing about the 4 the
+ * caller also asked for. This is scanned here, rather than solved in
+ * `lib/args.ts`, because one command that wants a list is not yet an
+ * argument for a repeatable option every other command would inherit
+ * untested.
  */
 export const repeatedMilestone = (argv: readonly string[]): boolean =>
   argv.filter((word) => word === '--milestone' || word.startsWith('--milestone=')).length > 1
@@ -249,8 +254,8 @@ const headingFor = (milestone: GroupHeader | null): string => {
 }
 
 /** One group, for a person. A set with nothing in it still prints its
- *  heading: "next tier (0)" is an answer, and a heading silently missing
- *  reads as a set nobody looked at. */
+ *  heading: "next tier (0)" is an answer, and a missing heading reads as a
+ *  set nobody looked at. */
 const groupText = (group: Group): string[] => {
   const lines = ['', headingFor(group.milestone)]
   for (const tier of TIERS) {
@@ -304,17 +309,17 @@ export interface SweepContext {
  * Every milestone number the issues that were read name for themselves.
  *
  * The open milestones are what a sweep is asked about, but they are not the
- * only milestones the issues carry: a milestone can close with an open issue
- * still on it, and a failed milestone read leaves the list empty while the
- * issue read still answers. An issue whose milestone is in neither the asked
- * list nor `null` lands in no group at all, so it would be read, classified,
- * and then invisible. Sweeping these too is what keeps every row that arrived
- * in the report.
+ * only milestones the issues carry. A milestone can close with an open
+ * issue still on it, and a failed milestone read leaves the list empty
+ * while the issue read still answers. An issue whose milestone is in
+ * neither the asked list nor `null` lands in no group at all: it would be
+ * read, classified, and then invisible. The sweep also sweeps these, which
+ * keeps every row that arrived in the report.
  *
- * Repeats and all: the caller unions this with the open milestones through a
- * `Set`, so a milestone that twenty issues name is swept once. Deduplicating
- * here as well would be a second guard on the same property, and no test can
- * tell which of the two is doing the work.
+ * Repeats and all: the caller unions this with the open milestones through
+ * a `Set`, so a milestone that twenty issues name is swept once. A second
+ * dedupe here would be a second guard on the same property, and no test
+ * could tell which of the two does the work.
  */
 const milestonesNamed = (issues: readonly IssueSummary[]): number[] => {
   const numbers: number[] = []
@@ -339,16 +344,16 @@ const headerFor = (number: number, milestones: readonly MilestoneSummary[]): Gro
 /**
  * Sweep the tracker and answer with the report, rendered.
  *
- * One unfiltered `listIssues` call plus one per milestone asked for. The
- * unfiltered one is both how the issues on no milestone are found (the API's
- * `milestoneNumber: "none"` filter matches nothing rather than matching them)
- * and what makes the unblocked set one set rather than one per group; the
- * per-milestone ones are what a milestone read still answers when the
+ * One unfiltered `listIssues` call, plus one per milestone asked for. The
+ * unfiltered call does two things: it finds the issues on no milestone (the
+ * API's `milestoneNumber: "none"` filter matches nothing, rather than
+ * match them), and it makes the unblocked set one set, rather than one per
+ * group. The per-milestone calls answer for a milestone even when the
  * unfiltered read did not.
  *
  * With no `--milestone`, the groups are the open milestones and any other
- * milestone the issues themselves name, so a row that was read is never left
- * out of every set.
+ * milestone the issues themselves name, so a row that was read is never
+ * left out of every set.
  */
 export const runSweep = async (
   argv: readonly string[],
@@ -401,10 +406,10 @@ export const runSweep = async (
     }
   }
 
-  // "Nothing at all could be read" is about all three reads, not the issues
-  // alone. A failure envelope writes nothing to stdout (`lib/envelope.ts`), so
-  // reporting one while the milestones or the open pull requests did arrive
-  // would throw away an answer the caller asked for.
+  // "Nothing at all could be read" covers all three reads, not the issues
+  // alone. A failure envelope writes nothing to stdout (`lib/envelope.ts`).
+  // To report one while the milestones or the open pull requests did
+  // arrive would throw away an answer the caller asked for.
   const nothingRead = read.length === 0 && milestones.rows.length === 0 && pulls.rows.length === 0
   if (nothingRead && unavailable.length > 0) {
     return failed(`the sweep read nothing: ${unavailable.join('; ')}`)

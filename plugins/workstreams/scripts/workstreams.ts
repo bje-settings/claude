@@ -1,30 +1,32 @@
 // The one entry point for the `workstreams` plugin's commands. The floor
-// check is first, and it is the only static import: `import` declarations are
-// hoisted and evaluated before any statement here runs, so a second static
-// import would load its whole module graph on the runtime this guard exists
-// to refuse (`lib/README.md`, `lib/node-floor.ts`). Everything else is
-// reached by `await import` after the check has passed.
+// check runs first, and it is the only static import. `import` declarations
+// are hoisted and evaluated before any statement here runs. So a second
+// static import would load its whole module graph on the runtime this guard
+// exists to refuse (`lib/README.md`, `lib/node-floor.ts`). Everything else is
+// reached by `await import`, after the check has passed.
 //
-// This file ships. It holds no decisions: each command function under
-// `src/commands/` is the seam a test reaches without a process, and this
-// adapter only turns `process.argv` and this process's streams into that
-// function's arguments, and its answer into an exit code. `src/bin.test.ts`,
-// through `harness/spawn.ts`, is the one spawned test, on the paths that need
-// no `gh` at all.
+// This file ships. It holds no decisions. Each command function under
+// `src/commands/` is the seam a test reaches without a process. This adapter
+// only turns `process.argv` and this process's streams into that function's
+// arguments, and its answer into an exit code. `src/bin.test.ts`, through
+// `harness/spawn.ts`, is the one spawned test, on the paths that need no
+// `gh` at all.
 //
 // **One dispatcher, not one entry point per command.** RFC 001 "Shape" wrote
-// one adapter per command; `plugins/gh/scripts/gh.ts` and
-// `plugins/mermaid/scripts/mermaid.ts` both settled on one dispatcher instead,
-// and round 8 ruling 6 amended the RFC in place rather than the other way
-// round. The argument is one floor guard and one spawned contract test for
-// the whole plugin. The import inside each arm is dynamic, so a command
-// nobody asked for is never loaded, and a new one changes no other line here.
+// one adapter per command. `plugins/gh/scripts/gh.ts` and
+// `plugins/mermaid/scripts/mermaid.ts` both settled on one dispatcher
+// instead, and round 8 ruling 6 amended the RFC in place, rather than the
+// other way round. The argument is one floor guard and one spawned contract
+// test for the whole plugin. The import inside each arm is dynamic, so a
+// command nobody asked for is never loaded. A new command changes no other
+// line here.
 //
-// The arms answer differently on purpose: `sweep` and `pr-state` answer with
-// an envelope, because each one's whole output is one payload a caller either
-// gets or does not, and `preflight` answers with a status and writes its own
-// report, because its findings belong on stdout even when the answer is 1 and
-// `lib/envelope.ts` deliberately writes nothing to stdout for a failure.
+// The arms answer differently on purpose. `sweep` and `pr-state` answer with
+// an envelope, because each one's whole output is one payload a caller
+// either gets or does not. `preflight` answers with a status and writes its
+// own report, because its findings belong on stdout even when the answer is
+// 1, and `lib/envelope.ts` deliberately writes nothing to stdout for a
+// failure.
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
 assertNodeFloor(process.version)
@@ -50,13 +52,13 @@ commands:
 
 workstreams.ts <command> --help prints that command's own usage.`
 
-// Both streams are guarded here rather than at each write: a reader that
+// Both streams are guarded here, rather than at each write. A reader that
 // closed the pipe (`workstreams.ts sweep | head`) makes the write fail
-// asynchronously, as an `error` event, so there is nothing to wrap in a
-// `try`, and with no listener node crashes with an internals stack trace. The
-// writer goes quiet on a broken pipe and on nothing else: an ENOSPC or an EIO
-// is re-thrown (`lib/streams.ts`). stdout and stderr are guarded
-// independently, so a lost reader does not take the channel a real failure
+// asynchronously, as an `error` event. There is nothing to wrap in a `try`,
+// and with no listener node crashes with an internals stack trace. The
+// writer goes quiet on a broken pipe, and on nothing else: it re-throws an
+// ENOSPC or an EIO (`lib/streams.ts`). stdout and stderr are guarded
+// independently, so a lost reader does not block the channel a real failure
 // still has to reach.
 const output = createOutput(process.stdout, process.stderr)
 
@@ -73,7 +75,7 @@ const write = (envelope: Parameters<typeof renderText>[0]): number => {
 const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
   if (name === 'sweep') {
     const { runSweep } = await import('../src/commands/sweep.ts')
-    // One client for the repository the caller is standing in, which is what
+    // One client for the repository the caller stands in, which is what
     // `gh` resolves from its working directory.
     return write(
       await runSweep(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
@@ -94,9 +96,9 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
 
 const [name = '', ...rest] = process.argv.slice(2)
 
-// Asked before anything is loaded, and answered with a status of 0: a caller
-// asking what this can do has not made a mistake. An unknown command has, and
-// is exit 2 with the same list on stderr.
+// Asked before anything is loaded, and answered with a status of 0. A
+// caller that asks what this can do has not made a mistake. An unknown
+// command has, and gets exit 2, with the same list on stderr.
 const wantsUsage = name === '' || name === '-h' || name === '--help'
 const status = wantsUsage ? write(ok(USAGE)) : await run(name, rest)
 process.exitCode = status === null ? write(refused(`unknown command: ${name}\n\n${USAGE}`)) : status

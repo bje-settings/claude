@@ -26,20 +26,21 @@ and report per milestone.
 
    Add `--milestone 4` or `--milestone 4,5` for the milestones named above.
 
-   `unavailable` non-empty means the sets are short of what was asked for. Say so and stop.
+   A non-empty `unavailable` means the sets are short of what was asked for. Say so and
+   stop.
 
-   If `pullRequests` is not empty, name each one before going on: a round planned around a
-   branch someone else is about to merge collides on files the sweep cannot see.
+   If `pullRequests` is not empty, name each one before you go on. A round planned around
+   a branch someone else is about to merge collides on files the sweep cannot see.
 
-   If nothing is unblocked, stop and say what the next tier is waiting on.
+   If nothing is unblocked, stop. Say what the next tier is waiting for.
 
 3. Read, do not remember. For every issue in the unblocked set and the next tier, read the
    full body **and every comment**. A findings comment is often the specification; the body
    is often out of date.
 
    Then read the decision records for the milestone: every file under `docs/rfc/` and
-   `docs/adr/`, the Decisions lists in particular ([file-map.md](file-map.md) has the check
-   against what has merged).
+   `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
+   check against what has merged.
 
    Every factual claim you are about to write down gets cited to a line you have just read.
    Grep for it; do not recall it.
@@ -49,36 +50,36 @@ and report per milestone.
 5. Classify and size each issue, in this shape:
 
    - **Classification**: work now, defer with a reason, or blocked on another issue.
-   - **Touched files and regions**, from step 4, including the ones it may touch in comments
+   - **Touched files and regions**, from step 4. Include files it may touch in comments
      only.
-   - **Sizing**: the model per layer and the session effort the round runs at, with the
-     reason; the stream agent inherits the session's effort. Say what the review is likely
-     to cost as well as the stream; [file-map.md](file-map.md) carries the figures to size
-     against.
+   - **Size**: the model per layer, and the session effort the round runs at, with the
+     reason. The stream agent inherits the session's effort. Say what the review is
+     likely to cost as well as the stream. [file-map.md](file-map.md) carries the figures
+     to size against.
    - **Cross-repository dependencies**, if any.
 
-6. Sequence. Collisions first. Two issues collide when they touch the same file or region,
-   when both add a job to the same CI workflow (adding a job is a collision by itself,
-   whatever else the diffs do), or when one creates something the other reads.
+6. Sequence. Collisions first. Two issues collide when they touch the same file or
+   region, when both add a job to the same CI workflow (a second job added is a collision
+   by itself, whatever else the diffs do), or when one creates something the other reads.
 
    Then choose the shape, in this order:
 
-   1. **One pull request closing both issues** when the changes cannot be reviewed or merged
-      apart. The tell is explicit and easy to check: if layer N's diff would contain a
-      reference to something layer N+1 introduces, they are not separable.
-   2. **A stack** when the changes are genuinely separable but ordered, and each layer has
-      independent review or merge value: someone would plausibly approve or ship one without
-      the other.
-   3. **Parallel streams** when the file sets are disjoint.
+   1. **One pull request that closes both issues**, when the changes cannot be reviewed or
+      merged apart. The tell is explicit and easy to check: if layer N's diff would
+      contain a reference to something layer N+1 introduces, the two are not separable.
+   2. **A stack**, when the changes are genuinely separable but ordered, and each layer
+      has independent review or merge value: someone would plausibly approve or ship one
+      without the other.
+   3. **Parallel streams**, when the file sets are disjoint.
 
-7. Post the sequencing comment. One comment, posted on **every** issue in the round and on
-   every issue the round unlocks. It carries the unblocked set, the next tier, the file map,
-   the collisions, the recommended shape with its argument, the sizing, and the hidden
+7. Post the sequencing comment. Post one comment on **every** issue in the round, and on
+   every issue the round unlocks. It carries the unblocked set, the next tier, the file
+   map, the collisions, the recommended shape with its argument, the size, and the hidden
    dependencies, each cited.
 
-   Every hidden dependency is checked against the code before the comment is posted.
+   Check every hidden dependency against the code before you post the comment.
 
-   End the comment with a line naming the effort and the date:
+   End the comment with a line that names the effort and the date:
 
    ```
    _Recorded by <effort name>, <date>._
@@ -88,8 +89,8 @@ and report per milestone.
 
    1. The unblocked set, with what each issue is.
    2. The stream shape, with the argument for it.
-   3. What the round unlocks when it lands.
-   4. What nothing can reach yet, and what it is waiting on.
+   3. What the round unlocks once it lands.
+   4. What nothing can reach yet, and what it waits for.
 
 9. Go on to the question phase: invoke `/workstreams:question` with the same milestones. The
    report above is its input, and nobody has to ask for it.
