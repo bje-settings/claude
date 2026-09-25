@@ -1,4 +1,4 @@
-// The vitest configuration for the TypeScript layer this port adds (ADR 002).
+// The vitest configuration (ADR 002).
 // Coverage is 100 on all four buckets, with 95 as the floor the enterprise
 // Code Coverage ruleset holds every repository to and the number the gate
 // itself never goes below; relief is exclusion by file name with a stated
@@ -7,11 +7,8 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // tests/ holds this repository's own checks, beside their Python
-    // originals until #138 retires those. harness/, lib/, scripts/ and
-    // plugins/*/src are named now, empty until #124 (harness), #125 (root
-    // lib) and the plugin ports land, so those issues do not have to edit
-    // this file to add their own tests.
+    // tests/ holds this repository's own checks; scripts/ is named ahead of
+    // any root script, so the first one needs no edit here.
     include: [
       'tests/**/*.test.ts',
       'harness/**/*.test.ts',

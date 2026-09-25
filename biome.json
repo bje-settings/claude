@@ -6,13 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": [
-      "**/*.json",
-      "**/*.mjs",
-      "**/*.ts",
-      "!.claude/worktrees",
-      "!tests/field-test/hook-inputs"
-    ]
+    "includes": ["**/*.json", "**/*.mjs", "**/*.ts", "!.claude/worktrees"]
   },
   "linter": {
     "enabled": true,

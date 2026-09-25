@@ -9,14 +9,3 @@ CLAUDE.local.md
 
 # node toolchain
 node_modules/
-
-# python bytecode
-__pycache__/
-
-# python harness artifacts
-.venv/
-.coverage
-.coverage.*
-htmlcov/
-.pytest_cache/
-.ruff_cache/

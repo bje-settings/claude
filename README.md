@@ -78,39 +78,6 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
-### [`field-test`](plugins/field-test)
-
-> Plugin quality assurance: run a skill under observation, turn what went wrong into issues
-> somebody who did not watch the run can reproduce, and keep going until they are fixed. Names
-> from a repository outside the plugin's enterprise are redacted before anything is published.
-> `/field-test:harden` requires `workstreams` and `pr-review-toolkit`; see
-> [Requirements](https://github.com/bje-settings/claude/tree/main/plugins/field-test#requirements).
-> `workstreams` is being rebuilt under
-> [#111](https://github.com/bje-settings/claude/issues/111): the sweep has landed, and the review
-> loop `harden` dispatches to has not, so `/field-test:harden` stays unavailable until
-> [#137](https://github.com/bje-settings/claude/issues/137) rebuilds it on the primitives.
-
-<table>
-  <tr>
-    <th scope="row">Skills</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testrun-target-args"><code>/field-test:run</code></a>: run a skill or command as a field test, collect what its scripts and subagents actually did, and file one reproducible issue per problem on the repository that owns the plugin under test. Every issue is shown before it is created.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#field-testharden-pluginskill---targets-repo-path"><code>/field-test:harden</code></a>: run that loop over an ordered list of target repositories, verify each round's report against GitHub, and drive the findings through fix, review, and merge until the skill is clean or a decision needs a person. Unavailable until <a href="https://github.com/bje-settings/claude/issues/137">#137</a> rebuilds it on the <code>workstreams</code> primitives.</li>
-      </ul>
-    </td>
-  </tr>
-  <tr>
-    <th scope="row">Hooks</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#hooks">Tool and subagent recording</a>: records every Bash call, subagent report, and refused command while a field test is running. Silent and immediate in any other session.</li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/field-test#the-deny-list">Deny list</a>: refuses the handful of commands a field test must not let its target run, and records the attempt as the highest-severity finding.</li>
-      </ul>
-    </td>
-  </tr>
-</table>
-
 ### [`mermaid`](plugins/mermaid)
 
 > Mermaid diagram previews.
@@ -156,19 +123,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
-## Sharing a plugin outside this repo
-
-This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
-it either. There is no mirroring tool for that today: `publish-plugin.py` and the `/publish` skill
-that wrapped it were removed at #128, since this repo is going public once the TypeScript port
-finishes, which makes a downstream mirror unnecessary.
-
-`sm-incubator/org-claude` still holds a copy of `gh`, taken before that removal, at version 0.3.0
-in a marketplace named `lab`. It stays there, generated and unmaintained, until this repo is
-public, at which point that marketplace points here instead.
-
 ## Contributing
 
-Run `pnpm test` for the TypeScript suite and `uv run --locked pytest -n auto --cov` for the Python
-one, which retires as the port to TypeScript finishes. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for installing the marketplace locally.
+Run `pnpm test` for the test suite. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for
+installing the marketplace locally.

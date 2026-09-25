@@ -1,9 +1,8 @@
 # harness
 
-The shared test harness for the TypeScript side of the repository: an isolated sandbox, an
-in-process `gh` mock, real git repositories, and a spawn helper. It is the port of what the
-Python suite gets from `tests/conftest.py`, and of what it got from `tests/gh/conftest.py` before
-the gh plugin's Python was deleted at #127.
+The shared test harness: an isolated sandbox, an in-process `gh` mock, real git repositories, and
+a spawn helper. It is the port of what the Python suite got from `tests/conftest.py` (deleted at
+#138) and `tests/gh/conftest.py` (deleted at #127).
 
 It lives at the repository root and is imported **only from test files**, so it never sits inside a
 plugin and never ships (ADR 001). Nothing here has a dependency: node built-ins, plus `vitest` for
@@ -20,10 +19,8 @@ the one cleanup hook.
 | `spawn.ts` | One `scripts/` or `hooks/` entry point run as its own process: argv in, status and streams out (`runScript`), or started with its pipes still open so a test can take the reader away (`startScript`). |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
 
-Each module's own claims are asserted in the `*.test.ts` beside it, the way
-`tests/field-test/test_ft_fixtures.py` asserts the remaining Python fixtures'. Without that, a
-builder that quietly stopped producing its state would make every test built on it pass for the
-wrong reason.
+Each module's own claims are asserted in the `*.test.ts` beside it. Without that, a builder that
+quietly stopped producing its state would make every test built on it pass for the wrong reason.
 
 ## Sandbox
 
@@ -287,7 +284,7 @@ packages.remoteUpdateLock(work) // origin regenerates the lock file, so a pull m
 ```
 
 pnpm only (the maintainer's ruling on #127, 2026-09-20): the port watches one lock file and runs
-one command, so the `manager` argument the Python's builders take has nothing to select. Yarn
+one command, so the `manager` argument the Python's builders took has nothing to select. Yarn
 Berry and npm, `YARN_VERSION` and `has_yarn_berry` are not ported, and neither is the
 `packageManager` field they existed to drive, which is what corepack reads.
 
@@ -321,13 +318,10 @@ real; everything else is tested by calling the command function with injected cl
 runs under `process.execPath`, so a run on the 22.18 floor leg genuinely exercises 22.18. A child
 that could not be started at all throws, rather than handing back a result full of empty strings.
 
-The closed-reader variant of `run_script` in `tests/conftest.py` is not ported until a command needs
-it.
-
 ## Running
 
 ```bash
-pnpm test                                        # the whole TypeScript suite, with coverage
+pnpm test                                        # the whole suite, with coverage
 pnpm exec vitest run harness                     # this directory alone
 pnpm exec tsc -p tsconfig.json                   # types, including fixtures/
 pnpm exec biome ci . --error-on-warnings         # lint and format

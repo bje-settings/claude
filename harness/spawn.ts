@@ -1,5 +1,5 @@
 // Run a plugin's entry point as its own process, the way Claude Code runs it:
-// the port of `run_script` and `Result` in tests/conftest.py.
+// the port of `run_script` and `Result` in tests/conftest.py (deleted at #138).
 //
 // This is the only place the TypeScript suite spawns anything (ADR 001). A
 // command function is tested by calling it with injected clients; `scripts/`

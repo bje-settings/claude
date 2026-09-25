@@ -33,14 +33,14 @@ so the diagram survives refactoring.
 Spell out every script a skill runs, at every call site:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ws-state.py" show
+node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" sync
 ```
 
-Do NOT hold the command in a variable and expand it (`S="python3 ...py"` then `$S show`). zsh does
+Do NOT hold the command in a variable and expand it (`S="node ...ts"` then `$S sync`). zsh does
 not word-split an unquoted expansion, so the whole string is looked up as one command name and
 the call exits 127. The Bash tool's shell is whatever the user's login shell is, and it discards
 shell state between calls, so a variable or function defined in one block is not there for the
-next. Enforced by `tests/test_skills.py`.
+next. Enforced by `tests/skills.test.ts`.
 
 Mermaid renders natively in GitHub and in Claude Code, so no build step or image is needed.
 Keep the source readable: a diagram that has to be rendered to be understood defeats the point.

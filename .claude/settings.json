@@ -1,7 +1,6 @@
 {
   "autoMemoryEnabled": false,
   "enabledPlugins": {
-    "pyright-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": false,
     "typescript7-lsp@bje": true
   },

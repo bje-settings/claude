@@ -13,7 +13,7 @@ import { filterUnderSkillsDir, PLUGINS, REPO_SKILLS, rel, skillFiles, skillsUnde
 const MERMAID_FENCE = /^```mermaid/m
 
 // A command held in a variable and expanded as one. zsh does not word-split
-// an unquoted expansion, so `S="python3 ...py"; $S show` looks up the whole
+// an unquoted expansion, so `S="node ...ts"; $S sync` looks up the whole
 // string as a command name and exits 127 under the Bash tool's shell. Spell
 // the script out at every call site instead. The interpreter half of the
 // pattern allows digits, so `python3` is caught.

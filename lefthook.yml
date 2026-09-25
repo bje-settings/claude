@@ -7,8 +7,7 @@
 # lefthook resolves the hooks directory with `git rev-parse --git-path hooks`,
 # the clone's common dir, so a `pnpm install` from any worktree of this clone
 # installs the hook for every worktree of it. Each pnpm-based step below still
-# needs its own checkout's `node_modules` (ruff needs only `uv` on PATH: `uv
-# run` provisions its own `.venv` on demand). The installed hook script's own
+# needs its own checkout's `node_modules`. The installed hook script's own
 # fallback chain hardcodes an absolute path into the installing checkout's
 # `node_modules`, so as long as that checkout still exists, a worktree that
 # has not run its own `pnpm install` yet still finds a working lefthook binary
@@ -23,8 +22,7 @@
 # pre-commit runs only the gates that are staged-scoped and stay fast: Biome
 # over the staged JSON, .mjs and .ts; `vitest related` over the tests the
 # staged files reach; `claude plugin validate --strict` when a plugin or the
-# marketplace manifest is touched; and, for as long as Python is in the tree
-# (#138 retires it), ruff (check and format --check) over staged Python.
+# marketplace manifest is touched.
 # `tsc -p` is the one step that is NOT staged-only: it type-checks the whole
 # project, because a type error caused by a staged file is usually in a file
 # that was not staged, and a project-wide checker handed a file list answers a
@@ -40,10 +38,10 @@
 # that runs nothing). Removing the key does not retroactively delete a
 # pre-push hook file a prior install already wrote: `pnpm exec lefthook
 # uninstall` (then reinstall) clears one left over from an earlier revision of
-# this file. CI is the enforcement boundary (ADR 002): the pytest and vitest
-# suites need tooling a fresh clone or worktree may not have yet, and a slow
-# pre-push hook trains people straight to --no-verify, which this repository
-# forbids outright. This is why #120 removes .pre-commit-config.yaml's local
+# this file. CI is the enforcement boundary (ADR 002): the vitest suite needs
+# tooling a fresh clone or worktree may not have yet, and a slow pre-push
+# hook trains people straight to --no-verify, which this repository forbids
+# outright. This is why #120 removes .pre-commit-config.yaml's local
 # hooks rather than porting them to a pre-push stage.
 #
 # Bypass for one commit or push with --no-verify. CI enforces regardless.
@@ -142,29 +140,4 @@ pre-commit:
         else
           printf '\n!! pre-commit: claude (the Claude Code CLI) is not installed, so the plugin-validate gate did not run here.\n' >&2
           printf '!! CI enforces it on the pull request. Install locally with:\n!!   curl -fsSL https://claude.ai/install.sh | bash\n\n' >&2
-        fi
-
-    # ruff, run exactly as the `ruff` CI job runs it (check, then format
-    # --check), scoped to the staged Python only. `tests/*/bin/gh` is the one
-    # non-`.py` file pyproject.toml's `extend-include` names, so it is the
-    # one non-`.py` glob entry here too. For as long as Python is in this
-    # tree (#138 retires it with the rest of the toolchain).
-    ruff-check:
-      glob: '{*.py,tests/*/bin/gh}'
-      run: |
-        if command -v uv >/dev/null 2>&1; then
-          uv run --locked ruff check {staged_files}
-        else
-          printf '\n!! pre-commit: uv is not installed, so the ruff-check gate did not run here.\n' >&2
-          printf '!! CI enforces it on the pull request. Install locally with:\n!!   curl -LsSf https://astral.sh/uv/install.sh | sh\n\n' >&2
-        fi
-
-    ruff-format:
-      glob: '{*.py,tests/*/bin/gh}'
-      run: |
-        if command -v uv >/dev/null 2>&1; then
-          uv run --locked ruff format --check {staged_files}
-        else
-          printf '\n!! pre-commit: uv is not installed, so the ruff-format gate did not run here.\n' >&2
-          printf '!! CI enforces it on the pull request. Install locally with:\n!!   curl -LsSf https://astral.sh/uv/install.sh | sh\n\n' >&2
         fi
