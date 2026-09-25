@@ -91,7 +91,9 @@ If a plugin grows until the right mechanism changes, raise it during planning or
   dispatched it, if anywhere.
 - Anything deterministic runs in a script, not an agent. Split work so the script emits
   structured output and the agent decides from it. Where an agent is still needed, set `model`
-  and `effort` in its frontmatter to the smallest that passes the specs.
+  and `effort` in its frontmatter to the smallest that passes the specs, unless the caller sizes
+  it: `model` can be passed per call, `effort` cannot, so a caller-sized agent (the workstreams
+  `stream` agent) leaves both unset and inherits the session's effort.
 - A skill that exists to be invoked by another skill or an orchestrator never sets
   `disable-model-invocation: true`: the flag hides it from the `Skill` tool, so its callers
   cannot reach it at all. Use `user-invocable: false` instead when only the model should start

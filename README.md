@@ -64,7 +64,7 @@ the plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Agents</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>stream-low</code>, <code>stream-medium</code>, <code>stream-high</code></a>: one body, one effort each; build one layer from one brief. Dispatched by <code>/workstreams:stream</code> with the model chosen per call.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>stream</code></a>: builds one layer from one brief. Dispatched by <code>/workstreams:stream</code> with the model chosen per call; effort is the session's.</li>
       </ul>
     </td>
   </tr>
