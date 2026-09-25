@@ -7,12 +7,12 @@
 // This file reaches everything else by `await import`, after the check
 // passes.
 //
-// This file ships. It holds no decisions. `src/commands/url.ts` is the
+// This file ships. It holds no decisions. `src/subcommands/url.ts` is the
 // seam a test reaches without a process. This adapter only turns
 // `process.argv` and stdin into its arguments. It turns its envelope into
 // an exit code and a stream.
 //
-// Its own spawned contract test, `src/bin.test.ts`, exercises it this way.
+// Its own spawned contract test, `tests/plugins/mermaid/bin.test.ts`, exercises it this way.
 // `harness/spawn.ts` is only the runner that test uses.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
@@ -21,7 +21,7 @@ assertNodeFloor(process.version)
 
 const { readFileSync } = await import('node:fs')
 const { renderText } = await import('../src/lib/envelope.ts')
-const { runMermaidUrl, wantsHelp } = await import('../src/commands/url.ts')
+const { runMermaidUrl, wantsHelp } = await import('../src/subcommands/url.ts')
 
 // A reader can close stdout or stderr early. Examples are `| head`,
 // `2>&1 | head`, or a tool call that abandons its child. This makes the

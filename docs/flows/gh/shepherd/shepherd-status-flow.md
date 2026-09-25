@@ -1,0 +1,47 @@
+---
+type: Reference
+description: How `gh.ts shepherd-status` reads one repository's dependencies pull requests into targets and skipped rows, and each way it stops.
+stale_after: 2027-03-25
+generated:
+  by: claude-opus
+  at: 2026-09-25
+---
+
+# shepherd-status flow
+
+`node scripts/gh.ts shepherd-status` prints one JSON document about what `/gh:shepherd` would
+work on in one repository, and changes nothing. The `/gh:shepherd` skill and the
+`shepherd-repo` agent run it.
+
+```mermaid
+flowchart TD
+    A[shepherd-status run] --> B{First argument asks for help?}
+    B -->|Yes| H([Print usage, exit 0])
+    B -->|No| C[Target: the first argument,<br/>or the working directory when there is none]
+    C --> D{Target is a directory<br/>you can enter?}
+    D -->|No| Z1([Refused: not a directory,<br/>or cannot enter, exit 2]):::stop
+    D -->|Yes| E{Inside a git checkout?}
+    E -->|No| Z2([Refused: not a git repository, exit 2]):::stop
+    E -->|Yes| F{gh names the repository<br/>and its default branch?}
+    F -->|gh not on PATH| Z3([gh is required, exit 1]):::stop
+    F -->|No answer, or a name absent| Z4([could not resolve the repository, exit 1]):::stop
+    F -->|Yes| G{Open dependencies pull requests listed?}
+    G -->|No| Z5([could not list pull requests, exit 1]):::stop
+    G -->|Yes| I{Recent completed runs on<br/>the default branch readable?}
+    I -->|No| J[CI time: 300 s]
+    I -->|Yes| K[CI time: median run duration;<br/>300 s when no run is usable]
+    J --> L[Drop draft pull requests]
+    K --> L
+    L --> M{Auto-merge enabled?}
+    M -->|Yes| N[targets: merge-risk low, then no label,<br/>then medium, then high, then a band<br/>it does not know; oldest first in a band]
+    M -->|No| O[skipped_no_automerge: oldest first;<br/>reported, never enabled]
+    N --> P([Print one JSON document, exit 0])
+    O --> P
+    X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
+
+    classDef stop fill:#fff3e0,stroke:#e65100,color:#000
+```
+
+A run list that gh cannot read is not a failure: the wait bound falls back to 300 seconds. A
+pull request list that gh cannot read is exit 1, because it says nothing about how many there
+are. Exit 3 is outside the documented set, so a caller cannot read a crash as an answer.

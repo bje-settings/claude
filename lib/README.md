@@ -10,7 +10,7 @@ stays as a symlink. A symlink with a target elsewhere in the same marketplace tu
 file in the cache copy. A symlink with a target outside the marketplace does not install at all.
 
 This link is the second case. An installed plugin holds a real copy of these files. It needs
-nothing at run time that the marketplace did not ship. The test `tests/repo-layout.test.ts` checks
+nothing at run time that the marketplace did not ship. The test `tests/repo/repo-layout.test.ts` checks
 the link target as the exact string `../../../lib`, not as a resolved path. A different spelling of
 the target could resolve to the same place. It could still install a different way.
 
@@ -25,16 +25,14 @@ directory except node's own built-in modules. Today that means `node:util` in `a
 nothing at all. `git.ts` and `gh.ts` reach node only through `process.ts`.
 
 Each file stays inside the erasable subset that node's type stripping handles: no `enum`, no
-parameter properties, and no namespaces. Tests sit beside the code they test. `lib/**/*.ts` is
-measured at 100 percent on lines, branches, functions, and statements, apart from the test files
-and `fixtures/`.
+parameter properties, and no namespaces. The tests live in `tests/lib/`, not here, because every
+plugin ships this directory through its `src/lib` symlink (ADR 004). `lib/**/*.ts` is measured at
+100 percent on lines, branches, functions, and statements.
 
-`fixtures/` holds the tiny programs that `process.test.ts` runs as real child processes. One child
-sleeps. One child starts a child process of its own. One child exits before it reads its stdin.
-
-These programs live here, not in `harness/fixtures/`. That directory had no equivalent of any of
-the three. The change that needed the programs did not touch that directory. Vitest and the
-coverage report skip these programs. Biome and `tsc` still check them.
+`tests/lib/fixtures/` holds the tiny programs that `tests/lib/process.test.ts` runs as real child
+processes. One child sleeps. One child starts a child process of its own. One child exits before
+it reads its stdin. Vitest and the coverage report skip these programs. Biome and `tsc` still
+check them.
 
 | Module | What it gives a plugin |
 | --- | --- |
@@ -88,7 +86,7 @@ the one command that widens itself on purpose. That command is `plugins/audit`'s
 (#172, RFC 001), which takes the root it audits as a positional argument rather than inherit an
 untested path. `parseCommandLine` answers with `Envelope<{ options; positionals: readonly
 string[] }>`. `parseArguments` stays the no-positionals wrapper, so every other caller, including
-`plugins/mermaid/src/commands/url.ts`, stays untouched.
+`plugins/mermaid/src/subcommands/url.ts`, stays untouched.
 
 Every declared option carries a default. So a parsed command line is never partial, and no command
 needs a fallback branch for a flag nobody passed. A bad flag, a missing value, a stray positional
@@ -210,7 +208,7 @@ the same way. It answers with the account of the error: zero entries for a broke
 for everything else. That is what lets `process.ts` attach the same function with no arm a real
 child cannot reach.
 
-Two of `streams.py`'s three duties have no counterpart here. `streams.test.ts` pins each against a
+Two of `streams.py`'s three duties have no counterpart here. `tests/lib/streams.test.ts` pins each against a
 real child, rather than assert it in prose: node writes strings as UTF-8 whatever the locale
 says, and node opens `/dev/null` over a stdio descriptor that was closed before the process
 started. `readStdinText` is the third duty, on the way in.
@@ -551,7 +549,7 @@ the argument RFC 001 decision 3 records against this whole directory.
 
 ```bash
 pnpm test                                        # the whole TypeScript suite, with coverage
-pnpm exec vitest run lib                         # this directory alone
+pnpm exec vitest run tests/lib                   # this directory's tests alone
 pnpm exec tsc -p tsconfig.json                   # types
 pnpm exec biome ci . --error-on-warnings         # lint and format
 ```

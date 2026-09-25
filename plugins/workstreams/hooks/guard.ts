@@ -2,7 +2,7 @@
 // directly on every shell tool call, in the main conversation and inside
 // every subagent.
 //
-// This file ships, and holds no decisions. `src/commands/guard.ts` is the
+// This file ships, and holds no decisions. `src/subcommands/guard.ts` is the
 // guard. It is reached with this process's own edges as arguments, which is
 // the seam the tests call without a process (ADR 001, RFC 001 decision 3).
 //
@@ -35,7 +35,7 @@ import { meetsNodeFloor } from '../src/lib/node-floor.ts'
 if (meetsNodeFloor(process.version)) {
   const { createOutput, readStdinText } = await import('../src/lib/streams.ts')
   const { gitOut } = await import('../src/lib/git.ts')
-  const { runGuard } = await import('../src/commands/guard.ts')
+  const { runGuard } = await import('../src/subcommands/guard.ts')
 
   // Both streams are guarded here, rather than at each write. A reader that
   // closed the pipe makes the write fail asynchronously, as an `error`

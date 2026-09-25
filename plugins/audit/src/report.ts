@@ -49,13 +49,13 @@ export type Stage = 'classify' | 'pairs' | 'evidence'
  *
  *  `no_key` is an environment that holds no `TYPESAFE_API_KEY`. This is what
  *  a machine that has never been set up reports. `no_jev` is when the
- *  caller asks for tier 0 alone, with `--no-jev`. `commands/context.ts`
+ *  caller asks for tier 0 alone, with `--no-jev`. `subcommands/context.ts`
  *  `skipReason` is where the code chooses those two. They are the only two
  *  that can reach the classify stage.
  *
  *  `classify_failed` is the third. It reaches only `pairs` and `evidence`.
  *  The classify stage ran and came back with no label at all. So there is
- *  nothing to route the two stages below it by. `commands/context.ts`
+ *  nothing to route the two stages below it by. `subcommands/context.ts`
  *  `modelStages` is where the code chooses it. */
 export type SkippedStage = { stage: Stage; reason: 'no_key' | 'no_jev' | 'classify_failed' }
 

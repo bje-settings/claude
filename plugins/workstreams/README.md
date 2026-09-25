@@ -319,16 +319,16 @@ is what a stale entry from an update looks like, and also a path that was never 
 
 ```bash
 pnpm test                                        # the whole TypeScript suite, with coverage
-pnpm exec vitest run plugins/workstreams         # this plugin alone
+pnpm exec vitest run tests/plugins/workstreams   # this plugin alone
 ```
 
-`src/fixtures/sweep-capture.json` holds every child process the real `gh` client started
+`tests/plugins/workstreams/fixtures/sweep-capture.json` holds every child process the real `gh` client started
 while it answered the sweep's four reads against `bje-settings/claude`, on 2026-09-21.
 The acceptance case replays it through the real client, and asserts the sets a person
 swept by hand that day. A test holds the claim "the report matches a hand sweep", not a
 memory of one.
 
-`src/hook.test.ts` starts `hooks/guard.ts` as its own process, the way `hooks.json` does.
+`tests/plugins/workstreams/hook.test.ts` starts `hooks/guard.ts` as its own process, the way `hooks.json` does.
 It sends the payloads Claude Code would really send, against repositories built by
 `harness/git.ts`. Every case asserts stdout as well as the status. Exit code 0 is what an
 allow and every degraded run answer with, so a status alone cannot tell a decision from a

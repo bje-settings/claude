@@ -6,7 +6,7 @@
 // file's job.
 //
 // This is the port of the spike's `candidates.ts`. Tests reach it only
-// through `commands/context.ts`. That is where its behaviour is checked. A
+// through `subcommands/context.ts`. That is where its behaviour is checked. A
 // candidate is not an answer anybody consumes on its own.
 
 import type { Unit } from './types.ts'

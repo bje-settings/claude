@@ -1,7 +1,7 @@
 // A hand-rolled, line-based markdown splitter (#164, #171). It has no
 // dependencies: it uses only node built-ins, so a reader can audit tier 0 in
 // this one file. It trades full CommonMark generality for rules that are
-// simple to verify by hand against the fixtures in split.test.ts.
+// simple to verify by hand against the fixtures in tests/plugins/audit/split.test.ts.
 
 import type { OpaqueBlock, SplitResult, SplitWarning, Unit } from './types.ts'
 

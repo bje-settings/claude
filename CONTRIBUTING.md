@@ -15,9 +15,10 @@ node (`.claude/rules/type-ts.md`).
 The git hooks' steps need `node_modules` and `claude` between them. Each step warns to stderr
 when it lacks the one it needs. It does not fail the commit.
 
-TypeScript tests sit beside the code they cover, at `plugins/<plugin>/src/**/*.test.ts`, with
-fixtures at `plugins/<plugin>/src/fixtures/`. The shared harness is `harness/` at the repository
-root. Only test files import it. See `harness/README.md`.
+Every test lives under `tests/`. `tests/plugins/<plugin>/` mirrors `plugins/<plugin>/src/`, with
+fixtures at `tests/plugins/<plugin>/fixtures/`. Nothing test-only goes in a plugin or in `lib/`,
+because both ship to each user (ADR 004). The shared harness is `harness/` at the repository
+root. See `harness/README.md`.
 
 `pnpm test` enforces vitest's coverage thresholds: 100 on lines, branches, functions and
 statements.

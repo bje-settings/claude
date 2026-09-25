@@ -1,6 +1,6 @@
 ---
 type: RFC
-description: Moves the marketplace's plugin scripts off Python 3.9 onto TypeScript executed directly by Node 22.18 or newer, with one root `lib/` symlinked into every plugin, tests co-located beside the code, and the local and CI quality gates split by venue.
+description: Moves the marketplace's plugin scripts off Python 3.9 onto TypeScript executed directly by Node 22.18 or newer, with one root `lib/` symlinked into every plugin, tests co-located beside the code (superseded by ADR 004), and the local and CI quality gates split by venue.
 status: stable
 created: 2026-09-12
 owner: brianespinosa
@@ -55,9 +55,10 @@ coverage apparatus.
 
 This RFC proposes moving plugin code, the hooks, ~~and `publish-plugin`~~ to TypeScript executed
 directly by Node 22.18 or newer, with no build step; one root `lib/` shared into each plugin by a
-committed symlink; tests co-located with the code they cover; and the quality gates split so the
-local hooks are staged-only and CI runs everything. **Revised at #128** (see Decisions &
-Follow-ups 14): `publish-plugin` is deleted rather than ported. The runtime decision is
+committed symlink; tests co-located with the code they cover (superseded by ADR 004); and the
+quality gates split so the local hooks are staged-only and CI runs everything. **Revised at
+#128** (see Decisions & Follow-ups 14): `publish-plugin` is deleted rather than ported. The
+runtime decision is
 [ADR 001](../adr/001-typescript-on-node-22-18.md); the gate venues are
 [ADR 002](../adr/002-quality-gate-venues.md).
 
@@ -171,6 +172,10 @@ plugins/<plugin>/
   hooks/*.ts
 ```
 
+**Revised at [#205](https://github.com/bje-settings/claude/issues/205):** `src/commands/` is now
+`src/subcommands/`, and the tests and fixtures live under `tests/`, outside every plugin
+([ADR 004](../adr/004-plugins-ship-runtime-files-only.md)).
+
 ~~`bin/<command>.ts`: one thin adapter per command.~~ **Revised at
 [#130](https://github.com/bje-settings/claude/issues/130)** (round 8 ruling 6, and Decisions &
 Follow-ups 15): one ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, with an arm
@@ -233,6 +238,8 @@ anything a session runs, and nothing executes them there. ~~What the downstream 
 different question, and `publish-plugin` filters `*.test.ts`, fixtures and `evals/` out of it,
 because that copy is read by another team as the plugin's source.~~ **Revised at #128:**
 `publish-plugin` is removed rather than ported, so there is no mirror-side filter to build.
+**Revised at #205:** the tests and fixtures live under `tests/` now, and do not ship
+([ADR 004](../adr/004-plugins-ship-runtime-files-only.md)).
 
 **The shared test harness lives at the repository root** and is imported only from test files, so
 it is never inside a plugin and never reaches a cache copy. It carries a sandbox, an in-process
@@ -384,7 +391,8 @@ and that entry is load-bearing here.
   installed plugin is larger than the plugin. It is dead weight rather than a hazard, but it is
   weight~~, and the mirror filter that keeps it out of the downstream copy is one more rule to keep
   in sync with the layout~~. **Revised at #128:** there is no mirror filter; the downstream mirror
-  was frozen rather than kept clean.
+  was frozen rather than kept clean. **Superseded at #205:** nothing test-only ships now
+  ([ADR 004](../adr/004-plugins-ship-runtime-files-only.md)).
 - **Symlinks need git symlink support.** A clone on Windows without `core.symlinks` gets a text
   file where `plugins/<p>/src/lib` should be, and the failure is an unresolved import rather than a
   clear message. The repository's own tooling already assumes a POSIX checkout, but this makes the
@@ -580,7 +588,9 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
     whole plugin directory into the cache with no exclusion mechanism, so tests and fixtures ship
     inertly. *Against:* the cache copy carries fixture trees for no one's benefit~~, and the mirror
     filter is one more rule that has to stay in sync with the layout, enforced by a test rather
-    than by the structure~~.
+    than by the structure~~. **Superseded at #205** by
+    [ADR 004](../adr/004-plugins-ship-runtime-files-only.md): tests and fixtures live under
+    `tests/`, outside every plugin, and do not ship.
 11. **The records live in `docs/rfc/` and `docs/adr/`**, under the `path-docs`, `path-docs-adr` and
     `path-docs-rfc` rules copied from `SurveyMonkey/skills` unchanged. *Against:* it is a docs tree
     to maintain, with an index to keep current on every landing, in a repository that has managed

@@ -68,7 +68,7 @@ export type CommonTool = (typeof COMMON_TOOL_NAMES)[number]
 
 // This is exported as `readonly string[]`, so a caller may still ask
 // about a name that is not one of these. `pathWithout` refuses a typo at
-// run time. `sandbox.test.ts` proves this with one such name.
+// run time. `tests/harness/sandbox.test.ts` proves this with one such name.
 export const COMMON_TOOLS: readonly string[] = COMMON_TOOL_NAMES
 
 // Without these tools, a returned PATH is not a usable shell environment
@@ -104,7 +104,7 @@ export interface Sandbox {
  *  repository's own workspace exports it from direnv. Without this fix, a
  *  fixture reads the developer's real global config, while CI reads none.
  *  With `status.showUntrackedFiles = no` and `merge.ff = false` in that
- *  file, two of git.test.ts's own assertions fail locally and pass in CI.
+ *  file, two of tests/harness/git.test.ts's own assertions fail locally and pass in CI.
  *
  *  Pointing `GIT_CONFIG_GLOBAL` inside the sandbox restores the plain
  *  meaning of moving HOME, and leaves a test free to write that file

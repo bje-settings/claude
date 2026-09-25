@@ -361,8 +361,8 @@ session-start hook does this in silence. A command states which version it found
 
 ## Tests
 
-The tests for this plugin live beside the code, as `src/**/*.test.ts`, in the repository that
-owns it, `bje-settings/claude`. They are not distributed with the plugin.
+The tests for this plugin live in `tests/plugins/gh/`, in the repository that owns it,
+`bje-settings/claude`. They are outside the plugin directory, so they are not installed with it.
 
 Because these skills delete branches and remove worktrees, the tests check their behaviour
 against real git repositories, not mocks. They cover in particular: every path that can delete

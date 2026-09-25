@@ -547,7 +547,7 @@ export class GhError extends Error {
    * for the ordinary refusal is a single line ("gh: API rate limit
    * exceeded"). So a tail of `message` returns the WHOLE message, argv and
    * all, and only a MULTI-line stderr happens to reduce to the Python's
-   * wording. That is the defect `plugins/gh/src/commands/sync-repo.ts` found
+   * wording. That is the defect `plugins/gh/src/subcommands/sync-repo.ts` found
    * at #159: a rate limit put forty characters of `--json` fields inside a
    * report line.
    *
@@ -621,7 +621,7 @@ export interface GhClientOptions {
    *  drives every endpoint, and every arm of the failure each one reports,
    *  in-process, with nothing spawned and no `gh` on the machine. The
    *  runner itself is the thing tested against real children
-   *  (`process.test.ts`); a copy of that test here would only prove node
+   *  (`tests/lib/process.test.ts`); a copy of that test here would only prove node
    *  twice. */
   readonly run?: Runner
 }

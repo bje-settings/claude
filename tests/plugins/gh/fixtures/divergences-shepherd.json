@@ -1,0 +1,68 @@
+{
+  "why": "Every place the shepherd port answers differently from the Python it replaces, as data a test reads rather than as prose in a README. The rule is layer 2's, recorded at fixtures/README.md: a divergence stays countable, and a ninth cannot appear without a row here. README-shepherd.md explains each one at length; this file is what the parity blocks in subcommands/shepherd-pr.parity-*.test.ts and subcommands/shepherd-status.test.ts are driven from.",
+  "notReplayed": {
+    "shepherd-pr": {
+      "help": {
+        "why": "The usage text is this command's own prose: it spells `gh.ts shepherd-pr <path> <number> <action>` where the Python's docstring spelled `gh-shepherd-pr.py`.",
+        "pinnedBy": "prints its own usage for --help, naming every action it accepts"
+      },
+      "an_internal_error": {
+        "why": "Provoked in the Python by making os.path.isdir raise, which is not a seam here.",
+        "pinnedBy": "reports an internal error rather than a stack trace, and exits 3"
+      }
+    },
+    "shepherd-status": {
+      "help": {
+        "why": "The usage text is this command's own prose: it names `gh.ts shepherd-status` rather than a script file.",
+        "pinnedBy": "prints its own usage for --help, naming the command rather than a script"
+      },
+      "an_internal_error": {
+        "why": "Provoked in the Python by making os.path.isdir raise, which is not a seam here.",
+        "pinnedBy": "reports an internal error rather than a stack trace, and exits 3"
+      }
+    }
+  },
+  "sentences": [
+    {
+      "id": "cannotEnter",
+      "was": "cannot enter <path>: [Errno 13] Permission denied: '<path>'",
+      "now": "cannot enter <path>: <node's own account of the refused access>",
+      "prefix": "cannot enter ",
+      "why": "Nothing changes directory here, because several commands share one process, so the second preflight is an access probe for the execute bit rather than a chdir that failed. The sentence in front of the colon is the Python's.",
+      "cases": ["a_directory_that_cannot_be_entered"]
+    },
+    {
+      "id": "internalError",
+      "was": "gh-shepherd-pr.py: internal error: ",
+      "now": "gh.ts shepherd-pr: internal error: ",
+      "why": "The file is scripts/gh.ts for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged.",
+      "cases": ["an_internal_error"]
+    },
+    {
+      "id": "internalErrorStatus",
+      "was": "gh-shepherd-status.py: internal error: ",
+      "now": "gh.ts shepherd-status: internal error: ",
+      "why": "The same, for the other command.",
+      "cases": ["an_internal_error"]
+    },
+    {
+      "id": "notJson",
+      "was": "gh answered with something that is not JSON",
+      "now": "the same fact as GhError.detail, which also names the call that could not be read",
+      "why": "Parsing gh's answer is lib/gh.ts's now, and its account names the endpoint. Nothing in the port composes this sentence.",
+      "cases": []
+    },
+    {
+      "id": "failedLog",
+      "was": "could not read the failed job's log: <words> for a gh that refused, and cannot run gh: <words> for a gh that never started",
+      "now": "could not read the failed job's log: <words> for both",
+      "why": "The two are one GhError now, and telling them apart would mean branching on prose.",
+      "cases": []
+    }
+  ],
+  "unchanged": {
+    "why": "One sentence that names a script and deliberately did NOT change, because it is inside the JSON document an agent copies into its report, and output is what this layer keeps byte for byte.",
+    "line": "there is nothing to settle, and this script never enables it",
+    "cases": ["settle_refuses_without_auto_merge"]
+  }
+}

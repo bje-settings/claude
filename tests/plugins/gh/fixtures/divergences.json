@@ -1,0 +1,98 @@
+{
+  "bash-output.json": {
+    "pull_request_lookup_failed": {
+      "was": "could not read merged pull requests; using ancestry alone",
+      "now": "could not read merged pull requests (gh: simulated failure); using ancestry alone",
+      "why": "The port names why the lookup failed, which the shell version never did. Carried over from tests/gh/test_output_parity.py's DIVERGENCES table unchanged: the reason now reaches the line from GhError rather than from the Python's gh_json, and reads the same."
+    }
+  },
+  "scenarioSubstitutions": {
+    "lock_file_changed": {
+      "was": "package-lock.json",
+      "now": "pnpm-lock.yaml",
+      "why": "pnpm only (ruling, 2026-09-20). The scenario's subject is a lock file the pull touched; the port watches one lock file, so the scenario builds that one. The reported line is unchanged, which is why the golden still applies."
+    },
+    "lock_file_untouched": {
+      "was": "package-lock.json",
+      "now": "pnpm-lock.yaml",
+      "why": "Same substitution. The state being asserted is a pull that did NOT touch the watched lock file, which needs the watched lock file to exist to mean anything."
+    },
+    "no_install": {
+      "was": "package-lock.json",
+      "now": "pnpm-lock.yaml",
+      "why": "Same substitution, with --no-install."
+    }
+  },
+  "notInTheTable": {
+    "cannot list worktrees": "tests/gh/test_output_parity.py records it: `git worktree list` failing left the shell version with an empty branch-to-worktree map, so it never printed a skip. The Python raises the skip the shell version meant to and the port keeps the Python's behaviour. There is no scenario for it in bash-output.json at all."
+  },
+  "ghVocabulary": {
+    "why": "gh-sync-repo.py:263 to 290 spells six reasons a gh call could not be read. The port keeps three of them in the Python's words, 'gh is not on PATH' (off status 127), 'gh exited <n>' and 'gh returned rows that are not pull requests' (its own check on the rows), and reads the rest off GhError.detail, which is gh's own account without the 'gh <argv> failed: ' prefix the message carries, because lib/gh.ts owns that vocabulary now. Each line below is what the report says instead of what the Python said for the SAME state. They are recorded here rather than only in a test so that a change to the vocabulary has to be recorded to stay green; sync-repo.merge-proof.test.ts drives its example from this list, taking 'message' as the error the real client throws and 'account' as the part of it the report quotes. A gh that a SIGNAL ended is listed too: subprocess reports that as a negative returncode, so the Python prints 'gh exited -15' where lib/gh.ts names the signal, which is the same complaint gh-sync.py:147 to 158 makes about negative statuses in its own report. accountOf's remaining arm, a pipe that failed (\"gh's output could not be read: ...\"), is deliberately NOT listed: subprocess.run surfaces no pipe error, so the Python cannot reach that state at all, and a table of what the report says INSTEAD of what the Python said for the SAME state has no row for a state the Python has not got.",
+    "lines": [
+      {
+        "state": "gh answered with something that is not JSON",
+        "was": "gh returned malformed JSON",
+        "now": "gh answered the merged pull requests with something that is not JSON: <parser message>",
+        "account": "gh answered the merged pull requests with something that is not JSON: unexpected token",
+        "message": "gh answered the merged pull requests with something that is not JSON: unexpected token"
+      },
+      {
+        "state": "gh answered with a payload that is not a list",
+        "was": "gh returned no pull-request list",
+        "now": "gh answered the merged pull requests with something that is not a list: <payload>",
+        "account": "gh answered the merged pull requests with something that is not a list: {\"message\":\"Not Found\"}",
+        "message": "gh answered the merged pull requests with something that is not a list: {\"message\":\"Not Found\"}"
+      },
+      {
+        "state": "gh is present and cannot be run",
+        "was": "cannot run gh: <strerror>",
+        "now": "cannot run gh: <node message>",
+        "account": "cannot run gh: spawn gh EACCES",
+        "message": "gh pr list --state merged failed: cannot run gh: spawn gh EACCES"
+      },
+      {
+        "state": "gh was ended by a signal",
+        "was": "gh exited <negative n>",
+        "now": "gh was killed by <SIGNAL>",
+        "account": "gh was killed by SIGTERM",
+        "message": "gh pr list --state merged failed: gh was killed by SIGTERM"
+      }
+    ],
+    "closed": {
+      "why": "Two lines left this table when lib/gh.ts gave GhError a detail field (layer 1), and both now read as the Python's own wording. They are LISTED rather than described, and driven by the same example that drives 'lines', so that one of them reading as lib/gh.ts's whole message again has to come back into 'lines' before the suite goes green. 'was' is what this port printed before detail existed; 'account' is what it prints now, which is what gh_json prints for the same state.",
+      "lines": [
+        {
+          "state": "gh refused and said a SINGLE line, which is the usual shape",
+          "was": "gh pr list --state merged --base main --limit 200 --json headRefName,headRefOid,isCrossRepository failed: gh: API rate limit exceeded",
+          "account": "gh: API rate limit exceeded",
+          "message": "gh pr list --state merged --base main --limit 200 --json headRefName,headRefOid,isCrossRepository failed: gh: API rate limit exceeded"
+        },
+        {
+          "state": "gh exited non-zero and said nothing",
+          "was": "gh pr list --state merged failed: gh exited 4",
+          "account": "gh exited 4",
+          "message": "gh pr list --state merged failed: gh exited 4"
+        }
+      ]
+    }
+  },
+  "inProcessFanOut": {
+    "why": "The fan-out is in-process (the design ruling in the approved plan), so a job has no exit status of its own, cannot be killed by a signal and cannot fail to start. It can still throw. gh-sync.py:123 to 135 folds a child that raised into THAT repository's section so the other sections survive; the port does the same with the line below, which replaces the three the child process took with it. The Python's first line carries the repository's basename (gh-sync.py:135 builds 'basename\n  ✗ could not start the sync script: ...' as one string) because a child that never ran wrote no heading of its own; the port writes that same heading ahead of the line below whenever the job threw before its first line, so a section is never left sitting under the previous repository's name.",
+    "was": [
+      "  ✗ sync script exited with status <n>",
+      "  ✗ sync script was killed by <SIGNAL>",
+      "  ✗ could not start the sync script: <error>"
+    ],
+    "now": "  ✗ the sync failed: <message>"
+  },
+  "exitStatus": {
+    "why": "#81 (round 7 ruling 2): a job that threw, or a RepoJob stand-in that answered a non-zero status without throwing, now makes gh.ts sync exit 1, on the single-repository path and the fan-out alike, once every report line has been written. The real job, syncRepo, always answers 0 for both a synced and a skipped repository (sync-repo.ts:843 to 851 is unchanged), so a skip is still exit 0 either way; only a thrown or non-zero job counts as a failure. gh-sync.sh dropped the single-repository path's status at its lines 72 to 73, and the port kept that for parity until now; the fan-out already reported each job's own line but still answered 0 regardless of what it said (gh-sync.py never summarised the fan-out's own exit status either, so there is no shell line this divergence replaces).",
+    "was": "always exits 0, whatever a job answered or threw",
+    "now": "exits 1 when any job threw or returned a non-zero status; a skipped repository still answers 0"
+  },
+  "failureSummary": {
+    "why": "The stderr line `failed(...)` carries once every report line is on stdout: how many repositories failed, of how many were tried. New with #81; there is no shell or Python line it replaces, so this is a statement of the new contract rather than a table of substitutions.",
+    "fanOut": "<n> of <total> repositories failed to sync",
+    "single": "the sync to <name> failed"
+  }
+}

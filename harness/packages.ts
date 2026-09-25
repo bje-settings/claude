@@ -179,7 +179,7 @@ export function createPackageFixtures(sandbox: Sandbox, git: GitFixtures): Packa
   // A real `pnpm install --lockfile-only` that exits 0 has written the
   // lock file. So the guard here would be a branch no test can reach. The
   // coverage rule says to restructure until the branch is gone, not to
-  // exclude it. `packages.test.ts` asserts the claim instead, from the
+  // exclude it. `tests/harness/packages.test.ts` asserts the claim instead, from the
   // outside.
 
   /** A throwaway clone of the same origin, for the three builders that make

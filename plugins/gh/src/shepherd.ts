@@ -38,7 +38,7 @@ import type { Output } from './lib/streams.ts'
 /**
  * Everything a shepherd command is given: the process's edges, as arguments.
  *
- * This is the counterpart of `CommandContext` in `commands/sync-repo.ts`.
+ * This is the counterpart of `CommandContext` in `subcommands/sync-repo.ts`.
  * It is a type of its own for three reasons that command does not share.
  * `createGh` takes a repository as well as a directory, because seven of
  * the ten `gh` calls these commands make name the repository with `--repo`

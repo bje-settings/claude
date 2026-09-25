@@ -115,7 +115,7 @@ export type JevSequences = { [K in SequencedMethod]?: readonly (JevResults[K] | 
 
 /** `usage()`'s one answer: zeros. The mock holds no state, so it has
  *  nothing here for a real total to add up against. A test that cares what
- *  a run spent must use `lib/jev.test.ts`'s transport instead, not this
+ *  a run spent must use `tests/lib/jev.test.ts`'s transport instead, not this
  *  double. */
 const ZERO_USAGE: Usage = {
   requests: 0,
