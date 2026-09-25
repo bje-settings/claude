@@ -19,8 +19,8 @@ file out. Each plugin's `src/lib` symlink points at the root `lib/`, and the ins
 directory into the cache too (ADR 001).
 
 Before this decision, the tests sat beside the code (RFC 001 decision 10, ADR 001). So each user
-who installed the plugins got 35 plugin test files, 4 test helpers, 9 `lib/` test files, 110
-fixture files and 8 flow diagrams. None of these files runs in an installed plugin. RFC 001
+who installed the plugins got 24 plugin test files and 9 `lib/` test files. Each user also got
+110 fixture files and 8 flow diagrams. None of these files runs in an installed plugin. RFC 001
 accepted this as inert weight.
 
 A second problem is names. The plugin reference gives a meaning to directory names at a plugin's
@@ -48,7 +48,7 @@ meaning on a directory that is not that component.
 5. No directory in a plugin takes a component name unless it is that component at the plugin
    root. `src/commands/` becomes `src/subcommands/`. The seam keeps its recorded name, the command
    function (RFC 001 decision 3), so the ADR 001 and RFC 001 citations stay true.
-6. `tests/repo/repo-layout.test.ts` enforces 1 and 5. It also keeps the map of 3 out of the
+6. `tests/repo/repo-layout.test.ts` enforces 1, 2 and 5. It also keeps the map of 3 out of the
    shipped code:
    - `developmentFiles` refuses a test file, a test helper or a `fixtures/` directory under
      `plugins/` or `lib/`.
@@ -57,6 +57,8 @@ meaning on a directory that is not that component.
    - `reservedDirectoryNames` refuses a component name below a plugin root, and a root
      `commands/`.
    - A symlink to a directory counts by its own name, because the installer copies it.
+   - `testsOutsideTests` refuses a test file or a test helper in any other place outside
+     `tests/`. vitest collects tests only from `tests/`, so a test in another place never runs.
 
    `tests/repo/skills.test.ts` enforces 4. `.claude/rules/path-plugins.md` states the rules for a
    person who edits a plugin.

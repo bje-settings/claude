@@ -10,8 +10,7 @@ export default defineConfig({
     // Every test lives under tests/, and no test lives in a plugin or in
     // lib/ (ADR 004). Claude Code copies a plugin's whole directory, and the
     // lib/ symlink, into each user's cache, so a test there would ship.
-    // tests/repo/repo-layout.test.ts refuses a test file in a plugin or in
-    // lib/.
+    // tests/repo/repo-layout.test.ts refuses a test file in any other place.
     include: ['tests/**/*.test.ts'],
     // .claude/worktrees/ holds checkouts of this same repository (see the
     // worktree workflow). Without this exclusion, every test in the tree
