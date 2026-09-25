@@ -1,25 +1,26 @@
 # The shepherd captures
 
-A second README rather than rows in `README.md`: #127 layer 3's file set allows NEW files under
-`plugins/gh/src/fixtures/` and no edits to what is already here, so this file is where the two
-shepherd captures are documented. `README.md` covers the four sync captures and still describes
-the rule both sets live by: a capture is never edited after the commit that made it.
+This is a second README, rather than new rows in `README.md`. #127 layer 3's file set allows NEW
+files under `plugins/gh/src/fixtures/`, but no edits to what is already here. So this file
+documents the two shepherd captures. `README.md` covers the four sync captures, and still states
+the rule both sets live by: nobody edits a capture after the commit that made it.
 
 | File | What it holds |
 | --- | --- |
 | `shepherd-pr-output.json` | 67 runs of `plugins/gh/scripts/gh-shepherd-pr.py`, one per case. |
 | `shepherd-status-output.json` | 21 runs of `plugins/gh/scripts/gh-shepherd-status.py`. |
 
-Both are read by `commands/shepherd-pr.test.ts` and `commands/shepherd-status.test.ts`.
+`commands/shepherd-pr.test.ts` and `commands/shepherd-status.test.ts` read both.
 
 ## How they were made
 
-Generated from the Python at `5da7328` (this stack's layer 2 head), before a line of the port was
-written, so the port is checked against the Python and never against itself. The capture script was
-a pytest module copied into `tests/gh/` for the run and deleted afterwards. It is committed here
-as text at the end of this file rather than as a file of its own, because `tests/gh` is deleted in
-layer 4 and a `.py` file under `plugins/gh/src/` would outlive the interpreter that runs it.
-Running it again from the same commit gives the same bytes.
+The team generated this from the Python at `5da7328` (this stack's layer 2 head), before anyone
+wrote a line of the port. This way, the tests check the port against the Python, never against
+itself. The capture script was a pytest module. The team copied it into `tests/gh/` for the run,
+then deleted it afterwards. This file commits it as text, at the end, rather than as a file of its
+own. That is because layer 4 deletes `tests/gh`, and a `.py` file under `plugins/gh/src/` would
+outlive the interpreter that runs it. If you run it again from the same commit, it gives the same
+bytes.
 
 ```bash
 cp <the script below> tests/gh/test_capture_shepherd.py
@@ -28,96 +29,100 @@ rm tests/gh/test_capture_shepherd.py
 ```
 
 That run writes one JSON object per example to `$SHEPHERD_CAPTURE/lines.jsonl`. The two files here
-are that stream regrouped, and the regrouping is the whole of it, so it is written out rather than
-left to a script nobody kept:
+are that stream, regrouped. The regrouping is the whole of it, so this file writes out the rule,
+rather than leaving it to a script nobody kept:
 
-- the rows are split by `script`, `gh-shepherd-pr.py`'s into `shepherd-pr-output.json` and
-  `gh-shepherd-status.py`'s into `shepherd-status-output.json`;
-- within a file each row becomes one entry under its own `name`, in the order the run produced
-  them, with `script` and `name` themselves dropped;
-- the one key whose spelling changes is `gh_calls`, which is written `ghCalls` here, because
-  everything these fixtures are read by is TypeScript;
+- the rule splits the rows by `script`: `gh-shepherd-pr.py`'s rows go into
+  `shepherd-pr-output.json`, and `gh-shepherd-status.py`'s rows go into
+  `shepherd-status-output.json`.
+- within a file, each row becomes one entry under its own `name`, in the order the run produced
+  them. The rule drops `script` and `name` themselves.
+- the one key whose spelling changes is `gh_calls`. Here the file spells it `ghCalls`, because
+  everything that reads these fixtures is TypeScript.
 - every other key, and every byte of every value, is the capture's own.
 
-Nothing is normalised at this step: `normalise` in the script below is the only substitution made
-anywhere, and it runs before the row is written.
+This step normalises nothing. `normalise`, in the script below, is the only substitution the
+process makes anywhere, and it runs before the script writes the row.
 
-Every case is driven through the same fixtures the Python's own tests use: the `gh` fixture from
+Every case runs through the same fixtures the Python's own tests use: the `gh` fixture from
 `tests/gh/conftest.py` (a real git repository, a canned pull-request set, and the stub `gh` from
 `tests/gh/bin/gh` on `PATH`), the row builders `dep_pr` and `write_prs`, and `run_script` from
 `tests/conftest.py`, which runs the script as its own process. The states are the states those
-tests build; nothing here is hand-written.
+tests build. Nobody hand-writes anything here.
 
 ## What each case records
 
 | Key | What it is |
 | --- | --- |
-| `argv` | The arguments the script was given, with the sandbox path normalised. |
+| `argv` | The script's arguments, with the sandbox path normalised. |
 | `env` | The environment variables the case set, and nothing else. |
 | `prs` | The canned pull-request set the stub `gh` answered from, whole, or `null` where the case wrote none. It is the input a test registers with `harness/gh.ts`'s server to reproduce the run. |
 | `status` | The exit status. |
 | `stdout` | Everything the script printed, normalised. For every action this is one JSON document, `json.dumps(..., indent=2, ensure_ascii=False)` with a trailing newline. |
 | `stderr` | Everything the script printed on stderr, normalised. |
-| `ghCalls` | Every invocation the stub `gh` was given, in order, one per line, as `GH_FIXTURE_CALL_LOG` recorded them. This is the argv side of the contract: which endpoints were called, with which filters, and in which order. |
-| `note` | Present only where the case could not be driven through argv, saying how it was driven instead. |
+| `ghCalls` | Every invocation given to the stub `gh`, in order, one per line, as `GH_FIXTURE_CALL_LOG` recorded them. This is the argv side of the contract: which endpoints it called, with which filters, and in which order. |
+| `note` | Present only where argv could not drive the case; it then says what did drive it instead. |
 
-Normalisation is `tests/gh/scenarios.py`'s `normalise` and nothing else: the sandbox directory
-(and its realpath) become `<sandbox>`, and every run of 7 to 40 hex characters becomes `<sha>`. No
-other substitution is made, so a captured string is the Python's own bytes.
+Normalisation is `tests/gh/scenarios.py`'s `normalise`, and nothing else. The sandbox directory
+(and its realpath) become `<sandbox>`. Every run of 7 to 40 hex characters becomes `<sha>`. The
+process makes no other substitution, so a captured string is the Python's own bytes.
 
 ## The measured fields
 
-`waited` (both `wait` and `settle`) and `settle`'s `reads_ok` and `read_failures` are recorded
-exactly as the Python printed them, which means they are a measurement of the machine the capture
-ran on: `settle_reports_open_when_auto_merge_never_fires` reads `"waited": 3` because a 3 second
-bound with a 1 second poll took 3 seconds of real time there, and a loaded machine would have
-written 4. `wait`'s `watcher_rc` where the bound fired (the Python's own 124 for a killed watcher)
-and `recreate`'s `read_failures` are the same kind of number.
+The capture records `waited` (both `wait` and `settle`) and `settle`'s `reads_ok` and
+`read_failures` exactly as the Python printed them. This means they measure the machine the
+capture ran on. For example, `settle_reports_open_when_auto_merge_never_fires` reads
+`"waited": 3`, because there a 3 second bound with a 1 second poll took 3 seconds of real time. A
+loaded machine would have written 4 instead. `wait`'s `watcher_rc`, where the bound fired (the
+Python's own 124 for a killed watcher), and `recreate`'s `read_failures`, are the same kind of
+number.
 
-They are NOT skipped, and there is no list of them for the parity test to keep in step. The port
-takes its clock and its sleep as arguments and the tests pass a fake that advances instantly, so
-the injected clock is made to produce the numbers the Python's real one did, which is what an
-injected clock is for. The whole document is then compared byte for byte like every other key: a
-field that stopped being reproducible turns the comparison red rather than quietly joining a list.
+The capture does NOT skip them, and there is no separate list of them for the parity test to keep
+in step. The port takes its clock and its sleep as arguments, and the tests pass it a fake clock
+that advances instantly. The tests set that injected clock to produce the same numbers the
+Python's real one did; that is what an injected clock is for. The test then compares the whole
+document byte for byte, like every other key. A field that a test can no longer reproduce turns
+the comparison red, rather than quietly joining some list.
 
 ## What the port deliberately says instead
 
 Every one of these is a sentence the Python owned that now belongs to `lib/gh.ts`, or a fact the
-port reaches differently. The parity test knows about each; none is a silent rewrite.
+port reaches differently. The parity test knows about each. None is a silent rewrite.
 
-They are also recorded AS DATA, in `divergences-shepherd.json` beside this file, which is layer 2's
-rule (`README.md`, "a divergence stays countable"): the two parity blocks read which cases are not
-replayed, and the two sentences they assert, out of that file rather than out of a literal, so a
-ninth divergence needs a row there. A separate file rather than a section of `divergences.json`
-because that one is layer 2's and this layer's file set allows new files here and no edits to what
-is already present. The table below is the same set, at length.
+The capture also records them AS DATA, in `divergences-shepherd.json`, beside this file. That
+follows layer 2's rule (`README.md`, "a divergence stays countable"): the two parity blocks read,
+out of that file rather than out of a literal, which cases they do not replay, and the two
+sentences they assert. So a ninth divergence needs a row there. This sits in a separate file,
+rather than a section of `divergences.json`, because that one is layer 2's, and this layer's file
+set allows new files here, but no edits to what is already present. The table below is the same
+set, at length.
 
 | Case | The Python | The port |
 | --- | --- | --- |
-| `a_directory_that_cannot_be_entered` | `cannot enter <p>: [Errno 13] Permission denied: '<p>'` | `cannot enter <p>: ` and then node's own account of the same refused access. Nothing changes directory in the port (several commands share one process), so the check is an access probe rather than a `chdir` that failed. |
-| `gh_is_not_on_path` | `gh is required`, from a `shutil.which` preflight | the same line, off the first `gh` call's start failure (status 127). No preflight is ported (#158). |
+| `a_directory_that_cannot_be_entered` | `cannot enter <p>: [Errno 13] Permission denied: '<p>'` | `cannot enter <p>: `, then node's own account of the same refused access. Nothing in the port changes directory (several commands share one process). So the check is an access probe, not a `chdir` that failed. |
+| `gh_is_not_on_path` | `gh is required`, from a `shutil.which` preflight | the same line, off the first `gh` call's start failure (status 127). #158 ports no preflight. |
 | every case where `gh` answered something unreadable | `gh answered with something that is not JSON` | `gh answered gh pr view with something that is not JSON: ...`, which is `GhError.detail` and names the call that could not be read. |
-| `wait_answers_failed_*` with a log `gh` refused | `could not read the failed job's log: <words>` for a refusal, and a bare `cannot run gh: ...` for a `gh` that never started | one prefix for both, because the two are one `GhError` now and telling them apart would mean branching on prose. |
-| `help`, `usage_with_too_few_arguments`, `an_unknown_action` | the script's own docstring, which opens `gh-shepherd-pr.py — ...` and spells `gh-shepherd-pr.py <path> <number> <action>` | the command's own usage, which opens with the same sentence and spells `gh.ts shepherd-pr <path> <number> <action>`. The line in FRONT of the usage (`unknown action: dance`) is compared against the Python's; the usage itself is compared against this command's, and every action it advertises is asserted to be accepted. |
+| `wait_answers_failed_*` with a log `gh` refused | `could not read the failed job's log: <words>` for a refusal, and a bare `cannot run gh: ...` for a `gh` that never started | one prefix for both, because the two are one `GhError` now; to tell them apart would mean a branch on prose. |
+| `help`, `usage_with_too_few_arguments`, `an_unknown_action` | the script's own docstring, which opens `gh-shepherd-pr.py — ...` and spells `gh-shepherd-pr.py <path> <number> <action>` | the command's own usage, which opens with the same sentence and spells `gh.ts shepherd-pr <path> <number> <action>`. The test compares the line in FRONT of the usage (`unknown action: dance`) against the Python's. It compares the usage itself against this command's, and asserts that the command accepts every action it advertises. |
 | `an_internal_error` | `gh-shepherd-pr.py: internal error: <type>: <message>` | `gh.ts shepherd-pr: internal error: <name>: <message>`. The file is `scripts/gh.ts` for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged. |
 
 One sentence deliberately did NOT change, though it names a script that is now a command:
-`settle`'s `there is nothing to settle, and this script never enables it`. It is inside the JSON
-document, which an agent copies into its report, so it is output rather than prose, and output is
-what this layer keeps byte for byte.
+`settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits
+inside the JSON document, which an agent copies into its report. So it is output, not prose, and
+this layer keeps output byte for byte.
 
-`ghCalls` is recorded and is NOT compared. The port reaches `gh` through the injected `GhClient`,
-so its argv is `lib/gh.ts`'s and is pinned by that module's own suite; comparing the stub's gh argv
-against it would be asserting the client's translation twice. What `ghCalls` was the only record of
-is what each WRITE was asked to send, and that is asserted directly instead, against the client's
-own request rather than against gh argv: `asks for a rebase of the pull request it was given, and
-never a merge`, `posts the words Dependabot answers, on the pull request it was given`, and `posts
-the reason file it was given, as the body of the comment` in `commands/shepherd-pr.test.ts`. Each
-of those three also asserts the CLIENT the request is sent through, because `--repo` is not a
-field of any request here: it is a construction option, so the repository half of `gh_calls` is
-asserted as `{ cwd: <target>, repository: <resolved> }` rather than as argv. `commands/
-shepherd-status.test.ts` does the same for its two listings. The field is kept in the capture
-because it is the Python's record and the captures are never edited.
+The capture records `ghCalls`, but the tests do NOT compare it. The port reaches `gh` through the
+injected `GhClient`. So its argv belongs to `lib/gh.ts`, and that module's own suite pins it;
+comparing the stub's gh argv against it would assert the client's translation twice. `ghCalls` was
+the only record of what each WRITE asked to send. The tests assert that directly instead, against
+the client's own request rather than against gh argv, in `commands/shepherd-pr.test.ts`: `asks for
+a rebase of the pull request it was given, and never a merge`, `posts the words Dependabot
+answers, on the pull request it was given`, and `posts the reason file it was given, as the body
+of the comment`. Each of those three also asserts the CLIENT the request goes through, because
+`--repo` is not a field of any request here: it is a construction option. So the tests assert the
+repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`, rather than as argv.
+`commands/shepherd-status.test.ts` does the same for its two listings. The capture keeps the field
+because it is the Python's record, and nobody edits the captures.
 
 ## The capture script
 

@@ -16,7 +16,7 @@ Scope comes from the working directory:
 | Not a git repository | Every **immediate** subdirectory that is a git repository is synced, in parallel. |
 
 Detection is non-recursive and never clones. A directory with no git repositories directly
-inside it is a no-op, so running this somewhere unexpected costs nothing.
+inside it is a no-op. If you run this somewhere unexpected, it costs nothing.
 
 ### Flags
 
@@ -28,103 +28,113 @@ inside it is a no-op, so running this somewhere unexpected costs nothing.
 
 ### Exit status
 
-Exit 0 when every repository synced or was skipped for a normal reason (uncommitted changes,
-no `origin`, and so on: those are not failures). Exit 1 when a repository's own sync failed
-outright, on the single-repository path and the fan-out alike, once the whole report is
-already on stdout: stderr then says which repository, or how many of how many. Exit 2 means
-the arguments were refused, as with any command here.
+Exit 0 when every repository synced, or was skipped for a normal reason. Normal reasons include
+uncommitted changes and no `origin`. Those are not failures. Exit 1 means a repository's own sync
+failed outright. This applies on the single-repository path and the fan-out alike, once the whole
+report is already on stdout. Stderr then names which repository, or how many of how many, failed.
+Exit 2 means the command refused the arguments, as with any command here.
 
 ### What one repository gets
 
-1. Skipped outright, before anything is modified, if it is not a git repo, has no `origin`,
-   has a git operation in progress in any of its worktrees, has uncommitted changes, or has a
-   working tree that cannot be read at all. Untracked files do not block it: the checkout,
-   fast-forward, and branch deletion cannot touch them. A dependency install can.
-   A repo is also skipped, after the fetch, if its default branch cannot be resolved or
-   `origin/<default>` does not exist locally.
+1. The command skips a repo outright, before it changes anything, when any of these is true:
+   - it is not a git repo
+   - it has no `origin`
+   - it has a git operation in progress in any of its worktrees
+   - it has uncommitted changes
+   - its working tree cannot be read at all
+
+   Untracked files do not block it. The checkout, fast-forward, and branch deletion cannot touch
+   them, though a dependency install can. The command also skips a repo after the fetch, if its
+   default branch cannot be resolved, or if `origin/<default>` does not exist locally.
 2. `git fetch --prune origin`.
-3. Checkout of the default branch, then `git merge --ff-only`. Fast-forward only, so a
-   diverged branch is reported for manual handling rather than merged automatically.
+3. Checkout of the default branch, then `git merge --ff-only`. This is fast-forward only. If a
+   branch has diverged, the command reports it for the user to handle, and does not merge it
+   automatically.
 4. Dependency install, but only if the pull actually changed a lock file. **pnpm only**: the
    one lock file watched is `pnpm-lock.yaml`, and the one command run is
-   `pnpm install --frozen-lockfile`. A checkout on any other package manager is synced as a
-   repository with no dependencies to install, and is installed by hand.
+   `pnpm install --frozen-lockfile`. The command syncs a checkout on any other package manager as
+   a repository with no dependencies to install. Install those by hand.
 5. Branch and worktree pruning.
 
-### How a branch is proven merged
+### How the command proves a branch is merged
 
-A branch is deleted only with positive proof, from either of two independent signals:
+The command deletes a branch only with positive proof, from either of two independent signals:
 
-- **A merged pull request.** It must have merged into the default branch, must have come from
-  this repository rather than a fork, and its head commit must be exactly where your local
-  branch still points. That last condition is what makes it evidence about your commits rather
-  than about a branch name: a name that was reused, or a branch you committed to after the merge
-  landed, no longer matches and is kept. This signal is what catches squash and rebase merges,
-  which leave no ancestry behind. One `gh` call lists the 200 most recently merged pull requests.
-  If that window fills up it may be hiding older ones, so any branch it cannot account for gets a
-  second call asking about that branch alone, and a busy repository does not quietly stop pruning.
+- **A merged pull request.** It must meet three conditions. It merged into the default branch.
+  It came from this repository, not a fork. Its head commit is exactly where your local branch
+  still points.
+
+  That last condition is what makes it evidence about your commits, not about a branch name. A
+  name someone reused, or a branch you committed to after the merge landed, no longer matches.
+  The command keeps that branch. This signal is what catches squash and rebase merges, which
+  leave no ancestry behind.
+
+  One `gh` call lists the 200 most recently merged pull requests. If that window fills up, it may
+  hide older ones. So, for any branch the first call could not account for, the command makes a
+  second call. That second call asks about that branch alone. The fallback call means pruning
+  does not quietly stop for a busy repository.
 - **Ancestry**, via `git branch --merged origin/<default>`. This is what catches a branch merged
   locally and pushed with no pull request at all.
 
-Either one is sufficient; neither one alone is complete. A branch with no proof is kept, and the
-report says what was actually established rather than guessing at a cause:
+Either one is sufficient. Neither one alone is complete. The command keeps a branch with no
+proof. The report says what it actually established, rather than a guess at a cause:
 
 | Report | What it means |
 | --- | --- |
 | `no merge proof` | No merged pull request from this repository used this name, and it is not an ancestor of the default branch. |
-| `merged PRs used this name; none at this commit` | Something merged under this name, but not this commit. Either the branch was rebased before merging, or the name was reused for unrelated work. The two are indistinguishable here, so the branch is kept. |
-| `too many merged PRs used this name to tell` | The per-branch lookup filled up, so "none at this commit" could not be established. |
-| `could not ask about this branch` | The lookup did not complete. Nothing was established either way. |
+| `merged PRs used this name; none at this commit` | Something merged under this name, but not this commit. Either someone rebased the branch before it merged, or the name got reused for unrelated work. The two are indistinguishable here. The command keeps the branch. |
+| `too many merged PRs used this name to tell` | The per-branch lookup filled up, so the command could not establish "none at this commit". |
+| `could not ask about this branch` | The lookup did not complete. The command established nothing either way. |
 
-After the first failed lookup the command stops asking, since the cause is rarely branch-specific
-and a rate limit only worsens if you keep going. Remaining branches are reported the same way, and
-the run closes with a count of how many were never checked, so a partial run is not mistaken for a
-complete one.
+After the first failed lookup, the command asks no more. The cause is rarely branch-specific, and
+a rate limit only gets worse if the command continues. The report lists remaining branches the
+same way. The run closes with a count of how many it never checked, so nobody mistakes a partial
+run for a complete one.
 
-The last three are all reasons to keep a branch, but they are different statements, and a report
-that collapsed them would be asserting things it had not checked. A `gone` upstream is never
-treated as proof on its own, since a pruned remote branch can equally mean the work was abandoned.
+The last three are all reasons to keep a branch, but they are different statements. A report that
+collapsed them would assert things it had not checked. The command never treats a `gone` upstream
+as proof on its own. A pruned remote branch can equally mean someone abandoned the work.
 
-If **both** signals are unavailable (no `gh`, or the branch listing failed), the repo is
-reported and pruning is skipped entirely rather than run on the surviving signal.
+If **both** signals are unavailable (no `gh`, or the branch listing failed), the command reports
+the repo and skips pruning entirely. It does not fall back to the surviving signal.
 
-Two further branches are excluded even when they do have proof: the default branch itself, and
-any branch whose tip is the same commit as `origin/<default>`, which has nothing to prune and is
-typically a branch just created and not yet committed to.
+The command excludes two further branches, even when they do have proof: the default branch
+itself, and any branch whose tip is the same commit as `origin/<default>`. That second kind has
+nothing to prune, and is typically a branch just created, with no commits of its own yet.
 
-Deletion uses `git branch -D`, which is required because a squash-merged branch is not an
-ancestor of anything. Every deleted branch is reported with its SHA, so a mistake is undone with
-`git branch <name> <sha>`. If the branch also had a worktree, that directory was removed too, and
-restoring it needs `git worktree add` plus a fresh dependency install.
+Deletion uses `git branch -D`. This is necessary because a squash-merged branch is not an
+ancestor of anything. The report gives every deleted branch's SHA, so you can undo a mistake with
+`git branch <name> <sha>`. If the branch also had a worktree, the command removed that directory
+too. Restoring it needs `git worktree add`, plus a fresh dependency install.
 
-A worktree holding uncommitted changes outranks the merge proof: both the worktree and its
-branch are left alone and reported.
+A worktree that holds uncommitted changes outranks the merge proof. The command leaves both the
+worktree and its branch alone, and reports them.
 
 ## `/gh:shepherd`
 
-Merges a repository's open `dependencies` pull requests one at a time. Each one is rebased if it
-is behind, CI is waited on once per cycle, mechanical failures are fixed, and anything that would
-need a logic change is skipped with a comment saying why. Auto-merge does the merging; the skill
-only gets each pull request to green and confirms it landed before starting the next.
+Merges a repository's open `dependencies` pull requests one at a time. It rebases each one if it
+is behind. It waits on CI once per cycle. It fixes mechanical failures. It skips anything that
+needs a logic change, with a comment that says why. Auto-merge does the actual merge. The skill
+only gets each pull request to green, and confirms it landed before it starts the next one.
 
-Serial is the point. Under a strict up-to-date rule every merge puts every other open pull
-request behind, so shepherding them in parallel costs a CI run per pull request per merge. One
-at a time costs exactly one rebase each, which is what a by-hand run of six Dependabot pull
-requests measured.
+Serial is the point. A strict up-to-date rule puts every other open pull request behind after
+each merge. If you shepherd them in parallel, each merge costs a CI run per pull request. One at
+a time costs exactly one rebase each. A by-hand run of six Dependabot pull requests measured
+exactly that.
 
 Scope comes from the working directory, as with `/gh:sync`:
 
 | Working directory | What happens |
 | --- | --- |
-| A git repository | That repository's pull requests are shepherded, serially. |
-| Not a git repository | Every **immediate** subdirectory that is a git repository gets its own subagent; repos run in parallel, each one serial inside. |
+| A git repository | The skill shepherds that repository's pull requests, serially. |
+| Not a git repository | Every **immediate** subdirectory that is a git repository gets its own subagent. Repos run in parallel. Each one is serial inside. |
 
 ### What counts as a target
 
 An open, non-draft pull request that carries the `dependencies` label **and** already has
-auto-merge enabled. Auto-merge is the human's signal that the pull request is wanted; the skill
-never enables it. `dependencies` pull requests without auto-merge are listed in the report so
-you can enable it and rerun.
+auto-merge enabled. Auto-merge is the human's signal that they want the pull request. The skill
+never enables it itself. The report lists `dependencies` pull requests without auto-merge, so you
+can enable it and rerun.
 
 Order is gh-security's `merge-risk:<band>` label first (low, then unlabelled, then medium, then
 high), oldest first within a band.
@@ -141,75 +151,81 @@ high), oldest first within a band.
 | State | Action |
 | --- | --- |
 | Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. |
-| Conflicts, Dependabot branch | Comment `@dependabot recreate`, wait for the head to move, then wait for CI. If the pull request is closed while waiting, which is what Dependabot does when another pull request already shipped the same or a newer version, `recreate` returns early and it is reported as closed, not blocked. |
-| Conflicts, human branch | Reported as needing escalation. Never resolved by the skill. |
-| Checks running | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
-| Checks green, auto-merge fired | Recorded with the merge commit. Next. |
-| Checks green, still open | `settle`: read the pull request until GitHub decides. Merged is recorded as merged, and closed as closed; a `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is a block whose reason names that field; `BEHIND` or `DIRTY` sends the loop back to decide again; the bound passing with nothing reported is a block whose reason is exactly that. Never merged by hand. |
-| Checks failed, mechanical | Fixed once in a throwaway worktree and pushed: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
-| Checks failed, not mechanical | Skipped with a comment saying why: anything touching program logic, tests' expectations of behaviour, configuration semantics, or a CI workflow. |
-| Checks failed, unclear | Reported as needing escalation, with a `hypothesis` when the worker has one, so the escalation rerun does not start from zero. |
-| Checks failed, mechanical but unverifiable locally | For example a failure that only reproduces with CI-only secrets. Escalated with the hypothesis, never pushed on spec: a push would stop Dependabot maintaining the branch, and the one-fix cap would turn a wrong guess into a skip. |
+| Conflicts, Dependabot branch | Comment `@dependabot recreate`, wait for the head to move, then wait for CI. Dependabot sometimes closes the pull request while the skill waits, when another pull request already shipped the same or a newer version. When that happens, `recreate` returns early, and the report marks it closed, not blocked. |
+| Conflicts, human branch | The report flags it for escalation. The skill never resolves it. |
+| Checks in progress | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
+| Checks green, auto-merge fired | Record it with the merge commit. Continue. |
+| Checks green, still open | `settle`: read the pull request until GitHub decides. Record `merged` as merged, and `closed` as closed. A `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is a block. The reason names that field. `BEHIND` or `DIRTY` sends the loop back to decide again. If the bound passes with nothing reported, that itself is the block reason. Never merge it by hand. |
+| Checks failed, mechanical | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, or a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
+| Checks failed, not mechanical | Skip it, with a comment that says why. This covers anything that touches program logic, a test's expected behaviour, configuration meaning, or a CI workflow. |
+| Checks failed, unclear | Report it for escalation, with a `hypothesis` when the worker has one. This way, the escalation rerun does not start from zero. |
+| Checks failed, mechanical but unverifiable locally | For example, a failure that reproduces only with CI-only secrets. Escalate it with the hypothesis. Never push on a guess: a push would stop Dependabot's maintenance of the branch, and the one-fix cap would turn a wrong guess into a skip. |
 
-`@dependabot recreate` re-resolves the version instead of reusing the original bump, so a pull
-request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2` if a newer release landed
-while it waited; expected Dependabot behaviour, and the report's `merged_as` column says so
+`@dependabot recreate` re-resolves the version. It does not reuse the original bump. So a pull
+request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2`, if a newer release landed
+while it waited. This is expected Dependabot behaviour. The report's `merged_as` column says so
 when it happens.
 
 The report ends with an offer to rerun the escalated pull requests with a larger model. The
-default worker is Sonnet at medium effort, since rebasing, reading a check, and classifying a
-failure are small-model work; cost scales with the rare hard case rather than the common easy one.
+default worker is Sonnet, at medium effort. A rebase, a check read, and a failure classification
+are all small-model work. Cost scales with the rare hard case, rather than the common easy one.
 
 ### Waiting
 
 There are two waits, and they wait on different things. The CI wait is a blocking
-`gh pr checks --watch`, run inside the per-repo subagent, once per CI cycle. It is deliberately
-not a Monitor or a scheduled wake: those idle the worker and leave the orchestrator seeing only
-"waiting". The bound comes from the median duration of the last twenty
-completed runs on the default branch, doubled, clamped to two to nine minutes; a wait that hits
-its bound returns `pending` and the agent calls it again. A rollup that is already terminal is
-answered from the pull request without watching at all.
+`gh pr checks --watch`. It runs inside the per-repo subagent, once per CI cycle. It is
+deliberately not a Monitor or a scheduled wake: those idle the worker, and the orchestrator then
+sees only "waiting". The bound comes from the median duration of the last twenty completed runs
+on the default branch. It is doubled, then clamped to two to nine minutes. A wait that hits its
+bound returns `pending`, and the agent calls it again. When a rollup is already terminal, the
+skill answers from the pull request alone, with no watch at all.
 
 The second is `settle`, the grace between "checks passed" and "auto-merge did not fire". It
-exists because that grace used to be one `gh` round trip: the agent was told to spend it on a
-second `wait`, and `wait` returns at once on a terminal rollup. A pull request that merged one
-second later was reported blocked.
+exists because that grace used to be one `gh` round trip. The brief told the agent to spend it on
+a second `wait`, but `wait` returns at once on a terminal rollup. So the old check reported a pull
+request as blocked even when it merged a second later.
 
-`settle` ends on evidence rather than on a clock. Any state GitHub reports that decides the
-question ends it -- merged, closed, a blocking review decision, or a base that moved to `BEHIND`
-or `DIRTY`, each on sight; a `BLOCKED` merge state once a second read confirms it, since GitHub
-reports `BLOCKED` while it is still reconciling a check that has only just gone green. Only a
-pull request GitHub has said nothing decisive about -- still `OPEN`, not merged, in a merge
-state that neither proves nor reopens the question (`CLEAN` usually, `UNKNOWN` and the rest the
-same way) -- reaches the bound, and the reason it records then says exactly that rather than
-guessing at a cause.
+`settle` ends on evidence, not on a clock. Any state GitHub reports that decides the question
+ends it at once. That includes merged, closed, a blocking review decision, or a base that moved
+to `BEHIND` or `DIRTY`. A `BLOCKED` merge state ends it too, once a second read confirms it.
+GitHub reports `BLOCKED` while it still reconciles a check that has only just gone green. Only a
+pull request GitHub has said nothing decisive about reaches the bound. That means still `OPEN`,
+not merged, and in a merge state that neither proves nor reopens the question. `CLEAN` is the
+usual case. `UNKNOWN` and the rest work the same way. The reason it records then says exactly
+that, rather than a guess at a cause.
 
-It reports the reading as well as the result. `waited` is measured rather than accumulated from
-its own sleeps, and `reads_ok`, `read_failures` and `read_error` travel beside it. If every read
-after the first fails, `settle` refuses with gh's own words instead of answering `open`: "nothing
-was reported against it" would be a statement about a silence, which is the one thing nothing in
-this plugin does.
+It reports the reading as well as the result. The skill measures `waited` directly; it does not
+accumulate it from its own sleeps. `reads_ok`, `read_failures`, and `read_error` travel beside it.
+If every read after the first fails, `settle` refuses, in gh's own words, instead of answering
+`open`: "nothing was reported against it" would be a statement about a silence, which is the one
+thing nothing in this plugin does.
 
-That bound is 90 seconds, and it is the one guess in the script that decides an outcome rather
-than sizing a bound. It is deliberately not scaled
-from `SHEPHERD_CI_SECONDS`: that number is the measured median of the repository's own workflow
-runs, and what `settle` waits on is GitHub's auto-merge latency after the checks are already
-green. Measuring that latency properly is future work; the constant is what stands in until
-field tests say whether it ever decides an outcome.
+That bound is 90 seconds. It is the one guess in the script that decides an outcome, rather than
+one that sizes a bound. The script deliberately does not scale it from `SHEPHERD_CI_SECONDS`.
+That number is the measured median of the repository's own workflow runs. What `settle` waits on
+is GitHub's auto-merge latency, after the checks are already green. A proper measurement of that
+latency is future work. The constant stands in until field tests say whether it ever decides an
+outcome.
 
-The orchestrator makes one more read before printing. A `blocked` entry with a `CLEAN` or
-`UNKNOWN` merge state and auto-merge on is the signature of the same race, so it runs `merged`
-once and reclassifies. A `blocked` entry that names a cause is left alone: GitHub decided it,
-not the clock.
+The orchestrator makes one more read before it prints the report. A `blocked` entry with a
+`CLEAN` or `UNKNOWN` merge state, and auto-merge on, is the signature of the same race. So the
+orchestrator runs `merged` once, and reclassifies it. It leaves alone a `blocked` entry that names
+a cause. GitHub decided that, not the clock.
 
 ### What it never does
 
-Merge by hand, enable or disable auto-merge, bypass or re-run a required check, edit labels,
-resolve conflicts on a human's branch, force-push, or commit with `--no-verify`.
+Never:
+- merge by hand
+- enable or disable auto-merge
+- bypass or re-run a required check
+- edit labels
+- resolve conflicts on a human's branch
+- force-push
+- commit with `--no-verify`
 
 ### Commands
 
-The deterministic parts are two commands; the agent only decides between their results.
+The deterministic parts are two commands. The agent only decides between their results.
 
 ```bash
 node <plugin>/scripts/gh.ts shepherd-status <path>               # the work list, as JSON
@@ -217,107 +233,114 @@ node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|recreate|wait|se
 node <plugin>/scripts/gh.ts shepherd-pr <path> <n> skip <reason-file>
 ```
 
-`shepherd-status` changes nothing. `shepherd-pr` writes only through `rebase` (the branch update),
-`recreate` and `skip` (one comment each), and refuses each of those when its precondition does
-not hold: a pull request that is not open, a `recreate` on a branch Dependabot did not author, a
-`skip` with an empty reason. Every action prints one JSON object with `ok` and `detail`, and
-exits 0 whether or not it acted, so a refusal is data for the agent rather than a crash.
-`recreate` also re-reads the pull request on every poll: a moved head is `recreated`; a pull
-request closed or merged with its head unmoved returns early with `ok: true` and
-`result: "closed"` or `"merged"` rather than waiting out the bound; and a poll that cannot read
-the pull request is counted, not mistaken for "the head did not move". If no poll succeeded the
-detail says so and carries gh's last error. `recreate` is for Dependabot's own pull requests:
-the summary's `is_bot` says whether any bot opened it, and `is_dependabot` is what the refusal
-turns on, because `@dependabot recreate` on a renovate branch is a comment nothing will answer.
+`shepherd-status` changes nothing. `shepherd-pr` writes only through three actions: `rebase`
+(the branch update), and `recreate` and `skip` (one comment each). It refuses each of those when
+its precondition does not hold:
+- a pull request that is not open
+- a `recreate` on a branch Dependabot did not author
+- a `skip` with an empty reason
 
-Nothing here reports a silence as a fact. A read gh could not answer carries gh's own words, an
-answer missing a field the loop decides from is refused rather than shaped into a pull request
-with no checks, and a `wait` whose watcher failed for a reason of its own is `ok: false` rather
-than `pending` -- reported as pending, an expired token is waited out one CI cycle at a time
-forever. `rebase` reports gh's output and says when the head has not moved, since
-`gh pr update-branch` returns as soon as GitHub accepts the request and prints the same line
-when the branch was already current. A failed `wait` carries `log_tail`, and `log_error` beside
-it when gh would not hand the log over, so an empty tail is not mistaken for a job that printed
-nothing.
+Every action prints one JSON object, with `ok` and `detail`, and exits 0 whether or not it acted.
+So a refusal is data for the agent, not a crash.
 
-`settle` writes nothing at all: it is reads and a sleep. It refuses a pull request that is
-closed, one without auto-merge, or one whose checks are neither `passed` nor absent, rather than
-waiting out a bound on a question nobody asked; a pull request that has already merged is
-answered rather than refused, since that is the answer `settle` is asked for.
+`recreate` also re-reads the pull request on every poll. A moved head is `recreated`. A pull
+request closed or merged with its head unmoved returns early, with `ok: true` and
+`result: "closed"` or `"merged"`. It does not wait out the bound. A poll that cannot read the pull
+request is counted as such, never mistaken for "the head did not move". If no poll succeeded, the
+detail says so, and carries gh's last error. `recreate` is for Dependabot's own pull requests. The
+summary's `is_bot` says whether any bot opened it. `is_dependabot` is what the refusal turns on,
+because `@dependabot recreate` on a renovate branch is a comment nothing will answer.
 
-Environment knobs (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`,
-`SHEPHERD_LOG_LINES`, `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`) are listed by
-`node <plugin>/scripts/gh.ts shepherd-pr --help`.
+Nothing here reports a silence as a fact. When gh could not answer a read, the report carries
+gh's own words. When an answer lacks a field the loop decides from, the command refuses it. It
+does not shape that answer into a pull request with no checks. A `wait` whose watcher failed for
+a reason of its own reports `ok: false`, not `pending`. If it reported `pending` instead, an
+expired token would wait out one CI cycle at a time, forever. `rebase` reports gh's output, and
+says when the head has not moved. This is because `gh pr update-branch` returns as soon as GitHub
+accepts the request, and prints the same line when the branch was already current. A failed
+`wait` carries `log_tail`, and `log_error` beside it when gh would not hand over the log. This
+way, an empty tail is not mistaken for a job that printed nothing.
 
-Repository discovery is shared with `/gh:sync`: both skills resolve their scope by the same
-rule, and `node <plugin>/scripts/gh.ts discover <path>` is that rule on its own, one checkout root
-per line. A directory with no checkouts in it prints nothing and exits **0**: that is an answer,
-not a failure. Exit **1** means the target could not be read at all, with the reason on stderr;
-exit **2** means the arguments were refused. `sync` answers 2 where `discover` answers 1 on the
-same two states, so a skill running both reads each status against its own command.
+`settle` writes nothing at all: it only reads, and sleeps. It refuses a pull request that is
+closed, one without auto-merge, or one whose checks are neither `passed` nor absent. It does not
+wait out a bound on a question nobody asked. A pull request that has already merged gets an
+answer instead of a refusal, because that answer is exactly what `settle` is asked for.
+
+`node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs
+(`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`, `SHEPHERD_LOG_LINES`,
+`SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`).
+
+Repository discovery is shared with `/gh:sync`. Both skills resolve their scope by the same rule.
+`node <plugin>/scripts/gh.ts discover <path>` is that rule on its own, one checkout root per
+line. A directory with no checkouts in it prints nothing, and exits **0**. That is an answer, not
+a failure. Exit **1** means the command could not read the target at all, with the reason on
+stderr. Exit **2** means the command refused the arguments. `sync` answers 2 where `discover`
+answers 1 on the same two states. So a skill that runs both must read each status against its own
+command.
 
 ## Session start hook
 
-On session start only (not on resume, `/clear`, or compaction) the plugin runs a **report-only**
-check and, if there is anything worth acting on, writes a status line about it. Everything it
-says is computed by the script, and it ends by naming the command that acts on it once, as a
-fact, rather than asking anyone to offer anything.
+On session start only (not on resume, `/clear`, or compaction), the plugin runs a **report-only**
+check. If there is anything worth an action, it writes a status line about it. The script
+computes everything it says. It ends with the name of the command that acts on it, stated once,
+as a fact. It never asks anyone to offer anything.
 
-- Outside a git repository it runs the fan-out check in `--dry-run` and reports the findings, led
-  by one line counting them: how many repositories were checked, and how many have upstream
-  changes, have prunable branches, were skipped, or could not be fully checked. There is no such
-  line above a run that produced no report, or above one no repository could be counted in,
-  because a line of zeros over a report that says otherwise would be worse than no line.
-- Inside a git repository, if HEAD is not on the default branch, it says so, and adds how far the
-  default branch is behind the cached `origin/<default>` and how many local branches are prunable
-  candidates, each only when the number is above zero. This branch is purely local and does not
-  hit the network, so the numbers are as of the last fetch and the message says so; `/gh:sync
-  --dry-run` is what reports the current answer, including what `/gh:sync` would do with the
-  default branch, which the message itself does not claim. Prunable candidates are candidates:
-  they are local branches with a gone upstream or already merged into the default branch, minus
-  any sitting on the commit the cached `origin/<default>` names, which `/gh:sync` keeps and says
-  so. Ancestry cannot see a squash merge, which is what `/gh:sync` asks the merged pull request
-  list about. A lookup that cannot be made leaves its line out rather than reporting a zero.
+- Outside a git repository, it runs the fan-out check in `--dry-run`, and reports the findings.
+  One line leads the report. It counts how many repositories the check looked at, how many have
+  upstream changes, how many have prunable branches, how many it skipped, and how many it could
+  not fully check. No such line appears above a run that produced no report, or one where the
+  check could not count any repository. A line of zeros over a report that says otherwise would
+  be worse than no line at all.
+- Inside a git repository, if HEAD is not on the default branch, it says so. It adds how far the
+  default branch is behind the cached `origin/<default>`, and how many local branches are
+  prunable candidates, each only when the number is above zero. This code path is purely local,
+  and does not hit the network, so the numbers are as of the last fetch, and the message says so.
+  `/gh:sync --dry-run` is what reports the current answer, including what `/gh:sync` would do
+  with the default branch, which this message does not claim. Prunable candidates are candidates
+  only: they are local branches with a gone upstream, or ones already merged into the default
+  branch, minus any that sit on the commit the cached `origin/<default>` names, which `/gh:sync`
+  keeps and says so. Ancestry cannot see a squash merge, which is what `/gh:sync` asks the merged
+  pull request list about. When a lookup cannot run, the hook drops that line, instead of showing
+  a zero.
 - Otherwise it stays silent.
 
-The whole hook is `hooks/hook-io.ts`, run as `hook-io.ts session-start`: it reads the payload,
-picks the branch the payload's directory calls for, and writes the response. Its `cwd`, `branch`
-and `report` subcommands are the pieces that decision is built from, kept as seams for the tests
-and for debugging the hook by hand.
+The whole hook is `hooks/hook-io.ts`, run as `hook-io.ts session-start`. It reads the payload,
+picks the branch the payload's directory calls for, and writes the response. Its `cwd`, `branch`,
+and `report` subcommands are the pieces that build that decision. The hook keeps them as seams,
+for the tests, and for anyone who wants to debug the hook by hand.
 
-The hook never changes a branch, worktree, or working tree, and every path through
-`session-start` exits 0, so it cannot block a session from starting or surprise you with a change
-you did not ask for. `hooks.json` wraps it in `command -v node ... ; exit 0`, which holds that
-guarantee even for the cases the file is never reached in at all: no node on PATH, or a hooks
-directory this file was never installed into. A node below the floor is the same silence: the
-hook checks the running version first and exits 0 without writing anything, because a hook that
-explains itself on stderr writes into the session. In fan-out mode it does fetch, which updates
-remote-tracking refs, and that is one network round trip per repository against the hook's 60
-second budget; the fan-out is stopped at 50 seconds so there is time left to report that it ran
-out. A degraded run (a missing `scripts/gh.ts`, no git on PATH, `sync` itself timing out or leaving no
-report at all) leaves a line on stderr for `claude --debug`, and says so in the session only when
-there is something to act on. A `sync` that ran to completion but answered exit 1 because a
-repository's own job failed is not degraded: the report it already wrote is what the session sees,
-the same as a clean run.
+The hook never changes a branch, worktree, or working tree. Every path through `session-start`
+exits 0, so it can never stop a session, or surprise you with a change you did not ask for.
+`hooks.json` wraps it in `command -v node ... ; exit 0`, which holds that guarantee even where the
+file never runs at all: no node on PATH, or a hooks directory this file was never installed into.
+A node below the floor gets the same silence. The hook checks the current version first, and
+exits 0 without a write, because a hook that explains itself on stderr writes into the session.
+In fan-out mode it fetches, which updates remote-tracking refs. That is one network round trip
+per repository, against the hook's 60 second budget. The fan-out stops at 50 seconds, so there is
+time left to report that it ran out. A degraded run (a missing `scripts/gh.ts`, no git on PATH, or
+`sync` itself that times out or leaves no report at all) leaves a line on stderr for
+`claude --debug`. It says so in the session only when there is something to act on. A `sync` that
+ran to completion, but answered exit 1 because a repository's own job failed, is not degraded:
+the report it already wrote is what the session sees, the same as a clean run.
 
 ## Credentials
 
-These commands shell out to `gh` and `git` and inherit the environment of the directory they
-were invoked from. If you use a per-directory credential switcher such as `direnv` to select a
-GitHub account (`GH_CONFIG_DIR`), run the command from inside the tree it applies to, so the
-right account is active.
+These commands shell out to `gh` and `git`. They inherit the environment of the directory you
+invoked them from. If you use a per-directory credential switcher, such as `direnv`, to select a
+GitHub account (`GH_CONFIG_DIR`), run the command from inside the tree it applies to. This way,
+the right account stays active.
 
-One consequence of the non-recursive scope: a directory whose immediate children are themselves
+This follows from the non-recursive scope. A directory whose immediate children are themselves
 directories *of* repositories, rather than repositories, is a no-op. That is deliberate. Such a
-tree usually spans several accounts, and one pass over it would use the wrong credentials for
-all but one.
+tree usually spans several accounts. One pass over it would use the wrong credentials for all but
+one.
 
 ## Running outside Claude Code
 
 The commands have no dependency on the plugin runtime:
 
-From an installed copy of the plugin, `<plugin>` below is the plugin's own directory; inside
-Claude Code the skills use `${CLAUDE_PLUGIN_ROOT}` for it.
+From an installed copy of the plugin, `<plugin>` below is the plugin's own directory. Inside
+Claude Code, the skills use `${CLAUDE_PLUGIN_ROOT}` for it.
 
 ```bash
 node <plugin>/scripts/gh.ts sync --dry-run /path/to/a/directory-of-repos
@@ -330,26 +353,26 @@ node <plugin>/scripts/gh.ts shepherd-pr /path/to/a/repo 12 state
 `node <plugin>/scripts/gh.ts` with no command prints the list, and each command prints its own usage
 for `--help`.
 
-Everything in this plugin is TypeScript, run directly by node with no build step, and it needs
+Everything in this plugin is TypeScript. Node runs it directly, with no build step. It needs
 **node 22.18 or newer**: that is the release whose type stripping runs a `.ts` file as it stands.
-The plugin takes no dependency of its own and carries no `package.json`, so nothing is installed
-to use it. Every entry point checks the running version before it loads anything else; the
-session-start hook does it in silence, and a command says which version it found.
+The plugin takes no dependency of its own, and carries no `package.json`, so it needs no install
+to use. Every entry point checks the current version before it loads anything else. The
+session-start hook does this in silence. A command states which version it found.
 
 ## Tests
 
 The tests for this plugin live beside the code, as `src/**/*.test.ts`, in the repository that
 owns it, `bje-settings/claude`. They are not distributed with the plugin.
 
-Because these skills delete branches and remove worktrees, their behaviour is asserted against
-real git repositories rather than mocks. Covered in particular: every path that can delete
+Because these skills delete branches and remove worktrees, the tests check their behaviour
+against real git repositories, not mocks. They cover in particular: every path that can delete
 something (each merge signal, a reused branch name, a fork's pull request, a pull request merged
 into another base, worktrees clean and dirty), every preflight refusal, and the guarantee that
-`--dry-run` changes nothing it says it would change. Every command is asserted against the report
-its predecessor printed, captured scenario by scenario before that version was deleted, and the
-session-start hook's response is compared byte for byte: it is a JSON document Claude Code
-parses, so its shape is a contract and not a rendering.
+`--dry-run` changes nothing it says it would change. Each command's tests check it against the
+report its predecessor printed, captured scenario by scenario before the tests deleted that
+version. The tests compare the session-start hook's response byte for byte. It is a JSON document
+Claude Code parses, so its shape is a contract, not a rendering.
 
-pnpm's install path has a test that runs a real `pnpm install`. The uncovered remainder is
-defensive branches guarding states that cannot be provoked, such as a ref that resolves during
-enumeration and fails immediately after.
+pnpm's install path has a test that runs a real `pnpm install`. What remains uncovered is
+defensive branches that guard against states nobody can provoke, such as a ref that resolves
+during enumeration, then fails immediately after.

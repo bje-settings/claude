@@ -36,9 +36,9 @@ flowchart TD
         P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Blocked: reason names only what was read]):::stop --> S
         P -->|Bound passed, nothing reported against it| BL
         P -->|Base moved: BEHIND or DIRTY| T
-        P -->|Closed while settling| CS
-        W -->|Still running| W
-        W -->|Still running after three waits, head unchanged| BP([Blocked: checks did not finish]):::stop --> S
+        P -->|Closed while settle runs| CS
+        W -->|Still in progress| W
+        W -->|Still in progress after three waits, head unchanged| BP([Blocked: checks did not finish]):::stop --> S
         W -->|Checks failed| K{Fix is mechanical?}
         K -->|Yes, first attempt| F[Fix in a throwaway worktree, push] --> W
         K -->|No: touches logic, tests, or config meaning| SK([Skip, comment says why]):::stop --> S
@@ -55,6 +55,5 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The `discover` subgraph is shared with `/gh:sync`, byte for byte: both skills resolve their
-scope by the same rule, `src/discover.ts`, so the two diagrams must describe it
-identically.
+The `discover` subgraph is shared with `/gh:sync`, byte for byte. Both skills resolve their
+scope by the same rule, `src/discover.ts`. So the two diagrams must describe it identically.

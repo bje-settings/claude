@@ -44,10 +44,9 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-Every path that keeps a branch says which of the four reasons applied. The distinction matters:
-"never checked" is not "no proof", and reporting one as the other asserts something the command
-did not establish.
+Every path that keeps a branch says which of the four reasons applied. The distinction matters.
+"Never checked" is not "no proof". If it reports one as the other, that asserts something the
+command did not establish.
 
-The `discover` subgraph is shared with `/gh:shepherd`, byte for byte: both skills resolve their
-scope by the same rule, `src/discover.ts`, so the two diagrams must describe it
-identically.
+The `discover` subgraph is shared with `/gh:shepherd`, byte for byte. Both skills resolve their
+scope by the same rule, `src/discover.ts`. So the two diagrams must describe it identically.
