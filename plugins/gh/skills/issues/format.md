@@ -20,10 +20,13 @@ What changes, as a list. The files or areas. What is out of scope.
 The condition that closes the issue. A person who did not write it can check it.
 
 ## References
-Related issues by number, ADRs, documents, and upstream links.
+ADRs, documents, upstream links, and issues that give only context.
 ```
 
-- Put blockers in the relationship field, not under References.
+- A dependency is never text in the body. Put "blocked by", "depends on", "after #n",
+  "blocks", "part of" and "sub-issue of" in the relationship fields
+  ([relationships.md](relationships.md)). Under References, an issue number gives context
+  only.
 - A plan key or a milestone note goes in a footer of one line, in italics:
   `_Plan key P0-3. Blockers are recorded as issue dependencies._`
 

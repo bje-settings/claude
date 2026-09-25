@@ -21,6 +21,8 @@ flowchart TD
     A -->|Link| L[Propose the relationship change]
     A -->|Triage| T{Any field with no value?}
     T -->|No| T1([Report that nothing is missing]):::stop
+    T -.->|Dependency as text| T3[Propose the field,<br/>and remove the text from the body]
+    T3 --> G
     T -->|Yes| T2[Propose a value for each gap,<br/>or leave it open and say why]
 
     C --> D{Batch with one shared done condition?}

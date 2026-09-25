@@ -21,8 +21,8 @@ Do the operation the request asks for. Read only the files that its row names.
 
 ## Rules for every operation
 
-- Put a relationship in its field, never as prose in the body. A sweep cannot see a
-  dependency in text.
+- Put a relationship in its field, never as text in a body or a comment. A sweep and the
+  GitHub issue graph cannot see a dependency in text ([relationships.md](relationships.md)).
 - Never create a label. Do not add a label that says the same thing as an issue type
   ([labels.md](labels.md)).
 - The caller can give a milestone, priority, type or parent. Use it after you make sure it

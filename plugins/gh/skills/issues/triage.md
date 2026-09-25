@@ -8,7 +8,8 @@
 
    Read the priority of each issue with the read-back query in [priority.md](priority.md).
    A gap is a field with no value. A label that says the same thing as a type is also a gap
-   ([labels.md](labels.md)).
+   ([labels.md](labels.md)). So is a dependency that is text in a body or a comment
+   ([relationships.md](relationships.md), "Move a dependency from text to a field").
 
 2. For each gap, propose a value. The type comes from [format.md](format.md), the priority
    from [priority.md](priority.md), and the milestone from [milestone.md](milestone.md).
