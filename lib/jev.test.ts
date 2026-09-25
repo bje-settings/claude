@@ -1,7 +1,9 @@
-// The Jev client's own tests (#173). An injected `fetch`, so nothing here
-// touches the network and nothing needs a key (`typesafe.test.ts` already
-// covers the transport itself: retries, redaction, usage; this file covers
-// what `lib/jev.ts` adds on top of it).
+// The Jev client's own tests (#173).
+//
+// The tests inject `fetch`, so nothing here touches the network and nothing
+// needs a key. `typesafe.test.ts` already covers the transport itself:
+// retries, redaction, and usage. This file covers what `lib/jev.ts` adds on
+// top of it.
 
 import { expect, it } from 'vitest'
 import {
@@ -97,14 +99,16 @@ it('classify of one unit sends the five per-unit questions and parses one Classi
   expect(outcome.classifications[0]?.kind.choice).toBe('repo_fact')
 })
 
-// The header comment's "copied VERBATIM from the spike" claim (and
-// lib/README.md's "reviewed as a rubric change, not a refactor") is a claim
-// about this exact prose, not about the option keys or the question ids
-// every other test here already pins. Nothing else in this file would go red
-// if one word of one criterion changed, so this test compares the full
-// request `classifyRequest` builds against a literal copy of it. A drift here
-// means the rubric changed and the pull request needs the review the header
-// comment asks for; it does not mean this test is wrong.
+// The header comment says the text is "copied word for word from the
+// spike." `lib/README.md` also says a rubric change needs review, not a
+// refactor. Both claims are about this exact prose. They are not about the
+// option keys or the question ids that every other test here already pins.
+//
+// No other test in this file would fail if one word of one criterion
+// changed. So this test compares the full request `classifyRequest` builds
+// against a literal copy of it. A drift here means the rubric changed, and
+// the pull request needs the review the header comment asks for. It does
+// not mean this test is wrong.
 it('the five per-unit judgment criteria are the rubric, verbatim', () => {
   const [request] = classifyRequest([unit({ id: 'CLAUDE.md:148-149' })], 'per_unit')
 
@@ -349,8 +353,8 @@ it('batchSections splits a section that does not fit', () => {
   const big = Array.from({ length: 6 }, (_, i) =>
     unit({ id: `CLAUDE.md:${i}-${i}`, text: 'x'.repeat(300), headingPath: ['one'] }),
   )
-  // 300 characters is 100 tokens at the conservative estimate, so a 250-token
-  // state budget holds two units and refuses the third.
+  // 300 characters is 100 tokens at the conservative estimate. So a
+  // 250-token state budget holds two units and refuses the third.
   const sections = batchSections(big, { stateTokens: 250, requestTokens: 1_000_000 })
   expect(sections.map((section) => section.indexes)).toEqual([
     [0, 1],
@@ -369,11 +373,12 @@ it('batchSections splits when the repeated questions blow the request budget', (
 })
 
 it('a section landing exactly on stateTokens still includes the unit, and one token over splits it', () => {
-  // `fits` requires `nextState <= stateTokens`: an off-by-one that used `<`
-  // instead would start a new section one unit earlier than the budget
-  // allows. u1's state costs 4 tokens, u2's costs 5 (JSON.stringify({text})
-  // over CHARS_PER_TOKEN=3, both exact divisions so there is no rounding to
-  // obscure the boundary), so their sum lands exactly on stateTokens: 9.
+  // `fits` requires `nextState <= stateTokens`. An off-by-one bug that used
+  // `<` instead would start a new section one unit too early. u1's state
+  // costs 4 tokens, and u2's costs 5. Both come from
+  // `JSON.stringify({text})` over `CHARS_PER_TOKEN=3`, and both divide
+  // evenly, so no rounding hides the boundary. Their sum lands exactly on
+  // stateTokens: 9.
   const u1 = unit({ id: 'a:1-1', text: 'a', headingPath: ['one'] })
   const u2 = unit({ id: 'a:2-2', text: 'bb', headingPath: ['one'] })
 
@@ -427,8 +432,9 @@ it('estimateTokens is conservative about prose', () => {
 })
 
 it('estimateTokens treats a value JSON.stringify cannot render as zero-length text', () => {
-  // JSON.stringify(undefined) is the actual value `undefined`, not a string,
-  // which is the `?? ''` branch: not the same as estimateTokens('undefined').
+  // JSON.stringify(undefined) returns the actual value `undefined`, not a
+  // string. This takes the `?? ''` branch, so it is not the same as
+  // estimateTokens('undefined').
   expect(estimateTokens(undefined)).toBe(0)
 })
 
@@ -470,11 +476,11 @@ it('pairRequest carries both units and one question', () => {
   expect(question.instructions.question).toMatch(/`statement_a`/)
 })
 
-// PAIR_QUESTION_ID is the literal string sent to the API as the answer key;
-// every other test reaches it only through the exported constant, which
-// would still equal itself if the two ids (this one and
-// EVIDENCE_QUESTION_ID) were swapped. Pinning the literal value here is what
-// would catch that swap.
+// PAIR_QUESTION_ID is the literal string sent to the API as the answer key.
+// Every other test reaches it only through the exported constant. That
+// constant would still equal itself even if the two ids (this one and
+// EVIDENCE_QUESTION_ID) were swapped. This test pins the literal value, and
+// that is what would catch such a swap.
 it('the pair question id is the literal string "pair"', () => {
   expect(PAIR_QUESTION_ID).toBe('pair')
 })
@@ -750,10 +756,10 @@ it('a non-finite noul is reported as out of range too, not as missing', () => {
 })
 
 it('a negative noul is refused too, not just one above 1', () => {
-  // readNoul's range check is `value < 0 || value > 1`: every other test of
-  // this branch uses a value above 1, so a regression that dropped the lower
-  // half of the check (a plausible "simplify the condition" mistake) would
-  // pass unnoticed without this.
+  // readNoul's range check is `value < 0 || value > 1`. Every other test of
+  // this branch uses a value above 1. So a regression could drop the lower
+  // half of the check, a plausible "simplify the condition" mistake. It
+  // would pass unnoticed without this test.
   expect(() =>
     parseClassification([ONE], { ...GOOD_ANSWERS, volatile__u0: { type: 'noul', noul: -0.1 } }),
   ).toThrow(/out of range: -0\.1/)
@@ -847,8 +853,9 @@ function classificationReply(index: number, kindChoice: 'repo_fact' | 'instructi
 }
 
 it('a rejected request loses only its own units, and the failure names the request', async () => {
-  // per_unit sends one request per unit, so a failure on the first request
-  // must not cost the second unit's own request, made in parallel.
+  // per_unit sends one request per unit. So a failure on the first request
+  // must not cost the second unit's own request. That second request runs
+  // in parallel.
   let calls = 0
   const client = createJevClient({
     apiKey: KEY,
@@ -864,27 +871,29 @@ it('a rejected request loses only its own units, and the failure names the reque
 
   expect(outcome.classifications).toHaveLength(1)
   expect(outcome.classifications[0]?.unitId).toBe('b')
-  // '400' alone would also match the JevError's own default message ("...HTTP
-  // 400"), which failureMessage's template string carries regardless of
-  // whether it also appends error.body; asserting the response's own text is
-  // what actually pins that the append happens.
+  // '400' alone would also match JevError's own default message ("...HTTP
+  // 400"). failureMessage's template string carries that text regardless of
+  // whether it also appends error.body. This assertion checks the
+  // response's own text, and that is what actually proves the append
+  // happens.
   expect(outcome.failures).toEqual([
     { id: 'request 0', message: expect.stringContaining('refused: bad question') },
   ])
 })
 
 it('classify(units, "per_section") batches both units into one request and splits the answers back out', async () => {
-  // Every other client.classify() call in this file passes 'per_unit'; shape
-  // is otherwise only exercised at the classifyRequest() builder level. This
-  // proves createJevClient actually forwards `shape` through to the request
-  // it sends, rather than silently always building per_unit requests.
+  // Every other client.classify() call in this file passes 'per_unit'.
+  // Otherwise, the tests exercise shape only at the classifyRequest()
+  // builder level. This test proves createJevClient actually forwards
+  // `shape` through to the request it sends. Without this test, the code
+  // could silently always build per_unit requests instead.
   //
-  // u0 and u1 are given DIFFERENT `kind` choices on purpose: identical
-  // answers for both units would let a swapped-index bug (unit 'a' reading
-  // u1's bag entries, unit 'b' reading u0's) pass, since `unitId` comes from
-  // the `units` array itself regardless of which bag entries were pulled for
-  // it. Asserting the choice by unitId, not just which ids are present, is
-  // what would catch that swap.
+  // u0 and u1 get different `kind` choices on purpose. Identical answers
+  // for both units could hide a swapped-index bug. Such a bug could let
+  // unit 'a' read u1's bag entries, and unit 'b' read u0's. `unitId` comes
+  // from the `units` array itself, no matter which bag entries were pulled
+  // for it. This test checks the choice by unitId, not just which ids are
+  // present. That is what would catch such a swap.
   const seen: { body?: string } = {}
   const client = createJevClient({
     apiKey: KEY,

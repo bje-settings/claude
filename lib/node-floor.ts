@@ -1,41 +1,43 @@
-// The runtime floor, enforced where it is crossed rather than documented and
-// hoped for: ADR 001 holds the floor in three places (`.npmrc`,
-// `engines.node`, a CI leg) and executes it in one, which is the guard every
-// `bin` and every hook calls first. The floor is a property of the release
-// and not of this process, so the check is a pure function over a version
-// string: an entry point passes `process.version` to it, and the suite passes
-// the versions ADR 001's spike table records.
+// This file enforces the runtime floor where it is crossed. It does not
+// only write the floor down and hope a user obeys it. ADR 001 holds the
+// floor in three places: `.npmrc`, `engines.node`, and a CI leg. It
+// executes the floor in one place: the guard that every `bin` and every
+// hook calls first. The floor is a property of the release, not of this
+// process. So the check is a pure function over a version string.
 //
-// **This file imports nothing, and that is load-bearing.** `import`
-// declarations are hoisted and evaluated before any statement in an entry
-// point runs, so a guard with a module graph behind it would load that graph
-// on the very runtime it exists to refuse, and the sentence a user should
-// have read would be a syntax error from inside a dependency instead.
-// `plugins/mermaid/scripts/mermaid.ts` (#126) makes this its one static import
-// and reaches everything else by `await import` after the check, the way
-// `bin/gh-security.ts` does in the SurveyMonkey/skills baseline.
+// An entry point passes `process.version` to it, and the suite passes the
+// versions that ADR 001's spike table records.
+//
+// **This file imports nothing. That absence is essential.** `import`
+// declarations are hoisted, and run before any statement in an entry point
+// runs. So a guard with a module graph would load that graph on the very
+// runtime it exists to refuse. The sentence a user should read would then
+// be a syntax error from inside a dependency, instead.
+// `plugins/mermaid/scripts/mermaid.ts` (#126) makes this its one static
+// import. It reaches everything else by `await import` after the check.
+// `bin/gh-security.ts` does the same, in the SurveyMonkey/skills baseline.
 //
 // This file ships, so it stays inside the erasable subset (no `enum`, no
-// parameter properties, no namespaces): node strips the types rather than
-// compiling them (ADR 001, RFC 001 decision 12).
+// parameter properties, no namespaces). node strips the types; it does not
+// compile them (ADR 001, RFC 001 decision 12).
 
 /**
- * The oldest node release that runs this marketplace's TypeScript directly
- * with zero bytes on stderr, as the triple the comparison reads and as the
- * string the error message names. From ADR 001: 22.16 and 22.17 fail at
- * launch, and 22.18.0 is the first release that clears both halves.
+ * The oldest node release that runs this marketplace's TypeScript directly,
+ * with zero bytes on stderr. This is the triple the comparison reads, and
+ * the string the error message names. From ADR 001: 22.16 and 22.17 fail
+ * at launch. 22.18.0 is the first release that meets both conditions.
  */
 const NODE_FLOOR_PARTS: readonly [number, number, number] = [22, 18, 0]
 
 export const NODE_FLOOR = NODE_FLOOR_PARTS.join('.')
 
-/** Thrown when the running node cannot execute the plugin that called this. */
+/** Thrown when the node in use cannot execute the plugin that called this. */
 export class NodeFloorError extends Error {
   constructor(message: string) {
     super(message)
-    // Set explicitly rather than inherited: `Error` names itself after its
-    // own constructor, so without this the refusal a user reads at launch is
-    // reported as a plain `Error`.
+    // This name is set explicitly, not inherited. `Error` names itself
+    // after its own constructor. Without this line, the refusal a user
+    // reads at launch would report as a plain `Error`.
     this.name = 'NodeFloorError'
   }
 }
@@ -43,39 +45,45 @@ export class NodeFloorError extends Error {
 /**
  * A release triple, or `undefined` when the string is not one.
  *
- * The optional `v` is what `process.version` carries; a prerelease or build
- * suffix is stripped and ignored, not because ignoring it is semver-safe in
- * general (`22.18.0-rc.1` sorts below `22.18.0`), but because a real node
- * release binary's `process.version` never carries one, and that is the only
- * caller this floor is compared against.
+ * The optional `v` is what `process.version` carries. A prerelease or
+ * build suffix is stripped and dropped. This does not mean the suffix is
+ * always safe to drop under semver (`22.18.0-rc.1` sorts below `22.18.0`).
+ * It is because a real node release binary's `process.version` never
+ * carries one. That is the only caller this floor compares against.
  *
- * Not a global regular expression: `exec` on one carries `lastIndex` between
- * calls, so the second read of the same string would answer `null`.
+ * This is not a global regular expression. `exec` on a global one carries
+ * `lastIndex` between calls. So a second read of the same string would
+ * wrongly answer `null`.
  */
 const RELEASE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
 
 const parseVersion = (version: string): [number, number, number] | undefined => {
   const match = RELEASE.exec(version)
   if (match === null) return undefined
-  // Three mandatory capturing groups inside an anchored match: a successful
-  // match always populates all three positions, so the tuple shape is
-  // asserted once here rather than defended at each read with a `?? 0`
-  // fallback that `noUncheckedIndexedAccess` cannot see is unreachable. The
-  // assertion is erased at runtime, so unlike a fallback it adds no branch
-  // for coverage to find and no arm a test would have to invent an input for.
+  // This match has three mandatory capturing groups, inside an anchored
+  // pattern. A successful match always fills all three positions. So the
+  // tuple shape is asserted once here, rather than guarded at each read
+  // with a `?? 0` fallback. `noUncheckedIndexedAccess` cannot see that such
+  // a fallback would be unreachable.
+  //
+  // The assertion is erased at runtime. Unlike a fallback, it adds no
+  // branch for coverage to find. It also adds no case that a test would
+  // have to invent an input for.
   const [, major, minor, patch] = match as unknown as [string, string, string, string]
   return [Number(major), Number(minor), Number(patch)]
 }
 
 /**
- * Lexicographic comparison of two release triples: negative when `a` sorts
- * before `b`, positive when after, zero when equal. Major dominates minor
- * dominates patch, each compared as its own subtraction rather than folded
- * into one magnitude, so no component has a ceiling. A collapsed
- * `major * 1_000_000 + minor * 1_000 + patch` would carry a patch of 1000
- * into minor; node has never shipped one, but this check is the first thing
- * that runs on every user's machine and must not encode that as an unstated
- * assumption.
+ * Compares two release triples in order: negative when `a` sorts before
+ * `b`, positive when after, zero when equal. Major decides first, then
+ * minor, then patch. Each part is compared as its own subtraction, not
+ * folded into one number, so no part has a ceiling.
+ *
+ * Consider a collapsed formula instead: `major * 1_000_000 + minor * 1_000
+ * + patch`. It would carry a patch of 1000 into the minor part. node has
+ * never shipped one.
+ * But this check is the first thing that runs on every user's machine. It
+ * must not build in that assumption as a silent guess.
  */
 const compareTriples = (
   a: readonly [number, number, number],
@@ -85,13 +93,15 @@ const compareTriples = (
 /**
  * Whether `version` is at or above {@link NODE_FLOOR}.
  *
- * This is the shape a hook needs. ADR 001 requires the hook guard to be
- * silent, because a hook writes into every tool call in a session, so it asks
- * the question and exits quietly rather than catching a refusal it must not
- * print. A version string that cannot be read as a release answers `false`:
- * an unreadable version is not evidence that the floor is met, and treating
- * it as one is the found-nothing-is-a-pass shape this repository refuses
- * everywhere else.
+ * This is the shape a hook needs. ADR 001 requires the hook guard to stay
+ * silent. A hook runs on every tool call in a session. So it asks the
+ * question and exits quietly. It does not catch a refusal that it must not
+ * print.
+ *
+ * A version string that cannot be read as a release answers `false`. An
+ * unreadable version is not proof that the floor is met. To treat it as
+ * proof would be the "found nothing counts as a pass" shape this
+ * repository refuses everywhere else.
  */
 export const meetsNodeFloor = (version: string): boolean => {
   const running = parseVersion(version)
@@ -101,13 +111,15 @@ export const meetsNodeFloor = (version: string): boolean => {
 /**
  * Refuse to run on a node older than {@link NODE_FLOOR}.
  *
- * This is the shape a `bin` entry point needs: it throws a
- * {@link NodeFloorError} naming both the required and the running version, so
- * a user below the floor is told what to change rather than left with a
- * failure deep inside a command. One message covers both refusals, the old
- * release and the unreadable string, because the sentence a user acts on is
- * the same either way and a second message would be a second branch with no
- * second remedy behind it.
+ * This is the shape a `bin` entry point needs. It throws a
+ * {@link NodeFloorError} that names both the required version and the
+ * version in use. A user below the floor is then told what to change,
+ * rather than left with a failure inside a command.
+ *
+ * One message covers both refusals: the old release and the unreadable
+ * string. The sentence a user must act on is the same either way. A
+ * second message would add a second branch with no second remedy behind
+ * it.
  */
 export const assertNodeFloor = (version: string): void => {
   if (meetsNodeFloor(version)) return

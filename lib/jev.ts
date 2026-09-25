@@ -1,33 +1,38 @@
-// The audit's own Jev client (#173), built on `typesafe.ts`'s generic
-// ask/usage transport. Absorbs the context-audit spike's `questions.ts`
-// (#164): the five per-unit judgments, the pair and evidence checks, the
-// per_unit/per_section batching, and the answer parsers. Question and
-// criterion wording is copied VERBATIM from the spike: it was tuned against
-// the live model and every measurement the spike made depends on it staying
-// exactly as written.
+// This file is the audit's own Jev client (#173).
+// It uses the generic ask and usage transport in `typesafe.ts`.
+// It absorbs the context-audit spike's `questions.ts` (#164).
+// It has the five per-unit judgments, the pair check, and the evidence
+// check. It also has the per_unit and per_section request builders, and
+// the answer parsers.
 //
-// `plugins/audit/src/types.ts` (layer 2) left the judgment types out on
-// purpose, for this file to define, because the client that produces them did
-// not exist yet. They are exported here exactly as the spike's `types.ts` had
-// them (`Classification`, `ChoiceAnswer`, `Usage`, `UnitKind`, `EvidenceNeed`,
-// `PairVerdict`, `EvidenceVerdict`) plus this port's own `RequestShape` and
-// `ClassifyOutcome`, both of which the spike defined in `questions.ts` and
-// `cli.ts` respectively rather than in its own `types.ts`.
+// The question and criterion text is copied word for word from the spike.
+// The spike tuned this text against the live model. Every measurement the
+// spike made depends on this exact text.
 //
-// `lib/` cannot import a plugin, so the `Unit` type the client's methods take
-// is not `plugins/audit/src/types.ts`'s `Unit`. {@link JevUnit} is the
-// minimal structural shape this file actually reads off a unit; the plugin's
-// richer `Unit` satisfies it structurally, with no import in either
-// direction, the same way `lib/gh.ts` and its callers stay decoupled.
+// `plugins/audit/src/types.ts` (layer 2) left out the judgment types on
+// purpose. This file defines them instead, because the client that makes
+// them did not exist yet. This file exports them exactly as the spike's
+// `types.ts` had them: `Classification`, `ChoiceAnswer`, `Usage`, `UnitKind`,
+// `EvidenceNeed`, `PairVerdict`, and `EvidenceVerdict`. This file adds two
+// more types of its own: `RequestShape` and `ClassifyOutcome`. The spike
+// defined `RequestShape` in `questions.ts` and `ClassifyOutcome` in `cli.ts`,
+// not in its own `types.ts`.
 //
-// `judgePair` and `judgeEvidence` answer with the bare `ChoiceAnswer`, not the
-// spike's `PairJudgment`/`EvidenceJudgment`: those wrapper types carry a
-// candidate's ids and similarity, or a unit's source and excerpt, which are
-// facts the plugin already has and this file has no reason to duplicate.
-// Attaching the verdict to that context is the plugin's job (layer 5).
+// `lib/` cannot import a plugin. So the `Unit` type the client's methods
+// take is not the `Unit` type in `plugins/audit/src/types.ts`. {@link
+// JevUnit} is the minimal shape this file reads off a unit. The plugin's
+// richer `Unit` type matches this shape, with no import in either
+// direction. `lib/gh.ts` and its callers stay decoupled the same way.
 //
-// This file ships. It imports only from `typesafe.ts`, the sibling transport,
-// and stays inside the erasable subset (ADR 001).
+// `judgePair` and `judgeEvidence` answer with the bare `ChoiceAnswer`. They
+// do not use the spike's `PairJudgment` or `EvidenceJudgment` wrapper
+// types. Those wrapper types carry a candidate's ids and similarity, or a
+// unit's source and excerpt. The plugin already has these facts, so this
+// file has no reason to repeat them. The plugin attaches the verdict to
+// that context instead (layer 5).
+//
+// This file ships. It imports only from `typesafe.ts`, the sibling
+// transport. It stays inside the erasable subset (ADR 001).
 
 import {
   type AnswerBag,
@@ -46,12 +51,13 @@ export type { AnswerBag, Entry, TypeSafeOptions } from './typesafe.ts'
 export { JevError } from './typesafe.ts'
 
 /**
- * The minimal structural input every method here needs off a unit. The
- * plugin's own `Unit` (`plugins/audit/src/types.ts`) carries more fields
- * (`startLine`, `endLine`, `block`, `refs[].kind`, `refs[].resolution`, ...),
- * all of which satisfy this shape structurally with nothing extra to import
- * or cast: TypeScript admits a wider object wherever this narrower one is
- * asked for.
+ * The minimal input every method here needs off a unit.
+ *
+ * The plugin's own `Unit` type (`plugins/audit/src/types.ts`) carries more
+ * fields: `startLine`, `endLine`, `block`, `refs[].kind`, `refs[].resolution`,
+ * and others. That richer type matches this shape too, with nothing extra to
+ * import or cast. TypeScript accepts a wider object wherever code asks for
+ * this narrower one.
  */
 export type JevUnit = {
   readonly id: string
@@ -101,9 +107,9 @@ export type PairVerdict = 'same_claim' | 'contradicts' | 'unrelated'
 
 export type EvidenceVerdict = 'supports' | 'contradicts' | 'says_nothing'
 
-/** What the model calls of a run spent. Structurally identical to
- *  `TypeSafeUsage`; named separately because the contract lives here, not in
- *  the generic transport. */
+/** What a run spent in model calls. This type is structurally identical to
+ *  `TypeSafeUsage`. It has its own name because the contract lives here, not
+ *  in the generic transport. */
 export type Usage = {
   /** Logical calls: one per `ask`, however many times it was retried. */
   readonly requests: number
@@ -112,8 +118,9 @@ export type Usage = {
   readonly inputTokens: number
   readonly outputTokens: number
   /**
-   * The sum of every call's own duration, backoff sleeps included and queue
-   * wait excluded. With calls running concurrently this exceeds wall clock.
+   * The sum of every call's own duration. This includes backoff sleep time
+   * and excludes queue wait time. When calls run at the same time, this sum
+   * can exceed wall clock time.
    */
   readonly requestMsSum: number
 }
@@ -124,10 +131,13 @@ export type RequestShape = 'per_unit' | 'per_section'
 export type JevRequest = { readonly state: unknown; readonly questions: QuestionMap }
 
 /**
- * What `classify` answers with. A rejected request loses only the units it
- * covered (left out of `classifications`, one failure naming the request); a
- * parse failure on an answer that did arrive loses only that unit (one
- * failure per unit). Ported from the spike's `cli.ts` `classifyUnits`.
+ * What `classify` answers with.
+ *
+ * A rejected request loses only the units it covered. Those units are left
+ * out of `classifications`, and one failure names the request. A parse
+ * failure on an answer that did arrive loses only that one unit, with one
+ * failure per unit. This type is ported from the spike's `cli.ts`
+ * `classifyUnits`.
  */
 export type ClassifyOutcome = {
   readonly classifications: Classification[]
@@ -146,19 +156,20 @@ export type JevClient = {
 }
 
 /**
- * Conservative on purpose: English prose runs nearer four characters to the
- * token, so three overestimates and the batcher stops early rather than
- * having a request refused for length.
+ * This value is low on purpose. English prose runs nearer four characters
+ * per token, so three overestimates the token count. The batcher then stops
+ * early. This way, it never sends a request that gets refused for length.
  */
 const CHARS_PER_TOKEN = 3
 
 /**
- * Jev 1.13's limits are 64k for the whole request and 32k for the state plus
- * the longest single question (models.md). The spike measured no
- * question-count limit separately: 1,600 questions in one request were
- * accepted, and the 64k token budget refused first, as HTTP 400
- * `max_tokens_exceeded`. These sit well under both budgets: this port would
- * rather send two requests than discover the ceiling in production.
+ * Jev 1.13 limits the whole request to 64k tokens. It limits the state plus
+ * the longest single question to 32k tokens (models.md). The spike found no
+ * separate limit on question count: it sent 1,600 questions in one request
+ * and Jev accepted them. The 64k token budget refused the request first, as
+ * HTTP 400 `max_tokens_exceeded`. These two values sit well under both
+ * budgets. This port would rather send two requests than find the ceiling
+ * in production.
  */
 const STATE_TOKEN_BUDGET = 20_000
 const REQUEST_TOKEN_BUDGET = 40_000
@@ -169,10 +180,10 @@ export function estimateTokens(value: unknown): number {
 }
 
 /**
- * The key a unit is known by inside one request, and the stem of every
- * question id about it. Short because it appears in the state of a
- * `per_section` request once per unit, and the docs' own cookbooks use the
- * same `L014`/`B003` trick.
+ * The key a unit is known by inside one request. It is also the stem of
+ * every question id about that unit. It is short because it appears once
+ * per unit in the state of a `per_section` request. The docs' own cookbooks
+ * use the same `L014`/`B003` trick.
  */
 export function shortId(index: number): string {
   return `u${index}`
@@ -183,12 +194,13 @@ export function shortId(index: number): string {
 //
 
 /**
- * The kind rubric. `repo_fact` and `instruction` are the pair the audit
- * confuses most often, because a repository's CLAUDE.md states rules in both
- * moods within one sentence; `history` and `repo_fact` are the other pair,
- * because a line about a merged pull request looks like a fact about the
- * repository until you ask whether reading the repository today could settle
- * it.
+ * The kind rubric.
+ *
+ * `repo_fact` and `instruction` are the pair the audit confuses most often.
+ * A repository's CLAUDE.md often states rules in both moods within one
+ * sentence. `history` and `repo_fact` are the other confused pair. A line
+ * about a merged pull request looks like a fact about the repository. But
+ * ask this: could the repository answer it today?
  */
 const KIND_CRITERIA: Record<UnitKind, Entry> = {
   repo_fact: {
@@ -238,9 +250,9 @@ const KIND_CRITERIA: Record<UnitKind, Entry> = {
 }
 
 /**
- * Volatile is about what the text says about itself, not about how likely the
- * world is to change. That keeps it a literal question, which is the one kind
- * jev-1.13 is reliable on.
+ * Volatile asks what the text says about itself. It does not ask how likely
+ * the world is to change. This keeps it a literal question, and jev-1.13 is
+ * reliable on literal questions.
  */
 const VOLATILE_CRITERIA = {
   true: {
@@ -265,11 +277,12 @@ const VOLATILE_CRITERIA = {
 } as const
 
 /**
- * An earlier version asked whether the statement could be "understood and
- * checked on its own, without the lead-in, the neighbours or the heading
- * path": three conditions folded into one question, plus the word "checked",
- * which dragged the evidence judgment in alongside self-containedness. What
- * is left is one literal test, on words that are in the text or are not.
+ * An earlier version of this question asked one thing. Could the statement
+ * be "understood and checked on its own, without the lead-in, the
+ * neighbours or the heading path"? That folded three conditions into one
+ * question. The word "checked" also pulled the evidence judgment in
+ * alongside self-containedness. What is left now is one literal test: are
+ * the words in the text, or are they not?
  */
 const SELF_CONTAINED_CRITERIA = {
   true: {
@@ -289,11 +302,12 @@ const SELF_CONTAINED_CRITERIA = {
 } as const
 
 /**
- * What a checker would have to go and look at. `config_value` and
- * `file_contents` are split on what the claim is about (a named setting
- * against the prose or code of a file) rather than on which file it lives in,
- * because every setting lives in some file and the other split would be
- * empty.
+ * What a checker would have to look at.
+ *
+ * `config_value` and `file_contents` are split by what the claim is about.
+ * That is either a named setting, or the prose or code of a file. They are
+ * not split by which file the claim lives in. Every setting lives in some
+ * file, so a split by file would leave one side empty.
  */
 const EVIDENCE_CRITERIA: Record<EvidenceNeed, Entry> = {
   file_exists: {
@@ -353,8 +367,8 @@ const MULTI_ASSERTION_CRITERIA = {
 
 /**
  * The five questions about one unit. `at` is the state path the question
- * points at, in backticks, which is how the docs say to aim a question at
- * part of a structured state.
+ * points at, given in backticks. The docs say this is how to aim a question
+ * at part of a structured state.
  */
 function unitQuestions(at: string): Record<string, AnyQuestion> {
   return {
@@ -390,10 +404,10 @@ function unitQuestions(at: string): Record<string, AnyQuestion> {
 }
 
 /**
- * `kind__u3`. This id is sent to the API, as the key the answer comes back
- * under; it is not hidden from the request. TypeSafe's own docs say a
- * question's id is for code to reference and is never shown to the model, so
- * it is free to be shaped for the parser alone.
+ * Example: `kind__u3`. The API sends this id back as the key for the
+ * answer, so it is not hidden from the request. TypeSafe's own docs say a
+ * question's id is for code to reference, and the model never sees it. So
+ * the id is free to take a shape that suits the parser alone.
  */
 function questionId(judgment: string, sid: string): string {
   return `${judgment}__${sid}`
@@ -401,8 +415,8 @@ function questionId(judgment: string, sid: string): string {
 
 /**
  * One unit's five questions, keyed by the ids the answers come back under.
- * `at` is where the unit's text sits in the state, which differs between the
- * two shapes; the ids do not.
+ * `at` is where the unit's text sits in the state. This differs between the
+ * two shapes, but the ids do not.
  */
 function unitQuestionsFor(at: string, sid: string): Record<string, AnyQuestion> {
   const questions: Record<string, AnyQuestion> = {}
@@ -426,10 +440,10 @@ function unitState(unit: JevUnit) {
 }
 
 /**
- * The unit as `per_section` sends it. `prev` and `next` are dropped: the
- * neighbours are already siblings in the same state, so repeating them would
- * triple the section's size to say nothing new, and a large state full of
- * repeated detail is the failure mode the jaggedness page names.
+ * The unit as `per_section` sends it. `prev` and `next` are dropped, because
+ * the neighbours are already siblings in the same state. To repeat them
+ * would triple the section's size and say nothing new. A large state full
+ * of repeated detail is the failure mode the jaggedness page names.
  */
 function sectionUnitState(unit: JevUnit) {
   const state: Record<string, unknown> = { text: unit.text }
@@ -439,18 +453,19 @@ function sectionUnitState(unit: JevUnit) {
 }
 
 /**
- * Units of one file under one heading path, in document order. `indexes` are
- * positions in the `units` array `batchSections` was called with, and are
- * always a contiguous run of that array: the scan below only ever extends the
- * section it is currently building with the next array position, and starts
- * a new section the moment the key changes, even if that key matches a
- * section from earlier. So the same heading path recurring later in the
- * array never reopens the earlier section and never merges units that are
- * not one another's neighbours in `units`.
+ * Units of one file under one heading path, in document order.
  *
- * That guarantee is about the array actually passed in, not about the source
- * document: `batchSections` trusts `units` to already be in true document
- * order.
+ * `indexes` are positions in the `units` array passed to `batchSections`.
+ * They are always a contiguous run of that array. The scan below only ever
+ * adds the next array position to the section it already has open. It
+ * starts a new section the moment the key changes, even if that key matches
+ * an earlier section. So the same heading path, if it recurs later in the
+ * array, never reopens the earlier section. It never merges units that are
+ * not neighbours in `units`.
+ *
+ * This guarantee is about the array actually passed in, not about the
+ * source document. `batchSections` trusts that `units` is already in true
+ * document order.
  */
 export type Section = {
   readonly file: string
@@ -459,12 +474,12 @@ export type Section = {
 }
 
 /**
- * Group units into sections, then split any section whose state would not fit
- * the budget. Splitting keeps document order, so a half section is still a
- * run of neighbours rather than a scatter. The token budgets below apply to
- * one section's own state, never to the whole run: a single unit that alone
- * exceeds `stateTokens` still becomes a one-unit section and is sent by
- * itself rather than dropped or merged.
+ * Group units into sections, then split any section whose state does not
+ * fit the budget. A split keeps document order, so a half section is still
+ * a run of neighbours, not a scatter. The token budgets below apply to one
+ * section's own state, never to the whole run. A single unit that alone
+ * exceeds `stateTokens` still becomes a one-unit section. It is sent by
+ * itself, never dropped or merged.
  */
 export function batchSections(
   units: readonly JevUnit[],
@@ -472,9 +487,9 @@ export function batchSections(
 ): Section[] {
   const stateTokens = budget.stateTokens ?? STATE_TOKEN_BUDGET
   const requestTokens = budget.requestTokens ?? REQUEST_TOKEN_BUDGET
-  // The five questions are rewritten per unit, so their cost grows with the
-  // section exactly as the state does and has to be counted against the
-  // request budget.
+  // Each unit repeats the five questions, so their cost grows with the
+  // section exactly as the state does. This cost counts against the
+  // request budget too.
   const questionCost = estimateTokens(unitQuestions('units.u0.text'))
 
   const sections: Section[] = []
@@ -490,10 +505,10 @@ export function batchSections(
       const nextState = stateSoFar + cost
       const nextRequest = nextState + questionCost * (current.indexes.length + 1)
       if (nextState <= stateTokens && nextRequest <= requestTokens) {
-        // No gap check here: `current` is only ever created at this loop's own
-        // `index`, or extended one array position later than that, so its last
-        // entry is always `index - 1` by construction. A guard for anything
-        // else would be a branch nothing in this function could ever take.
+        // No gap check is needed here. `current` is only ever created at
+        // this loop's own `index`, or extended one array position later. So
+        // its last entry is always `index - 1` by construction. A guard for
+        // any other case would be a branch this function could never take.
         current.indexes.push(index)
         stateSoFar += cost
         continue
@@ -508,9 +523,9 @@ export function batchSections(
 }
 
 /**
- * The classification requests for `units`, in either shape. The short id of a
- * unit is its index in `units`, so {@link parseClassification} must be handed
- * the same array.
+ * The classification requests for `units`, in either shape. The short id of
+ * a unit is its index in `units`. So {@link parseClassification} must
+ * always get the same array.
  */
 export function classifyRequest(
   units: readonly JevUnit[],
@@ -542,9 +557,10 @@ export function classifyRequest(
 }
 
 /**
- * The same test wherever a probability arrives, a Noul's own `noul` or a
- * Choice's `confidence`: NaN or a value outside `[0, 1]` is not a probability,
- * and is no more trustworthy in one field than in the other.
+ * The same test applies wherever a probability arrives: a Noul's own `noul`
+ * field, or a Choice's `confidence` field. NaN, or a value outside
+ * `[0, 1]`, is not a probability. Neither field is more trustworthy than
+ * the other.
  */
 function isProbability(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
@@ -557,8 +573,9 @@ function readNoul(bag: AnswerBag, id: string): number {
   if (typeof value !== 'number') {
     throw new Error(`no noul answer under ${id}`)
   }
-  // A value is present, so a reader should be pointed at the value that is
-  // wrong, not sent looking for a key that is not actually missing.
+  // A value is present here, so point the reader at the wrong value. The
+  // key exists, so do not send the reader to search for it as though it
+  // does not.
   if (!isProbability(value)) {
     throw new Error(`noul answer under ${id} is out of range: ${value}`)
   }
@@ -566,9 +583,9 @@ function readNoul(bag: AnswerBag, id: string): number {
 }
 
 /**
- * `criteria` is the record the question was built from, so its keys are the
- * only options that could ever be chosen: nothing outside this function has
- * to keep a separate options list in sync with it.
+ * `criteria` is the record the question was built from. So its keys are the
+ * only options that could ever be chosen. Nothing outside this function
+ * needs to keep a separate options list in step with it.
  */
 function readChoice<T extends string>(
   bag: AnswerBag,
@@ -588,11 +605,12 @@ function readChoice<T extends string>(
   if (!options.includes(picked as T)) {
     throw new Error(`answer ${id} chose ${picked}, which is not one of the options`)
   }
-  // Jev omits a zero-probability option from the map rather than sending an
-  // explicit 0, so an option missing from the response reads as 0, EXCEPT the
-  // chosen option itself: an answer that names its own choice but carries no
-  // probability for it (or a non-finite one) is not one this code can trust,
-  // so that case is refused rather than silently defaulted.
+  // Jev leaves a zero-probability option out of the map. It does not send
+  // an explicit 0. So an option left out of the response reads as 0, except
+  // for the chosen option itself. An answer may name its own choice, but
+  // carry no probability for it, or a non-finite one. This code cannot
+  // trust that answer. This code refuses that case, rather than default it
+  // silently.
   const byOption = {} as Record<T, number>
   for (const option of options) {
     const value = probabilities[option]
@@ -636,12 +654,13 @@ export function parseClassification(
 //
 
 /**
- * The verdict's whole design is the boundary between `same_claim` and
- * `unrelated`. Two units about one subject that say different, compatible
- * things are the common case in a repository's documentation (one names the
- * threshold, the other names the reporter) and calling them the same claim
- * would report every such pair as a duplicate. So `unrelated` explicitly owns
- * that case, and `same_claim` is defined by the deletion test.
+ * The whole design of this verdict is the boundary between `same_claim` and
+ * `unrelated`. Two units about one subject often say different, compatible
+ * things: one names the threshold, the other names the reporter. This is
+ * the common case in a repository's documentation. If code called such
+ * pairs the same claim, it would report every one as a duplicate. So
+ * `unrelated` owns that case on purpose, and the deletion test defines
+ * `same_claim`.
  */
 const PAIR_CRITERIA: Record<PairVerdict, Entry> = {
   same_claim: {
@@ -690,9 +709,9 @@ export function pairRequest(a: JevUnit, b: JevUnit): JevRequest {
 }
 
 /**
- * Just the verdict: unlike the spike's `parsePair`, there is no
- * `PairCandidate` to fold in here, since that type stays in the plugin
- * (see this file's header).
+ * Just the verdict. Unlike the spike's `parsePair`, there is no
+ * `PairCandidate` to fold in here. That type stays in the plugin (see this
+ * file's header).
  */
 export function parsePair(answers: AnswerBag): ChoiceAnswer<PairVerdict> {
   return readChoice(answers, PAIR_QUESTION_ID, PAIR_CRITERIA)
@@ -703,9 +722,9 @@ export function parsePair(answers: AnswerBag): ChoiceAnswer<PairVerdict> {
 //
 
 /**
- * The citation-check cookbook's three options, kept verbatim in meaning: the
- * unit is the claim, the excerpt is the section, and `says_nothing` is what
- * separates a wrong excerpt from a wrong claim.
+ * The citation-check cookbook's three options. This text keeps their
+ * meaning exactly. The unit is the claim, and the excerpt is the section.
+ * `says_nothing` is what tells apart a wrong excerpt from a wrong claim.
  */
 const EVIDENCE_VERDICT_CRITERIA: Record<EvidenceVerdict, Entry> = {
   supports: 'The excerpt states the claim, or directly implies that it is true.',
@@ -749,13 +768,15 @@ const CLASSIFICATION_JUDGMENTS = [
 ] as const
 
 /**
- * `JevError`'s own account when it is the rejection reason, or the plain
- * message otherwise. Every failure this function sees was thrown from this
- * file: a rejected request rejects with `typesafe.ts`'s `JevError` (every
- * throw site in `request()`/`ask()` is one), and a caught parse failure is
- * always a plain `Error` from `readChoice` or `readNoul`. There is no third
- * shape to account for, so unlike the spike's `cli.ts` version this has no
- * `String(error)` fallback: that branch nothing here could ever take.
+ * `JevError`'s own account, when it is the rejection reason. Otherwise, the
+ * plain message.
+ *
+ * Every failure this function sees was thrown from this file. A rejected
+ * request rejects with `typesafe.ts`'s `JevError` (every throw site in
+ * `request()` or `ask()` is one). A caught parse failure is always a plain
+ * `Error` from `readChoice` or `readNoul`. There is no third shape to
+ * account for. So, unlike the spike's `cli.ts` version, this has no
+ * `String(error)` fallback. This code could never take that branch.
  */
 function failureMessage(error: unknown): string {
   if (error instanceof JevError) {
@@ -765,10 +786,10 @@ function failureMessage(error: unknown): string {
 }
 
 /**
- * One unit's own five answers, lifted out of a request's bag and relabelled to
- * `u0`, which is the id {@link parseClassification} looks for when it is
- * handed a single unit. Relabelling also keeps a parse failure's message the
- * same whichever position the unit held in the request.
+ * One unit's own five answers, lifted out of a request's bag and given the
+ * new id `u0`. This is the id {@link parseClassification} looks for when it
+ * gets a single unit. The relabel also keeps a parse failure's message the
+ * same, whatever position the unit held in the request.
  */
 function unitAnswers(bag: AnswerBag, index: number): AnswerBag {
   const own: AnswerBag = {}
@@ -779,22 +800,25 @@ function unitAnswers(bag: AnswerBag, index: number): AnswerBag {
 }
 
 /**
- * Sending one built request and getting its answers back: all three operations
+ * Send one built request and get its answers back. All three operations
  * below need exactly this much of the transport, and {@link classifyImpl}
  * needs nothing else at all.
  */
 type Ask = (request: JevRequest) => Promise<AnswerBag>
 
 /**
- * Ported from the spike's `cli.ts` `classifyUnits`: one request per shape's
- * own grouping, settled independently (`Promise.allSettled`), so one bad
- * request never costs the others. A rejected request's answers never land in
- * `bag`, so every unit it covered is silently absent from `classifications`
- * rather than individually failed; the one failure recorded for it names the
- * request, not each unit, because the request is what actually failed. A
- * unit whose answers DID arrive but do not parse (a malformed choice, an
- * out-of-range noul) gets its own failure, named by the unit, since that
- * unit alone is what is wrong.
+ * Ported from the spike's `cli.ts` `classifyUnits`.
+ *
+ * This sends one request for each group the shape makes. Each request
+ * settles on its own (`Promise.allSettled`), so one bad request never costs
+ * the others. A rejected request's answers never land in `bag`. So every unit
+ * it covered is silently absent from `classifications`, rather than failed
+ * on its own. The one failure recorded for it names the request, not each
+ * unit, because the request is what actually failed.
+ *
+ * A unit whose answers did arrive, but do not parse (a malformed choice, an
+ * out-of-range noul), gets its own failure. That failure names the unit,
+ * since that one unit alone is what is wrong.
  */
 async function classifyImpl(
   ask: Ask,
@@ -832,7 +856,7 @@ export function createJevClient(options: TypeSafeOptions): JevClient {
     judgePair: async (a, b) => parsePair(await ask(pairRequest(a, b))),
     judgeEvidence: async (unit, source, excerpt) =>
       parseEvidence(await ask(evidenceRequest(unit, source, excerpt))),
-    // TypeSafeUsage and Usage are structurally identical; no cast needed.
+    // TypeSafeUsage and Usage are structurally identical, so no cast is needed.
     usage: () => transport.usage(),
   }
 }

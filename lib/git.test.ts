@@ -1,24 +1,28 @@
-// The git helpers against real repositories. git is never mocked (ADR 001,
-// RFC 001 "The testing seam"), so every fixture here is an actual checkout
-// with an actual local bare origin, built by `harness/git.ts`.
+// Tests the git helpers against real repositories. git is never mocked
+// (ADR 001, RFC 001 "The testing seam"). Every fixture here is a real
+// checkout with a real local bare origin, built by `harness/git.ts`.
 //
-// `sandbox.env` is passed on every call that asks about a repository, never
-// left to the ambient environment. It is what keeps a developer's own
+// `sandbox.env` is passed on every call that asks about a repository. It is
+// never left to the ambient environment. This keeps a developer's own
 // `GIT_CONFIG_GLOBAL` (this workspace exports one from direnv) out of a
-// fixture, and what keeps a `GIT_DIR` or a `GIT_INDEX_FILE` from displacing
-// the repository the call named: git exports both into every child of a git
-// hook, a pre-commit hook is one of the places this suite runs
-// (`harness/README.md`, "The git builders"), and `GIT_DIR` outranks both
-// `cwd` and `git -C` for every ref and object lookup. `RepoOptions` requires
-// `env` as well as `cwd` for that reason, so this is the compiler's rule here
-// and not the suite's habit, and the `GIT_DIR` test below proves it against
-// two real checkouts rather than asserting it in prose.
+// fixture. Without it, a `GIT_DIR` or a `GIT_INDEX_FILE` could replace the
+// repository the call named.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree; the
-// file and line references below are to what they held at `cd0d515`, kept
-// because each says where a rule came from. Nothing here changed with the
-// deletion.
+// git exports both `GIT_DIR` and `GIT_INDEX_FILE` into every child of a git
+// hook. A pre-commit hook is one place this suite runs (`harness/README.md`,
+// "The git builders"). `GIT_DIR` outranks both `cwd` and `git -C` for every
+// ref and object lookup. `RepoOptions` requires `env` as well as `cwd` for
+// that reason. This is a rule the compiler checks, not a habit of the test
+// suite.
+//
+// The `GIT_DIR` test below proves the rule against two real checkouts. It
+// does not just state the rule in prose.
+//
+// **The Python code this ports was deleted at #127.**
+// `plugins/gh/scripts/*.py`, its `lib/`, and `plugins/gh/hooks/hook-io.py`
+// are gone from the tree. The file and line references below point to what
+// they held at commit `cd0d515`. Each reference stays because it shows
+// where a rule came from. The deletion did not change anything here.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -44,9 +48,9 @@ const repository = () => {
 }
 
 it('reports a git that is not on PATH apart from a git that said no', async () => {
-  // The distinction `gh-sync-repo.py:196` to `205` makes: every git call
-  // fails either way, and reporting the first of them as "not a git
-  // repository" sends the reader to inspect a checkout that is fine.
+  // This is the distinction `gh-sync-repo.py:196` to `205` makes. Every
+  // git call fails either way. To report the first case as "not a git
+  // repository" would send the reader to inspect a perfectly fine checkout.
   const { sandbox, work } = repository()
 
   const missing = await runGit(['rev-parse', '--show-toplevel'], {
@@ -66,8 +70,8 @@ it('reports a git that is not on PATH apart from a git that said no', async () =
 })
 
 it('runs git in this checkout when it is given no options at all', async () => {
-  // Both entry points in their shortest form. `--version` asks nothing of a
-  // repository, so it is the one question that is the same answer wherever it
+  // Both entry points, in their shortest form. `--version` asks nothing of
+  // a repository. It is the one question with the same answer, wherever it
   // is asked from.
   await expect(gitOut(['--version'])).resolves.toMatch(/^git version /)
   await expect(gitOk(['--version'])).resolves.toBe(true)
@@ -76,9 +80,9 @@ it('runs git in this checkout when it is given no options at all', async () => {
 })
 
 it('strips git trailing newlines and keeps its leading columns', async () => {
-  // `status --porcelain` encodes staged and unstaged in the first two
-  // characters, so a full trim would turn " M file" into "M file" and a
-  // reader counting columns into a liar.
+  // `status --porcelain` encodes staged and unstaged status in the first
+  // two characters. A full trim would turn " M file" into "M file". A
+  // reader who counts columns would then read the wrong status.
   const { git, work, env } = repository()
   git.dirty(work)
 
@@ -88,8 +92,8 @@ it('strips git trailing newlines and keeps its leading columns', async () => {
 })
 
 it('answers null when git failed, and the empty string when git said nothing', async () => {
-  // Both are used, and they are different facts: "the probe could not be run"
-  // against "the working tree is clean" (`gh-sync-repo.py:231`).
+  // Both values occur, and they are different facts: "the probe could not
+  // run" against "the working tree is clean" (`gh-sync-repo.py:231`).
   const { sandbox, work, env } = repository()
   mkdirSync(sandbox.join('plain'))
 
@@ -123,7 +127,7 @@ it('answers with the lines of a listing, dropping the empty ones', async () => {
 })
 
 it('answers null for a listing that could not be read', async () => {
-  // A failed probe must not masquerade as "nothing is merged", which would
+  // A failed probe must not look like "nothing is merged". That would
   // silently reduce the merge proof to one signal (`gh-sync-repo.py:465`).
   const { sandbox, env } = repository()
   mkdirSync(sandbox.join('plain'))
@@ -139,9 +143,9 @@ it('finds the checkout root from inside it, and none outside one', async () => {
   mkdirSync(inside)
   mkdirSync(sandbox.join('plain'))
 
-  // Compared against git's own answer from the root: git resolves symlinks
-  // and the sandbox sits under one on macOS, so the literal path is not what
-  // comes back.
+  // Compared against git's own answer from the root. git resolves
+  // symlinks, and the sandbox sits under one on macOS. So the literal path
+  // is not what comes back.
   const root = await toplevel({ cwd: work, env: sandbox.env })
   expect(await toplevel({ cwd: inside, env: sandbox.env })).toBe(root)
   expect(root).not.toBeNull()
@@ -166,8 +170,8 @@ it('reads the default branch from the cached origin/HEAD', async () => {
 })
 
 it('answers null when no origin/HEAD is cached', async () => {
-  // A clone that never fetched one. The fallbacks are the caller's, and they
-  // differ between the two callers, which is why they are not here.
+  // A clone that never fetched one. The fallbacks belong to the callers.
+  // The two callers use different fallbacks, so they are not in this file.
   const { git, work, env } = repository()
   git.forgetOriginHead(work)
 
@@ -175,8 +179,8 @@ it('answers null when no origin/HEAD is cached', async () => {
 })
 
 it('passes a ref that does not carry the origin prefix through unchanged', async () => {
-  // `hook-io.py:196`: the ref is reported as it reads rather than mangled by
-  // a prefix strip that did not apply.
+  // `hook-io.py:196`: this reports the ref as it reads. It does not change
+  // the ref with a prefix strip that does not apply.
   const { git, work, env } = repository()
   git.git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/heads/main')
 
@@ -184,17 +188,19 @@ it('passes a ref that does not carry the origin prefix through unchanged', async
 })
 
 it('reads an empty answer as no answer for all three questions with a name for an answer', async () => {
-  // The arm a comment here used to call unreachable, and CI on #159 reached:
-  // real git refuses `rev-parse --show-toplevel` in a bare repository with
-  // status 128 rather than answering empty, but the git these helpers run is
-  // whatever the caller put on PATH. A checkout root, the branch HEAD is on
-  // and the ref `origin/HEAD` names are each a name or nothing, so `""` is
-  // git saying nothing and every caller was folding it by hand.
+  // A comment here used to call this case unreachable, but CI on #159
+  // reached it. Real git refuses `rev-parse --show-toplevel` in a bare
+  // repository with status 128. It does not answer empty. But the git
+  // these helpers run is whatever the caller put on PATH. A checkout root,
+  // the branch HEAD is on, and the ref `origin/HEAD` names are each a name
+  // or nothing. So `""` means git said nothing, and every caller folded
+  // that case by hand.
   //
-  // The git is built here rather than in `harness/git.ts` because it is this
-  // file's own fixture, and it carries a `#!/bin/sh` line because an empty
-  // executable is ENOEXEC on Linux and is run by the shell on macOS, which
-  // are two different experiments.
+  // This git is built here, not in `harness/git.ts`, because it is a
+  // fixture for this file alone. It carries a `#!/bin/sh` line because an
+  // empty executable is ENOEXEC on Linux, but macOS runs it through the
+  // shell. Those are two different platform behaviors, both
+  // covered here.
   const { sandbox, work } = repository()
   const bin = sandbox.stubPath(sandbox.join('silent-git'))
   writeFileSync(join(bin, 'git'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
@@ -215,11 +221,12 @@ it('says whether a ref exists, in either namespace', async () => {
 })
 
 it('reads the refs of the repository GIT_DIR names, not the one the call named', async () => {
-  // The hazard `RepoOptions` requires `env` for, proven rather than argued.
-  // `GIT_DIR` outranks both `cwd` and `git -C` for everything the git
-  // directory holds, so a helper called from inside a hook with the ambient
-  // environment answers about the hook's repository. Two real checkouts, one
-  // branch that exists in only one of them, and the environment is the only
+  // This proves the hazard that `RepoOptions` requires `env` for. It does
+  // not just argue the point. `GIT_DIR` outranks both `cwd` and `git -C`
+  // for everything the git directory holds. So a helper called from inside
+  // a hook, and that uses the ambient environment, answers about the
+  // hook's own repository. This test uses two real checkouts, with one
+  // branch that exists in only one of them. The environment is the only
   // thing that differs between the two calls.
   const { sandbox, git, work, env } = repository()
   const other = git.create(sandbox.join('other'))
@@ -232,18 +239,19 @@ it('reads the refs of the repository GIT_DIR names, not the one the call named',
 })
 
 it('strips every trailing newline from what git printed, not just the last', async () => {
-  // `%B` is the whole commit message, which git ends with its own newline on
-  // top of the message's, so a single-newline strip would leave one behind
-  // and every caller comparing against a subject would miss.
+  // `%B` prints the whole commit message. git adds its own newline after
+  // the message's own newline. A single-newline strip would leave one
+  // behind, so a caller that compares against a subject line would miss.
   const { work, env } = repository()
 
   await expect(gitOut(['log', '-1', '--format=%B'], { cwd: work, env })).resolves.not.toMatch(/\n$/)
 })
 
 it('answers null rather than rejecting when node refuses the argv outright', async () => {
-  // The caller-level half of the runner's "never rejects" contract: no helper
-  // here has a `try`, so a rejection would surface as a node-internals stack
-  // trace out of a function whose whole documented answer is `null`.
+  // This is the caller-level half of the runner's "never rejects" contract.
+  // No helper here has a `try`, so a rejection would surface as a node
+  // internal stack trace. That would come from a function whose whole
+  // documented answer is `null`.
   const { work, env } = repository()
 
   await expect(gitOut(['rev-parse\u0000--show-toplevel'], { cwd: work, env })).resolves.toBeNull()

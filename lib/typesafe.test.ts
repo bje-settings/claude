@@ -1,7 +1,7 @@
-// The transport's own tests (#173, porting the context-audit spike's
-// `jev.test.ts`, #164). An injected `fetch`, `sleep` and `random`, so nothing
-// here touches the network, waits in real time, or depends on which branch of
-// jitter actually ran.
+// The transport's own tests (#173). They port the context-audit spike's
+// `jev.test.ts` (#164). These tests inject `fetch`, `sleep`, and `random`.
+// So nothing here touches the network, waits in real time, or depends on
+// which branch of jitter actually ran.
 
 import { expect, it } from 'vitest'
 import {
@@ -96,7 +96,7 @@ it('retries a 429 and then succeeds, backing off with the injected random', asyn
 
   expect(calls).toBe(2)
   expect(noulOf(answers, 'q')).toBe(0.75)
-  // attempt 0, random() = 0.5: floor(0.5 * min(30000, 500 * 2**0)) = 250.
+  // At attempt 0, with random() = 0.5, floor(0.5 * min(30000, 500 * 2**0)) equals 250.
   expect(slept).toEqual([250])
 })
 
@@ -138,7 +138,8 @@ it('honours Retry-After as an HTTP date', async () => {
   await jev.ask('s', Q)
 
   expect(slept.length).toBe(1)
-  // Real-time slop between computing `soon` and the header being read.
+  // This range allows for real-time slop between the moment `soon` is
+  // computed and the moment the code reads the header.
   expect(slept[0]).toBeGreaterThan(3_000)
   expect(slept[0]).toBeLessThanOrEqual(5_000)
 })
@@ -188,10 +189,11 @@ it('a 503 is retried like a 429', async () => {
   expect(calls).toBe(2)
 })
 
-// RETRYABLE names 500, 502 and 504 as "the standard proxy-layer statuses"
-// beside 429, 503 and 529, each with its own test: a Set literal missing one
-// of the six, or a typo in one of the numbers, is otherwise invisible to the
-// suite (only 429, 503 and 529 had a test of their own before this one).
+// RETRYABLE names 500, 502, and 504 as the standard proxy-layer statuses,
+// beside 429, 503, and 529. Each has its own test. Without this test, a Set
+// literal could miss one of the six and the suite would not notice. The
+// same is true of a typo in one of the numbers. Only 429, 503, and 529 had
+// a test of their own before this one.
 it.each([500, 502, 504])('a %d is retried like a 429', async (status) => {
   let calls = 0
   const jev = createJev({
@@ -208,8 +210,8 @@ it.each([500, 502, 504])('a %d is retried like a 429', async (status) => {
 })
 
 it('the computed backoff stays inside its own 30s ceiling for a large attempt', () => {
-  // attempt 20: 500 * 2**20 is far past MAX_DELAY_MS, so an unguarded formula
-  // would sleep hours; the ceiling caps it at 30000 before jitter.
+  // At attempt 20, 500 * 2**20 is far past MAX_DELAY_MS. An unguarded formula
+  // would sleep for hours. The ceiling caps the value at 30000, before jitter.
   expect(backoffMs(20, () => 0.5)).toBe(15_000)
   expect(backoffMs(20, () => 1)).toBeLessThanOrEqual(30_000)
 })
@@ -248,11 +250,12 @@ it('a network error is retried', async () => {
 })
 
 it('a transport failure message is capped at BODY_LIMIT, like every other JevError.body', async () => {
-  // The doc comment on asBody says everything that reaches JevError.body goes
-  // through it, "redacted, then capped". The transport-failure branch of
-  // request()'s catch calls redact() directly instead of asBody(), so an
-  // oversized Error#message from a network failure (an aggregate error, a
-  // proxy quoting a whole request) would reach JevError.body uncapped.
+  // The doc comment on asBody says everything that reaches JevError.body
+  // goes through it, "redacted, then capped." The transport-failure branch
+  // of request()'s catch calls redact() directly, instead of asBody(). So an
+  // oversized Error#message from a network failure would reach
+  // JevError.body uncapped. This includes an aggregate error or a proxy
+  // that quotes a whole request.
   const jev = createJev({
     apiKey: KEY,
     maxRetries: 0,
@@ -267,13 +270,15 @@ it('a transport failure message is capped at BODY_LIMIT, like every other JevErr
 })
 
 it('the cap is applied after redaction, so a key straddling the cut cannot survive', async () => {
-  // asBody's doc comment promises "redacted, then capped". If BODY_LIMIT
-  // sliced the text before redact() ran, a key positioned across the cut
-  // point would be cut in half; redact() only matches the WHOLE key, so that
-  // surviving half would never match and would leak into JevError.body
-  // un-redacted. Placing the key's own midpoint at the cut is what makes that
-  // failure mode observable: a message that is merely "long" (the test above)
-  // cannot tell the two orderings apart when it carries no key at all.
+  // asBody's doc comment promises "redacted, then capped." Suppose BODY_LIMIT
+  // sliced the text before redact() ran. Then a key placed across the cut
+  // point would be cut in half. redact() only matches the WHOLE key, so the
+  // half that is left would never match. It would leak into JevError.body
+  // un-redacted.
+  //
+  // This test places the key's own midpoint at the cut, to make that
+  // failure mode visible. A message that is merely "long," like the test
+  // above, carries no key at all. So it cannot tell the two orderings apart.
   const straddle = 2_000 - Math.floor(KEY.length / 2)
   const message = `${'x'.repeat(straddle)}${KEY}${'y'.repeat(5_000)}`
   const jev = createJev({
@@ -288,8 +293,8 @@ it('the cap is applied after redaction, so a key straddling the cut cannot survi
   expect(error).toBeInstanceOf(JevError)
   expect(error.body.length).toBeLessThanOrEqual(2_000)
   expect(error.body).not.toContain(KEY)
-  // A slice-before-redact bug leaves this un-redacted fragment inside the
-  // truncated body.
+  // A slice-before-redact bug would leave this un-redacted fragment inside
+  // the truncated body.
   expect(error.body).not.toContain(KEY.slice(0, 10))
   expect(error.body).toContain('[redacted]')
 })
@@ -302,7 +307,7 @@ it('a transport failure that is not an Error instance is still retried and repor
     sleep: async () => {},
     fetch: async () => {
       calls += 1
-      // Not every rejection is an Error: this pins messageOf's String(error) arm.
+      // Not every rejection is an Error. This test pins messageOf's String(error) arm.
       throw 'boom'
     },
   })
@@ -339,8 +344,8 @@ it('a stalled request is aborted by the timeout and retried as a transport failu
     fetch: (_url, init) => {
       calls += 1
       if (calls === 1) {
-        // A socket that never answers: the only way it ever settles is the
-        // abort signal firing when the timeout elapses.
+        // A socket that never answers. The only way it ever settles is when
+        // the abort signal fires, at the timeout.
         return new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => {
             reject(new DOMException('The operation was aborted.', 'TimeoutError'))
@@ -373,7 +378,7 @@ it('a body that is not valid JSON on a 2xx is not retried', async () => {
   expect((error as JevError).status).toBe(200)
   expect((error as JevError).message).toMatch(/not valid JSON/)
   expect((error as JevError).body).toBe('not json at all {')
-  // A billed 2xx must not be resent: exactly one attempt, not up to maxRetries + 1.
+  // A billed 2xx must not be resent. This test expects exactly one attempt, not up to maxRetries + 1.
   expect(calls).toBe(1)
 })
 
@@ -427,8 +432,8 @@ it('the api key is redacted from a server error body that echoes the auth header
   const jev = createJev({
     apiKey: KEY,
     sleep: async () => {},
-    // The worst case for a header leak: a server that echoes the request
-    // headers back verbatim in its error body.
+    // The worst case for a header leak. A server echoes the request headers
+    // back verbatim, in its error body.
     fetch: async (_url, init) => reply(400, JSON.stringify(init?.headers)),
   })
 
@@ -447,7 +452,7 @@ it('the api key is redacted from a foreign error thrown by fetch itself', async 
     fetch: async (_url, init) => {
       const headers = init?.headers as Record<string, string>
       // A transport that fails badly enough to leak the header into its own
-      // exception message, the way a proxy or a broken client sometimes does.
+      // exception message. A proxy or a broken client sometimes does this.
       throw new Error(String(headers.authorization))
     },
   })
@@ -463,9 +468,9 @@ it('the api key is redacted from a server body that echoes the bare key, not jus
   const jev = createJev({
     apiKey: KEY,
     sleep: async () => {},
-    // No `Bearer` prefix this time: some servers echo the raw credential
-    // value alone, which is a different code path in `redact` than the
-    // `Bearer <key>` case the other tests exercise.
+    // No `Bearer` prefix this time. Some servers echo the raw credential
+    // value alone. This is a different code path in `redact` than the
+    // `Bearer <key>` case that the other tests exercise.
     fetch: async () => reply(400, JSON.stringify({ error: `key ${KEY} rejected` })),
   })
 
@@ -476,8 +481,9 @@ it('the api key is redacted from a server body that echoes the bare key, not jus
 })
 
 it('the api key is redacted from a malformed 2xx body that happens to contain it', async () => {
-  // Pins the redact() call on the not-valid-JSON call site, which no other
-  // test exercises with the bare key present in the body.
+  // This test pins the redact() call on the not-valid-JSON call site. No
+  // other test exercises that call site with the bare key present in the
+  // body.
   const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, `not json ${KEY}`) })
 
   const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
@@ -488,8 +494,9 @@ it('the api key is redacted from a malformed 2xx body that happens to contain it
 })
 
 it('the api key is redacted from a 2xx body with no answers that happens to contain it', async () => {
-  // Pins one of the three ask()-level safeStringify(payload) call sites: a
-  // 2xx that parses as JSON but fails the `answers` shape check.
+  // This test pins one of the three ask()-level safeStringify(payload) call
+  // sites. It is a 2xx that parses as JSON but fails the `answers` shape
+  // check.
   const jev = createJev({
     apiKey: KEY,
     fetch: async () => reply(200, { model: 'x', note: `leaked key ${KEY}` }),
@@ -503,17 +510,17 @@ it('the api key is redacted from a 2xx body with no answers that happens to cont
 })
 
 it('redact leaves text alone when the api key is empty', () => {
-  // Exercises the early-return branch directly: an empty key would otherwise
-  // become an empty-string RegExp that matches everywhere.
+  // This test exercises the early-return branch directly. Without it, an
+  // empty key would become an empty-string RegExp that matches everywhere.
   expect(redact('nothing to hide', '')).toBe('nothing to hide')
 })
 
 it('redact turns Bearer <key> into [redacted] alone, not Bearer [redacted]', () => {
-  // The doc comment on redact() promises this exact result so the reader
-  // never sees "Bearer [redacted]"; a bare-key-only redaction would still
-  // remove the key here (leaving no key text behind) without producing this
-  // string, so a test that only checked "the key is gone" could not tell the
-  // two implementations apart.
+  // The doc comment on redact() promises this exact result, so the reader
+  // never sees "Bearer [redacted]." A bare-key-only redaction would still
+  // remove the key here and leave no key text behind. But it would not
+  // produce this exact string. So a test that only checked "the key is
+  // gone" could not tell the two implementations apart.
   expect(redact(`Bearer ${KEY}`, KEY)).toBe('[redacted]')
 })
 
@@ -568,9 +575,9 @@ it('gives up after maxRetries and reports the last status', async () => {
   expect(error.message).toMatch(/gave up after 3 attempts, last HTTP 429/)
   expect(error.body).toBe('still rate limited')
   expect(calls).toBe(3)
-  // usage() is a run's own account of what it spent, and a request that
-  // never succeeds was still billed for every attempt: the `finally` around
-  // the whole retry loop counts it the same as a request that succeeded.
+  // usage() is a run's own account of what it spent. A request that never
+  // succeeds is still billed for every attempt. The `finally` around the
+  // whole retry loop counts it the same as a request that succeeded.
   const usage = jev.usage()
   expect(usage.requests).toBe(1)
   expect(usage.attempts).toBe(3)
@@ -678,13 +685,15 @@ it('a rejected request still releases its slot', async () => {
 })
 
 it('createLimiter releases its slot even when a task throws synchronously', async () => {
-  // `createJev` only ever hands the limiter an async task (`request` is an
-  // async function, so a throw inside it is already a rejected promise by
-  // the time the limiter sees it), so this is the one case that integration
-  // cannot exercise: a task that throws before returning a promise at all.
-  // The doc comment's "handed straight from a finishing task to a waiting
-  // one" promise has to hold from the `finally` block regardless of how the
-  // task failed.
+  // `createJev` only ever hands the limiter an async task. `request` is an
+  // async function. So a throw inside it is already a rejected promise by
+  // the time the limiter sees it. So this is the one case that integration
+  // cannot exercise: a task that throws before it returns a promise.
+  //
+  // The doc comment for `createLimiter` promises that a slot passes
+  // straight from a task that just finished. It passes to one that waits
+  // next. That promise must hold from the `finally` block, regardless of
+  // how the task failed.
   const limit = createLimiter(1)
 
   await expect(
@@ -693,8 +702,8 @@ it('createLimiter releases its slot even when a task throws synchronously', asyn
     }),
   ).rejects.toThrow('boom')
 
-  // If the first call's slot were never released, this would hang forever
-  // waiting for one.
+  // If the first call's slot were never released, this call would wait
+  // forever for one.
   await expect(limit(async () => 'ok')).resolves.toBe('ok')
 })
 
@@ -719,8 +728,8 @@ it('a retry sleeps through the real default sleep when none is injected', async 
   let calls = 0
   const jev = createJev({
     apiKey: KEY,
-    // random: 0 makes backoffMs(0, random) floor to 0ms, so the real
-    // (non-injected) sleep resolves near-instantly rather than slowing the
+    // random: 0 makes backoffMs(0, random) floor to 0ms. So the real,
+    // non-injected sleep resolves near-instantly. It does not slow the
     // suite down.
     random: () => 0,
     fetch: async () => {
@@ -735,9 +744,9 @@ it('a retry sleeps through the real default sleep when none is injected', async 
 })
 
 it('an empty 2xx body is refused as "not an object", not read as an answer', async () => {
-  // payload becomes `undefined` here (`text === '' ? undefined : ...`), which
-  // also exercises safeStringify's `JSON.stringify(undefined) ?? String()`
-  // fallback in the error it builds.
+  // Here, payload becomes `undefined` (`text === '' ? undefined : ...`).
+  // This also exercises safeStringify's `JSON.stringify(undefined) ??
+  // String()` fallback, in the error it builds.
   const jev = createJev({ apiKey: KEY, fetch: async () => reply(200, '') })
   const error = (await jev.ask('s', Q).catch((e: unknown) => e)) as JevError
   expect(error).toBeInstanceOf(JevError)

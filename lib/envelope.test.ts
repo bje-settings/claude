@@ -1,6 +1,6 @@
-// The envelope's own claims. Each row is a decision arm: a caller responds
-// differently to a refusal than to a failure, and differently again to a
-// payload, so each is asserted rather than derived from the others.
+// Tests for the envelope's own claims. Each row is a decision arm. A caller
+// responds differently to a refusal than to a failure, and differently
+// again to a payload. Each case is asserted, not derived from the others.
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -24,9 +24,9 @@ describe('outcomes', () => {
   })
 
   it('keeps a refusal and a failure apart', () => {
-    // The distinction is the whole point of having two: a refusal is the
-    // caller's input to fix and a failure is this code's, and a skill reading
-    // the status decides differently on each.
+    // The distinction is the whole point of the two outcomes. A refusal
+    // is the caller's input to fix, and a failure is this code's own
+    // fault. A skill that reads the status decides differently on each.
     expect(refused('no diagram source on stdin')).toEqual({
       outcome: 'refused',
       error: 'no diagram source on stdin',
@@ -49,9 +49,9 @@ describe('outcomes', () => {
   it('narrows a success to its value', () => {
     const envelope: Envelope<number> = ok(7)
     expect(isOk(envelope)).toBe(true)
-    // The narrowing is the point: reading `.value` off the union without it
-    // is a type error, which is what keeps an empty result from being read as
-    // a successful one.
+    // The narrowing is the point. To read `.value` off the union without it
+    // is a type error. That error means a caller cannot treat an empty
+    // result as a success.
     expect(isOk(envelope) ? envelope.value : 'unreachable').toBe(7)
     expect(isOk(refused('no'))).toBe(false)
   })
@@ -67,26 +67,27 @@ describe('renderJson', () => {
   })
 
   it('leaves the trailing newline to the entry point', () => {
-    // A renderer that embedded one would double-space the output of a caller
-    // writing through `console.log`.
+    // A renderer that embedded one would double-space the output of a
+    // caller that writes through `console.log`.
     expect(renderJson(ok([1, 2])).stdout).toBe('[1,2]')
   })
 })
 
 describe('renderText', () => {
   it('writes the payload verbatim', () => {
-    // `mermaid-url.py` prints a bare URL and its skills read that line as a
-    // URL. Rendered as JSON it would arrive quoted and escaped, which is a
-    // different contract wearing the same exit code.
+    // `mermaid-url.py` prints a bare URL, and its skills read that line as
+    // a URL. Rendered as JSON, it would arrive quoted and escaped: a
+    // different contract, with the same exit code.
     const url = 'https://mermaid.live/view#pako:eNpLy8'
     expect(renderText(ok(url))).toEqual({ stdout: url, stderr: '', exitCode: 0 })
   })
 
   it('differs from renderJson on the one payload type both accept', () => {
-    // The sentence above is a claim about `renderJson` too, and a string is
-    // the only payload both renderers take, so it is the only place the two
-    // could quietly become the same function. Asserted on the same value, so
-    // what the test shows is the difference and not two unrelated examples.
+    // The sentence above is a claim about `renderJson` too. A string is the
+    // only payload both renderers take. So it is the only place the two
+    // could quietly become the same function. Both are asserted on the
+    // same value, so the test shows the difference, not two unrelated
+    // examples.
     const url = 'https://mermaid.live/view#pako:eNpLy8'
     expect(renderJson(ok(url)).stdout).toBe(`"${url}"`)
     expect(renderText(ok(url)).stdout).toBe(url)
@@ -98,8 +99,8 @@ describe.each([
   ['renderText', renderText],
 ])('%s on a failure', (_name, render) => {
   it('writes nothing to stdout, and the reason to stderr', () => {
-    // The property worth pinning: a caller parsing stdout can never parse a
-    // refusal into a result, because there is nothing there to parse.
+    // This property matters. A caller that parses stdout can never read a
+    // refusal as a result. There is nothing there to parse.
     expect(render(refused('no diagram source on stdin'))).toEqual({
       stdout: '',
       stderr: 'no diagram source on stdin',
