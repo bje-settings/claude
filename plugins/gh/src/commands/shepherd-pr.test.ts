@@ -1,25 +1,27 @@
-// `gh.ts shepherd-pr`, against the Python's own captured output: the port of
-// `tests/gh/test_shepherd_pr.py` and of the `gh-shepherd-pr.py` half of
-// `test_shepherd_edges.py`.
+// This file tests `gh.ts shepherd-pr` against the Python version's captured
+// output. It ports `tests/gh/test_shepherd_pr.py` and the `gh-shepherd-pr.py`
+// half of `test_shepherd_edges.py`.
 //
-// The parity block is the contract. Every case in
-// `fixtures/shepherd-pr-output.json` is replayed from the same canned
-// pull-request set the Python's stub `gh` answered from, and the JSON
-// document, stderr and exit status are compared with what the Python printed,
-// byte for byte, with only the divergences `fixtures/README-shepherd.md`
-// records. The examples after it are what a single captured run cannot show:
-// an answer that CHANGES between two polls, a watcher that failed for a reason
-// of its own, and a failure that is not `gh` refusing.
+// The parity block is the contract. Each case in
+// `fixtures/shepherd-pr-output.json` replays the same canned pull-request set
+// that the Python's stub `gh` answered. The test compares the JSON document,
+// stderr, and exit status against what the Python printed, byte for byte.
+// Only the divergences in `fixtures/README-shepherd.md` differ.
 //
-// **No test waits.** The clock and the sleep are arguments, and `fakeTime`
-// advances the clock by exactly what each sleep was asked for, so a 90 second
-// settle bound is driven to its end in no time at all and `waited` is a number
-// this file decided rather than a number the machine happened to measure.
+// The examples after the parity block cover three cases that one captured run
+// cannot show. The first is an answer that changes between two polls. The
+// second is a watcher that fails for its own reason. The third is a failure
+// that is not a refusal by gh.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// **No test waits.** The clock and the sleep are arguments. `fakeTime`
+// advances the clock by the exact amount each sleep requests. A 90 second
+// settle bound reaches its end at once. `waited` is a number this file set,
+// not a number a machine measured.
+//
+// **Issue #127 deleted the Python this ports.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from the
+// tree. The file and line references below point to what those files held at
+// `cd0d515`. Each reference stays because it says where a rule came from.
 import {
   chmodSync,
   mkdirSync,
@@ -63,10 +65,14 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
 /**
  * Every place this port answers differently from the Python, as data.
  *
- * Layer 2's rule (`fixtures/README.md`): a divergence is recorded where a test
- * reads it, so it stays countable and a ninth cannot appear by editing a
- * literal in here. Which cases are not replayed, and the two sentences this
- * file asserts, come from that file rather than from a constant beside them.
+ * Layer 2's rule (`fixtures/README.md`) records a divergence where a test
+ * reads it. This keeps divergences countable. A literal edited here cannot
+ * add a ninth divergence.
+ */
+
+/**
+ * The list of cases not replayed comes from that file. So do the two
+ * sentences this file asserts. Neither comes from a constant beside them.
  */
 const DIVERGENCES: {
   notReplayed: Record<string, Record<string, { why: string; pinnedBy: string }>>
@@ -82,15 +88,17 @@ const divergence = (id: string): { was: string; now: string; prefix?: string; ca
 }
 
 /**
- * The four fields the capture recorded as a measurement rather than as a
- * contract: `waited`, `watcher_rc`, `reads_ok` and `read_failures`.
- *
- * They are NOT skipped and there is no list of them to keep in step. The
- * Python measured them on the machine the capture ran on; here the injected
- * clock is made to produce the same numbers, which is what an injected clock
- * is for, so the whole document is compared byte for byte like every other
- * key. A key that stopped being reproducible would turn the comparison red
- * rather than quietly joining a list.
+ * The capture recorded four fields as measurements, not as a contract:
+ * `waited`, `watcher_rc`, `reads_ok`, and `read_failures`.
+ */
+
+/**
+ * Nothing skips these four fields, and no list keeps them in step. The Python
+ * measured them on the machine that ran the capture. The injected clock here
+ * produces the same numbers. That is why this port uses an injected clock.
+ * The test then compares the whole document byte for byte, like every other
+ * key. A key that lost reproducibility would turn the comparison red, not
+ * quietly join a list.
  */
 
 /** What `gh repo view` answered with in the capture. */
@@ -106,12 +114,12 @@ const UPDATED = '✓ Pull request #1 branch has been updated\n'
  *  is `gh pr checks` exit 8. */
 const WATCH_PENDING: WatchResult = { status: 8, timedOut: false, waitedMs: 0, problem: '' }
 
-/** A watch this command's own bound killed: no status of its own, and
- *  `timedOut` is the only thing that says what happened. */
+/** A watch this command's own bound killed has no status of its own.
+ *  `timedOut` is the only field that says what happened. */
 const WATCH_BOUND: WatchResult = { status: null, timedOut: true, waitedMs: 1000, problem: '' }
 
-/** A clock that only moves when something waits, so a bound is reached without
- *  any of it being waited out. */
+/** A clock that moves only when something sleeps. A bound then arrives
+ *  without a real wait. */
 const fakeTime = (): {
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -129,10 +137,9 @@ const fakeTime = (): {
 
 /** The pair of writers a command reports through, over two buffers.
  *
- *  `reader` replaces the stdout stream, which is how the reader that walked
- *  away is given to the command: the writer's own EPIPE guard is
- *  `lib/streams.ts`'s, and what is asserted here is the half above it, that
- *  the write the action already made still happened. */
+ *  `reader` replaces the stdout stream. This models a reader that walks away.
+ *  `lib/streams.ts` owns the writer's own EPIPE guard. This test asserts only
+ *  the layer above that guard: the action's write already happened. */
 const capture = (reader?: (into: string[]) => OutputStream) => {
   const out: string[] = []
   const err: string[] = []
@@ -175,17 +182,17 @@ interface RunResult {
   readonly document: Record<string, unknown>
   readonly sandbox: Sandbox
   readonly elapsed: number
-  /** Everything `createGh` was asked for, in order. `--repo` is not part of
-   *  any request object in this port: it is a construction option of the
-   *  client (`lib/gh.ts`), so the repository half of "the whole request" is
-   *  asserted here or nowhere. The Python put `--repo self.repo` on every
-   *  call but the one that resolves it (`gh-shepherd-pr.py:483`, `:538`,
-   *  `:928`, against `:958`). */
+  /** Every argument passed to `createGh`, in order. In this port, `--repo`
+   *  is not part of any request object. It is a construction option of the
+   *  client (`lib/gh.ts`). So this test asserts the repository half of the
+   *  whole request here, or nowhere else. The Python put `--repo self.repo`
+   *  on every call but the one that resolves it (`gh-shepherd-pr.py:483`,
+   *  `:538`, `:928`, against `:958`). */
   readonly ghOptions: readonly unknown[]
 }
 
-/** A sandbox holding one repository at the path the capture used, and the
- *  command run against it with a clock nobody has to wait for. */
+/** A sandbox that holds one repository, at the path the capture used. The
+ *  test runs the command against it, with a clock nobody has to wait for. */
 const drive = async (build: (sandbox: Sandbox, repo: string) => RunOptions): Promise<RunResult> => {
   const sandbox = createSandbox()
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
@@ -219,10 +226,10 @@ const drive = async (build: (sandbox: Sandbox, repo: string) => RunOptions): Pro
   }
 }
 
-/** The two clients every action builds: one from the checkout alone, which is
- *  the call that answers what the repository IS, and then one that names both
- *  the checkout and that repository, which is what puts `--repo` on every
- *  later call. */
+/** Every action builds two clients. The first uses the checkout alone, and
+ *  its call answers what the repository IS. The second names both the
+ *  checkout and that repository. This second client is what puts `--repo` on
+ *  every later call. */
 const clients = (target: string): unknown[] => [
   { cwd: target },
   { cwd: target, repository: 'acme/widgets' },
@@ -236,16 +243,19 @@ const shepherdEnv = (sandbox: Sandbox, env: Record<string, string>): NodeJS.Proc
 })
 
 /**
- * A server that keeps what each write was actually asked to send.
- *
- * The three writes this command makes are its whole reason to exist, and a
- * captured run cannot show their arguments: the capture records what the
- * Python's stub `gh` was given, and the port reaches `gh` through the injected
- * client instead. So the request is asserted here, whole, the way
- * `shepherd-status.test.ts` asserts the two listings it sends. What was sent,
- * never how often: the Python asserted the posted text positively in seven of
- * its own examples (`test_shepherd_pr.py:371`, `:402`, `:417`, `:466`, `:483`,
- * `:1011`, `:1162`).
+ * A server that records what each write actually sends.
+ */
+
+/**
+ * The three writes this command makes are its whole reason to exist. A
+ * captured run cannot show their arguments. The capture records what the
+ * Python's stub `gh` received, while this port reaches `gh` through the
+ * injected client instead. So this test asserts the request here, in full,
+ * the way `shepherd-status.test.ts` asserts the two listings it sends. The
+ * assertion checks what the action posted, never how many times. The Python
+ * asserted the posted text positively in seven of its own examples
+ * (`test_shepherd_pr.py:371`, `:402`, `:417`, `:466`, `:483`, `:1011`,
+ * `:1162`).
  */
 const recording = (
   options: GhServerOptions,
@@ -272,27 +282,31 @@ const recording = (
 
 // --- parity with the Python ----------------------------------------------------
 
-/** What each case needs beyond its captured pull-request set: the stub `gh`
- *  switches the case's environment turned on, as this client's registrations.
- *  A case with no entry is answered from its rows alone.
- *
- *  A REFUSAL case deliberately registers no write endpoint, and that is what
- *  asserts "no write on a refusal": `createGhServer` throws `no reply
- *  registered for <endpoint>` for one nobody registered, `ghAccount` rethrows
- *  anything that is not a `GhError`, and the run ends as an internal error
- *  with a status the capture does not hold. Moving a guard below its write
- *  turns the case red. That is the port of the Python's eleven
- *  `comments(gh) == "NONE"` and `"update-branch" not in call_log` assertions
- *  (`test_shepherd_pr.py:321`, `:332`, `:353`, `:360`, `:676`, `:869`,
- *  `:1021`, `:1041`, `:1050`, `:1058`, `test_shepherd_edges.py:410`). */
+/** ARRANGEMENTS holds what each case needs beyond its captured pull-request
+ *  set. This is the registrations for the stub `gh`, matched to what the
+ *  case's environment turns on. The stub `gh` answers a case with no entry
+ *  from its rows alone. */
+
+/** A REFUSAL case deliberately registers no write endpoint. This is how the
+ *  test proves there is no write on a refusal. If nobody registers an
+ *  endpoint, `createGhServer` throws `no reply registered for <endpoint>`.
+ *  `ghAccount` rethrows anything that is not a `GhError`. Then the run ends
+ *  as an internal error, with a status the capture does not hold. */
+
+/** A guard moved below its write turns the case red. This ports the
+ *  Python's eleven `comments(gh) == "NONE"` and `"update-branch" not in
+ *  call_log` assertions (`test_shepherd_pr.py:321`, `:332`, `:353`, `:360`,
+ *  `:676`, `:869`, `:1021`, `:1041`, `:1050`, `:1058`,
+ *  `test_shepherd_edges.py:410`). */
 const ARRANGEMENTS: Record<string, GhServerOptions> = {
   gh_cannot_resolve_the_repository: { fail: ghFails('gh: simulated failure') },
-  // No `shutil.which` preflight is ported (#158): gh not being on PATH is the
-  // runner's 127, which is what the real client throws.
+  // This port does not include the `shutil.which` preflight (#158). When gh
+  // is not on PATH, the runner throws 127, and the real client throws the
+  // same error.
   gh_is_not_on_path: { fail: ghFails('cannot run gh: spawn gh ENOENT', 127) },
   rebase_moves_the_head: {
     replies: { updateBranch: UPDATED },
-    // The stub rewrote the row it was holding; a sequence is the same fact
+    // The stub rewrote the row it held. A sequence states the same fact
     // without a file to rewrite.
     sequences: {
       viewPullRequest: [
@@ -338,18 +352,19 @@ const ARRANGEMENTS: Record<string, GhServerOptions> = {
   },
 }
 
-/** The cases whose stderr ends in this command's own usage text, which names
- *  `gh.ts shepherd-pr` where the Python's named a script file, mapped to what
- *  comes in front of it. Both halves are compared: the line, against the
- *  Python's own, and the usage, against this command's. */
+/** USAGE_TEXT maps each such case to what comes in front of the usage text.
+ *  Each case's stderr ends in this command's own usage text. That usage text
+ *  names `gh.ts shepherd-pr`, where the Python named a script file. The test
+ *  compares both halves: the line, against the Python's own, and the usage,
+ *  against this command's. */
 const USAGE_TEXT = new Map([
   ['usage_with_too_few_arguments', ''],
   ['an_unknown_action', 'unknown action: dance\n'],
 ])
 
-/** The cases that cannot be replayed through the command function, read from
- *  the divergence record rather than listed here: each carries why, and the
- *  example that pins the contract another way. */
+/** The cases that the command function cannot replay. This set comes from
+ *  the divergence record, not from a list here. Each case carries why, and
+ *  names the example that pins the contract another way. */
 const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-pr'] ?? {}))
 
 /** What the reason file held in each case that names one. Only its existence
@@ -377,24 +392,25 @@ const PATHS: Record<string, (sandbox: Sandbox, repo: string, name: string) => st
   },
 }
 
-/** Root can enter a directory with no permissions, which is what the Python's
- *  own skip says (`test_shepherd_edges.py:387`). Neither venue this suite runs
- *  in is root. */
+/** Root can enter a directory with no permissions. The Python's own skip
+ *  note says the same thing (`test_shepherd_edges.py:387`). Neither venue
+ *  that runs this suite is root. */
 const asRoot = process.getuid?.() === 0
 
 const replayable = Object.keys(CAPTURE).filter((name) => !NOT_REPLAYED.has(name))
 
-/** The one case a run as root cannot prove: root can enter a directory with
- *  no permissions, so the refusal never happens. */
+/** A run as root cannot prove one case. Root can enter a directory with no
+ *  permissions, so the refusal never happens. */
 const needsAUser = (name: string): boolean =>
   (CAPTURE[name] as CapturedCase).argv[0] === '<sandbox>/closed'
 
-/** Split so that a root run REPORTS the case as skipped, which is what the
- *  Python's own `skipif` did (`test_shepherd_edges.py:387`). A bare `return`
- *  inside the example reported a pass with nothing asserted in it, which says
- *  the access probe was checked when it was not. The hundred percent coverage
- *  gate is the second line of defence: the refusal arm in `directoryRefusal`
- *  then goes unreached and the gate fails. */
+/** This test splits the cases so a root run reports one as skipped. This
+ *  matches what the Python's own `skipif` did (`test_shepherd_edges.py:387`).
+ *  A bare `return` inside the example would report a pass with nothing
+ *  asserted. That would wrongly claim the example checked the access probe
+ *  when it did not. The hundred percent coverage gate is the second line of
+ *  defence. If the refusal arm in `directoryRefusal` goes unreached, the gate
+ *  fails. */
 const replayAlways = replayable.filter((name) => !needsAUser(name))
 const replayAsAUser = replayable.filter(needsAUser)
 
@@ -420,17 +436,18 @@ const replay = async (name: string): Promise<void> => {
   const before = USAGE_TEXT.get(name)
   if (before !== undefined) {
     // The Python printed its own docstring here, which named a script file.
-    // What is compared is that the same thing was said for the same reason:
-    // the line in front of the usage is the Python's, and the usage is this
-    // command's.
+    // The test compares two things for the same reason. It checks the line
+    // in front of the usage against the Python's own. It checks the usage
+    // itself against this command's.
     expect(expected.stderr.startsWith(before)).toBe(true)
     expect(result.stderr).toBe(`${before}${HELP}\n`)
   } else if (expected.argv[0] === '<sandbox>/closed') {
-    // node's account of the refused access where Python's was
-    // `[Errno 13] Permission denied`; the sentence in front of it is the same,
-    // and is read from the divergence record. One line, ending in a newline,
-    // saying something after the colon: everything the Python's byte
-    // comparison gave except the account itself.
+    // Node reports the refused access differently from Python's
+    // `[Errno 13] Permission denied`. The sentence in front of it stays the
+    // same. That sentence comes from the divergence record. The expected
+    // text is one line that ends in a newline, with some text after the
+    // colon. It matches everything from the Python's byte comparison, except
+    // the OS error text itself.
     expect(normalise(result.stderr, result.sandbox)).toMatch(
       new RegExp(`^${divergence('cannotEnter').prefix}<sandbox>/closed: [^\\n]+\\n$`),
     )
@@ -451,8 +468,8 @@ it('replays every captured case, and arranges only cases that exist', () => {
   ]) {
     expect(Object.keys(CAPTURE)).toContain(name)
   }
-  // Every case a divergence names is a case the capture actually holds, so a
-  // row cannot be recorded against a run that is not there.
+  // Every case a divergence names is a case the capture actually holds. So
+  // the test cannot record a row against a run that does not exist.
   for (const row of [...DIVERGENCES.sentences, DIVERGENCES.unchanged]) {
     for (const name of row.cases) expect(Object.keys(CAPTURE)).toContain(name)
   }
@@ -477,14 +494,16 @@ it('prints its own usage for --help, naming every action it accepts', async () =
 })
 
 it('opens its usage with the sentence the Python opened with', async () => {
-  // The divergence recorded for `help` is the command name, and nothing else:
-  // the sentence in front of it is read off the capture rather than restated,
-  // so a rewrite of the opening line is a divergence that has to be argued.
+  // The divergence recorded for `help` is the command name, and nothing else.
+  // The test reads the sentence in front of it from the capture. It does not
+  // restate that sentence. So a rewrite of the first line becomes a
+  // divergence, which needs an argument.
   const opening = (CAPTURE.help?.stdout ?? '').split('\n')[0]?.split(' \u2014 ')[1] ?? ''
 
   expect(opening).not.toBe('')
-  // The Python's docstring opened `gh-shepherd-pr.py \u2014 the ...`, so the
-  // sentence is the same one with a capital where the script name used to be.
+  // The Python's docstring opened with `gh-shepherd-pr.py \u2014 the ...`.
+  // This port uses the same sentence, but with a capital letter where the
+  // script name used to be.
   expect(HELP.split('\n')[0]?.toLowerCase()).toBe(opening.toLowerCase())
 })
 
@@ -496,8 +515,8 @@ it('answers -h the same way it answers --help', async () => {
 })
 
 it('accepts every action it advertises', async () => {
-  // An action the command runs but does not advertise is one nobody calls; one
-  // it advertises and rejects is worse.
+  // An action the command runs but does not advertise is one nobody calls.
+  // One it advertises and rejects is worse.
   for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'skip', 'merged']) {
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, '1', action, 'reason-file-that-is-not-there'],
@@ -541,8 +560,8 @@ it('carries gh’s own words, on one line, when the pull request cannot be read'
 })
 
 it('refuses an answer missing any field the loop decides from', async () => {
-  // `summary` shapes whatever it is handed, so a projection missing everything
-  // else comes back as a pull request with no checks, which `wait` reads as
+  // `summary` shapes whatever it receives. A projection that lacks everything
+  // else comes back as a pull request with no checks. `wait` reads that as
   // nothing left to watch.
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'state'],
@@ -559,7 +578,7 @@ it('refuses an answer missing any field the loop decides from', async () => {
 
 it('reports an update that worked and a read that did not, as ok', async () => {
   // `ok: false` here would have the caller decide again and rebase a second
-  // time, which costs another CI run for a read that failed.
+  // time. That costs another CI run for a read that failed.
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'rebase'],
     gh: createGhServer({
@@ -579,16 +598,16 @@ it('reports an update that worked and a read that did not, as ok', async () => {
 })
 
 it('reads a head gh answered as an empty string as no head at all', async () => {
-  // Truthiness: `""` is gh answering nothing, and the Python folded it to ""
-  // before comparing. A `??` here would compare `""` against the old SHA and
-  // report a rebase that moved the head.
+  // Truthiness: an empty string `""` means gh answered nothing. The Python
+  // folded it to "" before it compared. A `??` here would compare `""`
+  // against the old SHA, and wrongly report a rebase that moved the head.
   const rebased = { ...depPr(1, { merge: 'BEHIND' }), headRefOid: '' }
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'rebase'],
     gh: createGhServer({
       replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
-      // A head of "" fails `missingField`, so the read fails; what this pins
-      // is that the empty answer never reaches the comparison as a SHA.
+      // A head of "" fails `missingField`, so the read fails. This pins one
+      // fact: the empty answer never reaches the comparison as a SHA.
       sequences: { viewPullRequest: [depPr(1, { merge: 'BEHIND' }), rebased] },
     }),
   }))
@@ -598,9 +617,9 @@ it('reads a head gh answered as an empty string as no head at all', async () => 
 })
 
 it('asks for a rebase of the pull request it was given, and never a merge', async () => {
-  // Omitting `rebase` writes a merge commit onto someone else's branch, and
-  // the number is the one the caller named: both are the whole request, which
-  // is what `gh-shepherd-pr.py:483` sends.
+  // If the code omits `rebase`, it writes a merge commit onto someone else's
+  // branch. The number is the one the caller named. Together, both are the
+  // whole request, which is what `gh-shepherd-pr.py:483` sends.
   const record = recording({
     replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
     sequences: { viewPullRequest: [depPr(7, { merge: 'BEHIND' })] },
@@ -643,15 +662,15 @@ it('comments and returns once the head moves', async () => {
   expect(result.document.detail).toBe('recreated')
   expect(result.document.before).toBe('sha1')
   expect(result.document.after).toBe('recreated')
-  // The snapshot reported is the one the moved head was read from, not the
-  // one the poll started with (`test_shepherd_pr.py:370`).
+  // The snapshot reported is the one that gave the moved head, not the one
+  // the poll started with (`test_shepherd_pr.py:370`).
   expect((result.document.pr as Record<string, unknown>).headRefOid).toBe('recreated')
 })
 
 it('posts the words Dependabot answers, on the pull request it was given', async () => {
-  // `@dependabot recreate` is answered by one bot and by nothing else: any
-  // other text is a comment that will sit on a stranger's pull request
-  // forever. `gh-shepherd-pr.py:533` to `:541`.
+  // Only one bot answers `@dependabot recreate`. Any other text becomes a
+  // comment that sits on a stranger's pull request forever
+  // (`gh-shepherd-pr.py:533` to `:541`).
   const record = recording({
     replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
     sequences: {
@@ -671,11 +690,11 @@ it('posts the words Dependabot answers, on the pull request it was given', async
 })
 
 it('refuses a bot that is not Dependabot, and posts nothing', async () => {
-  // `is_bot` still reports what it is, so the report can say why it stopped;
-  // what the action turns on is `is_dependabot`. The captured refusal has a
-  // HUMAN author, so nothing there tells `!is_dependabot` and `!is_bot`
-  // apart, and under `!is_bot` this command posts `@dependabot recreate` on a
-  // renovate pull request, which nothing will ever answer
+  // `is_bot` still reports what it is, so the report can say why it stopped.
+  // The action itself turns on `is_dependabot`. The captured refusal has a
+  // HUMAN author. So nothing there tells `!is_dependabot` and `!is_bot`
+  // apart. Under `!is_bot`, this command would post `@dependabot recreate` on
+  // a renovate pull request. Nothing will ever answer that comment
   // (`test_shepherd_pr.py:334`).
   const record = recording({
     prs: [{ ...depPr(1, { merge: 'DIRTY' }), author: { login: 'renovate[bot]', is_bot: true } }],
@@ -775,9 +794,10 @@ it('keeps polling when gh cannot read the pull request for one poll', async () =
   }))
 
   expect(answer.document.result).toBe('closed')
-  // A poll that could not read the pull request says nothing about it, so the
-  // read that followed is the answer, and it is still `ok` (the recreate
-  // comment did go out). `test_shepherd_pr.py:437` and `:439`.
+  // A poll that could not read the pull request says nothing about it. So
+  // the read that followed becomes the answer. The status is still `ok`,
+  // since the recreate comment already went out (`test_shepherd_pr.py:437`
+  // and `:439`).
   expect(answer.document.ok).toBe(true)
   expect((answer.document.pr as Record<string, unknown>).state).toBe('CLOSED')
 })
@@ -804,8 +824,8 @@ it('says the pull request could not be re-read rather than that the head did not
 })
 
 it('reports the last read as null when the polling ended on a read that failed', async () => {
-  // The Python reports `pr` from the same variable it assigns the failed read
-  // to, so a run whose last poll failed carries a null pull request.
+  // The Python reports `pr` from the same variable it assigns the failed
+  // read to. So a run whose last poll failed carries a null pull request.
   const answer = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'recreate'],
     env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '1', SHEPHERD_POLL_SECONDS: '1' },
@@ -827,9 +847,9 @@ it('reports the last read as null when the polling ended on a read that failed',
 })
 
 it('derives a poll interval from the CI cycle when nobody gave one', async () => {
-  // A quarter of the cycle, floored at 15 seconds, and the bound is two
-  // cycles: 400 gives an interval of 100 and a bound of 800, which is eight
-  // polls and no waiting at all.
+  // The interval is a quarter of the cycle, floored at 15 seconds. The bound
+  // is two cycles. With 400, the interval is 100 and the bound is 800. That
+  // gives eight polls, with no delay at all.
   const answer = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'recreate'],
     env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '400' },
@@ -853,9 +873,9 @@ it('floors a derived poll interval, so a fast repository is not polled every sec
     }),
   }))
 
-  // A bound of 16 seconds with a floor of 15 buys two polls, the second of
-  // which runs past the bound: the loop is `while waited < bound`, exactly as
-  // the Python's is.
+  // A bound of 16 seconds with a floor of 15 buys two polls. The second poll
+  // runs past the bound. The loop is `while waited < bound`, exactly as the
+  // Python's is.
   expect(answer.elapsed).toBe(30_000)
 })
 
@@ -873,7 +893,8 @@ it('says so when a poll interval is not a number, and falls back to the floor', 
 })
 
 it('honours a poll interval below the floor, and never a zero one', async () => {
-  // Zero would spin without ever reaching the bound. The shell version did.
+  // A zero value would spin and never reach the bound. The shell version did
+  // exactly that.
   const answer = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'recreate'],
     env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '4', SHEPHERD_POLL_SECONDS: '0' },
@@ -890,9 +911,10 @@ it('honours a poll interval below the floor, and never a zero one', async () => 
 // --- wait ---------------------------------------------------------------------------
 
 it('does not watch a rollup that has already failed', async () => {
-  // `gh pr checks --watch` has been seen not to return on a terminal rollup,
-  // so the failure is read from the rollup and no watcher is started at all:
-  // an unregistered `watchChecks` throws and names itself if one is.
+  // In practice, `gh pr checks --watch` sometimes does not return on a
+  // terminal rollup. So this command reads the failure from the rollup, and
+  // starts no watcher at all. If the code calls `watchChecks` anyway, the
+  // unregistered stub throws and names itself.
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
     gh: createGhServer({
@@ -905,8 +927,9 @@ it('does not watch a rollup that has already failed', async () => {
 })
 
 it('refuses when the watcher failed for a reason of its own', async () => {
-  // Reported as `pending`, the caller waits out an expired token or a 502 one
-  // CI cycle at a time, forever, and the transcript never says why.
+  // If the code reports this as `pending`, the caller waits forever. It
+  // waits out an expired token or a 502, one CI cycle at a time. The
+  // transcript never says why.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
     env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
@@ -947,9 +970,8 @@ it('names the watcher’s status when the watcher failed without saying anything
 })
 
 it('refuses a watch that a signal ended, which said nothing about the checks', async () => {
-  // A watch with no status of its own is not one of the codes either, and the
-  // bound not having fired is what tells it apart from this command's own
-  // kill.
+  // A watch with no status of its own is not one of the known codes. Whether
+  // the bound has fired tells it apart from this command's own kill.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
     env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
@@ -994,7 +1016,8 @@ it('keeps only the last lines of a watcher’s account of itself', async () => {
 })
 
 it('still decides from the rollup when the watcher reports a failed check', async () => {
-  // Exit 1 is gh's "a check failed", not gh failing, so the rollup decides.
+  // Exit 1 is gh's own "a check failed" signal, not a failure of gh itself.
+  // So the rollup decides.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
     env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
@@ -1013,9 +1036,9 @@ it('still decides from the rollup when the watcher reports a failed check', asyn
 })
 
 it('clamps the wait bound up to the minimum for a repository with fast CI', async () => {
-  // The other end of `clamp(ciSeconds * 2, 120, 540)`. `Math.max` is not a
-  // branch, so the coverage gate never sees this one: a floor of 1 would go
-  // unnoticed, and a wait that returned after two seconds would report
+  // This is the other end of `clamp(ciSeconds * 2, 120, 540)`. `Math.max` is
+  // not a branch, so the coverage gate never sees this case. A floor of 1
+  // would go unnoticed. A wait that returned after two seconds would report
   // `pending` for a run that had barely started.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
@@ -1030,11 +1053,12 @@ it('clamps the wait bound up to the minimum for a repository with fast CI', asyn
 })
 
 it('reports merged when auto-merge fires during the watch', async () => {
-  // The merge must land while the WATCHER is running, not before the first
-  // read: otherwise this passes through the answers-without-watching path and
-  // proves nothing. `test_shepherd_pr.py:623` says so in its own docstring
-  // and backs it by asserting the watch happened, so the watch's own request
-  // is asserted here, whole, rather than counted.
+  // The merge must land while the WATCHER runs, not before the first read.
+  // Otherwise, the test takes the path that skips the watch, and proves
+  // nothing. `test_shepherd_pr.py:623` says so in its own docstring.
+  // It backs that up: it asserts that the watch happened. So this test
+  // asserts the watch's own request here, in full. It does not just count
+  // the calls.
   const watches: unknown[] = []
   const server = createGhServer({
     replies: { viewRepository: REPOSITORY, watchChecks: WATCH_BOUND },
@@ -1143,8 +1167,8 @@ it('reports merged when auto-merge lands after the first read', async () => {
 })
 
 it('does not block on a single read of BLOCKED', async () => {
-  // GitHub reports BLOCKED while reconciling a check that just went green, so
-  // one sample of it is the same race this action exists to close.
+  // GitHub reports BLOCKED while it reconciles a check that just went green.
+  // So one sample of it is the same race this action exists to close.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
     env: settleEnv(sandbox),
@@ -1160,9 +1184,8 @@ it('does not block on a single read of BLOCKED', async () => {
   }))
 
   expect(result.document.result).toBe('merged')
-  // And the merge it read is the one reported: a BLOCKED sample that was
-  // never corroborated must not take the answer with it
-  // (`test_shepherd_pr.py:731`).
+  // The merge it read is the one reported. An uncorroborated BLOCKED sample
+  // must not take the answer with it (`test_shepherd_pr.py:731`).
   expect(result.document.mergeCommit).toBe('abc')
 })
 
@@ -1180,16 +1203,17 @@ it('blocks on a merge state that turned BLOCKED mid-poll', async () => {
 
   expect(result.document.result).toBe('blocked')
   expect(result.document.reason).toBe('auto-merge cannot fire: mergeStateStatus is BLOCKED')
-  // The snapshot reported is the blocking one, not the clean read the poll
+  // The snapshot reported is the BLOCKED one, not the clean read the poll
   // opened with (`test_shepherd_pr.py:800`).
   expect((result.document.pr as Record<string, unknown>).mergeStateStatus).toBe('BLOCKED')
 })
 
 it('blocks rather than rechecks when a review is required on a base that moved', async () => {
-  // Precedence, and nothing else asserts it: a RECHECK merge state and a
-  // blocking review together must answer `blocked`. Reporting `changed` would
-  // send the caller off to rebase, which buys a CI run and leaves the pull
-  // request exactly as unmergeable as it was (`test_shepherd_pr.py:765`).
+  // This tests precedence, which nothing else asserts. A RECHECK merge state
+  // and a required review together must answer `blocked`. If the code
+  // reported `changed` instead, it would send the caller off to rebase. That
+  // buys a CI run and leaves the pull request exactly as unmergeable as it
+  // was (`test_shepherd_pr.py:765`).
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
     env: settleEnv(sandbox),
@@ -1237,14 +1261,15 @@ it('keeps polling when one read fails and reports the answer that followed', asy
   expect(result.document.ok).toBe(true)
   expect(result.document.result).toBe('merged')
   expect(result.document.read_failures).toBe(1)
-  // The read that recovered cleared the account of the one that failed, which
-  // is what the Python does too: every read attempt overwrites `read_err`, so
-  // the field describes the LAST read and the count describes the run.
+  // The read that recovered cleared the account of the one that failed. The
+  // Python does the same thing. Every read attempt overwrites `read_err`, so
+  // the field describes the LAST read, and the count describes the whole run.
   expect(result.document.read_error).toBe('')
 })
 
 it('refuses when the bound arrives on a read that failed', async () => {
-  // "Nothing was reported against it" would be a statement about a silence.
+  // A report with nothing against it would describe a silence, not the
+  // failure that happened.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
     env: settleEnv(sandbox),
@@ -1277,8 +1302,8 @@ it('polls at least once when the bound is shorter than the interval', async () =
 })
 
 it('measures the time it waited rather than adding up its sleeps', async () => {
-  // Each read takes time of its own on a slow gh, and the agent copies
-  // `waited` into its report as evidence of how long GitHub was given.
+  // Each read takes time of its own on a slow gh. The agent copies `waited`
+  // into its report. This shows how long the caller gave GitHub to answer.
   const sandbox = createSandbox()
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
   const writers = capture()
@@ -1287,7 +1312,7 @@ it('measures the time it waited rather than adding up its sleeps', async () => {
   const gh: GhClient = {
     ...server,
     viewPullRequest: async (pull) => {
-      // A read that costs a second of the clock without anyone sleeping.
+      // A read that costs a second of the clock, though nobody calls sleep.
       elapsed += 1000
       return server.viewPullRequest(pull)
     },
@@ -1306,8 +1331,8 @@ it('measures the time it waited rather than adding up its sleeps', async () => {
 
   expect(status).toBe(0)
   expect(document.result).toBe('open')
-  // One sleep of a second per poll, so a settle that added up its own sleeps
-  // would report exactly the number of polls it made.
+  // There is one sleep of a second per poll. So a settle that added up its
+  // own sleeps would report exactly the number of polls it made.
   expect(document.waited).toBeGreaterThan(document.reads_ok - 1)
 })
 
@@ -1328,8 +1353,9 @@ it('refuses a settle whose checks are neither passed nor absent, without watchin
 
 it('reads a merge state gh answered as null as no merge state at all', async () => {
   // `mergeStateStatus` is not a field `missingField` requires, so null is a
-  // real answer: GitHub has not computed one. Truthiness folds it to "", which
-  // is neither blocking nor a recheck, so settle keeps waiting.
+  // real answer: GitHub has not computed one yet. Truthiness folds it to "",
+  // which is neither BLOCKED nor a recheck trigger. So settle continues to
+  // poll.
   const unknownState = { ...depPr(1), mergeStateStatus: null }
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
@@ -1342,8 +1368,8 @@ it('reads a merge state gh answered as null as no merge state at all', async () 
 })
 
 it('reports open with the count when a read failed and a later one recovered', async () => {
-  // The failure is counted, the snapshot is fresh, and the account of the
-  // failure is gone because the read that followed it answered.
+  // The report counts the failure. The snapshot is fresh. The account of the
+  // failure is gone, because the read that followed it answered.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
     env: settleEnv(sandbox),
@@ -1383,8 +1409,8 @@ it('refuses a reason file that is a directory', async () => {
 })
 
 it('posts the reason file it was given, as the body of the comment', async () => {
-  // `--body-file`, never `--body`: the reason is a file the caller wrote, and
-  // a literal here would post something nobody reviewed
+  // This uses `--body-file`, never `--body`. The reason is a file the caller
+  // wrote. A literal here would post something nobody reviewed
   // (`gh-shepherd-pr.py:928`). The number is the one the caller named.
   const record = recording({
     prs: [depPr(4)],
@@ -1404,11 +1430,12 @@ it('posts the reason file it was given, as the body of the comment', async () =>
 })
 
 it('vets the reason file gh will read, not one beside this process', async () => {
-  // The Python `os.chdir`'d to the target before both the check and the
-  // comment (`gh-shepherd-pr.py:1007`, `:920`, `:928`), so a relative path
-  // named one file to both. Nothing here changes directory and gh is spawned
-  // with the target as its own, so the path has to be resolved against the
-  // target or the file vetted is not the file posted.
+  // The Python changed directory (`os.chdir`) to the target before both the
+  // check and the comment (`gh-shepherd-pr.py:1007`, `:920`, `:928`). So a
+  // relative path named one file to both. This port does not change
+  // directory, and gh runs with the target as its own working directory. So
+  // the path must resolve against the target. Otherwise, the file this test
+  // vets is not the file it posts.
   const record = recording({
     prs: [depPr(1)],
     replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
@@ -1427,12 +1454,13 @@ it('vets the reason file gh will read, not one beside this process', async () =>
 })
 
 it('posts the file it vetted, even when the target is a symbolic link', async () => {
-  // The two derivations of the path have to be one value. `chdir` resolved
-  // symbolic links for the Python, `path.resolve` does not, and gh is spawned
-  // with the target as its working directory: so a target that is a link and
-  // a reason file that climbs out of it with `..` named `<link>/../why.md` to
-  // the guard and `<real>/../why.md` to gh. Two different files, one of them
-  // never looked at, posted on someone else's pull request.
+  // The two derivations of the path must be one value. `chdir` resolved
+  // symbolic links for the Python. `path.resolve` does not, and gh runs with
+  // the target as its own working directory. The example takes a target that
+  // is a link, with a reason file that climbs out of it with `..`. That
+  // names `<link>/../why.md` to the guard, and `<real>/../why.md` to gh: two
+  // different files. The guard checks one, but gh could post the other,
+  // unchecked, on someone else's pull request.
   const record = recording({
     prs: [depPr(1)],
     replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
@@ -1448,9 +1476,9 @@ it('posts the file it vetted, even when the target is a symbolic link', async ()
     mkdirSync(sandbox.join('elsewhere'), { recursive: true })
     posted = sandbox.join('elsewhere', 'link')
     symlinkSync(repo, posted)
-    // The decoy, so the lexical answer is a file that EXISTS: without it the
-    // guard simply refuses, and the case this is about is the one where both
-    // are there and the wrong one goes out.
+    // This is the decoy, so the lexical answer is a file that EXISTS.
+    // Without it, the guard simply refuses. This case matters when both files
+    // exist and the wrong one goes out.
     writeFileSync(sandbox.join('elsewhere', 'why.md'), 'never looked at\n')
     return { argv: [posted, '1', 'skip', path.join('..', 'why.md')], gh: record.gh }
   })
@@ -1490,8 +1518,8 @@ it('reports the last url gh printed as the comment url', async () => {
 
 // --- a reader that walked away ----------------------------------------------------------
 
-/** stdout whose reader leaves on the first line, the way `| head` does: the
- *  failure arrives as an event rather than at the call
+/** stdout whose reader leaves on the first line, the way `| head` does. The
+ *  failure arrives as an event, not at the call
  *  (`commands/sync-repo.test.ts` uses the same shape). */
 const closedPipe = (into: string[]): OutputStream => {
   let listener: ((error: NodeJS.ErrnoException) => void) | undefined
@@ -1509,11 +1537,11 @@ const closedPipe = (into: string[]): OutputStream => {
 }
 
 it('lets a reader that left stop the report, never the rebase', async () => {
-  // `test_shepherd_pr.py:1135` asserted the composite: the reader is gone AND
-  // the branch was still updated AND the status is 0. The two halves are
-  // pinned apart (the writer's EPIPE guard by `lib/streams.test.ts`, the
-  // update by `reports an update that worked and a read that did not`); this
-  // is the composite itself, in process.
+  // `test_shepherd_pr.py:1135` asserted the composite: the reader is gone,
+  // the branch was still updated, and the status is 0. Two other tests pin
+  // the halves apart. `lib/streams.test.ts` pins the writer's EPIPE guard.
+  // `reports an update that worked and a read that did not` pins the update.
+  // This test proves the composite itself, in process.
   const record = recording({
     replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
     sequences: {
@@ -1533,9 +1561,9 @@ it('lets a reader that left stop the report, never the rebase', async () => {
 })
 
 it('lets a reader that left stop the report, never the skip comment', async () => {
-  // `test_shepherd_pr.py:1149`, the same composite for the other write. The
-  // comment is posted before the report is written, so a reader that goes
-  // away cannot take it with it.
+  // `test_shepherd_pr.py:1149` is the same composite, for the other write.
+  // The command posts the comment before it writes the report. So a reader
+  // that goes away cannot take the comment with it.
   const record = recording({
     prs: [depPr(1)],
     replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
@@ -1584,8 +1612,9 @@ it('refuses a log line count of zero, which would keep no log at all', async () 
 })
 
 it('accepts a CI estimate of zero, which is a number even though it is not positive', async () => {
-  // `SHEPHERD_CI_SECONDS` is read with the digits pattern, not the positive
-  // one, which is what makes the "polls at least once" arm reachable at all.
+  // This code reads `SHEPHERD_CI_SECONDS` with the digits pattern, not the
+  // positive one. That is what makes the "polls at least once" arm reachable
+  // at all.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'state'],
     env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '0' },
@@ -1598,8 +1627,8 @@ it('accepts a CI estimate of zero, which is a number even though it is not posit
 it.each([
   ['answered without one at all', { defaultBranchRef: { name: 'main' } }],
   // `view.get("nameWithOwner") or None` (`gh-shepherd-pr.py:973`): a
-  // repository named `""` is gh answering nothing. A null guard takes it, and
-  // every later call then carries `--repo ""`.
+  // repository named `""` means gh answered nothing. A null guard takes it,
+  // and every later call then carries `--repo ""`.
   ['named the empty string', { nameWithOwner: '', defaultBranchRef: { name: 'main' } }],
 ])('refuses a repository gh %s', async (_name, view) => {
   const result = await drive((_sandbox, repo) => ({

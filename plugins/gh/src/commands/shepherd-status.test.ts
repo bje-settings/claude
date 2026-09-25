@@ -1,24 +1,26 @@
-// `gh.ts shepherd-status`, against the Python's own captured output: the port
-// of `tests/gh/test_shepherd_status.py` and of the `gh-shepherd-status.py`
-// half of `test_shepherd_edges.py`.
+// This suite tests `gh.ts shepherd-status` against the Python's own captured
+// output. It is the port of `tests/gh/test_shepherd_status.py` and of the
+// `gh-shepherd-status.py` half of `test_shepherd_edges.py`.
 //
 // The parity block is the contract. Every case in
-// `fixtures/shepherd-status-output.json` is replayed here from the same canned
-// pull-request set the Python's stub `gh` answered from, and the document,
-// stderr and exit status are compared with what the Python printed, byte for
-// byte, with only the divergences `fixtures/README-shepherd.md` records. The
-// examples after it are the claims the captured output alone does not prove:
-// which query the command actually sent, and what it does when something that
-// is not `gh` goes wrong.
+// `fixtures/shepherd-status-output.json` replays here, from the same canned
+// pull-request set the Python's stub `gh` answered from. The suite compares
+// the document, stderr and exit status against what the Python printed, byte
+// for byte. Only the divergences that `fixtures/README-shepherd.md` records
+// are different.
 //
-// git is real (`harness/git.ts`), `gh` is the injected client
-// (`harness/pulls.ts`), and the sandbox's repository is built at the same path
-// the capture ran in, so the two sets of paths line up with no rewriting.
+// The examples after the parity block prove two claims the captured output
+// alone cannot prove. One is which query the command sent. The other is what
+// happens when something other than `gh` fails.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// git is real (`harness/git.ts`). `gh` is the injected client
+// (`harness/pulls.ts`). The sandbox builds its repository at the same path
+// the capture used. So the two sets of paths match with no rewrite step.
+//
+// **#127 deleted the Python code this file ports.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// tree. The file and line references below point to what they held at
+// `cd0d515`. Each reference stays because it shows where a rule came from.
 import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,9 +54,10 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
   readFileSync(path.join(FIXTURES, 'shepherd-status-output.json'), 'utf8'),
 )
 
-/** Every place this port answers differently from the Python, as data: layer
- *  2's rule (`fixtures/README.md`), so a divergence stays countable and a
- *  ninth cannot appear by editing a literal here. */
+/** This file lists every place this port answers differently from the
+ *  Python, as data. Layer 2's rule requires this (`fixtures/README.md`). A
+ *  data list keeps each divergence countable. It also stops a ninth
+ *  divergence. An edited literal here cannot add one. */
 const DIVERGENCES: {
   notReplayed: Record<string, Record<string, { why: string; pinnedBy: string }>>
   sentences: { id: string; was: string; now: string; prefix?: string; cases: string[] }[]
@@ -69,10 +72,10 @@ const divergence = (id: string): { was: string; now: string; prefix?: string; ca
 /** What `gh repo view` answered with in the capture. */
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
 
-/** One `gh run list` row from a `"<seconds>[:<branch>[:<status>]]"` spec: the
- *  port of the capture script's `runs_file`, which is the port of the Python
- *  suite's `write_runs`. A run's wall time is expressed by moving the end
- *  stamp. */
+/** This builds one `gh run list` row from a
+ *  `"<seconds>[:<branch>[:<status>]]"` spec. It is the port of the capture
+ *  script's `runs_file`, itself the port of the Python suite's `write_runs`.
+ *  It moves the end stamp to set a run's wall time. */
 const runRow = (spec: string): Record<string, unknown> => {
   const [seconds = '0', branch = 'main', status = 'completed'] = spec.split(':')
   const end = new Date((1767225600 + Number(seconds)) * 1000).toISOString()
@@ -84,17 +87,19 @@ const runRow = (spec: string): Record<string, unknown> => {
   }
 }
 
-/** The rows `gh run list --branch main --status completed` would answer with,
- *  which is the filter the stub applied server-side and the real gh applies
- *  too. The example below this block asserts that the command asks for it. */
+/** These are the rows `gh run list --branch main --status completed` would
+ *  answer with. The stub applies this filter server side, and the real `gh`
+ *  applies it too. The example below this block checks that the command
+ *  asks for it. */
 const completedOnMain = (...specs: string[]): Record<string, unknown>[] =>
   specs.map(runRow).filter((row) => row.headBranch === 'main' && row.status === 'completed')
 
-/** The pair of writers a command reports through, over two buffers.
+/** This builds the pair of writers a command reports through, over two
+ *  buffers.
  *
- *  `reader` replaces the stdout stream, which is how the reader that walked
- *  away is given to the command: the writer's own EPIPE guard is
- *  `lib/streams.ts`'s, and what is asserted here is the half above it. */
+ *  The `reader` argument replaces the stdout stream. This is how the test
+ *  gives the command a reader that has left. `lib/streams.ts` owns the EPIPE
+ *  guard itself. This file checks only the half above that guard. */
 const capture = (reader?: (into: string[]) => OutputStream) => {
   const out: string[] = []
   const err: string[] = []
@@ -114,8 +119,8 @@ const capture = (reader?: (into: string[]) => OutputStream) => {
   }
 }
 
-/** stdout whose reader leaves on the first line, the way `| head` does: the
- *  failure arrives as an event rather than at the call. */
+/** This is a stdout stream whose reader leaves after the first line, the
+ *  way `| head` does. The failure arrives as an event, not at the call. */
 const closedPipe = (into: string[]): OutputStream => {
   let listener: ((error: NodeJS.ErrnoException) => void) | undefined
   return {
@@ -131,8 +136,9 @@ const closedPipe = (into: string[]): OutputStream => {
   }
 }
 
-/** The capture's `<sandbox>` vocabulary, so the port's output is compared in
- *  the same words the Python's was recorded in. */
+/** This applies the capture's `<sandbox>` vocabulary. It lets the test
+ *  compare the port's output against the same words used to record the
+ *  Python's output. */
 const normalise = (text: string, sandbox: Sandbox): string => {
   let answer = text
   for (const root of new Set([sandbox.path, realpathSync(sandbox.path)])) {
@@ -146,12 +152,12 @@ interface RunOptions {
   readonly gh?: GhClient
   readonly env?: NodeJS.ProcessEnv
   readonly now?: () => number
-  /** A stdout stream of the caller's own, for the reader that went away. */
+  /** A stdout stream from the caller, for the reader that has left. */
   readonly reader?: (into: string[]) => OutputStream
 }
 
-/** A sandbox holding one repository at the path the capture used, and the
- *  command run against it. */
+/** This drives one command run. A sandbox holds one repository at the path
+ *  the capture used, and the command runs against it. */
 const drive = async (
   build: (sandbox: Sandbox, repo: string) => RunOptions,
 ): Promise<{
@@ -159,11 +165,12 @@ const drive = async (
   stdout: string
   stderr: string
   sandbox: Sandbox
-  /** Everything `createGh` was asked for, in order. `--repo` and the checkout
-   *  are construction options of the client (`lib/gh.ts`), not fields of any
-   *  request, so this is where the repository half of "the whole request" is
-   *  asserted. The Python named `--repo` on both listings and on neither the
-   *  `gh repo view` that resolves it (`gh-shepherd-status.py:104`, `:163`,
+  /** This is everything `createGh` was asked for, in order. `--repo` and the
+   *  checkout path are construction options of the client (`lib/gh.ts`).
+   *  They are not fields of any single request. So this field asserts the
+   *  repository half of "the whole request" claim. The Python named `--repo`
+   *  on both listings. It did not name `--repo` on the `gh repo view` call
+   *  that resolves the repository (`gh-shepherd-status.py:104`, `:163`,
    *  `:185`). */
   ghOptions: readonly unknown[]
 }> => {
@@ -181,8 +188,8 @@ const drive = async (
       return options.gh ?? createGhServer({ prs: [], replies: { viewRepository: REPOSITORY } })
     },
     now: options.now ?? (() => 0),
-    // Never called by this command; a timer here would be a promise nothing
-    // resolves rather than a wait nobody notices.
+    // This command never calls `sleep`. A timer here would create a promise
+    // that never resolves, not a wait that nobody notices.
     sleep: async () => {
       throw new Error('shepherd-status must not sleep')
     },
@@ -191,9 +198,10 @@ const drive = async (
   return { status, stdout: writers.stdout(), stderr: writers.stderr(), sandbox, ghOptions }
 }
 
-/** The two clients this command builds: one from the checkout alone, the call
- *  that answers what the repository IS, and then one naming both, which is
- *  what puts `--repo` on the two listings. */
+/** These are the two clients this command builds. The first comes from the
+ *  checkout alone: it is the call that answers what the repository IS. The
+ *  second names both the checkout and the repository. That second client
+ *  puts `--repo` on the two listings. */
 const clients = (target: string): unknown[] => [
   { cwd: target },
   { cwd: target, repository: 'acme/widgets' },
@@ -201,14 +209,15 @@ const clients = (target: string): unknown[] => [
 
 // --- parity with the Python ---------------------------------------------------
 
-/** What each case needs beyond its captured pull-request set: the stub `gh`
- *  switches the case's environment turned on, as this client's registrations.
- *  A case with no entry is answered from its rows alone. */
+/** This lists what each case needs beyond its captured pull-request set. It
+ *  turns on the stub `gh`'s extra behavior, as registrations on this case's
+ *  client. A case with no entry here answers from its rows alone. */
 const ARRANGEMENTS: Record<string, GhServerOptions> = {
   gh_cannot_answer_for_the_repository: { fail: ghFails('gh: simulated failure') },
   gh_is_not_on_path: {
-    // No `shutil.which` preflight is ported (#158): gh not being on PATH is
-    // the runner's 127, which is what the real client throws here.
+    // This port skips the `shutil.which` preflight (#158). When `gh` is not
+    // on PATH, the runner reports exit code 127. The real client throws that
+    // same error here.
     fail: ghFails('cannot run gh: spawn gh ENOENT', 127),
   },
   the_median_of_recent_run_durations: {
@@ -221,17 +230,17 @@ const ARRANGEMENTS: Record<string, GhServerOptions> = {
   },
   a_non_positive_duration_falls_back: { replies: { listRuns: completedOnMain('0') } },
   a_run_listing_that_is_unavailable: {
-    // The Python pointed GH_FIXTURE_RUNS at a file that was not there and the
-    // stub answered with no rows; the real gh answers a repository with no
-    // Actions the same way, and a gh that refuses the listing is the case
-    // below.
+    // The Python pointed `GH_FIXTURE_RUNS` at a file that did not exist. The
+    // stub then answered with no rows. The real `gh` answers a repository
+    // with no Actions the same way. A `gh` that refuses the listing is the
+    // case below.
     replies: { listRuns: [] },
   },
 }
 
-/** The cases that cannot be replayed through the command function, read from
- *  the divergence record rather than listed here: each carries why, and the
- *  example that pins the contract another way. */
+/** These are the cases that the command function cannot replay. The suite
+ *  reads them from the divergence record instead of listing them here. Each
+ *  entry carries why, and the example that pins the contract another way. */
 const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-status'] ?? {}))
 
 const PATHS: Record<string, (sandbox: Sandbox, repo: string) => string> = {
@@ -250,24 +259,24 @@ const PATHS: Record<string, (sandbox: Sandbox, repo: string) => string> = {
   },
 }
 
-/** Root can enter a directory with no permissions, which is what the Python's
- *  own skip says (`test_shepherd_edges.py:374`). Neither venue this suite runs
- *  in is root. */
+/** Root can enter a directory with no permissions. The Python's own skip
+ *  says this (`test_shepherd_edges.py:374`). Neither venue that runs this
+ *  suite is root. */
 const asRoot = process.getuid?.() === 0
 
 const replayable = Object.keys(CAPTURE).filter((name) => !NOT_REPLAYED.has(name))
 
-/** The one case a run as root cannot prove: root can enter a directory with
- *  no permissions, so the refusal never happens. */
+/** This is the one case a run as root cannot prove. Root can enter a
+ *  directory with no permissions, so the refusal never happens. */
 const needsAUser = (name: string): boolean =>
   (CAPTURE[name] as CapturedCase).argv[0] === '<sandbox>/closed'
 
-/** Split so that a root run REPORTS the case as skipped, which is what the
- *  Python's own `skipif` did (`test_shepherd_edges.py:374`). A bare `return`
- *  inside the example reported a pass with nothing asserted in it, which says
- *  the access probe was checked when it was not. The hundred percent coverage
- *  gate is the second line of defence: the refusal arm in `directoryRefusal`
- *  then goes unreached and the gate fails. */
+/** This split makes a root run report the case as skipped. That matches
+ *  what the Python's own `skipif` did (`test_shepherd_edges.py:374`). A bare
+ *  `return` inside the example would report a pass with nothing asserted.
+ *  That would say the access probe ran when it did not. The hundred percent
+ *  coverage gate is the second line of defense. Without this split, the
+ *  refusal arm in `directoryRefusal` goes unreached, and the gate fails. */
 const replayAlways = replayable.filter((name) => !needsAUser(name))
 const replayAsAUser = replayable.filter(needsAUser)
 
@@ -279,9 +288,9 @@ const replay = async (name: string): Promise<void> => {
     gh: createGhServer({
       prs: expected.prs ?? [],
       ...ARRANGEMENTS[name],
-      // The defaults the stub answered with when the case turned nothing on,
-      // merged rather than replaced: an arrangement that registers one reply
-      // must not unregister the two every case needs.
+      // These are the defaults the stub uses when a case turns nothing on.
+      // The merge keeps them; it does not replace them. An arrangement that
+      // registers one reply must not remove the two every case needs.
       replies: {
         viewRepository: REPOSITORY,
         listRuns: [],
@@ -293,10 +302,10 @@ const replay = async (name: string): Promise<void> => {
   expect(result.status).toBe(expected.status)
   expect(normalise(result.stdout, result.sandbox)).toBe(expected.stdout)
   if (expected.argv[0] === '<sandbox>/closed') {
-    // node's account of the refused access where Python's was
-    // `[Errno 13] Permission denied`; the sentence in front of it is the
-    // same, and is read from the divergence record. One line, ending in a
-    // newline, saying something after the colon.
+    // Node reports the refused access differently from Python. Python's own
+    // message was `[Errno 13] Permission denied`. The sentence before it
+    // stays the same; the divergence record supplies it. The line ends with
+    // a newline and has some text after the colon.
     expect(normalise(result.stderr, result.sandbox)).toMatch(
       new RegExp(`^${divergence('cannotEnter').prefix}<sandbox>/closed: [^\\n]+\\n$`),
     )
@@ -309,9 +318,9 @@ it.each(replayAlways)('prints what the Python printed for %s', replay)
 it.skipIf(asRoot).each(replayAsAUser)('prints what the Python printed for %s', replay)
 
 it('has an arrangement for every case it replays, and replays every case', () => {
-  // A case that lost its entry would otherwise be replayed against an empty
-  // gh and pass for the wrong reason, and a case dropped from the capture
-  // would simply stop being checked.
+  // A case that lost its entry would replay against an empty `gh`. It would
+  // then pass for the wrong reason. A case dropped from the capture would
+  // simply go unchecked.
   expect(replayable.length + NOT_REPLAYED.size).toBe(Object.keys(CAPTURE).length)
   for (const name of Object.keys(ARRANGEMENTS)) {
     expect(Object.keys(CAPTURE)).toContain(name)
@@ -337,8 +346,8 @@ it('answers -h the same way it answers --help', async () => {
 })
 
 it('takes the working directory as the target when none is given', async () => {
-  // `context.cwd` is the checkout here, so an argv with no path at all still
-  // reports on it: the default is the caller's directory, not this module's.
+  // `context.cwd` is the checkout here. So an argv with no path still
+  // reports on it. The default is the caller's directory, not this module's.
   let target = ''
   const result = await drive((_sandbox, repo) => {
     target = repo
@@ -353,14 +362,14 @@ it('takes the working directory as the target when none is given', async () => {
 
   expect(result.status).toBe(0)
   expect(JSON.parse(result.stdout).targets).toHaveLength(1)
-  // And the directory it defaulted to is the one every call is made from.
+  // Every call uses the directory it defaulted to.
   expect(result.ghOptions).toEqual(clients(target))
 })
 
 it('asks for the open dependencies pull requests, with the window it reads', async () => {
-  // The whole request, rather than how many times it was sent: the filters are
-  // applied by GitHub, so a query that lost one would report on a different
-  // set of pull requests entirely.
+  // This checks the whole request, not how many times it was sent. GitHub
+  // applies the filters. So a query missing one filter would report a
+  // different set of pull requests.
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
@@ -383,8 +392,8 @@ it('asks for the open dependencies pull requests, with the window it reads', asy
   })
 
   expect(queries).toEqual([{ state: 'open', label: 'dependencies', limit: 100 }])
-  // And the repository it is addressed to: `--repo` is not in the query, it is
-  // the client the query is sent through.
+  // This also checks the repository the query targets. `--repo` is not part
+  // of the query; it is a property of the client that sends the query.
   expect(result.ghOptions).toEqual(clients(target))
 })
 
@@ -416,8 +425,9 @@ it('asks for the completed runs on the default branch, with the sample size', as
 
 it.each([
   ['answered without one at all', { defaultBranchRef: { name: 'm' } }],
-  // `view.get("nameWithOwner") or None` (`gh-shepherd-status.py:107`): a
-  // repository named `""` is gh answering nothing, and a null guard takes it.
+  // `view.get("nameWithOwner") or None` (`gh-shepherd-status.py:107`). A
+  // repository named `""` means `gh` answered nothing. A null guard catches
+  // this case.
   ['named the empty string', { nameWithOwner: '', defaultBranchRef: { name: 'm' } }],
 ])('refuses a repository gh %s', async (_name, view) => {
   const result = await drive(() => ({
@@ -435,11 +445,11 @@ it.each([
 it.each([
   ['answered without one', { nameWithOwner: 'acme/widgets' }],
   // `(view.get("defaultBranchRef") or {}).get("name") or None`
-  // (`gh-shepherd-status.py:108`): a branch named `""` is no branch, and the
-  // run listing would go out with `--branch ""`.
+  // (`gh-shepherd-status.py:108`). A branch named `""` is no branch at all.
+  // The run listing would then go out with `--branch ""`.
   ['named the empty string', { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: '' } }],
 ])('refuses a repository whose default branch gh %s', async (_name, view) => {
-  // Half an answer is not an answer: the run listing needs the branch name.
+  // Half an answer is not an answer. The run listing needs the branch name.
   const result = await drive(() => ({
     argv: [],
     gh: createGhServer({ prs: [], replies: { viewRepository: view } }),
@@ -465,8 +475,9 @@ it('refuses a default branch reference that is not an object', async () => {
 })
 
 it('carries gh’s own words when the pull request listing fails', async () => {
-  // A reason gh gave and a bare exit code call for different next steps, and
-  // the words are `GhError.detail`, never the message, which carries the argv.
+  // A reason from `gh` and a bare exit code call for different next steps.
+  // The words come from `GhError.detail`, never from the message, which
+  // carries the argv.
   const result = await drive(() => ({
     argv: [],
     gh: createGhServer({
@@ -517,9 +528,10 @@ it('falls back to 300 seconds when gh refuses the run listing', async () => {
 })
 
 it('reports an internal error rather than a stack trace, and exits 3', async () => {
-  // Exit 3 is outside the documented set on purpose: a caller parsing the JSON
-  // on stdout must not read a crash as an answer. The Python provoked this by
-  // making `os.path.isdir` raise; here the seam is the client itself.
+  // Exit 3 sits outside the documented set on purpose. A caller that parses
+  // the JSON on stdout must not read a crash as an answer. The Python
+  // provoked this: it made `os.path.isdir` raise. Here, the seam is the
+  // client itself.
   const result = await drive(() => ({
     argv: [],
     gh: {
@@ -556,9 +568,9 @@ it('reports something that is not an Error at all as an internal error too', asy
 })
 
 it('lets a failure that is not gh’s out of the run listing’s fallback', async () => {
-  // The fallback is for a gh that would not answer. Anything else is a defect
-  // in this process, and swallowing it would report a repository with no
-  // Actions.
+  // The fallback exists for a `gh` that does not answer. Anything else is a
+  // defect in this process. If this code swallowed it, the report would
+  // wrongly show a repository with no Actions.
   const result = await drive(() => ({
     argv: [],
     gh: {
@@ -576,10 +588,11 @@ it('lets a failure that is not gh’s out of the run listing’s fallback', asyn
 // --- a reader that walked away ----------------------------------------------------------
 
 it('lets a reader that left stop the report, and nothing else', async () => {
-  // `test_shepherd_status.py:263` asserted the composite for this command too:
-  // the one document it exists to print is cut off and that is not an error.
-  // Round 1 pinned the pair for `shepherd-pr` and left this one retired; it is
-  // the same retirement and it is in process here, so it costs one writer.
+  // `test_shepherd_status.py:263` asserted the same composite for this
+  // command too. The one document this command exists to print gets cut
+  // off, and that cutoff is not an error. Round 1 pinned this pair for
+  // `shepherd-pr` and left this command's version for later. This test
+  // finishes that later work. It costs one extra writer.
   const result = await drive(() => ({
     argv: [],
     gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY, listRuns: [] } }),

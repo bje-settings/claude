@@ -1,16 +1,17 @@
-// Discovery, against real repositories: the port of `tests/gh/test_discover.py`
-// and of the shell `discover_spec.sh` before it.
+// This suite tests discovery against real repositories. It is the port of
+// `tests/gh/test_discover.py` and of the shell `discover_spec.sh` before it.
 //
-// Every "ok" example is also checked against `fixtures/python-cli-output.json`,
-// which holds what `lib/discover.py` printed for the same state before any of
-// this existed. The list this module answers with is what that script printed
-// one path per line, so the two are the same contract seen from either side of
-// the `print` (the script form itself lands with the entry point in layer 4).
+// The suite also checks every "ok" example against
+// `fixtures/python-cli-output.json`. That file holds what `lib/discover.py`
+// printed for the same state, before any of this existed. The list this
+// module answers with matches what that script printed, one path per line.
+// So the two are the same contract, seen from either side of the `print`.
+// The script form itself lands with the entry point in layer 4.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
+// **#127 deleted the Python code this file ports.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// tree. The file and line references below point to what they held at
+// `cd0d515`. Each reference stays because it shows where a rule came from.
 import {
   chmodSync,
   mkdirSync,
@@ -46,10 +47,10 @@ function fixtures() {
   return { sandbox, git, env: sandbox.env }
 }
 
-/** One run's answer with the per-run detail replaced, the way
- *  `tests/gh/scenarios.py` normalises a report: the sandbox is a different
- *  directory every time and both of its spellings have to go, because macOS
- *  puts the temp directory behind a symlink. */
+/** This replaces the per-run detail in one run's answer, the way
+ *  `tests/gh/scenarios.py` normalises a report. The sandbox is a different
+ *  directory every time, so both of its spellings must go. macOS puts the
+ *  temp directory behind a symlink. */
 function normalise(roots: readonly string[], sandbox: Sandbox): string {
   const spellings = [realpathSync(sandbox.path), sandbox.path]
   return roots
@@ -61,8 +62,9 @@ function normalise(roots: readonly string[], sandbox: Sandbox): string {
     .join('')
 }
 
-/** The roots, or a failure of the test rather than of the assertion: every
- *  example below that reads `roots` has already said which outcome it expects. */
+/** This returns the roots, or fails the test rather than the assertion.
+ *  Every example below that reads `roots` has already said which outcome it
+ *  expects. */
 function roots(result: Awaited<ReturnType<typeof discoverRepos>>): string[] {
   if (result.outcome !== 'ok') throw new Error(`expected roots, got ${result.outcome}`)
   return result.roots
@@ -112,9 +114,9 @@ describe('the scope of a target', () => {
   })
 
   it('skips a subdirectory that is inside a repository but not its root', async () => {
-    // A checkout root next to an entry that resolves to a subdirectory of
-    // another repository: git reports that repository's root, which is not the
-    // entry itself, so it must not count as a checkout of its own.
+    // A checkout root sits next to an entry that resolves to a subdirectory
+    // of another repository. git reports that repository's root, not the
+    // entry itself. So the entry must not count as a checkout of its own.
     const { sandbox, git, env } = fixtures()
     const work = git.create(sandbox.join('r'))
     git.createAt(sandbox.join('fan'), 'real')
@@ -127,8 +129,8 @@ describe('the scope of a target', () => {
   })
 
   it('resolves symlinks so the comparison agrees with git', async () => {
-    // git reports resolved paths; a logical path would never match and every
-    // repository under a symlinked parent (like /tmp on macOS) would be
+    // git reports resolved paths. A logical path would never match, so every
+    // repository under a symlinked parent (like `/tmp` on macOS) would be
     // skipped.
     const { sandbox, git, env } = fixtures()
     git.createAt(sandbox.join('fan'), 'a')
@@ -141,10 +143,10 @@ describe('the scope of a target', () => {
   })
 
   it('skips a hidden directory', async () => {
-    // The shell glob this replaces was "$target"/*/, which never matched one,
-    // and the fan-out fixtures park their bare origins in a hidden directory
-    // precisely because of that: finding them would make every fan-out scan
-    // report the origins too.
+    // The shell glob this replaces was `"$target"/*/`, which never matched a
+    // hidden directory. The fan-out fixtures use this fact: they park their
+    // bare origins in a hidden directory for that reason. If discovery found
+    // them, every fan-out scan would also report the origins.
     const { sandbox, git, env } = fixtures()
     git.createAt(sandbox.join('hidden'), 'visible')
     git.createAt(sandbox.join('hidden'), '.hidden')
@@ -173,7 +175,8 @@ describe('a target that is not a list of roots', () => {
     expect(await discoverRepos(sandbox.join('nope'), env)).toEqual({
       outcome: 'not-a-directory',
     })
-    // The script form's own status for it, for the caller that publishes one.
+    // This is the script form's own status for this case. The caller that
+    // publishes an exit status uses this value.
     expect(PYTHON.discover?.not_a_directory?.status).toBe(1)
   })
 
@@ -188,8 +191,9 @@ describe('a target that is not a list of roots', () => {
 
   it('answers unreadable, not an empty list, for a directory it cannot list', async () => {
     // "A directory that cannot be listed is not a directory with no
-    // repositories in it." Swallowed, the error became an empty list and the
-    // caller reported "No git repositories directly inside" and exit 0.
+    // repositories in it." The old code swallowed this error. It turned
+    // into an empty list. The caller then reported "No git repositories
+    // directly inside" with exit 0.
     const { sandbox, env } = fixtures()
     const blocked = sandbox.join('blocked')
     mkdirSync(blocked)
@@ -221,9 +225,9 @@ describe('toplevel', () => {
   })
 
   it('answers null when git cannot be run, rather than raising', async () => {
-    // A missing git is the same answer as a directory outside any checkout,
-    // and the Python's own test pins the same thing: discovery came back with
-    // no repositories rather than a crash.
+    // A missing git gives the same answer as a directory outside any
+    // checkout. The Python's own test pins the same fact: discovery came
+    // back with no repositories, not a crash.
     const { sandbox, git, env } = fixtures()
     const work = git.create(sandbox.join('r'))
     const withoutGit = { ...env, PATH: sandbox.pathWithout('git') }
@@ -245,20 +249,24 @@ describe('gitUnavailable', () => {
     const { sandbox, env } = fixtures()
 
     expect(await gitUnavailable({ ...env, PATH: sandbox.pathWithout('git') })).toBe('not on PATH')
-    // The whole line the Python printed for that state, which the sync command
-    // builds from this answer.
+    // This is the whole line the Python printed for that state. The `sync`
+    // command builds that line from this answer.
     expect(PYTHON.sync?.missing_git?.stderr).toBe('missing git: not on PATH\n')
   })
 
   it("names a git that is on PATH and will not run, with node's own account", async () => {
-    // A file on PATH without the execute bit: the PATH lookup finds it and the
-    // exec then fails, which is the shape of a broken install. Deliberately
-    // NOT an empty file with the bit set, and deliberately the only entry on
-    // PATH: on Linux an empty executable is ENOEXEC, which execvp re-runs
-    // through /bin/sh, so it "succeeds" and prints nothing, and EACCES on one
-    // PATH entry makes execvp keep searching rather than fail. A missing
-    // execute bit with nowhere else to look answers EACCES on both platforms,
-    // which is the 126 this reports.
+    // This test uses a file on PATH with no execute bit. The PATH lookup
+    // finds it, but the exec then fails. This is the shape of a broken
+    // install.
+    //
+    // The file is deliberately not an empty file with the execute bit set.
+    // It is also deliberately the only entry on PATH. On Linux, an empty
+    // executable gives ENOEXEC. execvp then re-runs it through `/bin/sh`,
+    // so it "succeeds" and prints nothing. Also, EACCES on one PATH entry
+    // makes execvp keep searching rather than fail.
+    //
+    // A missing execute bit with nowhere else to look gives EACCES on both
+    // platforms. That combination produces exit code 126 here.
     const { sandbox, env } = fixtures()
     const stubs = sandbox.join('broken-git')
     mkdirSync(stubs)
@@ -271,10 +279,10 @@ describe('gitUnavailable', () => {
   })
 
   it('answers no root for a git that exits 0 and prints nothing', async () => {
-    // `discover.py` folds an empty answer into None (`top or None`). Real git
-    // answers with a status instead, but a `git` on PATH is something a caller
-    // can choose, and reading "" as a checkout root puts an empty path in the
-    // list.
+    // `discover.py` folds an empty answer into `None` (`top or None`). Real
+    // git always answers with a status. But a caller can choose which `git`
+    // sits on PATH. If the code read "" as a checkout root, it would put an
+    // empty path in the list.
     const { sandbox, git, env } = fixtures()
     const work = git.create(sandbox.join('r'))
     const stubs = sandbox.join('silent-git')

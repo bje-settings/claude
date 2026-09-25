@@ -1,15 +1,18 @@
-// One named test per arm of every fold in `shepherd.ts`, which is how
-// `tests/gh/test_shepherd_lib.py` is organised and why
-// (`.claude/rules/type-py.md` line 36): three mutations of the check-state
-// fold once left a 219 example suite green with coverage unmoved, because the
-// jq it replaced was one line however many outcomes it decided between. Each
-// test here was checked by mutation: change that arm in `shepherd.ts` and the
-// test named for it goes red on its own.
+// This file has one named test for each branch of every fold in
+// `shepherd.ts`. `tests/gh/test_shepherd_lib.py` uses the same organisation.
+// `.claude/rules/type-py.md` line 36 explains why: three mutations of the
+// check-state fold once left a 219-example suite green. Coverage stayed
+// unmoved.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// The `jq` expression it replaced was one line, however many outcomes it
+// decided between. This suite checked each test here by mutation. A change
+// to that branch in `shepherd.ts` must make its named test fail on its own.
+//
+// **Issue #127 deleted the Python code this file ports.**
+// `plugins/gh/scripts/*.py`, its `lib/`, `plugins/gh/hooks/hook-io.py`, and
+// `tests/gh/` are gone from the tree. The file and line references below
+// point to commit `cd0d515`, the last commit that held them. Each reference
+// states where a rule came from.
 import { describe, expect, it } from 'vitest'
 import {
   checkLink,
@@ -43,7 +46,7 @@ const statusContext = (state: string, context = 'ci/legacy') => ({
   targetUrl: 'https://ci.example/1',
 })
 
-/** A pull request carrying every field the loop decides from. */
+/** A pull request that has every field the loop decides from. */
 const readable = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   state: 'OPEN',
   headRefOid: 'sha1',
@@ -62,9 +65,10 @@ describe('isTruthy', () => {
   })
 
   it('reads an empty string as nothing, which is what `??` gets wrong', () => {
-    // The whole reason this function exists. `reviewDecision` is "" on a
-    // repository that requires no review, and `headRefOid` is "" when gh
-    // answered no SHA; `value ?? fallback` keeps both as answers.
+    // This is the whole reason this function exists. `reviewDecision` is
+    // "" on a repository that requires no review. `headRefOid` is "" when
+    // gh answers with no SHA. `value ?? fallback` would keep both as real
+    // answers.
     expect(isTruthy('')).toBe(false)
     expect(isTruthy('REVIEW_REQUIRED')).toBe(true)
   })
@@ -96,7 +100,7 @@ describe('checkState', () => {
   it.each(['SUCCESS', 'NEUTRAL', 'SKIPPED'])(
     'passes %s: finished and not in the way',
     (conclusion) => {
-      // Dropping NEUTRAL from the pass set is mutation two in the rule's list.
+      // Mutation two in the rule's list removes NEUTRAL from the pass set.
       expect(checkState(checkRun('COMPLETED', conclusion))).toBe('passed')
     },
   )
@@ -104,18 +108,19 @@ describe('checkState', () => {
   it.each(['FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'STALE'])(
     'fails %s, which is completed and not a pass',
     (conclusion) => {
-      // Narrowing this arm is mutation one: a cancelled build polled forever.
+      // Mutation one narrows this arm. A cancelled build would then poll
+      // forever.
       expect(checkState(checkRun('COMPLETED', conclusion))).toBe('failed')
     },
   )
 
   it('fails a completed run with no conclusion at all', () => {
-    // Reading null as success is the one mistake this fold must not make.
+    // This fold must never treat a null conclusion as success.
     expect(checkState(checkRun('COMPLETED', null))).toBe('failed')
   })
 
   it.each(['QUEUED', 'IN_PROGRESS', 'WAITING'])('calls an unfinished %s check run pending', (s) => {
-    // Inverting the COMPLETED arm is mutation three.
+    // Mutation three inverts the COMPLETED arm.
     expect(checkState(checkRun(s, null))).toBe('pending')
   })
 
@@ -132,8 +137,9 @@ describe('checkState', () => {
   })
 
   it('does not let a status context fall through to conclusion', () => {
-    // Dispatching on a `conclusion ?? state` chain rather than on `__typename`
-    // calls every pending StatusContext failed, because it has no conclusion.
+    // A check that dispatches on a `conclusion ?? state` chain, instead of
+    // on `__typename`, would call every pending StatusContext failed. It
+    // has no conclusion to give.
     const row = statusContext('PENDING')
 
     expect('conclusion' in row).toBe(false)
@@ -141,14 +147,16 @@ describe('checkState', () => {
   })
 
   it('calls a row that is not an object pending', () => {
-    // A null element in the rollup, which GraphQL can answer with. Read as
-    // failed it would report a green pull request as broken.
+    // GraphQL can answer with a null element in the rollup. If this fold
+    // read that null as failed, it would report a green pull request as
+    // broken.
     expect(checkState(null)).toBe('pending')
     expect(checkState('build')).toBe('pending')
   })
 
   it('reads a row with no __typename as a check run', () => {
-    // gh omits __typename unless it is asked for; CheckRun is the default arm.
+    // gh omits `__typename` unless a caller asks for it. CheckRun is the
+    // default arm.
     expect(checkState({ status: 'COMPLETED', conclusion: 'SUCCESS' })).toBe('passed')
   })
 })
@@ -255,7 +263,7 @@ describe('missingField', () => {
 
     expect(missingField(pull)).toBe(name)
     expect(missingField(readable({ [name]: null }))).toBe(name)
-    // Truthiness, not a null check: an empty SHA is gh answering nothing.
+    // Truthiness, not a null check: an empty SHA means gh answered nothing.
     expect(missingField(readable({ [name]: '' }))).toBe(name)
   })
 
@@ -269,8 +277,9 @@ describe('missingField', () => {
   })
 
   it('names the review decision when it is absent', () => {
-    // `settle` decides `blocked` from it, and `summary` turns an absent field
-    // into "", which settle cannot tell from "no review required".
+    // `settle` decides `blocked` from this field. `summary` turns an
+    // absent field into "". `settle` cannot tell that apart from "no
+    // review required".
     const pull = readable()
     delete pull.reviewDecision
 
@@ -285,8 +294,8 @@ describe('missingField', () => {
   it('names labels when they are not a list', () => {
     expect(missingField(readable({ labels: null }))).toBe('labels')
     // `isinstance(pull.get("labels"), list)` (`lib/shepherd.py:177`) is a
-    // shape check, not a null one: a gh answer whose `labels` is a number or
-    // an object is an answer the loop cannot decide from either.
+    // shape check, not a null check. If gh answers with `labels` as a
+    // number or an object, the loop cannot use that answer either.
     expect(missingField(readable({ labels: 42 }))).toBe('labels')
     expect(missingField(readable({ labels: { name: 'dependencies' } }))).toBe('labels')
   })
@@ -306,8 +315,9 @@ describe('isBot and isDependabot', () => {
   })
 
   it('reads a flag that is not the boolean true as no flag at all', () => {
-    // `is True` in the Python: a truthy value that is not the boolean is gh
-    // answering something this does not understand, and the login decides.
+    // `is True` in the Python. A truthy value that is not the boolean true
+    // means gh answered with something this code does not understand. The
+    // login then decides.
     expect(isBot({ author: { login: 'someone', is_bot: 'yes' } })).toBe(false)
   })
 
@@ -332,8 +342,9 @@ describe('isBot and isDependabot', () => {
   )
 
   it('calls another bot a bot and not Dependabot', () => {
-    // The distinction recreate turns on: `@dependabot recreate` is answered by
-    // one bot, and renovate opens dependency pull requests too.
+    // This is the distinction `recreate` depends on. Only one specific bot
+    // answers `@dependabot recreate`. Renovate also opens dependency pull
+    // requests.
     const renovate = { author: { login: 'renovate[bot]', is_bot: true } }
 
     expect(isBot(renovate)).toBe(true)
@@ -348,9 +359,10 @@ describe('isBot and isDependabot', () => {
 
   it('reads a login that is not text as no login', () => {
     expect(isBot({ author: { login: 7 } })).toBe(false)
-    // The fold is `x or ""`, which keeps the value only when it is a string:
-    // a `String()` here would read `["dependabot"]` as the login Dependabot
-    // answers to, and `recreate` posts a comment on that answer alone.
+    // The fold is `x or ""`, which keeps the value only when it is a
+    // string. A `String()` call here would instead read `["dependabot"]` as
+    // the login Dependabot answers to. `recreate` posts a comment based on
+    // that login alone.
     expect(isDependabot({ author: { login: ['dependabot'] } })).toBe(false)
     expect(isBot({ author: { login: ['x[bot]'] } })).toBe(false)
   })
@@ -377,8 +389,9 @@ describe('rank', () => {
   it('reads a label with no name, and labels that are not a list, as unlabelled', () => {
     expect(rank({ labels: [{}] })).toBe(1)
     expect(rank({ labels: null })).toBe(1)
-    // Something that is not a list AND is not null: `??` keeps it and the
-    // loop then walks whatever it is, which is what the name says is refused.
+    // This value is not a list, and it is not null either. The `??`
+    // operator keeps it, and the loop then walks through whatever it is.
+    // The test name calls this case "refused".
     expect(rank({ labels: 42 })).toBe(1)
     expect(rank({ labels: { name: 'merge-risk:high' } })).toBe(1)
   })
@@ -423,13 +436,15 @@ describe('ciSeconds', () => {
 
   it('falls back on a listing that is not a list at all', () => {
     expect(ciSeconds(null)).toBe(300)
-    // Not a list AND not null, which a `??` fold keeps: `for ... of 42` then
-    // throws out of the command as exit 3 instead of falling back.
+    // This value is not a list, and it is not null either, so the `??`
+    // fold keeps it. `for ... of 42` then throws, and the command exits 3.
+    // It does not fall back to the default.
     expect(ciSeconds(42)).toBe(300)
   })
 
   it('falls back on an unparseable stamp', () => {
-    // jq errored on the whole program for one bad stamp and the caller fell back.
+    // jq raised an error for the whole program from one bad stamp. The
+    // caller then fell back to the default.
     expect(ciSeconds([{ createdAt: 'yesterday', updatedAt: 'today' }])).toBe(300)
     expect(ciSeconds([{ createdAt: '2026-01-01T00:00:00Z', updatedAt: 'today' }])).toBe(300)
   })
@@ -482,8 +497,8 @@ describe('summary', () => {
       is_dependabot: true,
       reviewDecision: 'REVIEW_REQUIRED',
     })
-    // The key order is read by a human in a transcript, so it is the contract
-    // and not an implementation detail.
+    // A human reads the key order in a transcript, so it is the contract,
+    // not an implementation detail.
     expect(Object.keys(summary(pull))).toEqual([
       'number',
       'title',
@@ -508,12 +523,12 @@ describe('summary', () => {
   })
 
   it('reports no review requirement as the empty string', () => {
-    // A repository that requires no review answers null, and settle must read
-    // that as "keep waiting" rather than as a missing field.
+    // A repository that requires no review answers null. `settle` must read
+    // that as "keep waiting", not as a missing field.
     expect(summary({}).reviewDecision).toBe('')
     expect(summary({ reviewDecision: null }).reviewDecision).toBe('')
-    // `or ""` is truthiness: every falsy answer is no review requirement,
-    // and a null guard would carry `false` into the document instead.
+    // `or ""` is truthiness: every falsy answer is no review requirement. A
+    // null guard would carry `false` into the document instead.
     expect(summary({ reviewDecision: false }).reviewDecision).toBe('')
     expect(summary({ reviewDecision: 0 }).reviewDecision).toBe('')
   })
@@ -592,8 +607,8 @@ describe('statusDocument', () => {
   })
 
   it('leaves two pull requests opened at the same moment in the order gh listed them', () => {
-    // A stable sort in both languages, so the comparator answering "equal" is
-    // not a tie the report breaks by itself.
+    // Both languages use a stable sort. When the comparator answers
+    // "equal", the report does not break the tie itself.
     const pulls = [
       { number: 9, autoMergeRequest: null, createdAt: '2026-01-01' },
       { number: 4, autoMergeRequest: null, createdAt: '2026-01-01' },
@@ -606,8 +621,9 @@ describe('statusDocument', () => {
 
   it('reads a listing that is not a list at all as no pull requests', () => {
     expect(statusDocument(null, 'acme/widgets', 'main', 300).targets).toEqual([])
-    // Not a list AND not null: a `??` fold keeps it and `.filter` then throws
-    // out of the command as exit 3 rather than reporting no targets.
+    // This value is not a list, and it is not null either, so a `??` fold
+    // keeps it. `.filter` then throws, and the command exits 3. It does not
+    // report that there are no targets.
     expect(statusDocument(42, 'acme/widgets', 'main', 300).targets).toEqual([])
   })
 })
@@ -640,16 +656,18 @@ describe('tailLines', () => {
 
   it('counts a carriage return as a line break, as `splitlines` does', () => {
     // A CI job's `--log-failed` output carries a bare `\r` wherever a tool
-    // redrew a progress bar. Splitting on `\n` alone makes the whole run one
-    // line, so `SHEPHERD_LOG_LINES` keeps far more than it was asked for.
+    // redrew a progress bar. If the code splits only on `\n`, the whole run
+    // becomes one line. `SHEPHERD_LOG_LINES` would then keep far more lines
+    // than it was asked for.
     expect(tailLines('a\rb\rc\r', 2)).toBe('b\nc')
     expect(tailLines('a\r\nb\r\nc\r\n', 2)).toBe('b\nc')
   })
 
   it('counts the other terminators `splitlines` counts', () => {
-    // The whole of Python's set, so the bound this keeps is the bound the
-    // script it ports kept: form feed, vertical tab, the three file and
-    // record separators, and the three Unicode line breaks.
+    // This set matches the whole of Python's set. The bound this keeps
+    // matches the bound the script it ports kept. The set includes: form
+    // feed, vertical tab, the three file and record separators, and the
+    // three Unicode line breaks.
     const breaks = [11, 12, 28, 29, 30, 0x85, 0x2028, 0x2029].map((code) =>
       String.fromCharCode(code),
     )

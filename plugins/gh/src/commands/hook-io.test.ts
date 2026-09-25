@@ -1,24 +1,27 @@
 // The SessionStart hook, in process, against what the Python wrote.
 //
-// `fixtures/hook-output.json` is 54 runs of `plugins/gh/hooks/hook-io.py`
-// captured before a line of this port existed, and the acceptance of #127 is
-// that the port's stdout is byte-identical to it on the same repository
-// state. So every parity example below rebuilds the state with real git
-// (`harness/git.ts`; git is never mocked, ADR 001), replays the row, and
-// compares the whole of stdout and the whole of stderr against the capture.
+// `fixtures/hook-output.json` holds 54 runs of `plugins/gh/hooks/hook-io.py`.
+// The Python hook produced them before any line of this port existed. The
+// acceptance of #127 is that the port's stdout matches this capture byte for
+// byte, on the same repository state. Each parity example below rebuilds that
+// state with real git (`harness/git.ts`). Git is never mocked (ADR 001). Each
+// example then replays the row and compares the whole of stdout and the whole
+// of stderr against the capture.
 //
-// The fan-out rows also carry what the Python's child printed, and the child
-// is replayed through the injected runner rather than started. That is
-// deliberate: the hook's own contract is the decision it takes and the
-// document it wraps a report in, while whether `gh.ts sync` prints what
-// `gh-sync.py` printed is layer 2's contract, pinned by `bash-sync-output.json`.
-// Replaying the recorded child keeps this file honest about which of the two
-// it is testing, and `../hook.test.ts` runs the real child end to end.
+// The fan-out rows also carry what the Python's child printed. The test
+// replays that text through the injected runner, and does not start the
+// child. This is deliberate. The hook's own contract covers two things: the
+// decision it takes, and the document it wraps around a report. Whether
+// `gh.ts sync` prints what `gh-sync.py` printed is a different contract,
+// owned by layer 2. `bash-sync-output.json` pins that contract.
+//
+// The replay of the recorded child keeps this file honest about which
+// contract it tests. `../hook.test.ts` runs the real child end to end.
 //
 // `fixtures/divergences-hook.json` is the table of what the port deliberately
-// says instead of the Python. It is data a test reads, never README prose:
-// the acceptance is byte-identical, so a divergence that is not in that file
-// and asserted from it is a defect.
+// says instead of the Python. It is data that a test reads, never prose in a
+// README. The acceptance is byte-identical. So any divergence must be in
+// that file and asserted from it, or it counts as a defect.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -85,17 +88,17 @@ interface Capture {
 const capture = JSON.parse(readFileSync(path.join(FIXTURES, 'hook-output.json'), 'utf8')) as Capture
 
 interface Divergences {
-  /** The names a row's text may carry in braces, and what each one stands
-   *  for. Documented as data beside the rows that use them. */
+  /** The names a row's text may carry in braces, and what each name means.
+   *  This array documents them as data, next to the rows that use them. */
   placeholders: { name: string; why: string }[]
-  /** A literal substitution applied to every captured row before it is
-   *  compared: what the Python wrote, and what the port writes instead. A
-   *  `{name}` in either half is filled from the state the example built,
-   *  because the port's messages carry computed counts and a fixed pair of
-   *  strings cannot express one. */
+  /** Each entry names a literal substitution: what the Python wrote, and
+   *  what the port writes instead. The test applies it to every captured
+   *  row before it compares them. A `{name}` in either half takes its value
+   *  from the state the example built. The port's messages carry computed
+   *  counts, and a fixed pair of strings cannot show one. */
   text: { name: string; python: string; port: string; why: string }[]
-  /** Where the port's text differs from the Python's because a path moved,
-   *  as a pair of the Python's spelling and the port's. */
+  /** Rows where the port's text differs from the Python's because a path
+   *  moved. Each row pairs the Python's spelling with the port's. */
   paths: { name: string; python: string; port: string; why: string }[]
   /** Rows of the captured `syncTimeout` table the port deliberately answers
    *  differently for. */
@@ -108,13 +111,13 @@ const divergences = JSON.parse(
   readFileSync(path.join(FIXTURES, 'divergences-hook.json'), 'utf8'),
 ) as Divergences
 
-/** The capture replaced the sandbox it was built in with `<sandbox>`, so the
- *  replay replaces its own the same way before comparing. `scenarios.py`
- *  `normalise` is the original. */
+/** The capture replaced the sandbox it was built in with `<sandbox>`. The
+ *  replay replaces its own sandbox the same way before it compares them.
+ *  `scenarios.py`'s `normalise` is the original. */
 const normalise = (text: string, sandbox: string): string => text.split(sandbox).join('<sandbox>')
 
-/** A writer that keeps what it was given, with the `Writer` shape the command
- *  takes. */
+/** A writer that keeps whatever text it receives, in the `Writer` shape the
+ *  command takes. */
 const collector = (): Writer & { text: () => string } => {
   const chunks: string[] = []
   let silenced = false
@@ -148,8 +151,8 @@ const createOutputPair = (): Output & { stdout: () => string; stderr: () => stri
 }
 
 /** One call the hook made to the injected runner, whole: the command, every
- *  argument, and the options it was built with. Asserted as a whole rather
- *  than counted (`.claude/rules/type-ts.md`). */
+ *  argument, and the options passed with it. The test asserts the whole call
+ *  rather than counts calls (`.claude/rules/type-ts.md`). */
 interface RunCall {
   command: string
   args: string[]
@@ -172,9 +175,9 @@ const runResult = (overrides: Partial<RunResult> = {}): RunResult => ({
 interface Harness {
   sandbox: Sandbox
   git: ReturnType<typeof createGitFixtures>
-  /** An entry point that exists and is readable, standing in for
-   *  `scripts/gh.ts`. The hook only ever reads it to decide whether the install
-   *  is complete; the child itself is the injected runner. */
+  /** An entry point that exists and is readable. It stands in for
+   *  `scripts/gh.ts`. The hook only ever reads it to decide whether the
+   *  install is complete. The child itself is the injected runner. */
   entry: string
 }
 
@@ -246,24 +249,24 @@ const replay = async (
   }
 }
 
-/** What a captured case's own state makes true, filled into the placeholders
- *  the divergence rows carry. Raw text: the escaping is applied here. */
+/** A captured case's state fills the placeholders that the divergence rows
+ *  carry. It holds raw text, and the code escapes it here. */
 type Fields = Record<string, string>
 
-/** A row's text with its placeholders filled. A name the case did not supply
- *  becomes the empty string, which reduces a row that does not apply to this
- *  case to text no captured document can contain. */
+/** A row's text with its placeholders filled. A name that the case does not
+ *  supply becomes the empty string. This turns a row that does not apply to
+ *  this case into text that no captured document can contain. */
 const fill = (text: string, fields: Fields): string =>
   text.replace(/\{([a-z]+)\}/g, (_match, name: string) => fields[name] ?? '')
 
-/** One string as it appears INSIDE the hook's JSON document: `emit` writes
- *  every message through `asciiJson`, so a newline there is a backslash and an
- *  `n`. `JSON.stringify` applies exactly that escaping to everything the table
- *  holds, all of which is ASCII. */
+/** One string as it appears inside the hook's JSON document. `emit` writes
+ *  every message through `asciiJson`. So a newline there becomes a backslash
+ *  and an `n`. `JSON.stringify` applies exactly that escaping to everything
+ *  the table holds, all of which is ASCII. */
 const inJson = (text: string): string => JSON.stringify(text).slice(1, -1)
 
-/** The Python's text with every recorded substitution applied, which is what
- *  the port is expected to have written. */
+/** The Python's text with every recorded substitution applied. This is the
+ *  text the port must write. */
 const expected = (text: string, fields: Fields = {}): string => {
   let answer = text
   for (const entry of divergences.text) {
@@ -271,7 +274,8 @@ const expected = (text: string, fields: Fields = {}): string => {
     const port = fill(entry.port, fields)
     // Raw first, which is stderr, and then the escaped form, which is how the
     // same sentence appears on stdout. A multi-line raw string cannot occur
-    // inside a JSON document, so no occurrence is substituted twice.
+    // inside a JSON document. So the code never substitutes one occurrence
+    // twice.
     answer = answer.split(python).join(port)
     answer = answer.split(inJson(python)).join(inJson(port))
   }
@@ -288,15 +292,15 @@ const expectParity = (replayed: Replayed, name: string, fields: Fields = {}): vo
 }
 
 /** The fan-out summary a captured report makes true, as the message carries
- *  it: the line and the newline after it. Written out per case rather than
- *  computed, so the expectation is not the code under test. */
+ *  it: the line and the newline after it. Each case writes it out rather
+ *  than computes it, so the expectation is not the code under test. */
 const summaryField = (line: string): Fields => ({ summary: `${line}\n` })
 
 // --- the seams: no repository, no child --------------------------------------
 
-// The `branch` rows carry the default branch the seam was given on the
-// command line; the `report` rows carry no summary, because the seam wraps a
-// body it was handed rather than a fan-out it ran.
+// The `branch` rows carry the default branch that the command line gave the
+// seam. The `report` rows carry no summary. The seam wraps a body that it
+// received, rather than a fan-out that it ran.
 for (const [name, fields] of [
   ['cwd/with-a-cwd', {}],
   ['cwd/without-a-cwd', {}],
@@ -334,8 +338,8 @@ for (const [name, fields] of [
 
 // --- session-start inside a repository ---------------------------------------
 
-/** Build the repository a row was captured against, and replay the row with
- *  its payload pointed at it. */
+/** Build the repository behind a row's capture, and replay the row with its
+ *  payload aimed at that repository. */
 const inRepo = async (
   name: string,
   build: (harnessed: Harness) => string,
@@ -449,8 +453,8 @@ it('falls back to a local master when that is the name the clone kept', async ()
     return repository
   })
 
-  // origin/master does not exist in this state, so the behind lookup fails
-  // and its line is left out rather than reported as zero.
+  // origin/master does not exist in this state. So the behind lookup fails.
+  // The port leaves that line out, and never reports a zero count instead.
   expectParity(replayed, 'in-repo/local-master-fallback', { target: 'master' })
 })
 
@@ -463,10 +467,11 @@ it('prefers a local main over a local master, because the order decides', async 
     return repository
   })
 
-  // `master` was branched off `main` and never committed to, so it sits on
-  // the commit `origin/main` names. `/gh:sync` keeps exactly that branch
-  // ("already at origin/main, nothing to prune"), so it is not a candidate and
-  // no count line is written. No captured in-repo state has one.
+  // The test branches `master` off `main` and never commits to it, so it
+  // sits on the commit that `origin/main` names. `/gh:sync` keeps exactly
+  // that branch ("already at origin/main, nothing to prune"). So it is not a
+  // candidate, and the port writes no count line. No captured in-repo state
+  // has one.
   expectParity(replayed, 'in-repo/prefers-local-main', { target: 'main' })
 })
 
@@ -477,8 +482,8 @@ it('prefers a cached origin/HEAD over a local main', async () => {
     return repository
   })
 
-  // `trunk` is a remote-tracking name with no local branch behind it, so
-  // both counts are lookups that cannot be made and both lines are absent.
+  // `trunk` is a remote-tracking name with no local branch behind it. So
+  // neither count can run its lookup, and both lines stay absent.
   expectParity(replayed, 'in-repo/origin-head-wins', { target: 'trunk' })
 })
 
@@ -520,8 +525,8 @@ it('stays silent when no default branch resolves at all', async () => {
   const { replayed } = await inRepo('in-repo/no-default-resolves', ({ sandbox, git }) => {
     const repository = git.create(sandbox.join('r'))
     git.git(repository, 'checkout', '-q', '-b', 'side')
-    // All three, and in this order: origin/HEAD is a symbolic ref and keeps
-    // resolving after its target is deleted.
+    // All three, and in this order: origin/HEAD is a symbolic ref, and it
+    // resolves again after something deletes its target.
     git.forgetOriginHead(repository)
     git.dropRemoteBranches(repository)
     git.git(repository, 'branch', '-D', 'main')
@@ -534,8 +539,8 @@ it('stays silent when no default branch resolves at all', async () => {
 // --- session-start outside a repository, with the child replayed --------------
 
 /** The rows whose hook took the fan-out branch. The payload points at a
- *  directory that is not a checkout, and the recorded child is what the
- *  runner answers with. */
+ *  directory that is not a checkout. The recorded child is what the runner
+ *  answers with. */
 const fanOut = async (
   name: string,
   build?: (harnessed: Harness, directory: string) => void,
@@ -623,8 +628,8 @@ it('reports every repository a many-repository run had something to say about', 
 it('speaks up when the merge lookups were degraded rather than reporting silence', async () => {
   const { replayed } = await fanOut('fan-out/degraded-merge-lookups')
 
-  // The merge lookup fell back to ancestry alone, which the summary counts as
-  // a repository that was not fully checked rather than as one in order.
+  // The merge lookup fell back to ancestry alone. The summary counts that as
+  // a repository the check did not fully cover, rather than as one in order.
   expectParity(
     replayed,
     'fan-out/degraded-merge-lookups',
@@ -672,8 +677,8 @@ it('counts every repository the fan-out was working through', async () => {
 it('builds the child from the target, the scrubbed environment and no working directory', async () => {
   const { harnessed, replayed, directory } = await fanOut('fan-out/prunable-work')
 
-  // Whole, never counted: the command, every argument, and the options the
-  // child was constructed with.
+  // Whole, never counted: the command, every argument, and the options that
+  // built the child.
   expect(replayed.calls).toEqual([
     {
       command: '/usr/bin/node',
@@ -684,9 +689,10 @@ it('builds the child from the target, the scrubbed environment and no working di
       },
     },
   ])
-  // No `cwd`: the Python's `Popen` inherits the hook's, and naming the target
-  // here would turn a directory that cannot be entered into a child that
-  // never started. `fan-out/child-exited-non-zero` is that directory.
+  // No `cwd`: the Python's `Popen` inherits the hook's own directory. If the
+  // call named the target directory here, an unreachable directory would
+  // become a child that never starts. `fan-out/child-exited-non-zero` is
+  // that directory.
   expect(replayed.calls[0]?.options.cwd).toBeUndefined()
 })
 
@@ -710,7 +716,7 @@ for (const name of [
 
     expectParity(replayed, name)
     // The fallback directory is not a checkout, so the fan-out branch runs
-    // and finds nothing: one child, and it said nothing actionable.
+    // and finds nothing. One child ran, and it said nothing actionable.
     expect(replayed.calls).toHaveLength(1)
   })
 }
@@ -725,14 +731,15 @@ it('treats a cwd that names a directory that is not there as no cwd at all', asy
   })
 
   expectParity(replayed, 'payload/cwd-does-not-exist')
-  // The fallback, not the payload: the child was pointed at `elsewhere`.
+  // The fallback, not the payload, pointed the child at `elsewhere`.
   expect(replayed.calls[0]?.args).toContain(elsewhere)
 })
 
 it('still runs the whole check when stdin itself cannot be read', async () => {
-  // `hook-io.py:144` catches `OSError` from `json.load(sys.stdin)`, which is
-  // the descriptor failing rather than the document being malformed: a hook
-  // whose stdin is a directory answered "" and went on from `os.getcwd()`.
+  // `hook-io.py:144` catches `OSError` from `json.load(sys.stdin)`. This is
+  // the descriptor itself that fails, not a malformed document. A hook whose
+  // stdin is a directory answered with an empty string, and it went on from
+  // `os.getcwd()`.
   const harnessed = harness()
   const repository = harnessed.git.create(harnessed.sandbox.join('r'))
   harnessed.git.git(repository, 'checkout', '-q', '-b', 'side')
@@ -809,7 +816,8 @@ it('stays silent and notes it when git is not on PATH', async () => {
   expect(status).toBe(row?.status)
   expect(output.stdout()).toBe(row?.stdout)
   expect(output.stderr()).toBe(row?.stderr)
-  // Neither branch was taken: no child, and no git call decided anything.
+  // The hook took neither branch: no child ran, and no git call decided
+  // anything.
   expect(calls).toEqual([])
 })
 
@@ -839,10 +847,11 @@ it('notes a missing entry point and costs the check nothing else', async () => {
   expect(output.stdout()).toBe(row?.stdout)
   // The path is the one divergence: the entry point moved from
   // `scripts/gh-sync.py` to `scripts/gh.ts`, and the recorded row names both.
-  // Both halves are pinned against the run they describe, the Python's
-  // against the captured stderr and the port's against the path this example
-  // reports: a row asserted on one side only is prose, and #185 changed that
-  // side when it moved the entry point out of `bin/`.
+  // The test pins both halves against the run they describe. It pins the
+  // Python half against the captured stderr, and the port half against the
+  // path this example reports. A row that asserts only one side is prose,
+  // not a real test. #185 changed the port side when it moved the entry
+  // point out of `bin/`.
   const moved = divergences.paths.find((entry) => entry.name === 'fan-out/missing-entry-point')
   expect(moved).toBeDefined()
   expect(row?.stderr).toContain(moved?.python)
@@ -854,11 +863,12 @@ it('notes a missing entry point and costs the check nothing else', async () => {
 // --- the truthiness guards, each with the example that fails on a revert -------
 
 it('reads a git that exits 0 in silence as being inside a repository', async () => {
-  // The Python asks `git(...) is not None`, so a `git rev-parse` that
+  // The Python asks `git(...) is not None`. So a `git rev-parse` that
   // succeeds with no output at all puts it on the in-repo branch.
-  // `lib/git.ts`'s `toplevel` folds that empty answer into `null`, which is
-  // the right reading for a caller that wants the root and the wrong one
-  // here: with it, this directory would be fanned out over instead.
+  // `lib/git.ts`'s `toplevel` folds that empty answer into `null`. That
+  // reading is right for a caller that wants the repository root. It is the
+  // wrong reading here. With it, the fan-out would scan this directory
+  // instead.
   const harnessed = harness()
   const shim = harnessed.git.gitShim()
   const elsewhere = harnessed.sandbox.join('elsewhere')
@@ -911,8 +921,8 @@ it('falls back to a local main when symbolic-ref exits 0 with nothing to say', a
   })
 
   expect(status).toBe(0)
-  // The ref answered nothing, so the local fallback decided, and it named
-  // `main` rather than the empty string the ref actually held.
+  // The ref answered nothing, so the local fallback decided. It named `main`
+  // rather than the empty string the ref actually held.
   expect(output.stdout()).toContain("default branch is 'main'")
 })
 
@@ -979,10 +989,11 @@ it('writes nothing at all for a child that failed with an empty stderr', async (
 })
 
 it('uses the report on stdout rather than the could-not-run line when sync itself answers non-zero (#81)', async () => {
-  // `gh.ts sync` now exits 1 when one of its own repositories failed, AFTER
-  // writing the whole report to stdout (round 7, `commands/sync.ts`). Falling
-  // to the could-not-run line here would throw that report away and say
-  // something strictly less true about a check that ran to completion.
+  // `gh.ts sync` now exits 1 when one of its own repositories failed. It
+  // exits after it writes the whole report to stdout (round 7,
+  // `commands/sync.ts`). If the check fell back to the could-not-run line
+  // here, it would throw that report away. It would then say something
+  // strictly less true about a check that ran to completion.
   const harnessed = harness()
   const elsewhere = harnessed.sandbox.join('elsewhere')
   mkdirSync(elsewhere, { recursive: true })
@@ -1006,7 +1017,7 @@ it('uses the report on stdout rather than the could-not-run line when sync itsel
   })
 
   // `✗` and not `toContain('✗')`: `emit` escapes it above ASCII
-  // (`asciiJson`), so it is the ASCII half of the line that survives intact.
+  // (`asciiJson`). So it is the ASCII half of the line that survives intact.
   expect(output.stdout()).toContain('the sync failed: boom')
   expect(output.stdout()).not.toContain('could not run the sync check')
   // The child's own account still reaches the debug log, exactly as it does
@@ -1015,8 +1026,9 @@ it('uses the report on stdout rather than the could-not-run line when sync itsel
 })
 
 it('falls back to the could-not-run line when sync answers non-zero with no report at all', async () => {
-  // The counter-example: a non-zero status with EMPTY stdout (a crash before
-  // any report reached it, or a refusal) still reads as a degraded run.
+  // The counter-example: a non-zero status with EMPTY stdout. This can happen
+  // from a crash before any report reached it, or from a refusal. It still
+  // reads as a degraded run.
   const harnessed = harness()
   const elsewhere = harnessed.sandbox.join('elsewhere')
   mkdirSync(elsewhere, { recursive: true })
@@ -1036,12 +1048,13 @@ it('falls back to the could-not-run line when sync answers non-zero with no repo
 })
 
 it('falls back to the could-not-run line when an external signal kills sync, even with a partial report on stdout', async () => {
-  // The third case, distinct from both above: a non-zero status AND non-empty
-  // stdout, but the stdout is not a `failed(...)` report because nothing
-  // wrote one. `result.timedOut` only catches the hook's own bound, so a
-  // `signal` reaching here (an OOM kill, a stray SIGTERM) is a run cut short
-  // mid-report, not `sync` answering `failed(...)` after writing the whole
-  // report (round 7 layer 2, review round 1 finding).
+  // The third case, distinct from both above: a non-zero status and
+  // non-empty stdout. But the stdout is not a `failed(...)` report, because
+  // nothing wrote one. `result.timedOut` only catches the hook's own bound.
+  // So if a `signal` reaches here (an OOM kill, a stray SIGTERM), a run got
+  // cut short mid-report. It does not mean that `sync` answered with
+  // `failed(...)` after it wrote the whole report. This comes from round 7
+  // layer 2, review round 1's finding.
   const harnessed = harness()
   const elsewhere = harnessed.sandbox.join('elsewhere')
   mkdirSync(elsewhere, { recursive: true })
@@ -1116,10 +1129,10 @@ it('reads a bound above the timer ceiling as no bound at all', async () => {
     entry: harnessed.entry,
   })
 
-  // No `timeoutMs`: above the ceiling node would clamp to 1 ms and kill the
-  // child on the next tick, where `communicate(timeout=inf)` waits. The
-  // length comes first, because `calls[0]?.` on an empty list is `undefined`
-  // too and would pass for a fan-out that never ran.
+  // No `timeoutMs`: above the ceiling, node would clamp to 1 ms and kill the
+  // child on the next tick. In the same case, Python's `communicate(timeout=inf)`
+  // waits instead. The length comes first, because `calls[0]?.` on an empty
+  // list is also `undefined`. That would pass for a fan-out that never ran.
   expect(calls).toHaveLength(1)
   expect(calls[0]?.options.timeoutMs).toBeUndefined()
 })
@@ -1132,8 +1145,8 @@ it('reads a payload cwd only when it is a string in a JSON object', () => {
   expect(payloadCwd('{"cwd":null}')).toBe('')
   expect(payloadCwd('{"cwd":""}')).toBe('')
   expect(payloadCwd('{}')).toBe('')
-  // A JSON array decodes to a list, which is not a dict: `typeof []` is
-  // 'object', so `Array.isArray` is the half `typeof` cannot answer.
+  // A JSON array decodes to a list, which is not a dict. `typeof []` is
+  // `'object'`, so `Array.isArray` answers the half that `typeof` cannot.
   expect(payloadCwd('["a","b"]')).toBe('')
   expect(payloadCwd('"a string"')).toBe('')
   expect(payloadCwd('null')).toBe('')
@@ -1145,8 +1158,8 @@ it('reads the bound exactly as Python float() and the g format do', () => {
   for (const row of capture.syncTimeout) {
     const recorded = divergences.syncTimeout.find((entry) => entry.raw === row.raw)
     // The formatted value is the whole of what the bound decides that anyone
-    // ever sees, and it is a total function of the bound, so comparing it
-    // compares both `float()` and the `g` format in one.
+    // ever sees. It is a total function of the bound. So this test compares
+    // both `float()` and the `g` format in one step.
     const answered = formatG(syncTimeout({ [SYNC_TIMEOUT_ENV]: row.raw }))
     expect(answered).toBe(recorded === undefined ? row.formatted : recorded.port)
   }
@@ -1170,19 +1183,19 @@ it('refuses the spellings Number() would have accepted', () => {
 })
 
 it('skips at each end exactly what float() skips, and nothing else', () => {
-  // `trim()` diverges from `float()` in both directions at once, and either
-  // one decides how long a session start waits for the fan-out.
+  // `trim()` diverges from `float()` in both directions at once. Either one
+  // decides how long a session start waits for the fan-out.
   // `python3 -c "float('\u00855')"` is 5.0, where `trim()` leaves the NEL and
   // the grammar refuses the string.
   expect(pythonFloat('\u00855')).toBe(5)
   expect(syncTimeout({ [SYNC_TIMEOUT_ENV]: '\u00855' })).toBe(5)
-  // `python3 -c "float('\ufeff5')"` raises ValueError, where `trim()` eats the
-  // byte-order mark a pasted or generated value carries and the grammar then
-  // accepts it.
+  // `python3 -c "float('\ufeff5')"` raises ValueError. `trim()` eats the
+  // byte-order mark a pasted or generated value carries, and the grammar
+  // then accepts it.
   expect(pythonFloat('\ufeff5')).toBeNull()
   expect(syncTimeout({ [SYNC_TIMEOUT_ENV]: '\ufeff5' })).toBe(SYNC_TIMEOUT)
-  // The four information separators are `str.strip()`'s and not `float()`'s,
-  // so the two classes cannot be the same one: `'\u001c5'.strip()` is `'5'`
+  // The four information separators are `str.strip()`'s and not `float()`'s.
+  // So the two classes cannot be the same one: `'\u001c5'.strip()` is `'5'`,
   // and `float('\u001c5')` raises.
   expect(pythonFloat('\u001c5')).toBeNull()
   expect(lastLine('\u001c5')).toBe('5')
@@ -1203,7 +1216,7 @@ it('reads a signal as the negative status Python reported for it', () => {
   expect(returnCode(null, 'SIGKILL')).toBe(-9)
   expect(returnCode(null, 'SIGTERM')).toBe(-15)
   // Neither, which a `close` event cannot carry: the answer for a child that
-  // neither exited nor was signalled.
+  // neither exited nor received a signal.
   expect(returnCode(null, null)).toBe(0)
 })
 
@@ -1213,7 +1226,7 @@ it('counts nothing rather than failing twice when discovery cannot answer', asyn
   writeFileSync(notADirectory, 'not a directory\n')
 
   // One detail inside a message about a fan-out that already ran out of
-  // time: a discovery that could not answer must not lose the message.
+  // time. A discovery that cannot answer must not lose the message.
   expect(await repoCount(notADirectory, sandbox.env)).toBe(0)
   expect(await repoCount(sandbox.join('not there at all'), sandbox.env)).toBe(0)
 })
@@ -1227,16 +1240,16 @@ it('takes the last line with anything in it', () => {
 
 it('splits the lines and strips the blanks the way Python does', () => {
   // `str.splitlines`, not `split('\n')`: a child that redrew its progress
-  // leaves the carriage return inside the line, and the Python quoted only
-  // what came after it. This is the sentence the session is given.
+  // leaves the carriage return inside the line. The Python quoted only what
+  // came after it. This is the sentence that the hook gives the session.
   expect(lastLine('fetching\rerror: repository is gone')).toBe('error: repository is gone')
   expect(lastLine('a\u2028b')).toBe('b')
   expect(lastLine('a\u0085b')).toBe('b')
   expect(lastLine('a\x0cb')).toBe('b')
   // `\r\n` is one boundary, so it leaves no empty line between the two.
   expect(lastLine('first\r\nlast')).toBe('last')
-  // `str.strip()` counts the file separators as whitespace and `trim()` does
-  // not, so without the Python set this answers with a control character.
+  // `str.strip()` counts the file separators as whitespace, and `trim()` does
+  // not. So without the Python set, this answers with a control character.
   expect(lastLine('said something\n\x1c\x1f')).toBe('said something')
 })
 
@@ -1245,8 +1258,8 @@ it('writes one response the way json.dump with ensure_ascii writes it', () => {
     '{"systemMessage": "hi", "hookSpecificOutput": ' +
       '{"hookEventName": "SessionStart", "additionalContext": "hi"}}\n',
   )
-  // Every character above `~` escaped, including DEL and each half of an
-  // astral pair; the short forms left as `JSON.stringify` wrote them.
+  // The port escapes every character above `~`, including DEL and each half
+  // of an astral pair. The short forms stay as `JSON.stringify` wrote them.
   expect(emit('✓\u007f\u{1f600}\t"\\')).toContain('"\\u2713\\u007f\\ud83d\\ude00\\t\\"\\\\"')
 })
 
@@ -1255,8 +1268,8 @@ it('finds a tool the way shutil.which does, and refuses a directory named after 
   const bin = sandbox.join('bin')
   mkdirSync(path.join(bin, 'git'), { recursive: true })
 
-  // A directory carrying the traverse bit passes an executable check, so
-  // without the directory test this would be found as git.
+  // A directory that carries the traverse bit passes an executable check.
+  // So without the directory test, this code would treat it as git.
   expect(which('git', { PATH: bin })).toBeNull()
   expect(which('git', {})).toBeNull()
   expect(which('git', sandbox.env)).not.toBeNull()
@@ -1269,19 +1282,20 @@ it('reads a PATH set to nothing as no PATH, and an empty entry as the cwd', () =
   const tool = path.join(bin, 'git')
   writeFileSync(tool, '#!/bin/sh\nexit 0\n')
   chmodSync(tool, 0o755)
-  // The only way to show what an empty PATH entry resolves against, because
-  // the walk asks the process's own directory and takes no `cwd`. Synchronous
-  // and restored in the same statement, so nothing else in this file can run
-  // between the two.
+  // This is the only way to show what an empty PATH entry resolves against.
+  // The walk asks the process's own directory and takes no `cwd`. The
+  // directory change and its restore both happen synchronously, in the same
+  // statement. So nothing else in this file can run between the two.
   const before = process.cwd()
   process.chdir(bin)
   try {
-    // `shutil.which`'s `if not path: return None`. Without the fold this
-    // answers with the bare `git` beside us, and the hook takes the branch the
-    // Python kept silent about.
+    // `shutil.which`'s `if not path: return None`. Without the fold, this
+    // answers with the bare `git` beside us. The hook then takes the branch
+    // that the Python kept silent about.
     expect(which('git', { PATH: '' })).toBeNull()
-    // An empty entry inside a PATH is a different question, and Python looks a
-    // bare name up in the working directory there, so this one must be found.
+    // An empty entry inside a PATH is a different question. Python looks a
+    // bare name up in the working directory there. So the test must find
+    // this one.
     expect(which('git', { PATH: `${path.delimiter}${sandbox.join('nowhere')}` })).toBe('git')
   } finally {
     process.chdir(before)
@@ -1311,10 +1325,10 @@ it('carries the usage line the wiring mistake is diagnosed by', () => {
 })
 
 it('records every divergence from the Python as data, and no more', () => {
-  // The port's own acceptance is byte-identical, so the two rows it could not
-  // avoid are still exactly those: a path that moved, and a number grammar
-  // that stops at ASCII digits. The text rows are #110's deliberate
-  // rewording, one per block of sentences that changed.
+  // The port's own acceptance is byte-identical. So the two rows it could
+  // not avoid are still exactly those. They are a path that moved, and a
+  // number grammar that stops at ASCII digits. The text rows are #110's
+  // deliberate rewording, one per block of sentences that changed.
   expect(divergences.paths.map((entry) => entry.name)).toEqual(['fan-out/missing-entry-point'])
   expect(divergences.syncTimeout.map((entry) => entry.raw)).toEqual(['２'])
   expect(divergences.text.map((entry) => entry.name)).toEqual([
@@ -1335,8 +1349,9 @@ it('records every divergence from the Python as data, and no more', () => {
 })
 
 it('documents every placeholder its rows use, and uses every one it documents', () => {
-  // Without this a row could carry a name nothing fills, which reduces to the
-  // empty string and quietly asserts a sentence the port never writes.
+  // Without this, a row could carry a name that nothing fills. That name
+  // reduces to the empty string, and it quietly asserts a sentence that the
+  // port never writes.
   const used = new Set<string>()
   for (const entry of divergences.text) {
     for (const match of `${entry.python}${entry.port}`.matchAll(/\{([a-z]+)\}/g)) {
@@ -1358,7 +1373,7 @@ const status = (overrides: Partial<BranchStatus> = {}): BranchStatus => ({
 
 it('writes no count line for a count of zero and none for one it could not read', () => {
   // Three different things, and two of them are silence for different
-  // reasons: zero is an answer with nothing to report, null is no answer.
+  // reasons. Zero is an answer with nothing to report. Null is no answer.
   expect(countLines(status({ behind: 0, candidates: 0 }))).toEqual([])
   expect(countLines(status())).toEqual([])
   expect(countLines(status({ behind: 0, candidates: null }))).toEqual([])
@@ -1374,8 +1389,9 @@ it('names how far the default branch is behind, in commits', () => {
 })
 
 it('names prunable candidates as candidates, never as branches that will go', () => {
-  // Ancestry cannot see a squash merge and this message never asks gh, so
-  // claiming any of them WILL be pruned would be claiming more than it knows.
+  // Ancestry cannot see a squash merge, and this message never asks gh. So
+  // a claim that any of them WILL be pruned would say more than the message
+  // knows.
   expect(countLines(status({ candidates: 1 }))).toEqual([
     "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
   ])
@@ -1396,12 +1412,14 @@ including what it would do with 'main'; /gh:sync makes those changes.
 })
 
 it('claims no outcome for the default branch it cannot check locally', () => {
-  // `/gh:sync` fast-forwards the default branch, CREATES it where no local
-  // branch of that name exists (the captured origin-head-wins state), or
-  // refuses it as diverged. The hook resolves the name from the cached
-  // origin/HEAD without checking a local branch of it exists, so none of the
-  // three can be asserted here; `--dry-run`, named one line above, is what
-  // answers it for this repository (review round 2).
+  // `/gh:sync` fast-forwards the default branch. It CREATES the branch where
+  // no local branch of that name exists (the captured origin-head-wins
+  // state). Or it refuses the branch as diverged.
+  //
+  // The hook resolves the name from the cached origin/HEAD. It does not
+  // check whether a local branch of that name exists. So this test cannot
+  // assert any of the three outcomes here. `--dry-run`, named one line
+  // above, answers that question for this repository (review round 2).
   const message = branchMessageText(status({ behind: 2, candidates: 1 }))
 
   expect(message).not.toContain('fast-forward')
@@ -1410,9 +1428,9 @@ it('claims no outcome for the default branch it cannot check locally', () => {
 })
 
 it('addresses the user with facts and the agent with nothing at all', () => {
-  // The same text goes out as systemMessage, where a user reads it as the
-  // agent speaking, so an imperative aimed at the agent reads to them as a
-  // question they are expected to answer (#110).
+  // The same text goes out as systemMessage. A user reads it as the agent's
+  // own words. So an imperative aimed at the agent reads to the user as a
+  // question. That question expects an answer from the user (#110).
   const both: [string, string][] = [
     [branchMessageText(status({ behind: 1, candidates: 1 })), '/gh:sync makes those changes.'],
     [
@@ -1425,7 +1443,8 @@ it('addresses the user with facts and the agent with nothing at all', () => {
     for (const imperative of ['Ask the user', 'Ask first', 'Offer to run', 'Do not ']) {
       expect(message).not.toContain(imperative)
     }
-    // Stated once, so a reader is not told twice what to type.
+    // The text states it once, so it never tells a reader twice what to
+    // type.
     expect(message.split(acts)).toHaveLength(2)
   }
 })
@@ -1433,8 +1452,9 @@ it('addresses the user with facts and the agent with nothing at all', () => {
 it('reads a count only where git answered with one', () => {
   expect(parseCount('0')).toBe(0)
   expect(parseCount('12')).toBe(12)
-  // git failing, and git exiting 0 with nothing to say. Reading the second as
-  // zero would report "up to date" about a question never answered.
+  // git can fail, or git can exit 0 with nothing to say. If the code read
+  // the second case as zero, it would report "up to date" about a question
+  // nobody answered.
   expect(parseCount(null)).toBeNull()
   expect(parseCount('')).toBeNull()
   expect(parseCount('-1')).toBeNull()
@@ -1464,19 +1484,19 @@ it('counts a gone upstream and a merged branch once each', () => {
 })
 
 it('never counts a branch whose upstream is still there', () => {
-  // The gone half is about a branch left behind by a `fetch --prune`, not
-  // about every branch that tracks one: without the ref test, every tracking
-  // branch in the repository would be reported as prunable.
+  // The gone half is about a branch that a `fetch --prune` left behind. It
+  // is not about every branch that tracks one. Without the ref test, every
+  // tracking branch in the repository would show up as prunable.
   const locals = ['side\t', 'tracked\trefs/remotes/origin/tracked']
 
   expect(countCandidates(locals, [at('refs/remotes/origin/tracked')], [], 'side', 'main')).toBe(0)
 })
 
 it('never counts a branch that tracks a local branch that is still there', () => {
-  // `%(upstream)` answers with a local ref for a branch set to track one, and
-  // a live local upstream is no more gone than a live remote one. A set built
-  // from the remote-tracking refs alone would not hold `refs/heads/main` and
-  // would report every such branch as a candidate.
+  // `%(upstream)` answers with a local ref for a branch set to track one. A
+  // live local upstream is no more gone than a live remote one. A set built
+  // from the remote-tracking refs alone would not hold `refs/heads/main`. It
+  // would then report every such branch as a candidate.
   const locals = ['side\t', 'stacked\trefs/heads/main', 'main\trefs/remotes/origin/main']
   const refs = [
     at('refs/heads/main'),
@@ -1487,26 +1507,26 @@ it('never counts a branch that tracks a local branch that is still there', () =>
 
   expect(countCandidates(locals, refs, [], 'side', 'main')).toBe(0)
   // The other half of the same test: a local upstream that HAS gone still
-  // counts, so the fix is not just "never look at a local upstream".
+  // counts. So the fix is not just "never look at a local upstream".
   expect(countCandidates(locals, [at('refs/remotes/origin/main')], [], 'side', 'main')).toBe(1)
 })
 
 it('never counts the branch the session is on, nor the default branch', () => {
   const locals = ['main\trefs/remotes/origin/main', 'side\t']
 
-  // Both are reachable from `main`, and neither is anything to prune: one is
-  // where work lands, the other is where the session is.
+  // Both are reachable from `main`, and neither is anything to prune. One is
+  // where work lands, and the other is where the session is.
   expect(
     countCandidates(locals, [at('refs/remotes/origin/main')], ['main', 'side'], 'side', 'main'),
   ).toBe(0)
 })
 
 it('never counts a branch sitting on the cached origin tip, and still counts one past it', () => {
-  // `/gh:sync` keeps a branch at `origin/<default>`'s own commit and says so
-  // ("already at origin/main, nothing to prune"), so calling it a candidate
-  // would name something the command refuses. A branch that carries a commit
-  // of its own is a different answer and stays counted, which is what keeps
-  // the line's example real.
+  // `/gh:sync` keeps a branch at `origin/<default>`'s own commit, and it says
+  // so ("already at origin/main, nothing to prune"). So a candidate label
+  // here would name something that the command refuses. A branch that
+  // carries a commit of its own is a different answer, and it stays
+  // counted. That is what keeps the line's example real.
   const locals = ['side\t', 'fresh\t', 'landed\t']
   const refs = [
     at('refs/remotes/origin/main', 'tip'),
@@ -1518,14 +1538,14 @@ it('never counts a branch sitting on the cached origin tip, and still counts one
 
   expect(countCandidates(locals, refs, ['fresh', 'landed'], 'side', 'main')).toBe(1)
 
-  // The same holds for the gone-upstream half: `sync` does not prune by a gone
-  // upstream at all, and the branch is an ancestor of the default branch by
-  // sitting on its tip, so the tip guard is what it would meet.
+  // The same holds for the gone-upstream half. `sync` does not prune by a
+  // gone upstream at all. The branch is an ancestor of the default branch
+  // because it sits on that tip. So the tip guard is what stops it here.
   expect(
     countCandidates(['side\t', 'fresh\trefs/remotes/origin/fresh'], refs, [], 'side', 'main'),
   ).toBe(0)
 
-  // With no cached `origin/main` there is no tip to compare against, and the
+  // With no cached `origin/main`, there is no tip to compare against. The
   // absence is not a tip of its own that every branch matches.
   expect(countCandidates(locals, [at('refs/heads/fresh', 'tip')], ['fresh'], 'side', 'main')).toBe(
     1,
@@ -1546,16 +1566,16 @@ it('answers nothing when any one of the three listings could not be read', () =>
 })
 
 it('reads a listing line with no separator as a branch with no upstream', () => {
-  // A shape the format cannot produce. Read as "no upstream" rather than as a
-  // branch whose name is the whole line, which would then be counted as gone
-  // against a remote set it can never be in.
+  // A shape the format cannot produce. The code reads it as "no upstream,"
+  // not as a branch whose name is the whole line. Otherwise, the code would
+  // count it as gone against a remote set it can never belong to.
   expect(countCandidates(['orphan'], [], [], 'side', 'main')).toBe(0)
 })
 
 it('reads a ref listing line with no commit as a ref that exists', () => {
-  // The other half of the same shape. A ref the format wrote without its
-  // commit still answers the question `existing` asks, so an upstream naming
-  // it is live; it just has no tip to compare against.
+  // The other half of the same shape. A ref that the format wrote without
+  // its commit still answers the question that `existing` asks. So an
+  // upstream that names it is live. It just has no tip to compare against.
   expect(
     countCandidates(
       ['tracked\trefs/remotes/origin/tracked'],
@@ -1583,8 +1603,8 @@ const messageFor = async (
     nodePath: '/usr/bin/node',
     entry: harnessed.entry,
   })
-  // Every degraded path here has to stay a message, an exit 0 and a silent
-  // stderr: nothing this hook looks up may cost a session.
+  // Every degraded path here has to stay a message, an exit 0, and a silent
+  // stderr. Nothing this hook looks up may cost a session.
   expect(status).toBe(0)
   expect(output.stderr()).toBe('')
   return output.stdout()
@@ -1596,8 +1616,8 @@ it('counts how far the default branch is behind the cached origin, with no fetch
   harnessed.git.commit(repository, 'second')
   harnessed.git.push(repository)
   harnessed.git.git(repository, 'checkout', '-q', '-b', 'side')
-  // The local default branch moved back, so the CACHED origin/main is one
-  // commit ahead of it and nothing has to go to the network to see that.
+  // The local default branch moved back. So the CACHED origin/main is one
+  // commit ahead of it. Nothing has to go to the network to see that.
   harnessed.git.git(repository, 'branch', '-f', 'main', 'main~1')
 
   expect(await messageFor(harnessed, repository)).toContain(
@@ -1620,9 +1640,10 @@ it('still counts a branch on a local default that is itself behind the cached or
   const message = await messageFor(harnessed, repository)
 
   // Which tip the exclusion compares against is the whole question here.
-  // /gh:sync fast-forwards main onto origin/main and then finds `stale`
-  // strictly behind it, so it deletes it: excluding a branch by the LOCAL
-  // default's tip would drop a real candidate from the count.
+  // /gh:sync fast-forwards main onto origin/main. It then finds `stale`
+  // strictly behind that tip, so it deletes `stale`. If the count excluded a
+  // branch by the LOCAL default's tip instead, it would drop a real
+  // candidate.
   expect(message).toContain("Local 'main' is 1 commit behind 'origin/main'.")
   expect(message).toContain(
     "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
@@ -1638,8 +1659,9 @@ it('counts a gone upstream and a landed branch as candidates', async () => {
   git.branchWithWork(repository, 'goner')
   git.push(repository, 'goner')
   git.git(repository, 'branch', '--set-upstream-to=origin/goner', 'goner')
-  // What a `git fetch --prune` leaves behind once the branch is deleted on the
-  // remote: the upstream is still configured and the ref it names is gone.
+  // This is what a `git fetch --prune` leaves behind once someone deletes the
+  // branch on the remote. The upstream config is still there, but the ref it
+  // names is gone.
   git.git(repository, 'update-ref', '-d', 'refs/remotes/origin/goner')
   git.git(repository, 'checkout', '-q', '-b', 'side')
 
@@ -1648,8 +1670,8 @@ it('counts a gone upstream and a landed branch as candidates', async () => {
   expect(message).toContain(
     "Prunable candidates: 2 local branches with a gone upstream or already merged into 'main'.",
   )
-  // The default branch is ahead of origin here, not behind, and being ahead is
-  // not this message's subject.
+  // The default branch is ahead of origin here, not behind. This message
+  // does not report on that state.
   expect(message).not.toContain('behind')
 })
 
@@ -1673,9 +1695,9 @@ it('counts a branch whose LOCAL upstream has gone, in a real checkout', async ()
   const harnessed = harness()
   const { git } = harnessed
   const repository = git.create(harnessed.sandbox.join('r'))
-  // The half the pure function covers and real git never did: an upstream
-  // that was a local branch and has since been deleted. `%(upstream)` still
-  // answers `refs/heads/base`, and that ref is gone.
+  // The pure function covers this half, but real git tests never did. An
+  // upstream here was once a local branch, and it has since gone.
+  // `%(upstream)` still answers `refs/heads/base`, and that ref is gone.
   git.branchWithWork(repository, 'base')
   git.branchWithWork(repository, 'stacked')
   git.git(repository, 'branch', '--set-upstream-to=base', 'stacked')
@@ -1694,10 +1716,11 @@ it('does not count the default branch because a tag shares its name', async () =
   const { git } = harnessed
   const repository = git.create(harnessed.sandbox.join('r'))
   // `%(refname:short)` is the shortest UNAMBIGUOUS name, so a tag named after
-  // a branch makes git answer `heads/main` for the branch. The names it is
-  // compared against are plain, so the default branch survived both deletions
-  // and was reported as a prunable candidate: a release tag was enough to make
-  // the message state a false count (review round 2).
+  // a branch makes git answer `heads/main` for the branch. The names that
+  // the check compares it against are plain. So the default branch survived
+  // both deletions. The message then reported it as a prunable candidate. A
+  // release tag was enough to make the message state a false count (review
+  // round 2).
   git.git(repository, 'tag', 'main')
   git.git(repository, 'checkout', '-q', '-b', 'side')
 
@@ -1711,16 +1734,17 @@ it('counts a merged branch with a commit of its own, never one on the cached tip
   const harnessed = harness()
   const { git } = harnessed
   const repository = git.create(harnessed.sandbox.join('r'))
-  // Merged with a merge commit, so it is reachable from `main` AND carries a
-  // commit of its own that `origin/main` does not name: a real candidate,
-  // which is what keeps the line's one example real. `mergeCommit` pushes, so
-  // `origin/main` is the merge commit afterwards.
+  // The test merges it in with a merge commit, so it is reachable from
+  // `main`. It also carries a commit of its own that `origin/main` does not
+  // name. That makes it a real candidate, which is what keeps the line's one
+  // example real. `mergeCommit` pushes, so `origin/main` is the merge commit
+  // afterwards.
   git.branchWithWork(repository, 'landed')
   git.mergeCommit(repository, 'landed')
-  // Branched off `main` once it is level with `origin/main` and never
-  // committed to, so it sits on exactly the commit the cached ref names.
-  // `/gh:sync` keeps this branch and says why, so the message must not call it
-  // a candidate.
+  // The test branches this off `main` once main is level with `origin/main`.
+  // It never commits to that branch again. So it sits on exactly the commit
+  // that the cached ref names. `/gh:sync` keeps this branch and says why, so
+  // the message must not call it a candidate.
   git.branch(repository, 'fresh')
   git.git(repository, 'checkout', '-q', '-b', 'side')
 
@@ -1743,8 +1767,8 @@ it('leaves the behind line out when the count cannot be read at all', async () =
     GIT_STUB_FAIL: shim.failing,
   })
 
-  // The message it was always going to write, minus the line it could not
-  // fill in.
+  // The message that the hook would always write, minus the line it could
+  // not fill in.
   expect(message).toContain("default branch is 'main'")
   expect(message).not.toContain('behind')
 })
@@ -1761,8 +1785,9 @@ it('leaves the behind line out when git exits 0 with nothing to say', async () =
     GIT_STUB_SILENT: 'rev-list',
   })
 
-  // An empty answer is not a count of zero, and this line is left out rather
-  // than saying the branch is up to date with a remote nothing compared it to.
+  // An empty answer is not a count of zero. So the port leaves this line
+  // out. It never claims the branch is up to date with a remote that
+  // nothing compared it to.
   expect(message).toContain("default branch is 'main'")
   expect(message).not.toContain('behind')
 })
@@ -1816,12 +1841,15 @@ it('counts each bucket from the marks sync-repo exports', () => {
         unchecked: 1,
       },
     ],
-    // The lines `sync.ts` writes for a job that threw or answered non-zero
-    // (#81), taken from its own producers rather than spelled again here: a
-    // repository the run could not finish is counted, rather than lost
-    // between the report and the summary above it. Asking `sync.ts` for the
-    // text is what pins the two files to one mark. Spelled out, this case
-    // stayed green when `sync.ts` wrote a mark of its own (review round 1).
+    // The lines that `sync.ts` writes for a job that threw or answered
+    // non-zero (#81) come from its own producers. This test does not spell
+    // the text out again here. A repository whose run could not finish gets
+    // a count. It does not get lost between the report and the summary
+    // above it. This test asks `sync.ts` for the text, which pins the two
+    // files to one mark.
+    //
+    // Earlier, this test spelled the text out directly. It then stayed
+    // green even after `sync.ts` changed its own mark (review round 1).
     [failureLine(new Error('boom')).trimEnd(), { unchecked: 1 }],
     [statusLine(3).trimEnd(), { unchecked: 1 }],
   ]
@@ -1840,10 +1868,10 @@ it('counts each bucket from the marks sync-repo exports', () => {
 
 it('leaves the dry-run notes these buckets are not about out of them', () => {
   // `--dry-run` writes more notes than the four the summary counts. Neither
-  // of these says the default branch would move or that a branch would go, so
-  // neither belongs in a bucket, and the repository is still one checked.
-  // Without this, widening either bucket's openings is a change nothing
-  // notices (review round 2).
+  // of these says the default branch would move, or that a branch would go.
+  // So neither belongs in a bucket, and the repository is still one checked.
+  // Without this check, a bucket that quietly grows wider is a change
+  // nothing notices (review round 2).
   expect(
     fanOutSummary(
       oneSection(
@@ -1892,8 +1920,9 @@ it('counts a section per repository across a mixed report', () => {
 
 it('ignores a mark line that sits under no heading at all', () => {
   // A shape `sync` cannot write, because every mark prints the repository's
-  // name first. Counted against nothing rather than opening a section of its
-  // own, which would report a repository that does not exist.
+  // name first. The count assigns this line to no repository. It does not
+  // open a new section for it. A new section would report a repository that
+  // does not exist.
   expect(fanOutSummary(`/somewhere (1 repos)\n${REPORT.bad}orphaned\n`).checked).toBe(0)
 })
 
@@ -1907,11 +1936,11 @@ it('writes the summary line with the noun the count calls for', () => {
 })
 
 it('writes no summary at all over a report it found no repository in', () => {
-  // A report only gets here once ACTIONABLE found a line worth speaking
-  // about, so no repositories counted means the body is not shaped the way
-  // the counting reads it, not that nothing was checked. A line of zeros
-  // above a report that says otherwise is the one thing this message must
-  // never do (review round 2).
+  // A report only gets here once ACTIONABLE finds a line worth a mention. So
+  // a count of zero repositories means the body's shape does not match what
+  // the counter reads. It does not mean that the fan-out checked nothing. A
+  // line of zeros above a report that says otherwise must never appear
+  // (review round 2).
   expect(summaryLine({ checked: 0, upstream: 0, prunable: 0, skipped: 0, unchecked: 0 })).toBeNull()
 
   const headerless = `a\n${REPORT.bad}fetch failed; nothing changed`
@@ -1925,9 +1954,9 @@ it('writes no summary at all over a report it found no repository in', () => {
 })
 
 it('agrees with a report the real sync command wrote', async () => {
-  // The summary reads `sync`'s own words, so this is the example that fails
-  // when those words change: the report is produced here by the real command
-  // over real repositories, one per bucket, and nothing states its text.
+  // The summary reads `sync`'s own words. So this is the example that fails
+  // when those words change. The real command produces the report here,
+  // over real repositories, one per bucket. Nothing else states its text.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const fan = sandbox.join('fan')
@@ -1970,13 +1999,13 @@ it('agrees with a report the real sync command wrote', async () => {
 
 // --- the one example measured against a real timer ----------------------------
 //
-// Everything above injects the runner, so no test waits on a clock. These two
-// use the real one (`lib/process.ts` `run`), because the bound and the
-// process-group kill are what `hook-io.py:220` to `250` and `:276` to `:315`
-// were, and an injected `timedOut: true` cannot show that the hook's own
-// number reaches the timer. The bound is tiny on the side that must fire and
-// generous on the side that must not, so neither depends on how loaded the
-// runner is.
+// Everything above injects the runner, so no test waits on a clock. These
+// two use the real one (`lib/process.ts` `run`). The bound and the
+// process-group kill are what `hook-io.py:220` to `250` and `:276` to
+// `:315` were. An injected `timedOut: true` cannot show that the hook's own
+// number reaches the timer. The bound is tiny on the side that must fire,
+// and generous on the side that must not. So neither depends on how loaded
+// the runner is.
 
 it('reports the bound when a real child outlives it, and kills it', async () => {
   const harnessed = harness()
