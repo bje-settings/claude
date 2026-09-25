@@ -65,4 +65,5 @@ flowchart TD
 ```
 
 The `discover` subgraph is shared with `/gh:sync`, byte for byte. Both skills resolve their
-scope by the same rule, `src/discover.ts`. So the two diagrams must describe it identically.
+scope by the same rule, `plugins/gh/src/discover.ts`. So the two diagrams must describe it
+identically.

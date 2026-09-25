@@ -14,7 +14,7 @@ tracker. The `/workstreams:sweep` skill runs it.
 
 ```mermaid
 flowchart TD
-    A[sweep run] --> B{Flags known? only<br/>--milestone, --json, --help}
+    A[sweep run] --> B{Flags known, and no positional?<br/>only --milestone, --json, --help}
     B -->|No| Z1([Refused, exit 2]):::stop
     B -->|--help| H([Print usage, exit 0])
     B -->|Yes| C{--milestone given twice?}
@@ -37,7 +37,7 @@ flowchart TD
     T2 --> N
     T3 --> N
     N --> O{Did any read fall short?}
-    O -->|Yes| P([Report marked INCOMPLETE,<br/>each reason listed, exit 0]):::stop
+    O -->|Yes| P([Report marked INCOMPLETE, or JSON with<br/>the reasons in unavailable, exit 0]):::stop
     O -->|No| Q([Report: milestones, pull requests,<br/>groups and combined sets, exit 0])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

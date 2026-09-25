@@ -64,7 +64,7 @@ flowchart TD
         ST -->|Yes| ST3{Read to the bound:<br/>what does GitHub report?}
         ST3 -->|Merged| MG
         ST3 -->|Closed| ST4([ok true: result closed, exit 0])
-        ST3 -->|BLOCKED on two reads, or<br/>a review decision that blocks| ST5([ok true: result blocked,<br/>reason names the fields, exit 0])
+        ST3 -->|BLOCKED at two polls in a row, or<br/>a review decision that blocks| ST5([ok true: result blocked,<br/>reason names the fields, exit 0])
         ST3 -->|BEHIND or DIRTY| ST6([ok true: result changed,<br/>decide again, exit 0])
         ST3 -->|Bound passed, nothing decisive| ST7{Last read succeeded?}
         ST7 -->|Yes| ST8([ok true: result open, exit 0])
@@ -82,4 +82,6 @@ flowchart TD
 Once the arguments pass and gh names the repository, every step exits 0. Its JSON `ok` field
 carries the result, and a refusal of a step is `ok: false`, not a status. `skip` checks its
 reason file before it reads the pull request. The action name is checked only after gh answers,
-so an unknown action with no gh is exit 1, not 2.
+so an unknown action with no gh is exit 1, not 2. A poll whose read fails keeps the last
+snapshot. So one BLOCKED read and then a failed read give `blocked`, although the usage text
+says two reads.

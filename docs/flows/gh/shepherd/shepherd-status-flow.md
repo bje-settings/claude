@@ -33,7 +33,7 @@ flowchart TD
     J --> L[Drop draft pull requests]
     K --> L
     L --> M{Auto-merge enabled?}
-    M -->|Yes| N[targets: merge-risk low, then no label,<br/>then medium, then high; oldest first in a band]
+    M -->|Yes| N[targets: merge-risk low, then no label,<br/>then medium, then high, then a band<br/>it does not know; oldest first in a band]
     M -->|No| O[skipped_no_automerge: oldest first;<br/>reported, never enabled]
     N --> P([Print one JSON document, exit 0])
     O --> P

@@ -58,4 +58,5 @@ Every path that keeps a branch says which of the four reasons applied. The disti
 command did not establish.
 
 The `discover` subgraph is shared with `/gh:shepherd`, byte for byte. Both skills resolve their
-scope by the same rule, `src/discover.ts`. So the two diagrams must describe it identically.
+scope by the same rule, `plugins/gh/src/discover.ts`. So the two diagrams must describe it
+identically.

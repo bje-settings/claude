@@ -53,9 +53,9 @@ flowchart TD
         R5 -->|Yes| R6[Fast-forward when it can, or report diverged;<br/>after a move, install with pnpm if a lock file changed]
         R6 --> R7{Merged pull requests or<br/>ancestry readable?}
         R7 -->|Neither| RP([No branch pruned: no merge proof can be read]):::stop
-        R7 -->|Yes| R8{Another worktree has<br/>an operation in progress?}
-        R8 -->|Yes| RS
-        R8 -->|No| R9{Branch has merge proof, a clean or no worktree,<br/>and a tip not at the origin default?}
+        R7 -->|Yes| R8{Worktrees and branches listable,<br/>and no other worktree mid-operation?}
+        R8 -->|No| RS
+        R8 -->|Yes| R9{Branch has merge proof, a clean or no worktree,<br/>and a tip not at the origin default?}
         R9 -->|No| RK([Keep the branch, say why]):::stop
         R9 -->|Yes| RD([Remove its worktree, delete the branch])
     end
@@ -63,10 +63,13 @@ flowchart TD
     J -.-> R1
     L -.-> R1
 
+    X[Any error outside a job<br/>that it did not expect] --> Z8([node's own stack trace, exit 1]):::stop
+
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
 A skipped repository and a kept branch are normal outcomes, and the job still answers 0. Only a
 job that throws makes `sync` exit 1, and the report is on stdout before the verdict. With
 `--dry-run`, each change becomes a `would ...` line and nothing changes. `--no-install` removes
-the install step.
+the install step. `gh.ts` has no catch-all, so an error outside a job ends in node's own stack
+trace.
