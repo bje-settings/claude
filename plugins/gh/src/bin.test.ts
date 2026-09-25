@@ -1,22 +1,27 @@
-// The one spawned contract test for `scripts/gh.ts` (`harness/README.md`): argv
-// in, exit code and streams out. Everything else about these commands is
-// exercised in-process in `commands/*.test.ts`; this is the only place the
-// process boundary itself, and the floor guard in front of it, are real.
+// This file is the one spawned contract test for `scripts/gh.ts`
+// (`harness/README.md`). Argv goes in. Exit code and streams come out. Every
+// other check on these commands runs in-process, in `commands/*.test.ts`.
+// Only this file makes the process boundary itself, and the floor guard in
+// front of it, real.
 //
-// Only the paths that need no `gh` and touch no real checkout: the usage, the
-// refusals, `--help`, a subcommand nobody answers to, and one case for #81's
-// exit-1 contract. A spawned child cannot be handed the injected `gh` client
-// (ADR 001, and the reason the fan-out is in-process at all), so a test that
-// drove `scripts/gh.ts sync` itself through a real fan-out or a real
-// merge-proof lookup would be reaching for the real `gh`; the #81 case
-// instead spawns `fixtures/throwing-sync-entry.ts`, which imports the real
-// `createSyncCommand` with a throwing stand-in in place of the job, because
-// the real job cannot be made to throw at all (that fixture's own header says
-// why). It MIRRORS, not calls, `scripts/gh.ts`'s own `write` helper and `sync`
-// dispatch arm (neither is importable, `fixtures/README.md` has the gap that
-// leaves): the exit-0 and exit-2 cases below spawn `scripts/gh.ts` itself and
-// so do exercise the real `write`, but a future break confined to the exit-1
-// case in `scripts/gh.ts`'s own wiring would not be caught by this file.
+// This file covers only the paths that need no `gh` and touch no real
+// checkout. These are the usage, the refusals, `--help`, an unknown
+// subcommand, and one case for #81's exit-1 contract. A spawned child cannot
+// receive the injected `gh` client (ADR 001). This is also why the fan-out
+// runs in-process at all. So a test could drive `scripts/gh.ts sync` through
+// a real fan-out or a real merge-proof lookup. Either way, it would need the
+// real `gh`.
+//
+// The #81 case instead spawns `fixtures/throwing-sync-entry.ts`. That fixture
+// imports the real `createSyncCommand`, with a stand-in that throws instead
+// of the job. Nothing can make the real job throw at all. That fixture's own
+// header explains why. This test file mirrors, but does not call,
+// `scripts/gh.ts`'s own `write` helper and its `sync` dispatch arm.
+//
+// Neither is importable. `fixtures/README.md` describes the gap that leaves.
+// The exit-0 and exit-2 cases below spawn `scripts/gh.ts` itself. So they do
+// exercise the real `write`. But a future defect confined to the exit-1 case
+// in `scripts/gh.ts`'s own wiring would escape this file.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -63,8 +68,8 @@ it('refuses a subcommand nobody answers to, with the list on stderr', () => {
   const result = runScript(BIN, { args: ['nope'], env: env() })
 
   expect(result.status).toBe(2)
-  // Nothing on stdout: a caller parsing it can never parse a refusal into a
-  // result (`lib/envelope.ts`).
+  // Nothing appears on stdout. A caller that parses it can never turn a
+  // refusal into a result (`lib/envelope.ts`).
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('unknown command: nope')
   expect(result.stderr).toContain('usage: gh.ts <command>')
@@ -133,9 +138,9 @@ it('prints shepherd-pr’s own usage for its --help, naming every action', () =>
 })
 
 it('refuses shepherd-pr with too few arguments, exit 2, usage on stderr', () => {
-  // The process boundary itself: a command that answers with a status rather
-  // than an envelope still reaches `process.exitCode` through the same
-  // adapter.
+  // This tests the process boundary itself. A command that answers with a
+  // status rather than an envelope still reaches `process.exitCode` through
+  // the same adapter.
   const result = runScript(BIN, { args: ['shepherd-pr', '.', '1'], env: env() })
 
   expect(result.status).toBe(2)
@@ -162,12 +167,14 @@ it('refuses a shepherd-status path that is not a directory', () => {
 })
 
 it('exits 1 with the report on stdout when a job fails, at the real process boundary', () => {
-  // #81: `syncRepo` cannot be driven into this state through the real `gh.ts`
-  // binary (see `fixtures/throwing-sync-entry.ts` and `fixtures/README.md`),
-  // so this proves the envelope-to-exit-code wiring `createSyncCommand` and
-  // `renderText` share with `scripts/gh.ts`, at a real process boundary; the
-  // dispatch and `write` themselves are mirrored here, not called (review
-  // round 2 finding, matching this file's own header above).
+  // Issue #81: nothing can drive `syncRepo` into this state through the real
+  // `gh.ts` binary (see `fixtures/throwing-sync-entry.ts` and
+  // `fixtures/README.md`). So this test proves the envelope-to-exit-code
+  // wiring that `createSyncCommand` and `renderText` share with
+  // `scripts/gh.ts`, at a real process boundary. This test mirrors the
+  // dispatch and `write` themselves. It does not call them. This matches a
+  // review round 2 finding, the same one named in this file's own header
+  // above.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const repo = git.create(sandbox.join('r'))

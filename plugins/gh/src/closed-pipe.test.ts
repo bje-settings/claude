@@ -1,17 +1,20 @@
 // A reader that has had enough, end to end, once per command family.
 //
-// Round 5's handoff note on #156 says this guard could not be pinned:
-// `harness/spawn.ts` `runScript` is `spawnSync` and drains both streams
-// before it returns, so nothing run through it can lose its reader part-way,
-// and layer 2 retired three contracts on "there is no final flush to fail
-// at". `harness/spawn.ts` `startScript` is the variant that can, and these
-// are the examples it exists for: `gh.ts <command> | head -1`, where the
-// reader leaves and the process still exits clean.
+// Round 5's handoff note on #156 says no test could pin this guard.
+// `harness/spawn.ts` `runScript` uses `spawnSync`, which drains both streams
+// before it returns. So nothing run through `runScript` can lose its reader
+// part-way through. Layer 2 removed three contracts for this reason: "there
+// is no final flush to fail at".
 //
-// What is asserted is the outcome, never a timing: the child's status, and
-// that its stderr carries no node stack trace. Whether the write lands before
-// or after the pipe closes is the race the guard exists for, and either way
-// the answer has to be the same one.
+// `harness/spawn.ts` `startScript` is the variant that can lose a reader.
+// These tests are the examples it exists for. One is
+// `gh.ts <command> | head -1`, where the reader leaves and the process still
+// exits clean.
+//
+// This test checks the outcome, not the timing. It checks the child's exit
+// status. It also checks that stderr carries no node stack trace. The write
+// can land before or after the pipe closes. That is the race this guard
+// exists for. Either way, the answer must be the same.
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
@@ -24,9 +27,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const BIN = path.join(HERE, '..', 'scripts', 'gh.ts')
 const HOOK = path.join(HERE, '..', 'hooks', 'hook-io.ts')
 
-/** Neither stream may carry an internals stack trace: with no `error`
- *  listener node reports a failed write as an uncaught exception, and that is
- *  what would reach a session's debug log. */
+/** Neither stream may show an internal stack trace. With no `error` listener,
+ *  node reports a failed write as an uncaught exception. That exception would
+ *  then appear in a session's debug log. */
 const expectNoCrash = (stderr: string): void => {
   expect(stderr).not.toContain('Error: write EPIPE')
   expect(stderr).not.toContain('ERR_STREAM_DESTROYED')
@@ -53,15 +56,15 @@ it('finishes clean when the reader of a sync report never reads at all', async (
   const work = path.join(fan, 'a')
   git.createAt(fan, 'a')
   git.branchWithWork(work, 'wip')
-  // Origin moves before the run, so the fetch the fan-out does has something
-  // to bring back. That is the work this example claims still happens with
-  // nobody reading, and without something to compare against, the claim is
-  // only that the child exited 0.
+  // Origin moves before the run starts. This gives the fan-out's fetch
+  // something new to bring back. The test claims this fetch still happens
+  // even when nobody reads the output. Without a value to compare, the test
+  // could only claim the child exited with status 0.
   git.remoteAdvance(work)
   const before = git.sha(work, 'refs/remotes/origin/main')
-  // No `gh`, so nothing here reaches the real GitHub; the fan-out still
-  // fetches, syncs and writes its whole report, which is the work that must
-  // be done whether or not anyone is listening.
+  // No `gh` is available, so nothing here reaches the real GitHub. The
+  // fan-out still fetches, syncs, and writes its whole report. It must do
+  // this work whether or not anyone listens.
   const env = { ...sandbox.env, PATH: sandbox.pathWithout('gh') }
   const running = startScript(BIN, {
     args: ['sync', '--dry-run', '--no-install', fan],
@@ -73,16 +76,16 @@ it('finishes clean when the reader of a sync report never reads at all', async (
 
   expect(ended.status).toBe(0)
   expectNoCrash(ended.stderr)
-  // The fetch landed after the reader had gone: the run carried on to the end
-  // rather than dying at its first write.
+  // The fetch landed after the reader left. The run continued to the end.
+  // It did not die at its first write.
   expect(git.sha(work, 'refs/remotes/origin/main')).not.toBe(before)
 })
 
 it('finishes clean when the reader of shepherd-status --help leaves at once', async () => {
   const sandbox = createSandbox()
   // The shepherd family writes its own JSON document through the writers it
-  // is handed rather than through the envelope renderer, so it is its own
-  // example.
+  // receives. It does not use the envelope renderer. So it needs its own
+  // example here.
   const running = startScript(BIN, { args: ['shepherd-status', '--help'], env: sandbox.env })
 
   running.closeStdout()
@@ -99,9 +102,9 @@ it('finishes clean when the reader of the hook response leaves at once', async (
   running.closeStdout()
   const ended = await running.ended()
 
-  // Nothing here changes state, so there is nothing left to finish; the point
-  // is that the shutdown flush does not turn it into a trace on stderr, which
-  // the debug log would then carry as a hook failure.
+  // Nothing here changes state, so there is nothing left to finish. The point
+  // is that the shutdown flush does not turn this into a trace on stderr. If
+  // it did, the debug log would record it as a hook failure.
   expect(ended.status).toBe(0)
   expectNoCrash(ended.stderr)
 })

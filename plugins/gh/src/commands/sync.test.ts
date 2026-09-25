@@ -1,24 +1,29 @@
-// The orchestrator, against real repositories: the port of
-// `tests/gh/test_gh_sync.py`.
+// This file tests the orchestrator against real repositories. It is the
+// port of `tests/gh/test_gh_sync.py`.
 //
-// The parity block compares each scenario's whole report with
-// `fixtures/bash-sync-output.json`, captured from `gh-sync.sh` before it was
-// deleted. Everything above it is a claim the report alone does not prove.
+// The parity block compares each scenario's full report with
+// `fixtures/bash-sync-output.json`. This fixture came from `gh-sync.sh`,
+// before its deletion. Everything above the parity block states a claim.
+// The report alone does not prove that claim.
 //
-// **The stand-in job is the seam the Python reaches by copying a script.**
-// `orchestrator_copy(gh, job=TIMED_JOB)` puts a fake `gh-sync-repo.py` beside
-// a copy of the orchestrator so that a job's timing and exit status are
-// something the test states rather than something it hopes for. With the
-// fan-out in-process that stand-in is a function, and `createSyncCommand`
-// takes it; the throttle and the section order are asserted exactly as they
-// were. The status USED to be dropped there too; #81 (round 7) is where a
-// throw or a non-zero answer starts making the run answer `failed`, and "the
-// exit status" describes below is where that lands.
+// **The stand-in job is the seam.** The Python code copies a script to reach
+// this seam. `orchestrator_copy(gh, job=TIMED_JOB)` places a fake
+// `gh-sync-repo.py` next to a copy of the orchestrator. This lets the test
+// state a job's timing and exit status as a fact, not a hope. In the
+// in-process fan-out, the stand-in is a function, and `createSyncCommand`
+// takes it as an argument. The test asserts the throttle and the section
+// order exactly as before.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// The code used to drop the status at this point. Issue #81 (round 7)
+// changed that: a throw, or a non-zero answer, now makes the run answer
+// `failed`. The section "the exit status" below describes where that fact
+// lands.
+//
+// **Issue #127 deleted the Python code this file ports.**
+// `plugins/gh/scripts/*.py`, its `lib/`, `plugins/gh/hooks/hook-io.py`, and
+// `tests/gh/` are gone from the tree. The file and line references below
+// point to commit `cd0d515`, the last commit that held them. Each reference
+// states where a rule came from.
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,15 +49,18 @@ const PYTHON: Record<
   Record<string, { status: number; stdout: string; stderr: string }>
 > = JSON.parse(read('python-cli-output.json'))
 
-/** The recorded divergences, read rather than restated: a line this port says
- *  instead of what the Python said has to be in the table to be asserted. */
+/** This file reads the DIVERGENCES table from a file. It does not write the
+ *  table again here. If this port outputs a line that differs from the
+ *  Python line, the table must record it first. Only then can a test
+ *  assert it. */
 const DIVERGENCES: {
   inProcessFanOut: { now: string }
   failureSummary: { fanOut: string; single: string }
 } = JSON.parse(read('divergences.json'))
 
 /** The recorded line for a job that threw, with its placeholder filled in.
- *  The table names a line; the report writes it with a newline after it. */
+ *  The table names the line. The report writes the line with a newline
+ *  after it. */
 const failed = (message: string): string =>
   `${DIVERGENCES.inProcessFanOut.now.replace('<message>', message)}\n`
 
@@ -68,8 +76,8 @@ const fanOutFailed = (failedCount: number, total: number): string =>
 const singleFailed = (name: string): string =>
   DIVERGENCES.failureSummary.single.replace('<name>', name)
 
-/** A `gh` with no merged pull requests, which is every scenario here: the
- *  reports these assert are about branches and discovery, not about pull
+/** A `gh` client with no merged pull requests. Every scenario in this file
+ *  matches this case: the reports test branches and discovery, not pull
  *  requests. */
 const ghDouble = (): GhClient => ({
   ...createGhMock({}),
@@ -138,9 +146,9 @@ function normalise(text: string, sandbox: Sandbox): string {
   return out.replace(/\b[0-9a-f]{7,40}\b/g, '<sha>')
 }
 
-/** A job that records when it ran, so the throttle is asserted from the
- *  outside rather than inferred from the output order. The Python's
- *  `TIMED_JOB`, as a function. */
+/** A job that records when it ran. This lets a test assert the throttle
+ *  from the outside, not from a guess based on the output order. This
+ *  function is the port of the Python's `TIMED_JOB`. */
 function timedJob(spans: { name: string; start: number; end: number }[], ms: number) {
   return async (options: SyncRepoOptions): Promise<number> => {
     const start = performance.now()
@@ -151,10 +159,11 @@ function timedJob(spans: { name: string; start: number; end: number }[], ms: num
   }
 }
 
-/** The most spans open at once, read off the spans themselves: at every
- *  moment a job started, how many other jobs had started and not finished.
- *  No call counting and no timer to outrun, because a span that has already
- *  been recorded cannot be rescheduled. */
+/** The largest number of spans open at one time. This function reads the
+ *  answer from the spans themselves. For each moment a job started, it
+ *  counts how many other jobs had started and not yet finished. It does not
+ *  count function calls or use a timer. A span already recorded cannot run
+ *  again. */
 function mostAtOnce(spans: { start: number; end: number }[]): number {
   return Math.max(
     0,
@@ -173,7 +182,7 @@ function overlapping(spans: { start: number; end: number }[]): boolean {
   })
 }
 
-// --- argument handling ----------------------------------------------------------
+// --- the command line ----------------------------------------------------------
 
 describe('the command line', () => {
   it('rejects a zero -j rather than spinning forever', async () => {
@@ -182,10 +191,11 @@ describe('the command line', () => {
     const result = await run(f, ['-j', '0', f.sandbox.path])
 
     expect(result.status).toBe(2)
-    // The port's own line compared to the captured Python, not both compared
-    // to the same literal: an assertion that restates the string a third time
-    // can never go red from a change to the port. The newline is the Python
-    // script's; the envelope leaves it to the entry point.
+    // This test compares the port's own output to the captured Python
+    // output. It does not compare both to the same literal string. An
+    // assertion that restates the string a third time could never fail from
+    // a change to the port. The newline comes from the Python script. The
+    // envelope leaves the newline to the entry point.
     expect(`${result.stderr}\n`).toBe(PYTHON.sync?.zero_jobs?.stderr)
   })
 
@@ -225,8 +235,9 @@ describe('the command line', () => {
   })
 
   it('takes whatever follows -j, as the Python does', () => {
-    // `rest.pop(0)` takes the next token whatever it is, so a flag after `-j`
-    // is its value and the refusal names it rather than the flag.
+    // `rest.pop(0)` takes the next token, whatever it is. A flag placed
+    // after `-j` becomes its value. The refusal names the value, not the
+    // flag.
     const parsed = parseSyncArgs(['-j', '--dry-run', '/somewhere'])
 
     expect(parsed.outcome).toBe('refused')
@@ -250,11 +261,12 @@ describe('the command line', () => {
 
     expect(result.status).toBe(2)
     expect(result.stderr).toBe(`not a directory: ${f.sandbox.join('nothing-here')}`)
-    // The PORT against the capture, not the capture against a literal: the
-    // Python refused the same name from the same sandbox, so the two values
-    // are directly comparable once the sandbox path is normalised, and the
-    // path SPELLING is part of what parity means here. The capture carries
-    // the trailing newline `print` adds.
+    // This test compares the port's output to the captured Python output,
+    // not the capture to a literal string. The Python refused the same name
+    // from the same sandbox. So the two values compare directly once the
+    // test normalises the sandbox path. The exact path spelling is part of
+    // what parity means here. The capture keeps the trailing newline that
+    // `print` adds.
     expect(normalise(`${result.stderr}\n`, f.sandbox)).toBe(PYTHON.sync?.not_a_directory?.stderr)
   })
 
@@ -314,9 +326,10 @@ describe('the scope', () => {
   })
 
   it('refuses when git is not installed, rather than reporting no repositories', async () => {
-    // Discovery asks git the question and answers "no" when it cannot ask.
-    // Without this check a machine with no git is told it has no repositories,
-    // which is a wiring mistake wearing the answer to a different question.
+    // Discovery asks git a question. It answers "no" when it cannot ask git
+    // at all. Without this check, a machine with no git hears that it has
+    // no repositories. That answer is wrong. It is a wiring mistake, not the
+    // true answer to the question.
     const f = fixture()
     f.git.createAt(f.sandbox.join('fan'), 'a')
     const withoutGit = { ...f, env: { ...f.env, PATH: f.sandbox.pathWithout('git') } }
@@ -347,7 +360,7 @@ describe('the scope', () => {
   })
 })
 
-// --- reporting ----------------------------------------------------------------------
+// --- the report ----------------------------------------------------------------------
 
 describe('the report', () => {
   it('reports each repository in directory order regardless of finish order', async () => {
@@ -370,12 +383,12 @@ describe('the report', () => {
   })
 
   it('keeps every repository’s lines together while jobs run concurrently', async () => {
-    // The stand-in writes its section in two halves either side of a sleep, so
-    // with two jobs in flight the halves of two repositories are being written
-    // at the same time: a fan-out that passed a job's output through as it
-    // arrived would split a section in half, every run. The recorded spans
-    // prove two really were in flight, so a serialised run cannot pass this by
-    // never overlapping in the first place.
+    // The stand-in writes its section in two halves, with a sleep between
+    // them. With two jobs that run at once, the halves of two repositories
+    // write at the same time. A fan-out that passed a job's output through
+    // as it arrived would split a section in half, every run. The recorded
+    // spans prove that two jobs really did overlap. A run that never truly
+    // overlaps cannot pass this test.
     const f = fixture()
     const names = ['aaa', 'bbb', 'ccc', 'ddd']
     for (const name of names) f.git.createAt(f.sandbox.join('fan'), name)
@@ -443,10 +456,11 @@ describe('the throttle', () => {
   })
 
   it('never runs more than -j at once, which is the half overlap does not prove', async () => {
-    // `overlapping` above says the throttle is not a queue. It does not say it
-    // is a throttle: a fan-out that ignored -j entirely and started every job
-    // would satisfy it. Both halves are needed, and the spans already recorded
-    // carry the answer, so this costs no new timing.
+    // `overlapping` above proves the throttle is not a queue. It does not
+    // prove the code is a throttle. A fan-out that ignored `-j` entirely and
+    // started every job would also satisfy it. This test needs both halves.
+    // The recorded spans already carry the answer. This test costs no new
+    // timing.
     const f = fixture()
     for (const name of ['a', 'b', 'c', 'd', 'e']) f.git.createAt(f.sandbox.join('fan'), name)
     const spans: { name: string; start: number; end: number }[] = []
@@ -465,12 +479,13 @@ describe('the throttle', () => {
 
 describe('the fan-out', () => {
   it('keeps every other repository when one job throws', async () => {
-    // `gh-sync.py:123` to `:135` is the rule in as many words: a job that
-    // raises "would otherwise raise out of the pool and take every other
+    // `gh-sync.py:123` to `:135` state this same rule. A job that raises
+    // "would otherwise raise out of the pool and take every other
     // repository's report with it. It is this repo's answer, not the run's."
-    // A direct call cannot fail to start, but it can throw, and `syncRepo`
-    // deliberately lets anything that is not a `GhError` out. Uncaught, the
-    // header and every finished section are discarded after the work is done.
+    // A direct call cannot fail to start, but it can still throw. `syncRepo`
+    // deliberately lets anything that is not a `GhError` pass through
+    // uncaught. When that happens, the run discards the header and every
+    // finished section after the work finishes.
     const f = fixture()
     for (const name of ['a', 'b', 'c']) f.git.createAt(f.sandbox.join('fan'), name)
 
@@ -483,22 +498,25 @@ describe('the fan-out', () => {
       },
     })
 
-    // #81 (round 7): one job threw, so the run answers `failed`; "the exit
-    // status" describes the exit-1 contract, this test is about the report.
+    // Issue #81 (round 7) made one job's throw set the run's answer to
+    // `failed`. The section "the exit status" below describes the exit-1
+    // contract. This test itself is about the report, not the exit code.
     expect(result.status).toBe(1)
     expect(result.stdout).toContain('a\n')
     expect(result.stdout).toContain('c\n')
-    // The WHOLE section, not just the line: `b` threw before writing a
-    // heading of its own, and a bare cross line would sit under `a`'s
-    // heading and blame a repository that synced cleanly. `gh-sync.py:135`
-    // puts the basename in the same string for the child that never ran.
+    // This assertion checks the whole section, not just one line. `b`
+    // threw before it wrote its own heading. A bare failure line would then
+    // sit under `a`'s heading, and wrongly blame a repository that synced
+    // cleanly. `gh-sync.py:135` puts the basename in the same string, for
+    // the child that never ran.
     expect(result.stdout).toContain(`b\n${failed('boom')}`)
     expect(result.stdout).not.toContain(`a\n${failed('boom')}`)
   })
 
   it('puts a failure that arrived mid-line on a line of its own', async () => {
-    // `gh-sync.py:171` to `:173`: a section without a trailing newline would
-    // otherwise have the failure appended to the end of its last line.
+    // `gh-sync.py:171` to `:173`: this rule matters for a section with no
+    // trailing newline. Without it, the failure text would append to the
+    // end of the last line.
     const f = fixture()
     f.git.createAt(f.sandbox.join('fan'), 'a')
     f.git.createAt(f.sandbox.join('fan'), 'b')
@@ -516,11 +534,11 @@ describe('the fan-out', () => {
   })
 
   it('adds no blank line when the job threw on a line boundary', async () => {
-    // The third arm of `gh-sync.py:172`'s `if output and not
-    // output.endswith("\n")`: a section that already ends in a newline takes
-    // neither the heading (it has one) nor the separator (it needs none), and
-    // a blank line between the last report line and the failure would be a
-    // gap the Python never printed.
+    // This is the third arm of `gh-sync.py:172`'s `if output and not
+    // output.endswith("\n")` check. A section that already ends in a
+    // newline needs no extra heading, since it has one. It needs no
+    // separator either. A blank line between the last report line and the
+    // failure would be a gap. The Python version never printed that gap.
     const f = fixture()
     f.git.createAt(f.sandbox.join('fan'), 'a')
     f.git.createAt(f.sandbox.join('fan'), 'b')
@@ -539,15 +557,16 @@ describe('the fan-out', () => {
   })
 
   it('says so on the single-repository path too, rather than crashing the run', async () => {
-    // That path has no section to fold the failure into, as `gh-sync.py:245`
-    // to `:251` has it for a child it could not start. #81 (round 7) is where
-    // the status stopped being dropped: the report is unchanged, and now the
-    // run also answers `failed`.
+    // This path has no section to fold the failure into. `gh-sync.py:245`
+    // to `:251` handles this the same way, for a child that could not
+    // start. Issue #81 (round 7) changed this: the run no longer drops the
+    // status. The report stays the same, but now the run also answers
+    // `failed`.
     //
-    // Thrown as a bare value rather than an `Error`, which a rejected promise
-    // may carry and which the Python never had to think about: `str(error)`
-    // there always had something to print, so the port says what arrived
-    // instead of `undefined`.
+    // This test throws a bare value, not an `Error`. A rejected promise may
+    // carry a bare value like this. The Python code never had to handle
+    // this case, because `str(error)` there always had something to print.
+    // The port instead prints exactly what arrived, instead of `undefined`.
     const f = fixture()
     const work = f.git.createAt(f.sandbox.join('one'), 'only')
     const notAnError: unknown = 'boom'
@@ -664,8 +683,9 @@ describe('the exit status', () => {
   })
 
   it('exits 0 on the single-repository path for a skipped repository, with the real job', async () => {
-    // Real `syncRepo`, not a stand-in: a skip is not a failure, and that has
-    // not changed (`sync-repo.ts` always answers 0 for one).
+    // This test uses the real `syncRepo`, not a stand-in. A skip is not a
+    // failure, and that fact has not changed. `sync-repo.ts` always answers
+    // 0 for one repository.
     const f = fixture()
     f.git.dirty(f.repo)
 
@@ -698,11 +718,13 @@ describe('the exit status', () => {
   })
 
   it('leaves the report exactly as it would be with no failure, plus the one failure line', async () => {
-    // The core claim (PR body, fixtures/divergences.json "exitStatus"): stdout
-    // does not change by one byte; only `failed(...)` on stderr is new. The
-    // test above proves this with `toContain` per section plus an ordering
-    // check; this one proves it with an exact `toBe` of the WHOLE report, the
-    // way "keeps every repository's lines together..." does for a clean run.
+    // This is the core claim (see the PR body and `fixtures/divergences.json`,
+    // key "exitStatus"): stdout does not change by one byte. Only
+    // `failed(...)` on stderr is new. The test above proves this with
+    // `toContain` per section, plus a check of the order. This test proves
+    // the same claim with one exact `toBe` of the whole report. It does
+    // this the way the "keeps every repository's lines together" test
+    // does, for a clean run.
     const f = fixture()
     for (const name of ['aaa', 'bbb', 'ccc']) f.git.createAt(f.sandbox.join('fan'), name)
     const job = async (options: SyncRepoOptions): Promise<number> => {
@@ -736,12 +758,13 @@ describe('the exit status', () => {
   })
 
   it('puts a non-zero status that arrived mid-line on a line of its own too', async () => {
-    // appendFailure's mid-line branch (`puts a failure that arrived mid-line
-    // on a line of its own`, above, under "the fan-out") is exercised there
-    // only through the throw call site. It is the same shared helper at the
-    // new status-check call site, with no branch of its own on which caller
-    // sent it, but this proves the guarantee holds there too rather than
-    // only by the two call sites being textually identical.
+    // The test "puts a failure that arrived mid-line on a line of its own"
+    // (under "the fan-out") covers `appendFailure`'s mid-line branch
+    // already. But it reaches that branch only through the throw call site.
+    // The status-check call site uses the same shared helper. It has no
+    // branch of its own to tell which caller sent it. This test proves the
+    // guarantee also holds at that call site too. It does not rely only on
+    // the fact that the two call sites contain identical text.
     const f = fixture()
     f.git.createAt(f.sandbox.join('fan'), 'a')
     f.git.createAt(f.sandbox.join('fan'), 'b')

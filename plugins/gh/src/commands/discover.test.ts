@@ -1,12 +1,13 @@
 // The `discover` command against what `lib/discover.py` printed.
 //
 // `../discover.test.ts` covers the rule itself, in process, against real
-// repositories. This file is the command line onto it: the ten states
-// `fixtures/python-cli-output.json`'s `discover` rows were captured from,
-// each replayed and compared on stdout, stderr and status.
+// repositories. This file covers the command line layer on top of it. It
+// replays the ten states that `fixtures/python-cli-output.json`'s `discover`
+// rows came from. It compares stdout, stderr and status for each state.
 //
-// `fixtures/divergences-discover.json` is what this deliberately says
-// instead, read by the test rather than described in prose.
+// `fixtures/divergences-discover.json` holds, as data, what this file
+// deliberately says instead. The test reads that file. It does not
+// describe the divergence in prose.
 import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,8 +37,8 @@ const PYTHON = (
 ).discover
 
 interface Divergences {
-  /** A row whose stderr the port words differently, with the port's own
-   *  spelling as a prefix that must still hold. */
+  /** A row where the port's stderr uses different words. The port's own
+   *  spelling must still appear as a prefix. */
   stderr: { name: string; python: string; port: string; why: string }[]
 }
 
@@ -77,9 +78,10 @@ const createOutputPair = (): Output & { stdout: () => string; stderr: () => stri
   }
 }
 
-/** The capture replaced the sandbox it was built in with `<sandbox>`, in both
- *  its logical and its resolved spelling: discovery answers with the path git
- *  reports, and on macOS the temp directory sits behind a /private symlink. */
+/** The capture replaced the sandbox path it ran in with `<sandbox>`, in both
+ *  its logical and its resolved spelling. Discovery answers with the path
+ *  git reports. On macOS, the temp directory sits behind a `/private`
+ *  symlink. */
 const normalise = (text: string, sandbox: Sandbox): string =>
   text.split(realpathSync(sandbox.path)).join('<sandbox>').split(sandbox.path).join('<sandbox>')
 
@@ -201,8 +203,8 @@ it('prints nothing, and exits 0, when git cannot be run at all', async () => {
   const status = await runDiscover([work], { cwd: sandbox.path, env: withoutGit, output })
 
   // "Discovery asks git whether a directory is a checkout, and answers no
-  // when git cannot be run at all." The command publishes that as it found
-  // it; `gh.ts sync` is where a missing git becomes a sentence.
+  // when git cannot be run at all." The command publishes that fact as it
+  // found it. `gh.ts sync` is where a missing git becomes a sentence.
   expect(output.stdout()).toBe(python('missing_git').stdout)
   expect(status).toBe(python('missing_git').status)
 })
@@ -213,12 +215,13 @@ it('refuses a target that is not a directory, on stderr and with exit 1', async 
   expectParity(await runIn(sandbox, [sandbox.join('nope')]), 'not_a_directory')
 })
 
-/** Root can enter a directory with no permissions, so this one case cannot be
- *  produced as root. Split out rather than checked inside the example: a
- *  chmod that root walks straight through makes `discoverRepos` succeed, and
- *  the example then fails at its first parity assertion with "expected 0 to
- *  be 1", which says the refusal was wrong rather than that it could not be
- *  staged. `shepherd-status.test.ts:256` is the same split. */
+/** Root can enter a directory with no permissions, so this test case cannot
+ *  run as root. This suite puts the case in its own test, not inside the
+ *  main example. As root, `chmod` has no effect, so `discoverRepos` still
+ *  succeeds. The example would then fail its first parity check with
+ *  "expected 0 to be 1". That message would wrongly blame the refusal
+ *  logic, not the failed setup. `shepherd-status.test.ts:265` uses the same
+ *  split. */
 const asRoot = process.getuid?.() === 0
 
 it.skipIf(asRoot)('says a target could not be read rather than that it held nothing', async () => {
@@ -230,16 +233,16 @@ it.skipIf(asRoot)('says a target could not be read rather than that it held noth
   try {
     ran = await runIn(sandbox, [blocked])
   } finally {
-    // Restored before anything else can trip over it, including the
-    // sandbox's own cleanup.
+    // This restores permissions before anything else can trip over the
+    // directory, including the sandbox's own cleanup.
     chmodSync(blocked, 0o755)
   }
 
   const row = python('unreadable_target')
   expect(ran.status).toBe(row.status)
   expect(ran.stdout).toBe(row.stdout)
-  // The sentence is the Python's; the reason after the colon is node's own
-  // account of the same errno, which is the one recorded divergence.
+  // The sentence is the Python's own. The reason after the colon is node's
+  // account of the same errno. That is the one recorded divergence.
   const recorded = divergences.stderr.find((entry) => entry.name === 'unreadable_target')
   expect(recorded).toBeDefined()
   expect(row.stderr).toContain(recorded?.python)

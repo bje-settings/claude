@@ -1,15 +1,17 @@
-// The detection and the run, the way `tests/gh/test_lib_install.py` holds
-// them, minus the Yarn and npm rows the pnpm-only ruling retires.
+// This file holds the detection and the run, the way
+// `tests/gh/test_lib_install.py` did. It drops the Yarn and npm rows that the
+// pnpm-only ruling retired.
 //
-// These run the REAL pnpm from PATH rather than a stub binary: the point of
-// the install path is that `pnpm install --frozen-lockfile` reads a lock file
-// pnpm wrote, and a stub would prove neither half. CI has pnpm through
-// `pnpm/action-setup`, which the vitest jobs already run.
+// These tests run the real pnpm from PATH, not a stub binary. The install
+// path exists to prove that `pnpm install --frozen-lockfile` reads a lock
+// file pnpm wrote. A stub would prove neither half. CI provides pnpm through
+// `pnpm/action-setup`, which the vitest jobs already use.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// **Issue #127 deleted the Python this file ports.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from the
+// tree. The file and line references below match commit `cd0d515`, the last
+// commit with these files. Each reference stays because it shows where a rule
+// came from.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -28,8 +30,8 @@ function project() {
   return { sandbox, root }
 }
 
-/** A real repository carrying a real pnpm project, for the arms that need pnpm
- *  to actually install something. */
+/** A real repository that carries a real pnpm project, for the arms that need
+ *  pnpm to actually install something. */
 function installable() {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
@@ -54,9 +56,9 @@ describe('installCommand', () => {
   })
 
   it('selects nothing for a yarn or npm lock file, which are not watched', () => {
-    // The pnpm-only ruling, as the one assertion that says what was dropped:
-    // "a checkout on another package manager is synced as a repository with
-    // no dependencies to install".
+    // This is the one assertion for the pnpm-only ruling. It states what the
+    // ruling dropped: "a checkout on another package manager is synced as a
+    // repository with no dependencies to install".
     const { root } = project()
     writeFileSync(path.join(root, 'yarn.lock'), '\n')
     writeFileSync(path.join(root, 'package-lock.json'), '{}\n')
@@ -107,8 +109,9 @@ describe('installDeps', () => {
 
     expect(result.status).not.toBe(0)
     expect(result.status).not.toBe(NO_LOCKFILE)
-    // The transcript is what the caller's one-line reason is taken from, so it
-    // has to carry pnpm's own words whichever stream pnpm wrote them on.
+    // The caller's one-line reason comes from this transcript. So the
+    // transcript must carry pnpm's own words, whichever stream pnpm wrote
+    // them to.
     expect(result.log).not.toBe('')
   })
 
@@ -120,17 +123,17 @@ describe('installDeps', () => {
 
     const result = await installDeps(root, { ...sandbox.env, PATH: empty })
 
-    // 127 and this wording are what a shell prints for a missing command, and
-    // what the shell version reported, so the caller's one-line reason reads
-    // the same as it always did.
+    // A shell prints 127 and this wording for a missing command. The shell
+    // version reported the same thing. So the caller's one-line reason reads
+    // as it always did.
     expect(result).toEqual({ status: 127, log: 'pnpm: command not found' })
   })
 
   it('reports a package manager that is present and cannot be run, as 126', async () => {
-    // Present but unrunnable is not "command not found": a file on PATH
-    // without the execute bit fails with a different errno, and reporting it
-    // as missing sends the reader looking for an install that is already
-    // there.
+    // A file that exists but cannot run is not "command not found". A file
+    // on PATH without the execute bit fails with a different errno. If the
+    // code reports it as missing, the reader searches for an install that
+    // already exists.
     const { sandbox, root } = project()
     writeFileSync(path.join(root, 'pnpm-lock.yaml'), '{}\n')
     const stubs = sandbox.join('stubs')

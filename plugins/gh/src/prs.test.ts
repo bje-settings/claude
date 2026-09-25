@@ -1,12 +1,13 @@
-// One test per arm, the way `tests/gh/test_lib_prs.py` has one: the commands
-// reach these through the sync report, but a filter that quietly stopped
-// excluding forks would be a force delete of somebody's branch, so each arm is
-// asserted here too.
+// Python's `tests/gh/test_lib_prs.py` has one test per arm. This file follows
+// the same pattern. The commands reach these functions through the sync
+// report. But a broken filter that lets a fork through would force-delete
+// someone's branch. So each arm has its own test here too.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// **Issue #127 deleted the Python this file ports.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from the
+// tree. The file and line references below match commit `cd0d515`, the last
+// commit with these files. Each reference stays because it shows where a rule
+// came from.
 import { describe, expect, it } from 'vitest'
 
 import { hasMatch, isPullRequestRow, namesBranch, ownRows } from './prs.ts'
@@ -20,8 +21,8 @@ describe('ownRows', () => {
   })
 
   it('keeps a row with no isCrossRepository field', () => {
-    // A missing field is not a fork; treating it as one would keep every
-    // branch.
+    // A missing field is not a fork. A filter that reads it as a fork would
+    // keep every branch.
     const row = { headRefName: 'feature', headRefOid: 'abc' }
     expect(ownRows([row])).toEqual([row])
   })
@@ -56,9 +57,9 @@ describe('isPullRequestRow', () => {
   })
 
   it('refuses a number, a string, null and a list', () => {
-    // `gh returned rows that are not pull requests` is the reason the caller
-    // reports for each of these, and reading any of them as an empty window
-    // would be an absence that was never checked.
+    // The caller reports the error `gh returned rows that are not pull
+    // requests` for each of these values. If it treated any of them as an
+    // empty window, it would assume an absence it never checked.
     expect(isPullRequestRow(1)).toBe(false)
     expect(isPullRequestRow('pr')).toBe(false)
     expect(isPullRequestRow(null)).toBe(false)
