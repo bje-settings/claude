@@ -7,14 +7,14 @@
     // release supports rather than the newest the compiler knows.
     "target": "es2023",
     "lib": ["es2023"],
-    // nodenext on both, with explicit `.ts` on every import: that is what
-    // node's own resolver reads when it strips the types, and any other
-    // pairing would let `tsc` accept an import node refuses at launch.
+    // nodenext on both, with explicit `.ts` on every import. That is what
+    // node's own resolver reads when it strips the types. Any other pairing
+    // would let `tsc` accept an import node refuses at launch.
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,
-    // The containment ADR 001 names: `enum`, parameter properties and
-    // namespaces have runtime meaning, so node rejects them with
+    // The containment ADR 001 names: `enum`, parameter properties, and
+    // namespaces have runtime meaning. So node rejects them with
     // ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX at launch. This turns that into a
     // failed gate on a pull request instead.
     "erasableSyntaxOnly": true,
@@ -27,24 +27,29 @@
     "skipLibCheck": true,
     // Only node's own types. Every plugin's shipped TypeScript reaches
     // outside its own tree only through the root lib (RFC 001 decision 12,
-    // ADR 001), so anything else in scope here would be a type that no
-    // shipped file is allowed to reach for.
+    // ADR 001). Anything else in scope here would be a type that no shipped
+    // file may reach for.
     "types": ["node"]
   },
-  // The gate's inputs, named here and discovered the same way in the `types`
-  // job in .github/workflows/ci.yml, which refuses a run that finds no
-  // tracked `.ts` file under them: `tsc` with no inputs is an error, but a
-  // shrinking include set is the quieter failure this repository refuses
-  // everywhere. harness/, lib/ and plugins/*/src do not exist yet (#124,
-  // #125, and the plugin ports); they are named now so those issues do not
-  // have to edit this file. `plugins/*/scripts` is a real exception: #126, the
-  // first plugin port, ships an entry point that lives outside `src/` and
-  // nothing named until now. It sat at `plugins/*/bin` until #185 moved it,
-  // because claude.ai rejects a plugin carrying a top-level `bin/` (RFC 001
-  // decision 16); the root `scripts` entry above is a different directory,
-  // this repository's own tooling. `plugins/*/hooks` is named the same
-  // preemptive way `harness`, `lib` and `plugins/*/src` were above, since no
-  // plugin carries a hook yet.
+  // The gate's inputs are named here. The `types` job in
+  // `.github/workflows/ci.yml` discovers them the same way. That job
+  // refuses a run that finds no tracked `.ts` file under them. `tsc` with
+  // no inputs is an error, but a shrinking include set is the quieter
+  // failure this repository refuses everywhere.
+  //
+  // harness/, lib/, and plugins/*/src do not exist yet (#124, #125, and the
+  // plugin ports). They are named now, so those issues do not have to edit
+  // this file.
+  //
+  // `plugins/*/scripts` is a real exception. #126, the first plugin port,
+  // ships an entry point that lives outside `src/` and was not named until
+  // now. It sat at `plugins/*/bin` until #185 moved it. claude.ai rejects a
+  // plugin that carries a top-level `bin/` (RFC 001 decision 16). The root
+  // `scripts` entry above is a different directory: this repository's own
+  // tooling.
+  //
+  // `plugins/*/hooks` is named the same preemptive way `harness`, `lib`,
+  // and `plugins/*/src` were above, since no plugin carries a hook yet.
   "include": [
     "tests",
     "harness",

@@ -1,8 +1,8 @@
 # @bje: bje Enterprise
 
-Repositories for the **bje** GitHub enterprise, which consolidates several personal orgs so policy
-and automation are managed once. Not an EMU: credentials and directory conventions are covered in
-`~/Code/CLAUDE.md`.
+Repositories for the **bje** GitHub enterprise. It consolidates several personal orgs, so it
+manages policy and automation once. Not an EMU. `~/Code/CLAUDE.md` covers credentials and
+directory conventions.
 
 ## Orgs
 
@@ -19,22 +19,22 @@ and automation are managed once. Not an EMU: credentials and directory conventio
 | `@bork-ltd/`           | `shippo-packing-slips`                                                                          |
 | `@arsenalamerica/`     | Arsenal America; its `.envrc` adds `VERCEL_TEAM_ID` (stowed from `dotfiles-private`)            |
 
-A `bje-bots` org is planned but not created. `REPO-MIGRATION.md` maps which `@brianespinosa` repos
-move to which org; when a repo is transferred, move the local checkout to `@bje/@<org>/`.
+A `bje-bots` org is planned, but does not exist yet. `REPO-MIGRATION.md` maps which
+`@brianespinosa` repos move to which org. When a repo transfers, move the local checkout to
+`@bje/@<org>/`.
 
 ## Configuration as code
 
-`@bje-settings/terraform` manages enterprise and org GitHub settings (org settings, Actions policy,
-custom properties, org rulesets). Change them there, not in the GitHub UI. `bje-co` is not yet
-covered.
+`@bje-settings/terraform` manages enterprise and org GitHub settings (org settings, Actions
+policy, custom properties, org rulesets). Change them there, not in the GitHub UI. Terraform does
+not yet cover `bje-co`.
 
-`terraform` and the personal `brianespinosa/settings` probot config are likely to be replaced by
-`bje-sync` (providers in `bje-sync-providers`). Check before investing in new terraform modules.
+`bje-sync` will likely replace `terraform` and the personal `brianespinosa/settings` probot
+config (providers in `bje-sync-providers`). Check this before you invest in new terraform modules.
 
 ## Enterprise rulesets
 
-Three enterprise-level rulesets apply to every repo in every org. They are not managed in
-terraform.
+Three enterprise-level rulesets apply to every repo in every org. Terraform does not manage them.
 
 | Ruleset (id)              | Effect                                                                                                |
 | ------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -45,5 +45,5 @@ terraform.
 Orgs and repos layer more rulesets on top (e.g. `arsenalamerica/app` adds required status checks
 and a required Preview deployment).
 
-Any repo moved into this enterprise must update its CI to share coverage, since the Code Coverage
+Any repo moved into this enterprise must update its CI to share coverage. The Code Coverage
 ruleset applies to every repo.

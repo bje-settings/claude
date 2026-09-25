@@ -6,21 +6,22 @@ paths:
 
 # Hook Output: additionalContext vs systemMessage
 
-A hook's JSON response can carry two different fields for getting a message to a person, and
-they reach the user in genuinely different ways:
+A hook's JSON response can carry two different fields, to get a message to a person. They reach
+the user in genuinely different ways:
 
 - `additionalContext` (inside `hookSpecificOutput`) is inserted into the model's context only.
-  It is never rendered directly; the model sees it on its next turn and may voice, paraphrase, or
-  ignore it. If the user's first input pre-empts that turn -- they already run the very command
-  the hook would have suggested -- the message can go completely unmentioned.
-- `systemMessage` (top-level in the response) is rendered directly by the Claude Code CLI as
-  visible terminal output, independent of whether the model ever takes a turn.
+  It is never rendered directly. The model sees it on its next turn, and it may voice,
+  paraphrase, or ignore it. The user's first input can pre-empt that turn, when they already run
+  the very command the hook would have suggested. If so, the message can go completely
+  unmentioned.
+- `systemMessage` (top-level in the response) is rendered directly by the Claude Code CLI, as
+  visible terminal output. This happens independent of whether the model ever takes a turn.
 
-A `SessionStart` response may return both in the same payload; they are not exclusive.
+A `SessionStart` response may return both in the same payload. They are not exclusive.
 
-Reach for `systemMessage` for anything that must reach the user no matter what they type next.
-Reach for `additionalContext` for anything meant only to inform the model's reasoning, where being
-paraphrased or silently dropped is acceptable.
+Reach for `systemMessage` for anything that must reach the user, no matter what they type next.
+Reach for `additionalContext` for anything meant only to help the model decide. There, the model
+may paraphrase it, or silently drop it, and that is acceptable.
 
 Reference: [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
 
