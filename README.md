@@ -19,6 +19,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghsync"><code>/gh:sync</code></a>: move a checkout to its default branch, fast-forward it, and prune branches and worktrees whose work has landed. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd"><code>/gh:shepherd</code></a>: merge auto-merge-enabled <code>dependencies</code> PRs one at a time, then rebase and wait on CI between merges. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghissues"><code>gh:issues</code></a>: file, link and triage issues. It checks for duplicates, and sets relationships, milestone, type and priority in their fields. <em>Claude starts it when you ask for an issue. It has no slash command.</em></li>
       </ul>
     </td>
   </tr>

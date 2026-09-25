@@ -278,6 +278,28 @@ stderr. Exit **2** means the command refused the arguments. `sync` answers 2 whe
 answers 1 on the same two states. So a skill that runs both must read each status against its own
 command.
 
+## `gh:issues`
+
+Files, links and triages issues. Claude starts this skill when you ask it to file an issue,
+link issues, or fill in fields on issues that exist. It has no slash command
+(`user-invocable: false`), so other skills can also call it.
+
+| Operation | What it does |
+| --- | --- |
+| Create one issue | Looks for a duplicate first. Then proposes the title, body, type, relationships, milestone and priority, and creates the issue after you confirm. |
+| Create a batch | Proposes one milestone for a shared done condition. Creates the issues in dependency order. |
+| Link | Adds or removes blocked-by, blocking and parent on issues that exist. |
+| Triage | Proposes a type, milestone and priority for each issue with no value, then sets them after you confirm. |
+
+It puts each relationship in its field, not in the body, and it never creates a label. The
+issue type comes from the types that the repository defines. The title type gives the start
+value: `fix` is Bug, `feat` is Feature, and the other types are Task.
+
+Priority is an organization issue field (Urgent, High, Medium, Low). `gh issue` has no flag
+for it, so the skill sets it with GraphQL. A repository that a user owns has no such field.
+The skill then gives the level in its report only. The rubric is in
+[`skills/issues/priority.md`](skills/issues/priority.md).
+
 ## Session start hook
 
 On session start only (not on resume, `/clear`, or compaction), the plugin runs a **report-only**
