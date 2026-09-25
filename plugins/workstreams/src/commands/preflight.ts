@@ -2,8 +2,8 @@
 // rather than halfway through one.
 //
 // CLAUDE.md: "Cross-plugin dependencies, declared through a preflight script
-// rather than vendored." The Python precedent is
-// `plugins/field-test/scripts/lib/preflight.py`, and the idea ported from it
+// rather than vendored." The Python precedent was
+// `plugins/field-test/scripts/lib/preflight.py` (deleted at #138), and the idea ported from it
 // is the registry read: a plugin is present when Claude's installed-plugins
 // file names it under ANY marketplace, because a fork of `gh` under another
 // marketplace is still `gh` to the skill that runs its commands.

@@ -468,7 +468,8 @@ The primitives absorb six issues filed against the plugin being replaced:
 that replaces the behavior it reports, not a fix to be applied to code that is being deleted.
 
 **[Milestone 5: field-test on TypeScript](https://github.com/bje-settings/claude/milestone/5).**
-Last, because `harden` is rebuilt on the review loop W5 owns.
+Last, because `harden` is rebuilt on the review loop W5 owns. **Revised at #138:** F1 and F2 are
+closed as not planned and F3 deletes `field-test` with the Python toolchain (decision 8).
 
 | Key | Issue | Scope |
 |---|---|---|
@@ -553,8 +554,10 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    that removes them merges. *Against:* that is four to seven ruleset edits across the port, and
    each one is a chance to block every pull request in the repository on a check that will never
    report.
-8. **`field-test` is deferred entirely until the `workstreams` primitives exist**, so uv, ruff and
-   pytest coexist with the TypeScript toolchain through milestones 2 to 4. *Against:* it means the
+8. ~~**`field-test` is deferred entirely until the `workstreams` primitives exist**, so uv, ruff and
+   pytest coexist with the TypeScript toolchain through milestones 2 to 4.~~ **Revised at #138:**
+   `field-test` is retired rather than ported, and the Python toolchain goes with it, without
+   waiting on #111; #196 redesigns field-testing as an independent plugin. *Against:* it means the
    Python toolchain's retirement waits on #111, which is a body of work with its own risk, so the
    two-toolchain period is as long as the least predictable milestone in the plan.
 9. **The order is toolchain, then harness, then `mermaid` as a tracer bullet, then `gh` as a parity

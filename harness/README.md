@@ -2,8 +2,8 @@
 
 The shared test harness for the TypeScript side of the repository: an isolated sandbox, an
 in-process `gh` mock, real git repositories, and a spawn helper. It is the port of what the
-Python suite gets from `tests/conftest.py`, and of what it got from `tests/gh/conftest.py` before
-the gh plugin's Python was deleted at #127.
+Python suite got from `tests/conftest.py` and `tests/gh/conftest.py`, deleted with the Python at
+#138 and #127.
 
 It lives at the repository root and is imported **only from test files**, so it never sits inside a
 plugin and never ships (ADR 001). Nothing here has a dependency: node built-ins, plus `vitest` for
@@ -20,8 +20,7 @@ the one cleanup hook.
 | `spawn.ts` | One `scripts/` or `hooks/` entry point run as its own process: argv in, status and streams out (`runScript`), or started with its pipes still open so a test can take the reader away (`startScript`). |
 | `fixtures/` | The tiny programs `spawn.test.ts` runs. Excluded from vitest and from coverage; still linted and type-checked. |
 
-Each module's own claims are asserted in the `*.test.ts` beside it, the way
-`tests/field-test/test_ft_fixtures.py` asserts the remaining Python fixtures'. Without that, a
+Each module's own claims are asserted in the `*.test.ts` beside it. Without that, a
 builder that quietly stopped producing its state would make every test built on it pass for the
 wrong reason.
 

@@ -7,8 +7,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // tests/ holds this repository's own checks, beside their Python
-    // originals until #138 retires those. harness/, lib/, scripts/ and
+    // tests/ holds this repository's own checks. harness/, lib/, scripts/ and
     // plugins/*/src are named now, empty until #124 (harness), #125 (root
     // lib) and the plugin ports land, so those issues do not have to edit
     // this file to add their own tests.

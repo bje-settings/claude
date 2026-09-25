@@ -12,10 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# THESE JOB NAMES ARE A CONTRACT: ruff, pytest, pytest-floor, coverage, vitest,
-# vitest-floor, types and biome here, plus plugin-validate in
-# plugin-validate.yml, are required by the repo ruleset Require CI (22359720),
-# which matches them by exact string. Renaming one does not fail the build: the
+# THESE JOB NAMES ARE A CONTRACT: vitest, vitest-floor, types and biome here,
+# plus plugin-validate in plugin-validate.yml, are required by the repo ruleset
+# Require CI (22359720), which matches them by exact string. Renaming one does not fail the build: the
 # required check simply never reports and every pull request waits forever for
 # something that will not arrive. Keep them short and stable, and put
 # descriptive text in step names, where it helps in logs without becoming
@@ -29,117 +28,6 @@ concurrency:
 # ruleset at #122 on 2026-09-13, after each had reported green on main at
 # least once (ADR 002).
 jobs:
-  # ruff's target-version is py39, so syntax newer than the floor is a lint
-  # failure rather than something a user on the Python macOS ships discovers at
-  # runtime.
-  ruff:
-    name: ruff
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # Pinned to a patch tag, not a major one: setup-uv stopped publishing the
-      # moving vN tag after v7, so `@v10` does not resolve.
-      - uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-      # --locked here and on every uv run below: drift between pyproject.toml and
-      # uv.lock fails the build rather than being silently re-resolved into a set
-      # of versions nobody reviewed.
-      - name: Install the dev toolchain
-        run: uv sync --locked
-      - name: Lint Python
-        run: uv run --locked ruff check .
-      - name: Check Python formatting
-        run: uv run --locked ruff format --check .
-
-  pytest:
-    name: pytest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # 3.x is whatever the newest stable release is, so the suite is exercised
-      # above the floor as well as on it. pytest-floor is the run that proves 3.9.
-      - uses: actions/setup-python@v7
-        id: python
-        with:
-          python-version: "3.x"
-      - uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-      # No version input to pnpm/action-setup: the pnpm version comes from this
-      # repo's own package.json packageManager field, and the action refuses
-      # two sources of the version.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-      - uses: pnpm/action-setup@v6
-      - name: Run the Python suite on the newest 3.x
-        run: uv run --locked --python "${{ steps.python.outputs.python-path }}" pytest -n auto
-
-  pytest-floor:
-    name: pytest-floor
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-      # No version input to pnpm/action-setup: the pnpm version comes from this
-      # repo's own package.json packageManager field, and the action refuses
-      # two sources of the version.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-      - uses: pnpm/action-setup@v6
-      # No --python here on purpose: .python-version pins 3.9, which is what
-      # /usr/bin/python3 is on a Mac with the Command Line Tools, and therefore
-      # what actually runs the plugin scripts for an end user.
-      - name: Run the Python suite on the 3.9 floor
-        run: uv run --locked pytest -n auto
-
-  coverage:
-    name: coverage
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      code-quality: write
-    steps:
-      - uses: actions/checkout@v7
-
-      # As in the pytest jobs: no version input to pnpm/action-setup, because
-      # the pnpm version comes from this repo's own package.json packageManager
-      # field and the action refuses two sources of the version.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-      - uses: pnpm/action-setup@v6
-
-      - uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-
-      # Coverage is pooled across every plugin under plugins/, the repo's own
-      # tooling under scripts/, and tests/coverage_check.py, which decides
-      # whether a build passes and so is measured rather than trusted. The tests
-      # themselves are test code: counting them would inflate the number without
-      # saying anything about how well the code is tested.
-      - name: Run the Python suite under coverage.py
-        run: uv run --locked pytest -n auto --cov --cov-report=xml
-
-      # The runner's own python3, not uv's: the gate is stdlib-only and
-      # 3.9-compatible precisely so a broken dev environment is never what
-      # decides whether a build passes. It fails the job before the upload, with
-      # the per-file numbers and the uncovered lines in the log, so a drop says
-      # which file moved.
-      - name: Enforce the coverage threshold
-        run: python3 tests/coverage_check.py coverage/python.xml 95
-
-      - uses: actions/upload-code-coverage@v1
-        with:
-          file: coverage/python.xml
-          language: Python
-          label: code-coverage/pytest
-
   vitest:
     name: vitest
     runs-on: ubuntu-latest
@@ -171,10 +59,7 @@ jobs:
       - name: Refuse a coverage report that names no file
         run: jq -e 'del(.total) | length > 0' coverage/coverage-summary.json
 
-      # The TypeScript half of the enterprise Code Coverage ruleset's input,
-      # beside the Python upload in the coverage job above. It lives in this
-      # job rather than in coverage because that job is deleted with the
-      # Python toolchain at #138, while this one is not.
+      # The enterprise Code Coverage ruleset's input.
       - uses: actions/upload-code-coverage@v1
         with:
           file: coverage/cobertura-coverage.xml
@@ -210,8 +95,7 @@ jobs:
           fi
       # ADR 001: "a floor nothing executes is a claim." This proves the
       # suite runs on Node 22.18.0, the first release whose type stripping
-      # runs without a flag and writes nothing to stderr, the same property
-      # pytest-floor proves for the Python floor. No coverage report here:
+      # runs without a flag and writes nothing to stderr. No coverage report here:
       # the vitest job above is the coverage gate and the enterprise
       # upload; running vitest twice per CI run would only move that step
       # later.
