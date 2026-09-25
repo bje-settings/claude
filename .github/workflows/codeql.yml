@@ -16,12 +16,25 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+    # ready_for_review is required: a draft marked ready with no new push
+    # sends no synchronize event, so without it that PR is never analyzed.
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     - cron: '36 20 * * 5'
+
+# One run per pull request: a new push cancels the analysis of the previous
+# head. A push or schedule run on main is never cancelled while in progress;
+# a later one waits for it.
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # Draft pull requests are not analyzed. CodeQL is not a required check,
+    # so a skipped run blocks no merge.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     # Runner size impacts CodeQL analysis time. To learn more, please see:
     #   - https://gh.io/recommended-hardware-resources-for-running-codeql
     #   - https://gh.io/supported-runners-and-hardware-resources
