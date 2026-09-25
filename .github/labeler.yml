@@ -1,0 +1,38 @@
+# Config for bje-actions/labeler, which the enterprise ruleset "Labeler" runs on every pull
+# request. Each label is made by hand; the workflow cannot create one.
+#
+# A plugin's label applies to its source, its tests and its flow diagrams.
+# `plugin: field-test` has no rule until the plugin returns (#196).
+
+"plugin: audit":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/audit/**"
+          - "tests/plugins/audit/**"
+          - "docs/flows/audit/**"
+
+"plugin: gh":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/gh/**"
+          - "tests/plugins/gh/**"
+          - "docs/flows/gh/**"
+
+"plugin: mermaid":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/mermaid/**"
+          - "tests/plugins/mermaid/**"
+          - "docs/flows/mermaid/**"
+
+"plugin: typescript7-lsp":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/typescript7-lsp/**"
+
+"plugin: workstreams":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/workstreams/**"
+          - "tests/plugins/workstreams/**"
+          - "docs/flows/workstreams/**"
