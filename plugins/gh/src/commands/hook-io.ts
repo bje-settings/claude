@@ -1,42 +1,45 @@
-// The gh plugin's SessionStart hook: the port of
-// `plugins/gh/hooks/hook-io.py` (deleted at #127), whose docstring is the
-// argument for everything below and is kept here rather than summarised.
+// This file is the gh plugin's SessionStart hook. It is the port of
+// `plugins/gh/hooks/hook-io.py` (deleted at #127). That file's docstring
+// gave the argument for everything below. This comment keeps that argument
+// in full, rather than a summary.
 //
-// A report-only sync check at session start. It never changes a branch,
-// worktree, or working tree: the fan-out branch runs
-// `gh.ts sync --dry-run --no-install`, and the in-repo branch does not touch
+// This hook runs a report-only sync check at session start. It never
+// changes a branch, a worktree, or a working tree. The fan-out branch runs
+// `gh.ts sync --dry-run --no-install`. The in-repo branch does not touch
 // the network at all. The fan-out branch does fetch, which updates
 // remote-tracking refs.
 //
-// It stays silent unless there is something worth acting on, because a hook
-// that speaks every single time stops being read, and it always exits 0 on
-// the `session-start` path, so nothing here can stop a session from starting.
-// The `; exit 0` in `hooks.json` holds the same guarantee for the cases this
-// file is never reached in at all: no node on PATH, or a hooks directory it
-// was never installed into.
+// The hook stays silent unless it has something worth a report. A hook
+// that speaks every time is a hook nobody reads. It always exits 0 on the
+// `session-start` path. Nothing here can stop a session from starting. The
+// `; exit 0` in `hooks.json` gives the same guarantee for the cases where
+// this file never runs at all. This covers two cases: no node on PATH,
+// and a hooks directory where nobody installed this file.
 //
-// Anything else (no subcommand, one that is not a subcommand, or `branch`
-// without exactly two branch names) is the one path that answers with a usage
-// message and exit 2: a typo in `hooks.json` is a wiring mistake, and a hook
-// that swallowed it would be silent about the check it was supposed to run
-// for the life of the install. `hooks.json`'s `; exit 0` absorbs the status,
-// so the diagnostic that actually survives is the usage line on stderr, which
-// Claude Code's debug log keeps. Nothing is written to stdout there, so the
-// hook still contributes no context. stderr is where the other degraded runs
-// leave their trace too, for the same reason: a missing entry point or a
-// missing git is worth one line in the debug log and nothing at all in the
-// session.
+// Anything else answers with a usage message and exit 2. This includes no
+// subcommand, a subcommand this hook does not know, or `branch` without
+// exactly two branch names. A typo in `hooks.json` is a configuration
+// mistake. A hook that swallowed that mistake would stay silent about the
+// check it should run. It would stay silent for the life of the install.
 //
-// **The acceptance of #127 is that this file's stdout is BYTE-IDENTICAL to
-// the Python's on the same repository state.** Its stdout is a JSON document
-// Claude Code parses, so key order, the `", "` and `": "` separators Python's
-// `json.dump` writes, the `\uXXXX` escaping `ensure_ascii` applies, and the
-// trailing newline are all contract; {@link emit} is where that lives, and
+// `hooks.json`'s `; exit 0` absorbs the exit status. The diagnostic that
+// survives is the usage line on stderr, which Claude Code's debug log
+// keeps. Nothing goes to stdout there, so the hook still adds no context.
+// stderr is where the other degraded runs leave their trace too, for the
+// same reason. A missing entry point or a missing git is worth one line in
+// the debug log. It is worth nothing at all in the session.
+//
+// **The acceptance test for #127 is this. This file's stdout must be
+// BYTE-IDENTICAL to the Python's, on the same repository state.** Its
+// stdout is a JSON document that Claude Code parses. The contract covers
+// the key order, the `", "` and `": "` separators that Python's
+// `json.dump` writes, the `\uXXXX` escaping that `ensure_ascii` applies,
+// and the trailing newline. {@link emit} is where that contract lives.
 // `fixtures/hook-output.json` is the only thing the tests compare against.
 //
-// The three subcommands beside `session-start` are kept: they are the seams
-// the tests and a human debugging the hook by hand work at, and retiring them
-// would retire the usage-error contract with them.
+// This file keeps the three subcommands beside `session-start`. They are
+// the seams that the tests use, and that a person can use to debug the
+// hook by hand. To retire them would also retire the usage-error contract.
 import { accessSync, constants, statSync } from 'node:fs'
 import { constants as osConstants } from 'node:os'
 import path from 'node:path'
@@ -57,46 +60,50 @@ import { REPORT } from './sync-repo.ts'
 /** The event name the response names itself with. */
 const HOOK_EVENT = 'SessionStart'
 
-/** Only speak when the fan-out report contains something actionable: a
- *  proposed change ("would ..."), a problem ("✗"), or a degraded run
- *  ("could not ..."). A run whose merge lookups all failed has nothing to
- *  propose, and silence there would read as "everything is in order" rather
- *  than "nothing could be checked". */
+/** This hook speaks only when the fan-out report has something worth a
+ *  mention: a proposed change ("would ..."), a problem ("✗"), or a
+ *  degraded run ("could not ..."). A run whose merge lookups all failed has
+ *  nothing to propose. Silence there would read as "everything is in
+ *  order", not as "nothing could be checked". */
 const ACTIONABLE = ['would ', '✗', 'could not']
 
-/** The hook's own budget is 60 seconds (`hooks.json`), so the fan-out has to
- *  be stopped with time left to say that it was. One fetch per repository is
- *  the slow part, and a directory of repositories against a remote that is
- *  answering slowly is exactly the case that runs over. */
+/** The hook's own budget is 60 seconds (`hooks.json`). The fan-out must
+ *  stop early enough to report that it stopped. One fetch per repository is
+ *  the slow part. A directory of repositories against a slow remote is
+ *  exactly the case that runs over budget. */
 export const SYNC_TIMEOUT = 50
 export const SYNC_TIMEOUT_ENV = 'GH_HOOK_SYNC_TIMEOUT'
 
-/** `setTimeout`'s ceiling. Above it node clamps to 1 ms and fires on the next
- *  tick, so a bound this large would kill the child immediately where
- *  `communicate(timeout=...)` waits. Anything over it is therefore no bound at
- *  all, which is what Python does with `float("inf")`. */
+/** `setTimeout`'s ceiling. Above it, node clamps to 1 ms and fires on the
+ *  next tick. A bound this large would kill the child at once, where
+ *  `communicate(timeout=...)` waits instead. So anything over this ceiling
+ *  is no bound at all. This is what Python does with `float("inf")`. */
 const MAX_TIMER_MS = 2_147_483_647
 
-/** The variables that name a DIFFERENT repository than the one a call is
- *  about, removed from the environment every git call and the one child get.
+/** These are the variables that name a DIFFERENT repository than the one a
+ *  call is about. Every git call, and the one child process, get an
+ *  environment with these variables removed.
  *
- *  `git rev-parse --local-env-vars` is this list, verbatim, plus `GH_REPO`,
- *  which is gh's equivalent. The Python inherited the whole environment,
- *  which was safe only because nothing ran it from inside a git hook; this
- *  hook is reached from a session Claude Code may have started anywhere, and
+ *  `git rev-parse --local-env-vars` gives this list, verbatim, plus
+ *  `GH_REPO`, which is gh's equivalent. The Python inherited the whole
+ *  environment. That was safe only because nothing ran it from inside a
+ *  git hook. This hook can start from a session that Claude Code opened
+ *  anywhere.
+ *
  *  `GIT_DIR` outranks both `cwd` and `git -C` for everything the git
- *  directory holds, so a session started from a `git commit` would be told
- *  about the hook's own repository rather than about the user's checkout.
- *  `lib/README.md` records this under "Decisions not taken" as the helper
- *  that reopens at this port, and says the same thing from the other side:
- *  naming an environment is not scrubbing it, and scrubbing belongs to the
- *  caller that knows which keys displace its target.
+ *  directory holds. So a session started from a `git commit` would learn
+ *  about the hook's own repository, not about the user's checkout.
+ *  `lib/README.md` records this under "Decisions not taken", as the helper
+ *  that this port reopens. It also says the same thing from the other
+ *  side: to name an environment variable is not to scrub it. The scrub
+ *  itself is the job of the caller that knows which keys displace its
+ *  target.
  *
- *  What is deliberately NOT removed is git's configuration discovery
+ *  This code deliberately does NOT remove git's configuration discovery
  *  (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, `GIT_CEILING_DIRECTORIES`),
- *  `HOME` and `PATH`: those choose which git and which configuration answer,
- *  which is the session's business and not this hook's, and taking them would
- *  change what the user's own `git` would have said. */
+ *  nor `HOME`, nor `PATH`. These choose which git and which configuration
+ *  answer. That choice is the session's business, not this hook's. To
+ *  remove them would change what the user's own `git` would have said. */
 const REPOSITORY_ENV_KEYS = [
   'GIT_ALTERNATE_OBJECT_DIRECTORIES',
   'GIT_CONFIG',
@@ -116,52 +123,55 @@ const REPOSITORY_ENV_KEYS = [
   'GH_REPO',
 ]
 
-/** `env` without the keys that displace the repository a call names. A copy,
- *  never the object it was given. */
+/** `env` without the keys that displace the repository a call names. This
+ *  is a copy, never the object it was given. */
 export const scrubRepositoryEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
   const scrubbed: NodeJS.ProcessEnv = { ...env }
   for (const key of REPOSITORY_ENV_KEYS) delete scrubbed[key]
   return scrubbed
 }
 
-/** The word a lookup `sync` could not make opens with, in `sync-repo.ts`'s
- *  own vocabulary. Not a new dependency on its prose: it is {@link ACTIONABLE}'s
- *  third marker, which has decided whether this hook speaks at all since the
- *  Python. The trailing space is carried so the opening is the whole word and
- *  not the start of a longer one; it is matched with `startsWith` against a
- *  note line, never searched for inside one. */
+/** This is the word that opens a line about a lookup that `sync` could not
+ *  make, in `sync-repo.ts`'s own vocabulary. This is not a new dependency
+ *  on that text: it is {@link ACTIONABLE}'s third marker. That marker has
+ *  decided whether this hook speaks at all, since the Python version. The
+ *  trailing space makes sure the match is the whole word, not the start of
+ *  a longer one. The code matches it with `startsWith` against a note
+ *  line. It never searches for the word inside a line. */
 const COULD_NOT = 'could not '
 
-/** What one repository is worth saying about its checkout, all of it read from
- *  local refs (#110 ruling 4). */
+/** What is worth saying about one repository's checkout. All of it comes
+ *  from local refs (#110 ruling 4). */
 export interface BranchStatus {
   /** The branch the session started on. */
   readonly current: string
   /** The repository's default branch, as far as the clone knows locally. */
   readonly target: string
   /** Commits the cached `origin/<target>` has that the local `<target>` does
-   *  not, or `null` where that pair could not be counted. Zero and `null` both
-   *  write no line and are deliberately different: only one of them is an
-   *  answer. */
+   *  not. This is `null` where that pair could not be counted. Zero and
+   *  `null` both write no line, but they are deliberately different: only
+   *  one of them is an answer. */
   readonly behind: number | null
-  /** Local branches whose upstream is gone or that are already merged into
-   *  `<target>`, never `<target>` and never the current branch; `null` where
-   *  any of the listings behind it failed. */
+  /** Local branches whose upstream is gone, or that are already merged into
+   *  `<target>`. This never includes `<target>` itself or the current
+   *  branch. It is `null` where any of the listings behind it failed. */
   readonly candidates: number | null
 }
 
-/** One form or the other. Written out rather than suffixed, because the two
- *  call sites below need `commits` and `branches`. */
+/** One form or the other. This code writes both forms out. It does not
+ *  add a suffix, because the two call sites below need `commits` and
+ *  `branches`. */
 const plural = (count: number, one: string, many: string): string => (count === 1 ? one : many)
 
 /**
- * The count lines a status carries, in order, and none for a count of zero.
+ * The count lines that a status carries, in order. A count of zero gets no
+ * line.
  *
- * Both counts are as of the last fetch, which the closing line of the message
- * says once rather than each line saying it again. `candidates` is the word
- * on purpose: ancestry cannot see a squash merge, and it is `/gh:sync` that
- * decides with the merged pull request list, so this message must not claim
- * that any of them will go.
+ * Both counts are as of the last fetch. The closing line of the message
+ * says this once, rather than each line saying it again. The word
+ * "candidates" is deliberate: ancestry cannot see a squash merge. Only
+ * `/gh:sync` decides that, with the merged pull request list. So this
+ * message must not claim that any of them will go.
  */
 export const countLines = (status: BranchStatus): string[] => {
   const lines: string[] = []
@@ -179,26 +189,32 @@ export const countLines = (status: BranchStatus): string[] => {
 }
 
 /**
- * The in-repo message: what is true of this checkout, then what acts on it.
+ * This is the in-repo message. It states what is true of this checkout,
+ * then what acts on it.
  *
- * Deterministic and computed here, never a request for the agent to ask
- * something (#110). The same text goes out as `systemMessage`, where a user
- * reads it as the agent speaking, so an imperative addressed to the agent
- * reads to them as a question they have to answer.
+ * This message is deterministic and computed here. It is never a request
+ * that asks the agent something (#110). The same text goes out as
+ * `systemMessage`, where a user reads it as the agent speaking. An
+ * imperative addressed to the agent would read to that user as a question
+ * they must answer.
  *
- * The first line is the Python's, unchanged. What follows it is a count line
- * per count that is above zero, and two closing lines that name the dry run
- * and the command, as facts, once each. With neither count above zero the
- * message is those three lines.
+ * The first line is the Python's own line, unchanged. After it comes one
+ * count line for each count above zero. Then come two closing lines that
+ * state the dry run and the command, as facts, once each. When neither
+ * count is above zero, the message is only those three lines.
  *
- * The closing lines name what each command is for and claim no outcome for
- * this checkout. `/gh:sync` has three answers for the default branch, not one:
- * it fast-forwards it, CREATES it where no local branch of that name exists
- * (which is the state of the captured `origin-head-wins` row), or refuses it
- * as diverged (`sync-repo.ts`, "needs a manual merge"). The Python hedged the
- * fast-forward inside a question to the agent; stating it flatly would be a
- * claim this message cannot check locally, and `--dry-run`, named in the line
- * above, is what reports the answer for this repository.
+ * The closing lines name what each command is for. They claim no outcome
+ * for this checkout. `/gh:sync` has three possible answers for the default
+ * branch, not one. It can fast-forward the branch.
+ *
+ * It can CREATE the branch, where no local branch of that name exists.
+ * This is the state that the captured `origin-head-wins` row shows. Or it
+ * can refuse
+ * the branch as diverged (`sync-repo.ts`, "needs a manual merge"). The
+ * Python version hedged the fast-forward case inside a question to the
+ * agent. To state it flatly here would be a claim this message cannot
+ * check locally. `--dry-run`, named in the line above, is what reports the
+ * real answer for this repository.
  */
 export const branchMessageText = (status: BranchStatus): string =>
   `${[
@@ -209,11 +225,12 @@ export const branchMessageText = (status: BranchStatus): string =>
   ].join('\n')}
 `
 
-/** What the fan-out found, one number per bucket. The buckets are not a
- *  partition and the line does not read as one: a repository can be both
- *  skipped and not fully checked. */
+/** What the fan-out found, one number per bucket. The buckets do not
+ *  partition the repositories. The summary line does not read as if they
+ *  do: a repository can be both skipped and not fully checked. */
 export interface FanOutSummary {
-  /** Sections in the report, which is one per repository the fan-out ran. */
+  /** Sections in the report. One section exists per repository the fan-out
+   *  ran. */
   readonly checked: number
   readonly upstream: number
   readonly prunable: number
@@ -221,28 +238,32 @@ export interface FanOutSummary {
   readonly unchecked: number
 }
 
-/** The indent every line of a repository's section carries, and the heading
- *  above them does not. {@link REPORT}'s three marks open with it. */
+/** The indent that every line of a repository's section carries. The
+ *  heading above them does not carry it. {@link REPORT}'s three marks open
+ *  with this indent. */
 const INDENT = '  '
 
 /**
- * A report's repository sections, each as its own lines.
+ * This function splits a report into its repository sections. Each section
+ * is its own group of lines.
  *
- * Structural rather than a match on any heading: a line at the left margin
- * opens a section and the indented lines under it belong to it. The first line
- * is dropped by position because it is the fan-out's own header, which
- * `sync.ts` writes and no repository does.
+ * This code reads structure, not a match on any heading. A line at the
+ * left margin opens a section. The indented lines under it belong to that
+ * section. The first line is dropped by position: it is the fan-out's own
+ * header. `sync.ts` writes that header, and no repository does.
  *
- * `split('\n')` and not Python's line boundaries: this text is what `sync`
- * wrote, and `sync` ends every line with exactly `\n`. A checkout directory
- * whose name holds a `\u2028` would be split by `splitlines` where the report
- * itself is not, which would invent a section.
+ * This code uses `split('\n')`, not Python's line boundaries. `sync` wrote
+ * this text, and `sync` ends every line with exactly `\n`. A checkout
+ * directory whose name holds a `\u2028` character would split under
+ * `splitlines`. The report itself does not split there. That mismatch
+ * would invent a section that does not exist.
  *
- * A directory whose name begins with two spaces would be read as a mark line
- * of the section above it. Its lines would then be counted against the
- * previous repository, and the count of repositories would be one short. It is
- * left unhandled: the alternative is matching the heading against the paths
- * discovery found, which is a second reading of the same text.
+ * A directory whose name begins with two spaces would be read as a mark
+ * line of the section above it. Its lines would then count against the
+ * previous repository. The repository count would then be one short. This
+ * code leaves that case unhandled. The alternative is to match the heading
+ * against the paths that discovery found. That approach reads the same
+ * text a second time.
  */
 const sectionsOf = (report: string): string[][] => {
   const sections: string[][] = []
@@ -267,15 +288,17 @@ const hasNote = (lines: readonly string[], openings: readonly string[]): boolean
   lines.some((line) => openings.some((opening) => line.startsWith(`${REPORT.note}${opening}`)))
 
 /**
- * The counts for one report, read off the marks `sync-repo.ts` exports.
+ * The counts for one report. This code reads them off the marks that
+ * `sync-repo.ts` exports.
  *
- * The hook's own child always runs `--dry-run`, so the vocabulary counted is
- * the `would ...` half of it. A bad mark that is not a skip is a repository
- * something went wrong for, which includes the line `sync.ts` writes for a job
- * that threw or answered non-zero (#81): that run is counted here rather than
- * disappearing between the report and the summary above it. A note that opens
- * with `could not` is counted too, so a repository that fell back to ancestry
- * alone is never summarised as all clear.
+ * The hook's own child always runs `--dry-run`, so this code counts the
+ * `would ...` half of the vocabulary. A bad mark that is not a skip means
+ * something went wrong for that repository. This includes the line that
+ * `sync.ts` writes for a job that threw an error or answered non-zero
+ * (#81). That run is counted here, rather than lost between the report and
+ * the summary above it. A note that opens with `could not` is counted too.
+ * This way, a repository that fell back to ancestry alone is never
+ * summarised as all clear.
  */
 export const fanOutSummary = (report: string): FanOutSummary => {
   const sections = sectionsOf(report)
@@ -293,16 +316,19 @@ export const fanOutSummary = (report: string): FanOutSummary => {
 }
 
 /**
- * The one line the fan-out message leads with, or `null` for a report this
- * found no repository in.
+ * The one line that opens the fan-out message, or `null` when this function
+ * finds no repository in the report.
  *
  * A report only reaches here once {@link ACTIONABLE} has found a line worth
- * speaking about, so it is never empty; a count of zero sections over a body
- * that has content means the body is not shaped the way the counting assumes
- * (`sectionsOf`'s heading and indent) rather than that nothing was checked. A
- * line of zeros above a report that says otherwise is a confident wrong
- * statement, and this message exists to make statements a reader can trust.
- * The report itself still goes out whole, unsummarised.
+ * a mention. So the report body is never empty. A count of zero sections
+ * over a body that has content means one thing. The body's shape does not
+ * match what the counting logic assumes (`sectionsOf`'s heading and
+ * indent). It does not mean that nothing was checked.
+ *
+ * A line of zeros above a report that says otherwise would be a
+ * confident, wrong statement. This message exists so a reader can trust
+ * its statements. The report itself still goes out whole, without a
+ * summary.
  */
 export const summaryLine = (counts: FanOutSummary): string | null =>
   counts.checked === 0
@@ -312,13 +338,17 @@ export const summaryLine = (counts: FanOutSummary): string | null =>
       `${counts.skipped} skipped, ${counts.unchecked} not fully checked.`
 
 /**
- * The fan-out message: the summary, the report, and what acts on it.
+ * The fan-out message: the summary, the report, and what acts on the
+ * report.
  *
- * `summary` is `null` where there is nothing to summarise: a body this hook
- * wrote itself rather than one `sync` reported (a bound that fired, or a run
- * that left no report at all), or a report no repository could be counted in.
- * Those count no repositories, and a line of zeros above them would be a claim
- * about a check that never happened, or that was not read.
+ * `summary` is `null` when there is nothing to summarise. This covers two
+ * cases. The first case is a body that this hook wrote itself, not one
+ * that `sync` reported. That body can be a bound that fired, or a run
+ * that left no report at all.
+ *
+ * The second case is a report where no repository could be counted.
+ * Neither case counts any repository. A line of zeros above them would
+ * falsely claim a check that never happened, or one that was not read.
  */
 export const reportMessageText = (report: string, summary: string | null): string =>
   `A read-only /gh:sync check ran for the repositories below. No branch, worktree, or working tree
@@ -332,19 +362,21 @@ ${report}
 export const USAGE = 'usage: hook-io.ts {session-start|cwd|branch <current> <default>|report}\n'
 
 /**
- * One string as Python's `json.dumps` writes it with `ensure_ascii=True`.
+ * This function writes one string the way Python's `json.dumps` writes it,
+ * with `ensure_ascii=True`.
  *
- * `JSON.stringify` already escapes the same control characters with the same
- * short forms (`\b \f \n \r \t`, `\u00XX` for the rest), and the same quote
- * and backslash. What it does not do is escape anything above `~`, which is
- * the whole of `ensure_ascii`: Python's `ESCAPE_ASCII` is `[^ -~]`, so `\x7f`
- * goes too, and an astral character is escaped as the two surrogates it is
- * made of, which is exactly what escaping each UTF-16 code unit produces.
+ * `JSON.stringify` already escapes the same control characters with the
+ * same short forms (`\b \f \n \r \t`, `\u00XX` for the rest). It uses the
+ * same quote and backslash too. What it does not do is escape anything
+ * above `~`. That is the whole of what `ensure_ascii` does. Python's
+ * `ESCAPE_ASCII` is `[^ -~]`, so `\x7f` is escaped too. An astral character
+ * is escaped as the two surrogates it is made of. That is exactly the
+ * result when code escapes each UTF-16 code unit.
  *
- * The class below is Python's `ESCAPE_ASCII` verbatim. Applied to what
- * `JSON.stringify` has already written, it matches only what is left above
- * `~`: every control character is by then a `\uXXXX` or a short form, in
- * ASCII.
+ * The character class below is Python's `ESCAPE_ASCII`, verbatim. This
+ * code applies it to what `JSON.stringify` has already written. At that
+ * point, it matches only what is left above `~`. Every control character
+ * is by then already a `\uXXXX` form or a short form, in ASCII.
  */
 const asciiJson = (text: string): string =>
   JSON.stringify(text).replace(
@@ -353,36 +385,40 @@ const asciiJson = (text: string): string =>
   )
 
 /**
- * One SessionStart hook response, byte for byte.
+ * This function builds one SessionStart hook response, byte for byte.
  *
- * `additionalContext` is model-context-only: it surfaces only once the model
- * takes a turn, and a user whose first input pre-empts that turn (running the
- * very command this hook would have suggested) never sees it at all.
- * `systemMessage` is rendered directly by the CLI regardless of whether the
- * model ever takes a turn, so the same text goes out both ways
- * (`.claude/rules/path-hooks.md`).
+ * `additionalContext` reaches the model's context only. It surfaces only
+ * once the model takes a turn. A user's first input can pre-empt that
+ * turn: they may already run the command this hook would have suggested.
+ * That user never sees it at all. `systemMessage` is rendered directly by
+ * the CLI,
+ * whether or not the model ever takes a turn. So this code sends the same
+ * text both ways (`.claude/rules/path-hooks.md`).
  *
- * Written out rather than handed to `JSON.stringify`, because the key order,
- * the `", "` between members and the `": "` after a key are `json.dump`'s
- * defaults and `JSON.stringify` writes none of them. The trailing newline is
- * the Python's own `sys.stdout.write("\n")`.
+ * This code writes the response out directly. It does not hand it to
+ * `JSON.stringify`. The key order, the `", "` between members, and the
+ * `": "` after a key are `json.dump`'s defaults. `JSON.stringify` writes
+ * none of them. The trailing newline matches the Python's own
+ * `sys.stdout.write("\n")`.
  */
 export const emit = (context: string): string =>
   `{"systemMessage": ${asciiJson(context)}, "hookSpecificOutput": ` +
   `{"hookEventName": ${asciiJson(HOOK_EVENT)}, "additionalContext": ${asciiJson(context)}}}\n`
 
 /**
- * The `cwd` of a SessionStart payload, or `""` when there is not one to read.
+ * The `cwd` field of a SessionStart payload, or `""` when there is none to
+ * read.
  *
- * A malformed payload is not an error worth failing on: the caller falls back
- * to its own working directory, and the hook must never block a session. A
- * cwd that is not a string is treated as absent rather than coerced, because
- * the only thing done with it is a directory test, where a number would be
- * read as something else entirely.
+ * A malformed payload is not an error worth a failure. The caller falls
+ * back to its own working directory. The hook must never block a session
+ * over this. A `cwd` that is not a string is treated as absent, not
+ * coerced. The only thing this code does with it is a directory test.
+ * There, a number would be read as something else entirely.
  *
- * `Array.isArray` is the half `typeof` cannot answer: Python's guard is
- * `isinstance(payload, dict)`, and a JSON array decodes to a `list`, which is
- * not a dict, while `typeof [] === 'object'`.
+ * `Array.isArray` answers the half of the question that `typeof` cannot.
+ * Python's guard is `isinstance(payload, dict)`. A JSON array decodes to a
+ * Python `list`, which is not a dict, but `typeof [] === 'object'` in
+ * JavaScript.
  */
 export const payloadCwd = (text: string): string => {
   let payload: unknown
@@ -397,37 +433,42 @@ export const payloadCwd = (text: string): string => {
 }
 
 /**
- * `float(raw)` as Python reads it, or `null` where Python raises ValueError.
+ * This code reads `float(raw)` the way Python reads it, or answers `null`
+ * where Python raises ValueError.
  *
- * Not `Number(raw)`, which answers for four inputs Python refuses or reads
- * differently and which the captured `syncTimeout` table names one by one:
- * `""` is 0 rather than an error, `"0x10"` is 16 rather than an error,
- * `"1_000"` is an error rather than 1000, and `"inf"` is an error rather than
- * infinity. A bound misread in either direction decides how long a session
- * start waits, so the grammar is written out.
+ * This is not `Number(raw)`, which answers differently for four inputs,
+ * each named in the captured `syncTimeout` table. `Number("")` is 0, not
+ * an error. `Number("0x10")` is 16, not an error. `Number("1_000")` is an
+ * error, not 1000. `Number("inf")` is an error, not infinity. A bound
+ * misread in either direction decides how long a session start waits, so
+ * this code writes out its own grammar.
  *
- * Underscores are Python's digit separators and may sit only between digits,
- * which is why they are validated here and stripped afterwards rather than
- * stripped first.
+ * Underscores are Python's digit separators. They may sit only between
+ * digits. This is why the code validates them here and strips them
+ * afterward. It does not strip them first.
  */
 const PYTHON_SPECIAL = /^[+-]?(?:inf(?:inity)?|nan)$/i
 const PYTHON_DECIMAL =
   /^[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$/
 
 /**
- * What `float()` skips at each end, which is not what `str.strip()` strips and
- * not what `trim()` trims.
+ * What `float()` skips at each end. This is not what `str.strip()` strips,
+ * and not what JavaScript's `trim()` trims.
  *
- * Three sets are in play in this file and no two of them are the same.
- * `float()`'s is `str.strip()`'s (below) MINUS the four information separators,
- * which `float` refuses: `float("\u001c5")` raises where `"\u001c5".strip()`
- * is `"5"`. JavaScript's `trim()` is `float()`'s MINUS NEL PLUS `\ufeff`, so
- * `trim()` diverges in both directions at once: `float("\u00855")` is 5.0
- * where `trim` leaves the NEL and the grammar below refuses the string, and
- * `float("\ufeff5")` raises where `trim` eats the byte-order mark and the
- * grammar accepts it. Both readings decide how long a session start waits for
- * the fan-out, and a byte-order mark is what a pasted or generated value
- * carries, so the set is written out rather than borrowed.
+ * Three sets of whitespace characters are at work in this file, and no two
+ * are the same. `float()`'s set is `str.strip()`'s set (below), minus the
+ * four information separators. `float` refuses those separators:
+ * `float("\u001c5")` raises an error, where `"\u001c5".strip()` gives
+ * `"5"`. JavaScript's `trim()` set is `float()`'s set, minus NEL, plus
+ * `\ufeff`. So `trim()` diverges from `float()` in both directions at
+ * once. `float("\u00855")` gives 5.0, where `trim` leaves the NEL in place
+ * and the grammar below refuses the string.
+ *
+ * `float("\ufeff5")` raises an error, where `trim` eats the byte-order
+ * mark and the grammar below accepts the string. Both readings decide how
+ * long a session start waits for the fan-out. A byte-order mark is what a
+ * pasted or generated value often carries. So this code writes out its own
+ * set. It does not borrow `trim()`'s set.
  */
 const PYTHON_FLOAT_SPACE_CLASS =
   '\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000'
@@ -447,14 +488,16 @@ export const pythonFloat = (raw: string): number | null => {
 }
 
 /**
- * The fan-out's budget in seconds: {@link SYNC_TIMEOUT}, or the override.
+ * The fan-out's budget in seconds: {@link SYNC_TIMEOUT}, or the value from
+ * the override.
  *
- * The environment override exists so a test can reach the timeout arm without
- * waiting out the real bound. Anything unparseable or not positive is the
- * default rather than an error: this is a hook, and a stray value in the
- * environment must not be the thing that decides a session. `NaN > 0` and
- * `-inf > 0` are both false, so both land on the default, which is what
- * Python does with the same comparison.
+ * The environment override exists so a test can reach the timeout arm and
+ * not wait out the real bound. Anything unparseable, or not positive,
+ * falls back to the default. It does not become an error. This is a hook,
+ * and a stray value in the environment must never be the thing
+ * that decides a session. `NaN > 0` and `-inf > 0` are both false, so both
+ * fall back to the default. This is what Python does with the same
+ * comparison.
  */
 export const syncTimeout = (env: NodeJS.ProcessEnv): number => {
   const value = pythonFloat(env[SYNC_TIMEOUT_ENV] ?? '')
@@ -463,17 +506,18 @@ export const syncTimeout = (env: NodeJS.ProcessEnv): number => {
 }
 
 /**
- * `format(value, "g")`, for the one number the timeout line prints.
+ * This is `format(value, "g")`, for the one number the timeout line
+ * prints.
  *
- * C's `%g` with precision 6, which is what Python's `g` presentation type is:
- * exponent notation when the exponent is below -4 or at least 6, fixed
- * notation otherwise, trailing zeros removed either way, and an exponent
- * written with at least two digits and always a sign. `50` rather than
- * `50.000000`, and `1.23457e+06` rather than `1234567`.
+ * This matches C's `%g` with precision 6, which is Python's `g`
+ * presentation type. It uses exponent notation when the exponent is below
+ * -4 or at least 6, and fixed notation otherwise. Either way, it removes
+ * trailing zeros. An exponent always gets at least two digits and a sign.
+ * So this writes `50`, not `50.000000`, and `1.23457e+06`, not `1234567`.
  *
- * Only a positive number reaches this, because {@link syncTimeout} answers
- * with one; infinity is the one non-finite value it can answer with, through
- * an override of `inf`.
+ * Only a positive number reaches this function, because
+ * {@link syncTimeout} answers with one. Infinity is the one non-finite
+ * value it can answer with, through an override of `inf`.
  */
 const trimZeros = (text: string): string =>
   text.replace(/(\.[0-9]*[1-9])0+$/, '$1').replace(/\.0*$/, '')
@@ -491,14 +535,16 @@ export const formatG = (value: number): string => {
 }
 
 /**
- * The status Python's `returncode` carries for a child that has ended: its
- * exit code, or the negative of the signal number that killed it.
+ * The status that Python's `returncode` carries for a child that has
+ * ended. This is its exit code, or the negative of the signal number that
+ * killed it.
  *
- * node reports the two in separate fields and names the signal rather than
- * numbering it, so the number comes from `os.constants.signals`. The last arm
- * cannot arrive from a `close` event, which always carries one of the two;
- * it is the answer for a child that neither exited nor was signalled, and it
- * is reachable only by calling this function with both.
+ * node reports the two in separate fields, and it names the signal. It
+ * does not number the signal. So the number comes from
+ * `os.constants.signals`. The last arm can never arrive from a `close`
+ * event, which always carries one of the two values. That arm answers for
+ * a child that neither exited nor received a signal. Code reaches that arm
+ * only when a caller sets both arguments.
  */
 export const returnCode = (status: number | null, signal: NodeJS.Signals | null): number => {
   if (status !== null) return status
@@ -506,40 +552,44 @@ export const returnCode = (status: number | null, signal: NodeJS.Signals | null)
   return 0
 }
 
-/** The characters Python counts as whitespace and as line boundaries above
- *  the ones JavaScript agrees about. The file, group and record separators
- *  are both: Python splits lines on them and strips them. The unit separator
- *  and NEL are added where each belongs. Written as a string and composed
- *  with `new RegExp` rather than put in a literal, because biome's
- *  `suspicious/noControlCharactersInRegex` refuses the literal form, and the
- *  rule is right about the usual case: these are here on purpose and the
- *  answer is to say so, not to silence the rule. */
+/** The characters that Python counts as whitespace and as line
+ *  boundaries, above the ones JavaScript agrees on. The file, group, and
+ *  record separators are both: Python splits lines on them and strips
+ *  them. The unit separator and NEL are added where each belongs. This
+ *  code writes them as a string and builds the regex with `new RegExp`.
+ *  It does not use a literal, because biome's
+ *  `suspicious/noControlCharactersInRegex` refuses the literal form. The
+ *  rule is right about the usual case. These characters are here on
+ *  purpose, and the answer is to say so, not to silence the rule. */
 const SEPARATORS = '\\u001c-\\u001e'
 
-/** Python's line boundaries for `str.splitlines`, which is what `last_line`
- *  split on: `\r\n` as one, then the five other ASCII ones and the three
- *  above them (`\u0085`, `\u2028`, `\u2029`). Splitting on `\n` alone would
- *  keep a carriage return inside a line, and the text this reads is a child's
- *  stderr, where git and gh write their progress with one. `\u001f` is
- *  whitespace to Python and not a line boundary, so it is absent here and
- *  present below. */
+/** Python's line boundaries, for `str.splitlines`, which is what
+ *  `last_line` split on. These are `\r\n` as one boundary, then the five
+ *  other ASCII boundaries, and the three above them (`\u0085`, `\u2028`,
+ *  `\u2029`). To split on `\n` alone would keep a carriage return inside
+ *  a line. The
+ *  text this reads is a child's stderr, where git and gh write their
+ *  progress with a carriage return. `\u001f` is whitespace to Python, not
+ *  a line boundary, so it is absent here and present below instead. */
 const PYTHON_LINES = new RegExp(`\\r\\n|[\\n\\r\\v\\f${SEPARATORS}\\u0085\\u2028\\u2029]`)
 
-/** Python's `str.strip()` set. `str.isspace()` is JavaScript's whitespace plus
- *  the four information separators and NEL, and minus `\ufeff`, so `trim()`
- *  reads a line holding only a file separator as having something in it where
- *  Python reads it as blank. Composed from {@link PYTHON_FLOAT_SPACE_CLASS}
- *  rather than written out a second time: the only difference between what
- *  `strip()` strips and what `float()` skips is the four separators and the
- *  unit separator beside them. */
+/** Python's `str.strip()` set. Python's `str.isspace()` set is
+ *  JavaScript's whitespace set, plus the four information separators and
+ *  NEL, and minus `\ufeff`. So `trim()` reads a line holding only a file
+ *  separator as having content, where Python reads that line as blank.
+ *  This code builds the set from {@link PYTHON_FLOAT_SPACE_CLASS}, rather
+ *  than writing it out a second time. The only difference between what
+ *  `strip()` strips and what `float()` skips is the four separators plus
+ *  the unit separator beside them. */
 const PYTHON_SPACE_CLASS = `${PYTHON_FLOAT_SPACE_CLASS}${SEPARATORS}\\u001f`
 const PYTHON_SPACE = new RegExp(`^[${PYTHON_SPACE_CLASS}]+|[${PYTHON_SPACE_CLASS}]+$`, 'g')
 
 /** The last line of `text` with anything in it, stripped, or `""`. */
 export const lastLine = (text: string): string => {
-  // Reversed rather than walked by index: an index read is `string |
-  // undefined` under `noUncheckedIndexedAccess`, and the fallback would be an
-  // arm `split` can never produce.
+  // This code reverses the array. It does not walk the array by index. An
+  // index read gives `string | undefined` under
+  // `noUncheckedIndexedAccess`. The fallback for that type would be a
+  // branch that `split` can never actually produce.
   for (const line of text.split(PYTHON_LINES).reverse()) {
     const trimmed = line.replace(PYTHON_SPACE, '')
     if (trimmed !== '') return trimmed
@@ -547,8 +597,8 @@ export const lastLine = (text: string): string => {
   return ''
 }
 
-/** Whether `target` is a directory, reading every reason it is not as the
- *  same answer, the way `os.path.isdir` does. */
+/** Whether `target` is a directory. This reads every reason it is not as
+ *  the same answer, the way `os.path.isdir` does. */
 const isDirectory = (target: string): boolean => {
   try {
     return statSync(target).isDirectory()
@@ -568,28 +618,34 @@ const isReadable = (target: string): boolean => {
 }
 
 /**
- * `tool` on `env.PATH`, or `null`, as `shutil.which` answers it.
+ * This finds `tool` on `env.PATH`, or answers `null`, the way
+ * `shutil.which` answers it.
  *
- * A PATH walk and not a run: the Python asks `shutil.which("git")` and the
- * answer decides which of the hook's two branches is taken, so a `git` that
- * is on PATH and not executable has to be "not on PATH" here as it is there.
- * `discover.ts`'s `gitUnavailable` asks the other question, by running git,
- * and gives a different answer for the same state.
+ * This is a PATH walk, not a run. The Python asks `shutil.which("git")`,
+ * and the answer decides which of the hook's two branches runs. So a
+ * `git` that is on PATH but not executable must answer "not on PATH" here
+ * too, as it does there. `discover.ts`'s `gitUnavailable` asks a different
+ * question: it runs git. It gives a different answer for the same state.
  *
- * A directory is not a match, for the reason `harness/sandbox.ts` gives: the
- * executable bit on a directory is its traverse bit, so a PATH entry holding
- * one named `git` would otherwise be found as git.
+ * A directory is not a match, for the reason `harness/sandbox.ts` gives.
+ * The executable bit on a directory is its traverse bit. So without this
+ * check, a PATH entry that holds a directory named `git` would be found as
+ * if it were git.
  */
 export const which = (tool: string, env: NodeJS.ProcessEnv): string | null => {
   const listed = env.PATH ?? ''
-  // `shutil.which`'s own `if not path: return None`. Without it the empty
-  // string splits to one entry that is the empty string, `path.join('', tool)`
-  // is the bare name, and `accessSync` resolves it against the process's own
-  // working directory: a session opened in a directory holding an executable
-  // named `git` would be told git is on PATH where the Python said it was not,
-  // and the silent arm would become a "could not" line. An empty entry INSIDE
-  // a non-empty PATH is a different question and is left alone, because
-  // `shutil.which` looks a bare name up in the working directory there too.
+  // This is `shutil.which`'s own `if not path: return None`. Without this
+  // check, the empty string splits into one entry, itself empty.
+  // `path.join('', tool)` then gives the bare name, and `accessSync`
+  // resolves it against the process's own working directory.
+  //
+  // A session opened in a directory that holds an executable named `git`
+  // would then be told git is on PATH. The Python said it was not on
+  // PATH. The silent arm would then become a "could not" line. An empty
+  // entry
+  // INSIDE a non-empty PATH is a different question, left alone here,
+  // because `shutil.which` also looks a bare name up in the working
+  // directory in that case.
   if (listed === '') return null
   for (const directory of listed.split(path.delimiter)) {
     const candidate = path.join(directory, tool)
@@ -597,72 +653,81 @@ export const which = (tool: string, env: NodeJS.ProcessEnv): string | null => {
       accessSync(candidate, constants.X_OK)
       if (!statSync(candidate).isDirectory()) return candidate
     } catch {
-      // Not here, or not executable. Keep walking.
+      // Not here, or not executable. Check the next directory.
     }
   }
   return null
 }
 
-/** The edges the hook is built from: everything it reads that is not a file
- *  and not git. */
+/** The edges the hook is built from: everything it reads that is not a
+ *  file and not git. */
 export interface HookEdges {
-  /** This process's own working directory, as a call rather than a value:
-   *  `os.getcwd()` raises on a directory that has been deleted, and the
-   *  outermost handler in the entry point is where that is answered. It is
-   *  only asked for when the payload has no usable `cwd`. */
+  /** This process's own working directory, as a call rather than a fixed
+   *  value. `os.getcwd()` raises an error on a directory that has been
+   *  deleted. The outermost handler in the entry point answers that error.
+   *  This function is called only when the payload has no usable `cwd`. */
   readonly cwd: () => string
   readonly env: NodeJS.ProcessEnv
-  /** Everything on stdin, decoded. A call rather than a value because two of
-   *  the four subcommands never read it and `--help`-shaped runs must not
-   *  block on a descriptor nobody writes (round 5's finding on #156). */
+  /** Everything on stdin, decoded. This is a call rather than a fixed
+   *  value, because two of the four subcommands never read it. A
+   *  `--help`-shaped run must not block on a descriptor that nobody writes
+   *  to (round 5's finding on #156). */
   readonly stdin: () => Promise<string>
   readonly output: Output
-  /** The runner the one bounded child is started with. Injected so the
-   *  timeout arm is reachable without waiting out a real bound; git is never
-   *  injected and never mocked (ADR 001). */
+  /** The runner that starts the one bounded child. This is injected so the
+   *  timeout arm is reachable, and a test need not wait out a real time
+   *  bound. git is never injected and never mocked (ADR 001). */
   readonly run: Runner
-  /** The interpreter the child is started with: this process's own, as the
-   *  Python used `sys.executable` and for the same reason. */
+  /** The interpreter that starts the child: this process's own
+   *  interpreter, the way the Python used `sys.executable`, and for the
+   *  same reason. */
   readonly nodePath: string
-  /** `<plugin root>/scripts/gh.ts`, derived once by the entry point. */
+  /** `<plugin root>/scripts/gh.ts`, computed once by the entry point. */
   readonly entry: string
 }
 
 /**
  * What the fan-out produced.
  *
- * `report` is `sync`'s own, whole. `degraded` is a sentence this hook wrote
- * about a run that produced none. The two are kept apart as data rather than
- * told apart later by reading the text back, because the hook is the one that
- * wrote the second and already knows which it has; it is what decides whether
- * there is anything to summarise.
+ * `report` is `sync`'s own report, whole. `degraded` is a sentence this
+ * hook wrote itself, about a run that produced no report. This code keeps
+ * the two apart as data. It does not read the text back later to tell them
+ * apart. The hook wrote the `degraded` sentence itself, so it
+ * already knows which kind it has. That distinction is what decides
+ * whether there is anything to summarise.
  */
 type SyncOutcome =
   | { readonly kind: 'report'; readonly text: string }
   | { readonly kind: 'degraded'; readonly text: string }
 
-/** What the fan-out is worth saying, or `null` when it is worth nothing. */
+/** What the fan-out is worth as a report, or `null` when it is worth
+ *  nothing. */
 const FAILED_LINE = (detail: string): string => `could not run the sync check: ${detail}`
 
 const TIMEOUT_LINE = (seconds: string, count: number, cwd: string): string =>
   `could not finish the sync check within ${seconds} s (${count} repositories under ${cwd})`
 
 /**
- * How many repositories the fan-out was working through.
+ * How many repositories the fan-out covered.
  *
- * The same discovery `sync` does, so the number in the timeout message is the
- * one it was working from. Any failure answers 0: this is one detail inside a
- * message about a different failure, and it must not become a second one.
- * `hook-io.py:264` catches every exception discovery can raise for that;
- * discovery mostly answers with an outcome here instead, and every outcome
- * but `ok` is the same zero. NOT every one: `src/discover.ts` calls
- * `realpathSync` unguarded after its own directory test in BOTH of its two
- * places, for the target and again for each subdirectory it walks, and
- * node's throws where Python's non-strict `os.path.realpath` never did, so a
- * directory removed between the two calls still escapes as a rejection. The
- * guard belongs at discovery's edge rather than here, at both sites, and is
- * recorded as a follow-up on `src/discover.ts`; the outermost handler in
- * `hooks/hook-io.ts` keeps the session safe meanwhile.
+ * This is the same discovery that `sync` does, so the number in the
+ * timeout message is the one `sync` used. Any failure answers 0. This
+ * number is one detail inside a message about a different failure, and it
+ * must not become a second failure. `hook-io.py:264` caught every
+ * exception that discovery could raise, for that reason. Discovery mostly
+ * answers with an outcome here instead, and every outcome except `ok`
+ * gives the same zero.
+ *
+ * NOT every case gives zero cleanly, though. `src/discover.ts` calls
+ * `realpathSync` without a guard, after its own directory test. It does
+ * this in both of its two places: for the target, and again for each
+ * subdirectory it walks. node throws there, where Python's non-strict
+ * `os.path.realpath` never did. So a directory removed between the two
+ * calls still escapes as a rejection.
+ *
+ * The guard belongs at discovery's own edge, at both sites, not here.
+ * This is recorded as a follow-up on `src/discover.ts`. Meanwhile, the
+ * outermost handler in `hooks/hook-io.ts` keeps the session safe.
  */
 export const repoCount = async (cwd: string, env: NodeJS.ProcessEnv): Promise<number> => {
   const discovered = await discoverRepos(cwd, env)
@@ -672,21 +737,23 @@ export const repoCount = async (cwd: string, env: NodeJS.ProcessEnv): Promise<nu
 /**
  * The dry-run fan-out's report, or a one-line account of a degraded run.
  *
- * One bounded child, started detached by {@link Runner} so the bound can be
- * made to stick: `sync` fans out in this one process now, but it still runs a
- * fetch per repository, and killing the child alone would leave those running
- * against the network long after the session moved on. That is the port of
- * `hook-io.py`'s `Popen(start_new_session=True)` plus `kill_group`, and
- * `lib/process.ts` carries both.
+ * This runs one bounded child, started detached by {@link Runner}, so the
+ * time bound can be made to stick. `sync` now fans out inside this one
+ * process, but it still runs one fetch per repository. If only the child
+ * were killed, those fetches would continue against the network long
+ * after the session moved on. This is the port of `hook-io.py`'s
+ * `Popen(start_new_session=True)` plus `kill_group`. `lib/process.ts`
+ * carries both parts.
  *
- * **The child is NOT given a working directory.** The Python's `Popen`
- * inherits the hook's, and the target reaches the child as its positional
- * argument instead. Naming the target as the child's `cwd` would read as the
- * more explicit form and is a behaviour change: a directory that cannot be
- * entered (mode 000, which `fixtures/hook-output.json` captures) would then
- * be a child that could not be started and a hook that says nothing, where
- * today the child runs, refuses the directory in its own words, and the
- * session gets that sentence.
+ * **The child does NOT get a working directory.** The Python's `Popen`
+ * inherited the hook's own working directory, and the target reached the
+ * child as its positional argument instead. To name the target as the
+ * child's `cwd` would read as the more explicit form, but it is a
+ * behaviour change. A directory that cannot be entered (mode 000, which
+ * `fixtures/hook-output.json` captures) would then give a child that could
+ * not start, and a hook that says nothing. Today, instead, the child runs,
+ * refuses the directory in its own words, and the session gets that
+ * sentence.
  */
 const runSync = async (cwd: string, edges: HookEdges): Promise<SyncOutcome | null> => {
   const env = scrubRepositoryEnv(edges.env)
@@ -697,14 +764,15 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<SyncOutcome | nul
     [edges.entry, 'sync', '--dry-run', '--no-install', cwd],
     {
       env,
-      // Above the timer ceiling there is no bound at all, which is what
+      // Above the timer ceiling, there is no bound at all. This is what
       // `communicate(timeout=float("inf"))` does.
       ...(milliseconds > MAX_TIMER_MS ? {} : { timeoutMs: milliseconds }),
     },
   )
   if (result.startFailure !== null) {
-    // The entry point was readable and the child still would not start: a
-    // partial install, or a machine out of processes. Nothing to say.
+    // The entry point was readable, and the child still would not start.
+    // This can mean a partial install, or a machine out of processes.
+    // There is nothing to say about it here.
     return null
   }
   if (result.timedOut) {
@@ -714,49 +782,62 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<SyncOutcome | nul
     }
   }
   if (result.status !== 0) {
-    // The child's own diagnosis, kept whole where the debug log will have it;
-    // the session gets one line, because a person reads that one.
+    // This is the child's own diagnosis, kept whole for the debug log.
+    // The session gets only one line, because a person reads that line.
     const text = result.stderr
     edges.output.err.write(text.endsWith('\n') || text === '' ? text : `${text}\n`)
-    // #81 (found while reading this function for round 7 layer 2): `sync` now
-    // answers a non-zero status when one of its own repositories failed,
-    // AFTER writing the whole report to stdout, exactly as it does for a
-    // clean run. Falling straight to `FAILED_LINE` here would throw that
-    // report away and say something strictly less true: "could not run the
-    // sync check" about a check that ran to completion and found a real
-    // problem. So a non-zero status with a report still on stdout is read the
-    // same way a zero status is; only a run that left NO report at all (a
-    // crash before a byte reached stdout, or a refusal, whose stdout is empty
-    // by `lib/envelope.ts`'s own contract) falls through to the line below.
+    // #81 (found when this function was read for round 7 layer 2).
+    // `sync` now answers a non-zero status when one of its own
+    // repositories fails. It answers this way AFTER it writes the whole
+    // report to stdout, exactly as it does for a clean run.
     //
-    // `result.signal === null` is also required (round 7 layer 2, review
-    // round 1 finding): `result.timedOut` above only catches the hook's OWN
-    // bound firing, so a non-null signal reaching here is an EXTERNAL kill
-    // (an OOM kill, a stray `SIGTERM`), not `sync` answering `failed(...)`.
-    // On the single-repository path `sync` hands `syncRepo` the real stdout
-    // directly, and `syncRepo` writes its report line by line across several
-    // awaited git and `gh` calls, so a kill mid-run can leave a genuinely
-    // partial report with no closing statement, on stdout, with a non-zero
-    // status: exactly what `result.stdout !== ''` alone cannot tell apart
-    // from a complete `failed(...)` report. A throw inside `syncRepo` cannot
-    // produce this: `sync.ts`'s `try`/`catch` around the whole job always
-    // appends a closing failure line before returning `failed(...)`, so a
-    // signal death is the case this gate is FOR.
+    // To fall straight to `FAILED_LINE` here would throw that report
+    // away. It would also say something strictly less true: "could not
+    // run the sync check". That check ran to completion and found a real
+    // problem. So this code reads a non-zero status with a report still
+    // on stdout the same way it reads a zero status.
     //
-    // It is not the only way there (review round 2 finding): `lib/streams.ts`
-    // `createWriter` re-throws anything on the stream that is not `EPIPE`
-    // (`ENOSPC`, `EIO`), and that throw fires from a stream `error` event,
-    // outside `sync.ts`'s `try`/`catch` regardless of nesting. A real write
-    // failure on the child's actively-drained stdout pipe would crash it the
-    // same way, with `signal` still `null`. That is narrower than a signal
-    // death (a disk error, not a reader going away) and the re-throw itself
-    // lives in `lib/streams.ts`, a lower layer this gate cannot see into;
-    // recorded here rather than guarded against.
+    // Only a run that left NO report at all falls through to the line
+    // below. That means a crash before a byte reached stdout, or a
+    // refusal, whose stdout is empty by `lib/envelope.ts`'s own contract.
+    //
+    // `result.signal === null` is also required here (round 7 layer 2,
+    // review round 1 finding). `result.timedOut` above only catches the
+    // case where the hook's OWN bound fires. So a non-null signal that
+    // reaches here is an EXTERNAL kill, such as an OOM kill or a stray
+    // `SIGTERM`. It does not mean `sync` answered `failed(...)`.
+    //
+    // On the single-repository path, `sync` hands `syncRepo` the real
+    // stdout directly. `syncRepo` writes its report line by line, across
+    // several awaited git and `gh` calls. So a kill mid-run can leave a
+    // genuinely partial report on stdout, with no closing statement and a
+    // non-zero status. `result.stdout !== ''` alone cannot tell that
+    // partial report apart from a complete `failed(...)` report.
+    //
+    // A throw inside `syncRepo` cannot produce this partial state.
+    // `sync.ts`'s `try`/`catch` around the whole job always appends a
+    // closing failure line before it returns `failed(...)`. So a signal
+    // death is exactly the case this gate exists FOR.
+    //
+    // A signal death is not the only way to reach this state (review
+    // round 2 finding). `lib/streams.ts`'s `createWriter` re-throws
+    // anything on the stream that is not `EPIPE` (such as `ENOSPC` or
+    // `EIO`). That throw fires from a stream `error` event. It fires
+    // outside `sync.ts`'s `try`/`catch`, at any depth of nested blocks. A
+    // real write failure on the child's actively-drained stdout pipe would
+    // crash it the same way, with `signal` still `null`. That case is
+    // narrower than a signal death: it is a disk error, not a reader that
+    // leaves.
+    //
+    // The re-throw itself lives in `lib/streams.ts`, a lower layer that
+    // this gate cannot see into. This comment records that case. It does
+    // not guard against it.
     if (result.signal === null && result.stdout !== '') {
       return { kind: 'report', text: result.stdout }
     }
-    // `or`, not `??`: a child that failed without a word leaves `""` here,
-    // and `""` is what the exit-status fallback exists for.
+    // This code uses `||`, not `??`. A child that fails without a word
+    // leaves `""` here, and `""` is exactly what the exit-status fallback
+    // exists for.
     const detail = lastLine(text) || `exit status ${returnCode(result.status, result.signal)}`
     return { kind: 'degraded', text: FAILED_LINE(detail) }
   }
@@ -764,11 +845,12 @@ const runSync = async (cwd: string, edges: HookEdges): Promise<SyncOutcome | nul
 }
 
 /**
- * The fan-out message, or `null` when the dry run said nothing actionable.
+ * The fan-out message, or `null` when the dry run found nothing to report.
  *
- * A degraded run goes back through this same path rather than around it:
- * "could not" is already the vocabulary `sync` reports a lookup it could not
- * make in, and {@link ACTIONABLE} already treats it as worth saying.
+ * A degraded run goes back through this same path, rather than around it.
+ * "could not" is already the vocabulary that `sync` uses to report a
+ * lookup it could not make. {@link ACTIONABLE} already treats that
+ * vocabulary as worth a mention.
  */
 const reportMessage = async (cwd: string, edges: HookEdges): Promise<string | null> => {
   if (!isReadable(edges.entry)) {
@@ -786,17 +868,19 @@ const reportMessage = async (cwd: string, edges: HookEdges): Promise<string | nu
 }
 
 /**
- * The repository's default branch, resolved without going to the network.
+ * The repository's default branch. This code resolves it without a trip
+ * to the network.
  *
- * The cached `origin/HEAD` first, and where a clone never fetched one, the
- * first of `main` and `master` that exists locally. Asking the remote would
- * mean a round trip on every session start, which is exactly what the in-repo
- * branch of this hook exists to avoid.
+ * This code checks the cached `origin/HEAD` first. Where a clone never
+ * fetched one, it falls back to the first of `main` and `master` that
+ * exists locally. To ask the remote would mean a round trip on every
+ * session start. That round trip is exactly what the in-repo branch of
+ * this hook exists to avoid.
  */
 const localDefaultBranch = async (options: RepoOptions): Promise<string | null> => {
   const ref = await defaultBranch(options)
-  // `if ref:` in the Python: a ref read as the empty string is no ref, which
-  // is the fold `lib/git.ts`'s `defaultBranch` already does.
+  // This is Python's `if ref:`. A ref read as the empty string counts as
+  // no ref. `lib/git.ts`'s `defaultBranch` already folds that case in.
   if (ref !== null) return ref
   for (const candidate of ['main', 'master']) {
     if (await hasRef(`refs/heads/${candidate}`, options)) return candidate
@@ -804,47 +888,51 @@ const localDefaultBranch = async (options: RepoOptions): Promise<string | null> 
   return null
 }
 
-/** The two namespaces the count lookups name in full. `--merged main` would
- *  take a tag named `main` as happily as the branch, and the default branch
- *  here is a local branch name or nothing. */
+/** The two namespaces that the count lookups name in full. `--merged main`
+ *  would accept a tag named `main` just as happily as the branch. The
+ *  default branch here is always a local branch name, or nothing. */
 const HEADS = 'refs/heads/'
 const REMOTES = 'refs/remotes/'
 const ORIGIN = `${REMOTES}origin/`
 
-/** The field separator the local branch listing is read back with. git refuses
- *  an ASCII control character in a ref name (`git check-ref-format`), so a tab
- *  cannot appear in either field and the split is unambiguous. */
+/** The field separator that the local branch listing is read back with.
+ *  git refuses an ASCII control character in a ref name (`git
+ *  check-ref-format`), so a tab cannot appear in either field. The split
+ *  is unambiguous. */
 const FIELD = '\t'
 
 /**
  * A branch's own name, stripped of `refs/heads/` mechanically.
  *
- * NOT `%(refname:short)`, which is the shortest UNAMBIGUOUS name: a tag named
- * after a branch makes git answer `heads/<name>` for the branch, and the names
- * this is compared against (`currentBranch`, `localDefaultBranch`) are plain.
- * The default branch would then survive both deletions below and be reported
- * as a prunable candidate, in a repository whose only oddity is a release tag.
- * `lstrip=2` removes exactly two components whatever else exists, so
- * `refs/heads/a/b/c` is still `a/b/c`.
+ * This is NOT `%(refname:short)`, which gives the shortest UNAMBIGUOUS
+ * name. A tag named after a branch makes git answer `heads/<name>` for the
+ * branch instead. But the names this is compared against (`currentBranch`,
+ * `localDefaultBranch`) are plain names. So the default branch would
+ * survive both deletion checks below. It would get reported as a prunable
+ * candidate, in a repository whose only oddity is a release tag.
+ * `lstrip=2` removes exactly two path components, whatever else exists, so
+ * `refs/heads/a/b/c` becomes `a/b/c`.
  */
 const SHORT = '%(refname:lstrip=2)'
 
 /**
- * `git rev-list --count`'s answer, or `null` for anything that is not one.
+ * `git rev-list --count`'s answer, or `null` for anything that is not a
+ * count.
  *
- * `null` is git failing, which is how a missing ref on either end of the range
- * arrives (status 128). The empty string is the other shape a `git` on PATH
- * can take, exiting 0 with nothing to say, and it is not a count: reading it
- * as zero would report "up to date" about a question that was never answered.
+ * `null` means git failed. This is how a missing ref, on either end of the
+ * range, arrives (status 128). The empty string is the other shape a
+ * `git` on PATH can take: it exits 0 with nothing to say. That empty
+ * string is not a count. Reading it as zero would report "up to date"
+ * about a question that was never answered.
  */
 export const parseCount = (out: string | null): number | null => {
   if (out === null || !/^[0-9]+$/.test(out)) return null
   return Number(out)
 }
 
-/** How far the local default branch is behind the CACHED `origin/<target>`.
- *  No fetch: the closing line of the message says the number is as of the last
- *  one (#110 ruling 4). */
+/** How far the local default branch is behind the CACHED
+ *  `origin/<target>`. This runs no fetch. The closing line of the message
+ *  says the number is as of the last fetch (#110 ruling 4). */
 const behindCount = async (target: string, options: RepoOptions): Promise<number | null> =>
   parseCount(
     await gitOut(['rev-list', '--count', `${HEADS}${target}..${ORIGIN}${target}`], options),
@@ -853,35 +941,42 @@ const behindCount = async (target: string, options: RepoOptions): Promise<number
 /**
  * The prunable candidates among `locals`, or `null` when a listing failed.
  *
- * Pure, and given all three listings rather than fetching them, so that every
- * way this can end is reachable without arranging a git that fails one call
- * and answers the next two.
+ * This function is pure. It takes all three listings as arguments. It
+ * does not fetch them itself. So every way this function can end is
+ * reachable. A test needs no git that fails one call and answers correctly
+ * on the next two.
  *
- * `locals` is `name<tab>upstream` per local branch, `refs` is
- * `ref<tab>objectname` for every ref an upstream can name that exists, and
- * `merged` is the local branches already reachable from the default branch. A
- * branch counts when its upstream is configured and no longer exists, or when
- * its work is already in the default branch. Neither the default branch nor
- * the branch the session is on ever counts: one is where the work lands and
- * the other is where the session is.
+ * `locals` is `name<tab>upstream`, per local branch. `refs` is
+ * `ref<tab>objectname`, for every ref that an upstream can name and that
+ * exists. `merged` is the local branches already reachable from the
+ * default branch.
  *
- * `refs` spans both namespaces because `%(upstream)` does: a branch set to
- * track another LOCAL branch answers `refs/heads/<name>`, and a set built from
- * the remote-tracking refs alone would call that live upstream gone and count
- * every such branch as a candidate.
+ * A branch counts as a candidate in two cases. The first is when its
+ * upstream is configured and no longer exists. The second is when its
+ * work is already in the default branch. Neither the default branch nor
+ * the branch the session is on ever counts. One of them is where the work
+ * lands, and the other is where the session is.
  *
- * A branch sitting on the cached `origin/<target>`'s own commit does not
- * count either. `/gh:sync` keeps exactly that branch, for a reason it can tell
- * locally (`sync-repo.ts`, "already at origin/<default>, nothing to prune"),
- * and a candidate the command would refuse is not one. The comparison is
- * against the CACHED remote tip rather than the local branch's, because that
- * is the commit `/gh:sync` compares against once it has fetched: a branch
- * resting on a local default that is itself behind is one the command
- * fast-forwards past and then deletes.
+ * `refs` spans both namespaces, because `%(upstream)` does too. A branch
+ * set to track another LOCAL branch answers `refs/heads/<name>`. A set
+ * built from the remote-tracking refs alone would call that live upstream
+ * gone. It would then count every such branch as a candidate.
  *
- * `null` when ANY listing failed rather than a count of what the rest hold:
- * the line states a number of candidates, and a number assembled from a
- * partial answer understates what it says it counted.
+ * A branch that sits on the cached `origin/<target>`'s own commit does not
+ * count either. `/gh:sync` keeps exactly that branch, for a reason it can
+ * tell locally (`sync-repo.ts`, "already at origin/<default>, nothing to
+ * prune"). A candidate that the command would refuse to prune is not a
+ * real candidate.
+ *
+ * The comparison uses the CACHED remote tip, not the local branch's tip.
+ * That cached tip is the commit `/gh:sync` compares against once it has
+ * fetched. A branch that rests on a local default that is itself behind
+ * is one the command fast-forwards past, then deletes.
+ *
+ * This function answers `null` when ANY listing failed, rather than a
+ * count of what the rest hold. The line states a number of candidates. A
+ * number assembled from a partial answer would understate what it claims
+ * to count.
  */
 export const countCandidates = (
   locals: readonly string[] | null,
@@ -895,8 +990,9 @@ export const countCandidates = (
   const tips = new Map<string, string>()
   for (const line of refs) {
     const separator = line.indexOf(FIELD)
-    // Read as a ref with no commit rather than as a ref named after the whole
-    // line: it still says the ref exists, which is what `existing` is for.
+    // This code reads a line with no separator as a ref with no commit.
+    // It is not a ref named after the whole line. It still says the ref
+    // exists, which is what `existing` is for.
     const ref = separator === -1 ? line : line.slice(0, separator)
     existing.add(ref)
     if (separator !== -1) tips.set(ref, line.slice(separator + 1))
@@ -904,9 +1000,9 @@ export const countCandidates = (
   const candidates = new Set(merged)
   for (const line of locals) {
     const separator = line.indexOf(FIELD)
-    // No separator at all is a line this format cannot produce; it is read as
-    // a branch with no upstream rather than as a branch named after the whole
-    // line with an upstream of nothing.
+    // A line with no separator at all is a line this format cannot
+    // produce. This code reads it as a branch with no upstream. It is not
+    // a branch named after the whole line with an empty upstream.
     if (separator === -1) continue
     const upstream = line.slice(separator + 1)
     if (upstream !== '' && !existing.has(upstream)) candidates.add(line.slice(0, separator))
@@ -914,8 +1010,8 @@ export const countCandidates = (
   candidates.delete(current)
   candidates.delete(target)
   const tip = tips.get(`${ORIGIN}${target}`)
-  // No cached remote tip is no comparison to make, not a tip of `undefined`
-  // that every unread branch would match.
+  // No cached remote tip means there is no comparison to make. It is not
+  // a tip of `undefined` that every unread branch would match.
   if (tip !== undefined) {
     for (const branch of candidates) {
       if (tips.get(`${HEADS}${branch}`) === tip) candidates.delete(branch)
@@ -934,14 +1030,15 @@ const prunableCandidates = async (
     ['for-each-ref', `--format=${SHORT}${FIELD}%(upstream)`, HEADS],
     options,
   )
-  // Asked as refs rather than as `%(upstream:track)`, whose `[gone]` is a
-  // translated string: a session in a French locale would report no gone
-  // upstreams at all, silently.
+  // This code asks for refs, not for `%(upstream:track)`, whose `[gone]`
+  // text is translated. A session in a French locale would silently report
+  // no gone upstreams at all.
   //
-  // Both namespaces in one listing, because an upstream may name either. git
-  // writes `refs/heads/<name>` for a branch tracking a local branch, and a
-  // set of remote-tracking refs alone would not hold it. The commit comes
-  // along so the tip comparison above needs no second call.
+  // This listing covers both namespaces in one call, because an upstream
+  // may name either one. git writes `refs/heads/<name>` for a branch that
+  // tracks a local branch. A set of remote-tracking refs alone would not
+  // hold that ref. The commit comes along too, so the tip comparison above
+  // needs no second call.
   const refs = await gitLines(
     ['for-each-ref', `--format=%(refname)${FIELD}%(objectname)`, HEADS, REMOTES],
     options,
@@ -954,23 +1051,27 @@ const prunableCandidates = async (
 }
 
 /**
- * The in-repo message, or `null` when there is nothing worth saying.
+ * The in-repo message, or `null` when there is nothing worth a report.
  *
- * Nothing to say on a detached HEAD (there is no branch to compare), on a
- * repository whose default branch cannot be resolved locally, or when the
- * session already started on the default branch. Being off the default branch
- * is itself the status worth one line, so the counts are gathered only once
- * that is established: on the silent paths no lookup runs at all.
+ * There is nothing to say on a detached HEAD, because there is no branch
+ * to compare. The same is true for a repository whose default branch
+ * cannot be resolved locally. It is also true when the session already
+ * started on the default branch. The fact that the session is off the
+ * default branch is itself worth one line. So this code gathers the
+ * counts only once that fact is established. On the silent paths, no
+ * lookup runs at all.
  *
- * Every one of them is local, and every one of them may answer with nothing
- * (#110 ruling 4). A count that could not be read leaves its line out; neither
- * a failing git, a missing ref, an empty answer nor an answer that is not a
- * number can throw here or cost the message its first line.
+ * Every lookup here is local, and every one may answer with nothing (#110
+ * ruling 4). A count that could not be read simply leaves its line out.
+ * This is true of a failing git, a missing ref, an empty answer, or a
+ * non-numeric answer. None of these can throw here, or cost the message
+ * its first line.
  */
 const branchMessage = async (options: RepoOptions): Promise<string | null> => {
   const current = await currentBranch(options)
-  // `if not current or current == "HEAD"`: `null` here is git failing and
-  // git answering with nothing at all, which `lib/git.ts` folds together.
+  // This is Python's `if not current or current == "HEAD"`. `null` here
+  // covers both git failing and git answering with nothing at all.
+  // `lib/git.ts` folds those two cases together.
   if (current === null || current === 'HEAD') return null
   const target = await localDefaultBranch(options)
   if (target === null || target === current) return null
@@ -983,25 +1084,28 @@ const branchMessage = async (options: RepoOptions): Promise<string | null> => {
 }
 
 /**
- * Everything on stdin, or `""` when it cannot be read at all.
+ * Everything on stdin, or `""` when this cannot read it at all.
  *
- * `hook-io.py:144` guards the READ and not only the parse: the `except
+ * `hook-io.py:144` guards the READ, not only the parse. The `except
  * (ValueError, AttributeError, OSError, UnicodeDecodeError)` sits around
- * `json.load(sys.stdin)`, and `OSError` there is the descriptor failing
- * rather than the document being malformed. A hook whose stdin is something
- * a read fails on answered `""` there and went on to run the whole check
- * from `os.getcwd()`; without this it loses the check to a rejection
- * instead. The state to construct it with is a descriptor 0 opened for
- * writing, which `hook-io.ts session-start 0>/dev/null` leaves and a read of
- * answers `EBADF`. A descriptor on a directory is `EISDIR` on Linux and
- * reads as zero bytes on macOS, so it reaches the same fallback by the other
- * route and is not the example to reason from.
+ * `json.load(sys.stdin)`. There, `OSError` means the descriptor failed,
+ * not that the document was malformed. A hook whose stdin fails a read
+ * answered `""` there, and still ran the whole check from `os.getcwd()`.
+ * Without this guard, the hook would lose the whole check to a rejection
+ * instead.
  *
- * `report` deliberately does not come through here: the Python's
- * `sys.stdin.read()` in that arm is not guarded the way the payload read is,
- * and there is no fallback report to write. It is still inside `main`'s
- * `except BrokenPipeError` and the outermost handler, as this arm is inside
- * the entry point's, so a failure there is an account on stderr and exit 0.
+ * One way to build this state is a descriptor 0 opened for writing.
+ * `hook-io.ts session-start 0>/dev/null` leaves that state, and a read of
+ * it answers `EBADF`. A descriptor on a directory answers `EISDIR` on
+ * Linux, and reads as zero bytes on macOS. So it reaches the same fallback
+ * by a different route, and it is not the example to reason from.
+ *
+ * `report` deliberately does not come through here. The Python's
+ * `sys.stdin.read()`, in that arm, is not guarded the way the payload read
+ * is, and it has no fallback report to write. That arm still sits inside
+ * `main`'s `except BrokenPipeError` and the outermost handler, the way
+ * this arm sits inside the entry point's handler. So a failure there
+ * still ends in an account on stderr and exit 0.
  */
 const readPayload = async (edges: HookEdges): Promise<string> => {
   try {
@@ -1011,26 +1115,29 @@ const readPayload = async (edges: HookEdges): Promise<string> => {
   }
 }
 
-/** The whole hook: pick the branch the payload's directory calls for, or stay
- *  quiet. */
+/** The whole hook. It picks the branch that the payload's directory calls
+ *  for, or it stays quiet. */
 const sessionStart = async (edges: HookEdges): Promise<string | null> => {
   const stated = payloadCwd(await readPayload(edges))
-  // `if not cwd or not os.path.isdir(cwd)`: the empty string is a payload
-  // with no usable cwd, not a directory named "".
+  // This is Python's `if not cwd or not os.path.isdir(cwd)`. The empty
+  // string here means a payload with no usable cwd, not a directory
+  // named "".
   const cwd = stated !== '' && isDirectory(stated) ? stated : edges.cwd()
   if (which('git', edges.env) === null) {
-    // Both branches need git: the in-repo check cannot ask what branch this
-    // is, and `sync` refuses outright. Neither is worth a line of a session's
-    // context, and both are worth one in the debug log.
+    // Both branches need git. The in-repo check cannot ask what branch
+    // this is, and `sync` refuses outright. Neither answer is worth a
+    // line in a session's context, but both are worth one line in the
+    // debug log.
     edges.output.err.write('git is not on PATH\n')
     return null
   }
   const options = { cwd, env: scrubRepositoryEnv(edges.env) }
-  // `git_out` and not `toplevel`: the Python asks whether the call FAILED
-  // (`is not None`), and a git that exits 0 printing nothing is inside a
-  // repository to it. `toplevel` folds that empty answer into `null`, which
-  // is the right reading for a caller that wants the root and the wrong one
-  // for a caller that wants "did this succeed".
+  // This code uses `git_out`, not `toplevel`. The Python asks whether
+  // the call FAILED (`is not None`). To the Python, a git that exits 0
+  // and prints nothing still counts as inside a repository. `toplevel`
+  // folds that empty answer into `null`, which is the right reading for
+  // a caller that wants the root path. It is the wrong reading for a
+  // caller that wants to know "did this succeed".
   if ((await gitOut(['rev-parse', '--show-toplevel'], options)) !== null) {
     return branchMessage(options)
   }
@@ -1038,18 +1145,20 @@ const sessionStart = async (edges: HookEdges): Promise<string | null> => {
 }
 
 /**
- * The hook, argv in and an exit status out.
+ * The hook. It takes argv in and gives an exit status out.
  *
- * `session-start` is what `hooks.json` runs. The other three are the pieces
- * that decision is built from, kept as subcommands because they are the seams
- * the tests and a human debugging the hook work at.
+ * `session-start` is the mode that `hooks.json` runs. The other three
+ * modes are the pieces that decision is built from. This code keeps them
+ * as subcommands, because they are the seams that the tests use. A person
+ * can also use them to debug the hook by hand.
  */
 export const runHookIo = async (argv: readonly string[], edges: HookEdges): Promise<number> => {
   const [mode, current, target] = argv
   if (mode === 'session-start') {
     const message = await sessionStart(edges)
-    // `if message:` in the Python. Neither branch can answer with the empty
-    // string today, and reading it as silence is what the Python does.
+    // This is Python's `if message:`. Neither branch can answer with the
+    // empty string today. Reading an empty string as silence is what the
+    // Python does.
     if (message) edges.output.out.write(emit(message))
     return 0
   }
@@ -1057,14 +1166,14 @@ export const runHookIo = async (argv: readonly string[], edges: HookEdges): Prom
     edges.output.out.write(`${payloadCwd(await readPayload(edges))}\n`)
     return 0
   }
-  // The two `typeof` guards come before the length check so each is asked of
-  // a command line that fails it: `branch` alone, and `branch <one>`. The
-  // length check then refuses `branch <a> <b> <c>`, which Python's
-  // `len(argv) == 4` refuses too.
+  // The two `typeof` guards come before the length check. Each guard is
+  // tested against a command line that fails it: `branch` alone, and
+  // `branch <one>`. The length check then refuses `branch <a> <b> <c>`.
+  // Python's `len(argv) == 4` refuses that case too.
   if (mode === 'branch' && typeof current === 'string' && typeof target === 'string') {
     if (argv.length === 3) {
-      // No repository to read, so neither count has an answer here: the seam
-      // is given two names and nothing else.
+      // There is no repository to read here, so neither count has an
+      // answer. This seam is given two names and nothing else.
       edges.output.out.write(
         emit(branchMessageText({ current, target, behind: null, candidates: null })),
       )
@@ -1072,8 +1181,8 @@ export const runHookIo = async (argv: readonly string[], edges: HookEdges): Prom
     }
   }
   if (mode === 'report') {
-    // No summary: the seam wraps a body it was handed, and a summary is a
-    // statement about a fan-out this process ran.
+    // This gives no summary. The seam only wraps a body it was handed. A
+    // summary is a statement about a fan-out that this process ran.
     edges.output.out.write(emit(reportMessageText((await edges.stdin()).replace(/\n+$/, ''), null)))
     return 0
   }

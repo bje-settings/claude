@@ -1,34 +1,40 @@
-// Sync one checkout: move to the default branch, fast-forward, install if a
-// lock file changed, and prune branches whose work has landed. The port of
-// `plugins/gh/scripts/gh-sync-repo.py`, whose report is a byte-pinned contract
-// (`src/fixtures/bash-output.json`, captured from the shell version before it
-// was deleted, and asserted line for line in `sync-repo.test.ts`).
+// This file syncs one checkout. It moves to the default branch,
+// fast-forwards it, and installs if a lock file changed. It also prunes
+// branches whose work has landed. It is the port of
+// `plugins/gh/scripts/gh-sync-repo.py`. Its report is a byte-pinned contract
+// (`src/fixtures/bash-output.json`, captured from the shell version before
+// the port deleted it). `sync-repo.test.ts` asserts that contract line for
+// line.
 //
-// Exit status is 0 for a synced repository AND for a skipped one: skipping is
-// a normal outcome, not a failure. 2 is an argument this command refuses.
+// Exit status is 0 for a synced repository, and also for a skipped one. A
+// skip is a normal outcome, not a failure. Exit status 2 means this command
+// refused an argument.
 //
 // **Three differences from the Python, each forced by the port's own rules.**
 //
 //  1. *Nothing changes directory.* The Python `os.chdir`s into the checkout
-//     and lets every git call inherit it. `sync` now fans out IN-PROCESS (the
-//     approved plan: an injected `gh` mock cannot cross a process boundary),
-//     and several repositories sharing one process cannot each own the working
-//     directory, so every git call names its `cwd`. The two `chdir` failures
-//     the Python reports go with it: "cannot enter directory" is answered by
-//     asking whether the path is a directory at all, and "cannot enter work
-//     tree" has no counterpart, because nothing enters it.
-//  2. *No `shutil.which` preflight.* "git is not on PATH" and "cannot run git"
-//     are read off the runner's `startFailure` instead, which separates the
-//     two for the same two sentences (`lib/README.md`, "could not start apart
-//     from ran and failed").
+//     and lets every git call inherit it. `sync` now fans out IN-PROCESS, by
+//     the approved plan, because an injected `gh` mock cannot cross a
+//     process boundary. Several repositories share one process and cannot
+//     each own the working directory, so every git call names its own
+//     `cwd`. The Python reports two `chdir` failures. This port answers
+//     "cannot enter directory" with a check for whether the path is a
+//     directory at all. It has no counterpart for "cannot enter work tree",
+//     because nothing here enters a work tree.
+//  2. *No `shutil.which` preflight.* This port reads "git is not on PATH"
+//     and "cannot run git" off the runner's `startFailure` instead. This
+//     separates the two cases for the same two sentences (`lib/README.md`,
+//     "could not start apart from ran and failed").
 //  3. *pnpm only* (the maintainer's ruling, 2026-09-20). `install.ts` knows
-//     one lock file and one command; the arm that says no recognised lock file
-//     remains is kept for the pull that deletes `pnpm-lock.yaml`.
+//     one lock file and one command. It still keeps the branch that reports
+//     no recognized lock file. That branch is ready for the future pull
+//     request that deletes `pnpm-lock.yaml`.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// **#127 deleted the Python this file ports.** `plugins/gh/scripts/*.py`,
+// its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from
+// the tree. The file and line references below point to what they held at
+// `cd0d515`. This file keeps them because each one says where a rule came
+// from.
 import { statSync } from 'node:fs'
 import path from 'node:path'
 
@@ -47,21 +53,21 @@ import {
 import type { Output, Writer } from '../lib/streams.ts'
 import { hasMatch, isPullRequestRow, namesBranch, ownRows, type PullRequestRow } from '../prs.ts'
 
-/** The bulk lookup: one API call covers every branch in the repository. A
- *  window this size that comes back full is a window, not an answer, which is
- *  what {@link SyncRepoRun} records as `prBulkSaturated`. */
+/** The bulk lookup: one API call covers every branch in the repository. When
+ *  a window this size comes back full, it is a window, not an answer. This
+ *  file records that state as {@link SyncRepoRun}'s `prBulkSaturated`. */
 const PR_LIMIT = 200
 
-/** The per-branch fallback, asked only for a branch the saturated bulk window
- *  could not settle. Smaller because it is scoped to one head ref, and
- *  saturated here means the same thing: too many merged pull requests share
- *  the name to conclude anything about this commit. */
+/** The per-branch fallback. This file asks it only for a branch the
+ *  saturated bulk window could not settle. It is smaller because it is
+ *  scoped to one head ref. "Saturated" means the same thing here: too many
+ *  merged pull requests share the name to prove anything about this commit. */
 const PR_BRANCH_LIMIT = 100
 
-/** The markers git leaves behind mid-operation. Checked for every worktree,
- *  not just this one: a rebase in a linked worktree leaves its HEAD detached,
- *  so that worktree contributes no branch mapping later and its branch would
- *  otherwise look free to delete. */
+/** The markers git leaves behind mid-operation. This file checks every
+ *  worktree, not just this one. A rebase in a linked worktree leaves its
+ *  HEAD detached. That worktree then contributes no branch mapping later,
+ *  so its branch would otherwise look free to delete. */
 const IN_PROGRESS_MARKERS = [
   'rebase-merge',
   'rebase-apply',
@@ -88,13 +94,14 @@ package-lock.json is synced as a repository with no dependencies to install.
 Exit status is 0 for a synced repo AND for a skipped one: skipping is a normal
 outcome, not a failure. 2 means the arguments were refused.`
 
-/** Everything a command function is given: the process's edges, as arguments.
+/** Everything a command function is given: the process's edges, as
+ *  arguments.
  *
- *  Shared with `sync.ts` and with `scripts/gh.ts`, which is what lets both
- *  commands be dispatched through one signature and lets either be driven from
- *  a test with no process at all (ADR 001, "the command function is the
- *  seam"). `createGh` is a factory rather than a client because the fan-out
- *  needs one per repository, each scoped to that checkout. */
+ *  `sync.ts` and `scripts/gh.ts` share this shape. It lets both commands
+ *  dispatch through one signature, and lets a test drive either with no
+ *  process at all (ADR 001, "the command function is the seam"). `createGh`
+ *  is a factory, not a client, because the fan-out needs one client per
+ *  repository, each scoped to that checkout. */
 export interface CommandContext {
   /** The directory the caller started in, which is `sync`'s default target. */
   readonly cwd: string
@@ -108,9 +115,9 @@ export type Command = (
   context: CommandContext,
 ) => Promise<Envelope<string>>
 
-/** One repository's job. `report` is where its lines go: the process's stdout
- *  for a single repository, and a buffer of its own for each job in a fan-out,
- *  so that the sections cannot interleave. */
+/** One repository's job. `report` is where its lines go: the process's
+ *  stdout for a single repository, or a buffer of its own for each job in a
+ *  fan-out. This keeps the sections from interleaving. */
 export interface SyncRepoOptions {
   readonly repo: string
   readonly dryRun: boolean
@@ -121,21 +128,21 @@ export interface SyncRepoOptions {
 }
 
 /**
- * The vocabulary of a report line, named rather than written out at the call
- * sites that build one.
+ * The vocabulary of a report line. This file names each term here. It does
+ * not write the term out again at each call site that builds a line.
  *
  * The SessionStart hook classifies each section of a `--dry-run` report by
- * these to compute the summary it leads with (#110,
- * `commands/hook-io.ts` `fanOutSummary`), so the words are a contract with a
- * second reader and not only prose. Naming them puts the hook's dependency
- * where someone rewording a line will see it, and makes a rewording a
- * reference that moves with the text rather than a match that quietly stops
- * finding anything.
+ * these terms. It uses them to compute the summary it leads with (#110,
+ * `commands/hook-io.ts` `fanOutSummary`). So the words are a contract with a
+ * second reader, not only prose. Because this file names them here, a
+ * person who rewords a line will see the hook's dependency. A reworded
+ * reference then moves with the text. A plain text match would instead stop
+ * silently and find nothing.
  *
- * `marks` are the three line prefixes, indent included, because the indent is
- * what tells a repository's lines from the heading above them. The rest are
- * the openings of the lines the hook counts, and they are the `--dry-run`
- * forms: that is the only mode the hook's own child ever runs in.
+ * `marks` are the three line prefixes, indent included. The indent is what
+ * tells a repository's lines from the heading above them. The rest are the
+ * openings of the lines the hook counts. They are the `--dry-run` forms,
+ * because that is the only mode the hook's own child ever runs in.
  */
 export const REPORT = {
   ok: '  ✓ ',
@@ -158,35 +165,38 @@ export const flagIsSet = (env: NodeJS.ProcessEnv, name: string): boolean => {
 }
 
 /** The last line of a command's output, the way `"${var##*$'\n'}"` read it.
- *  `slice(-1).join('')` rather than an index: an empty transcript answers with
- *  an empty line rather than with a fallback no test can reach. */
+ *  This uses `slice(-1).join('')`, not an index. An empty transcript then
+ *  answers with an empty line, not a fallback that no test can reach. */
 const lastLine = (text: string): string => text.replace(/\n+$/, '').split('\n').slice(-1).join('')
 
 /**
- * Why a `gh` failure could not be read, in the vocabulary
+ * Why a `gh` failure could not be read. This uses the vocabulary that
  * `gh-sync-repo.py:263` to `290` prints.
  *
- * Only 127 is spelled here. The runner answers 127 for a command that is not
- * there, so that one case keeps the Python's own sentence, which a reader who
- * has seen it will recognise. Everything else, an unrunnable gh (126), a
- * refusal, a silent non-zero exit, an answer that is not JSON, reaches the
- * report through `GhError.detail`, whose last line is gh's own last line when
- * gh said anything at all. That is the same rule the Python applies to a
- * multi-line stderr, and it means the wording for those arms is now
- * `lib/gh.ts`'s rather than this file's: `fixtures/divergences.json` lists
- * each one.
+ * Only 127 is spelled here. The runner answers 127 for a command that is
+ * not there. That one case keeps the Python's own sentence, so a reader who
+ * has seen it before will recognise it. Everything else reaches the report
+ * through `GhError.detail`. This includes an unrunnable gh (126), a
+ * refusal, a silent non-zero exit, and an answer that is not JSON.
+ * `GhError.detail`'s last line is gh's own last line, when gh said anything
+ * at all.
  *
- * `detail` and not `message`: the message carries a `gh <argv> failed: `
- * prefix, and gh's ordinary refusal is a SINGLE line of stderr ("gh: API
- * rate limit exceeded"), so tailing the message would put the whole argv
- * inside this report line and only a multi-line stderr would happen to read
- * as the Python's. `detail` is gh's account with no prefix, so the one-line
- * case reads as the Python's too.
+ * That is the same rule the Python applies to a multi-line stderr. It means
+ * the wording for those arms now belongs to `lib/gh.ts`, not this file.
+ * `fixtures/divergences.json` lists each one.
+ *
+ * This uses `detail`, not `message`. The message carries a
+ * `gh <argv> failed: ` prefix. gh's ordinary refusal is a SINGLE line of
+ * stderr (for example, "gh: API rate limit exceeded"). If the code used
+ * only the tail of the message, that would put the whole argv inside this
+ * report line. Only a multi-line stderr would then happen to read like the
+ * Python's. `detail` is gh's own account, with no prefix, so the one-line
+ * case reads like the Python's too.
  */
 const reasonFor = (error: GhError): string =>
   error.status === 127 ? 'gh is not on PATH' : lastLine(error.detail)
 
-/** Whether `target` is a directory, which is as much of `os.chdir` as a port
+/** Whether `target` is a directory. This is as much of `os.chdir` as a port
  *  that never changes directory needs to ask. */
 const isDirectory = (target: string): boolean => {
   try {
@@ -202,25 +212,26 @@ type Asked<T> = { readonly value: T } | { readonly reason: string }
 /** Merged pull requests, or the reason they could not be read. */
 type Listed = { readonly rows: PullRequestRow[] } | { readonly reason: string }
 
-/** What a per-branch query established. The last three are all reasons to keep
- *  a branch, but they are different statements and the report says which:
- *  reporting a failed query as "none" would assert an absence that was never
- *  checked. */
+/** What a per-branch query established. The last three states are all
+ *  reasons to keep a branch, but each is a different statement, and the
+ *  report says which one applies. A failed query reported as "none" would
+ *  wrongly assert an absence that the code never checked. */
 type ProofState = 'match' | 'moved' | 'none' | 'crowded' | 'error'
 
-/** What {@link SyncRepoRun.advance} did. A union rather than a triple, so a
- *  caller that reads `target` has already established there was one. */
+/** What {@link SyncRepoRun.advance} did. This is a union, not a triple, so a
+ *  caller that reads `target` has already confirmed there is one. */
 type Advance =
   | { readonly canAdvance: false }
   | {
       readonly canAdvance: true
-      /** The short SHA of `origin/<default>`, the commit the branch is being
-       *  moved to. */
+      /** The short SHA of `origin/<default>`, the commit the branch moves
+       *  to. */
       readonly target: string
       /** The short SHA the branch actually moved off, or `null` when it did
-       *  not move (already up to date, diverged, a failed merge, or a branch
-       *  that does not exist yet). The caller reads it as "is there a range to
-       *  diff for a lock file". */
+       *  not move. That covers: already up to date, diverged, a failed
+       *  merge, or a branch that does not exist yet. The caller reads this
+       *  value as the answer to "is there a range to diff for a lock
+       *  file?" */
       readonly advancedFrom: string | null
     }
 
@@ -255,18 +266,20 @@ class SyncRepoRun {
     this.env = options.env
     this.report = options.report
     this.name = path.basename(options.repo)
-    // Built from the path the caller named rather than from the checkout root,
-    // which is not known yet: gh resolves the repository by walking up from
-    // its working directory, so both answer about the same repository, and a
-    // path that turns out not to be a checkout never reaches a gh call at all.
+    // This uses the path the caller named, not the checkout root, because
+    // the root is not known yet. gh resolves the repository by walking up
+    // from its working directory, so both answer about the same repository.
+    // A path that turns out not to be a checkout never reaches a gh call at
+    // all.
     this.gh = options.createGh(options.repo)
   }
 
   // ------------------------------------------------------------- output ---
 
-  // Each of the three prints the repository's name first if nothing has yet: a
-  // report whose lines sit under no heading names no repository at all, and
-  // the fan-out prints one of these sections after another.
+  // Each of the three prints the repository's name first, if nothing has
+  // printed it yet. A report whose lines sit under no heading names no
+  // repository at all. The fan-out prints one of these sections after
+  // another.
   private ok(text: string): void {
     this.ensureHeader()
     this.emit(`${REPORT.ok}${text}`)
@@ -288,11 +301,11 @@ class SyncRepoRun {
     this.emit(this.name)
   }
 
-  /** One report line. A reader that has gone away stops the output only: the
-   *  writer goes quiet on a broken pipe and the sync carries on to the end,
-   *  because "a run abandoned there leaves the prune half done and `git
-   *  worktree prune` never called, and it exits 0, so nothing says so"
-   *  (`gh-sync-repo.py:157`, and `lib/streams.ts` is where that now lives). */
+  /** One report line. A reader that has gone away stops the output only.
+   *  The writer stays quiet on a broken pipe, and the sync carries on to
+   *  the end. A run abandoned there leaves the prune half done, with `git
+   *  worktree prune` never called. It exits 0, so nothing reports that
+   *  (`gh-sync-repo.py:157`; `lib/streams.ts` is where that now lives). */
   private emit(text: string): void {
     this.report.write(`${text}\n`)
   }
@@ -335,22 +348,23 @@ class SyncRepoRun {
       env: this.env,
     })
     if (probe.startFailure !== null) {
-      // Named for what it is. Every git call below would fail, and reporting
-      // the first of them as "not a git repository" sends the reader to
-      // inspect a checkout that is fine. On PATH and still unrunnable is its
-      // own sentence: not executable, a bad interpreter line, an exec format
-      // it cannot load.
+      // This is named for what it is. Every git call below would fail. If
+      // the code reported the first one as "not a git repository", the
+      // reader would inspect a checkout that is fine. "On PATH and still
+      // unrunnable" is its own sentence: not executable, a bad interpreter
+      // line, or an exec format the system cannot load.
       return probe.startFailure.code === 'ENOENT'
         ? 'git is not on PATH'
         : `cannot run git: ${probe.startFailure.message}`
     }
     const top = probe.stdout.replace(/\n+$/, '')
-    // Both halves, as `gh-sync-repo.py:210` has them. Real git refuses
-    // `rev-parse --show-toplevel` outside a work tree with a status rather
-    // than by answering empty, but a `git` on PATH that exits 0 and prints
-    // nothing is a shape a caller can arrange and CI reached: without the
-    // second half the run carries on with no checkout root at all and reports
-    // "already up to date ()" about a repository it never found.
+    // This code keeps both halves, as `gh-sync-repo.py:210` does. Real git
+    // refuses `rev-parse --show-toplevel` outside a work tree with a
+    // status, not with an empty answer. But a `git` on PATH that exits 0
+    // and prints nothing is a shape a caller can arrange. CI reached
+    // exactly this shape. Without the second half, the run would carry on
+    // with no checkout root at all. It would then report "already up to
+    // date ()" about a repository it never found.
     if (probe.status !== 0 || top === '') return 'not a git repository'
     this.top = top
     this.name = path.basename(this.top)
@@ -360,11 +374,11 @@ class SyncRepoRun {
     const marker = await this.checkInProgress(this.top)
     if (marker !== '') return `git operation in progress (${marker})`
 
-    // Untracked files deliberately do not block: checkout, fast-forward, and
-    // branch deletion cannot touch them. Only tracked modifications and staged
-    // changes do. A failed probe must not read as clean, which is why `null`
-    // and `""` are different answers here: a corrupt or unreadable index exits
-    // non-zero with empty stdout.
+    // Untracked files deliberately do not block this. Checkout,
+    // fast-forward, and branch deletion cannot touch them. Only tracked
+    // modifications and staged changes block it. A failed probe must not
+    // read as clean. That is why `null` and `""` are different answers
+    // here: a corrupt or unreadable index exits non-zero with empty stdout.
     const dirty = await gitOut(['status', '--porcelain', '--untracked-files=no'], this.here)
     if (dirty === null) return 'cannot read the working tree state'
     if (dirty !== '') return 'uncommitted changes'
@@ -375,16 +389,17 @@ class SyncRepoRun {
 
   private async resolveDefaultBranch(): Promise<string | null> {
     let named = await readDefaultBranch(this.here)
-    // Truthiness, not a null test, because `gh-sync-repo.py:241` and `:247`
-    // are `if not ref` and `if ref:`. A `git` that exits 0 and prints nothing
-    // has named no default branch, and reading `""` as one skips the repair,
-    // the gh fallback AND the main/master fallback, then reports about a
-    // branch called nothing: `skipped: origin/ does not exist locally`. The
-    // same shape as the empty checkout root CI reached (`discover.py:66`).
+    // This checks truthiness, not `null`, because `gh-sync-repo.py:241` and
+    // `:247` use `if not ref` and `if ref:`. A `git` that exits 0 and
+    // prints nothing has named no default branch. If this code read `""`
+    // as a name, it would skip the repair, the gh fallback, and the
+    // main/master fallback. It would then report about a branch called
+    // nothing: `skipped: origin/ does not exist locally`. This is the same
+    // shape as the empty checkout root that CI reached (`discover.py:66`).
     if (!named && !this.dryRun) {
-      // Repairing origin/HEAD writes a ref, so it is skipped in --dry-run; the
-      // fallbacks below answer the same question without touching the
-      // repository.
+      // A repair of origin/HEAD writes a ref, so this code skips it in
+      // --dry-run. The fallbacks below answer the same question and never
+      // touch the repository.
       await gitOk(['remote', 'set-head', 'origin', '--auto'], this.here)
       named = await readDefaultBranch(this.here)
     }
@@ -410,13 +425,14 @@ class SyncRepoRun {
   /**
    * A gh call's answer, or the reason it could not be read.
    *
-   * The port of `gh_json` (`gh-sync-repo.py:263`): "a missing gh is one of
-   * those failures rather than a crash: the caller falls back to ancestry and
-   * says so". Only a `GhError` is an answer, because only `lib/gh.ts` throws
-   * one; anything else reaching here is this code or the test double saying
-   * something went wrong that is not gh's refusal, and swallowing it would let
-   * a command that asked for an endpoint nobody registered read the silence as
-   * an empty window.
+   * This is the port of `gh_json` (`gh-sync-repo.py:263`). It follows the
+   * original rule: "a missing gh is one of those failures rather than a
+   * crash: the caller falls back to ancestry and says so". Only a
+   * `GhError` counts as an answer, because only `lib/gh.ts` throws one.
+   * Anything else that reaches here is this code, or the test double,
+   * reporting something that went wrong but is not gh's own refusal. If
+   * this code swallowed that error, a command that asked for an endpoint
+   * nobody registered would read the silence as an empty window.
    */
   private async ask<T>(call: () => Promise<T>): Promise<Asked<T>> {
     try {
@@ -435,10 +451,10 @@ class SyncRepoRun {
     )
     if ('reason' in asked) return asked
     // Every reader below asks a row for a field. A payload that is a list of
-    // something else is not an answer about merged pull requests, so it takes
-    // the same route a failed query does rather than being read as an empty
-    // window. ("Is it a list at all" is `lib/gh.ts`'s own check, and reaches
-    // here as a `GhError`.)
+    // something else is not an answer about merged pull requests. It takes
+    // the same route as a failed query. This code never reads it as an
+    // empty window. (`lib/gh.ts` checks "is this a list at all" on its
+    // own; that check reaches here as a `GhError`.)
     if (!asked.value.every(isPullRequestRow)) {
       return { reason: 'gh returned rows that are not pull requests' }
     }
@@ -459,18 +475,19 @@ class SyncRepoRun {
   /**
    * Checkout and fast-forward.
    *
-   * The default branch may be checked out in another worktree, in which case
-   * the checkout cannot succeed. That is not fatal: pruning still has value,
-   * so the caller carries on with `canAdvance` false.
+   * The default branch may be checked out in another worktree. In that
+   * case, the checkout cannot succeed. That is not fatal, because the
+   * prune still has value on its own. The caller carries on with
+   * `canAdvance` false.
    */
   private async advance(): Promise<Advance> {
     const branch = this.defaultBranch
-    // An unborn HEAD, or a probe that could not run at all, has no branch name
-    // to report. "HEAD" is what git itself echoes there and what the shell
-    // version printed, and it keeps a null out of the "switched from ..." line.
-    // `||`, not `??`: `gh-sync-repo.py:349` is `or "HEAD"`, so an empty
-    // answer is no answer here too, and `""` would name no branch in the line
-    // below.
+    // An unborn HEAD, or a probe that could not run at all, has no branch
+    // name to report. "HEAD" is what git itself echoes there, and what the
+    // shell version printed. It keeps a `null` out of the "switched from
+    // ..." line. This code uses `||`, not `??`: `gh-sync-repo.py:349` uses
+    // `or "HEAD"`. So an empty answer is no answer here either, and `""`
+    // would name no branch in the line below.
     const current = (await gitOut(['rev-parse', '--abbrev-ref', 'HEAD'], this.here)) || 'HEAD'
 
     if (current !== branch) {
@@ -484,40 +501,44 @@ class SyncRepoRun {
       }
     }
 
-    // `tip` is the same commit in full, already verified to exist, so it is
-    // the honest fallback if the abbreviation itself cannot be read: a shorter
-    // name for a commit is a convenience, and printing null instead would be a
-    // lie in every line that quotes it.
+    // `tip` is the same commit in full. It is already verified to exist, so
+    // it is the honest fallback if the abbreviation itself cannot be read.
+    // A shorter name for a commit is only a convenience. To print `null`
+    // instead would be a lie in every line that quotes it.
     const target =
       (await gitOut(['rev-parse', '--short', `origin/${branch}`], this.here)) || this.tip
     if (!(await hasRef(`refs/heads/${branch}`, this.here))) {
-      // Only reachable in --dry-run, where the checkout above was not
-      // performed.
+      // This code only reaches this line in --dry-run, where the checkout
+      // above did not run.
       this.note(`${REPORT.wouldCreate}${branch} from origin/${branch} (${target})`)
       return { canAdvance: true, target, advancedFrom: null }
     }
 
-    // Always compare the default branch itself, never HEAD: in --dry-run we
-    // have not switched, so HEAD is still whatever branch the user was sitting
-    // on. Same fallback as `target`: the branch was just verified to exist, so
-    // an unreadable abbreviation still has a full SHA behind it, and this value
-    // is both printed and used as the left end of the lock-file diff.
-    // `||`, not `??`, matching `gh-sync-repo.py:381`'s `or`: an empty
-    // abbreviation falls through to the full form. The null test below is
-    // unchanged, because Python's `or` answers with the SECOND value whatever
-    // it is, so only a second failure is "no left end".
+    // This code always compares the default branch itself, never HEAD. In
+    // --dry-run, nothing has switched, so HEAD is still whatever branch the
+    // user was on. This uses the same fallback as `target`. The branch was
+    // just verified to exist, so an unreadable abbreviation still has a
+    // full SHA behind it. This code both prints that value and uses it as
+    // the left end of the lock-file diff.
+    //
+    // It uses `||`, not `??`. This matches `gh-sync-repo.py:381`'s `or`: an
+    // empty abbreviation falls through to the full form. The `null` test
+    // below stays unchanged, because Python's `or` answers with the SECOND
+    // value, whatever it is. So only a second failure counts as "no left
+    // end".
     const before =
       (await gitOut(['rev-parse', '--short', branch], this.here)) ||
       (await gitOut(['rev-parse', branch], this.here))
     let moved: string
     if (before === null) {
-      // Both forms failed, so there is no left end: nothing to compare with the
-      // target, nothing honest to print as a range, and nothing to diff a lock
-      // file over. Reported the way a failed lock-file diff is, because it has
-      // the same consequence, a checkout that may end up on new code with stale
-      // dependencies, and skipping the install without a word is the silent
-      // half of that. The branch is still advanced, which is the part that does
-      // not need the old tip.
+      // Both forms failed, so there is no left end. There is nothing to
+      // compare with the target, nothing honest to print as a range, and
+      // nothing to diff a lock file over. This code reports it the same
+      // way it reports a failed lock-file diff, because both share one
+      // consequence: a checkout that may end up on new code with stale
+      // dependencies. To skip the install without a word would be the
+      // silent half of that. The branch still advances, because that part
+      // does not need the old tip.
       this.bad(`could not read the tip of ${branch}; install by hand if a lock file changed`)
       moved = `${branch} to ${target}`
     } else {
@@ -532,7 +553,7 @@ class SyncRepoRun {
       this.bad(`${branch} has diverged from origin/${branch}; needs a manual merge`)
     } else if (this.dryRun) {
       this.note(`${REPORT.wouldFastForward}${moved}`)
-      // `before` is null here only when it could not be read, and the caller
+      // `before` is `null` here only when it could not be read. The caller
       // reads that as "no range to diff", which is exactly right.
       return { canAdvance: true, target, advancedFrom: before }
     } else if (await gitOk(['merge', '--ff-only', `origin/${branch}`], this.here)) {
@@ -544,18 +565,19 @@ class SyncRepoRun {
     return { canAdvance: true, target, advancedFrom: null }
   }
 
-  /** Install if the range the branch moved over touched the lock file. Diffs
-   *  the range rather than hashing files on disk, so --dry-run can answer this
-   *  without having merged anything. */
+  /** Installs if the range the branch moved over touched the lock file.
+   *  This diffs the range instead of a hash of files on disk, so --dry-run
+   *  can answer even when nothing has merged yet. */
   private async install(advancedFrom: string, target: string): Promise<void> {
     const changed = await gitOut(
       ['diff', '--name-only', advancedFrom, target, '--', ...LOCKFILES],
       this.here,
     )
     if (changed === null) {
-      // A failed diff is not "no lock file changed". Treating it as that would
-      // leave the checkout on new code with stale dependencies and no sign
-      // anything was missed, which is the silent half of this failure.
+      // A failed diff is not "no lock file changed". If this code treated
+      // it that way, the checkout would end up on new code with stale
+      // dependencies, with no sign anything was missed. That is the silent
+      // half of this failure.
       this.bad('could not diff the lock files over that range; install by hand if needed')
       return
     }
@@ -570,17 +592,18 @@ class SyncRepoRun {
     } else if (installed.status === NO_LOCKFILE) {
       this.note('lock file changed but no recognised lock file remains; nothing installed')
     } else {
-      // The reason matters here: a missing package manager, a lock file out of
-      // sync with package.json, and a registry outage all land on this line.
+      // The reason matters here. A missing package manager, a lock file
+      // out of sync with package.json, and a registry outage all land on
+      // this line.
       this.bad(`install failed (${lastLine(installed.log)}); run it by hand`)
     }
   }
 
   // -------------------------------------------------------- merge proof ---
 
-  /** The bulk pull-request window and the ancestry set. Answers with the
-   *  ancestry list, or `null` when it could not be read; a failure of one
-   *  signal is reported and the other carries on. */
+  /** The bulk pull-request window and the ancestry set. This answers with
+   *  the ancestry list, or `null` when it could not be read. A failure of
+   *  one signal is reported, and the other carries on. */
   private async readMergeProof(): Promise<string[] | null> {
     const listed = await this.prList(PR_LIMIT)
     if ('reason' in listed) {
@@ -588,16 +611,18 @@ class SyncRepoRun {
     } else {
       this.prLookupOk = true
       this.prRows = listed.rows
-      // A saturated window is a window, not an answer: a repository with more
-      // merged pull requests than the limit drops the oldest, so a branch
-      // merged before it is absent from the list without being unmerged.
+      // A saturated window is a window, not an answer. A repository with
+      // more merged pull requests than the limit drops the oldest rows. So
+      // a branch merged before that point is absent from the list, even
+      // though it is still merged.
       this.prBulkSaturated = listed.rows.length >= PR_LIMIT
       this.prOwn = ownRows(listed.rows)
     }
 
-    // Ancestry catches the other case: merged locally with no pull request at
-    // all. A failed probe must not masquerade as "nothing is merged", which
-    // would silently reduce the proof to the pull-request signal alone.
+    // Ancestry catches the other case: a branch merged locally with no
+    // pull request at all. A failed probe must not read as "nothing is
+    // merged". That would silently reduce the proof to the pull-request
+    // signal alone.
     const ancestry = await gitLines(
       [
         'branch',
@@ -614,8 +639,8 @@ class SyncRepoRun {
   /**
    * Ask about a single branch, for the case the bulk window cannot answer.
    *
-   * The state can only be raised here, never reset: a "moved" from the bulk
-   * list is a fact this call's failure does not undo.
+   * The state can only be raised here, never reset. A "moved" verdict from
+   * the bulk list is a fact that this call's failure does not undo.
    */
   private async prProofForBranch(
     branch: string,
@@ -628,8 +653,9 @@ class SyncRepoRun {
     }
     const own = ownRows(listed.rows)
     if (own.length > 0 && hasMatch(own, branch, sha)) return { proved: true, state: 'match' }
-    // A saturated result is a window, not an answer. Concluding "none at this
-    // commit" from a truncated list is the mistake this guard exists to fix.
+    // A saturated result is a window, not an answer. To conclude "none at
+    // this commit" from a truncated list is the mistake this guard exists
+    // to fix.
     if (listed.rows.length >= PR_BRANCH_LIMIT) return { proved: false, state: 'crowded' }
     if (own.length > 0) return { proved: false, state: 'moved' }
     return { proved: false, state }
@@ -637,32 +663,35 @@ class SyncRepoRun {
 
   // ------------------------------------------------------------- prune ---
 
-  /** Fill `worktrees` with branch -> worktree path. Answers with a reason to
-   *  skip when the list cannot be read, or when a linked worktree is
-   *  mid-operation; both mean this run must not delete anything. */
+  /** Fills `worktrees` with branch -> worktree path. This answers with a
+   *  reason to skip when the list cannot be read, or when a linked
+   *  worktree is mid-operation. Both mean this run must not delete
+   *  anything. */
   private async readWorktrees(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) {
-      // Fails closed: an empty map would make every branch look free of a
-      // worktree, and this map is what stands between real uncommitted work
-      // and a force delete.
+      // This fails closed. An empty map would make every branch look free
+      // of a worktree. This map is what stands between real uncommitted
+      // work and a force delete.
       return 'cannot list worktrees'
     }
     let current = ''
     for (const line of out.split('\n')) {
       if (line.startsWith('worktree ')) {
         current = line.slice('worktree '.length)
-        // Any linked worktree mid-operation has a detached HEAD, so it maps to
-        // no branch and its work would be invisible to the guards below.
+        // Any linked worktree that is mid-operation has a detached HEAD.
+        // So it maps to no branch, and its work would be invisible to the
+        // guards below.
         if (current !== this.top) {
           const marker = await this.checkInProgress(current)
           if (marker !== '') return `git operation in progress in ${current} (${marker})`
         }
       } else if (line.startsWith('branch refs/heads/')) {
         // The Python writes this with `setdefault`, which keeps the first
-        // worktree named for a branch. git refuses to check one branch out in
-        // two worktrees at once, so the second entry it guards against cannot
-        // occur and a guard here would be a branch no test could reach.
+        // worktree named for a branch. git refuses to check one branch out
+        // in two worktrees at once. So the second entry this guards
+        // against can never occur, and a guard here would be a branch no
+        // test could reach.
         this.worktrees.set(line.slice('branch refs/heads/'.length), current)
       }
     }
@@ -682,9 +711,9 @@ class SyncRepoRun {
         ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
         this.here,
       )
-      // `gh-sync-repo.py:546` is `if not sha`. An empty answer is no tip:
-      // without this the branch reaches `pruneBranch` and is force-deleted on
-      // a tip that was never read.
+      // `gh-sync-repo.py:546` uses `if not sha`. An empty answer is no tip.
+      // Without this check, the branch would reach `pruneBranch` and get
+      // force-deleted on a tip that was never read.
       if (!sha) {
         this.bad(`kept ${branch} (cannot resolve its tip)`)
         continue
@@ -710,30 +739,35 @@ class SyncRepoRun {
     sha: string,
     ancestry: string[] | null,
   ): Promise<string | null> {
-    // Reset per branch rather than relying on the arms below to always run, so
-    // a verdict can never carry over from the previous iteration.
+    // This resets per branch, instead of relying on the arms below to
+    // always run. A verdict can then never carry over from the previous
+    // iteration.
     let state: ProofState = 'none'
     if (this.prLookupOk && this.prRows.length > 0 && hasMatch(this.prOwn, branch, sha)) {
       return 'merged PR'
     }
-    // `?.` rather than a null check: an ancestry that could not be read and
-    // one that does not name this branch are the same answer here, which is
-    // what the Python's `if ancestry and branch in ancestry` says too.
+    // This uses `?.`, not a null check. An ancestry that could not be
+    // read, and one that does not name this branch, are the same answer
+    // here. The Python's `if ancestry and branch in ancestry` says the
+    // same thing.
     if (ancestry?.includes(branch)) return `merged into ${this.defaultBranch}`
 
-    // The bulk list can already show this name at another commit, so say so
-    // without a second call. The per-branch query below can only raise this.
+    // The bulk list can already show this name at another commit. This
+    // code reports that without a second call. The per-branch query below
+    // can only raise this state further.
     if (this.prLookupOk && this.prOwn.length > 0 && namesBranch(this.prOwn, branch)) {
       state = 'moved'
     }
-    // Only worth asking when the bulk window filled up: an unsaturated window
-    // already listed every merged pull request, so a second call cannot find
-    // one it missed, and asking anyway would be an API call per branch.
+    // This code only asks when the bulk window filled up. An unsaturated
+    // window already listed every merged pull request, so a second call
+    // cannot find one it missed. To ask anyway would cost one API call per
+    // branch.
     if (this.prLookupOk && this.prBulkSaturated) {
       if (this.prFallbackOff) {
-        // A previous branch's query already failed. Whatever is wrong is very
-        // unlikely to be branch-specific, and a rate limit only gets worse if
-        // we keep asking, so stop calling and say these were never checked.
+        // A previous branch's query already failed. Whatever is wrong is
+        // very unlikely to be branch-specific. A rate limit only gets
+        // worse with more requests. So this code stops here and reports
+        // these branches as never checked.
         if (state === 'none') state = 'error'
       } else {
         const answer = await this.prProofForBranch(branch, sha, state)
@@ -760,11 +794,11 @@ class SyncRepoRun {
     const worktree = this.worktrees.get(branch) ?? ''
     const linked = worktree !== '' && worktree !== this.top
 
-    // Checked before the tip guard below, so that a branch protected by
-    // unfinished work in a worktree is reported for that reason rather than an
-    // incidental one. An unreadable worktree counts as occupied: this guard is
-    // the only thing between real uncommitted work and a force delete, so it
-    // fails closed.
+    // This runs before the tip guard below. A branch protected by
+    // unfinished work in a worktree is then reported for that reason, not
+    // an incidental one. An unreadable worktree counts as occupied. This
+    // guard is the only thing between real uncommitted work and a force
+    // delete, so it fails closed.
     if (linked) {
       const dirty = await gitOut(
         ['status', '--porcelain', '--untracked-files=no'],
@@ -780,16 +814,16 @@ class SyncRepoRun {
       }
     }
 
-    // A branch pointing at the same commit as origin/<default> has nothing to
-    // prune, and is typically one that was just created and not committed to
-    // yet.
+    // A branch that points at the same commit as origin/<default> has
+    // nothing to prune. It is typically one that was just created, with no
+    // commits of its own yet.
     if (sha === this.tip) {
       this.note(`kept ${branch} (already at origin/${this.defaultBranch}, nothing to prune)`)
       return
     }
 
-    // The full SHA is already in hand from the caller, so an unreadable
-    // abbreviation costs legibility rather than the recoverability the line
+    // The full SHA is already in hand from the caller. So an unreadable
+    // abbreviation only costs legibility, not the recoverability the line
     // exists for.
     const short = (await gitOut(['rev-parse', '--short', branch], this.here)) || sha
 
@@ -810,9 +844,9 @@ class SyncRepoRun {
     if (this.dryRun) {
       this.note(`${REPORT.wouldDelete}${branch} (${short}, ${proof})`)
     } else if (await gitOk(['branch', '-D', branch], this.here)) {
-      // -D rather than -d because a squash-merged branch is not an ancestor of
-      // the default branch. The SHA makes it recoverable: git branch <name>
-      // <sha>.
+      // This uses -D, not -d, because a squash-merged branch is not an
+      // ancestor of the default branch. The SHA makes it recoverable: git
+      // branch <name> <sha>.
       this.ok(`deleted ${branch} (${short}, ${proof})`)
     } else {
       this.bad(`could not delete ${branch}`)
@@ -833,25 +867,27 @@ class SyncRepoRun {
     if (!(await this.fetch())) return null
 
     // Everything below compares against origin/<default>. If that ref is
-    // missing, git reports it by echoing the name back rather than failing
-    // loudly, which would turn the tip guard into a silent no-op and empty the
-    // ancestry set.
+    // missing, git does not fail loudly. Instead, it echoes the name back.
+    // Left unguarded, that would turn the tip guard into a silent no-op,
+    // and empty the ancestry set.
     const tip = await gitOut(
       ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
       this.here,
     )
-    // `gh-sync-repo.py:673` is `if not self.tip`. An empty answer read as a
-    // tip is the silent no-op the comment above warns about: nothing would
-    // ever equal it, so `kept ... nothing to prune` never fires and a branch
-    // sitting exactly on the default tip is deleted instead of kept.
+    // `gh-sync-repo.py:673` uses `if not self.tip`. If this code read an
+    // empty answer as a tip, that would be the silent no-op the comment
+    // above warns about. Nothing would ever equal it, so
+    // `kept ... nothing to prune` would never fire. A branch that sits
+    // exactly on the default tip would then be deleted instead of kept.
     if (!tip) return `origin/${branch} does not exist locally; nothing to compare against`
     this.tip = tip
 
     const advanced = await this.advance()
-    // Truthiness, as `gh-sync-repo.py:664` has it: an empty left end is no
-    // range to diff a lock file over, and passing it on asks git for
-    // `diff --name-only "" <target>`, which fails and reports a lock-file diff
-    // it could not read where the Python installed nothing and said nothing.
+    // This checks truthiness, as `gh-sync-repo.py:664` does. An empty left
+    // end is no range to diff a lock file over. To pass it on would ask
+    // git for `diff --name-only "" <target>`, which fails. That would
+    // report a lock-file diff this code could not read, in the same way
+    // the Python installed nothing and said nothing.
     if (advanced.canAdvance && !this.noInstall && advanced.advancedFrom) {
       await this.install(advanced.advancedFrom, advanced.target)
     }
@@ -876,17 +912,19 @@ class SyncRepoRun {
   async run(): Promise<number> {
     const skipped = await this.attempt()
     if (skipped !== null) {
-      // A skipped repository prints its reason and ends cleanly. The preflight
-      // skips all fire before anything is written; the later ones (a missing
-      // origin/<default>, an unreadable ref list) can follow a fetch.
+      // A skipped repository prints its reason and ends cleanly. Every
+      // preflight skip fires before anything is written. The later skips
+      // (a missing origin/<default>, an unreadable ref list) can follow a
+      // fetch.
       this.bad(`${REPORT.skipped}${skipped}`)
     }
     return 0
   }
 }
 
-/** Whether a path exists, for the in-progress markers. `statSync` rather than
- *  `existsSync` so this file reaches the filesystem one way. */
+/** Whether a path exists, for the in-progress markers. This uses
+ *  `statSync`, not `existsSync`, so this file reaches the filesystem one
+ *  way. */
 const isPresent = (target: string): boolean => {
   try {
     statSync(target)
@@ -899,10 +937,11 @@ const isPresent = (target: string): boolean => {
 /**
  * Sync one repository, writing its report through `report`.
  *
- * This is what the fan-out calls once per repository, in this process, with a
- * buffer of its own for `report` (the approved plan's design ruling: an
- * injected `gh` mock cannot cross a process boundary, so the child process the
- * Python starts becomes a direct call with a concurrency limit).
+ * The fan-out calls this once per repository, in this process, with a
+ * buffer of its own for `report`. This follows the approved plan's design
+ * ruling: an injected `gh` mock cannot cross a process boundary. So the
+ * child process the Python starts becomes a direct call, with a
+ * concurrency limit instead.
  */
 export const syncRepo = (options: SyncRepoOptions): Promise<number> =>
   new SyncRepoRun(options).run()
@@ -914,10 +953,10 @@ export interface SyncRepoRequest {
   readonly noInstall: boolean
 }
 
-/** A parsed command line: a repository to sync, or the help text to print.
- *  Two shapes rather than a payload that is sometimes one and sometimes the
- *  other, so the caller reads which it got rather than asking what type it
- *  is. */
+/** A parsed command line: a repository to sync, or the help text to
+ *  print. This uses two shapes, not a payload that is sometimes one thing
+ *  and sometimes the other. The caller then reads which shape it got,
+ *  instead of asking what type it is. */
 export type SyncRepoArgs =
   | { readonly kind: 'run'; readonly request: SyncRepoRequest }
   | { readonly kind: 'help'; readonly text: string }
@@ -925,12 +964,13 @@ export type SyncRepoArgs =
 /**
  * The command line, as `gh-sync-repo.py:701` reads it.
  *
- * Hand-written rather than `lib/args.ts` `parseArguments`, which refuses
- * positionals outright and whose own header says a command that needs them
- * widens it "with a test rather than inherit an untested path": `lib/` is not
- * this layer's to edit, and this command's whole subject is a positional path.
- * The refusal still travels as a `lib/envelope.ts` refusal, which is exit 2,
- * the status `argparse` already used and the one the captured contract records.
+ * This is hand-written, not `lib/args.ts` `parseArguments`. That function
+ * refuses positionals outright. Its own header says a command that needs
+ * them should widen it "with a test rather than inherit an untested path".
+ * `lib/` is not this layer's to edit, and this command's whole subject is
+ * a positional path. The refusal still travels as a `lib/envelope.ts`
+ * refusal, which is exit 2. That is the same status `argparse` already
+ * used, and the one the captured contract records.
  */
 export const parseSyncRepoArgs = (
   argv: readonly string[],
@@ -951,11 +991,12 @@ export const parseSyncRepoArgs = (
 }
 
 /**
- * The command function: argv and the process's edges in, an exit status out.
+ * The command function: argv and the process's edges in, an exit status
+ * out.
  *
- * The report is written through `output.out` as it is produced rather than
- * returned, because it is written as the work happens and a reader that leaves
- * partway through must stop the report without stopping the prune.
+ * This writes the report through `output.out` as the work happens, not as
+ * one block returned at the end. A reader that leaves partway through must
+ * then stop the report, but the prune must still continue.
  */
 export const runSyncRepo: Command = async (argv, context) => {
   const parsed = parseSyncRepoArgs(argv, context.env)
