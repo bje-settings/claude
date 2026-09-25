@@ -43,8 +43,8 @@ flowchart TD
     H[Write: milestone first,<br/>then issues in dependency order]
 
     H --> I{Repository has issue types?}
-    I -->|Yes| I1[Set the type]
-    I -->|No| I2[Use a label that exists, or none]
+    I -->|Yes| I1[Set the type, add no label<br/>that says the same thing]
+    I -->|No| I2[Use a type label that exists, or none]
     I1 --> J
     I2 --> J
 
@@ -58,5 +58,5 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The skill never creates a label. A repository with no issue types, or an owner with no
+The skill never creates a label, and prefers an issue type to a label with the same meaning. A repository with no issue types, or an owner with no
 Priority field, is a fact to report. The skill does not work around it.

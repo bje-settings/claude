@@ -46,6 +46,4 @@ Choose the type whose description fits. Use the type of the title as a start:
 Use this table only for the names that the repository defines. A type from the caller has
 priority over the table.
 
-`null` means that the repository has no issue types. Then use a label that is already in
-`gh label list`, if one fits (for example `bug`, `enhancement` or `documentation`), with
-`--label`. Never create a label.
+`null` means that the repository has no issue types. Then leave out `--type`.

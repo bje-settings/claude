@@ -17,13 +17,14 @@ Do the operation the request asks for. Read only the files that its row names.
 | Create one issue | [create.md](create.md) |
 | Create two or more related issues | [batch.md](batch.md) |
 | Add or remove blocked-by, blocking or parent on issues that exist | [relationships.md](relationships.md) |
-| Set priority, type or milestone on issues that exist | [triage.md](triage.md) |
+| Set priority, type, labels or milestone on issues that exist | [triage.md](triage.md) |
 
 ## Rules for every operation
 
 - Put a relationship in its field, never as prose in the body. A sweep cannot see a
   dependency in text.
-- Never create a label.
+- Never create a label. Do not add a label that says the same thing as an issue type
+  ([labels.md](labels.md)).
 - The caller can give a milestone, priority, type or parent. Use it after you make sure it
   exists. Do not propose a different value.
 - Before a write, show the proposal and get a confirmation with `AskUserQuestion`. Skip this

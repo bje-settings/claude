@@ -293,7 +293,10 @@ link issues, or fill in fields on issues that exist. It has no slash command
 
 It puts each relationship in its field, not in the body, and it never creates a label. The
 issue type comes from the types that the repository defines. The title type gives the start
-value: `fix` is Bug, `feat` is Feature, and the other types are Task.
+value: `fix` is Bug, `feat` is Feature, and the other types are Task. It does not add a label
+that says the same thing as a type (`bug`, `enhancement`). Triage proposes that such a label
+is replaced by the type. The skill uses a label for the kind of work only when the repository
+has no issue types.
 
 Priority is an organization issue field (Urgent, High, Medium, Low). `gh issue` has no flag
 for it, so the skill sets it with GraphQL. A repository that a user owns has no such field.
