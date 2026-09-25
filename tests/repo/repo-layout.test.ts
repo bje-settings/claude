@@ -24,7 +24,6 @@ import {
   libLinkViolations,
   packageImports,
   pluginDirs,
-  RESERVED_DIRECTORIES,
   ROOT,
   rel,
   reservedDirectoryNames,
@@ -436,6 +435,21 @@ describe('what a plugin ships', () => {
     if (scratch) rmSync(scratch, { recursive: true, force: true })
   })
 
+  // Written out, not read from RESERVED_DIRECTORIES, so that a name gone
+  // from that list turns this test red (ADR 004 decision 6 names all ten).
+  const components = [
+    'agents',
+    'bin',
+    'commands',
+    'evals',
+    'hooks',
+    'monitors',
+    'output-styles',
+    'skills',
+    'themes',
+    'workflows',
+  ]
+
   /** Empty files and directories under a new temporary root. A name that
    *  ends in `/` is a directory. */
   const tree = (entries: readonly string[]): string => {
@@ -499,7 +513,7 @@ describe('what a plugin ships', () => {
       'plugins/b/commands/',
       'plugins/b/src/subcommands/',
       'plugins/c/.claude-plugin/',
-      ...RESERVED_DIRECTORIES.map((name) => `plugins/c/src/${name}/`),
+      ...components.map((name) => `plugins/c/src/${name}/`),
     ])
     symlinkSync('subcommands', path.join(root, 'plugins', 'b', 'src', 'commands'))
     expect(reservedDirectoryNames(path.join(root, 'plugins'))).toEqual([
@@ -507,7 +521,7 @@ describe('what a plugin ships', () => {
       'a/src/deep/agents uses the name of a plugin component',
       'b/commands is the legacy component; use skills/',
       'b/src/commands uses the name of a plugin component',
-      ...RESERVED_DIRECTORIES.map((name) => `c/src/${name} uses the name of a plugin component`),
+      ...components.map((name) => `c/src/${name} uses the name of a plugin component`),
     ])
   })
 
