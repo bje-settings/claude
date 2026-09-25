@@ -195,13 +195,17 @@ function childEntry(dir: string, name: string): Dirent | undefined {
  *
  * A test file may additionally import `harness/`, which is where the
  * shared harness lives, and which never ships (ADR 001, RFC 001 decision
- * 10).
+ * 10). A `*.test-support.ts` file is test code too. It holds the helpers of
+ * a test file that is in more than one part (#205).
  *
  * `root` is a parameter, defaulted to PLUGINS, so a test can run the rule
  * against synthetic trees, as well as against the real one. No plugin
  * carries the symlink until #126, so against this repository alone,
  * every branch below would stay unrun.
  */
+const isTestCode = (file: string): boolean =>
+  file.endsWith('.test.ts') || file.endsWith('.test-support.ts')
+
 export function crossPluginImports(root: string = PLUGINS): string[] {
   const harness = path.join(path.dirname(root), 'harness')
   const violations: string[] = []
@@ -211,7 +215,7 @@ export function crossPluginImports(root: string = PLUGINS): string[] {
       for (const specifier of relativeImports(file)) {
         const resolved = path.resolve(path.dirname(file), specifier)
         if (isInside(plugin, resolved)) continue
-        if (file.endsWith('.test.ts') && isInside(harness, resolved)) continue
+        if (isTestCode(file) && isInside(harness, resolved)) continue
         violations.push(`${where}: imports ${specifier}, which resolves outside the plugin`)
       }
     }

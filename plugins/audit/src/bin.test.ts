@@ -1,6 +1,6 @@
 // The one spawned contract test for `scripts/audit.ts` (`harness/README.md`):
 // argv in, exit code and streams out. Everything else about this command is
-// exercised in-process in `commands/context.test.ts`. This is the only place
+// exercised in-process in `commands/context.*.test.ts`. This is the only place
 // where the process boundary itself, and the floor guard in front of it, are
 // real.
 //

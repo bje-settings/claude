@@ -83,6 +83,9 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
   them on its own. So you add a new source directory there deliberately.
 - The shared harness is `harness/` at the repository root. Only test files import it, so it never
   ships. `harness/README.md` has the rest of the test side.
+- A slow test file can be in parts, `<command>.<part>.test.ts`, so that vitest runs the parts at
+  the same time. The helpers of the parts go in `<command>.test-support.ts`. That file is test
+  code: it can import `harness/`, and coverage does not measure it (#205).
 - `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
   `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
   and names itself. This is the property a stub binary cannot give. A command that reached for

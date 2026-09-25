@@ -256,6 +256,13 @@ Two constructors, because the two scopes need different shapes:
   `<parent>/.origins`. Use it for fan-out tests, where the scanned directory must contain work trees
   and nothing else. The origins directory is hidden, so a non-recursive scan skips it.
 
+Both constructors copy one template repository, then point `origin` at the copy's own bare
+repository with `git remote set-url`. The template is seeded with git one time for each test file
+and removed when that file ends. A seed is about ten git processes, and a copy is one (#205).
+`git.test.ts` proves that a test cannot tell a copy from a seeded repository.
+`createGitFixtures(sandbox, { fresh: true })` seeds each repository and makes no copy. Only that
+proof uses it.
+
 | Builder | State it produces |
 | --- | --- |
 | `commit` / `push` / `branch` | One commit that adds to a tracked file. A push of one branch. A new branch, with no checkout move. |

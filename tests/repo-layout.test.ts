@@ -224,7 +224,7 @@ describe('the plugin boundary', () => {
     ])
   })
 
-  it('accepts the harness in a test file and refuses it anywhere else', () => {
+  it('accepts the harness in a test file or its support file and refuses it anywhere else', () => {
     // The harness never ships. So a shipped file that reaches for it has
     // an import the installed plugin cannot resolve. A co-located test
     // file that reaches for it is the arrangement ADR 001 asks for.
@@ -232,6 +232,7 @@ describe('the plugin boundary', () => {
       plugins: ['a'],
       files: {
         'a/src/url.test.ts': "import { createGhMock } from '../../../harness/gh.ts'\n",
+        'a/src/url.test-support.ts': "import { createGhMock } from '../../../harness/gh.ts'\n",
         'a/src/url.ts': "import { createGhMock } from '../../../harness/gh.ts'\n",
       },
     })

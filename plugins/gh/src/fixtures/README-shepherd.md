@@ -10,7 +10,7 @@ the rule both sets live by: nobody edits a capture after the commit that made it
 | `shepherd-pr-output.json` | 67 runs of `plugins/gh/scripts/gh-shepherd-pr.py`, one per case. |
 | `shepherd-status-output.json` | 21 runs of `plugins/gh/scripts/gh-shepherd-status.py`. |
 
-`commands/shepherd-pr.test.ts` and `commands/shepherd-status.test.ts` read both.
+`commands/shepherd-pr.*.test.ts` and `commands/shepherd-status.test.ts` read both.
 
 ## How they were made
 
@@ -115,7 +115,7 @@ The capture records `ghCalls`, but the tests do NOT compare it. The port reaches
 injected `GhClient`. So its argv belongs to `lib/gh.ts`, and that module's own suite pins it;
 comparing the stub's gh argv against it would assert the client's translation twice. `ghCalls` was
 the only record of what each WRITE asked to send. The tests assert that directly instead, against
-the client's own request rather than against gh argv, in `commands/shepherd-pr.test.ts`: `asks for
+the client's own request rather than against gh argv, in `commands/shepherd-pr.*.test.ts`: `asks for
 a rebase of the pull request it was given, and never a merge`, `posts the words Dependabot
 answers, on the pull request it was given`, and `posts the reason file it was given, as the body
 of the comment`. Each of those three also asserts the CLIENT the request goes through, because

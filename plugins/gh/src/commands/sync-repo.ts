@@ -3,7 +3,7 @@
 // branches whose work has landed. It is the port of
 // `plugins/gh/scripts/gh-sync-repo.py`. Its report is a byte-pinned contract
 // (`src/fixtures/bash-output.json`, captured from the shell version before
-// the port deleted it). `sync-repo.test.ts` asserts that contract line for
+// the port deleted it). `sync-repo.parity.test.ts` asserts that contract line for
 // line.
 //
 // Exit status is 0 for a synced repository, and also for a skipped one. A

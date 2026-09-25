@@ -65,7 +65,9 @@ export default defineConfig({
       // reports each lib/ file once, at its real path, with no duplicate
       // entry to exclude. Confirmed on #126: the coverage summary was
       // identical whether or not this entry existed.
-      exclude: ['**/*.test.ts', '**/fixtures/**'],
+      // A `*.test-support.ts` file is test code too. It holds the helpers of
+      // a test file that is in more than one part (#205).
+      exclude: ['**/*.test.ts', '**/*.test-support.ts', '**/fixtures/**'],
       // vitest 4 dropped the `all` option. Now coverage-v8 includes every
       // file that matches `include`, whenever the whole suite runs. A
       // single-file rerun is the only case that narrows this. `all: true`

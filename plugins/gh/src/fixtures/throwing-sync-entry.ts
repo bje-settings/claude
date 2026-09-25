@@ -9,7 +9,7 @@
 // always catches that error.
 //
 // The #81 exit-1 contract needs proof at a real process boundary, not
-// inside `commands/sync.test.ts`'s in-process suite. The only way to
+// inside the in-process `commands/sync.*.test.ts` suite. The only way to
 // prove it there is to import the real `createSyncCommand`, with a
 // throwing stand-in in place of `syncRepo`.
 //
