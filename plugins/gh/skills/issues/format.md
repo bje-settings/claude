@@ -23,10 +23,7 @@ The condition that closes the issue. A person who did not write it can check it.
 ADRs, documents, upstream links, and issues that give only context.
 ```
 
-- A dependency is never text in the body. Put "blocked by", "depends on", "after #n",
-  "blocks", "part of" and "sub-issue of" in the relationship fields
-  ([relationships.md](relationships.md)). Under References, an issue number gives context
-  only.
+- Under References, an issue number gives context only. A dependency goes in its field.
 - A plan key or a milestone note goes in a footer of one line, in italics:
   `_Plan key P0-3. Blockers are recorded as issue dependencies._`
 
@@ -35,7 +32,7 @@ ADRs, documents, upstream links, and issues that give only context.
 Read the types that the repository defines:
 
 ```bash
-gh api graphql -F owner='{owner}' -F repo='{repo}' -f query='query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){issueTypes(first:20){nodes{name description}}}}' --jq '.data.repository.issueTypes.nodes'
+gh api graphql -F owner='{owner}' -F repo='{repo}' -f query='query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){issueTypes(first:20){nodes{name description}}}}' --jq '.data.repository.issueTypes.nodes // []'
 ```
 
 Choose the type whose description fits. Use the type of the title as a start:
@@ -49,4 +46,4 @@ Choose the type whose description fits. Use the type of the title as a start:
 Use this table only for the names that the repository defines. A type from the caller has
 priority over the table.
 
-`null` means that the repository has no issue types. Then leave out `--type`.
+An empty list means that the repository has no issue types. Then leave out `--type`.

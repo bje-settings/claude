@@ -15,50 +15,54 @@ the skill. It has no slash command.
 ```mermaid
 flowchart TD
     A{Which operation?}
-    A -->|Create one or a batch| B{Similar issue found?}
+    A -->|Create one| B{Similar issue found?}
     B -->|Yes, and the user agrees| B1([Propose a comment on it, create nothing]):::stop
-    B -->|No, or the user says it is different| C[Propose title, body, type,<br/>relationships, milestone, priority]
+    B -->|No, or the user says it is different| C[Propose title, body, type, labels,<br/>relationships, milestone, priority]
+    A -->|Create a batch| BB[Take each duplicate out of the batch,<br/>propose a comment on it]
+    BB --> BM[Propose a milestone for<br/>a shared done condition]
+    BM --> C
     A -->|Link| L[Propose the relationship change]
-    A -->|Triage| T{Any field with no value?}
-    T -->|No| T1([Report that nothing is missing]):::stop
-    T -.->|Dependency as text| T3[Propose the field,<br/>and remove the text from the body]
-    T3 --> G
+    A -->|Triage| T{Any gap: empty field, type label,<br/>dependency in text?}
+    T -->|No| T1([Report that every field has a value]):::stop
     T -->|Yes| T2[Propose a value for each gap,<br/>or leave it open and say why]
 
-    C --> D{Batch with one shared done condition?}
-    D -->|Yes| D1[Propose a new milestone]
-    D -->|No| G
-    D1 --> G
+    C --> G
     L --> G
     T2 --> G
-
     G{Each value the caller gave exists?}
     G -->|No| G1([Say so and ask, write nothing]):::stop
-    G -->|Yes| E
-
-    E{Request already set every field?}
-    E -->|No| F{User confirms?}
+    G -->|Yes| E{Request already sets every value?}
+    E -->|Yes| W
+    E -->|No| S{In a subagent?}
+    S -->|Yes| S1([Return the proposal to the caller, write nothing]):::stop
+    S -->|No| F{User confirms?}
     F -->|No| F1([Stop, write nothing]):::stop
-    F -->|Yes| H
-    E -->|Yes| H
+    F -->|Yes| W
 
-    H[Write: milestone first,<br/>then issues in dependency order]
+    W{Which write?}
+    W -->|Create| H[New milestone first, then issues:<br/>parents and blockers first]
+    W -->|Link| LW[Edit the relationship fields]
+    W -->|Triage| TW[Edit type, labels, milestone,<br/>move text dependencies to fields]
 
     H --> I{Repository has issue types?}
     I -->|Yes| I1[Set the type, add no label<br/>that says the same thing]
     I -->|No| I2[Use a type label that exists, or none]
     I1 --> J
     I2 --> J
+    TW --> J
 
     J{Owner has a Priority field?}
     J -->|Yes| J1[Set it, read it back]
     J -->|No| J2[Level in the report only]
     J1 --> K
     J2 --> K
-    K([Report number, milestone, type,<br/>priority, relationships from read-back])
+    LW --> K
+    K([Report from the read-back])
+
+    X[gh refuses a flag] -.-> X1([Stop: gh 2.94 or later needed]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The skill never creates a label, and prefers an issue type to a label with the same meaning. A repository with no issue types, or an owner with no
-Priority field, is a fact to report. The skill does not work around it.
+The skill never creates a label. It prefers an issue type to a label with the same meaning.
+An owner with no Priority field is a fact to report, and the skill does not work around it.

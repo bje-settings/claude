@@ -1,7 +1,7 @@
 # gh
 
-GitHub and git workflow skills: keep checkouts current, and merge dependency
-pull requests one at a time.
+GitHub and git workflow skills: keep checkouts current, merge dependency pull
+requests one at a time, and file, link and triage issues.
 
 ## `/gh:sync`
 
@@ -280,28 +280,31 @@ command.
 
 ## `gh:issues`
 
-Files, links and triages issues. Claude starts this skill when you ask it to file an issue,
-link issues, or fill in fields on issues that exist. It has no slash command
-(`user-invocable: false`), so other skills can also call it.
+Files, links and triages issues. Claude starts this skill when you ask for an issue, a link
+or a triage. Other skills can also start it. It has no slash command
+(`user-invocable: false`). It needs gh 2.94 or later.
 
 | Operation | What it does |
 | --- | --- |
-| Create one issue | Looks for a duplicate first. Then proposes the title, body, type, relationships, milestone and priority, and creates the issue after you confirm. |
-| Create a batch | Proposes one milestone for a shared done condition. Creates the issues in dependency order. |
+| Create one issue | Looks for a duplicate first. Then proposes the title, body, type, labels, relationships, milestone and priority. Creates the issue after you confirm. |
+| Create a batch | Proposes one milestone for a shared done condition. Creates the issues in dependency order, parents and blockers first. |
 | Link | Adds or removes blocked-by, blocking and parent on issues that exist. |
-| Triage | Proposes a type, milestone and priority for each issue with no value, then sets them after you confirm. |
+| Triage | Proposes a value for each empty field. Also replaces a type label with the type, and a dependency in text with its field. Sets them after you confirm. |
 
-It puts each relationship in its field, not in the body, and it never creates a label. The
-issue type comes from the types that the repository defines. The title type gives the start
-value: `fix` is Bug, `feat` is Feature, and the other types are Task. It does not add a label
-that says the same thing as a type (`bug`, `enhancement`). Triage proposes that such a label
-is replaced by the type. The skill uses a label for the kind of work only when the repository
-has no issue types.
+The skill puts each relationship in its field, never in a body or a comment. It never
+creates a label. The issue type comes from the types that the repository defines. The
+title type gives the start value: `fix` is Bug, `feat` is Feature, and `docs`, `refactor`,
+`test`, `chore` and `ci` are Task. The skill adds no label that says the same thing as a
+type (`bug`, `enhancement`). It uses such a label only when the repository has no issue
+types.
 
-Priority is an organization issue field (Urgent, High, Medium, Low). `gh issue` has no flag
-for it, so the skill sets it with GraphQL. A repository that a user owns has no such field.
-The skill then gives the level in its report only. The rubric is in
+Priority is an organization issue field (in the bje orgs: Urgent, High, Medium, Low).
+`gh issue` has no flag for it, so the skill sets it with GraphQL. A repository that a user
+owns has no such field. The skill then gives the level in its report only. The rubric is in
 [`skills/issues/priority.md`](skills/issues/priority.md).
+
+Before a write, the skill asks you to confirm. In a subagent it cannot ask. There it writes
+only when the request sets every value. Otherwise it returns the proposal to its caller.
 
 ## Session start hook
 

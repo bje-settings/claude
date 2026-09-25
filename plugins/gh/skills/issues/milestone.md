@@ -3,13 +3,8 @@
 List the open milestones:
 
 ```bash
-gh api 'repos/{owner}/{repo}/milestones?state=open' --jq '.[] | {title, description, open_issues}'
+gh api repos/{owner}/{repo}/milestones -X GET -f state=open -f per_page=100 --paginate --jq '.[] | {title, description, open_issues}'
 ```
-
-## Given
-
-The caller named a milestone. Make sure that it is in the list. If it is not, say so and ask.
-Do not create it.
 
 ## Suggest
 
@@ -23,5 +18,5 @@ the done condition as the description. Create it before the issues, so each issu
 creation:
 
 ```bash
-gh api 'repos/{owner}/{repo}/milestones' -f title="<title>" -f description="<done condition>" --jq .title
+gh api repos/{owner}/{repo}/milestones -f title="<title>" -f description="<done condition>" --jq .title
 ```

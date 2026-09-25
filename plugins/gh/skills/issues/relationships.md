@@ -1,16 +1,16 @@
 # Relationships
 
 There are three relationships: blocked by, blocking, and parent (a sub-issue has one
-parent). Each one is a field. Put a relationship only in its field.
+parent). Each one is a field.
 
-Do not write a dependency as text in a body or a comment: "blocked by #n", "depends on
-#n", "after #n", "blocks #n", "part of #n" or a "Blockers" list. A sweep reads the fields,
-and it cannot see text. A comment can give the reason for a relationship, but only after
-the field is set.
+Text such as "blocked by #n", "depends on #n", "after #n", "blocks #n", "part of #n" or a
+"Blockers" list is a dependency in text. Put it in the field. A comment can give the
+reason for a relationship, but only after the field is set.
 
 ## Find them
 
-Read the titles of the open issues. Then read the body of each issue in the same area:
+Read the titles of the open issues. Then read the body and comments of each issue in the
+same area:
 
 ```bash
 gh issue list --state open --limit 200 --json number,title,milestone
@@ -30,18 +30,17 @@ Use `--blocked-by <n,n>`, `--blocking <n,n>` and `--parent <n>` on `gh issue cre
 
 ## Change them on an issue that exists
 
+Confirm the change, then run it:
+
 ```bash
 gh issue edit <n> --add-blocked-by <n,n> --add-blocking <n,n> --parent <n>
 gh issue edit <n> --remove-blocked-by <n,n> --remove-blocking <n,n> --remove-parent
 ```
 
-Show the change and get a confirmation before you run it.
-
 ## Move a dependency from text to a field
 
-When you read an issue and its body or a comment gives a dependency as text, propose that
-you set the field. Also propose that you remove the text from the body. Do both only after
-the user confirms:
+A body or a comment can give a dependency in text. Propose the field. For a body, also
+propose that you remove the text. Confirm both, then run:
 
 ```bash
 gh issue edit <n> --add-blocked-by <n>

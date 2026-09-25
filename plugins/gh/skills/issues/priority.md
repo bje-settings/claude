@@ -17,21 +17,18 @@ Choose the lowest level that fits.
 - If you cannot choose between two levels, choose the lower one.
 - An issue that blocks an open issue is never Low.
 
-## Given
-
-The caller gave a level. Use it if it is one of the field options. If not, say so and ask.
-
 ## Read the field
 
 ```bash
-gh api graphql -F owner='{owner}' -F repo='{repo}' -f query='query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){owner{... on Organization{issueFields(first:50){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}}}' --jq '[.data.repository.owner.issueFields.nodes[]? | select(.name == "Priority")]'
+gh api graphql -F owner='{owner}' -F repo='{repo}' -f query='query($owner:String!,$repo:String!){repository(owner:$owner,name:$repo){issueFields(first:50){nodes{... on IssueFieldSingleSelect{id name options{id name}}}}}}' --jq '[.data.repository.issueFields.nodes[]? | select(.name == "Priority")]'
 ```
 
 An empty list means that the owner has no Priority field. A repository that a user owns
-always gives an empty list. Put the level in the report only, and stop. Do not use a label
-or the body instead.
+always gives an empty list. Then put the level in the report only. Do not do "Set it" or
+"Read it back", and do not use a label or the body instead.
 
-Find the option by its name. Do not keep an ID from an earlier run.
+Find the option by its name. Do not keep an ID from an earlier run. If the option names are
+not the four levels above, show how the levels map to them, and ask.
 
 ## Set it
 
