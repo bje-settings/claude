@@ -25,7 +25,7 @@ plugins/<plugin>/
     lib -> ../../../lib        # committed symlink
     subcommands/<command>.ts   # one exported function per subcommand: the seam
   hooks/*.ts
-tests/plugins/<plugin>/        # mirrors plugins/<plugin>/src/; never shipped (ADR 004)
+tests/plugins/<plugin>/        # mirrors plugins/<plugin>/src/; outside the plugin, so never shipped
   subcommands/<command>.test.ts
   fixtures/
 ```
@@ -88,7 +88,8 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 - The shared harness is `harness/` at the repository root. `harness/README.md` has the rest of
   the test side.
 - A slow test file can be in parts, `<command>.<part>.test.ts`, so that vitest runs the parts at
-  the same time. The helpers of the parts go in `<command>.test-support.ts` beside them (#205).
+  the same time. The helpers of the parts go in `<command>.test-support.ts` beside them, so the
+  parts share one copy of each helper.
 - `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
   `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
   and names itself. This is the property a stub binary cannot give. A command that reached for

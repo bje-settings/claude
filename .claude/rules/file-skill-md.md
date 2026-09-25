@@ -21,7 +21,7 @@ The diagram does NOT belong in `SKILL.md`, and `SKILL.md` must not reference it 
 loads `SKILL.md` into context every time it runs. So anything that lives there costs context on
 every run. A person reads a diagram occasionally, to reason about the skill. So the diagram
 belongs in a separate file. It is not in the skill directory, because that directory ships to
-each user (ADR 004).
+each user.
 
 The diagram helps a reader reason about the skill at a glance. So draw the decisions and
 outcomes, not the call stack. Show the branches a reader would otherwise have to derive from
