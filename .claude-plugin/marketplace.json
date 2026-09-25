@@ -34,6 +34,12 @@
       "source": "./plugins/audit",
       "description": "/audit:context audits a repository's CLAUDE.md, README.md and .claude/**/*.md for rot: references that no longer resolve, statements whose named condition has ended, duplicated claims.",
       "category": "development"
+    },
+    {
+      "name": "typescript7-lsp",
+      "source": "./plugins/typescript7-lsp",
+      "description": "TypeScript 7's native language server (tsc --lsp --stdio) from the project's own TypeScript. Replaces typescript-lsp, which needs the tsserver TypeScript 7 no longer ships.",
+      "category": "development"
     }
   ]
 }

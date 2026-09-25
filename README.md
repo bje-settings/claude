@@ -141,6 +141,21 @@ the plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+### [`typescript7-lsp`](plugins/typescript7-lsp)
+
+> The TypeScript 7 language server.
+
+<table>
+  <tr>
+    <th scope="row">LSP servers</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/typescript7-lsp"><code>typescript7</code></a>: TypeScript 7's native language server from the project's <code>node_modules/typescript</code>, replacing <code>typescript-lsp@claude-plugins-official</code>.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
 ## Sharing a plugin outside this repo
 
 This repo is internal to the `bje` enterprise, so a team that cannot read it cannot install from
