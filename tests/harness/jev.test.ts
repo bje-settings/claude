@@ -1,4 +1,4 @@
-// The mock's own claims (#173), the same as harness/gh.test.ts. A reply
+// The mock's own claims (#173), the same as tests/harness/gh.test.ts. A reply
 // registered per method comes back on every call. A sequence takes one
 // reply per call, and the last one repeats (#174). A fail switch fails
 // only its own method. An unregistered method throws and names itself.

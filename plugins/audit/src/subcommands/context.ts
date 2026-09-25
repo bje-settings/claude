@@ -533,7 +533,7 @@ const issueStates = async (
     // own account of it, without the argv prefix the message carries.
     //
     // Tested rather than cast, the way every other command here reads one
-    // (`plugins/gh/src/subcommands/shepherd-pr.ts:248`). A cast reads `detail`
+    // (`plugins/gh/src/subcommands/shepherd-pr.ts:254`). A cast reads `detail`
     // off whatever was thrown. The caller then folds `undefined` into `ok`.
     // So a client that failed some other way would report a lookup that
     // succeeded, while every issue ref said unavailable.

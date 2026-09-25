@@ -23,8 +23,9 @@ read and never code that runs.
 
 `subcommands/sync-repo.*.test.ts` read `bash-output.json`. `subcommands/sync.*.test.ts` read
 `bash-sync-output.json`. Both also read `divergences.json`. Those two, plus `discover.test.ts`,
-also read `python-cli-output.json`. Each parity test lives beside the command it covers, rather
-than in a file of its own. That is the layout rule in `.claude/rules/type-ts.md`.
+also read `python-cli-output.json`. Each parity test lives with the other tests of the command it
+covers, under `tests/plugins/gh/subcommands/`. That is the layout rule in
+`.claude/rules/type-ts.md`.
 
 ## Why a capture and not a second suite
 
@@ -69,9 +70,9 @@ needs it has no other place to put a program.
 `syncRepo`, the real job, never throws through any state a test can reach from the outside.
 (`lib/process.ts`'s `run` never rejects. Every git call answers `null` on failure, instead of
 throwing. Every `gh` failure arrives as a `GhError`, which `sync-repo.ts`'s `ask()` always
-catches.) So `src/bin.test.ts`'s one spawned case, for the #81 exit-1 contract, imports the real
-`createSyncCommand` with a stand-in that throws in place of `syncRepo`, in a real process rather
-than in-process.
+catches.) So `tests/plugins/gh/bin.test.ts`'s one spawned case, for the #81 exit-1 contract,
+imports the real `createSyncCommand` with a stand-in that throws in place of `syncRepo`, in a real
+process rather than in-process.
 
 What it proves is narrower than "the same production wiring `scripts/gh.ts` uses". `scripts/gh.ts`'s
 own `write` helper is an unexported `const`, and its `sync` dispatch arm is a dispatch branch;

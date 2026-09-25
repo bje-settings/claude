@@ -122,7 +122,7 @@ it('draws the settle branch in the shepherd diagram', () => {
 
 // --- the one shared discover subgraph -----------------------------------------
 
-/** The `subgraph discover ... end` block of one FLOW.md, indentation
+/** The `subgraph discover ... end` block of one skill flow, indentation
  *  stripped. */
 const discoverBlock = (skill: string): string => {
   const lines = read(path.join(FLOWS, 'gh', skill, '_skill-flow.md')).split('\n')

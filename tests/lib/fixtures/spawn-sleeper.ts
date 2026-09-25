@@ -9,9 +9,10 @@
 // A test can then prove the group signal reached it: the first file must
 // appear, and the second file must not.
 //
-// `harness/fixtures/` has no child that starts a child. It is also outside
-// this layer's allowed file set. So the fixtures here live beside the suite
-// that runs them (lib/process.test.ts).
+// `tests/harness/fixtures/` has no child that starts a child. It was also
+// outside the allowed file set of the layer that added this file. So the
+// fixtures here live beside the suite that runs them
+// (`tests/lib/process.test.ts`).
 import { spawn } from 'node:child_process'
 
 const marker = process.argv[2] ?? ''

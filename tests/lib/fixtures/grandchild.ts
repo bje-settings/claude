@@ -1,4 +1,4 @@
-// The grandchild of lib/fixtures/spawn-sleeper.ts. See that file.
+// The grandchild of tests/lib/fixtures/spawn-sleeper.ts. See that file.
 import { writeFileSync } from 'node:fs'
 
 const marker = process.argv[2] ?? ''

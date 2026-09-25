@@ -9,7 +9,7 @@
 // point cannot hand to a seam: the payload arrives there, and a descriptor
 // can fail after it opens.
 //
-// `plugins/gh/src/fixtures/deleted-cwd.ts` is the same fixture for the same
+// `tests/plugins/gh/fixtures/deleted-cwd.ts` is the same fixture for the same
 // handler in the `gh` hook. There, the unforeseen failure available was a
 // working directory that had been removed.
 //

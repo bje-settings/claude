@@ -250,7 +250,7 @@ it('leaves its account on stderr and still exits 0 when nothing else caught it',
   const sandbox = createSandbox()
 
   // The one failure the entry point cannot hand to a seam, from inside a
-  // process that has it (`src/fixtures/stdin-error.ts`). The promise under
+  // process that has it (`fixtures/stdin-error.ts`). The promise under
   // test is the outer one: an unforeseen throw still leaves stdout empty, so
   // the tool call proceeds and no session stops for it.
   const result = runScript(STDIN_ERROR, { args: [HOOK], stdin: '', env: sandbox.env })

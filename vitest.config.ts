@@ -10,7 +10,8 @@ export default defineConfig({
     // Every test lives under tests/, and no test lives in a plugin or in
     // lib/ (ADR 004). Claude Code copies a plugin's whole directory, and the
     // lib/ symlink, into each user's cache, so a test there would ship.
-    // tests/repo/repo-layout.test.ts refuses a test file anywhere else.
+    // tests/repo/repo-layout.test.ts refuses a test file in a plugin or in
+    // lib/.
     include: ['tests/**/*.test.ts'],
     // .claude/worktrees/ holds checkouts of this same repository (see the
     // worktree workflow). Without this exclusion, every test in the tree
@@ -45,7 +46,7 @@ export default defineConfig({
       // helper could move the number, even when no shipped or shared code
       // changes.
       //
-      // No plugins/*/src/lib/** entry here, unlike test.exclude above.
+      // No plugins/*/src/lib/** entry here.
       // coverage-v8 keys itself by the canonical (realpath) module URL that
       // node's ESM loader resolves a symlinked import to. So it already
       // reports each lib/ file once, at its real path, with no duplicate

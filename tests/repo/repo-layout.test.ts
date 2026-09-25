@@ -32,13 +32,15 @@ import {
 it('expresses a path relative to the repo root', () => {
   // `rel()` runs elsewhere only inside branches that stay empty against
   // this repository's own tree. Nothing here is currently missing a
-  // FLOW.md, a LICENSE, or a license field. Without this direct case, its
+  // flow, a LICENSE, or a license field. Without this direct case, its
   // body would never actually run, and coverage would not notice.
-  expect(rel(path.join(ROOT, 'tests', 'repo.ts'))).toBe(path.join('tests', 'repo.ts'))
+  expect(rel(path.join(ROOT, 'tests', 'repo', 'repo.ts'))).toBe(
+    path.join('tests', 'repo', 'repo.ts'),
+  )
 })
 
 it('finds plugins to check', () => {
-  // This is the same guard tests/skills.test.ts carries, for the same
+  // This is the same guard tests/repo/skills.test.ts carries, for the same
   // reason. A glob that matches nothing makes every check below pass,
   // while it enforces nothing.
   expect(pluginDirs().length).toBeGreaterThan(0)
@@ -110,7 +112,7 @@ describe('pluginDirs filtering', () => {
     //
     // So this function follows a link at `src`, but drops it here. That
     // reads as a contradiction, and is not one. `pluginDirs` is
-    // pre-existing code that `tests/skills.test.ts` also walks, and what
+    // pre-existing code that `tests/repo/skills.test.ts` also walks, and what
     // a plugin *is* is not this layer's question. This layer asks a
     // different question of every plugin the existing filter admits:
     // does a plugin reach the shared library the one way the convention

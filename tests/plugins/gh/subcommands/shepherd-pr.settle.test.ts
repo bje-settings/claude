@@ -399,7 +399,7 @@ it('reports the last url gh printed as the comment url', async () => {
 it('lets a reader that left stop the report, never the rebase', async () => {
   // `test_shepherd_pr.py:1135` asserted the composite: the reader is gone,
   // the branch was still updated, and the status is 0. Two other tests pin
-  // the halves apart. `lib/streams.test.ts` pins the writer's EPIPE guard.
+  // the halves apart. `tests/lib/streams.test.ts` pins the writer's EPIPE guard.
   // `reports an update that worked and a read that did not` pins the update.
   // This test proves the composite itself, in process.
   const record = recording({

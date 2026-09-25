@@ -6,7 +6,7 @@
 // mocked").
 //
 // The process boundary, the floor guard, and the wiring `hooks.json`
-// carries, are in `src/hook.test.ts`.
+// carries, are in `tests/plugins/workstreams/hook.test.ts`.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'

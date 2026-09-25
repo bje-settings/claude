@@ -52,7 +52,7 @@ const fixtures: readonly Fixture[] = fixtureFiles.map(
 )
 
 // A fixture set that quietly shrank to zero would pass this describe.each,
-// and prove nothing. tests/repo.ts carries the same guard for plugins.
+// and prove nothing. tests/repo/repo.ts carries the same guard for plugins.
 if (fixtures.length === 0) throw new Error(`no fixtures found under ${FIXTURES}`)
 
 /** Inflate and parse what `buildUrl` produced, at both levels. */

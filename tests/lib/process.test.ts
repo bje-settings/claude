@@ -8,14 +8,14 @@
 // The children run as `process.execPath` over a fixture. `harness/spawn.ts`
 // makes the same choice, for the same reason. The interpreter that runs
 // this suite is the interpreter under test. So a run on the 22.18 leg
-// really exercises 22.18. `harness/fixtures/` supplies the four fixtures
-// that already exist.
+// really exercises 22.18. `tests/harness/fixtures/` supplies the four
+// fixtures that already existed.
 //
-// `lib/fixtures/` supplies the rest. These are a child that sleeps, a
+// `tests/lib/fixtures/` supplies the rest. These are a child that sleeps, a
 // child that starts a child, and the grandchild it starts. They also
 // include a child that exits before it reads its stdin. One more prints
-// its own process group. `harness/fixtures/` sits outside this layer's
-// allowed file set, so these fixtures live here instead.
+// its own process group. `tests/harness/fixtures/` was outside the allowed
+// file set of the layer that added them, so these fixtures live here.
 //
 // Every time limit is generous where the test says it did NOT fire, and
 // tiny where it says it did. This way a loaded CI runner can be slow and
