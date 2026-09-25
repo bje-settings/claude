@@ -24,33 +24,21 @@ plugin, and repo discovery shared by its skills is `plugins/gh/src/discover.ts`,
 skill as `node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover <path>`. A new skill about auditing
 a repository's context files for rot belongs in the `audit` plugin.
 
-New plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
+Plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
 has the rules. A command is an exported function at `plugins/<plugin>/src/commands/<command>.ts`
 behind one thin dispatcher at `plugins/<plugin>/scripts/<plugin>.ts`, a hook goes at
 `plugins/<plugin>/hooks/*.ts`, and code shared between plugins is the root `lib/`, reached through
 the committed symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
 
-The Python layer is retiring and is not the pattern to copy. `field-test` (#136) is the last
-plugin that runs scripts at `plugins/<plugin>/scripts/*.py` and a hook at
-`plugins/<plugin>/hooks/*.py`, stdlib only on a Python 3.9 floor.
-`.claude/rules/type-py.md` has the layout, the import rules and the rest, and
-loads whenever a session opens one of those files.
-
-In either language nothing under `plugins/` is bash, a plugin takes no dependency and carries no
-`package.json`, and a command's exit codes and stdout are a contract with its callers.
+Nothing under `plugins/` is bash, a plugin takes no dependency and carries no `package.json`, and
+a command's exit codes and stdout are a contract with its callers.
 
 Cross-plugin dependencies, declared through a preflight script rather than vendored:
 
-- `field-test` depends on `workstreams` and `pr-review-toolkit` (through the `harden` skill's
-  preflight). `workstreams` is being rebuilt as the #111 primitives, and `harden` is rebuilt on
-  them at #137; do not duplicate the review loop in `field-test` meanwhile. Four of the five
-  primitives exist (sweep #130, review loop #133, stream #132, question phase #131); the
-  orchestrator (#134) follows.
 - `workstreams` depends on `gh` and the `gh stack` extension, through
-  `plugins/workstreams/src/commands/preflight.ts`, which is the TypeScript form of the
-  registry read `plugins/field-test/scripts/lib/preflight.py` does. A new cross-plugin
-  dependency is a row in its `REQUIRED_PLUGINS` table, or `OPTIONAL_PLUGINS` when a skill
-  works around its absence, never a vendored copy.
+  `plugins/workstreams/src/commands/preflight.ts`. A new cross-plugin dependency is a row in its
+  `REQUIRED_PLUGINS` table, or `OPTIONAL_PLUGINS` when a skill works around its absence, never a
+  vendored copy.
 
 ### Plugin domains
 
@@ -118,71 +106,44 @@ If a plugin grows until the right mechanism changes, raise it during planning or
 
 Every skill directory carries a `FLOW.md` beside its `SKILL.md`, holding a mermaid flow diagram.
 The diagram stays out of `SKILL.md`, which is loaded on every invocation. Enforced across the
-plugins **and** `.claude/skills/` by `tests/skills.test.ts`, with `tests/test_skills.py` its
-Python original until #138; see `.claude/rules/file-skill-md.md`.
+plugins **and** `.claude/skills/` by `tests/skills.test.ts`; see `.claude/rules/file-skill-md.md`.
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 
-Not everything here is a plugin. A root `scripts/` script, Python, would be this repo's own
+Not everything here is a plugin. A root `scripts/` script, TypeScript, would be this repo's own
 tooling, with `.claude/skills/` holding the skill that drives it. Neither would be installed by
 anyone, neither would be in the marketplace manifest, and `claude plugin validate` never sees
 either; the convention holds them to the same standards anyway, because they can change other
 repositories. Neither exists today: #128 deleted the only ones there were, `publish-plugin.py`
 and the `/publish` skill.
 
-Three things would differ from a plugin (`.claude/rules/type-py.md` has the detail):
+Two things would differ from a plugin:
 
-- A root Python script is one self-contained module, with no `lib/` and no `sys.path.insert`.
-  Enforced by `tests/test_repo_layout.py` until #138, since a violation's failure mode is a
-  confusing error in an unrelated plugin's tests. `tests/repo-layout.test.ts` holds the TypeScript
-  layout rules.
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
 
-A repo-local skill is checked by those same tests, including the frontmatter that `--strict`
+A repo-local skill is checked by `tests/skills.test.ts`, including the frontmatter that `--strict`
 would otherwise have covered.
 
 ### Tests
 
-One command per language: `pnpm test` for TypeScript, `uv run --locked pytest -n auto --cov` for
-Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than being rewritten.
+`pnpm test` runs the suite with coverage.
 
 #### Layout and fixtures
 
 - TypeScript tests are co-located at `plugins/<plugin>/src/**/*.test.ts`, with fixtures at
   `src/fixtures/`. The shared harness is `harness/` at the repository root (`harness/README.md`),
   imported only from test files so it never ships; `tests/` holds this repository's own checks.
-- A plugin's Python tests live in `tests/<plugin>/`, with tests that span plugins or cover the
-  harness itself at the root of `tests/`. A module's basename is unique across the whole suite,
-  because pytest imports them into one namespace: `test_ft_fixtures.py` carries its plugin in the
-  name rather than being a second `test_fixtures.py`.
-- In the Python suite, `run_script` drives a script black-box as its own process under
-  `sys.executable`, the way Claude Code runs it; logic awkward to provoke from the outside gets
-  direct unit tests beside that.
-- In the Python suite, `sandbox` is a private temp dir with `HOME` inside it and
-  `CLAUDE_PLUGIN_DATA` unset. `stub_path` puts a directory ahead of everything on `PATH` (for
-  stubs); `path_without` builds a `PATH` of the real tools minus the named ones (for "tool is not
-  installed" branches). Each plugin adds its own stub `gh` and canned data.
-- The Python suite runs in parallel under `pytest-xdist` (`-n auto`): every test must build its
-  state in its own temp dir (the `sandbox` fixture), and write to no fixed path or the checkout.
 
 #### Coverage
 
-- TypeScript: `vitest.config.ts`'s thresholds are the gate, 100 on lines, branches, functions and
-  statements over a named source set, with `cobertura` feeding the enterprise Code Coverage ruleset.
-- Python, until #138: coverage.py with `branch = true` and `patch = ["subprocess"]`, so a script
-  run black-box in a child process is still measured; stub tools under `tests/<plugin>/bin/` are
-  omitted. `tests/coverage_check.py` is that gate, at 95% (the enterprise ruleset's threshold), and
-  is itself in the denominator; it is stdlib-only and 3.9-compatible because CI runs it with the
-  runner's system `python3`, outside the uv environment.
-- Reproduce a CI Python coverage run with `uv run --locked pytest -n auto --cov --cov-report=xml`
-  followed by `python3 tests/coverage_check.py coverage/python.xml 95`.
+- `vitest.config.ts`'s thresholds are the gate, 100 on lines, branches, functions and statements
+  over a named source set, with `cobertura` feeding the enterprise Code Coverage ruleset.
 
 #### CI required checks
 
-- `ruff`, `pytest`, `pytest-floor`, `coverage`, `vitest`, `vitest-floor`, `types` and `biome` in
-  `ci.yml`, plus `plugin-validate` in its own workflow, are required checks on the default branch,
-  matched by exact string.
+- `vitest`, `vitest-floor`, `types` and `biome` in `ci.yml`, plus `plugin-validate` in its own
+  workflow, are required checks on the default branch, matched by exact string.
 - Renaming one silently blocks every pull request forever (the required check never reports
   again) -- put descriptive text in step names instead.
 - Adding or removing a required job means updating the branch ruleset in the same pull request:
@@ -206,8 +167,7 @@ Python until #138. `--locked` as in CI, so a stale `uv.lock` fails rather than b
   it should and that it refuses when it should. Assert against real repositories built by the
   fixtures rather than mocking git; `harness/git.ts` builds them.
 - When a fixture makes a claim about the state it produces, assert that claim in the fixture's
-  own test too (`harness/*.test.ts`, `tests/field-test/test_ft_fixtures.py`), so the other tests
-  cannot pass for the wrong reason.
+  own test too (`harness/*.test.ts`), so the other tests cannot pass for the wrong reason.
 - Build fixtures from real cases seen in field tests. Do not copy specifics from field tests on
   repos outside the `bje` enterprise into this repo; reconstruct the shape of the case instead.
 - Test the non-deterministic parts too. For a skill or agent, run realistic prompts in fresh

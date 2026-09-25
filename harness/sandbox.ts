@@ -1,6 +1,6 @@
 // One test's private world: a temp directory, a HOME inside it, and an
 // environment the test can rewrite. The port of the `Sandbox` class and the
-// `sandbox` fixture in tests/conftest.py.
+// `sandbox` fixture in tests/conftest.py (deleted at #138).
 //
 // Two deliberate changes from the Python original. The first is that nothing
 // here touches `process.env`. pytest gives every example its own monkeypatch

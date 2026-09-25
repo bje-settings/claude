@@ -124,9 +124,10 @@ being corrected.
   reasoning, and the argument against, are in Decisions & Follow-ups.
 - **No aggregate `gates` job.** The exact-name required checks stay as they are. This is a
   deliberate divergence from `SurveyMonkey/skills`, argued in Alternatives Considered.
-- **`field-test` is untouched until milestone 5.** It is the largest plugin and the one whose
+- ~~**`field-test` is untouched until milestone 5.** It is the largest plugin and the one whose
   `harden` skill depends on the review loop `workstreams` owns, so it moves after those primitives
-  exist, not before.
+  exist, not before.~~ **Revised at [#138](https://github.com/bje-settings/claude/issues/138):**
+  `field-test` is retired, not ported (decision 8).
 - **No published npm package, no bundler, no compiled output.** The plugin ships `.ts` files that
   Node executes.
 - **No change to the test discipline.** `.claude/rules/type-py.md` becomes `type-ts.md`
@@ -262,7 +263,7 @@ plugin was laid out rather than after four were.
 
 ### Hooks
 
-Both Python hook scripts port: the `gh` SessionStart hook, and `field-test`'s PreToolUse and
+~~Both Python hook scripts port: the `gh` SessionStart hook, and `field-test`'s PreToolUse and
 PostToolUse hooks, which run on every Bash call, plus its PostToolUseFailure, SubagentStop and Stop
 hooks. The `command -v python3` guard each one carries becomes a silent Node floor guard: it
 checks the runtime, exits quietly when it cannot run, and says nothing on the happy path, because a
@@ -271,7 +272,10 @@ hook that writes to stderr writes into every tool call.
 The cost is measured rather than assumed. On the author's machine, a bare `python3` start is about
 33 ms and the current `field-test` hook about 45 ms; a bare `node` start is about 42 ms and a
 hook-shaped `.ts` about 70 ms. That is roughly +50 ms per Bash tool call in a session with
-`field-test` installed, and nothing in a session with only `gh` installed, where the hook runs once.
+`field-test` installed, and nothing in a session with only `gh` installed, where the hook runs once.~~
+**Revised at [#138](https://github.com/bje-settings/claude/issues/138):** only the `gh` SessionStart
+hook ported; `field-test`'s hooks were deleted with the plugin, so the per-call cost above is
+never paid.
 
 **Divergence from `SurveyMonkey/skills` RFC 002:** it kept `notice-scan.sh` in bash for exactly this
 cost, as a stated non-goal. Here the hooks port anyway. The reason is that a hook left in Python
@@ -307,7 +311,7 @@ adding half and `CLAUDE.md` documents both, and every ruleset edit in milestones
 them.
 
 The Python jobs, `ruff`, `pytest`, `pytest-floor` and `coverage`, stay required for as long as
-Python is in the tree, which is through milestone 4. `biome`, `types` and `vitest` are added
+Python is in the tree~~, which is through milestone 4~~. `biome`, `types` and `vitest` are added
 alongside them in milestone 2, and the Python four are dropped in
 [#138](https://github.com/bje-settings/claude/issues/138). `plugin-validate` is untouched by the
 port: it validates manifests, which do not change substrate.
@@ -373,9 +377,9 @@ and that entry is load-bearing here.
   alternative, a stack trace from a syntax error deep inside a command, is worse. Every supported
   LTS line clears the floor.
 - **Two toolchains through milestones 2 to 4.** uv, ruff and pytest coexist with pnpm, Biome and
-  vitest until `field-test` is the last Python in the tree and #138 removes it. Contributors need
-  both, CI runs both, and the required-check list carries both. This is bounded by the milestone
-  order and by nothing else.
+  vitest until ~~`field-test` is the last Python in the tree and~~ #138 removes it with
+  `field-test`. Contributors need both, CI runs both, and the required-check list carries both.
+  This is bounded by the milestone order and by nothing else.
 - **Tests and fixtures ship inertly in the cache copy.** There is no exclusion mechanism, so the
   installed plugin is larger than the plugin. It is dead weight rather than a hazard, but it is
   weight~~, and the mirror filter that keeps it out of the downstream copy is one more rule to keep
@@ -468,7 +472,8 @@ The primitives absorb six issues filed against the plugin being replaced:
 that replaces the behavior it reports, not a fix to be applied to code that is being deleted.
 
 **[Milestone 5: field-test on TypeScript](https://github.com/bje-settings/claude/milestone/5).**
-Last, because `harden` is rebuilt on the review loop W5 owns.
+Last, because `harden` is rebuilt on the review loop W5 owns. **Revised at #138:** F1 and F2 are
+closed as not planned and F3 deletes `field-test` with the Python toolchain (decision 8).
 
 | Key | Issue | Scope |
 |---|---|---|
@@ -537,10 +542,12 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    only to the install path now. *Against:* every plugin sees the whole library, so a change to
    `lib/` is a change to every plugin's shipped code at once, and nothing in the layout stops a
    helper that only `field-test` needs from landing where `mermaid` also carries it.
-5. **Both hook scripts port to TypeScript**, with a silent Node floor guard replacing
+5. ~~**Both hook scripts port to TypeScript**, with a silent Node floor guard replacing
    `command -v python3`. *Against:* the measured cost is about +50 ms on every Bash tool call in a
    session with `field-test` installed, and `SurveyMonkey/skills` kept its per-call hook in bash for
-   exactly this reason, as a stated non-goal of its own port.
+   exactly this reason, as a stated non-goal of its own port.~~ **Revised at
+   [#138](https://github.com/bje-settings/claude/issues/138):** only the `gh` hook ported, with the
+   floor guard; `field-test`'s hooks were deleted with the plugin (decision 8).
 6. **No version-bump gate, for now.** No check that a plugin's `plugin.json` version moved when its
    files did. *Against:* the failure it catches is silent by construction, an unbumped plugin simply
    does not update for anyone who has it installed. ~~The `sm-incubator/org-claude` mirror makes
@@ -553,10 +560,15 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    that removes them merges. *Against:* that is four to seven ruleset edits across the port, and
    each one is a chance to block every pull request in the repository on a check that will never
    report.
-8. **`field-test` is deferred entirely until the `workstreams` primitives exist**, so uv, ruff and
+8. ~~**`field-test` is deferred entirely until the `workstreams` primitives exist**, so uv, ruff and
    pytest coexist with the TypeScript toolchain through milestones 2 to 4. *Against:* it means the
    Python toolchain's retirement waits on #111, which is a body of work with its own risk, so the
-   two-toolchain period is as long as the least predictable milestone in the plan.
+   two-toolchain period is as long as the least predictable milestone in the plan.~~ **Revised at
+   [#138](https://github.com/bje-settings/claude/issues/138):**
+   `field-test` is retired rather than ported, and the Python toolchain goes with it, without
+   waiting on #111; [#196](https://github.com/bje-settings/claude/issues/196) redesigns
+   field-testing as an independent plugin. *Against:* whatever `field-test` caught is uncaught
+   until #196 lands.
 9. **The order is toolchain, then harness, then `mermaid` as a tracer bullet, then `gh` as a parity
    port that establishes the root lib, then `workstreams` written fresh as the #111 primitives.**
    *Against:* #111 is the work actually wanted, and this order puts it behind a 3,406 line parity
