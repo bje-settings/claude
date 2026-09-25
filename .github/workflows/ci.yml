@@ -14,11 +14,11 @@ concurrency:
 
 # THESE JOB NAMES ARE A CONTRACT: vitest, vitest-floor, types and biome here,
 # plus plugin-validate in plugin-validate.yml, are required by the repo ruleset
-# Require CI (22359720), which matches them by exact string. Renaming one does not fail the build: the
-# required check simply never reports and every pull request waits forever for
-# something that will not arrive. Keep them short and stable, and put
-# descriptive text in step names, where it helps in logs without becoming
-# load-bearing.
+# Require CI (22359720), which matches them by exact string. Renaming one does
+# not fail the build: the required check simply never reports and every pull
+# request waits forever for something that will not arrive. Keep them short
+# and stable, and put descriptive text in step names, where it helps in logs
+# without becoming load-bearing.
 #
 # A new job name becomes a required check only after it has reported on main,
 # for the same reason; add it to the ruleset right after the pull request that
@@ -95,8 +95,8 @@ jobs:
           fi
       # ADR 001: "a floor nothing executes is a claim." This proves the
       # suite runs on Node 22.18.0, the first release whose type stripping
-      # runs without a flag and writes nothing to stderr. No coverage report here:
-      # the vitest job above is the coverage gate and the enterprise
+      # runs without a flag and writes nothing to stderr. No coverage report
+      # here: the vitest job above is the coverage gate and the enterprise
       # upload; running vitest twice per CI run would only move that step
       # later.
       - name: Run the vitest suite on the Node 22.18 floor

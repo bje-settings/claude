@@ -7,7 +7,7 @@
 // test_repo_layout.py's test_repo_tooling_never_touches_sys_path is
 // deliberately NOT ported here: it parses Python with the `ast` module to
 // prove no root script does `sys.path.insert`/`sys.path.append`, and its
-// subject (Python `scripts/`) retired with #138. Its TypeScript successor is
+// subject (Python `scripts/`) was deleted at #128, and the test at #138. Its TypeScript successor is
 // the pair of rules below, which #125 can state now that the root lib exists:
 // the `src/lib` symlink is the only path out of a plugin, and it is a symlink
 // to exactly one place.

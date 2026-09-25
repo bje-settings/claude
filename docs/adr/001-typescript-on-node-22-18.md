@@ -126,14 +126,16 @@ different audience, read by another team as the plugin's source, so `publish-plu
 as above, `publish-plugin` was removed rather than ported, so this filter was never built; the
 downstream mirror it would have applied to stops receiving updates instead.
 
-**Both hook scripts port**, the `gh` SessionStart hook and `field-test`'s PreToolUse, PostToolUse,
+~~**Both hook scripts port**, the `gh` SessionStart hook and `field-test`'s PreToolUse, PostToolUse,
 PostToolUseFailure, SubagentStop and Stop hooks, with a silent Node floor guard replacing
 `command -v python3`. Silent is the requirement: a hook writes into every tool call, so it checks
 the runtime, exits quietly when it cannot run, and says nothing otherwise. The measured cost is
 about +50 ms per Bash tool call in a session with `field-test` installed, from the two of those
 hooks that run on every one, against about 33 ms for a bare `python3` start, 45 ms for the current
 hook, 42 ms for a bare `node` start and 70 ms for a hook-shaped `.ts`. It is paid so that one file
-does not keep an entire second toolchain alive.
+does not keep an entire second toolchain alive.~~ **Deviation ([#138](https://github.com/bje-settings/claude/issues/138)):**
+only the `gh` SessionStart hook ported, with the silent Node floor guard; `field-test` was retired
+rather than ported, and its hooks with it.
 
 **A plugin never carries its own `package.json`.** Claude Code runs a dependency install inside the
 cache copy when it finds a `package.json` and an npm or bun lockfile together, which turns

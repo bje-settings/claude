@@ -1,9 +1,9 @@
 # harness
 
-The shared test harness for the TypeScript side of the repository: an isolated sandbox, an
+The shared test harness: an isolated sandbox, an
 in-process `gh` mock, real git repositories, and a spawn helper. It is the port of what the
-Python suite got from `tests/conftest.py` and `tests/gh/conftest.py`, deleted with the Python at
-#138 and #127.
+Python suite got from `tests/conftest.py` (deleted at #138) and `tests/gh/conftest.py` (deleted at
+#127).
 
 It lives at the repository root and is imported **only from test files**, so it never sits inside a
 plugin and never ships (ADR 001). Nothing here has a dependency: node built-ins, plus `vitest` for
@@ -286,7 +286,7 @@ packages.remoteUpdateLock(work) // origin regenerates the lock file, so a pull m
 ```
 
 pnpm only (the maintainer's ruling on #127, 2026-09-20): the port watches one lock file and runs
-one command, so the `manager` argument the Python's builders take has nothing to select. Yarn
+one command, so the `manager` argument the Python's builders took has nothing to select. Yarn
 Berry and npm, `YARN_VERSION` and `has_yarn_berry` are not ported, and neither is the
 `packageManager` field they existed to drive, which is what corepack reads.
 
@@ -320,13 +320,10 @@ real; everything else is tested by calling the command function with injected cl
 runs under `process.execPath`, so a run on the 22.18 floor leg genuinely exercises 22.18. A child
 that could not be started at all throws, rather than handing back a result full of empty strings.
 
-The closed-reader variant of `run_script` in `tests/conftest.py` is not ported until a command needs
-it.
-
 ## Running
 
 ```bash
-pnpm test                                        # the whole TypeScript suite, with coverage
+pnpm test                                        # the whole suite, with coverage
 pnpm exec vitest run harness                     # this directory alone
 pnpm exec tsc -p tsconfig.json                   # types, including fixtures/
 pnpm exec biome ci . --error-on-warnings         # lint and format

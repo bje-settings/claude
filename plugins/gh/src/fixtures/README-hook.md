@@ -117,7 +117,7 @@ sandbox back in before comparing.
 ## The capture script, verbatim
 
 Verbatim but for line wrapping: `ruff format` reaches Python inside a fenced block in a markdown
-file, and the `ruff` job in CI checks this one. It is the same program either way.
+file, and the `ruff` job in CI checked this one until #138. It is the same program either way.
 
 ```python
 """Capture what `plugins/gh/hooks/hook-io.py` writes, one JSON row per case.

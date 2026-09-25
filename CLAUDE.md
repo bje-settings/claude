@@ -117,12 +117,12 @@ either; the convention holds them to the same standards anyway, because they can
 repositories. Neither exists today: #128 deleted the only ones there were, `publish-plugin.py`
 and the `/publish` skill.
 
-Two things would differ from a plugin (`tests/repo-layout.test.ts` holds the layout rules):
+Two things would differ from a plugin:
 
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
 
-A repo-local skill is checked by those same tests, including the frontmatter that `--strict`
+A repo-local skill is checked by `tests/skills.test.ts`, including the frontmatter that `--strict`
 would otherwise have covered.
 
 ### Tests
