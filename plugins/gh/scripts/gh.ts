@@ -1,37 +1,37 @@
-// The one entry point for the `gh` plugin's commands. The floor check is
-// first, and it is the only static import: `import` declarations are hoisted
-// and evaluated before any statement here runs, so a second static import
-// would load its whole module graph on the runtime this guard exists to refuse
-// (`lib/README.md`, `lib/node-floor.ts`). Everything else is reached by
-// `await import` after the check has passed.
+// This file is the one entry point for the `gh` plugin's commands. The
+// floor check comes first. It is the only static import. Node hoists and
+// evaluates `import` declarations before any statement here runs. A second
+// static import would load its whole module graph on the runtime that this
+// guard must refuse (`lib/README.md`, `lib/node-floor.ts`). This file
+// reaches everything else by `await import`, after the check passes.
 //
-// This file ships. It holds no decisions: each command function under
-// `src/commands/` is the seam a test reaches without a process, and this
+// This file ships. It holds no decisions. Each command function under
+// `src/commands/` is the seam a test reaches without a process. This
 // adapter only turns `process.argv` and this process's streams into that
-// function's arguments, and its answer into an exit code. `src/bin.test.ts`,
-// through `harness/spawn.ts`, is the one spawned test, on the paths that need
-// no `gh` at all.
+// function's arguments. It turns the function's answer into an exit code.
+// `src/bin.test.ts`, through `harness/spawn.ts`, is the one spawned test.
+// It covers the paths that need no `gh` at all.
 //
 // **The dispatch is `run` below and nothing else.** The import inside each
-// arm is dynamic, so a command nobody asked for is never loaded, and a new one
-// changes no other line in this file. `discover` was added by #127 layer 4:
-// the `/gh:shepherd` skill's first step resolves its scope by running
-// discovery and reading one path per line, and that step ran
-// `python3 "$S/lib/discover.py" "$PWD"` until the Python was deleted, so the
-// port owed it a node form. It answers with a status of its own rather than
-// an envelope, because its two refusals are exit 1 in the contract
-// `fixtures/python-cli-output.json` captured.
+// arm is dynamic. A command nobody asked for is never loaded. A new
+// command changes no other line in this file. #127 layer 4 added
+// `discover`. The `/gh:shepherd` skill's first step resolves its scope: it
+// runs discovery and reads one path per line. That step ran
+// `python3 "$S/lib/discover.py" "$PWD"` until the port deleted the Python.
+// The port then owed this command a node form. It answers with its own
+// status, not an envelope. Its two refusals are exit 1, in the contract
+// that `fixtures/python-cli-output.json` captured.
 //
-// The hook is not here: `hooks/hook-io.ts` is its own entry point, the way
-// `hooks/hook-io.py` was, so `hooks.json` runs one file and the three seams
-// the hook is built from stay reachable by hand.
+// The hook is not here. `hooks/hook-io.ts` is its own entry point, the way
+// `hooks/hook-io.py` was. `hooks.json` runs one file this way. The three
+// seams that build the hook stay reachable by hand.
 //
-// The two shepherd commands answer with an exit status rather than an
-// envelope, because they have a fourth one (3, an internal error) that
-// `lib/envelope.ts` deliberately does not know, and they write their own JSON
-// document through the writers handed to them. `discover` answers with a
-// status for its own reason, given in its file. That is why `run` answers
-// with a number and the envelope commands are rendered inside their own arm.
+// The two shepherd commands answer with an exit status, not an envelope.
+// They have a fourth status (3, an internal error) that `lib/envelope.ts`
+// deliberately does not know. They write their own JSON document through
+// the writers handed to them. `discover` answers with a status for its own
+// reason, given in its own file. This is why `run` answers with a number,
+// and why the envelope commands render inside their own arm.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
@@ -56,19 +56,20 @@ commands:
 
 gh.ts <command> --help prints that command's own usage.`
 
-// Both streams are guarded here rather than at each write: a reader that
-// closed the pipe (`gh.ts sync | head`) makes the write fail asynchronously,
-// as an `error` event, so there is nothing to wrap in a `try`, and with no
-// listener node crashes with an internals stack trace. The writer goes quiet
-// on a broken pipe and on nothing else: an ENOSPC or an EIO is re-thrown
-// (`lib/streams.ts`). stdout and stderr are guarded independently, so a lost
-// reader does not take the channel a real failure still has to reach.
+// This code guards both streams here, not at each write. A reader that
+// closes the pipe (`gh.ts sync | head`) makes the write fail later, as an
+// `error` event. There is nothing to wrap in a `try` block for that
+// failure. With no listener, node crashes and prints an internals stack
+// trace. The writer stays quiet on a broken pipe, and on nothing else: it
+// re-throws an ENOSPC or an EIO (`lib/streams.ts`). This code guards stdout
+// and stderr independently. A lost reader on one stream does not block the
+// channel that a real failure must still reach.
 const output = createOutput(process.stdout, process.stderr)
 
-/** What a command that answers with an envelope writes, and its status. The
- *  renderer adds no trailing newline, so that the entry point decides it; a
- *  report the command already wrote through `output` leaves an empty string
- *  here and adds nothing. */
+/** What a command that answers with an envelope writes, and its status.
+ *  The renderer adds no trailing newline. The entry point decides that
+ *  instead. When the command already wrote its report through `output`,
+ *  this leaves an empty string here and adds nothing. */
 const write = (envelope: Parameters<typeof renderText>[0]): number => {
   const rendered = renderText(envelope)
   if (rendered.stdout !== '') output.out.write(`${rendered.stdout}\n`)
@@ -79,18 +80,18 @@ const write = (envelope: Parameters<typeof renderText>[0]): number => {
 /** The process's edges, as the command functions take them. */
 const edges = { cwd: process.cwd(), env: process.env, output }
 
-// One client per repository, each scoped to that checkout, because the sync
-// fan-out syncs several in this one process. `gh` resolves the repository from
-// its working directory, which is what the ported scripts rely on after they
-// have changed into the checkout.
+// This code makes one client per repository, each scoped to that checkout,
+// because the sync fan-out syncs several repositories in this one process.
+// `gh` resolves the repository from its working directory. The ported
+// scripts rely on this after they change into the checkout.
 const repositoryClient = (cwd: string) => createGhClient({ cwd, env: process.env })
 
-// The shepherd commands name the repository with `--repo` on every call but
-// the one that resolves it, so their client takes both; and they poll, so the
-// clock and the sleep are arguments rather than imports. These are the real
-// ones, constructed here with every other edge of the process: `performance`
-// is node's monotonic clock, which is what `time.monotonic()` was, and the
-// timer is the one `time.sleep` used.
+// The shepherd commands name the repository with `--repo` on every call
+// except the one that resolves it, so their client takes both forms. They
+// also poll, so the clock and the sleep function are arguments, not
+// imports. These are the real ones, built here with every other edge of
+// the process. `performance` is node's monotonic clock, the same role
+// `time.monotonic()` had. The timer is the one `time.sleep` used.
 const shepherdEdges = {
   createGh: (target: { cwd?: string; repository?: string }) =>
     createGhClient({ ...target, env: process.env }),
@@ -128,9 +129,9 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
 
 const [name = '', ...rest] = process.argv.slice(2)
 
-// Asked before anything is loaded, and answered with a status of 0: a caller
-// asking what this can do has not made a mistake. An unknown command has, and
-// is exit 2 with the same list on stderr.
+// A caller can ask this before anything loads. The answer is status 0.
+// To ask what this command can do is not a mistake. An unknown command is
+// a mistake. It gets exit 2, with the same list on stderr.
 const wantsUsage = name === '' || name === '-h' || name === '--help'
 const status = wantsUsage ? write(ok(USAGE)) : await run(name, rest)
 process.exitCode = status === null ? write(refused(`unknown command: ${name}\n\n${USAGE}`)) : status

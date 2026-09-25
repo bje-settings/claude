@@ -1,19 +1,19 @@
-// What `/gh:shepherd` would work on in one repository: the port of
+// What `/gh:shepherd` would work on in one repository. This is the port of
 // `plugins/gh/scripts/gh-shepherd-status.py`.
 //
-// One JSON document on stdout and nothing changed. Every decision it makes
-// about a pull request is a function in `../shepherd.ts`, with its own named
-// test; what is here is the order the questions are asked in, and what each
-// refusal says.
+// This command writes one JSON document on stdout and changes nothing.
+// Every decision it makes about a pull request is a function in
+// `../shepherd.ts`, with its own named test. What is here is the order the
+// questions are asked in, and what each refusal says.
 //
-// The command function is the seam (ADR 001): arguments, the environment, an
-// injected `gh` and the output writers in, an exit status out. Nothing is
-// spawned and no `gh` is on PATH.
+// The command function is the seam (ADR 001): arguments, the environment,
+// an injected `gh` and the output writers go in, and an exit status comes
+// out. Nothing is spawned, and no `gh` is on PATH.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from
+// the tree. The file and line references below point at what they held at
+// `cd0d515`. Each reference stays because it says where a rule came from.
 import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import {
@@ -26,12 +26,13 @@ import {
   statusDocument,
 } from '../shepherd.ts'
 
-/** How far back the CI-duration sample reaches. Twenty runs is a few days on
- *  an active repository and still one API call. */
+/** How far back the CI-duration sample reaches. Twenty runs cover a few
+ *  days on an active repository, and still cost one API call. */
 const RUN_SAMPLE = 20
 
-/** The listing window for `dependencies` pull requests. A repository with more
- *  than this open at once has a bigger problem than the shepherd loop. */
+/** The listing window for `dependencies` pull requests. A repository with
+ *  more than this open at once has a bigger problem than the shepherd
+ *  loop. */
 const PR_LIMIT = 100
 
 export const HELP = `What /gh:shepherd would work on in one repository.
@@ -63,13 +64,13 @@ an internal error, which is outside the documented set so a caller cannot
 mistake it for an answer.`
 
 /**
- * What a `gh` failure says, and whether it was gh failing to exist.
+ * What a `gh` failure says, and whether gh itself was missing.
  *
  * `gh is required` was a `shutil.which` preflight in the Python
- * (`gh-shepherd-status.py:151`). There is no preflight here (#158): the runner
- * answers 127 for a command that is not on PATH, so the first call that needs
- * gh reports the same fact in the same words, and 126 or any other status
- * keeps gh's own account instead.
+ * (`gh-shepherd-status.py:151`). There is no preflight here (#158). The
+ * runner answers 127 for a command that is not on PATH, so the first call
+ * that needs gh reports the same fact in the same words. 126, or any
+ * other status, keeps gh's own account instead.
  */
 const ghRefusal = (error: unknown): { missing: boolean; detail: string } => {
   if (error instanceof GhError)
@@ -78,7 +79,8 @@ const ghRefusal = (error: unknown): { missing: boolean; detail: string } => {
 }
 
 /** The repository and its default branch, or the reason neither could be
- *  read. Half an answer is not an answer: the run listing needs the branch. */
+ *  read. Half an answer is not an answer: the run listing needs the
+ *  branch. */
 const resolveRepository = async (
   gh: ReturnType<ShepherdContext['createGh']>,
 ): Promise<{ repo: string; branch: string } | { problem: string; missing: boolean }> => {
@@ -95,9 +97,9 @@ const resolveRepository = async (
     typeof branchRef === 'object' && branchRef !== null
       ? (branchRef as Record<string, unknown>).name
       : undefined
-  // Truthiness, as the Python reads both (`view.get(...) or None`): a
-  // repository named `""` is gh answering nothing rather than gh answering a
-  // name.
+  // Truthiness, as the Python reads both (`view.get(...) or None`). A
+  // repository named `""` means gh answered nothing, not that gh answered
+  // a name.
   if (!isTruthy(name)) return { problem: 'gh answered without nameWithOwner', missing: false }
   if (!isTruthy(branch)) return { problem: 'gh answered without a default branch', missing: false }
   return { repo: String(name), branch: String(branch) }
@@ -117,8 +119,8 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     return 0
   }
 
-  // The path as typed, or the caller's own directory. An empty argument is a
-  // path, not an absent one, which is what `argv[0] if argv else` says.
+  // The path as typed, or the caller's own directory. An empty argument is
+  // a path, not an absent one. This is what `argv[0] if argv else` says.
   const target = first ?? context.cwd
   const refusal = directoryRefusal(target)
   if (refusal !== null) return refuse(refusal, 2)
@@ -126,8 +128,9 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     return refuse(`not a git repository: ${target}`, 2)
   }
 
-  // Resolved from the checkout, which is the one call of the four that names
-  // no repository, because it is the call that answers what the repository is.
+  // Resolved from the checkout. Of the four calls, this is the one that
+  // names no repository, because it is the call that answers what the
+  // repository is.
   const resolved = await resolveRepository(context.createGh({ cwd: target }))
   if ('problem' in resolved) {
     if (resolved.missing) return refuse('gh is required', 1)
@@ -143,16 +146,17 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
       limit: PR_LIMIT,
     })
   } catch (error) {
-    // Not "no pull requests": a listing that could not be read says nothing
-    // about how many there are.
+    // Not "no pull requests". A listing that could not be read says
+    // nothing about how many there are.
     return refuse(
       `could not list pull requests for ${resolved.repo}: ${ghRefusal(error).detail}`,
       1,
     )
   }
 
-  // A run listing the repository cannot answer is not a failure: a repo with
-  // no Actions at all is normal, and the loop only needs a wait bound.
+  // A run listing the repository cannot answer is not a failure. A repo
+  // with no Actions at all is normal, and the loop only needs a wait
+  // bound.
   let runs: unknown[] = []
   try {
     runs = await gh.listRuns({
@@ -161,15 +165,15 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
       limit: RUN_SAMPLE,
     })
   } catch (error) {
-    // A gh that would not answer is the case this arm exists for, and the
-    // fallback is the whole handling of it. Anything else is not gh refusing
-    // and is not this command's to swallow.
+    // A gh that would not answer is the case this arm exists for. The
+    // fallback is the whole handling of it. Anything else is not gh
+    // refusing, and is not this command's to swallow.
     if (!(error instanceof GhError)) throw error
   }
 
   const document = statusDocument(pulls, resolved.repo, resolved.branch, ciSeconds(runs))
   // `indent=2, ensure_ascii=False`: two spaces, and every character as
-  // itself, which is what `JSON.stringify(value, null, 2)` writes.
+  // itself. This is what `JSON.stringify(value, null, 2)` writes.
   output.out.write(`${JSON.stringify(document, null, 2)}\n`)
   return 0
 }
@@ -177,11 +181,11 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
 /**
  * `status`, with anything it did not expect reported rather than raised.
  *
- * Exit 3 is outside the documented set on purpose: a caller parsing the JSON
- * on stdout must not read a crash as an answer, and the agent gets a line
- * naming what broke instead of a stack trace it cannot act on. The line names
- * this command rather than the script file the Python named, because the file
- * is `scripts/gh.ts` for every command now.
+ * Exit 3 is outside the documented set on purpose. A caller that parses
+ * the JSON on stdout must not read a crash as an answer. The agent gets a
+ * line that names what broke, instead of a stack trace it cannot act on.
+ * The line names this command, not the script file the Python named,
+ * because the file is `scripts/gh.ts` for every command now.
  */
 export const runShepherdStatus = async (
   argv: readonly string[],

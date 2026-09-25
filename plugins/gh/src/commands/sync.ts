@@ -1,5 +1,5 @@
-// Sync the current checkout, or every checkout one level down: the port of
-// `plugins/gh/scripts/gh-sync.py`.
+// This command syncs the current checkout, or every checkout one level
+// down. It is the port of `plugins/gh/scripts/gh-sync.py`.
 //
 // Scope comes from the target directory, so no caller has to classify it:
 //   - the directory is a git repo     -> sync that repo
@@ -7,42 +7,47 @@
 //                                        that is a git repo, non-recursively
 //
 // **The fan-out is IN-PROCESS** (the design ruling in the approved plan).
-// `gh-sync.py` starts one `gh-sync-repo.py` process per repository; here the
-// per-repository function is called directly, at most `-j N` at a time,
-// because ADR 001 makes the command function the test seam and an injected
-// `gh` mock cannot cross a process boundary. Each job buffers its own report,
-// so the output order and the bytes are those of today: the reports are
-// assembled in directory order, never in the order the jobs finished.
+// `gh-sync.py` started one `gh-sync-repo.py` process per repository. Here,
+// this code calls the per-repository function directly, at most `-j N` at a
+// time. ADR 001 makes the command function the test seam. An injected `gh`
+// mock cannot cross a process boundary. Each job buffers its own report.
+// This keeps the output order and the bytes the same as before. The
+// reports come out in directory order, never in the order the jobs
+// finished.
 //
-// What has no in-process counterpart goes with the child process, and the PR
-// body lists each line and the test that pinned it: a child that could not be
-// started, a child that exited non-zero, and a child a signal killed were all
-// reported in the job's own section. A direct call cannot fail to start, and
-// the real job, `syncRepo`, never answers anything but 0 (its own status is
-// dead weight in production); `RepoJob`'s status exists for the stand-in a
-// test drives, and #81 (round 7) is where a non-zero answer, like a throw,
-// makes this command answer `failed` rather than being read by nobody.
+// Anything with no in-process counterpart went away with the child
+// process. The PR body lists each such line and the test that pinned it.
+// The job's own section reported three cases. A child could fail to
+// start. A child could exit non-zero. Or a signal could kill a child.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// A direct call cannot fail to start. The real job, `syncRepo`, never
+// answers anything but 0 (its own status is dead weight in production).
+// `RepoJob`'s status exists for the stand-in a test drives. #81 (round 7)
+// decided this: a non-zero answer, like a throw, now makes this command
+// answer `failed`. Before, nobody read that answer.
+//
+// **#127 deleted the Python this ports.** `plugins/gh/scripts/*.py`, its
+// `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
+// tree. The file and line references below point to what they held at
+// `cd0d515`. Each reference stays because it says where a rule came from.
 import path from 'node:path'
 import { discoverRepos, gitUnavailable, toplevel } from '../discover.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import { createWriter } from '../lib/streams.ts'
 import { type Command, REPORT, type SyncRepoOptions, syncRepo } from './sync-repo.ts'
 
-/** At most this many repositories are synced at a time when `-j` says
- *  nothing. */
+/** At most, this command syncs this many repositories at a time when
+ *  `-j` gives no value. */
 export const DEFAULT_JOBS = '4'
 
-// A -j that is not a positive integer is refused rather than clamped, which is
-// what the shell version did too: it validated with this same pattern and
-// exited 2. The reason it validated is that the value reached an arithmetic
-// context, where a non-numeric word is 0 and the throttle would never let a
-// job start, so an unchecked value hung the run rather than failing it.
-// Nothing may quietly reinterpret it here either.
+// This code refuses a `-j` value that is not a positive integer. It does
+// not clamp it. The shell version did the same: it validated with this
+// same pattern and exited 2. The shell validated for a reason.
+//
+// The value reached an arithmetic context there, where a non-numeric word
+// equals 0. In that context, the throttle would never let a job start. An
+// unchecked value would hang the run, rather than fail it. Nothing may
+// quietly reinterpret it here either.
 const JOBS_RE = /^[1-9][0-9]*$/
 
 export const HELP = `Sync the current checkout, or every checkout one level down.
@@ -65,63 +70,68 @@ order, never in the order the jobs happened to finish.`
 /**
  * What a job that threw says, in this repository's own section.
  *
- * The in-process counterpart of the three lines `gh-sync.py` prints about a
- * child that failed (`:135`, `:174`, and the newline at `:171`). A direct call
- * cannot fail to start and has no exit status of its own, but it can throw,
- * and `syncRepo` deliberately lets anything that is not a `GhError` out. The
- * wording is this file's rather than the Python's, because the Python's names
- * a script and a status that no longer exist;
- * `fixtures/divergences.json` records it against the line it replaces.
+ * This is the in-process match for the three lines `gh-sync.py` prints
+ * about a child that failed. Those lines are `:135`, `:174`, and the
+ * newline at `:171`. A direct call cannot fail to start, and it has no
+ * exit status of its own. It can still throw. `syncRepo` deliberately
+ * lets anything that is not a `GhError` escape. The wording here is this
+ * file's own, not the Python's, because the Python names a script and a
+ * status that no longer exist. `fixtures/divergences.json` records this
+ * wording against the line it replaces.
  *
- * The mark is {@link REPORT}'s rather than a literal, because this is a report
- * line like any other and the SessionStart hook classifies it by that constant
- * (#110, `commands/hook-io.ts` `fanOutSummary`, which counts this line as a
- * repository that could not be fully checked). A literal here would let the
- * mark be reworded in one place and leave the hook quietly counting nothing.
+ * The mark comes from {@link REPORT}, not a literal string, because this
+ * is a report line like any other. The SessionStart hook classifies it by
+ * that constant (#110, `commands/hook-io.ts` `fanOutSummary`). That
+ * function counts this line as a repository that no check could fully
+ * cover. A literal here would let someone reword the mark in one place.
+ * The hook would then silently count nothing.
  */
 export const failureLine = (error: unknown): string =>
   `${REPORT.bad}the sync failed: ${error instanceof Error ? error.message : String(error)}\n`
 
 /**
- * What a job that returned a non-zero status without throwing says, in the
- * same vocabulary {@link failureLine} uses for one that threw (#81, round 7
- * ruling 2, `fixtures/divergences.json` "exitStatus"). `RepoJob` promises a
- * status; the real job, `syncRepo`, never answers anything but 0, so this arm
- * is reachable only through a stand-in a test drives, the way `failureLine`
- * itself is reachable through one that throws.
+ * What a job says when it returns a non-zero status and does not throw.
+ * It uses the same vocabulary {@link failureLine} uses for a job that
+ * threw. See #81, round 7 ruling 2, `fixtures/divergences.json`
+ * "exitStatus". `RepoJob` promises a status, but the real job, `syncRepo`,
+ * never answers anything but 0. A test can reach this code only through a
+ * stand-in it drives. This is the same way a test reaches `failureLine`,
+ * through a job that throws.
  */
 export const statusLine = (status: number): string =>
   `${REPORT.bad}the sync failed: exited with status ${status}\n`
 
 /** The section a repository's job left, and whether that job counts as
- *  failed: a throw, or a non-zero status with no throw. Data, never a mark
- *  the command re-reads out of the text (round 7 ruling B): a section that
- *  happens to print a `✗` of its own, from a merge-proof lookup that could
- *  not be read, is not this repository's job failing. */
+ *  failed. Failed means a throw, or a non-zero status with no throw.
+ *  This is data. It is never a mark the command re-reads out of the text
+ *  (round 7 ruling B). A section can print its own `✗`, from a
+ *  merge-proof lookup that could not be read. That does not mean this
+ *  repository's job failed. */
 export interface RepoResult {
   readonly section: string
   readonly failed: boolean
 }
 
 /**
- * The message `failed(...)` carries on stderr, once every line of the report
- * is already on stdout: how many repositories failed, of how many were
- * tried. A skipped repository is not a failure and is not counted.
+ * The message `failed(...)` carries on stderr, once every line of the
+ * report is already on stdout. It says how many repositories failed, out
+ * of how many were tried. A skipped repository is not a failure, and this
+ * count leaves it out.
  */
 export const fanOutFailureMessage = (failedCount: number, total: number): string =>
   `${failedCount} of ${total} repositories failed to sync`
 
-/** The single-repository path has just the one, so it names it rather than
- *  saying "1 of 1". */
+/** The single-repository path has just one repository. It names that
+ *  repository, not "1 of 1". */
 export const singleFailureMessage = (repo: string): string =>
   `the sync to ${path.basename(repo)} failed`
 
-/** Append a failure line to a repository's buffered section, heading and
- *  newline handled the same way {@link failureLine}'s own call site always
- *  has: a section with nothing written yet gets the repository's name first,
- *  and a section whose last write did not end in a newline gets one before
- *  the failure line, so the failure never lands mid-line or under the
- *  previous repository's heading. */
+/** Append a failure line to a repository's buffered section. This handles
+ *  the heading and the newline the same way {@link failureLine}'s own call
+ *  site always has. A section with nothing written yet gets the
+ *  repository's name first. A section whose last write did not end in a
+ *  newline gets a newline before the failure line. This way, the failure
+ *  never lands mid-line or under the previous repository's heading. */
 const appendFailure = (chunks: string[], repo: string, line: string): void => {
   const written = chunks.join('')
   if (written === '') chunks.push(`${path.basename(repo)}\n`)
@@ -129,17 +139,18 @@ const appendFailure = (chunks: string[], repo: string, line: string): void => {
   chunks.push(line)
 }
 
-/** One repository's job, as the fan-out calls it. The seam the Python reaches
- *  by copying a stand-in script beside the orchestrator (`TIMED_JOB`,
- *  `SPLIT_JOB` in `tests/gh/test_gh_sync.py`): with the fan-out in-process,
- *  the stand-in is a function rather than a file, and the throttle and the
- *  section order are asserted the same way. */
+/** One repository's job, as the fan-out calls it. In the Python, a test
+ *  reaches this seam by copying a stand-in script beside the orchestrator
+ *  (`TIMED_JOB`, `SPLIT_JOB` in `tests/gh/test_gh_sync.py`). With the
+ *  fan-out in-process, the stand-in is a function instead of a file. A
+ *  test still asserts the throttle and the section order the same way. */
 export type RepoJob = (options: SyncRepoOptions) => Promise<number>
 
 /** What the command line asked for. */
 export interface SyncRequest {
-  /** The path as typed, which may be empty: the caller's own directory is
-   *  substituted later, so that this stays a parse and nothing else. */
+  /** The path as typed, which may be empty. This code substitutes the
+   *  caller's own directory later, so that this field stays a parse
+   *  result and nothing else. */
   readonly target: string
   readonly jobs: number
   readonly dryRun: boolean
@@ -153,22 +164,23 @@ export type SyncArgs =
 /**
  * The command line, as `gh-sync.py:86` reads it.
  *
- * Hand-written rather than `lib/args.ts` `parseArguments` for two reasons that
- * file names itself: it refuses positionals outright ("a command that needs
- * them can widen this with a test rather than inherit an untested path", and
- * `lib/` is not this layer's to edit), and it has no short option that takes a
- * value, which `-j N` and `-j4` both are. The refusal still travels as a
- * `lib/envelope.ts` refusal, exit 2, which is the status the captured contract
- * records for each of these.
+ * This parser is hand-written, not `lib/args.ts` `parseArguments`, for two
+ * reasons that file names itself. First, `lib/args.ts` refuses positionals
+ * outright: "a command that needs them can widen this with a test rather
+ * than inherit an untested path". `lib/` is not this layer's to edit.
+ * Second, this parser has no short option that takes a value, which `-j N`
+ * and `-j4` both are. The refusal still travels as a `lib/envelope.ts`
+ * refusal, exit 2. This is the status the captured contract records for
+ * each of these cases.
  */
 export const parseSyncArgs = (argv: readonly string[]): Envelope<SyncArgs> => {
   let dryRun = false
   let noInstall = false
   let jobs = DEFAULT_JOBS
   let target = ''
-  // `-j` takes the next token whatever it is, exactly as the Python's
-  // `rest.pop(0)` does, and a trailing `-j` names no value at all, which must
-  // not become an invalid one: the default stands.
+  // `-j` takes the next token, whatever it is, exactly as the Python's
+  // `rest.pop(0)` did. A trailing `-j` names no value at all. That must
+  // not become an invalid value: the default stands.
   let expectJobs = false
   for (const arg of argv) {
     if (expectJobs) {
@@ -195,12 +207,12 @@ export const parseSyncArgs = (argv: readonly string[]): Envelope<SyncArgs> => {
 }
 
 /**
- * Every repository's report, at most `jobs` running at a time.
+ * Every repository's report, at most `jobs` active at a time.
  *
- * The answers come back in the order the repositories were given, which is the
- * order the report is written in, whatever order the jobs finished in. The
- * Python gets that from `pool.map`; here each worker takes the next index and
- * writes its answer into that slot.
+ * The answers come back in the order the repositories were given. That is
+ * the order the report is written in, whatever order the jobs finished
+ * in. The Python got that order from `pool.map`. Here, each worker takes
+ * the next index and writes its answer into that slot.
  */
 const runAll = async (
   repos: readonly string[],
@@ -225,10 +237,11 @@ const runAll = async (
 /**
  * The command, over a per-repository job.
  *
- * `job` is a parameter with a default rather than an import, so that the
- * throttle, the section order and a job's status can be driven by a stand-in
- * the test writes, which is what `orchestrator_copy(gh, job=...)` does in the
- * Python by copying a script. `runSync` below is this with the real one.
+ * `job` is a parameter with a default, not an import. A test can then
+ * drive the throttle, the section order, and a job's status with a
+ * stand-in it writes. This is what `orchestrator_copy(gh, job=...)` did in
+ * the Python, by copying a script. `runSync` below is this command with
+ * the real job.
  */
 export const createSyncCommand =
   (job: RepoJob = syncRepo): Command =>
@@ -251,18 +264,18 @@ export const createSyncCommand =
       // not be asked."
       return refused(`could not read ${target}: ${found.reason}`)
     }
-    // Asked after discovery and before a line is written, because discovery
-    // answers "no repositories" when git cannot be run at all: "without this
-    // check a machine with no git on PATH is told it has 'No git
-    // repositories', which is a wiring mistake wearing the answer to a
-    // different question".
+    // This check runs after discovery, and before this code writes any
+    // line. Discovery answers "no repositories" when git cannot run at
+    // all: "without this check a machine with no git on PATH is told it
+    // has 'No git repositories', which is a wiring mistake wearing the
+    // answer to a different question".
     const unavailable = await gitUnavailable(context.env)
     if (unavailable !== null) return refused(`missing git: ${unavailable}`)
 
     const repos = found.roots
     const runOne = async (repo: string): Promise<RepoResult> => {
-      // Each job collects its own lines. Several run at once, and a
-      // repository's lines belong together: an orchestrator that passed a
+      // Each job collects its own lines. Several jobs run at once, and a
+      // repository's lines belong together. An orchestrator that passed a
       // job's output through as it arrived would split a section in half.
       const chunks: string[] = []
       const report = createWriter({
@@ -271,10 +284,10 @@ export const createSyncCommand =
           return true
         },
         on() {
-          // A buffer has no reader to go away, so the EPIPE guard
-          // `createWriter` installs has nothing to listen to here. The
-          // guarded writer is still what the job is given, so the job holds
-          // one kind of writer and not two.
+          // A buffer has no reader that can go away. So the EPIPE guard
+          // `createWriter` installs has nothing to listen to here. The job
+          // still gets the guarded writer. This way the job holds one kind
+          // of writer, not two.
           return undefined
         },
       })
@@ -288,49 +301,55 @@ export const createSyncCommand =
           createGh: context.createGh,
           report,
         })
-        // #81 (round 7 ruling A): a status read by nobody is dead weight. The
-        // real job, `syncRepo`, never answers anything but 0; a stand-in a
-        // test drives can answer non-zero without throwing, and that counts
-        // as this repository's job failing exactly as a throw does.
+        // #81 (round 7 ruling A): a status that nobody reads is dead
+        // weight. The real job, `syncRepo`, never answers anything but 0.
+        // A stand-in that a test drives can answer non-zero and not throw.
+        // That counts as a failure of this repository's job, exactly as a
+        // throw does.
         if (status !== 0) {
           repoFailed = true
           appendFailure(chunks, repo, statusLine(status))
         }
       } catch (error) {
-        // `gh-sync.py:123` to `:135` states the rule: a job that raises "would
-        // otherwise raise out of the pool and take every other repository's
-        // report with it. It is this repo's answer, not the run's." Left
-        // uncaught, `Promise.all` rejects, the header and every finished
-        // section are discarded after the work has already been done, and the
-        // process dies with a stack trace naming no repository.
+        // `gh-sync.py:123` to `:135` states the rule for a job that raises:
+        // "would otherwise raise out of the pool and take every other
+        // repository's report with it. It is this repo's answer, not the
+        // run's." If this code leaves the error uncaught, `Promise.all`
+        // rejects. This discards the header and every finished section,
+        // after the work is already done. The process dies with a stack
+        // trace that names no repository.
         //
-        // A job that threw mid-line would otherwise have this appended to the
-        // end of that line, as `gh-sync.py:171` to `:173` has it.
+        // A job that threw mid-line would otherwise get this text at the
+        // end of that line. `gh-sync.py:171` to `:173` shows it that way.
         //
-        // A job that threw before its FIRST line has written no heading, and
-        // a bare cross line then sits under the PREVIOUS repository's, so the
-        // report blames a repository that synced cleanly. `gh-sync.py:135`
-        // answers that by putting the basename in the string it builds for a
-        // child that never ran, and this does the same: the name is the one
-        // `sync-repo.ts` would have written itself
-        // (`path.basename` of the checkout root, which is what discovery
-        // hands in), so a section written either way reads alike.
+        // A job that threw before its FIRST line writes no heading. A bare
+        // cross line then sits under the PREVIOUS repository's heading.
+        // The report then blames a repository that synced cleanly.
+        // `gh-sync.py:135` fixes this: it puts the basename into the
+        // string it builds for a child that never ran.
+        //
+        // This code does the same. The name is the one `sync-repo.ts`
+        // would have written itself. It is `path.basename` of the checkout
+        // root, which is what discovery hands in. A section reads the
+        // same either way.
         repoFailed = true
         appendFailure(chunks, repo, failureLine(error))
       }
       return { section: chunks.join(''), failed: repoFailed }
     }
 
-    // A target inside a repo yields exactly that repo, and it runs with the
-    // report going straight out: no header, no collecting. A directory that
-    // merely holds one repo is still a fan-out, and says so.
+    // A target inside a repo yields exactly that repo. This code sends the
+    // report straight out: no header, no buffered output. A directory
+    // that merely holds one repo is still a fan-out, and the output says
+    // so.
     const only = repos.length === 1 ? repos[0] : undefined
     if (only !== undefined && (await toplevel(found.resolved, context.env)) !== null) {
-      // #81: the status used to be dropped outright, as the shell version
-      // dropped it at its lines 72 to 73 (`fixtures/divergences.json`
-      // "exitStatus"). A skipped repository is still exit 0 (`sync-repo.ts`
-      // always answers 0 for one), and that has not changed; only a job that
-      // threw or answered non-zero now makes this path answer `failed`.
+      // #81: this code used to drop the status outright, the way the
+      // shell version dropped it at its lines 72 to 73. See
+      // `fixtures/divergences.json` "exitStatus". A skipped repository
+      // is still exit 0 (`sync-repo.ts` always answers 0 for one). That
+      // has not changed. Only a job that threw, or answered non-zero, now
+      // makes this path answer `failed`.
       let repoFailed = false
       try {
         const status = await job({
@@ -346,9 +365,9 @@ export const createSyncCommand =
           context.output.out.write(statusLine(status))
         }
       } catch (error) {
-        // The same account on the path with no section to fold it into, which
-        // is what `gh-sync.py:245` to `:251` does with a child it could not
-        // start: it is said.
+        // This gives the same account, but on a path with no section to
+        // fold it into. `gh-sync.py:245` to `:251` did the same for a
+        // child it could not start: it stated the error directly.
         repoFailed = true
         context.output.out.write(failureLine(error))
       }
@@ -360,15 +379,16 @@ export const createSyncCommand =
       return ok('')
     }
 
-    // The whole fan-out runs before a line of the report is written, as the
-    // shell version did: the reports are assembled in directory order, not in
-    // the order the jobs finished.
+    // The whole fan-out runs before this code writes a line of the
+    // report, the way the shell version did. The reports come out in
+    // directory order, not in the order the jobs finished.
     const results = await runAll(repos, jobs, runOne)
     context.output.out.write(`${found.resolved} (${repos.length} repos)\n\n`)
     for (const result of results) context.output.out.write(result.section)
-    // #81: decided only after every section is already on stdout, so the
-    // report never changes and the failure is data the command read off each
-    // job, never a scan of the text it just wrote (round 7 ruling B).
+    // #81: this code decides only after every section is already on
+    // stdout, so the report never changes. The failure is data that the
+    // command read from each job. It is never a scan of the text the
+    // command just wrote (round 7 ruling B).
     const failedCount = results.filter((result) => result.failed).length
     return failedCount > 0 ? failed(fanOutFailureMessage(failedCount, repos.length)) : ok('')
   }

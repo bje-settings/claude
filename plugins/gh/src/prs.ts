@@ -1,38 +1,39 @@
-// Reading merge proof out of a `gh pr list` result: the port of
-// `plugins/gh/scripts/lib/prs.py`, which is itself the jq program the shell
-// version of gh-sync-repo ran.
+// This file reads merge proof out of a `gh pr list` result. It is the
+// port of `plugins/gh/scripts/lib/prs.py`, which is itself the jq program
+// that the shell version of gh-sync-repo ran.
 //
-// Three things are required of a pull request before it counts as proof that a
-// local branch has landed, because a bare branch-name match is not evidence
+// A pull request must meet three conditions before it counts as proof that
+// a local branch has landed. A bare branch-name match is not evidence
 // about your commits:
 //
 //   - it merged into the default branch, not into some other branch
-//   - it came from this repository, not from a fork (a fork's PR head ref is
-//     just a name like "patch-1", which collides with local branches
-//     trivially)
-//   - its head commit is exactly where the local branch still points, so a
-//     branch that was reused or committed to after the merge is not treated as
-//     landed
+//   - it came from this repository, not from a fork. (A fork's PR head
+//     ref is just a name like "patch-1". This name collides with local
+//     branches easily.)
+//   - its head commit is exactly where the local branch still points. A
+//     branch that was reused, or had a commit added after the merge, does
+//     not count as landed
 //
-// The base is filtered server-side by `--base`, so only the last two live
-// here. Forks are dropped by {@link ownRows} rather than by the query, so the
-// row count the caller checks against the lookup limit stays the real number
-// of pull requests the window returned.
+// The `--base` flag filters the base branch server-side. Only the last
+// two conditions live here. {@link ownRows} drops forks, not the query.
+// This keeps the row count real. The caller checks that count against the
+// lookup limit. It stays the true number of pull requests the window
+// returned.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
-// tree; the file and line references below are to what they held at
-// `cd0d515`, kept because each says where a rule came from.
+// its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from
+// the tree. The file and line references below point to what they held at
+// `cd0d515`. Each stays because it says where a rule came from.
 
 /**
  * One row, as far as this file reads it.
  *
  * Every field is optional and `unknown`, because these rows arrive from a
- * process boundary: `lib/gh.ts` proves the answer is a JSON array and nothing
- * more, so a row missing `headRefName`, or carrying a number where a string
- * belongs, is a shape this file has to answer about rather than assume away. A
- * strict interface here would be a claim about someone else's JSON that
- * nothing checks.
+ * process boundary. `lib/gh.ts` proves only that the answer is a JSON
+ * array, nothing more. A row might miss `headRefName`, or carry a number
+ * where a string belongs. This file must answer for that shape, not assume
+ * it away. A strict interface here would be a claim about someone else's
+ * JSON that nothing checks.
  */
 export interface PullRequestRow {
   readonly headRefName?: unknown
@@ -41,8 +42,8 @@ export interface PullRequestRow {
 }
 
 /**
- * Whether `value` is a row at all, which is the check
- * `gh-sync-repo.py:316` makes before any of the readers below touch a list.
+ * Whether `value` is a row at all. This is the check `gh-sync-repo.py:316`
+ * makes before any reader below touches a list.
  *
  * "Every reader below calls .get on a row. A payload that is a list of
  * something else is not an answer about merged pull requests, so it takes the
@@ -52,14 +53,15 @@ export interface PullRequestRow {
 export const isPullRequestRow = (value: unknown): value is PullRequestRow =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** The rows from this repository, dropping forks.
+/** The rows from this repository. This function drops forks.
  *
- *  A missing `isCrossRepository` is not a fork: treating it as one would keep
- *  every branch, which `tests/gh/test_lib_prs.py` pins by name. The Python
- *  reads the field for truth rather than for `True` (`not
- *  row.get("isCrossRepository")`) and so does this, so a row carrying anything
- *  other than a false-like value is still treated as a fork, which is the safe
- *  direction: a fork mistaken for a local branch is somebody's branch deleted.
+ *  This code reads a missing `isCrossRepository` as not a fork, so it
+ *  keeps every such branch. `tests/gh/test_lib_prs.py` pins that
+ *  behaviour by name. The Python reads the field for truth, not for
+ *  `True` (`not row.get("isCrossRepository")`), and so does this file. A
+ *  row with anything other than a false-like value still counts as a
+ *  fork. This is the safe direction: a fork mistaken for a local branch
+ *  means somebody's branch gets deleted.
  */
 export const ownRows = (rows: readonly PullRequestRow[]): PullRequestRow[] =>
   rows.filter((row) => !row.isCrossRepository)
