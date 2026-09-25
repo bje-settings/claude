@@ -5,7 +5,7 @@ no flag for it, so use GraphQL.
 
 ## Rubric
 
-Choose the level that fits. If you are not sure, choose Medium.
+Choose the lowest level that fits.
 
 | Level | Meaning | Examples |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ Choose the level that fits. If you are not sure, choose Medium.
 | Medium | The default. A real defect or improvement on a usual path. It has a workaround, and no work waits on it. | A flag that is not there. Output that is not clear. A slow command. |
 | Low | An edge case that is not likely to occur, polish, or a follow-up that is only an idea. | A failure on an unusual repository layout. A word change. "It could also support X". |
 
-- Choose a level other than Medium only when you can give the reason from the table.
+- If you cannot choose between two levels, choose the lower one.
 - An issue that blocks an open issue is never Low.
 
 ## Given
