@@ -7,32 +7,16 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // tests/ holds this repository's own checks. scripts/ is named ahead of
-    // any root script, so the first one needs no edit here.
-    include: [
-      'tests/**/*.test.ts',
-      'harness/**/*.test.ts',
-      'lib/**/*.test.ts',
-      'scripts/**/*.test.ts',
-      'plugins/*/src/**/*.test.ts',
-    ],
+    // Every test lives under tests/, and no test lives in a plugin or in
+    // lib/ (ADR 004). Claude Code copies a plugin's whole directory, and the
+    // lib/ symlink, into each user's cache, so a test there would ship.
+    // tests/repo/repo-layout.test.ts refuses a test file anywhere else.
+    include: ['tests/**/*.test.ts'],
     // .claude/worktrees/ holds checkouts of this same repository (see the
     // worktree workflow). Without this exclusion, every test in the tree
     // would be collected twice. It would run once from the root, and again
     // from whichever worktree exists when the suite runs.
-    //
-    // plugins/*/src/lib/** is the root lib/ a second time, through each
-    // plugin's committed src/lib symlink (ADR 001, RFC 001 decision 4).
-    // Confirmed on #126: without this, `pnpm exec vitest list` shows
-    // lib/args.test.ts and plugins/mermaid/src/lib/args.test.ts as two
-    // separate test files. That runs lib's own suite twice. The link is
-    // already collected and measured at its real path, lib/.
-    exclude: [
-      '**/node_modules/**',
-      '.claude/worktrees/**',
-      '**/fixtures/**',
-      'plugins/*/src/lib/**',
-    ],
+    exclude: ['**/node_modules/**', '.claude/worktrees/**', '**/fixtures/**'],
     // A run that collects nothing is not a pass.
     passWithNoTests: false,
     // vitest's default is 5 s, and #127 adds the first tests that build real
@@ -48,8 +32,10 @@ export default defineConfig({
       // The source set is named, not discovered (ADR 002): a coverage
       // configuration that finds its own inputs can find zero of them and
       // still report 100%.
+      // Of tests/, only the repository checks' own helper module is measured.
+      // The other files there are tests, their helpers and their fixtures.
       include: [
-        'tests/**/*.ts',
+        'tests/repo/**/*.ts',
         'harness/**/*.ts',
         'lib/**/*.ts',
         'scripts/**/*.ts',
@@ -65,9 +51,7 @@ export default defineConfig({
       // reports each lib/ file once, at its real path, with no duplicate
       // entry to exclude. Confirmed on #126: the coverage summary was
       // identical whether or not this entry existed.
-      // A `*.test-support.ts` file is test code too. It holds the helpers of
-      // a test file that is in more than one part (#205).
-      exclude: ['**/*.test.ts', '**/*.test-support.ts', '**/fixtures/**'],
+      exclude: ['**/*.test.ts', '**/fixtures/**'],
       // vitest 4 dropped the `all` option. Now coverage-v8 includes every
       // file that matches `include`, whenever the whole suite runs. A
       // single-file rerun is the only case that narrows this. `all: true`
