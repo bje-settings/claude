@@ -103,7 +103,9 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 ## Boundaries
 
 - The committed symlink `plugins/<p>/src/lib -> ../../../lib` is the only path out of a plugin.
-  `tests/repo/repo-layout.test.ts` enforces this (`crossPluginImports`, `libLinkViolations`).
+  A `#` import is not a path out either: the installed plugin cannot resolve it.
+  `tests/repo/repo-layout.test.ts` enforces this (`crossPluginImports`, `libLinkViolations`,
+  `packageImports`).
 - The link target is compared as the exact string `../../../lib`, not resolved to a path. This
   string is what Claude Code's installer classifies. A link elsewhere in the same marketplace is
   dereferenced into the cache copy. But another spelling that resolves here installs differently.

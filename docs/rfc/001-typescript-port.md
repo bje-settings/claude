@@ -171,6 +171,10 @@ plugins/<plugin>/
   hooks/*.ts
 ```
 
+**Revised at [#205](https://github.com/bje-settings/claude/issues/205):** `src/commands/` is now
+`src/subcommands/`, and the tests and fixtures live under `tests/`, outside every plugin
+([ADR 004](../adr/004-plugins-ship-runtime-files-only.md)).
+
 ~~`bin/<command>.ts`: one thin adapter per command.~~ **Revised at
 [#130](https://github.com/bje-settings/claude/issues/130)** (round 8 ruling 6, and Decisions &
 Follow-ups 15): one ~~`bin/<plugin>.ts`~~ `scripts/<plugin>.ts` dispatcher per plugin, with an arm
@@ -233,6 +237,8 @@ anything a session runs, and nothing executes them there. ~~What the downstream 
 different question, and `publish-plugin` filters `*.test.ts`, fixtures and `evals/` out of it,
 because that copy is read by another team as the plugin's source.~~ **Revised at #128:**
 `publish-plugin` is removed rather than ported, so there is no mirror-side filter to build.
+**Revised at #205:** the tests and fixtures live under `tests/` now, and do not ship
+([ADR 004](../adr/004-plugins-ship-runtime-files-only.md)).
 
 **The shared test harness lives at the repository root** and is imported only from test files, so
 it is never inside a plugin and never reaches a cache copy. It carries a sandbox, an in-process

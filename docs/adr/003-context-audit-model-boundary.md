@@ -27,6 +27,10 @@ Once one plugin does that, a repository running it needs a way to tell, without 
 `plugins/audit/src/commands/context.ts`, whether its own words are about to leave the machine on
 a given run.
 
+**Revised at [#205](https://github.com/bje-settings/claude/issues/205):** `src/commands/` is now
+`src/subcommands/` ([ADR 004](004-plugins-ship-runtime-files-only.md)). The line numbers below are
+the ones this record was written against.
+
 The service on the other side of that boundary is not deterministic. PR #168's spike measured it
 directly: identical requests to the model drift by about 0.02 on mid-range probabilities, and a
 label in the 0.4 to 0.7 confidence band can flip between two runs of the same request. Anything

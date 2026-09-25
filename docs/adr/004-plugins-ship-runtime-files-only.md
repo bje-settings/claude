@@ -1,6 +1,6 @@
 ---
 type: ADR
-description: A plugin directory, and the lib/ it links, holds only the files an installed plugin uses at run time. Tests, test helpers and fixtures live under tests/, flow diagrams under docs/flows/, and no directory in a plugin takes the name of a plugin component it is not. Two layout guards enforce both rules.
+description: A plugin directory, and the lib/ it links, holds only the files an installed plugin uses at run time. Tests, test helpers and fixtures live under tests/, flow diagrams under docs/flows/, and no directory in a plugin takes the name of a plugin component it is not. Repository tests enforce these rules.
 status: stable
 created: 2026-09-25
 owner: brianespinosa
@@ -19,9 +19,9 @@ file out. Each plugin's `src/lib` symlink points at the root `lib/`, and the ins
 directory into the cache too (ADR 001).
 
 Before this decision, the tests sat beside the code (RFC 001 decision 10, ADR 001). So each user
-who installed the plugins got 53 plugin test files, 11 `lib/` test files, 110 fixture files and 8
-flow diagrams. None of these files runs in an installed plugin. RFC 001 accepted this as inert
-weight.
+who installed the plugins got 35 plugin test files, 4 test helpers, 9 `lib/` test files, 110
+fixture files and 8 flow diagrams. None of these files runs in an installed plugin. RFC 001
+accepted this as inert weight.
 
 A second problem is names. The plugin reference gives a meaning to directory names at a plugin's
 root: `commands/`, `agents/`, `skills/`, `hooks/`, `output-styles/`, `workflows/`, `themes/`,
@@ -48,9 +48,16 @@ meaning on a directory that is not that component.
 5. No directory in a plugin takes a component name unless it is that component at the plugin
    root. `src/commands/` becomes `src/subcommands/`. The seam keeps its recorded name, the command
    function (RFC 001 decision 3), so the ADR 001 and RFC 001 citations stay true.
-6. `tests/repo/repo-layout.test.ts` enforces 1 and 5: `developmentFiles` refuses a test file, a
-   test helper or a `fixtures/` directory under `plugins/` or `lib/`, and `reservedDirectoryNames`
-   refuses a component name below a plugin root and a root `commands/`.
+6. `tests/repo/repo-layout.test.ts` enforces 1 and 5. It also keeps the map of 3 out of the
+   shipped code:
+   - `developmentFiles` refuses a test file, a test helper or a `fixtures/` directory under
+     `plugins/` or `lib/`.
+   - `packageImports` refuses a `#` import in a plugin or in `lib/`. An installed plugin has no
+     `package.json` to resolve it.
+   - `reservedDirectoryNames` refuses a component name below a plugin root, and a root
+     `commands/`.
+   - A symlink to a directory counts by its own name, because the installer copies it.
+
    `tests/repo/skills.test.ts` enforces 4. `.claude/rules/path-plugins.md` states the rules for a
    person who edits a plugin.
 
@@ -61,7 +68,7 @@ meaning on a directory that is not that component.
   to find and its imports short.
 - `crossPluginImports` no longer has a test-code exemption. No file in a plugin may import
   `harness/`.
-- A subcommand that two skills run has a copy of its flow in each skill's directory. A test keeps
-  the copies identical.
+- A subcommand that two skills run has a copy of its flow in each skill's flow directory,
+  `docs/flows/<plugin>/<skill>/`. A test keeps the copies identical.
 - The `*.test-support.ts` coverage exclusion from #205 went away: the support files are outside
   the measured set.

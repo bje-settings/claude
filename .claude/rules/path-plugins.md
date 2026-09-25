@@ -14,6 +14,10 @@ cache. So a plugin directory holds only the files an installed plugin uses at ru
 - Flow diagrams go in `docs/flows/<plugin>/<skill>/` (`.claude/rules/file-skill-md.md`).
 - Give a directory a component name (`commands`, `agents`, `skills`, `hooks`, `output-styles`,
   `workflows`, `themes`, `monitors`, `bin`, `evals`) only when it is that component at the plugin
-  root. Dispatcher targets go in `src/subcommands/`.
+  root. Do not use a root `commands/`; use `skills/`. The command functions of the dispatcher and
+  of the hooks go in `src/subcommands/`.
+- Do not use a `#` import in a plugin or in `lib/`. Only the root `package.json` resolves it, and
+  that file does not ship.
 
-`tests/repo/repo-layout.test.ts` enforces this (`developmentFiles`, `reservedDirectoryNames`).
+`tests/repo/repo-layout.test.ts` enforces this (`developmentFiles`, `packageImports`,
+`reservedDirectoryNames`).

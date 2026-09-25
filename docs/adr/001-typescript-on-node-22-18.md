@@ -1,6 +1,6 @@
 ---
 type: ADR
-description: Plugin code runs on Node 22.18 or newer, executing erasable TypeScript directly with no build step and explicit `.ts` imports, sharing one root `lib/` through a committed symlink, with the command function as the test seam, tests co-located beside the code, and no plugin carrying its own `package.json`.
+description: Plugin code runs on Node 22.18 or newer, executing erasable TypeScript directly with no build step and explicit `.ts` imports, sharing one root `lib/` through a committed symlink, with the command function as the test seam, tests co-located beside the code (superseded by ADR 004), and no plugin carrying its own `package.json`.
 status: stable
 created: 2026-09-12
 owner: brianespinosa
