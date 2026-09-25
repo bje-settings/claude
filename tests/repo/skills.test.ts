@@ -93,19 +93,52 @@ it('gives every skill a flow, and a flow for each subcommand it runs', () => {
   expect(missing).toEqual([])
 })
 
+/** Each flow under `flows` with no mermaid diagram. */
+function withoutDiagram(flows: string): string[] {
+  return markdownUnder(flows).filter((flow) => !MERMAID_FENCE.test(readFileSync(flow, 'utf8')))
+}
+
+/** Each flow under `flows` that is not in `needed`. */
+function orphans(flows: string, needed: ReadonlySet<string>): string[] {
+  return markdownUnder(flows).filter((flow) => !needed.has(flow))
+}
+
+/** Each flow under `flows` with no row in `flows/index.md`. */
+function unlisted(flows: string): string[] {
+  // .claude/rules/path-docs.md: a new doc gets its row in the bundle's
+  // index.md in the same change.
+  const index = readFileSync(path.join(flows, 'index.md'), 'utf8')
+  return markdownUnder(flows).filter((flow) => !index.includes(`](${path.relative(flows, flow)})`))
+}
+
+/** Each `<plugin>/<subcommand>-flow.md` whose copies under `flows` differ.
+ *  A subcommand that two skills run has a copy of its flow in each skill's
+ *  flow directory. The copies describe one piece of code, so they must
+ *  agree. */
+function differingCopies(flows: string): string[] {
+  const byName = new Map<string, string[]>()
+  for (const flow of markdownUnder(flows)) {
+    if (path.basename(flow) === SKILL_FLOW) continue
+    const plugin = path.relative(flows, flow).split(path.sep)[0] as string
+    const key = `${plugin}/${path.basename(flow)}`
+    byName.set(key, [...(byName.get(key) ?? []), readFileSync(flow, 'utf8')])
+  }
+  return [...byName].filter(([, copies]) => new Set(copies).size > 1).map(([key]) => key)
+}
+
+it('finds flows to check', () => {
+  // The same guard as `finds skills to check`: the four checks below pass
+  // on an empty list.
+  expect(markdownUnder(FLOWS).length).toBeGreaterThan(0)
+})
+
 it('puts a mermaid diagram in every flow', () => {
-  const without = markdownUnder(FLOWS)
-    .filter((flow) => !MERMAID_FENCE.test(readFileSync(flow, 'utf8')))
-    .map((flow) => rel(flow))
-  expect(without).toEqual([])
+  expect(withoutDiagram(FLOWS).map((flow) => rel(flow))).toEqual([])
 })
 
 it('keeps no flow that no skill needs', () => {
   const needed = new Set(skillFiles().flatMap(flowsFor))
-  const orphans = markdownUnder(FLOWS)
-    .filter((flow) => !needed.has(flow))
-    .map((flow) => rel(flow))
-  expect(orphans).toEqual([])
+  expect(orphans(FLOWS, needed).map((flow) => rel(flow))).toEqual([])
 })
 
 it('keeps no FLOW.md in a skill directory, which ships to each user', () => {
@@ -117,32 +150,45 @@ it('keeps no FLOW.md in a skill directory, which ships to each user', () => {
 })
 
 it('lists every flow in the flows index', () => {
-  // .claude/rules/path-docs.md: a new doc gets its row in the bundle's
-  // index.md in the same change.
-  const index = readFileSync(path.join(FLOWS, 'index.md'), 'utf8')
-  const unlisted = markdownUnder(FLOWS)
-    .filter((flow) => !index.includes(`](${path.relative(FLOWS, flow)})`))
-    .map((flow) => rel(flow))
-  expect(unlisted).toEqual([])
+  expect(unlisted(FLOWS).map((flow) => rel(flow))).toEqual([])
 })
 
 it('keeps the copies of one subcommand flow identical', () => {
-  // A subcommand that two skills run has a copy of its flow in each skill's
-  // directory. The copies describe one piece of code, so they must agree.
-  const byName = new Map<string, string[]>()
-  for (const flow of markdownUnder(FLOWS)) {
-    if (path.basename(flow) === SKILL_FLOW) continue
-    const plugin = path.relative(FLOWS, flow).split(path.sep)[0] as string
-    const key = `${plugin}/${path.basename(flow)}`
-    byName.set(key, [...(byName.get(key) ?? []), readFileSync(flow, 'utf8')])
-  }
-  const differ = [...byName].filter(([, copies]) => new Set(copies).size > 1).map(([key]) => key)
-  expect(differ).toEqual([])
+  expect(differingCopies(FLOWS)).toEqual([])
+})
+
+describe('the flow checks, on a synthetic flows tree', () => {
+  let scratch = ''
+
+  afterEach(() => {
+    if (scratch) rmSync(scratch, { recursive: true, force: true })
+  })
+
+  it('refuses a flow with no diagram, an orphan, an unlisted flow and copies that differ', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-flows-'))
+    const files: Record<string, string> = {
+      'index.md': '[a](a/s/_skill-flow.md) [b](a/s/x-flow.md) [c](a/t/x-flow.md)\n',
+      'a/s/_skill-flow.md': '```mermaid\nflowchart TD\n```\n',
+      'a/s/x-flow.md': '```mermaid\nflowchart TD\n    A\n```\n',
+      'a/t/x-flow.md': '```mermaid\nflowchart TD\n    B\n```\n',
+      'a/t/y-flow.md': 'no diagram\n',
+    }
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(scratch, name)), { recursive: true })
+      writeFileSync(path.join(scratch, name), text)
+    }
+    const at = (name: string): string => path.join(scratch, name)
+    const needed = new Set([at('a/s/_skill-flow.md'), at('a/s/x-flow.md'), at('a/t/x-flow.md')])
+    expect(withoutDiagram(scratch)).toEqual([at('a/t/y-flow.md')])
+    expect(orphans(scratch, needed)).toEqual([at('a/t/y-flow.md')])
+    expect(unlisted(scratch)).toEqual([at('a/t/y-flow.md')])
+    expect(differingCopies(scratch)).toEqual(['a/x-flow.md'])
+  })
 })
 
 it('keeps the diagram out of SKILL.md', () => {
   // Required by .claude/rules/file-skill-md.md: SKILL.md is context on every
-  // run, FLOW.md is read on demand.
+  // run, and a flow under docs/flows/ is read on demand.
   const carrying = skillFiles()
     .filter((skill) => MERMAID_FENCE.test(readFileSync(skill, 'utf8')))
     .map((skill) => rel(skill))
