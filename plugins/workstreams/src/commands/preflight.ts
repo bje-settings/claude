@@ -12,7 +12,9 @@
 // missing plugins: the fix is a different one, and telling someone to install
 // what they already have sends them the wrong way.
 //
-// The list is a table so a later primitive extends it in one place.
+// The lists are two tables so a later primitive extends the right one in one
+// place: REQUIRED_PLUGINS for a dependency a skill cannot work around, and
+// OPTIONAL_PLUGINS for one it works around when absent.
 //
 // `pr-review-toolkit` is checked twice over: the registry says whether the
 // plugin is installed at all, and the install paths it records say whether
@@ -39,16 +41,20 @@ Usage:
   workstreams.ts preflight [--json]
 
 Checks that gh is installed, that it is logged in, that the gh-stack
-extension is present, that the plugins the skills dispatch to are installed,
-and that pr-review-toolkit carries every reviewer agent the review loop
-names. Prints one JSON object with --json:
+extension is present, that pr-review-toolkit is installed and carries every
+reviewer agent the review loop names, and reports whether the optional gh
+plugin is installed too. Prints one JSON object with --json:
 
-  {"ok": true|false, "missing": [{"id": ..., "hint": ..., "detail": ...}]}
+  {"ok": true|false, "missing": [{"id": ..., "hint": ..., "detail": ...}],
+   "optional": [{"id": ..., "present": true|false}]}
 
-and the same findings as lines without it. Each hint is a command to run,
-except where the hint says what could not be checked instead: an unreadable
-registry names the file, and a missing reviewer names the agent. Exits 0 when
-everything is present, 1 when anything is missing, and 2 on a usage error.`
+and the same findings as lines without it; the optional array has no line
+form, since a missing optional plugin is never a finding. Each hint is a
+command to run, except where the hint says what could not be checked
+instead: an unreadable registry names the file, and a missing reviewer names
+the agent. Exits 0 when everything required is present, 1 when anything
+required is missing, and 2 on a usage error; the optional array never moves
+the exit status.`
 
 /** How much of a tool's own message is carried, on one line. */
 const EXCERPT = 160
@@ -63,11 +69,31 @@ export interface Finding {
 
 /** The plugins the workstreams skills dispatch work to, with the command that
  *  installs each. One row per plugin so a later primitive adds its own
- *  dependency here and nowhere else. */
+ *  dependency here and nowhere else. A missing one is a finding and moves
+ *  the exit status to 1. */
 export const REQUIRED_PLUGINS: ReadonlyArray<{ readonly id: string; readonly hint: string }> = [
-  { id: 'gh', hint: '/plugin install gh@bje' },
   { id: 'pr-review-toolkit', hint: '/plugin install pr-review-toolkit@claude-plugins-official' },
 ]
+
+/**
+ * Plugins a skill uses when present and works around when not, so a missing
+ * one is never a finding and never moves the exit status.
+ *
+ * `gh` is the only row: `/workstreams:question` asks the person to run
+ * `/gh:sync` when it is there, and fast-forwards the default branch itself
+ * when it is not. Reported in the envelope's `optional` array as
+ * `{id, present}` rather than folded into `missing`, so a caller can act on
+ * presence without reading it as something to fix.
+ */
+export const OPTIONAL_PLUGINS: ReadonlyArray<{ readonly id: string; readonly hint: string }> = [
+  { id: 'gh', hint: '/plugin install gh@bje' },
+]
+
+/** Whether one optional plugin's registry entry was found. */
+export interface OptionalStatus {
+  readonly id: string
+  readonly present: boolean
+}
 
 /**
  * The reviewer subagents `skills/review` dispatches, and which of them a
@@ -184,74 +210,126 @@ export const reviewerFindings = (paths: readonly string[]): Finding[] => {
   }))
 }
 
+/** Either the plugins object, or the findings that explain why there isn't
+ *  one. `runPreflight` reads the registry once per invocation and passes the
+ *  result to both the required and the optional computation, so the two
+ *  never see different snapshots of a registry that changed between them. */
+type RegistryRead =
+  | { readonly ok: true; readonly plugins: Record<string, unknown> }
+  | { readonly ok: false; readonly findings: Finding[] }
+
 /**
- * What the registry says is missing.
+ * Read the installed-plugins registry.
  *
  * Every arm that cannot answer the question reports `registry-unreadable`
  * rather than a list of plugins, because the id is what a caller branches on
  * and "two plugins are missing" is a different instruction from "this file
- * could not be read".
+ * could not be read". No file at all is a session with nothing installed
+ * from this marketplace, which IS an answer about the plugins, so it reads
+ * as an empty plugins object rather than as unreadable.
  */
-export const registryFindings = (env: NodeJS.ProcessEnv): Finding[] => {
+const readRegistry = (env: NodeJS.ProcessEnv): RegistryRead => {
   const file = registryPath(env)
   if (file === '') {
-    return [
-      {
-        id: 'registry-unreadable',
-        hint: 'cannot locate the installed plugins file: HOME is not set',
-      },
-    ]
+    return {
+      ok: false,
+      findings: [
+        {
+          id: 'registry-unreadable',
+          hint: 'cannot locate the installed plugins file: HOME is not set',
+        },
+      ],
+    }
   }
   let text: string
   try {
     text = readFileSync(file, 'utf8')
   } catch (error) {
     const problem = error as NodeJS.ErrnoException
-    // No file at all is a session with nothing installed from this
-    // marketplace, which IS an answer about the plugins; anything else is a
-    // file this could not read, which is not.
-    if (problem.code === 'ENOENT') return REQUIRED_PLUGINS.map((required) => ({ ...required }))
-    return [
-      {
-        id: 'registry-unreadable',
-        hint: `installed plugins file: ${file}`,
-        detail: excerpt(problem.message),
-      },
-    ]
+    if (problem.code === 'ENOENT') return { ok: true, plugins: {} }
+    return {
+      ok: false,
+      findings: [
+        {
+          id: 'registry-unreadable',
+          hint: `installed plugins file: ${file}`,
+          detail: excerpt(problem.message),
+        },
+      ],
+    }
   }
   let document: unknown
   try {
     document = JSON.parse(text)
   } catch (error) {
-    return [
-      {
-        id: 'registry-unreadable',
-        hint: `installed plugins file is not valid JSON: ${file}`,
-        detail: excerpt((error as Error).message),
-      },
-    ]
+    return {
+      ok: false,
+      findings: [
+        {
+          id: 'registry-unreadable',
+          hint: `installed plugins file is not valid JSON: ${file}`,
+          detail: excerpt((error as Error).message),
+        },
+      ],
+    }
   }
   const plugins =
     typeof document === 'object' && document !== null
       ? (document as Record<string, unknown>).plugins
       : undefined
   if (typeof plugins !== 'object' || plugins === null || Array.isArray(plugins)) {
-    return [
-      { id: 'registry-unreadable', hint: `installed plugins file has no plugins object: ${file}` },
-    ]
+    return {
+      ok: false,
+      findings: [
+        {
+          id: 'registry-unreadable',
+          hint: `installed plugins file has no plugins object: ${file}`,
+        },
+      ],
+    }
   }
-  const installed = plugins as Record<string, unknown>
-  const missing = REQUIRED_PLUGINS.filter((required) => !hasPlugin(installed, required.id)).map(
-    (required) => ({ ...required }),
-  )
+  return { ok: true, plugins: plugins as Record<string, unknown> }
+}
+
+/**
+ * What the registry says is missing, among the REQUIRED plugins.
+ *
+ * Takes an already-read registry rather than `env`, because `runPreflight`
+ * is the only caller and reads the registry once, sharing the result with
+ * `optionalFromRegistry` below so the two can never see different snapshots
+ * of a registry that changed between them.
+ */
+export const findingsFromRegistry = (registry: RegistryRead): Finding[] => {
+  if (!registry.ok) return registry.findings
+  const missing = REQUIRED_PLUGINS.filter(
+    (required) => !hasPlugin(registry.plugins, required.id),
+  ).map((required) => ({ ...required }))
   // The reviewers are only asked about when the plugin that carries them is
   // there: a missing plugin already says everything, and adding five
   // reviewer findings under it would send a reader after agents that arrive
   // with the install.
-  if (hasPlugin(installed, REVIEWER_PLUGIN)) {
-    missing.push(...reviewerFindings(installPathsFor(installed, REVIEWER_PLUGIN)))
+  if (hasPlugin(registry.plugins, REVIEWER_PLUGIN)) {
+    missing.push(...reviewerFindings(installPathsFor(registry.plugins, REVIEWER_PLUGIN)))
   }
   return missing
+}
+
+/**
+ * Whether each OPTIONAL plugin is installed, never a finding and never
+ * moving the exit status.
+ *
+ * A registry that could not be read answers `present: false` for every
+ * optional plugin, the same as one that was read and found empty: the
+ * caller's fallback path (fast-forward the default branch itself, rather
+ * than asking for `/gh:sync`) is the safe default when presence cannot be
+ * confirmed.
+ */
+export const optionalFromRegistry = (registry: RegistryRead): OptionalStatus[] => {
+  const plugins = registry.ok ? registry.plugins : {}
+  return OPTIONAL_PLUGINS.map((optional) => ({
+    id: optional.id,
+    present: hasPlugin(plugins, optional.id),
+  }))
 }
 
 /**
@@ -335,10 +413,12 @@ export const runPreflight = async (
     return 0
   }
 
-  const missing = [...(await ghFindings(context.run)), ...registryFindings(context.env)]
+  const registry = readRegistry(context.env)
+  const missing = [...(await ghFindings(context.run)), ...findingsFromRegistry(registry)]
+  const optional = optionalFromRegistry(registry)
 
   if (parsed.value.json) {
-    context.output.out.write(`${JSON.stringify({ ok: missing.length === 0, missing })}\n`)
+    context.output.out.write(`${JSON.stringify({ ok: missing.length === 0, missing, optional })}\n`)
     return missing.length === 0 ? 0 : 1
   }
   if (missing.length === 0) {

@@ -9,5 +9,5 @@ One section per primitive:
 5. An estimate.
 6. Verification.
 
-`skills/stream/brief.md` is the template the plan feeds, so name it when handing back: the
-human's plan answers what that template needs.
+`skills/stream/brief.md` is the template the plan feeds, so the skill's plan, approved by the
+human, answers what that template needs.

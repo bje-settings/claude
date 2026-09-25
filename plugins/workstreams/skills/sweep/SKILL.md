@@ -2,11 +2,11 @@
 name: sweep
 description: Find the work a round can start on, and say how it should be sequenced.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob
-disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob Skill
 ---
 
-Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that is empty.
+Milestones to sweep: $ARGUMENTS. With no argument, sweep every milestone that has open issues
+and report per milestone.
 
 ## Process
 
@@ -26,11 +26,12 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
 
    Add `--milestone 4` or `--milestone 4,5` for the milestones named above.
 
-   `unavailable` non-empty means the sets are short of what was asked for. Say so and stop,
-   unless the user tells you to plan on a partial read.
+   `unavailable` non-empty means the sets are short of what was asked for. Say so and stop.
 
    If `pullRequests` is not empty, name each one before going on: a round planned around a
    branch someone else is about to merge collides on files the sweep cannot see.
+
+   If nothing is unblocked, stop and say what the next tier is waiting on.
 
 3. Read, do not remember. For every issue in the unblocked set and the next tier, read the
    full body **and every comment**. A findings comment is often the specification; the body
@@ -81,11 +82,12 @@ Milestones to sweep: $ARGUMENTS. Ask which milestones the round covers when that
    _Recorded by <effort name>, <date>._
    ```
 
-   Show the comment before posting it.
-
 8. Report four things:
 
    1. The unblocked set, with what each issue is.
    2. The stream shape, with the argument for it.
    3. What the round unlocks when it lands.
    4. What nothing can reach yet, and what it is waiting on.
+
+9. Go on to the question phase: invoke `/workstreams:question` with the same milestones. The
+   report above is its input, and nobody has to ask for it.

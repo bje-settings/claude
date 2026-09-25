@@ -6,7 +6,9 @@ What `/workstreams:review` does to one pull request, and every way it declines t
 flowchart TD
     A[preflight] --> B{anything missing?}
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| C[read the pull request's state]
+    B -->|No| W{exactly one worktree matches the head<br/>branch, and the plan comment names a model?}
+    W -->|No| W1([Stop: say which is missing; never guess]):::stop
+    W -->|Yes| C[read the pull request's state]
 
     C --> D{could every fact be read?}
     D -->|No, no state at all| D1([Stop: say which fact nobody could see]):::stop

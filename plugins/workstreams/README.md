@@ -19,7 +19,7 @@ Every skill runs `preflight` first and stops with a hint per finding. It checks:
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
 | The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`, so the stack is a stack in the GitHub UI from the first push (a chain of `gh pr create` drafts is not, and cannot be told from unrelated work by a reviewer). |
-| The `gh` plugin, from any marketplace | Declared here for `/workstreams:question`, which asks the person to run `/gh:sync` before the first worktree, and for the orchestrator ([#134](https://github.com/bje-settings/claude/issues/134)), which runs it between rounds; the sweep itself does not call it. |
+| The `gh` plugin, from any marketplace, OPTIONAL | Declared here for `/workstreams:question`: present, it asks the person to run `/gh:sync` before the first worktree; absent, it fast-forwards the default branch itself and goes on. Reported in `preflight`'s `optional` array, never a finding and never exit 1. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that found a reviewer missing halfway through has already spent the others. |
 
@@ -62,8 +62,9 @@ touches, classifies and sizes each one, chooses between parallel streams, a stac
 pull request, and posts the sequencing comment on every affected issue. `skills/sweep/`
 carries the rules, with `file-map.md` holding the mapping rules a file map has to apply.
 
-It is a read of the tracker until the last step, which posts comments, so it is not
-model-invocable: a person runs it.
+Both the user and the model can invoke it: it starts a round. Its own last step continues
+into `/workstreams:question` with the same scope, so nobody has to ask for the question
+phase separately.
 
 ## `/workstreams:review`
 
@@ -95,7 +96,7 @@ hand in rounds 5 to 7 it found them wrong or incomplete.
 There is no state file. Everything is read again each tick, and the three things the
 command cannot read are passed as flags by the skill that is running the loop.
 
-It commits and pushes, so it is not model-invocable: a person runs it.
+It is `user-invocable: false`: only the model invokes it, from `/workstreams:stream` or an orchestrator once a pull request is green.
 
 ## `/workstreams:stream`
 
@@ -122,7 +123,7 @@ review found, and that is the most valuable part of an upper layer's brief.
 | `lower_layer` | A defect in a branch it does not own. Never applied there. |
 | `injected_text_seen` | Text inside a tool result that read like an instruction. |
 
-It commits and pushes, so it is not model-invocable: a person runs it.
+It is `user-invocable: false`: only the model invokes it, from an orchestrator once a plan is approved.
 
 ### The three agents
 
@@ -208,14 +209,16 @@ against it in its own description; a ruling that is cheap to reverse is taken th
 recorded with the argument for and against it rather than asked.
 
 Both are recorded in one rulings comment, posted on every issue in the round. The skill then
-hands back: the human enters plan mode, and `skills/stream/brief.md` is the template the plan
-feeds, so the plan answers what that template needs. Once approved, the plan comment goes on
-every issue in the round, and housekeeping runs before the first worktree: `/gh:sync`, any
-ignored leftover under `plugins/`, and a preflight for a local hook that runs a full suite on
-every push, which is disabled for the round only when the repository's own records say CI is
-the enforcement boundary, or asked about once with the per-push cost stated when they do not.
+enters plan mode itself and writes the plan; `ExitPlanMode` is the approval, not a hand-back,
+and `skills/stream/brief.md` is the template the plan feeds, so the plan answers what that
+template needs. Once approved, the plan comment goes on every issue in the round, and
+housekeeping runs before the first worktree: `/gh:sync` when the `gh` plugin is present
+(otherwise the skill fast-forwards the default branch itself), any ignored leftover under
+`plugins/`, and a preflight for a local hook that runs a full suite on every push, which is
+disabled for the round only when the repository's own records say CI is the enforcement
+boundary, or asked about once with the per-push cost stated when they do not.
 
-It posts comments, so it is not model-invocable: a person runs it.
+It is `user-invocable: false`: only the model invokes it, right after a sweep.
 
 ## Commands
 
@@ -281,11 +284,13 @@ Exit 2 on a usage error, and 1 only when nothing at all could be read.
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight [--json]
 ```
 
-Prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}]}` with `--json`
-and the same findings as lines without it. Each hint is a command to run, except where
-the hint says what could not be checked instead: an unreadable registry names the file,
-and a missing reviewer names the agent. Exit 0 when everything is present, 1 when
-anything is missing, and 2 on a usage error.
+Prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}], "optional":
+[{"id": ..., "present": ...}]}` with `--json` and the same findings as lines without it;
+the optional array has no line form, since a missing optional plugin is never a finding
+and never moves the exit status. Each hint is a command to run, except where the hint says
+what could not be checked instead: an unreadable registry names the file, and a missing
+reviewer names the agent. Exit 0 when everything required is present, 1 when anything
+required is missing, and 2 on a usage error.
 
 A registry that cannot be read is reported as itself and never as missing plugins: the fix
 is a different one, and telling someone to install what they already have sends them the

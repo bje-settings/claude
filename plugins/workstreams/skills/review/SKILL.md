@@ -2,15 +2,21 @@
 name: review
 description: Review one draft pull request through to done, in at most two rounds.
 argument-hint: [pr-number]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Read Grep Glob Agent SendMessage
-disable-model-invocation: true
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh issue view *) Bash(git worktree list *) Read Grep Glob Agent SendMessage
+user-invocable: false
 ---
 
-Pull request: $ARGUMENTS. Ask the caller for anything you were not given: the pull request
-number, the absolute path of its worktree, and the model to size the round agent with.
-Both commands below run in that worktree: they take no repository argument and read it
-from the working directory, so outside a checkout they report on git rather than on the
-pull request.
+Pull request: $ARGUMENTS. Its worktree comes from `git worktree list`, matched against the
+pull request's head branch; the round's issues are the ones its body closes (`gh pr view
+<number>`, the `Closes #n` line `/workstreams:stream` writes into every layer's body), or
+whichever issues this session already has in view from dispatching the stream; the model to
+size the round agent with comes from the plan comment on those issues. No match, more than
+one match, or no model named for this pull request in the plan comment is a stop, with what
+is missing named: a round dispatched into a guessed worktree or with a guessed model is a
+round that will guess again inside it.
+Both commands below run in that worktree: they take no repository argument and read it from
+the working directory, so outside a checkout they report on git rather than on the pull
+request.
 
 ## Process
 

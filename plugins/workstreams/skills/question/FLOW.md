@@ -8,9 +8,11 @@ flowchart TD
     B -->|Yes| B1([Stop: print each hint verbatim]):::stop
     B -->|No| C{sequencing comment posted?}
     C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, sizing,<br/>hidden dependencies]
-    C -->|No| C2[Run sweep --json: only the<br/>sets, milestones, open pull requests]
+    C -->|No| C2[Invoke /workstreams:sweep with the same milestone or issue set]
+    C2 --> C3{sweep stopped before posting one?}
+    C3 -->|Yes| C3a([Stop: report what sweep returned]):::stop
+    C3 -->|No| C3b([Stop: sweep continued into the question<br/>phase itself; stop here on return]):::stop
     C1 --> D
-    C2 --> D
 
     D[Open the file, the record, or the docs an open item names]
     D --> E{answer already in the tree?}
@@ -22,13 +24,19 @@ flowchart TD
     H -->|Yes| D
     H -->|No| I[Rulings comment on every issue in the round<br/>and any issue a ruling touches]
 
-    I --> J([Hand back: the human enters plan mode]):::pause
-    J --> K{plan approved?}
+    I --> J[EnterPlanMode: write the plan]
+    J --> K{ExitPlanMode: approved?}
     K -->|No| J
     K -->|Yes| L[Plan comment on every issue in the round]
 
-    L --> M[Ask the person to run /gh:sync and clear ignored leftovers]
-    M --> N{a local hook runs a full suite?}
+    L --> L1[preflight --json, second time]
+    L1 --> L2{ok?}
+    L2 -->|No| L3([Stop: print each hint verbatim]):::stop
+    L2 -->|Yes| M{gh plugin present?}
+    M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
+    M -->|No| M3[Fast-forward the default branch itself] --> M2
+    M2[Remove ignored leftovers under plugins/] --> N
+    N{a local hook runs a full suite?}
     N -->|No| P[Note any open pull request that shares files]
     N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> P
     N -->|Yes, records silent| O2([Ask: disable it, per-push cost stated]):::pause --> P
