@@ -11,7 +11,7 @@ Choose the lowest level that fits.
 | --- | --- | --- |
 | Urgent | Broken now with no workaround, or it stops other work. Do it next. | Red CI on the default branch. A plugin does not load. A security exposure. |
 | High | It blocks planned work, or a usual path is wrong and the workaround costs much effort. | It blocks an open issue in an active milestone. A skill gives a wrong result in normal use. |
-| Medium | The default. A real defect or improvement on a usual path. It has a workaround, and no work waits on it. | A flag that is not there. Output that is not clear. A slow command. |
+| Medium | A real defect or improvement on a usual path. It has a workaround, and no work waits on it. | A flag that is not there. Output that is not clear. A slow command. |
 | Low | An edge case that is not likely to occur, polish, or a follow-up that is only an idea. | A failure on an unusual repository layout. A word change. "It could also support X". |
 
 - If you cannot choose between two levels, choose the lower one.
