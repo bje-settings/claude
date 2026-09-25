@@ -22,7 +22,9 @@ import {
   developmentFiles,
   LIB_LINK_TARGET,
   libLinkViolations,
+  packageImports,
   pluginDirs,
+  RESERVED_DIRECTORIES,
   ROOT,
   rel,
   reservedDirectoryNames,
@@ -474,26 +476,63 @@ describe('what a plugin ships', () => {
     expect(developmentFiles([path.join(root, 'plugins')])).toEqual([])
   })
 
+  it('refuses a linked fixtures directory, which the installer copies as a real one', () => {
+    const root = tree(['plugins/a/src/', 'tests/fixtures/', 'tests/data.json'])
+    const src = path.join(root, 'plugins', 'a', 'src')
+    symlinkSync(path.join('..', '..', '..', 'tests', 'fixtures'), path.join(src, 'fixtures'))
+    // A link to a file and a link to nothing are not directories.
+    symlinkSync(path.join('..', '..', '..', 'tests', 'data.json'), path.join(src, 'data.json'))
+    symlinkSync('missing', path.join(src, 'gone'))
+    expect(developmentFiles([path.join(root, 'plugins')])).toEqual([
+      'plugins/a/src/fixtures is a fixtures directory, and it would ship',
+    ])
+  })
+
   it('refuses a component name below the root, and commands at the root', () => {
     const root = tree([
       'plugins/a/.claude-plugin/',
       'plugins/a/skills/view/',
+      'plugins/a/skills/view/hooks/',
       'plugins/a/hooks/',
-      'plugins/a/src/commands/',
       'plugins/a/src/deep/agents/',
       'plugins/b/.claude-plugin/',
       'plugins/b/commands/',
       'plugins/b/src/subcommands/',
+      'plugins/c/.claude-plugin/',
+      ...RESERVED_DIRECTORIES.map((name) => `plugins/c/src/${name}/`),
     ])
+    symlinkSync('subcommands', path.join(root, 'plugins', 'b', 'src', 'commands'))
     expect(reservedDirectoryNames(path.join(root, 'plugins'))).toEqual([
-      'a/src/commands uses the name of a plugin component',
+      'a/skills/view/hooks uses the name of a plugin component',
       'a/src/deep/agents uses the name of a plugin component',
       'b/commands is the legacy component; use skills/',
+      'b/src/commands uses the name of a plugin component',
+      ...RESERVED_DIRECTORIES.map((name) => `c/src/${name} uses the name of a plugin component`),
+    ])
+  })
+
+  it('refuses a # import in a plugin or in lib, which no installed plugin resolves', () => {
+    const root = tree(['plugins/a/src/', 'lib/'])
+    const files: Record<string, string> = {
+      'plugins/a/src/url.ts': "import { x } from '#lib/args.ts'\nimport 'node:fs'\n",
+      'plugins/a/hooks/entry.ts': "await import('#harness/gh.ts')\n",
+      'plugins/a/src/ok.ts': "import { y } from './lib/args.ts'\n",
+      'lib/gh.ts': "import { z } from '#gh/lib/args.ts'\n",
+    }
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(root, name)), { recursive: true })
+      writeFileSync(path.join(root, name), text)
+    }
+    expect(packageImports([path.join(root, 'plugins'), path.join(root, 'lib')])).toEqual([
+      'lib/gh.ts: imports #gh/lib/args.ts, which only this checkout resolves',
+      'plugins/a/hooks/entry.ts: imports #harness/gh.ts, which only this checkout resolves',
+      'plugins/a/src/url.ts: imports #lib/args.ts, which only this checkout resolves',
     ])
   })
 })
 
-it('holds both ADR 004 rules over the real plugins and lib trees', () => {
+it('holds the ADR 004 rules over the real plugins and lib trees', () => {
   expect(developmentFiles()).toEqual([])
   expect(reservedDirectoryNames()).toEqual([])
+  expect(packageImports()).toEqual([])
 })

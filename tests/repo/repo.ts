@@ -148,18 +148,22 @@ export const LIB_LINK_TARGET = path.join('..', '..', '..', 'lib')
 // rule can follow path arithmetic.
 const IMPORT = /\b(?:from|import|require)\s*\(?\s*(['"`])([^'"`]+)\1/g
 
-function relativeImports(file: string): string[] {
+// Every import specifier in `file` that starts with `prefix`.
+function importsStartingWith(file: string, prefix: string): string[] {
   const found: string[] = []
   for (const match of readFileSync(file, 'utf8').matchAll(IMPORT)) {
     // Two mandatory capturing groups in a matching regular expression always
     // populate both positions; the cast is erased and adds no branch.
     const specifier = match[2] as string
-    // A bare specifier is `node:fs` or a dev dependency, neither of which can
-    // reach across a plugin boundary.
-    if (specifier.startsWith('.')) found.push(specifier)
+    if (specifier.startsWith(prefix)) found.push(specifier)
   }
   return found
 }
+
+// A bare specifier such as `node:fs` or a dev dependency cannot reach
+// across a plugin boundary. A `#` specifier can: `packageImports` below
+// refuses it.
+const relativeImports = (file: string): string[] => importsStartingWith(file, '.')
 
 // Every `.ts` file under `dir`, at any depth. This function neither
 // descends into a symlink nor collects it. `src/lib` is a directory of
@@ -220,6 +224,33 @@ export function crossPluginImports(root: string = PLUGINS): string[] {
         const resolved = path.resolve(path.dirname(file), specifier)
         if (isInside(plugin, resolved)) continue
         violations.push(`${where}: imports ${specifier}, which resolves outside the plugin`)
+      }
+    }
+  }
+  return violations.sort()
+}
+
+/**
+ * `#` imports in a file that ships.
+ *
+ * The `imports` map in the root `package.json` gives the tests short
+ * names, such as `#lib/*` and `#harness/*`. Node, `tsc` and vitest all
+ * read that map in this checkout, so such an import in a plugin passes
+ * every check here. An installed plugin has no `package.json` above it,
+ * so node refuses the import there (ADR 004). This rule reads every `.ts`
+ * file under each root, `lib/` included, because `lib/` ships through
+ * `src/lib`.
+ *
+ * `roots` is a parameter, so a test can run the rule against a synthetic
+ * tree. Each report names the path relative to the parent of its root.
+ */
+export function packageImports(roots: readonly string[] = [PLUGINS, LIB]): string[] {
+  const violations: string[] = []
+  for (const root of roots) {
+    for (const file of tsFilesUnder(root)) {
+      const where = path.relative(path.dirname(root), file)
+      for (const specifier of importsStartingWith(file, '#')) {
+        violations.push(`${where}: imports ${specifier}, which only this checkout resolves`)
       }
     }
   }
@@ -301,13 +332,23 @@ export function binDirectories(root: string = PLUGINS): string[] {
 
 // Every directory under `dir`, at any depth, as a path relative to `dir`.
 // This walk does not go into a symlink. `src/lib` is the root `lib/`, and
-// the guards below check `lib/` at its real path.
+// the guards below check `lib/` at its real path. But the installer copies
+// a linked directory as a real one, so a symlink to a directory is in the
+// list by its own name. Then a guard can refuse a link named `fixtures` or
+// `commands`.
 function directoriesUnder(dir: string, prefix = ''): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
+    const full = path.join(dir, entry.name)
     const relative = path.join(prefix, entry.name)
-    found.push(relative, ...directoriesUnder(path.join(dir, entry.name), relative))
+    if (entry.isDirectory()) {
+      found.push(relative, ...directoriesUnder(full, relative))
+    } else if (
+      entry.isSymbolicLink() &&
+      statSync(full, { throwIfNoEntry: false })?.isDirectory() === true
+    ) {
+      found.push(relative)
+    }
   }
   return found
 }
