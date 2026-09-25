@@ -1,19 +1,19 @@
-// The sandbox's own claims, asserted the way the gh plugin's Python fixture
-// test asserted the Python fixtures' before it was deleted at #127: a sandbox
-// that quietly stopped isolating HOME, or a pathWithout that quietly stopped
-// removing anything, would make every test built on it pass for the wrong
-// reason.
+// The sandbox's own claims. These are asserted the way the gh plugin's
+// Python fixture test asserted the Python fixtures', before it was deleted
+// at #127. A sandbox that quietly stopped isolating HOME, or a pathWithout
+// that quietly stopped removing anything, would make every test built on
+// it pass for the wrong reason.
 import { existsSync, lstatSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, it } from 'vitest'
 import { COMMON_TOOLS, createSandbox, ESSENTIAL_TOOLS, sandboxEnv } from './sandbox.ts'
 
-/** A bin directory holding only the essential tools, as symlinks to this very
- *  node binary: `pathWithout` only asks whether a name is executable, so the
- *  target does not have to be the tool it is standing in for. It is the one
- *  way to reach "a non-essential tool is missing" without depending on which
- *  tools the machine running the suite happens to have.
+/** A bin directory that holds only the essential tools, as symlinks to
+ *  this very node binary. `pathWithout` only asks whether a name is
+ *  executable, so the target need not be the tool it stands in for. This
+ *  is the one way to reach "a non-essential tool is missing," whatever
+ *  tools the machine that runs the suite happens to have.
  */
 function essentialsOnly(sandbox: { join(...parts: string[]): string }): string {
   const directory = sandbox.join('essentials-bin')
@@ -50,11 +50,12 @@ it('removes the sandbox directory on cleanup', () => {
   expect(existsSync(sandbox.path)).toBe(false)
 })
 
-// One claim in two tests, which is the only order that can prove it: a test
-// cannot watch its own `onTestFinished` run, so the first records the path and
-// the second, which runs once the first has finished, reads it back. Without
-// the pair, a `createSandbox` that registered nothing at all goes unnoticed,
-// because the test above calls `cleanup()` itself.
+// This is one claim proved across two tests, the only order that can
+// prove it. A test cannot watch its own `onTestFinished` run. So the
+// first test records the path, and the second, which runs once the first
+// has finished, reads it back. Without this pair, a `createSandbox` that
+// registered nothing at all would go unnoticed, because the test above
+// calls `cleanup()` itself.
 let autoCleaned = ''
 
 it('registers its own cleanup, so a test need not call it', () => {
@@ -70,9 +71,10 @@ it('has removed the previous test sandbox by the time the next test runs', () =>
 })
 
 it('holds git config lookup inside the sandbox, whatever the base env said', () => {
-  // Moving HOME alone does not do it: GIT_CONFIG_GLOBAL overrides the HOME
-  // lookup, and this repository's own workspace exports it, so a fixture would
-  // read the developer's real global config while CI read none.
+  // A move of HOME alone does not do it. GIT_CONFIG_GLOBAL overrides the
+  // HOME lookup, and this repository's own workspace exports it. Without
+  // this fix, a fixture would read the developer's real global config,
+  // while CI read none.
   const env = sandboxEnv({ GIT_CONFIG_GLOBAL: '/developer/config/git' }, '/sandbox/home')
 
   expect(env.GIT_CONFIG_GLOBAL).toBe(path.join('/sandbox/home', '.gitconfig'))
@@ -80,13 +82,15 @@ it('holds git config lookup inside the sandbox, whatever the base env said', () 
 })
 
 it('drops the git and gh environment a hook or a workspace exports', () => {
-  // Pinning GIT_CONFIG_GLOBAL pins one variable. GIT_DIR replaces the
-  // repository `-C` chose, GIT_CONFIG_COUNT carries configuration that neither
-  // pin displaces, GIT_AUTHOR_NAME beats the `-c user.name` the git builders
-  // pass, and a git hook exports the last of those. GH_TOKEN and GH_CONFIG_DIR
-  // are the developer's own credentials, which an injected mock means nothing
-  // here may reach. The whole environment is asserted, not one key at a time,
-  // so a variable that stops being swept is a failure rather than an omission.
+  // A pin on GIT_CONFIG_GLOBAL alone pins one variable. GIT_DIR would
+  // replace the repository that `-C` chose. GIT_CONFIG_COUNT would carry
+  // configuration that neither pin displaces. GIT_AUTHOR_NAME would beat
+  // the `-c user.name` the git builders pass, and a git hook exports the
+  // last of those. GH_TOKEN and GH_CONFIG_DIR are the developer's own
+  // credentials; an injected mock means nothing here may reach them.
+  //
+  // This test checks the whole environment, not one key at a time. So a
+  // variable that the sweep stops catching is a failure, not an omission.
   const env = sandboxEnv(
     {
       GIT_DIR: '/developer/repo/.git',
@@ -109,10 +113,11 @@ it('drops the git and gh environment a hook or a workspace exports', () => {
 })
 
 it('drops the TypeSafe API key, so no spawned test can reach the real API', () => {
-  // `plugins/audit` reads TYPESAFE_API_KEY to decide whether its model stages
-  // run at all, and a developer's shell exports one. Without this sweep a
-  // spawned audit test would bill a real account and answer differently on
-  // that machine than in CI, which is the same argument GH_TOKEN is swept on.
+  // `plugins/audit` reads TYPESAFE_API_KEY to decide whether its model
+  // stages run at all, and a developer's shell may export one. Without
+  // this sweep, a spawned audit test would bill a real account, and
+  // answer differently on that machine than in CI. This is the same
+  // reason the sweep removes GH_TOKEN.
   const env = sandboxEnv({ TYPESAFE_API_KEY: 'secret', PATH: '/usr/bin' }, '/sandbox/home')
 
   expect(Object.keys(env).sort()).toEqual([
@@ -173,8 +178,8 @@ it('builds a PATH holding the real tools minus the named ones', () => {
 })
 
 it('builds a fresh bin directory on every call', () => {
-  // A second call inheriting the first one's links would hand back a PATH
-  // that still holds the tool the test is trying to take away.
+  // If a second call inherited the first one's links, it would hand back
+  // a PATH that still holds the tool the test wants to remove.
   const sandbox = createSandbox()
 
   const first = sandbox.pathWithout('git')
@@ -204,10 +209,11 @@ it('skips a non-essential tool that is not installed', () => {
 })
 
 it('does not mistake a directory for the tool it is named after', () => {
-  // A directory carrying the traverse bit passes the executable check, so one
-  // named after a tool would be linked in as that tool and the "not installed"
-  // branch it stands for would never fire. Python's `shutil.which` excludes
-  // directories; `os.access` and `accessSync` alone do not.
+  // A directory that has the traverse bit passes the executable check.
+  // So one named after a tool would be linked in as that tool, and the
+  // "not installed" branch it stands for would never fire. Python's
+  // `shutil.which` excludes directories; `os.access` and `accessSync`
+  // alone do not.
   const sandbox = createSandbox()
   const bin = essentialsOnly(sandbox)
   mkdirSync(path.join(bin, 'jq'))
@@ -217,8 +223,8 @@ it('does not mistake a directory for the tool it is named after', () => {
 })
 
 it('refuses to build a PATH with an essential tool missing', () => {
-  // Silently returning a PATH without a shell would fail a later test for a
-  // reason that test never meant to provoke.
+  // A PATH silently returned without a shell would fail a later test,
+  // for a reason that test never meant to test.
   const sandbox = createSandbox()
   delete sandbox.env.PATH
 

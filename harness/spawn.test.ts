@@ -1,7 +1,7 @@
-// The spawn helper's own claims, against the tiny programs in fixtures/.
-// Those run under node's type stripping exactly as a plugin's scripts/ entry
-// point will, so this file also proves the harness can run a `.ts` file as a
-// process at all.
+// The spawn helper's own claims, against the tiny programs in
+// fixtures/. Those run under node's type stripping exactly as a plugin's
+// scripts/ entry point will. So this file also proves the harness can run
+// a `.ts` file as a process at all.
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,9 +34,9 @@ it('passes text on stdin through unchanged', () => {
 })
 
 it('passes bytes on stdin through unchanged, and decodes with replacement', () => {
-  // The contract only bytes can show: 0xff is not valid UTF-8, so a helper
-  // that decoded and re-encoded on the way through would lose it, and a
-  // helper that decoded strictly would throw here instead of reporting.
+  // This is the contract only bytes can show. 0xff is not valid UTF-8. A
+  // helper that decoded and re-encoded on the way through would lose it.
+  // A helper that decoded strictly would throw here, instead of a report.
   const invalid = Uint8Array.from([0x61, 0xff, 0x62])
 
   const result = runScript(fixture('echo-stdin.ts'), { stdin: invalid })
@@ -74,11 +74,12 @@ it('throws when the child could not be started', () => {
 
 // --- startScript, the variant whose pipes are still open ----------------------
 //
-// `runScript` is `spawnSync` and drains both streams before it returns, so
-// nothing run through it can have its reader taken away part-way: the EPIPE
-// guard every entry point carries is unpinnable through it (round 5's handoff
-// note from #156). These four examples are the variant's own claims; the
-// guards themselves are pinned beside the entry points that carry them.
+// `runScript` uses `spawnSync` and drains both streams before it returns.
+// So nothing run through it can lose its reader part-way through. This
+// means the EPIPE guard every entry point carries cannot be tested
+// through it (round 5's handoff note from #156). These four examples are
+// the variant's own claims. The guards themselves are pinned beside the
+// entry points that carry them.
 
 it('hands back the first line a running child writes', async () => {
   const sandbox = createSandbox()
@@ -109,12 +110,12 @@ it('reports a child that could not be started, when it is waited on', async () =
   const sandbox = createSandbox()
   const running = startScript(fixture('echo-argv.ts'), { cwd: sandbox.join('gone') })
 
-  // `spawn` reports this as an event rather than a throw, so without a
-  // listener it is an uncaught exception vitest attributes to whichever
-  // example is in flight. Rejecting here, and not answering with the status of
-  // -2 that follows a failed spawn, is the same refusal `runScript` makes: a
-  // result full of empty strings would read as a command that ran and said
-  // nothing.
+  // `spawn` reports this as an event, not a throw. So without a
+  // listener, it is an uncaught exception that vitest attributes to
+  // whichever example is in flight. This function rejects here, instead
+  // of answering with the status of -2 that follows a failed spawn. That
+  // is the same refusal `runScript` makes: a result full of empty strings
+  // would read as a command that ran and said nothing.
   await expect(running.ended()).rejects.toThrow(/ENOENT/)
 })
 
@@ -124,16 +125,17 @@ it('answers the same thing however late, and however often, it is asked', async 
   const first = await running.ended()
 
   expect(first).toEqual({ status: 3, signal: null, stderr: 'boom\n' })
-  // `close` has already fired by now. A wait that subscribed to it at this
-  // point would never settle, which presents as a bare suite timeout with
-  // nothing pointing at the helper.
+  // `close` has already fired by now. A wait that subscribed to it at
+  // this point would never settle. It would present as a bare suite
+  // timeout, with nothing that points at the helper.
   expect(await running.ended()).toEqual(first)
 })
 
 it('survives a child that exits before it reads its stdin', async () => {
-  // Past the pipe buffer, so the write is still in flight when the child goes
-  // and this end takes an EPIPE. Unlistened that is an uncaught exception,
-  // where what it means is only that the reader left.
+  // The write goes past the pipe buffer, so it is still in flight when
+  // the child exits, and this end takes an EPIPE. Without a listener, that
+  // is an uncaught exception, though all it means is that the reader
+  // left.
   const running = startScript(fixture('fail.ts'), { stdin: 'x'.repeat(1 << 20) })
 
   expect((await running.ended()).status).toBe(3)
@@ -155,9 +157,9 @@ it('answers a line asked for after this end of stdout was closed', async () => {
 
   running.closeStdout()
 
-  // A destroyed stream never emits `end`, so a wait that listened only for
-  // that one would sit here until the suite timed out rather than saying the
-  // reader had already gone.
+  // A destroyed stream never emits `end`. So a wait that listened only
+  // for that event would sit here until the suite timed out. It would
+  // never report that the reader had already gone.
   expect(await running.firstLine()).toBe('')
   expect((await running.ended()).status).toBe(3)
 })

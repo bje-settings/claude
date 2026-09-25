@@ -1,28 +1,28 @@
-// A real pnpm project inside a real repository, and the three ways origin can
-// move its lock file: the port of the package-manager half of
+// A real pnpm project inside a real repository, and the three ways origin
+// can move its lock file. This is the port of the package-manager half of
 // `tests/gh/conftest.py` (`js_project`, `remote_update_lock`,
-// `remote_break_lock`, `remote_drop_lockfile`), which round 4 deferred to #127
+// `remote_break_lock`, `remote_drop_lockfile`). Round 4 deferred it to #127
 // because #124 had no consumer for it.
 //
-// **pnpm only** (maintainer's ruling, 2026-09-20). The Python builds the same
-// states for Yarn Berry and npm, chosen by a `manager` argument; the port
-// watches one lock file and runs one command, so the argument has nothing to
-// select and is not ported. `YARN_VERSION`, `has_yarn_berry` and the
-// `packageManager` field they exist to drive go with it: the field is what
-// corepack reads, and without Berry no fixture needs corepack at all, which is
-// why the vitest CI jobs need no `corepack enable` step.
+// **pnpm only** (maintainer's ruling, 2026-09-20). The Python builds the
+// same states for Yarn Berry and npm, chosen by a `manager` argument. The
+// port watches one lock file and runs one command, so the argument has
+// nothing to select, and it is not ported. `YARN_VERSION`, `has_yarn_berry`,
+// and the `packageManager` field they exist to drive go with it. That field
+// is what corepack reads. Without Berry, no fixture needs corepack at all,
+// which is why the vitest CI jobs need no `corepack enable` step.
 //
-// The lock file is written by the real pnpm on PATH, not by hand. A
-// hand-written `pnpm-lock.yaml` would let a lock-file diff pass while
-// `pnpm install --frozen-lockfile` had never been asked to read one, which is
-// the half of the install path these fixtures exist to make real. CI has pnpm
+// The real pnpm on PATH writes the lock file, not by hand. A hand-written
+// `pnpm-lock.yaml` would let a lock-file diff pass, while
+// `pnpm install --frozen-lockfile` never had to read one. That is the half
+// of the install path these fixtures exist to make real. CI has pnpm
 // through `pnpm/action-setup`, which the vitest jobs already run.
 //
-// Nothing here reaches the network: the only dependency any of these projects
-// declares is a directory inside the repository itself.
+// Nothing here reaches the network. The only dependency any of these
+// projects declares is a directory inside the repository itself.
 //
 // The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
-// `tests/gh/bin/gh`, was deleted at #127. It is named below anyway, without
+// `tests/gh/bin/gh`, was deleted at #127. It is named below anyway, with no
 // line numbers, because saying where each rule came from is what makes the
 // rule arguable.
 import { spawnSync } from 'node:child_process'
@@ -36,26 +36,28 @@ import type { Sandbox } from './sandbox.ts'
 export const LOCKFILE = 'pnpm-lock.yaml'
 
 /**
- * Where corepack keeps the package managers it has downloaded: the port of
- * `tests/gh/conftest.py`'s `_real_corepack_home`, and the reason its
- * `corepack_cache` fixture exists.
+ * Where corepack keeps the package managers it has downloaded. This is the
+ * port of `tests/gh/conftest.py`'s `_real_corepack_home`, and the reason
+ * its `corepack_cache` fixture exists.
  *
- * It is needed here for one shape of machine, and not needed at all in CI. On
- * a machine whose `pnpm` is a corepack shim rather than a binary (nvm installs
- * one), corepack resolves the manager against a cache under `HOME`, and the
- * sandbox moves `HOME` for every test. Without this, each install example
- * starts with an empty cache and downloads a pnpm over the network to refill
- * it, which is slow, is a different pnpm from the one the repository pins,
- * and fails outright rather than skipping when the network is unavailable
- * (observed here: pnpm 12.5.1 fetched from the registry inside a sandbox
- * `HOME`). CI installs a real pnpm with `pnpm/action-setup`, so nothing there
- * consults it.
+ * This function is needed here for one shape of machine, and not needed at
+ * all in CI. On a machine where `pnpm` is a corepack shim, not a binary
+ * (nvm installs one), corepack resolves the manager against a cache under
+ * `HOME`. The sandbox moves `HOME` for every test. Without this function,
+ * each install example would start with an empty cache. It would then
+ * download a pnpm over the network to refill the cache.
  *
- * A pure function over its three inputs rather than a reader of the ambient
- * process: every platform's answer is then an example rather than a branch
- * only one machine can take. {@link COREPACK_HOME} is the one call that reads
- * the real environment, made at import time, before any sandbox has moved
- * `HOME`.
+ * That download is slow. It is also a different pnpm from the one the
+ * repository pins. It fails outright, rather than a skip, when the network
+ * is unavailable (observed here: pnpm 12.5.1 fetched from the registry
+ * inside a sandbox `HOME`). CI installs a real pnpm with
+ * `pnpm/action-setup`, so nothing there consults this function.
+ *
+ * This is a pure function over its three inputs, not a reader of the
+ * ambient process. So every platform's answer is an example, not a branch
+ * only one machine can take. {@link COREPACK_HOME} is the one call that
+ * reads the real environment. It runs at import time, before any sandbox
+ * has moved `HOME`.
  */
 export function corepackHome(env: NodeJS.ProcessEnv, platform: string, home: string): string {
   // An explicit setting wins, as corepack's own resolution does.
@@ -67,29 +69,30 @@ export function corepackHome(env: NodeJS.ProcessEnv, platform: string, home: str
 }
 
 /** The developer's real corepack cache, resolved once, before any test has
- *  moved `HOME`. A test that runs an install passes it in its own `env`:
- *  reading the real cache is a dependency on the machine, so a test that needs
- *  no package manager must not quietly acquire one. */
+ *  moved `HOME`. A test that runs an install passes it in its own `env`.
+ *  The real cache is a dependency on the machine. So a test that needs no
+ *  package manager must not quietly get one. */
 export const COREPACK_HOME = corepackHome(process.env, process.platform, homedir())
 
 /** What every child that may resolve through corepack is given: the real
- *  cache, and no download prompt, which would otherwise hang a run rather than
- *  fail it. */
+ *  cache, and no download prompt. Without this, a download prompt would
+ *  hang a run, instead of a clean failure. */
 export const corepackEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
   ...env,
   COREPACK_HOME,
   COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
 })
 
-// `--lockfile-only` writes the lock file without linking a `node_modules`,
-// which is all a fixture needs: the code under test is the one that runs a
-// real install. `--silent` keeps pnpm's progress out of a failure message that
-// is already going to be long.
+// `--lockfile-only` writes the lock file, without a linked `node_modules`.
+// This is all a fixture needs; the code under test is the one that runs a
+// real install. `--silent` keeps pnpm's progress out of a failure message
+// that is already long.
 const LOCKFILE_ONLY = ['install', '--lockfile-only', '--silent']
 
-/** How long a fixture's pnpm may take before it is killed and the failure
- *  reported. Only a network that swallows a connection gets anywhere near it:
- *  nothing these builders install comes from a registry. */
+/** How long a fixture's pnpm may run before the builder kills it and
+ *  reports the failure. Only a network that swallows a connection gets
+ *  anywhere near this bound; nothing these builders install comes from a
+ *  registry. */
 const FIXTURE_TIMEOUT_MS = 120_000
 
 export interface PackageFixtures {
@@ -98,53 +101,59 @@ export interface PackageFixtures {
   jsProject(work: string): void
   /** Origin legitimately regenerates the lock file, so a pull moves it.
    *
-   *  The change is a dependency on a directory inside the repository: pnpm
-   *  records a real dependency and a `file:` path resolves with no network.
-   *  Perturbing a manager-specific field instead does not survive a pnpm
-   *  release (the Python's comment records pnpm 10 writing an override that
-   *  pnpm 11 drops, which passed locally and failed in CI), and appending to
-   *  the lock file, the way `remoteAdvance` appends to a tracked file,
-   *  corrupts it. */
+   *  The change is a dependency on a directory inside the repository. pnpm
+   *  records a real dependency, and a `file:` path resolves with no
+   *  network. A change to a manager-specific field instead does not
+   *  survive a pnpm release (the Python's comment records that pnpm 10
+   *  wrote an override that pnpm 11 drops; this passed locally and failed
+   *  in CI). An append to the lock file, the way `remoteAdvance` appends to
+   *  a tracked file, corrupts it instead. */
   remoteUpdateLock(work: string): void
-  /** Origin pushes a lock file that cannot be parsed, so the install fails for
-   *  a real and reportable reason while the fast-forward still succeeds. */
+  /** Origin pushes a lock file that nobody can parse, so the install fails
+   *  for a real and reportable reason, while the fast-forward still
+   *  succeeds. */
   remoteBreakLock(work: string): void
-  /** Origin deletes the lock file: a lock-file change with nothing left to
-   *  install, which is the one state that still reaches the port's
-   *  `NO_LOCKFILE` arm now that only one lock file is recognised. */
+  /** Origin deletes the lock file. This is a lock-file change with nothing
+   *  left to install. It is the one state that still reaches the port's
+   *  `NO_LOCKFILE` branch, now that the port recognizes only one lock
+   *  file. */
   remoteDropLockfile(work: string): void
 }
 
 /**
  * The builders, over `git`'s repositories and `sandbox`'s environment.
  *
- * `git` is passed in rather than constructed here so that a test builds one
- * set of repositories and both harnesses act on the same ones, and so that
- * this file owns no git of its own to keep isolated.
+ * A test passes `git` in; this function does not construct its own. This
+ * way, a test builds one set of repositories, and both harnesses act on
+ * the same set. This file also owns no git of its own, which keeps it
+ * isolated.
  */
 export function createPackageFixtures(sandbox: Sandbox, git: GitFixtures): PackageFixtures {
   /**
    * Run pnpm in `directory`, and fail loudly with its own output.
    *
-   * A silent failure here surfaces as an unexplained assertion much later, in
-   * a test about something else. The developer's own `~/.npmrc` is kept out of
-   * it (it may name a registry or a token that is unavailable, which would
-   * make an offline install fail for a reason that has nothing to do with the
-   * code under test); the sandbox `env` has already moved `HOME`, and naming
-   * the user config as well covers the variable that overrides that lookup,
-   * exactly as the sandbox pins `GIT_CONFIG_GLOBAL` beside a moved `HOME`.
+   * A silent failure here would surface as an unexplained assertion much
+   * later, in a test about something else. This keeps the developer's own
+   * `~/.npmrc` out of the run. That file may name a registry or a token
+   * that is unavailable, which would make an offline install fail for a
+   * reason that has nothing to do with the code under test.
+   *
+   * The sandbox `env` has already moved `HOME`. This also names the user
+   * config, which covers the variable that overrides that lookup. The
+   * sandbox pins `GIT_CONFIG_GLOBAL` beside a moved `HOME` the same way.
    */
   function pnpm(directory: string, args: readonly string[]): void {
     const result = spawnSync('pnpm', [...args], {
       cwd: directory,
       env: corepackEnv({ ...sandbox.env, NPM_CONFIG_USERCONFIG: '/dev/null' }),
       // `spawnSync` blocks this worker's event loop, so vitest's own
-      // `testTimeout` cannot fire while it runs: a registry that swallows a
-      // connection rather than refusing it would hang the suite instead of
-      // failing it, and the run would end with no output from pnpm at all.
-      // The bound is well past a cold resolve and well under a wait nobody
-      // would sit through; exceeding it kills the child and sets
-      // `result.error`, which is rethrown below.
+      // `testTimeout` cannot fire while it runs. A registry might swallow
+      // a connection, instead of a refusal. This would hang the suite
+      // rather than fail it. The run would then end with no output from
+      // pnpm at all. This bound is well past a cold resolve, and well
+      // under a wait nobody would sit through. If a run exceeds it, the
+      // bound kills the child and sets `result.error`, which is rethrown
+      // below.
       timeout: FIXTURE_TIMEOUT_MS,
     })
     if (result.error) {
@@ -152,9 +161,9 @@ export function createPackageFixtures(sandbox: Sandbox, git: GitFixtures): Packa
     }
     if (result.status !== 0) {
       const output = `${result.stdout.toString('utf8')}${result.stderr.toString('utf8')}`
-      // The signal is named beside the status, because a child a signal
-      // ended has no status at all and `exit null` names nothing a reader can
-      // act on. The bound above is the usual way to get one.
+      // The signal is named beside the status. A child that a signal ended
+      // has no status at all, and `exit null` names nothing a reader can
+      // act on. The bound above is the usual way to get a signal.
       throw new Error(
         `fixture: pnpm ${args.join(' ')} failed in ${directory} ` +
           `(exit ${result.status}, signal ${result.signal})\n${output}`,
@@ -162,18 +171,20 @@ export function createPackageFixtures(sandbox: Sandbox, git: GitFixtures): Packa
     }
   }
 
-  // The Python checks that a lock file actually appeared, because "a package
-  // manager that cannot satisfy its pinned version may print guidance and
-  // still exit 0", which was corepack resolving a `packageManager` field, and
-  // that field goes with Berry. A real `pnpm install --lockfile-only`
-  // that exits 0 has written the lock file, so the guard here would be a
-  // branch no test can reach, and the coverage rule says to restructure until
-  // the branch is not there rather than to exclude it. The claim is asserted
-  // instead, from the outside, in `packages.test.ts`.
+  // The Python checks that a lock file actually appeared, because "a
+  // package manager that cannot satisfy its pinned version may print
+  // guidance and still exit 0". That behavior came from corepack, which
+  // resolved a `packageManager` field, and that field goes with Berry.
+  //
+  // A real `pnpm install --lockfile-only` that exits 0 has written the
+  // lock file. So the guard here would be a branch no test can reach. The
+  // coverage rule says to restructure until the branch is gone, not to
+  // exclude it. `packages.test.ts` asserts the claim instead, from the
+  // outside.
 
   /** A throwaway clone of the same origin, for the three builders that make
-   *  origin move without touching the work tree under test. `git.ts` keeps its
-   *  own copy of this private, and it is four lines. */
+   *  origin move without a change to the work tree under test. `git.ts`
+   *  keeps its own copy of this private; it is four lines. */
   function cloneOrigin(work: string): string {
     const origin = git.git(work, 'remote', 'get-url', 'origin')
     const scratch = mkdtempSync(path.join(sandbox.path, 'pkg-scratch-'))

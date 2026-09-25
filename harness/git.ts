@@ -1,23 +1,24 @@
-// Real git repositories in known states: the port of the pure-git half of
-// the gh plugin's Python conftest, deleted at #127. The file and line
-// references below are to what `tests/gh/conftest.py`, `tests/gh/bin/gh` and
-// `plugins/gh/scripts/*.py` held at `cd0d515`; this file carries more of them
-// than any of its siblings.
+// Real git repositories in known states. This is the port of the pure-git
+// half of the gh plugin's Python conftest, deleted at #127. The file and
+// line references below point to what `tests/gh/conftest.py`,
+// `tests/gh/bin/gh`, and `plugins/gh/scripts/*.py` held at `cd0d515`. This
+// file carries more of them than any of its siblings.
 //
-// git is not mocked (ADR 001, RFC 001 "The testing seam"). Every fixture here
-// is an actual repository with an actual (local, bare) origin, so `git fetch`,
-// `git merge --ff-only`, ancestry checks and worktree operations behave exactly
-// as they do in production, and a command that deletes a branch or removes a
-// worktree is asserted against what it actually did. Nothing here reaches the
-// network.
+// Git is not mocked (ADR 001, RFC 001 "The testing seam"). Every fixture
+// here is an actual repository with an actual (local, bare) origin. So
+// `git fetch`, `git merge --ff-only`, ancestry checks, and worktree
+// operations all behave exactly as they do in production. A test checks a
+// command that deletes a branch or removes a worktree against what it
+// actually did. Nothing here reaches the network.
 //
-// Deferred to #127, the port whose tests consume them: the package-manager
-// builders (`js_project`, `remote_update_lock`, `remote_break_lock`,
-// `remote_drop_lockfile`, `corepack_cache`) and the pull-request data (`pr`,
-// `write_prs`, `no_prs`, `many_prs`, `dep_pr`). Building them before anything
-// consumes them would be a horizontal slice, and the package-manager ones
-// would also skip on a machine without all three managers, which would leave
-// this directory below its own coverage floor locally.
+// Two groups are deferred to #127, the port whose tests consume them: the
+// package-manager builders (`js_project`, `remote_update_lock`,
+// `remote_break_lock`, `remote_drop_lockfile`, `corepack_cache`), and the
+// pull-request data (`pr`, `write_prs`, `no_prs`, `many_prs`, `dep_pr`). A
+// build before anything consumes them would be a horizontal slice. The
+// package-manager builders would also skip on a machine without all three
+// managers, which would leave this directory below its own coverage floor
+// locally.
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -33,11 +34,12 @@ export interface GitRun {
   stderr: string
 }
 
-// A shim that forwards to the real git except for the subcommands it is told
-// to fail, so the branches guarding an unreadable ref or worktree list can be
-// provoked without corrupting a repository. `sh` rather than the Python
-// original: the whole point of the port is that a plugin's tests need no
-// second runtime, and a shim that shelled out to python3 would put one back.
+// A shim that forwards to the real git, except for the subcommands it is
+// told to fail. This lets a test provoke the branches that guard an
+// unreadable ref or worktree list, without damage to a repository. It uses
+// `sh`, not the Python original, because the whole point of the port is
+// that a plugin's tests need no second runtime. A shim that shelled out to
+// python3 would put one back.
 const GIT_SHIM = `#!/bin/sh
 # Walk past git's own options so the comparison below sees the subcommand and
 # its arguments, the way "git -C dir -c key=value fetch origin" hides "fetch".
@@ -89,10 +91,11 @@ exec "$real" "$@"
 
 const FIXTURE_SUFFIX = '.fixture.md'
 
-/** A fixture file's real name. Two names cannot be stored as themselves inside
- *  this repository: a committed `.gitignore` would apply to the fixture
- *  directory it sits in, and a committed `CLAUDE.md` under `fixtures/` would
- *  be read as guidance for this repository by every session that opened it. */
+/** A fixture file's real name. Two names cannot be stored as themselves
+ *  inside this repository. A committed `.gitignore` would apply to the
+ *  fixture directory it sits in. A committed `CLAUDE.md` under `fixtures/`
+ *  would be read as guidance for this repository, by every session that
+ *  opened it. */
 const undisguise = (name: string): string => {
   if (name === '_gitignore') return '.gitignore'
   if (!name.endsWith(FIXTURE_SUFFIX)) return name
@@ -101,7 +104,7 @@ const undisguise = (name: string): string => {
 
 export interface GitFixtures {
   /** git in `directory`, isolated from the developer's config. Throws on a
-   *  non-zero exit, naming the command and git's own stderr. */
+   *  non-zero exit, and names the command and git's own stderr. */
   git(directory: string, ...args: string[]): string
   /** The same, for a command that is allowed to fail. */
   tryGit(directory: string, ...args: string[]): GitRun
@@ -109,23 +112,23 @@ export interface GitFixtures {
   create(root: string): string
   /** A work tree at `<parent>/<name>`, origin parked in `<parent>/.origins`. */
   createAt(parent: string, name: string): string
-  /** One commit appending to a tracked file. */
+  /** One commit that adds to a tracked file. */
   commit(work: string, message: string, file?: string, content?: string): void
-  /** Copy a fixture directory into `work` and commit it, undoing the two
+  /** Copy a fixture directory into `work` and commit it. This undoes the two
    *  disguises a committed fixture tree needs: `_gitignore` becomes
-   *  `.gitignore` and a `.fixture.md` suffix becomes `.md`. */
+   *  `.gitignore`, and a `.fixture.md` suffix becomes `.md`. */
   importTree(work: string, fromDir: string): void
   /** Push a branch to origin. */
   push(work: string, branch?: string): void
   /** Create a branch and leave the checkout on the default branch. */
   branch(work: string, name: string, start?: string): void
-  /** A branch carrying one real commit. */
+  /** A branch that carries one real commit. */
   branchWithWork(work: string, name: string): void
-  /** Fast-forward into the default branch, leaving the branch AT the tip. */
+  /** Fast-forward into the default branch. The branch stays AT the tip. */
   mergeFf(work: string, name: string): void
-  /** Merge with a merge commit, leaving the branch strictly BEHIND the tip. */
+  /** Merge with a merge commit. The branch stays strictly BEHIND the tip. */
   mergeCommit(work: string, name: string): void
-  /** Squash into the default branch, leaving NO ancestry. */
+  /** Squash into the default branch. This leaves NO ancestry. */
   mergeSquash(work: string, name: string): void
   /** An uncommitted change to a TRACKED file, which blocks a sync. */
   dirty(work: string, file?: string): void
@@ -145,11 +148,11 @@ export interface GitFixtures {
   remoteAdvance(work: string, file?: string): void
   /** Drop the `origin` remote. */
   removeOrigin(work: string): void
-  /** An index lock: tolerated by `git status`, refused by anything writing refs. */
+  /** An index lock. `git status` tolerates it; anything that writes refs refuses it. */
   lockIndex(work: string): void
   /** The remote exists but is unreachable, so fetch fails and preflight passes. */
   breakOrigin(work: string): void
-  /** Drop the cached `origin/HEAD`, forcing the later resolution strategies. */
+  /** Drop the cached `origin/HEAD`. This forces the later resolution strategies. */
   forgetOriginHead(work: string): void
   /** Remove every remote-tracking branch, so no default branch resolves. */
   dropRemoteBranches(work: string): void
@@ -162,29 +165,30 @@ export interface GitFixtures {
   /** The branch HEAD is on. */
   currentBranch(work: string): string
   /** A directory whose `git` refuses the named subcommands, and the value to
-   *  pass as `GIT_STUB_FAIL` beside it. Both are needed: with the directory
-   *  missing from PATH, or `GIT_STUB_FAIL` unset, or a typo in a subcommand,
-   *  the shim forwards to the real git and says nothing. Assert on the
-   *  `git stub: refusing ` line, not merely on a non-zero status, or a test
-   *  that meant to exercise the failure passes on the success path.
+   *  pass as `GIT_STUB_FAIL` beside it. Both are needed. If the directory is
+   *  missing from PATH, or `GIT_STUB_FAIL` is unset, or a subcommand has a
+   *  typo, the shim forwards to the real git and says nothing. Assert on the
+   *  `git stub: refusing ` line, not only on a non-zero status. Otherwise a
+   *  test that meant to exercise the failure passes on the success path.
    *
    *  The same shim also reads `GIT_STUB_SILENT`, a comma-separated list of
-   *  subcommands it answers with exit 0 and no output at all. That is the
-   *  other shape a `git` on PATH can take, the one CI reached, and the one
-   *  the Python guards against at six call sites; pass it in the environment
-   *  beside the directory, with or without `GIT_STUB_FAIL`. Assert on the
-   *  report line the guard produces, never merely on a status. */
+   *  subcommands. For these, it answers with exit 0 and no output at all.
+   *  This is the other shape a `git` on PATH can take: the one CI reached,
+   *  and the one the Python guards against at six call sites. Pass it in the
+   *  environment beside the directory, with or without `GIT_STUB_FAIL`.
+   *  Assert on the report line the guard produces, never only on a status. */
   gitShim(...failing: string[]): { directory: string; failing: string }
 }
 
 /** Builders for repositories in known states, all inside one sandbox.
  *
- *  Every git call is isolated from the developer's own configuration, which
- *  may set a different default branch, sign commits, install hooks, or hide
- *  untracked files, any of which would change what a fixture actually
- *  produces. Identity, signing and hooks are pinned per command below; the
- *  rest is pinned by `sandbox.env`, which holds git's config lookup inside the
- *  sandbox rather than leaving it to HOME alone (see `sandboxEnv`).
+ *  Every git call is isolated from the developer's own configuration. That
+ *  configuration may set a different default branch, sign commits, install
+ *  hooks, or hide untracked files. Any of these would change what a fixture
+ *  actually produces. This function pins identity, signing, and hooks per
+ *  command below. It pins the rest with `sandbox.env`, which holds git's
+ *  config lookup inside the sandbox, instead of leaving it to HOME alone
+ *  (see `sandboxEnv`).
  */
 export function createGitFixtures(sandbox: Sandbox): GitFixtures {
   function run(directory: string, args: string[], allowFailure: boolean): GitRun {
@@ -205,11 +209,11 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
       ],
       { env: sandbox.env },
     )
-    // Before the decode, because a child that never started leaves `stdout` and
-    // `stderr` undefined rather than empty: reading them first turns "git is not
-    // on the PATH this sandbox hands out" into a TypeError naming neither git
-    // nor the PATH, and it fires through `tryGit` too, whose whole contract is
-    // to hand back a result instead of throwing. `spawn.ts` guards the same way.
+    // The decode happens after this check. A child that never started leaves
+    // `stdout` and `stderr` undefined, not empty. Reading them first would
+    // turn a missing git on PATH into a TypeError that names neither git nor
+    // the PATH. This check also runs through `tryGit`, whose whole contract
+    // is to hand back a result, not to throw. `spawn.ts` guards the same way.
     if (result.error) {
       throw result.error
     }
@@ -221,8 +225,8 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     return { status: result.status, stdout, stderr }
   }
 
-  /** git's output as a list of lines: no output is an empty list rather than a
-   *  list holding one empty string. */
+  /** git's output as a list of lines. No output gives an empty list, not a
+   *  list that holds one empty string. */
   function lines(text: string): string[] {
     return text.split('\n').filter((line) => line !== '')
   }
@@ -231,10 +235,10 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     run(directory, args, false).stdout.trim()
   const tryGit = (directory: string, ...args: string[]): GitRun => run(directory, args, true)
 
-  /** Turns one repository's background housekeeping off. Every repository this
-   *  harness creates goes through it, including the throwaway clones
-   *  {@link cloneOrigin} makes, which are the ones removed soonest after a
-   *  commit and a push and so the ones that race the removal hardest. */
+  /** Turns one repository's background housekeeping off. Every repository
+   *  this harness creates goes through it, including the throwaway clones
+   *  {@link cloneOrigin} makes. These clones are removed soonest after a
+   *  commit and a push, so they race the removal hardest. */
   function quiesce(repo: string): void {
     git(repo, 'config', 'gc.auto', '0')
     git(repo, 'config', 'maintenance.auto', 'false')
@@ -242,28 +246,32 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
 
   /** A bare origin, a clone of it, and one commit pushed to the default branch.
    *
-   *  `--initial-branch` rather than a fallback for an older git: it has been
-   *  there since 2.28, and a fixture silently seeding `master` where the tests
-   *  say `main` is the kind of quiet wrong answer this harness exists to
-   *  refuse. An older git fails here, naming the command.
+   *  This uses `--initial-branch`, not a fallback for an older git. The flag
+   *  has been there since git 2.28. A fixture that silently seeds `master`,
+   *  where the tests say `main`, is the kind of quiet wrong answer this
+   *  harness exists to refuse. An older git fails here instead, and names
+   *  the command.
    */
   function seed(bare: string, work: string): string {
     const parent = path.dirname(bare)
     git(parent, 'init', '-q', '--bare', `--initial-branch=${DEFAULT_BRANCH}`, bare)
     git(parent, 'clone', '-q', bare, work)
-    // No background housekeeping, written into each repository's own config
-    // rather than passed with `-c`: the git processes that matter here are not
-    // this harness's, since the command under test runs its own, and those
-    // would still inherit the default.
+    // This turns off background housekeeping. It is written into each
+    // repository's own config, not passed with `-c`. The git processes that
+    // matter here are not this harness's own; the command under test spawns
+    // its own, and those would still inherit the default.
     //
-    // git spawns both of these detached and they outlive the git that started
-    // them, finishing by writing `info/refs` and `objects/info/packs`. When
-    // that lands after the sandbox has walked the tree, the removal fails with
-    // ENOTEMPTY and fails a test that had already passed. Retrying cannot help,
-    // because node retries the `rmdir` rather than the walk. `maintenance.auto`
-    // is the one that actually fires on git 2.54; `gc.auto` is its older name
-    // and is set beside it so an older git is covered too. A fixture repository
-    // holds a handful of objects and has nothing to gain from repacking.
+    // Git spawns both settings' processes detached, and they can outlive the
+    // git command that started them. They finish by writing `info/refs` and
+    // `objects/info/packs`. If that write lands after the sandbox has walked
+    // the tree, the removal fails with `ENOTEMPTY`, and a test that had
+    // already passed then fails.
+    //
+    // A retry does not help, because node retries the `rmdir` call, not the
+    // tree walk. `maintenance.auto` is the setting that actually fires on
+    // git 2.54. `gc.auto` is its older name, set beside it so an older git
+    // is covered too. A fixture repository holds a handful of objects and
+    // gains nothing from a repack.
     quiesce(bare)
     quiesce(work)
     git(work, 'checkout', '-q', '-B', DEFAULT_BRANCH)
@@ -271,14 +279,15 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     git(work, 'add', '-A')
     git(work, 'commit', '-qm', 'base')
     git(work, 'push', '-q', '-u', 'origin', DEFAULT_BRANCH)
-    // Tolerated: a repository whose origin has no HEAD to resolve is a state
-    // some tests want, and this is the only step that would refuse it.
+    // This call is tolerated. A repository whose origin has no HEAD to
+    // resolve is a state some tests want, and this is the only step that
+    // would refuse it.
     tryGit(work, 'remote', 'set-head', 'origin', '--auto')
     return work
   }
 
-  /** A throwaway clone of the same origin, for the builders that have to make
-   *  origin move without touching the work tree under test. */
+  /** A throwaway clone of the same origin, for builders that must move
+   *  origin without a change to the work tree under test. */
   function cloneOrigin(work: string): string {
     const origin = git(work, 'remote', 'get-url', 'origin')
     const scratch = mkdtempSync(path.join(sandbox.path, 'scratch-'))
@@ -287,10 +296,10 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     return path.join(scratch, 'c')
   }
 
-  /** The scratch directory a {@link cloneOrigin} clone lives in, removed. The
-   *  same retries `sandbox.ts` gives its own cleanup: `force` forgives only a
-   *  directory that is already gone, and this one is removed within
-   *  milliseconds of a commit and a push. */
+  /** Removes the scratch directory a {@link cloneOrigin} clone lives in.
+   *  This uses the same retries that `sandbox.ts` gives its own cleanup.
+   *  `force` forgives only a directory that is already gone, and this one
+   *  is removed within milliseconds of a commit and a push. */
   function dropScratch(clone: string): void {
     rmSync(path.dirname(clone), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
@@ -353,8 +362,8 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     },
 
     mergeCommit(work: string, name: string): void {
-      // What a pull request merged with the "merge commit" strategy leaves
-      // behind, and the state in which ancestry is the interesting signal.
+      // This is what a "merge commit" merge leaves behind. Ancestry is the
+      // interesting signal in this state.
       git(work, 'merge', '-q', '--no-ff', '-m', `Merge ${name}`, name)
       fixtures.push(work)
     },
@@ -375,8 +384,8 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     },
 
     corruptIndex(work: string): void {
-      // Resolves the real git dir rather than assuming `<work>/.git` is a
-      // directory, which it is not in a linked worktree.
+      // This resolves the real git dir. It does not assume `<work>/.git` is
+      // a directory, which is not true in a linked worktree.
       const gitdir = git(work, 'rev-parse', '--absolute-git-dir')
       writeFileSync(path.join(gitdir, 'index'), 'GARBAGE')
     },
@@ -384,8 +393,8 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     inProgress(work: string, marker: string): void {
       const gitdir = git(work, 'rev-parse', '--absolute-git-dir')
       if (marker.includes('-')) {
-        // rebase-merge and rebase-apply are directories; MERGE_HEAD and
-        // CHERRY_PICK_HEAD are files holding a commit.
+        // rebase-merge and rebase-apply are directories. MERGE_HEAD and
+        // CHERRY_PICK_HEAD are files that hold a commit.
         mkdirSync(path.join(gitdir, marker), { recursive: true })
         return
       }
@@ -424,7 +433,8 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     },
 
     lockIndex(work: string): void {
-      // Lets a mid-run git failure be provoked without corrupting anything.
+      // This lets a test provoke a mid-run git failure without damage to
+      // anything.
       const gitdir = git(work, 'rev-parse', '--absolute-git-dir')
       writeFileSync(path.join(gitdir, 'index.lock'), '')
     },
@@ -434,21 +444,21 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
     },
 
     forgetOriginHead(work: string): void {
-      // It is a *symbolic* ref, so it has to be deleted as one; `update-ref -d`
-      // leaves it resolvable and the resolution never falls through. Tolerated
-      // when it is already gone, so a test can ask for the state rather than
-      // for the deletion.
+      // This ref is *symbolic*, so it must be deleted as one. `update-ref -d`
+      // would leave it resolvable, and the resolution would never fall
+      // through. The call is tolerated when the ref is already gone, so a
+      // test can ask for the state, not for the deletion.
       tryGit(work, 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD')
     },
 
     dropRemoteBranches(work: string): void {
-      // origin/HEAD first, and as a symbolic ref: `update-ref -d` is a silent
-      // no-op on one, so looping alone empties `for-each-ref` (it skips a
-      // symref whose target is gone) while `symbolic-ref
-      // refs/remotes/origin/HEAD` still answers with the branch just deleted.
-      // A command resolving the default branch that way would read a default
-      // branch out of a repository that has none, which is the state this
-      // builder exists to produce.
+      // origin/HEAD goes first, and as a symbolic ref. `update-ref -d` is a
+      // silent no-op on a symbolic ref. A loop alone would empty
+      // `for-each-ref` (it skips a symref whose target is gone), while
+      // `symbolic-ref refs/remotes/origin/HEAD` would still answer with the
+      // branch just deleted. A command that resolves the default branch
+      // that way would then read a default branch out of a repository that
+      // has none. That is the state this builder exists to produce.
       fixtures.forgetOriginHead(work)
       const refs = git(work, 'for-each-ref', '--format=%(refname)', 'refs/remotes/origin/')
       for (const ref of lines(refs)) {
@@ -471,11 +481,12 @@ export function createGitFixtures(sandbox: Sandbox): GitFixtures {
         throw new Error('git is not on PATH; cannot build a shim that forwards to it')
       }
       const directory = mkdtempSync(path.join(sandbox.path, 'git-shim-'))
-      // A shell literal, not a bare interpolation, and both halves matter. The
-      // quoting keeps a path holding a space or an apostrophe from ending the
-      // literal and breaking the script, and the replacer function keeps a `$&`
-      // in the path from being read as a replacement pattern and rewriting
-      // itself. The Python original got both from `{real!r}`.
+      // This is a shell literal, not a bare interpolation, and both halves
+      // matter. The quoting protects a path that holds a space or an
+      // apostrophe: without it, the literal would end early and break the
+      // script. The replacer function protects a `$&` in the path: without
+      // it, `$&` would act as a replacement pattern and rewrite itself. The
+      // Python original got both effects from `{real!r}`.
       const quoted = `'${real.replaceAll("'", `'\\''`)}'`
       writeFileSync(
         path.join(directory, 'git'),

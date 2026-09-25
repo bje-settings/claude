@@ -1,13 +1,13 @@
-// The mock's own claims. The suite's other tests read a registered reply back
-// through a command, so a mock that quietly answered undefined, or that
-// answered every endpoint from the first registration, would make them pass
-// for the wrong reason.
+// The mock's own claims. The suite's other tests read a registered reply
+// back through a command. A mock that quietly answered undefined would
+// make them pass for the wrong reason. So would a mock that answered every
+// endpoint from the first registration.
 import { expect, it } from 'vitest'
 import { createGhMock, type GhClient, type GhEndpoint, GhError, ghFails } from './gh.ts'
 
-// One call per endpoint, written out rather than derived: a table built from
-// the interface would go on passing after an endpoint was renamed, and these
-// are the argument shapes the plugins actually pass.
+// One call per endpoint, written out, not derived. A table built from the
+// interface would go on passing after an endpoint was renamed. These are
+// the argument shapes the plugins actually pass.
 const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   [
     'listPullRequests',
@@ -41,9 +41,9 @@ it('answers with the reply registered for the endpoint', async () => {
 })
 
 it('answers with the same reply on every call', async () => {
-  // A reply consumed by the first call would make a command that asks twice
-  // pass or fail on how many times it asked, which is the coupling ADR 001
-  // rules out.
+  // A reply consumed by the first call would make a command that asks
+  // twice pass or fail on how many times it asked. ADR 001 rules out that
+  // coupling.
   const client = createGhMock({ viewRepository: { nameWithOwner: 'acme/widgets' } })
 
   await expect(client.viewRepository()).resolves.toEqual({ nameWithOwner: 'acme/widgets' })
@@ -135,10 +135,10 @@ it('fails only the endpoint the fail switch was registered for', async () => {
 })
 
 it('fails with the error type the real client throws, carrying the status it was given', async () => {
-  // Round 5's handoff fact 3: failure from `lib/gh.ts` is a `GhError` carrying
-  // gh's own exit status, so a command branches on a value rather than on
+  // Round 5's handoff fact 3: failure from `lib/gh.ts` is a `GhError` that
+  // carries gh's own exit status. So a command branches on a value, not on
   // prose. A double that threw a plain `Error` would leave that branch
-  // unreachable from every command's own suite while the command looked
+  // unreachable from every command's own suite, while the command looked
   // covered.
   const client = createGhMock({
     listPullRequests: ghFails('gh: HTTP 403', 4),
@@ -149,23 +149,23 @@ it('fails with the error type the real client throws, carrying the status it was
   expect(listed).toBeInstanceOf(GhError)
   expect((listed as GhError).status).toBe(4)
   expect((listed as GhError).message).toBe('gh: HTTP 403')
-  // `detail` is the real client's "gh's own account, without the
-  // `gh <argv> failed: ` prefix", and it is what a command reads for a
-  // one-line reason. The double has no argv, so the message it was given IS
-  // that account: a `detail` left empty here would make a command that reads
-  // it print nothing, for a reason the real client never produces.
+  // `detail` holds the real client's "gh's own account, without the
+  // `gh <argv> failed: ` prefix". A command reads it for a one-line reason.
+  // The double has no argv, so the message it was given IS that account. A
+  // `detail` left empty here would make a command that reads it print
+  // nothing, for a reason the real client never produces.
   expect((listed as GhError).detail).toBe('gh: HTTP 403')
 
-  // 1 by default: gh's own generic non-zero, so a test that does not care
-  // about the number does not have to name one.
+  // 1 by default: gh's own generic non-zero status. A test that does not
+  // care about the number need not name one.
   const viewed = await client.viewRepository().catch((thrown: unknown) => thrown)
   expect((viewed as GhError).status).toBe(1)
 })
 
 it('throws and names the endpoint when nothing is registered for it', async () => {
-  // The property a stub binary cannot give: a command that reaches for gh
-  // where the test expected no call fails, instead of reading an empty reply
-  // as an answer.
+  // This is the property a stub binary cannot give. If a command reaches
+  // for gh where the test expected no call, the command fails. It does not
+  // read an empty reply as an answer.
   const client = createGhMock()
 
   for (const [endpoint, call] of CALLS) {

@@ -1,18 +1,18 @@
-// Run a plugin's entry point as its own process, the way Claude Code runs it:
-// the port of `run_script` and `Result` in tests/conftest.py (deleted at #138).
+// Run a plugin's entry point as its own process, the way Claude Code runs
+// it. This is the port of `run_script` and `Result` in tests/conftest.py
+// (deleted at #138).
 //
-// This is the only place the TypeScript suite spawns anything (ADR 001). A
-// command function is tested by calling it with injected clients; `scripts/`
-// is a thin adapter over it, and the one thing an in-process call cannot cover
-// is the process boundary itself, so each entry point gets one spawned
-// contract test: argv in, exit code and streams out.
+// This is the only place the TypeScript suite spawns anything (ADR 001).
+// A test calls a command function directly, with injected clients.
+// `scripts/` is a thin adapter over it. An in-process call cannot cover
+// one thing: the process boundary itself. So each entry point gets one
+// spawned contract test: argv in, exit code and streams out.
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from 'node:child_process'
 
 /** status, stdout and stderr of one run.
  *
- *  The raw bytes are kept beside the decoded text for the assertions that are
- *  about bytes rather than about text; `stdout` is what almost every test
- *  wants.
+ *  The raw bytes sit beside the decoded text, for assertions about bytes,
+ *  not text. `stdout` is what almost every test wants.
  */
 export interface SpawnResult {
   /** The exit code, or null when a signal killed the child. */
@@ -37,14 +37,14 @@ export interface SpawnOptions {
 
 /** Run `entry` under this same node binary and wait for it.
  *
- *  `process.execPath`, not `node`: it is the interpreter the suite itself is
- *  running under, so a run on the 22.18 floor leg genuinely exercises 22.18
- *  rather than whatever `node` happens to resolve to on PATH.
+ *  This uses `process.execPath`, not `node`. It is the interpreter the
+ *  suite itself runs under. So a run on the 22.18 floor leg genuinely
+ *  tests 22.18, not whatever `node` happens to resolve to on PATH.
  *
- *  Throws when the child could not be started at all (a cwd that does not
- *  exist, say), because there is no status or output to assert on in that
- *  case and a result full of empty strings would read as a command that ran
- *  and said nothing.
+ *  This throws when the child could not start at all (a cwd that does not
+ *  exist, say). There is no status or output to check in that case, and a
+ *  result full of empty strings would read as a command that ran and said
+ *  nothing.
  */
 export function runScript(entry: string, options: SpawnOptions = {}): SpawnResult {
   const { args = [], stdin, env, cwd } = options
@@ -54,9 +54,10 @@ export function runScript(entry: string, options: SpawnOptions = {}): SpawnResul
   }
   return {
     status: result.status,
-    // Replacement rather than strict decoding: a command that emits a stray
-    // byte would otherwise throw here and lose the status and the rest of the
-    // output, turning a legible assertion failure into a decoding error.
+    // This decodes with replacement, not strictly. A command that emits a
+    // stray byte would otherwise throw here, and lose the status and the
+    // rest of the output. That would turn a legible assertion failure into
+    // a decoding error.
     stdout: result.stdout.toString('utf8'),
     stderr: result.stderr.toString('utf8'),
     stdoutBytes: result.stdout,
@@ -64,14 +65,14 @@ export function runScript(entry: string, options: SpawnOptions = {}): SpawnResul
   }
 }
 
-/** One running child, with its pipes still open.
+/** One child process, still active, with its pipes still open.
  *
- *  {@link runScript} is `spawnSync` and drains both streams before it
- *  returns, so nothing it runs can have its reader taken away part-way: the
- *  EPIPE guard every entry point carries is unpinnable through it (round 5's
- *  handoff note from #156). This is the variant that can, and it is a variant
- *  rather than a replacement because every other spawned test wants the
- *  simple thing.
+ *  {@link runScript} uses `spawnSync` and drains both streams before it
+ *  returns. So nothing it runs can lose its reader part-way through. This
+ *  means the EPIPE guard every entry point carries cannot be tested
+ *  through {@link runScript} (round 5's handoff note from #156). This
+ *  variant can test it. It is a variant, not a replacement, because every
+ *  other spawned test wants the simple thing.
  */
 export interface SpawnedScript {
   /** The child itself, for a test that needs something these three do not
@@ -79,21 +80,22 @@ export interface SpawnedScript {
   readonly child: ChildProcessWithoutNullStreams
   /** The first line the child writes to stdout, without its newline.
    *
-   *  Resolves with what arrived when the stream ends without one, which is
-   *  what a caller reading a single line off a short answer gets. */
+   *  If the stream ends without a newline, this resolves with whatever
+   *  arrived. That is what a caller gets when it reads a single line off a
+   *  short answer. */
   firstLine(): Promise<string>
   /** Close this end of the child's stdout, as `| head -1` does once head has
    *  had enough. The child's next write to it fails with EPIPE. */
   closeStdout(): void
-  /** status, signal and stderr, once the child has ended. stdout is not
-   *  collected: the point of this variant is that the reader stops reading,
-   *  and a buffer of everything would be the thing that cannot happen.
+  /** status, signal and stderr, once the child has ended. This does not
+   *  collect stdout. The point of this variant is that the reader stops,
+   *  and a buffer of everything is the one thing that must not happen.
    *
-   *  Rejects, rather than answering, when the child could not be started at
-   *  all: `runScript` throws there for the reason its own docblock gives, and
-   *  the status of `-2` that follows a failed spawn would read here as a
-   *  command that ran and said nothing. The same answer every time it is
-   *  asked, whenever it is asked. */
+   *  This rejects, instead of answering, when the child could not start at
+   *  all. `runScript` throws there for the reason its own docblock gives.
+   *  The status of `-2` that follows a failed spawn would otherwise read
+   *  here as a command that ran and said nothing. It gives the same
+   *  answer every time, however many times a caller asks. */
   ended(): Promise<EndedResult>
 }
 
@@ -105,31 +107,34 @@ export interface EndedResult {
 
 /** Start `entry` under this same node binary and hand back its pipes.
  *
- *  Same argv, environment and working directory as {@link runScript}, and the
- *  same `process.execPath` for the same reason. Two things differ: the child
- *  is still running when this returns, and a start failure surfaces at
- *  {@link SpawnedScript.ended} rather than as a throw from here, because
- *  `spawn` reports it as an event several ticks later where `spawnSync` has
- *  the answer before it returns.
+ *  This uses the same argv, environment, and working directory as
+ *  {@link runScript}, and the same `process.execPath`, for the same
+ *  reason. Two things differ. The child is still running when this
+ *  returns. A start failure surfaces at {@link SpawnedScript.ended},
+ *  instead of a throw from here, because `spawn` reports it as an event
+ *  several ticks later, while `spawnSync` has the answer before it
+ *  returns.
  */
 export function startScript(entry: string, options: SpawnOptions = {}): SpawnedScript {
   const { args = [], stdin, env, cwd } = options
   const child = spawn(process.execPath, [entry, ...args], { env, cwd })
 
-  // Every listener below is registered here and not inside `ended()`, because
-  // `close` and `error` each fire once: one added after the fact hears
-  // nothing, so a wait started late, or a second wait, would never settle and
-  // would present as a bare suite timeout with nothing pointing at this file.
+  // This function registers every listener below here, not inside
+  // `ended()`, because `close` and `error` each fire once. A listener
+  // added after the fact hears nothing. So a wait started late, or a
+  // second wait, would never settle. It would then present as a bare
+  // suite timeout, with nothing that points at this file.
   let stderr = ''
   child.stderr.on('data', (chunk: Buffer) => {
     stderr += chunk.toString('utf8')
   })
-  // A child that never started arrives as an `error` event rather than a throw
-  // from `spawn`, and `close` still follows it with a status of -2. With no
-  // listener node raises it as an uncaught exception, which vitest attributes
-  // to whichever example happens to be in flight and reports against the node
-  // binary rather than against the argument that was wrong. Held here and
-  // raised at `ended()`, where a caller is already waiting.
+  // A child that never started arrives as an `error` event, not a throw
+  // from `spawn`, and `close` still follows it with a status of -2. With
+  // no listener, node raises it as an uncaught exception. Vitest then
+  // attributes that exception to whichever example happens to be in
+  // flight, and reports it against the node binary, not against the
+  // argument that was wrong. This function holds the error here, and
+  // raises it at `ended()`, where a caller is already waiting.
   let failure: Error | null = null
   const finished = new Promise<EndedResult>((resolve, reject) => {
     child.on('error', (error: Error) => {
@@ -143,10 +148,10 @@ export function startScript(entry: string, options: SpawnOptions = {}): SpawnedS
   // Nobody has awaited it yet, and a rejection with no handler in the same
   // tick is an unhandled rejection. The caller reaches it through `ended()`.
   finished.catch(() => {})
-  // The child may exit before it reads its stdin, and a payload past the pipe
-  // buffer is then still in flight when the reader goes: EPIPE on this end.
-  // That is the reader leaving, which is the state this variant exists to
-  // stage, not a failure of the run.
+  // The child may exit before it reads its stdin. A payload past the
+  // pipe buffer is then still in flight when the reader goes, and this end
+  // gets EPIPE. That is the reader's exit, the state this variant exists
+  // to stage, not a failure of the run.
   child.stdin.on('error', () => {})
   child.stdin.end(stdin)
 
@@ -169,10 +174,11 @@ export function startScript(entry: string, options: SpawnOptions = {}): SpawnedS
         }
         child.stdout.on('data', take)
         child.stdout.once('end', stop)
-        // `close` as well as `end`, because a stream that was destroyed never
-        // emits `end`: without this, a line asked for after `closeStdout`, or
-        // after a child that never started, waits out the suite timeout. Both
-        // may fire; resolving twice is the first answer, which is the one that
+        // This listens for `close` as well as `end`, because a destroyed
+        // stream never emits `end`. Without this, a line asked for after
+        // `closeStdout`, or after a child that never started, would wait
+        // out the suite timeout. Both events may fire. If the promise
+        // resolves twice, the first answer wins, since it is the one that
         // read something.
         child.stdout.once('close', stop)
       })
