@@ -10,10 +10,10 @@ paths:
 # Plugin TypeScript
 
 New plugin code is TypeScript, executed directly by node with type stripping and no build step.
-The floor is node 22.18; `.npmrc` pins the 22.x release pnpm runs by default.
+The floor is node 22.18. `.npmrc` pins the 22.x release pnpm runs by default.
 `docs/rfc/001-typescript-port.md` is the record ("Shape", "The testing seam", the sixteen
-decisions), with `docs/adr/001-typescript-on-node-22-18.md` for the runtime and the shared `lib/`
-and `docs/adr/002-quality-gate-venues.md` for where each gate runs. This page is the rules.
+decisions). `docs/adr/001-typescript-on-node-22-18.md` covers the runtime and the shared `lib/`.
+`docs/adr/002-quality-gate-venues.md` covers where each gate runs. This page is the rules.
 
 ## Shape
 
@@ -34,92 +34,101 @@ plugins/<plugin>/
 Parsed arguments and injected clients in, an envelope out. Everything a command decides is then
 reachable in-process, with nothing spawned and no stub binary on `PATH`.
 
-`lib/envelope.ts` has three outcomes and they are the exit statuses: `ok` is 0 and the payload is
-the answer, `failed` is 1 and means this code went wrong, `refused` is 2 and means the request
-cannot be carried out as asked. A failure writes nothing to stdout and the reason to stderr, so a
-caller parsing stdout can never parse a refusal into a result. `renderJson` and `renderText` turn
-an envelope into stdout, stderr and a status; the entry point writes the trailing newline.
+`lib/envelope.ts` has three outcomes, and they are the exit statuses. `ok` is 0, and the payload
+is the answer. `failed` is 1, and it means this code went wrong. `refused` is 2, and it means the
+request cannot be carried out as asked.
 
-Arguments come from `lib/args.ts` `parseArguments`. Every declared string option carries a default,
-so a parsed command line is never partial and no command grows a branch for a flag nobody passed.
-A bad flag, a missing value, a stray positional or a value outside `choices` is `refused`, exit 2.
-`lib/README.md` has the worked examples and the rest of the contract.
+A failure writes nothing to stdout, and it writes the reason to stderr. So a caller that parses
+stdout can never read a refusal as a result. `renderJson` and `renderText` turn an envelope into
+stdout, stderr, and a status. The entry point writes the trailing newline.
+
+Arguments come from `lib/args.ts` `parseArguments`. Every declared string option carries a
+default. So a parsed command line is never partial, and no command grows a branch for a flag
+nobody passed. A bad flag, an absent value, a stray positional, or a value outside `choices` is
+`refused`, exit 2. `lib/README.md` has the worked examples and the rest of the contract.
 
 ## `scripts/` is an adapter
 
-It turns `process.argv` into the command function's arguments, constructs the real clients, calls,
-and maps the result onto an exit code and a stream. It holds no decisions, which is what lets one
-spawned contract test per plugin (`harness/spawn.ts` `runScript`) cover all of it.
+It turns `process.argv` into the command function's arguments. It constructs the real clients,
+calls the command, and maps the result onto an exit code and a stream. It holds no decisions,
+which is what lets one spawned contract test per plugin (`harness/spawn.ts` `runScript`) cover
+all of it.
 
-The directory is `scripts/`, never `bin/`: claude.ai rejects a plugin that carries a top-level
-`bin/`, by marketplace sync and by direct upload alike, so a plugin with one cannot be distributed
-through organization settings at all ([plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces#keep-executables-out-of-the-top-level-bin-directory)).
-`bin/` is also added to the Bash tool's `PATH` while the plugin is enabled, which nothing here
-wants. RFC 001 decision 16. `tests/repo-layout.test.ts` refuses a plugin that carries one
+The directory is `scripts/`, never `bin/`. claude.ai rejects a plugin that carries a top-level
+`bin/`, by marketplace sync and by direct upload alike. So a plugin with one cannot reach
+organization settings at all
+([plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces#keep-executables-out-of-the-top-level-bin-directory)).
+While the plugin is enabled, the Bash tool also adds `bin/` to its own `PATH`. Nothing here wants
+that. RFC 001 decision 16. `tests/repo-layout.test.ts` refuses a plugin that carries one
 (`binDirectories`), because nothing else here goes red when it comes back.
 
-One dispatcher per plugin, with an arm per command, so the plugin carries one floor guard, one
-EPIPE guard and one contract test (RFC 001 decision 15). The import inside each arm is dynamic, so
-a command nobody asked for is never loaded.
+One dispatcher serves each plugin, with an arm per command. So the plugin carries one floor
+guard, one EPIPE guard, and one contract test (RFC 001 decision 15). The import inside each arm
+is dynamic, so a command nobody asked for is never loaded.
 
-It carries exactly one static import, `../src/lib/node-floor.ts`, calls
-`assertNodeFloor(process.version)`, and reaches everything else by `await import` after the check.
-Import declarations are hoisted and evaluated before any statement runs, so a second static import
-would load its whole module graph on the runtime the guard exists to refuse.
+It carries exactly one static import, `../src/lib/node-floor.ts`. It calls
+`assertNodeFloor(process.version)`, and reaches everything else by `await import`, after the
+check. The JS engine hoists and evaluates import declarations before any statement runs. So a
+second static import would load its whole module graph, on the runtime the guard exists to
+refuse.
 
-A hook takes the other half: it runs on every tool call in a session, so it asks `meetsNodeFloor`
-and exits quietly rather than writing a refusal into someone's transcript.
+A hook takes the other half. It runs on every tool call in a session. So it asks
+`meetsNodeFloor`, and exits quietly, rather than write a refusal into someone's transcript.
 
 ## Tests
 
-- A test sits beside the code it covers: `lib/args.test.ts` next to `lib/args.ts`,
-  `plugins/<p>/src/commands/<command>.test.ts` next to the command, with that plugin's fixtures at
-  `plugins/<p>/src/fixtures/`. `vitest.config.ts` names the collected globs rather than discovering
-  them, so a new source directory is added there deliberately. The shared harness is `harness/` at
-  the repository root, imported only from test files so it never ships (`harness/README.md`, which
-  has the rest of the test side).
+- A test sits beside the code it covers: `lib/args.test.ts` next to `lib/args.ts`, and
+  `plugins/<p>/src/commands/<command>.test.ts` next to the command. Fixtures for that plugin sit
+  at `plugins/<p>/src/fixtures/`. `vitest.config.ts` names the collected globs. It does not find
+  them on its own. So you add a new source directory there deliberately.
+- The shared harness is `harness/` at the repository root. Only test files import it, so it never
+  ships. `harness/README.md` has the rest of the test side.
 - `gh` is an injected `GhClient`: `lib/gh.ts` `createGhClient` in production, `harness/gh.ts`
   `createGhMock` in tests, never a stub binary on `PATH`. An endpoint with no registration throws
-  and names itself, which is the property a stub binary cannot give: a command that reached for
-  `gh` where the test expected no call fails instead of reading an empty reply as an answer.
-- git is not mocked. `harness/git.ts` builds real temporary repositories with real local bare
-  origins, so fetch, merge, ancestry and worktree operations behave as they do in production.
-- No call-count, call-order or request-log assertions. Assert the verdict the command reached and
-  the effect it had; counting calls pins an implementation detail and turns a refactor red.
+  and names itself. This is the property a stub binary cannot give. A command that reached for
+  `gh`, where the test expected no call, fails instead. It does not read an empty reply as an
+  answer.
+- git is not mocked. `harness/git.ts` builds real temporary repositories, with real local bare
+  origins. So fetch, merge, ancestry, and worktree operations behave as they do in production.
+- No call-count, call-order, or request-log assertions. Assert the verdict the command reached,
+  and the effect it had. If you count calls instead, that pins an implementation detail, and it
+  turns a refactor red.
 
 ## Boundaries
 
 - The committed symlink `plugins/<p>/src/lib -> ../../../lib` is the only path out of a plugin. A
   test file may additionally import `harness/`. `tests/repo-layout.test.ts` enforces both
   (`crossPluginImports`, `libLinkViolations`).
-- The link target is compared as the exact string `../../../lib` rather than resolved, because the
-  string is what Claude Code's installer classifies: a link elsewhere in the same marketplace is
-  dereferenced into the cache copy, and another spelling that resolves here installs differently.
+- The link target is compared as the exact string `../../../lib`, not resolved to a path. This
+  string is what Claude Code's installer classifies. A link elsewhere in the same marketplace is
+  dereferenced into the cache copy. But another spelling that resolves here installs differently.
 - Never reach the root `lib/` around the link. A `../../../lib` import from a plugin file
-  resolves in this checkout and for nobody who installed the plugin, so it is refused.
+  resolves in this checkout only. It does not resolve for anyone who installed the plugin, so it
+  is refused.
 - Shipped code takes no dependency: node's own built-ins and its own tree, nothing else at run
   time.
-- No plugin-level `package.json`. Claude Code runs a dependency install inside the cache copy when
-  it finds one with an npm or bun lockfile, which turns installing a plugin into a network fetch on
-  someone else's machine. Dependencies are declared once, at the repository root.
+- No plugin-level `package.json`. Claude Code runs a dependency install inside the cache copy,
+  when it finds one with an npm or bun lockfile. That turns a plugin install into a network
+  fetch, on someone else's machine. Dependencies are declared once, at the repository root.
 
 ## Language level
 
-Erasable syntax only: no `enum`, no parameter properties, no namespaces. Node strips types rather
-than compiling them and rejects all three at launch with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`;
-`erasableSyntaxOnly` in `tsconfig.json` turns that into a failed gate on a pull request instead.
-Every import names the `.ts` extension explicitly, which is what node's own resolver reads.
+Erasable syntax only: no `enum`, no parameter properties, no namespaces. Node strips types,
+rather than compile them, and rejects all three at launch with
+`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. `erasableSyntaxOnly` in `tsconfig.json` turns that into a
+failed gate on a pull request instead. Every import names the `.ts` extension explicitly, which
+is what node's own resolver reads.
 
 ## Coverage
 
-`vitest.config.ts`'s thresholds are the gate: 100 on lines, branches, functions and statements,
-over a source set that is named rather than discovered.
+`vitest.config.ts`'s thresholds are the gate: 100 on lines, branches, functions, and statements.
+This runs over a source set that is named, not discovered.
 
-The gate does not move to fit the code. Do not lower a threshold, and do not add a name to
-`coverage.exclude`, including for a file you judge to be a process boundary or a platform branch.
-The remedy for a branch no test can reach is to restructure until the branch does not exist: lift
-the decision into a function that takes what it depended on as an argument.
+The gate does not move to fit the code. Do not lower a threshold. Do not add a name to
+`coverage.exclude`, even for a file you judge a process boundary or a platform branch. The remedy
+for a branch no test can reach is to restructure the code until the branch no longer exists. Lift
+the decision into a function that takes, as an argument, what it depended on.
 
-`docs/adr/002-quality-gate-venues.md` describes exclusion by name with a stated reason as the
-relief valve. Opening it is a maintainer decision argued on its own pull request, never a step in
-the change you are making.
+`docs/adr/002-quality-gate-venues.md` describes exclusion by name with a stated reason, as the
+relief valve. To open it is a maintainer decision, argued on its own pull request. It is never a
+step in the change you make.

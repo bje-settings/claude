@@ -1,13 +1,13 @@
 // The vitest configuration (ADR 002).
-// Coverage is 100 on all four buckets, with 95 as the floor the enterprise
-// Code Coverage ruleset holds every repository to and the number the gate
-// itself never goes below; relief is exclusion by file name with a stated
-// reason, never a lowered threshold.
+// Coverage is 100 on all four buckets. The enterprise Code Coverage ruleset
+// holds every repository to a floor of 95, and this gate never goes below
+// that. Relief is exclusion by file name, with a stated reason. It is
+// never a lowered threshold.
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // tests/ holds this repository's own checks; scripts/ is named ahead of
+    // tests/ holds this repository's own checks. scripts/ is named ahead of
     // any root script, so the first one needs no edit here.
     include: [
       'tests/**/*.test.ts',
@@ -17,15 +17,15 @@ export default defineConfig({
       'plugins/*/src/**/*.test.ts',
     ],
     // .claude/worktrees/ holds checkouts of this same repository (see the
-    // worktree workflow): without this exclusion every test in the tree
-    // would be collected twice, once from the root and once from whichever
-    // worktree happens to exist when the suite runs.
+    // worktree workflow). Without this exclusion, every test in the tree
+    // would be collected twice. It would run once from the root, and again
+    // from whichever worktree exists when the suite runs.
     //
     // plugins/*/src/lib/** is the root lib/ a second time, through each
     // plugin's committed src/lib symlink (ADR 001, RFC 001 decision 4).
     // Confirmed on #126: without this, `pnpm exec vitest list` shows
     // lib/args.test.ts and plugins/mermaid/src/lib/args.test.ts as two
-    // separate test files, running lib's own suite twice. The link is
+    // separate test files. That runs lib's own suite twice. The link is
     // already collected and measured at its real path, lib/.
     exclude: [
       '**/node_modules/**',
@@ -55,31 +55,34 @@ export default defineConfig({
         'scripts/**/*.ts',
         'plugins/*/src/**/*.ts',
       ],
-      // Test files are test code: measuring them would let an unused test
-      // helper move the number without any shipped or shared code changing.
-      // No plugins/*/src/lib/** entry here, unlike test.exclude above:
-      // coverage-v8 is keyed by the canonical (realpath) module URL node's
-      // ESM loader resolves a symlinked import to, so it already reports
-      // each lib/ file once, at its real path, with no duplicate entry to
-      // exclude. Confirmed on #126 by removing the entry and comparing the
-      // coverage summary with and without it: identical either way.
+      // Test files are test code. If you measured them, an unused test
+      // helper could move the number, even when no shipped or shared code
+      // changes.
+      //
+      // No plugins/*/src/lib/** entry here, unlike test.exclude above.
+      // coverage-v8 keys itself by the canonical (realpath) module URL that
+      // node's ESM loader resolves a symlinked import to. So it already
+      // reports each lib/ file once, at its real path, with no duplicate
+      // entry to exclude. Confirmed on #126: the coverage summary was
+      // identical whether or not this entry existed.
       exclude: ['**/*.test.ts', '**/fixtures/**'],
-      // vitest 4 dropped the `all` option: coverage-v8 now includes every
-      // file matching `include` whenever the whole suite runs (a single-file
-      // rerun is the only case it narrows), which is the same "a file with
-      // no test at all still shows at 0%, rather than being dropped from the
-      // report entirely" property `all: true` used to state explicitly.
-      // json-summary is what the CI guard below reads to refuse a report
-      // naming no files. cobertura feeds actions/upload-code-coverage for the
-      // enterprise Code Coverage ruleset: the one divergence from the
-      // SurveyMonkey/skills baseline, which has no such ruleset to feed.
+      // vitest 4 dropped the `all` option. Now coverage-v8 includes every
+      // file that matches `include`, whenever the whole suite runs. A
+      // single-file rerun is the only case that narrows this. `all: true`
+      // used to state this property explicitly. A file with no test at all
+      // still shows at 0%. The report does not drop it entirely.
+      // json-summary is what the CI guard below reads, to refuse a report
+      // that names no files. cobertura feeds actions/upload-code-coverage
+      // for the enterprise Code Coverage ruleset. This is the one
+      // divergence from the SurveyMonkey/skills baseline, which has no
+      // such ruleset to feed.
       reporter: ['text', 'json-summary', 'cobertura'],
       reportsDirectory: 'coverage',
       // 100 on every bucket. 95 is the floor this number never goes below
-      // (ADR 002, the enterprise Code Coverage ruleset's own threshold);
-      // relief is exclusion by file name with a comment saying why, never a
-      // lowered threshold, because a lowered number hides every other file's
-      // regression behind the one file that earned the exception.
+      // (ADR 002, the enterprise Code Coverage ruleset's own threshold).
+      // Relief is exclusion by file name, with a comment that says why,
+      // never a lowered threshold. A lowered number hides every other
+      // file's regression behind the one file that earned the exception.
       thresholds: {
         lines: 100,
         functions: 100,

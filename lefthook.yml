@@ -1,56 +1,66 @@
 # lefthook.yml: local git hooks, staged-only and fast (ADR 002, #120 replaces
-# the pre-commit framework with this). Installed by `pnpm install` (lefthook's
-# own postinstall runs `lefthook install`, via `pnpm.onlyBuiltDependencies` in
-# package.json, since pnpm 10 blocks a dependency's lifecycle scripts
-# otherwise) or by hand with `pnpm exec lefthook install`.
+# the pre-commit framework with this). `pnpm install` installs them.
+# lefthook's own postinstall runs `lefthook install`, through
+# `pnpm.onlyBuiltDependencies` in package.json (pnpm 10 blocks a dependency's
+# lifecycle scripts otherwise). Or run `pnpm exec lefthook install` by hand.
 #
 # lefthook resolves the hooks directory with `git rev-parse --git-path hooks`,
-# the clone's common dir, so a `pnpm install` from any worktree of this clone
-# installs the hook for every worktree of it. Each pnpm-based step below still
-# needs its own checkout's `node_modules`. The installed hook script's own
-# fallback chain hardcodes an absolute path into the installing checkout's
-# `node_modules`, so as long as that checkout still exists, a worktree that
-# has not run its own `pnpm install` yet still finds a working lefthook binary
-# through it and lefthook runs; it is each pnpm-based step's own `node_modules`
-# guard, firing in the invoking worktree, that then warns and skips, letting
-# the commit through unchecked. Only when no checkout with a working lefthook
-# binary can be found at all (the installing checkout gone too, nothing on
-# PATH) does the hook script itself print `Can't find lefthook in PATH` and
-# return 0. Either way, the worktree gains real hooks the moment it runs its
-# own `pnpm install`.
+# the clone's common dir. So a `pnpm install` from any worktree of this clone
+# installs the hook for every worktree of it. Each pnpm-based step below
+# still needs its own checkout's `node_modules`.
 #
-# pre-commit runs only the gates that are staged-scoped and stay fast: Biome
-# over the staged JSON, .mjs and .ts; `vitest related` over the tests the
-# staged files reach; `claude plugin validate --strict` when a plugin or the
-# marketplace manifest is touched.
-# `tsc -p` is the one step that is NOT staged-only: it type-checks the whole
-# project, because a type error caused by a staged file is usually in a file
-# that was not staged, and a project-wide checker handed a file list answers a
+# The installed hook script finds the lefthook binary through a hardcoded
+# absolute path. That path points into the checkout that ran the install, or
+# into the checkout where the commit runs. As long as the checkout that ran
+# the install still has `node_modules`, a worktree can find lefthook through
+# it. This works even before that worktree runs its own `pnpm install`, and
+# the hooks run there too. Each pnpm-based step still checks for its own
+# `node_modules`, though. When a step's `node_modules` is missing, that step
+# warns and skips, so the commit goes through unchecked. This also happens
+# when no checkout with a working lefthook binary exists at all. Then the
+# hook script itself prints `Can't find lefthook in PATH`, and the commit
+# goes through the same way.
+#
+# Either way, the worktree gains real hooks the moment it runs its own
+# `pnpm install`.
+#
+# pre-commit runs only the gates that are staged-scoped and stay fast. Biome
+# checks the staged JSON, .mjs, and .ts files. `vitest related` runs the
+# tests the staged files reach. `claude plugin validate --strict` runs when a
+# plugin or the marketplace manifest is touched.
+#
+# `tsc -p` is the one step that is NOT staged-only. It type-checks the whole
+# project. A type error that a staged file causes is usually in a file that
+# was not staged. A project-wide checker, handed a file list, would answer a
 # different question. The glob decides when the step runs, not what it
-# checks. None of these runs a suite; that is stated as a rule in ADR 002, not
-# a budget, because a hook that runs everything gets slower as the repository
-# grows and the response is always to disable it.
+# checks.
+#
+# None of these runs a suite. ADR 002 states that as a rule, not a budget. A
+# hook that runs everything gets slower as the repository grows. Then the
+# usual response is to disable it.
 #
 # There is no `pre-push` key below, so a `lefthook install` against this
-# config writes no pre-push hook file (a declared-but-empty `commands: {}`
-# still gets one, which would spawn a process, and print `Can't find lefthook
-# in PATH`, on every push in a worktree with no reachable binary, for a group
-# that runs nothing). Removing the key does not retroactively delete a
-# pre-push hook file a prior install already wrote: `pnpm exec lefthook
-# uninstall` (then reinstall) clears one left over from an earlier revision of
-# this file. CI is the enforcement boundary (ADR 002): the vitest suite needs
-# tooling a fresh clone or worktree may not have yet, and a slow pre-push
-# hook trains people straight to --no-verify, which this repository forbids
-# outright. This is why #120 removes .pre-commit-config.yaml's local
-# hooks rather than porting them to a pre-push stage.
+# config writes no pre-push hook file. A declared-but-empty `commands: {}`
+# still gets a pre-push hook file. That file would spawn a process on every
+# push, in a worktree with no reachable binary. It would print `Can't find
+# lefthook in PATH`, for a group that runs nothing.
+#
+# If you remove the key, that does not retroactively delete a pre-push hook
+# file a prior install already wrote. `pnpm exec lefthook uninstall` (then
+# reinstall) clears one left over from an earlier revision of this file. CI
+# is the enforcement boundary (ADR 002). The vitest suite needs tooling that
+# a fresh clone or worktree may not have yet. A slow pre-push hook would
+# train people straight to `--no-verify`, which this repository forbids
+# outright. This is why #120 removes `.pre-commit-config.yaml`'s local
+# hooks, rather than move them to a pre-push stage.
 #
 # Bypass for one commit or push with --no-verify. CI enforces regardless.
 
 pre-commit:
   commands:
-    # Biome over the staged files only. `--staged` is Biome's own selection
-    # rather than a file list from lefthook: it reads the index the way the
-    # CI `biome` job reads the tree, and it applies biome.json's exclusions
+    # Biome over the staged files only. `--staged` is Biome's own selection,
+    # rather than a file list from lefthook. It reads the index the way the
+    # CI `biome` job reads the tree. It applies `biome.json`'s exclusions
     # itself. --no-errors-on-unmatched turns "no staged file matched" into a
     # pass rather than an error, which Biome would otherwise raise.
     # `check`, never `check --write`: a hook that edits the tree commits
@@ -66,8 +76,8 @@ pre-commit:
         fi
 
     # The one step that is NOT staged-only (ADR 002): `tsc -p tsconfig.json`
-    # checks the whole project, because a type error caused by a staged file
-    # is usually in a file that was not staged. `*.ts` here matches a nested
+    # checks the whole project. A type error that a staged file causes is
+    # usually in a file that was not staged. `*.ts` here matches a nested
     # staged file too (no leading `**` needed), the same way the `biome` glob
     # above does.
     types:
@@ -80,16 +90,19 @@ pre-commit:
           printf '!! CI enforces it on the pull request. Install locally with:\n!!   pnpm install\n\n' >&2
         fi
 
-    # `vitest related` resolves the module graph and runs only the tests that
-    # reach a staged file, so the hook scales with the diff rather than with
-    # the repository (ADR 002). --coverage.enabled=false: coverage thresholds
-    # mean something only measured over the full suite (SurveyMonkey/skills
-    # #219), not over whatever subset a diff happens to touch.
-    # --passWithNoTests overrides vitest.config.ts's `passWithNoTests: false`
-    # for this one staged-scoped invocation only: a staged file no test
-    # reaches is not a failure in this venue, unlike the full CI run, which
-    # keeps passWithNoTests: false because collecting nothing there is a
-    # configuration bug, not a normal diff shape.
+    # `vitest related` resolves the module graph and runs only the tests
+    # that reach a staged file. So the hook scales with the diff, rather
+    # than with the repository (ADR 002). `--coverage.enabled=false`:
+    # coverage thresholds mean something only when measured over the full
+    # suite (SurveyMonkey/skills #219). They do not mean much over whatever
+    # subset a diff happens to touch.
+    #
+    # `--passWithNoTests` overrides `vitest.config.ts`'s
+    # `passWithNoTests: false`, for this one staged-scoped invocation only.
+    # A staged file that no test reaches is not a failure in this venue.
+    # This differs from the full CI run, which keeps `passWithNoTests:
+    # false`. There, an empty collection is a configuration bug, not a
+    # normal diff shape.
     vitest-related:
       glob: '*.ts'
       run: |
@@ -100,14 +113,15 @@ pre-commit:
           printf '!! CI enforces it on the pull request. Install locally with:\n!!   pnpm install\n\n' >&2
         fi
 
-    # `claude plugin validate <plugin> --strict` checks that plugin's manifest
-    # AND every skill under it (SKILL.md frontmatter included), so this step
-    # runs on any staged path under a plugin, not only its manifest, each
-    # plugin at most once: `claude plugin validate . --strict` when a staged
-    # path is under the top level `.claude-plugin/` (the marketplace
-    # manifest), and `claude plugin validate plugins/<p> --strict` when a
-    # staged path is under `plugins/<p>/`. Needs no API key or login: validate
-    # reads the manifests and skills off disk.
+    # `claude plugin validate <plugin> --strict` checks that plugin's
+    # manifest, and every skill under it (SKILL.md frontmatter included). So
+    # this step runs on any staged path under a plugin, not only its
+    # manifest, each plugin at most once. It runs
+    # `claude plugin validate . --strict` when a staged path is under the
+    # top level `.claude-plugin/` (the marketplace manifest). It runs
+    # `claude plugin validate plugins/<p> --strict` when a staged path is
+    # under `plugins/<p>/`. This needs no API key or login: validate reads
+    # the manifests and skills off disk.
     plugin-validate:
       glob: '{.claude-plugin/**,plugins/*/**}'
       run: |

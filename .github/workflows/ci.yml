@@ -12,21 +12,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# THESE JOB NAMES ARE A CONTRACT: vitest, vitest-floor, types and biome here,
-# plus plugin-validate in plugin-validate.yml, are required by the repo ruleset
-# Require CI (22359720), which matches them by exact string. Renaming one does
-# not fail the build: the required check simply never reports and every pull
-# request waits forever for something that will not arrive. Keep them short
-# and stable, and put descriptive text in step names, where it helps in logs
-# without becoming load-bearing.
+# THESE JOB NAMES ARE A CONTRACT: vitest, vitest-floor, types, and biome here,
+# plus plugin-validate in plugin-validate.yml, are required by the repo
+# ruleset Require CI (22359720), which matches them by exact string. If you
+# rename one, the build does not fail. The required check simply never
+# reports again, and every pull request waits forever for something that
+# will not arrive. Keep them short and stable. Put descriptive text in step
+# names instead, where it helps in logs but does not become load-bearing.
 #
-# A new job name becomes a required check only after it has reported on main,
-# for the same reason; add it to the ruleset right after the pull request that
-# introduces it merges.
+# A new job name becomes a required check only after it has reported on
+# main, for the same reason. Add it to the ruleset right after the pull
+# request that introduces it merges.
 #
-# vitest, vitest-floor, types and biome, the four TypeScript jobs, joined the
-# ruleset at #122 on 2026-09-13, after each had reported green on main at
-# least once (ADR 002).
+# vitest, vitest-floor, types, and biome, the four TypeScript jobs, joined
+# the ruleset at #122 on 2026-09-13. This happened after each had reported
+# green on main at least once (ADR 002).
 jobs:
   vitest:
     name: vitest
@@ -38,24 +38,25 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/node-pnpm
 
-      # A config lefthook rejects is a hook that silently never runs: nothing
-      # else in CI would catch a malformed lefthook.yml before it reached a
-      # contributor's next commit. This job already has node_modules, and the
-      # postinstall that would otherwise sync the hooks here is a no-op:
-      # Actions sets CI for every step, which lefthook's postinstall treats
-      # as a skip.
+      # A config lefthook rejects is a hook that silently never runs.
+      # Nothing else in CI would catch a malformed lefthook.yml before it
+      # reached a contributor's next commit. This job already has
+      # `node_modules`, and the postinstall that would otherwise sync the
+      # hooks here is a no-op. Actions sets `CI` for every step, and
+      # lefthook's postinstall treats that as a skip.
       - name: Validate lefthook.yml
         run: pnpm exec lefthook validate
 
       - name: Run the vitest suite with coverage at 100
         run: pnpm test
 
-      # vitest's own thresholds cannot see an empty file set: a 100%
+      # vitest's own thresholds cannot see an empty file set. A 100%
       # threshold over zero files passes (reproduced: it reports
-      # "Unknown%" over 0/0 and exits 0), which ADR 002 calls this
-      # repository's signature bug arriving inside the coverage gate. The
-      # thresholds catch a bucket that drops below 100 over whatever files
-      # they did see; this catches the report naming no files at all.
+      # "Unknown%" over 0/0 and exits 0). ADR 002 calls this the
+      # repository's signature bug, because it arrives inside the coverage
+      # gate. The thresholds catch a bucket that drops below 100 over
+      # whatever files they did see. This step catches the report that
+      # names no files at all.
       - name: Refuse a coverage report that names no file
         run: jq -e 'del(.total) | length > 0' coverage/coverage-summary.json
 
@@ -72,16 +73,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # The node-pnpm composite action, same as every other Node job: it
-      # installs from the lockfile and asserts the default pins. It does not
-      # by itself put Node 22.18.0 on PATH or in pnpm's own Node selection -
-      # .npmrc's use-node-version pins 22.23.2, and pnpm honours that for
-      # `pnpm exec`/`pnpm run` regardless of what setup-node installed. The
-      # steps below override it per-command with --config.use-node-version.
+      # installs from the lockfile and asserts the default pins. It does
+      # not by itself put Node 22.18.0 on PATH or in pnpm's own Node
+      # selection. `.npmrc`'s use-node-version pins 22.23.2, and pnpm
+      # honours that for `pnpm exec`/`pnpm run`, regardless of what
+      # setup-node installed. The steps below override it per-command with
+      # `--config.use-node-version`.
       - uses: ./.github/actions/node-pnpm
-      # Fails loudly, rather than the job silently running on 22.23.2 like
-      # .npmrc's default, if the override flag ever stops working or the
-      # floor version drifts from engines.node in package.json (bump both
-      # together).
+      # This fails loudly. Otherwise the job would silently run on
+      # 22.23.2, like `.npmrc`'s default. That could happen if the
+      # override flag fails, or if the floor version drifts from
+      # `engines.node` in `package.json`. Bump both together.
       - name: Assert the floor Node
         run: |
           # tail -n 1: on the first invocation pnpm downloads the pinned
@@ -94,11 +96,11 @@ jobs:
             exit 1
           fi
       # ADR 001: "a floor nothing executes is a claim." This proves the
-      # suite runs on Node 22.18.0, the first release whose type stripping
-      # runs without a flag and writes nothing to stderr. No coverage report
-      # here: the vitest job above is the coverage gate and the enterprise
-      # upload; running vitest twice per CI run would only move that step
-      # later.
+      # suite runs on Node 22.18.0. That is the first release whose type
+      # stripping runs without a flag and writes nothing to stderr. There
+      # is no coverage report here. The vitest job above is the coverage
+      # gate and the enterprise upload. If this ran vitest twice per CI
+      # run, that would only move that step later.
       - name: Run the vitest suite on the Node 22.18 floor
         run: pnpm --config.use-node-version=22.18.0 exec vitest run --coverage.enabled=false
 
@@ -108,16 +110,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/node-pnpm
-      # `tsc` errors on no inputs, but a shrinking include set is the quieter
-      # failure this repository refuses everywhere: git pathspec `*` matches
-      # across directory separators, so `tests/*.ts` reaches nested files too.
+      # `tsc` errors on no inputs. But an include set that shrinks is the
+      # quieter failure this repository refuses everywhere. git pathspec
+      # `*` matches across directory separators, so `tests/*.ts` reaches
+      # nested files too.
       - name: Refuse a run that finds no TypeScript
         run: |
           git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
             'plugins/*/src/*.ts' 'plugins/*/scripts/*.ts' 'plugins/*/hooks/*.ts' \
             'vitest.config.ts' | grep -q .
-      # noEmit lives in tsconfig.json rather than on this line: the same
-      # invocation then means the same thing from an editor or a hook.
+      # `noEmit` lives in `tsconfig.json` rather than on this line. The
+      # same invocation then means the same thing from an editor or a
+      # hook.
       - name: Type-check the TypeScript
         run: pnpm exec tsc -p tsconfig.json
 
@@ -127,9 +131,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/node-pnpm
-      # `biome ci`, the read-only verdict, never `check --write`: a gate that
-      # edits the tree to make itself pass reports on a tree nobody reviewed.
-      # --error-on-warnings because a recommended rule that only warns would
-      # otherwise be reported and passed.
+      # `biome ci`, the read-only verdict, never `check --write`. A gate
+      # that edits the tree to make itself pass reports on a tree nobody
+      # reviewed. --error-on-warnings because a recommended rule that only
+      # warns would otherwise be reported and passed.
       - name: Lint and format-check with Biome
         run: pnpm exec biome ci . --error-on-warnings

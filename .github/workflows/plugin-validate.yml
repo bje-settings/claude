@@ -13,28 +13,31 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Pinned, not floating: a new Claude Code release can tighten manifest
-  # validation, and an unpinned install would turn that into a red build on a
-  # pull request that changed nothing. Bump it deliberately: run
-  # `claude --version` on a machine with the version you want, put that exact
-  # string here, and confirm `claude plugin validate . --strict` still passes
-  # locally before pushing. Keep it close to what contributors run, since the
-  # lefthook `plugin-validate` step uses whatever `claude` is on the
-  # contributor's PATH.
+  # Pinned, not floating. A new Claude Code release can tighten manifest
+  # validation. An unpinned install would turn that into a red build, on a
+  # pull request that changed nothing.
+  #
+  # Bump it deliberately. Run `claude --version` on a machine with the
+  # version you want. Put that exact string here. Confirm
+  # `claude plugin validate . --strict` still passes locally, before you
+  # push. Keep it close to what contributors run, since the lefthook
+  # `plugin-validate` step uses whatever `claude` is on the contributor's
+  # PATH.
   CLAUDE_CODE_VERSION: "2.1.263"
 
 jobs:
-  # THIS JOB NAME IS A CONTRACT. `plugin-validate` becomes a required check
-  # matched by exact string on the repo ruleset Require CI (22359720) once it is
-  # added there, right after the pull request that introduced this workflow
-  # merges. Renaming the job after that does not fail the build: the required
-  # check simply never reports and every pull request waits forever. See the
-  # same note in ci.yml.
+  # THIS JOB NAME IS A CONTRACT. `plugin-validate` becomes a required check,
+  # matched by exact string on the repo ruleset Require CI (22359720), once
+  # added. That happens right after the pull request that introduced this
+  # workflow merges. If you rename the job after that, the build does not
+  # fail. The required check simply never reports again, and every pull
+  # request waits forever. See the same note in ci.yml.
   plugin-validate:
     name: plugin-validate
-    # The 1 vCPU runner: this job is one npm install and a few manifest reads,
-    # about fifteen seconds, well inside that runner's 15 minute cap, and the
-    # repo is internal so its minutes are billed at a quarter of ubuntu-latest.
+    # The 1 vCPU runner: this job is one npm install and a few manifest
+    # reads, about fifteen seconds. That is well inside that runner's 15
+    # minute cap. The repo is internal, so its minutes cost only a quarter
+    # of ubuntu-latest.
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v7
@@ -43,26 +46,30 @@ jobs:
         with:
           node-version: 22
 
-      # No API key and no login: `claude plugin validate` reads the manifests off
-      # disk and never talks to the API, which is why this job needs no secrets.
+      # No API key and no login. `claude plugin validate` reads the
+      # manifests off disk and never talks to the API. That is why this job
+      # needs no secrets.
       - name: Install Claude Code
         run: |
           npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
           claude --version
 
-      # Loop over plugins/*/ rather than a hard-coded list, so a new plugin is
-      # covered the day it lands without editing this workflow.
+      # Loop over `plugins/*/`, rather than a hard-coded list. This way a
+      # new plugin is covered the day it lands, and nobody edits this
+      # workflow.
       #
-      # nullglob and the counter are both load-bearing, and neither is enough
-      # alone. Without nullglob, a plugins/ with no subdirectories leaves the
-      # pattern unexpanded and the body runs once with p set to the literal
-      # string "plugins/*/", so the build fails with `File not found:
-      # .../plugins/*` -- an error naming a path nobody created, which sends the
-      # reader looking for a directory called "*". With nullglob but no counter,
-      # that same empty plugins/ makes the loop run zero times and the step pass,
-      # which is worse: a required check reporting success while validating
-      # nothing. A marketplace with no plugins is a broken state, not a clean
-      # one, so it fails here and says so.
+      # nullglob and the counter are both load-bearing, and neither is
+      # enough alone. Without nullglob, a `plugins/` with no subdirectories
+      # leaves the pattern unexpanded. The body then runs once, with `p`
+      # set to the literal string "plugins/*/". So the build fails with
+      # `File not found: .../plugins/*`. That error names a path nobody
+      # created. It sends the reader to look for a directory called "*".
+      #
+      # With nullglob but no counter, that same empty `plugins/` makes the
+      # loop run zero times, and the step passes. That is worse: a required
+      # check that reports success, while it validates nothing. A
+      # marketplace with no plugins is a broken state, not a clean one. So
+      # it fails here, and says so.
       - name: Validate the marketplace manifest and every plugin
         run: |
           set -euo pipefail

@@ -1,21 +1,21 @@
 # Repo Migration Map
 
-Where every repo owned by the personal `brianespinosa` account will end up. This is a plan only;
-nothing listed here has moved unless marked done.
+Where every repo owned by the personal `brianespinosa` account will end up. This is a plan only.
+Nothing listed here has moved, unless it is marked done.
 
-Symlinked to `~/Code/@bje/REPO-MIGRATION.md`. Update the row when a repo moves, and move the
-local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<org>/<repo>`.
+This file is symlinked to `~/Code/@bje/REPO-MIGRATION.md`. Update the row when a repo moves, and
+move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<org>/<repo>`.
 
 ## Prerequisites for every move
 
 - **Full coverage.** The enterprise Code Coverage ruleset requires 95% on every repo, so a repo
   reaches full coverage before it transfers.
-- **Docs-only repos are untested against the ruleset.** It is not yet known whether a repo that
-  never uploads a coverage report is blocked or passes. Move `speaking-contexts` first and
-  confirm before moving `home-assistant-config` or `3d-printer-profiles`.
+- **Docs-only repos are untested against the ruleset.** Nobody knows yet whether the ruleset
+  blocks or passes a repo that never uploads a coverage report. Move `speaking-contexts` first,
+  and confirm the result before you move `home-assistant-config` or `3d-printer-profiles`.
 - **Update references.** GitHub redirects transferred repos, but the redirect breaks if a repo of
   the same name is later created under `brianespinosa`. Update `uses:` refs, `_extends`, remotes,
-  and doc links rather than relying on it.
+  and doc links instead. Do not rely on the redirect.
 
 ## Orgs
 
@@ -36,7 +36,7 @@ local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<org>/<repo>
 ## Mapping
 
 | Repo                            | Destination                  | Notes                                                                   |
-| ------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| -------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
 | `career`                        | `bje-co`                     | career.bje.co                                                           |
 | `resume`                        | `bje-co`                     | resume.bje.co                                                           |
 | `portable-hooks`                | `bje-co`                     | portable-hooks.bje.co                                                   |
@@ -79,9 +79,9 @@ local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<org>/<repo>
 
 ## Related changes outside the repo moves
 
-- **`bje-settings/terraform`** is likely replaced by `bje-sync`, along with `settings`.
+- **`bje-settings/terraform`**: `bje-sync` will likely replace it, along with `settings`.
 - **`user-github-workflows`** stays on the user account for now. Both jobs resolve their scope from
   `github.repository_owner`, so they cannot transfer as-is. The later split:
   - Scheduled workflows (Dependabot rebase and similar) go to `bje-settings/github`.
   - The approval bot (`THUMBS_UP_BOT`) goes to `bje-bots`.
-  - Notification tidy is per-user; decide whether it stays on the user account.
+  - Notification tidy is per-user. Decide whether it stays on the user account.
