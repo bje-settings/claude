@@ -1,39 +1,42 @@
 # The hook captures
 
-A third README beside `README.md` (the four sync captures) and `README-shepherd.md` (the two
-shepherd captures), for the same reason they are separate: a capture is never edited after the
-commit that made it, and neither is the file that documents it.
+This is a third README, beside `README.md` (the four sync captures) and `README-shepherd.md`
+(the two shepherd captures). They are separate for the same reason: nobody edits a capture after
+the commit that made it, and nobody edits the file that documents it either.
 
 | File | What it holds |
 | --- | --- |
 | `hook-output.json` | 54 runs of `plugins/gh/hooks/hook-io.py`, one per case, plus the `syncTimeout` table. |
 
-Read by `plugins/gh/src/commands/hook-io.test.ts` and `plugins/gh/src/hook.test.ts`, beside
+`plugins/gh/src/commands/hook-io.test.ts` and `plugins/gh/src/hook.test.ts` read this, beside
 `divergences-hook.json`, which is the table of what the port deliberately says instead. That file
-is not a capture: it grows when a divergence is found, which is the only way a divergence stays
-countable rather than dissolving into a rewritten expectation, and every row of it is read by a
-test.
+is not a capture. It grows when someone finds a divergence. That is the only way a divergence
+stays countable, instead of turning into a silently rewritten expectation. A test reads every row
+of it.
 
-Three `.ts` fixtures sit here too. `deleted-cwd.ts` enters a directory, removes it and then runs
-the hook, which is the only way to reach the entry point's outermost handler: `process.cwd()`
-raises there and the payload has no cwd to use instead, so the failure arrives before any of the
-hook's own guards are in play. `slow-entry.ts` and `quick-entry.ts` are the
-other two. They stand in for `scripts/gh.ts` in the one example that measures a real
-bound: one never answers, so the timeout arm is reached by the timer firing
-rather than by an injected result, and one answers at once, so the same bound
-must not fire. All three are programs rather than data for the reason `lib/fixtures/`'s five
-are: the suite that needs them has nowhere else to put a program. `vitest.config.ts` excludes
-`**/fixtures/**` from collection and from coverage, so both are linted and type-checked and never
-measured.
+Three `.ts` fixtures sit here too. `deleted-cwd.ts` enters a directory, removes it, and then runs
+the hook. This is the only way to reach the entry point's outermost handler: `process.cwd()`
+raises there, and the payload has no cwd to use instead. So the failure arrives before any of the
+hook's own guards run. `slow-entry.ts` and `quick-entry.ts` are the other two. They stand in for
+`scripts/gh.ts` in the one example that measures a real bound. One never answers, so the timer,
+not an injected result, fires the timeout arm. The other answers at once, so the same bound must
+not fire. All three are programs, not data, for the same reason `lib/fixtures/`'s five are: the
+suite that needs them has nowhere else to put a program. `vitest.config.ts` excludes
+`**/fixtures/**` from collection and from coverage. So the suite lints and type-checks both, but
+never measures them.
 
 ## What the acceptance needs from it
 
 The acceptance line on #127 is that the SessionStart hook's output is BYTE-IDENTICAL on the same
-repository state. Its stdout is a JSON document Claude Code parses, so key order, the `", "` and
-`": "` separators Python's `json.dump` writes, the `\uXXXX` escaping `ensure_ascii` applies to
-every character outside `0x20` to `0x7e`, and the trailing newline are all contract. A test that
-asserted the port's own strings would pass whatever the port printed, so the only thing asserted is
-this file.
+repository state. Its stdout is a JSON document Claude Code parses. So all of this counts as
+contract:
+- key order
+- the `", "` and `": "` separators Python's `json.dump` writes
+- the `\uXXXX` escaping `ensure_ascii` applies to every character outside `0x20` to `0x7e`
+- the trailing newline
+
+A test that asserted the port's own strings would pass whatever the port printed. So the only
+thing this test asserts is this file.
 
 ## The shape of a row
 
@@ -42,35 +45,36 @@ this file.
 | Key | Meaning |
 | --- | --- |
 | `argv` | What followed `hook-io.py` on the command line. |
-| `stdin` | What was written to the child's stdin. |
-| `env` | The variables set for that run on top of the sandbox's environment. |
+| `stdin` | What the run wrote to the child's stdin. |
+| `env` | The variables the run set, on top of the sandbox's environment. |
 | `status` | The exit status. |
 | `stdout` | stdout, whole, byte for byte. |
 | `stderr` | stderr, whole, byte for byte. |
 | `child` | Present only where the hook's fan-out branch spawns one: what `gh-sync.py --dry-run --no-install <cwd>` printed from the same state. |
 
-`child` is what makes the hook's parity independent of the ported `sync` command's. The hook's own
-contract is the decision it takes and the document it wraps the child's report in; whether `sync`
-prints what `gh-sync.py` printed is layer 2's contract, pinned by `bash-sync-output.json`. So the
-port's test replays `child` through an injected runner and asserts the hook's document byte for
-byte, and a separate example runs the real child end to end for the wiring.
+`child` is what makes the hook's parity independent of the ported `sync` command's. The hook's
+own contract is the decision it takes, and the document it wraps the child's report in. Whether
+`sync` prints what `gh-sync.py` printed is layer 2's contract, pinned by `bash-sync-output.json`.
+So the port's test replays `child` through an injected runner, and asserts the hook's document
+byte for byte. A separate example runs the real child end to end, for the wiring.
 
 `syncTimeout` is the second table a black-box run cannot show. `sync_timeout` decides the number
-printed in the timeout line, and its whole input space cannot be reached through `session-start`
-without waiting out the real fifty second bound for every unparseable value, so the function and
-`format(value, "g")` were asked directly, in a child running the hook as a module. Each row is
-`{raw, seconds, formatted}`: the environment value, Python's `repr` of the bound it produced, and
-the text the timeout line carries. It is what pins the port's `float()` grammar (`"1_000"` is
-1000.0, `"0x10"` is not a number, `"２"` is 2.0, `"-inf"` is not positive so the default wins)
-and Python's `%g` formatting (`1234567.0` is `1.23457e+06`).
+printed in the timeout line. `session-start` cannot reach its whole input space without a wait
+through the real fifty second bound, for every unparseable value. So the capture asked the
+function, and `format(value, "g")`, directly, in a child that runs the hook as a module. Each row
+is `{raw, seconds, formatted}`: the environment value, Python's `repr` of the bound it produced,
+and the text the timeout line carries. It pins the port's `float()` grammar (`"1_000"` is 1000.0,
+`"0x10"` is not a number, `"２"` is 2.0, `"-inf"` is not positive, so the default wins) and
+Python's `%g` formatting (`1234567.0` is `1.23457e+06`).
 
 ## How it was made
 
-Generated from the Python at `cd0d515` (this stack's layer 3 head), before a line of the hook port
-was written. The capture script was a pytest module copied into `tests/gh/` for the run and deleted
-afterwards. It is committed here as text rather than as a file of its own, because `tests/gh` is
-deleted in the same layer and a `.py` file under `plugins/gh/src/` would outlive the interpreter
-that runs it. Running it again from the same commit gives the same bytes.
+The team generated this from the Python at `cd0d515` (this stack's layer 3 head), before anyone
+wrote a line of the hook port. The capture script was a pytest module. The team copied it into
+`tests/gh/` for the run, then deleted it afterwards. This file commits it as text, rather than as
+a file of its own, because the same layer deletes `tests/gh`, and a `.py` file under
+`plugins/gh/src/` would outlive the interpreter that runs it. If you run it again from the same
+commit, it gives the same bytes.
 
 ```bash
 cp <the script below> tests/gh/test_capture_hook.py
@@ -79,15 +83,15 @@ HOOK_CAPTURE=<a scratch directory> uv run --locked pytest \
 rm tests/gh/test_capture_hook.py
 ```
 
-That run writes one JSON object per line to `$HOOK_CAPTURE/lines.jsonl`. `hook-output.json` is that
-stream regrouped, and the regrouping is the whole of it, so it is written out rather than left to a
-script nobody kept:
+That run writes one JSON object per line to `$HOOK_CAPTURE/lines.jsonl`. `hook-output.json` is
+that stream, regrouped. The regrouping is the whole of it, so this file writes out the rule,
+rather than leaving it to a script nobody kept:
 
 - every row but one becomes an entry under its own `name` in `runs`, in the order the run produced
-  them, with `name` dropped from the entry;
-- the one row named `table/sync-timeout` becomes the top-level `syncTimeout` array;
+  them; the rule drops `name` from the entry.
+- the one row named `table/sync-timeout` becomes the top-level `syncTimeout` array.
 - the file is then written with `json.dumps(..., indent=2, ensure_ascii=False)` and a trailing
-  newline, and formatted by biome, which touches whitespace only.
+  newline. Biome then formats it, touching only whitespace.
 
 ```python
 import json, pathlib, collections
@@ -108,16 +112,16 @@ pathlib.Path("plugins/gh/src/fixtures/hook-output.json").write_text(
 
 ## Normalisation
 
-The two things that legitimately differ between two runs are commit hashes and the temporary
-directory the fixtures were built in, and both are replaced exactly as `tests/gh/scenarios.py`
-`normalise` replaces them: the sandbox path, in both its logical and its resolved spelling, becomes
-`<sandbox>`, and `\b[0-9a-f]{7,40}\b` becomes `<sha>`. The port's tests substitute their own
-sandbox back in before comparing.
+Two things legitimately differ between two runs: commit hashes, and the temporary directory that
+held the fixtures. `tests/gh/scenarios.py`'s `normalise` replaces both, exactly as it always does:
+the sandbox path, in both its logical and its resolved spelling, becomes `<sandbox>`, and
+`\b[0-9a-f]{7,40}\b` becomes `<sha>`. The port's tests substitute their own sandbox back in before
+they compare.
 
 ## The capture script, verbatim
 
-Verbatim but for line wrapping: `ruff format` reaches Python inside a fenced block in a markdown
-file, and the `ruff` job in CI checked this one until #138. It is the same program either way.
+Verbatim but for line wrapping. `ruff format` reaches Python inside a fenced block in a markdown
+file. The `ruff` job in CI checked this one, until #138. It is the same program either way.
 
 ```python
 """Capture what `plugins/gh/hooks/hook-io.py` writes, one JSON row per case.
