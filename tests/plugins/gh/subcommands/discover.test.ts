@@ -220,7 +220,7 @@ it('refuses a target that is not a directory, on stderr and with exit 1', async 
  *  main example. As root, `chmod` has no effect, so `discoverRepos` still
  *  succeeds. The example would then fail its first parity check with
  *  "expected 0 to be 1". That message would wrongly blame the refusal
- *  logic, not the failed setup. `shepherd-status.test.ts:265` uses the same
+ *  logic, not the failed setup. `shepherd-status.test.ts:260` uses the same
  *  split. */
 const asRoot = process.getuid?.() === 0
 
