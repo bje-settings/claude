@@ -1,24 +1,27 @@
 // The gh plugin's prose, checked for the parts a script cannot enforce.
-// Ported from tests/gh/test_shepherd_docs.py and tests/gh/test_flow_discover.py,
-// which are deleted with the rest of tests/gh at #127.
+// This is ported from tests/gh/test_shepherd_docs.py and
+// tests/gh/test_flow_discover.py, both deleted with the rest of
+// tests/gh at #127.
 //
-// `settle` is only useful if the agent calls it, the orchestrator only catches
-// the residual race if its skill says to make that read, and the diagram is
-// what a reader consults before either. None of that is reachable from the
-// commands' own tests, so it is asserted here. /gh:sync and /gh:shepherd also
-// resolve their scope by one shared rule, so their flow diagrams describe it
-// with one shared `discover` subgraph; drift between the two would mean one
-// diagram is lying about how scope is decided.
+// `settle` is only useful if the agent calls it. The orchestrator only
+// catches the residual race if its skill says to make that read. The
+// diagram is what a reader consults before either step. None of that is
+// reachable from the commands' own tests, so this file checks it. /gh:sync
+// and /gh:shepherd also resolve their scope by one shared rule, so their
+// flow diagrams describe it with one shared `discover` subgraph. A drift
+// between the two would mean one diagram lies about how scope is decided.
 //
-// **Positive assertions only.** These files are prose and get reworded, and a
-// test that fails on a rewording is a test that gets deleted. What is asserted
-// is that each document still names the mechanism it is responsible for.
+// **Positive assertions only.** These files are prose and get reworded. A
+// test that fails on a rewording is a test that gets deleted. This file
+// checks only that each document still names the mechanism it is
+// responsible for.
 //
-// Every assertion is scoped with `section`, which fails loudly when a marker
-// it slices on has moved. A bare split would do the opposite of what a test
-// should: an error where a reader expects an assertion, or, worse, a whole
-// document handed back as "the section", where a substring check passes for
-// the wrong reason and the test quietly stops testing anything.
+// Every assertion is scoped with `section`, which fails loudly when a
+// marker it slices on has moved. A bare split would do the opposite of
+// what a test should do: an error where a reader expects an assertion,
+// or, worse, a whole document handed back as "the section." There, a
+// substring check would pass for the wrong reason, and the test would
+// quietly stop testing anything.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
@@ -33,8 +36,8 @@ const read = (file: string): string => readFileSync(file, 'utf8')
 
 const occurrences = (body: string, marker: string): number => body.split(marker).length - 1
 
-/** The text between two markers, asserting each one is still there. `end` left
- *  out runs to the end of the file. */
+/** The text between two markers. This asserts that each one is still
+ *  there. With `end` left out, this runs to the end of the file. */
 const section = (file: string, start: string, end?: string): string => {
   const body = read(file)
   expect(occurrences(body, start), `${path.basename(file)}: expected exactly one ${start}`).toBe(1)

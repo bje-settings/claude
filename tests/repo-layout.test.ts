@@ -1,16 +1,17 @@
-// Repo-wide conventions that only a test can hold. Ported from
-// tests/test_repo_layout.py: each of these is a rule written down somewhere
-// in prose, CLAUDE.md or a file under .claude/rules/, whose failure mode
-// is silent. Prose does not survive a refactor by someone who has not read
-// it, and none of these would show up as a broken test anywhere else.
+// Repo-wide conventions that only a test can hold. This is ported from
+// tests/test_repo_layout.py. Each of these is a rule written down
+// somewhere in prose, CLAUDE.md, or a file under .claude/rules/, whose
+// failure mode is silent. Prose does not survive a refactor by someone who
+// has not read it, and none of these would show up as a broken test
+// anywhere else.
 //
 // test_repo_layout.py's test_repo_tooling_never_touches_sys_path is
-// deliberately NOT ported here: it parses Python with the `ast` module to
-// prove no root script does `sys.path.insert`/`sys.path.append`, and its
-// subject (Python `scripts/`) went at #128 and the test itself at #138. Its
-// TypeScript successor is the pair of rules below, which #125 can state now
-// that the root lib exists: the `src/lib` symlink is the only path out of a
-// plugin, and it is a symlink to exactly one place.
+// deliberately NOT ported here. It parses Python with the `ast` module, to
+// prove that no root script calls `sys.path.insert` or `sys.path.append`.
+// Its subject (Python `scripts/`) went at #128, and the test itself at
+// #138. Its TypeScript successor is the pair of rules below, which #125
+// can state now that the root lib exists: the `src/lib` symlink is the
+// only path out of a plugin, and it is a symlink to exactly one place.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -26,24 +27,24 @@ import {
 } from './repo.ts'
 
 it('expresses a path relative to the repo root', () => {
-  // rel() is exercised elsewhere only inside branches that stay empty
-  // against this repository's own tree (nothing here is currently missing a
-  // FLOW.md, a LICENSE, or a license field), so without this direct case its
-  // body would never actually run and coverage would not notice.
+  // `rel()` runs elsewhere only inside branches that stay empty against
+  // this repository's own tree. Nothing here is currently missing a
+  // FLOW.md, a LICENSE, or a license field. Without this direct case, its
+  // body would never actually run, and coverage would not notice.
   expect(rel(path.join(ROOT, 'tests', 'repo.ts'))).toBe(path.join('tests', 'repo.ts'))
 })
 
 it('finds plugins to check', () => {
-  // The same guard tests/skills.test.ts carries, for the same reason: a glob
-  // that matches nothing makes every check below pass while enforcing
-  // nothing.
+  // This is the same guard tests/skills.test.ts carries, for the same
+  // reason. A glob that matches nothing makes every check below pass,
+  // while it enforces nothing.
   expect(pluginDirs().length).toBeGreaterThan(0)
 })
 
 it('keeps one LICENSE, copied identically into every plugin', () => {
-  // Each plugin directory carries its own so it is self-describing when it
-  // is distributed on its own. Several copies that must agree is a drift
-  // shape worth asserting rather than trusting.
+  // Each plugin directory carries its own copy, so it is self-describing
+  // when distributed on its own. Several copies that must agree are a
+  // drift shape a test should check, not one to trust blindly.
   const canonical = readFileSync(path.join(ROOT, 'LICENSE'))
   expect(canonical.toString('utf8')).toContain('MIT License')
 
@@ -66,8 +67,8 @@ it('keeps one LICENSE, copied identically into every plugin', () => {
 })
 
 it('declares the licence in the manifest as well as beside it', () => {
-  // `claude plugin validate --strict` accepts the field; a reader looking at
-  // the manifest alone should not have to go hunting for the file.
+  // `claude plugin validate --strict` accepts the field. A reader who
+  // looks at the manifest alone should not have to search for the file.
   const missing: string[] = []
   for (const plugin of pluginDirs()) {
     const manifest = JSON.parse(
@@ -91,23 +92,26 @@ describe('pluginDirs filtering', () => {
   })
 
   it('filters directories to the ones that actually carry a plugin manifest', () => {
-    // Coverage of pluginDirs' filter branches that the real plugins/ tree
-    // never exercises, because every directory in it today is a well-formed
-    // plugin: a stray tracked file directly under the root, a directory with
-    // no .claude-plugin/ at all, a directory whose .claude-plugin entry is a
-    // file rather than a directory, and a symlink pointing at a plugin.
+    // This covers pluginDirs' filter branches that the real plugins/ tree
+    // never exercises, because every directory in it today is a
+    // well-formed plugin. This tree has a stray tracked file directly
+    // under the root, a directory with no .claude-plugin/ at all, a
+    // directory whose .claude-plugin entry is a file, not a directory,
+    // and a symlink that points at a plugin.
     //
-    // The symlink is the one that makes the isDirectory() guard load-bearing.
-    // A listing entry answers from lstat, so a link reports false there,
-    // while existsSync follows it and finds the manifest: without the guard
-    // the same plugin would be counted twice, once under each name.
+    // The symlink is the one that makes the isDirectory() guard
+    // load-bearing. A listing entry answers from lstat, so a link reports
+    // false there, while existsSync follows it and finds the manifest.
+    // Without the guard, the same plugin would be counted twice, once
+    // under each name.
     //
-    // So a link is looked through at `src` and dropped here, which reads as a
-    // contradiction and is not one: `pluginDirs` is pre-existing code that
-    // `tests/skills.test.ts` also walks, and what a plugin *is* is not this
-    // layer's question. What is this layer's question, whether a plugin
-    // reaches the shared library the one way the convention allows, is asked
-    // of every plugin the existing filter admits.
+    // So this function follows a link at `src`, but drops it here. That
+    // reads as a contradiction, and is not one. `pluginDirs` is
+    // pre-existing code that `tests/skills.test.ts` also walks, and what
+    // a plugin *is* is not this layer's question. This layer asks a
+    // different question of every plugin the existing filter admits:
+    // does a plugin reach the shared library the one way the convention
+    // allows?
     scratch = mkdtempSync(path.join(tmpdir(), 'bje-plugins-'))
     writeFileSync(path.join(scratch, 'README.md'), 'not a plugin directory\n')
     mkdirSync(path.join(scratch, 'no-manifest'), { recursive: true })
@@ -120,14 +124,14 @@ describe('pluginDirs filtering', () => {
   })
 })
 
-// The rule ADR 001 states in prose and RFC 001 decision 4 records: the
-// `src/lib` symlink is the only path out of a plugin, and a test file may
-// additionally reach the shared harness. Every arm is proven on a synthetic
-// tree, following the `root`-parameter pattern `pluginDirs` already uses,
-// because no plugin in this repository carries the symlink until #126 and a
-// rule whose branches never run is a rule nobody is enforcing. The real
-// `plugins/` tree is then run through the same two functions, which is what
-// makes them a guard rather than an exercise.
+// This is the rule ADR 001 states in prose, and RFC 001 decision 4
+// records: the `src/lib` symlink is the only path out of a plugin, and a
+// test file may additionally reach the shared harness. Every arm is
+// proven on a synthetic tree, in the `root`-parameter pattern `pluginDirs`
+// already uses. This is because no plugin in this repository carries the
+// symlink until #126, and a rule whose branches never run is a rule
+// nobody enforces. The real `plugins/` tree is then run through the same
+// two functions, which is what makes them a guard, not an exercise.
 describe('the plugin boundary', () => {
   let scratch = ''
 
@@ -206,10 +210,10 @@ describe('the plugin boundary', () => {
   })
 
   it('refuses the root lib reached around the symlink', () => {
-    // `../../../lib` resolves for a contributor working in the checkout and
-    // for nobody who installed the plugin: the cache copy has no repository
-    // root above it. Catching it here is the difference between a failed test
-    // and an unresolved import on a user's machine.
+    // `../../../lib` resolves for a contributor who works in the
+    // checkout, and for nobody who installed the plugin. The cache copy
+    // has no repository root above it. A catch here is the difference
+    // between a failed test and an unresolved import on a user's machine.
     const plugins = build({
       plugins: ['a'],
       files: { 'a/src/url.ts': "import { ok } from '../../../lib/envelope.ts'\n" },
@@ -221,9 +225,9 @@ describe('the plugin boundary', () => {
   })
 
   it('accepts the harness in a test file and refuses it anywhere else', () => {
-    // The harness never ships, so a shipped file reaching for it is an import
-    // the installed plugin cannot resolve; a co-located test file reaching for
-    // it is the arrangement ADR 001 asks for.
+    // The harness never ships. So a shipped file that reaches for it has
+    // an import the installed plugin cannot resolve. A co-located test
+    // file that reaches for it is the arrangement ADR 001 asks for.
     const plugins = build({
       plugins: ['a'],
       files: {
@@ -276,14 +280,15 @@ describe('the plugin boundary', () => {
   })
 
   it('reads a plugin name as a whole name, and checks every plugin', () => {
-    // Two properties one tree can hold, both of them invisible to the names
-    // the other fixtures use. `plugins/gh-security` starts with the string
-    // `plugins/gh`, so without the separator the containment test appends,
-    // `gh` importing into `gh-security` would read as staying inside itself
-    // and the rule would stop holding for that pair. This repository has `gh`
-    // today and is one plugin away from a `gh-*` sibling. The second
-    // violation is written in the plugin that sorts last, so a scan that
-    // stopped after the first plugin would report only one of the two.
+    // This tree holds two properties, both invisible to the names the
+    // other fixtures use. `plugins/gh-security` starts with the string
+    // `plugins/gh`. So without the separator the containment test appends,
+    // an import from `gh` into `gh-security` would read as though it
+    // stayed inside itself, and the rule would stop holding for that
+    // pair. This repository has `gh` today, and is one plugin away from a
+    // `gh-*` sibling. The second violation is written in the plugin that
+    // sorts last, so a scan that stopped after the first plugin would
+    // report only one of the two.
     const plugins = build({
       plugins: ['gh', 'gh-security'],
       files: {
@@ -298,8 +303,8 @@ describe('the plugin boundary', () => {
   })
 
   it('reads only .ts files, and never walks into the symlink', () => {
-    // Walking the link would report the root lib's own imports as the
-    // plugin's, and `lib/gh.ts` importing `node:child_process` is not a
+    // A walk into the link would report the root lib's own imports as
+    // the plugin's. `lib/gh.ts`'s import of `node:child_process` is not a
     // boundary crossing.
     const plugins = build({
       plugins: ['a'],
@@ -309,11 +314,11 @@ describe('the plugin boundary', () => {
       },
       links: { 'a/src/lib': LIB_LINK_TARGET },
     })
-    // Three levels up, not two: walked as `plugins/a/src/lib/outward.ts` the
-    // specifier resolves to `plugins/elsewhere.ts`, outside the plugin, so
-    // this arm goes red the moment the walk starts descending the link. Two
-    // levels would land back inside `plugins/a` and pass either way, which
-    // would make the test an illustration rather than a proof.
+    // Three levels up, not two. Walked as `plugins/a/src/lib/outward.ts`,
+    // the specifier resolves to `plugins/elsewhere.ts`, outside the
+    // plugin. So this arm goes red the moment the walk descends into the
+    // link. Two levels would land back inside `plugins/a` and pass either
+    // way, which would make the test an illustration, not a proof.
     writeFileSync(
       path.join(scratch, 'lib', 'outward.ts'),
       "import { x } from '../../../elsewhere.ts'\n",
@@ -343,10 +348,11 @@ describe('the plugin boundary', () => {
   })
 
   it('looks through a src that is itself a symlink', () => {
-    // A listing entry answers from lstat, so a linked `src` reports itself as
-    // neither a directory nor a file. Skipping it would be a plugin hiding a
-    // real copy of the shared library one link away from where the rule
-    // looks, which is the copy libLinkViolations exists to refuse.
+    // A listing entry answers from lstat, so a linked `src` reports
+    // itself as neither a directory nor a file. A skip here would let a
+    // plugin hide a real copy of the shared library one link away from
+    // where the rule looks. That is the copy libLinkViolations exists to
+    // refuse.
     const plugins = build({
       plugins: ['behind'],
       files: { 'elsewhere/lib/gh.ts': '' },
@@ -361,12 +367,13 @@ describe('the plugin boundary', () => {
   })
 
   it('asks nothing of a src link that points at nothing, or at a file', () => {
-    // The two siblings of the case above, and the reason the probe follows the
-    // link rather than reading the listing entry: both of these report
-    // themselves as neither a directory nor a file, so a rule that only
-    // skipped a plain file would hand `readdirSync` a path it cannot list and
-    // die with ENOENT or ENOTDIR. A rule that aborts reports nothing, which is
-    // worse than the violation it was looking for.
+    // These are the two siblings of the case above, and the reason the
+    // probe follows the link, instead of a read of the listing entry.
+    // Both of these report themselves as neither a directory nor a file.
+    // So a rule that only skipped a plain file would hand `readdirSync` a
+    // path it cannot list, and die with ENOENT or ENOTDIR. A rule that
+    // aborts reports nothing, which is worse than the violation it was
+    // meant to find.
     const plugins = build({
       plugins: ['dangling', 'at-a-file'],
       files: { 'afile.ts': '' },
@@ -406,9 +413,9 @@ describe('the plugin boundary', () => {
 
 it('holds all three rules over the real plugins tree', () => {
   // The synthetic trees above prove the rules; this is the guard. Every
-  // plugin's entry point is in `scripts/` since #185, and the third list is
-  // the one that has no other way of going red: `bin/` is refused by
-  // claude.ai at publish time rather than by anything here.
+  // plugin's entry point is in `scripts/` since #185. The third list is
+  // the one rule with no other way to turn red: claude.ai refuses `bin/`
+  // at publish time, not anything here.
   expect(crossPluginImports()).toEqual([])
   expect(libLinkViolations()).toEqual([])
   expect(binDirectories()).toEqual([])

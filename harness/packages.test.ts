@@ -1,15 +1,15 @@
-// What the package-manager builders actually build, asserted the way
-// `git.test.ts` asserts the git ones and the gh plugin's Python fixture test
-// asserted the Python originals before it was deleted at #127: a builder that
-// quietly stopped producing its state would make every install test built on
-// it pass for the wrong reason.
+// What the package-manager builders actually build. This is asserted the
+// way `git.test.ts` asserts the git ones, and the way the gh plugin's
+// Python fixture test asserted the Python originals before it was deleted
+// at #127. A builder that quietly stopped producing its state would make
+// every install test built on it pass for the wrong reason.
 //
-// These run the real pnpm from PATH. That is the point: the port's install
-// path is `pnpm install --frozen-lockfile` against a lock file pnpm wrote, and
-// a hand-written lock file would prove neither half of it.
+// These tests run the real pnpm from PATH. That is the point. The port's
+// install path is `pnpm install --frozen-lockfile` against a lock file
+// pnpm wrote. A hand-written lock file would prove neither half of that.
 //
 // The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
-// `tests/gh/bin/gh`, was deleted at #127. It is named below anyway, without
+// `tests/gh/bin/gh`, was deleted at #127. It is named below anyway, with no
 // line numbers, because saying where each rule came from is what makes the
 // rule arguable.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -36,7 +36,7 @@ function atOrigin(git: GitFixtures, work: string, file: string): string {
   return git.git(work, 'show', `origin/main:${file}`)
 }
 
-/** The files the range between the local branch and origin's touched, which is
+/** The files that changed between the local branch and origin. This is
  *  the question the port asks before it installs anything. */
 function changedByOrigin(git: GitFixtures, work: string): string[] {
   git.git(work, 'fetch', '-q', 'origin')

@@ -1,8 +1,9 @@
-// One test per claim a builder makes, asserted against the repository it
-// actually built, the way the gh plugin's Python fixture test did for the
-// Python fixtures before it was deleted at #127. Every other test in the
-// suite is only meaningful if these hold: a builder that quietly stopped
-// producing its state would make them pass for the wrong reason.
+// One test per claim a builder makes. Each is checked against the
+// repository it actually built, the way the gh plugin's Python fixture
+// test did for the Python fixtures, before it was deleted at #127. Every
+// other test in the suite is only meaningful if these hold. A builder
+// that quietly stopped producing its state would make them pass for the
+// wrong reason.
 import { spawnSync } from 'node:child_process'
 import {
   existsSync,
@@ -25,14 +26,16 @@ function repository(): { sandbox: Sandbox; git: GitFixtures; work: string } {
   return { sandbox, git, work: git.create(sandbox.join('r')) }
 }
 
-/** Asserts that a repository will run no background housekeeping. git spawns
- *  `gc` and `maintenance` detached and they outlive the git that started them,
- *  so one landing after a sandbox has walked its tree fails the removal with
- *  ENOTEMPTY and fails a test that had already passed. The claim is per
- *  repository, so every repository a builder leaves behind is asked, the bare
- *  origin as much as the work tree. The throwaway clones `diverge` and
- *  `remoteAdvance` make are configured the same way and cannot be asked here,
- *  because the builder removes them before it returns. */
+/** Asserts that a repository will run no background housekeeping. Git
+ *  spawns `gc` and `maintenance` detached, and they outlive the git that
+ *  started them. If one lands after a sandbox has walked its tree, the
+ *  removal fails with ENOTEMPTY, and a test that had already passed then
+ *  fails too. The claim is per repository, so this asks every repository
+ *  a builder leaves behind, the bare origin as much as the work tree.
+ *
+ *  The throwaway clones that `diverge` and `remoteAdvance` make are
+ *  configured the same way, but cannot be asked here, because the
+ *  builder removes them before it returns. */
 function expectQuiet(git: GitFixtures, repo: string): void {
   expect(git.git(repo, 'config', '--get', 'gc.auto')).toBe('0')
   expect(git.git(repo, 'config', '--get', 'maintenance.auto')).toBe('false')
@@ -172,8 +175,8 @@ it('tells a tracked modification apart from an untracked file', () => {
   git.dirty(work)
   git.untracked(work)
 
-  // The runner's untrimmed stdout, so the leading status column is asserted
-  // exactly as git prints it.
+  // This is the runner's untrimmed stdout. So this checks the leading
+  // status column exactly as git prints it.
   expect(git.tryGit(work, 'status', '--porcelain', '--untracked-files=no').stdout).toBe(
     ' M file.txt\n',
   )
@@ -301,8 +304,8 @@ it('drops the origin remote', () => {
 })
 
 it('locks the index without stopping git status', () => {
-  // Tolerated by status, refused by anything writing refs, so a mid-run
-  // failure can be provoked without corrupting anything.
+  // `git status` tolerates this; anything that writes refs refuses it.
+  // So a test can provoke a mid-run failure without damage to anything.
   const { git, work } = repository()
 
   git.lockIndex(work)
@@ -321,8 +324,9 @@ it('makes origin unreachable while leaving the remote configured', () => {
 })
 
 it('forgets the cached origin HEAD, and tolerates it being gone already', () => {
-  // It is a *symbolic* ref, so it has to be deleted as one; `update-ref -d`
-  // leaves it resolvable and the resolution never falls through.
+  // This ref is *symbolic*, so it must be deleted as one. `update-ref
+  // -d` would leave it resolvable, and the resolution would never fall
+  // through.
   const { git, work } = repository()
 
   git.forgetOriginHead(work)
@@ -359,10 +363,11 @@ it('reports the command and git stderr when git fails', () => {
 })
 
 it('reports git itself being unspawnable, rather than crashing on absent output', () => {
-  // spawnSync leaves stdout and stderr undefined when the child never started,
-  // so decoding them first would raise a TypeError naming neither git nor the
-  // PATH. It has to reach `tryGit` as well, which promises a result rather than
-  // a throw for anything git itself reports.
+  // spawnSync leaves stdout and stderr undefined when the child never
+  // started. So a decode of them first would raise a TypeError that
+  // names neither git nor the PATH. This guard must reach `tryGit` too,
+  // which promises a result, not a throw, for anything git itself
+  // reports.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   sandbox.env.PATH = sandbox.pathWithout('git')
@@ -372,11 +377,11 @@ it('reports git itself being unspawnable, rather than crashing on absent output'
 })
 
 it('resolves global git config inside the sandbox, not on the developer machine', () => {
-  // The three `-c` overrides cover identity, signing and hooks; everything else
-  // in a global config still applies, so the file git reads has to be the
-  // sandbox's own. `status.showUntrackedFiles` is the demonstration: with the
-  // developer's config reaching in, this file's untracked assertion fails
-  // locally and passes in CI.
+  // The three `-c` overrides cover identity, signing, and hooks.
+  // Everything else in a global config still applies, so the file git
+  // reads must be the sandbox's own. `status.showUntrackedFiles` is the
+  // demonstration. If the developer's config reaches in instead, this
+  // file's untracked assertion fails locally and passes in CI.
   const { git, work, sandbox } = repository()
   const home = sandbox.join('home')
 
@@ -409,11 +414,12 @@ it('refuses the subcommands the shim is told to fail and forwards the rest', () 
 })
 
 it('answers the subcommands the shim is told to silence with nothing at all', () => {
-  // The other shape a `git` on PATH can take, and the one CI reached on Linux:
-  // exit 0 and print nothing. Real git answers these questions with a status,
-  // so a port that only guards `null` reads the silence as an answer. Separate
-  // from GIT_STUB_FAIL because a refusal and a silent success send a caller to
-  // different arms, and both have to be reachable in the same run.
+  // This is the other shape a `git` on PATH can take, the one CI
+  // reached on Linux: exit 0 and print nothing. Real git answers these
+  // questions with a status, so a port that only guards `null` reads the
+  // silence as an answer. This is separate from GIT_STUB_FAIL, because a
+  // refusal and a silent success send a caller to different arms, and
+  // both must be reachable in the same run.
   const { git, work, sandbox } = repository()
 
   const shim = git.gitShim()
@@ -445,12 +451,12 @@ it('answers the subcommands the shim is told to silence with nothing at all', ()
 })
 
 it('walks past a -c option and its value before reading the subcommand', () => {
-  // `-c key=value` carries its value in the next argument, so a shim that read
-  // it as an ordinary option would take `key=value` for the subcommand: every
-  // refusal would stop firing and every call would forward silently, which is
-  // the failure `gitShim`'s own doc comment warns a caller about. The test
-  // above covers `-C`; this covers the other prefix the walker has to skip, and
-  // the comment on GIT_SHIM names both.
+  // `-c key=value` carries its value in the next argument, so a shim
+  // that read it as an ordinary option would take `key=value` for the
+  // subcommand. Every refusal would stop, and every call would forward
+  // silently. That is the failure `gitShim`'s own doc comment warns a
+  // caller about. The test above covers `-C`; this covers the other
+  // prefix the walker must skip, and the comment on GIT_SHIM names both.
   const { git, work, sandbox } = repository()
 
   const shim = git.gitShim('worktree list')
@@ -476,10 +482,11 @@ it('walks past a -c option and its value before reading the subcommand', () => {
 })
 
 it('forwards to a real git whose path holds shell and replacement metacharacters', () => {
-  // An apostrophe would end the shim's single-quoted literal and leave a
-  // script that does not parse; a `$&` would be read as a replacement pattern
-  // and rewrite itself into the path. The Python original got both from
-  // `{real!r}`, and a plain string replacement carries neither forward.
+  // An apostrophe would end the shim's single-quoted literal, and leave
+  // a script that does not parse. An unescaped `$&` would act as a
+  // replacement pattern, and rewrite itself into the path. The Python
+  // original avoided both with `{real!r}`; a plain string replacement
+  // carries neither protection forward.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const odd = sandbox.join("o'brien $& bin")
@@ -511,10 +518,11 @@ it('refuses to build a shim when there is no real git to forward to', () => {
 })
 
 it('imports a fixture tree, renaming the disguised names, and commits it', () => {
-  // The two disguises a markdown fixture needs: a `.gitignore` committed
-  // inside this repository would apply to the fixture directory itself, and a
-  // `CLAUDE.md` under `fixtures/` would be pulled into an agent's context as
-  // if it were guidance for this repository.
+  // These are the two disguises a markdown fixture needs. A `.gitignore`
+  // committed inside this repository would apply to the fixture
+  // directory itself. An agent would pull a `CLAUDE.md` under
+  // `fixtures/` into its context, as if it were guidance for this
+  // repository.
   const { git, work, sandbox } = repository()
   const tree = sandbox.join('tree')
   mkdirSync(path.join(tree, 'docs'), { recursive: true })

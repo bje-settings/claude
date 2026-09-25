@@ -1,40 +1,41 @@
-// The pull requests a test answers `gh` with, and a `gh` that filters them the
-// way GitHub does.
+// The pull requests a test answers `gh` with, and a `gh` that filters
+// them the way GitHub does.
 //
-// The port of the pull-request half of `tests/gh/conftest.py` (`pr`,
-// `write_prs`, `no_prs`, `many_prs`, `dep_pr`) and of the filtering the stub
-// `gh` at `tests/gh/bin/gh` applies before it answers (`--state`, `--base`,
-// `--head`, `--label`, `--limit`, and resolving `pr view <n>` against the same
-// set). Round 4's note puts the row builders with the shepherd layer, which is
-// the layer that needs all five.
+// This is the port of the pull-request half of `tests/gh/conftest.py`
+// (`pr`, `write_prs`, `no_prs`, `many_prs`, `dep_pr`), and of the filter
+// the stub `gh` at `tests/gh/bin/gh` applies before it answers (`--state`,
+// `--base`, `--head`, `--label`, `--limit`, and resolving `pr view <n>`
+// against the same set). Round 4's note puts the row builders with the
+// shepherd layer, the layer that needs all five.
 //
-// **Why this exists beside `createGhMock`.** The mock answers each endpoint
-// with one registered reply, by design, and that is the right double for a
-// command that asks a question once. Two things in these commands are not
-// that:
+// **Why this exists beside `createGhMock`.** The mock answers each
+// endpoint with one registered reply, by design. That is the right double
+// for a command that asks one question. Two things in these commands are
+// not that simple:
 //
-//   - One endpoint is asked two different questions. `gh-sync-repo.py` asks
-//     for a window of merged pull requests and then, if that window
-//     saturated, about one branch; both are `gh pr list`. A double that
-//     cannot tell them apart cannot reach the per-branch fallback at all.
-//   - An endpoint is asked the same question repeatedly and the answer
-//     changes. `settle` reads the pull request until GitHub decides, and
-//     `recreate` polls the head SHA until Dependabot moves it. The Python
-//     arranges that by mutating the canned file from a background thread;
-//     here it is a registered SEQUENCE of replies, which is the same fact
-//     without a race.
+//   - One endpoint is asked two different questions. `gh-sync-repo.py`
+//     asks for a window of merged pull requests. If that window is full,
+//     it then asks about one branch. Both calls are `gh pr list`. A double
+//     that cannot tell them apart cannot reach the per-branch fallback at
+//     all.
+//   - An endpoint is asked the same question again and again, and the
+//     answer changes each time. `settle` reads the pull request until
+//     GitHub decides. `recreate` polls the head SHA until Dependabot moves
+//     it. The Python arranges this by rewriting the canned file from a
+//     background thread. Here, a registered SEQUENCE of replies gives the
+//     same fact, with no race.
 //
-// Everything here stays a filter over registered data. Nothing in it knows
-// what a command decides, which is ADR 001's "the mock holds no conditional
-// logic": reproducing the SERVER's filter is fidelity, and an endpoint nobody
-// registered still throws and names itself.
+// Everything here stays a filter over registered data. Nothing in it
+// knows what a command decides. This is ADR 001's "the mock holds no
+// conditional logic." Reproducing the SERVER's filter is fidelity, and an
+// endpoint nobody registered still throws and names itself.
 //
-// This is test code and does not ship.
+// This is test code, and it does not ship.
 //
 // The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
-// `tests/gh/bin/gh`, was deleted at #127; the file and line references below
-// are to what they held at `cd0d515`, kept because they say where each rule
-// came from.
+// `tests/gh/bin/gh`, was deleted at #127. The file and line references
+// below point to what they held at `cd0d515`, kept because they say where
+// each rule came from.
 
 import {
   createGhMock,
@@ -47,16 +48,16 @@ import {
   type PullRequestQuery,
 } from './gh.ts'
 
-/** One row of a canned pull-request set: whatever fields the test gives it,
- *  which is what `gh --json` answers with. `unknown` rather than a declared
- *  pull-request type, because the commands under test have to survive an
- *  answer that is missing a field, and a type that promised the field would
- *  make those examples unwritable. */
+/** One row of a canned pull-request set: whatever fields the test gives
+ *  it. This is what `gh --json` answers with. It uses `unknown`, not a
+ *  declared pull-request type, because the commands under test must
+ *  survive an answer that is missing a field. A type that promised the
+ *  field would make those examples unwritable. */
 export interface PullRequestRow {
   readonly [field: string]: unknown
 }
 
-/** One merged pull request, for composing a canned set. The port of
+/** One merged pull request, to compose a canned set. This is the port of
  *  `conftest.py`'s `pr`, used by the sync layer's merged-window queries. */
 export const pr = (
   headRefName: string,
@@ -71,9 +72,9 @@ export const pr = (
   state: 'MERGED',
 })
 
-/** The canned set, from the rows given. The port of `write_prs`, which wrote
- *  the same list to the file the stub `gh` read; here the set is passed to
- *  {@link createGhServer} instead of to a file. */
+/** The canned set, from the rows given. This is the port of `write_prs`,
+ *  which wrote the same list to the file the stub `gh` read. Here, the set
+ *  is passed to {@link createGhServer} instead of to a file. */
 export const writePrs = (...rows: readonly PullRequestRow[]): PullRequestRow[] => [...rows]
 
 /** No pull requests at all, which is a different answer from "not
@@ -83,10 +84,10 @@ export const noPrs = (): PullRequestRow[] => []
 /**
  * `count` filler pull requests, followed by any given explicitly.
  *
- * The port of `many_prs`. When `count` is at least the query's limit, anything
- * appended is past the window: invisible to the bulk query and reachable only
- * by asking about that branch directly, which is how a saturated window is
- * told from a complete answer.
+ * This is the port of `many_prs`. When `count` is at least the query's
+ * limit, anything appended is past the window. It is invisible to the
+ * bulk query, and reachable only by a direct question about that branch.
+ * This is how a test tells a saturated window from a complete answer.
  */
 export const manyPrs = (count: number, ...extra: readonly PullRequestRow[]): PullRequestRow[] => [
   ...Array.from({ length: count }, (_unused, index) => pr(`old-${index}`, String(index))),
@@ -157,10 +158,9 @@ const STATUS_SHAPES: Record<string, string> = {
   'status-passed': 'SUCCESS',
 }
 
-/** A rollup whose first failing row is a StatusContext and whose second is an
- *  Actions job. Nothing links a StatusContext to a run, so a caller after the
- *  failed steps' log has to keep looking rather than stop at the first
- *  failure. */
+/** A rollup whose first failing row is a StatusContext and whose second
+ *  is an Actions job. Nothing links a StatusContext to a run. So a caller
+ *  after the failed steps' log must look further, past the first failure. */
 const STATUS_THEN_JOB = 'status-then-job-failed'
 
 const rollupFor = (number: number, checks: string): PullRequestRow[] => {
@@ -202,12 +202,12 @@ export interface DepPrKeys {
 }
 
 /**
- * One `dependencies` pull request as the shepherd scripts see it, with every
- * field `PR_FIELDS` asks gh for.
+ * One `dependencies` pull request as the shepherd scripts see it, with
+ * every field `PR_FIELDS` asks gh for.
  *
- * The port of `conftest.py`'s `dep_pr`, keys and defaults unchanged, so a
- * captured Python run and the TypeScript example beside it are built from the
- * same row.
+ * This is the port of `conftest.py`'s `dep_pr`, with the same keys and
+ * defaults. So a captured Python run and the TypeScript example beside it
+ * are built from the same row.
  */
 export const depPr = (number: number, keys: DepPrKeys = {}): PullRequestRow => {
   const merge = keys.merge ?? 'CLEAN'
@@ -242,34 +242,37 @@ export const depPr = (number: number, keys: DepPrKeys = {}): PullRequestRow => {
   }
 }
 
-/** A sequence of replies for one endpoint, in the order the calls take them.
- *  The last entry repeats, so a poll that runs one read longer than the test
- *  expected reads the settled answer rather than falling off the end. */
+/** A sequence of replies for one endpoint, in the order the calls take
+ *  them. The last entry repeats. So a poll that runs one read longer than
+ *  the test expected still reads the settled answer, and does not run
+ *  past the end. */
 export type GhSequences = { [K in GhEndpoint]?: readonly (GhResults[K] | Error)[] }
 
 export interface GhServerOptions {
   /**
-   * The canned set the three pull-request endpoints are answered from.
+   * The canned set the three pull-request endpoints answer from.
    *
-   * Given, `listPullRequests`, `listMergedPullRequests` and `viewPullRequest`
-   * are all answered from it, filtered the way gh filters; left out, all three
-   * are unregistered endpoints and throw like any other. That is the one
-   * property of `createGhMock` this gives up on purpose, and it is why a test
-   * that wants "this must not be called" passes no `prs` (or registers a
-   * failure for the endpoint).
+   * If a test gives it, `listPullRequests`, `listMergedPullRequests`, and
+   * `viewPullRequest` all answer from it, filtered the way gh filters. If a
+   * test leaves it out, all three are unregistered endpoints, and each
+   * throws like any other. This is the one property of `createGhMock` this
+   * option gives up on purpose. It is why a test that wants "this must not
+   * be called" passes no `prs` (or registers a failure for the endpoint).
    */
   readonly prs?: readonly PullRequestRow[]
   /** One reply per endpoint, exactly as `createGhMock` takes them. A reply
-   *  registered here outranks the pull-request set, which is how a test says
+   *  registered here outranks the pull-request set. This is how a test says
    *  "this endpoint failed" for a set it still wants served elsewhere. */
   readonly replies?: GhReplies
   /** A sequence per endpoint, which outranks both. */
   readonly sequences?: GhSequences
-  /** Every call fails with this error: the stub's `GH_FIXTURE_FAIL`, which is
-   *  a gh that cannot reach GitHub at all rather than one endpoint refusing. */
+  /** Every call fails with this error: the stub's `GH_FIXTURE_FAIL`. This
+   *  is a gh that cannot reach GitHub at all, not one endpoint that
+   *  refuses. */
   readonly fail?: Error
-  /** Only a query naming a head fails: the stub's `GH_FIXTURE_FAIL_HEAD`, so a
-   *  bulk window can be answered while the per-branch question is not. */
+  /** Only a query that names a head fails: the stub's
+   *  `GH_FIXTURE_FAIL_HEAD`. A bulk window can still be answered, while the
+   *  per-branch question is not. */
   readonly failHead?: Error
 }
 
@@ -303,8 +306,8 @@ const filtered = (
  *
  * Precedence, highest first: {@link GhServerOptions.fail}, a sequence, a
  * single reply, the pull-request set, and then the unregistered endpoint's
- * throw. Each level is a different fact a test is stating, and a lower one
- * never silently overrides a higher one.
+ * throw. Each level states a different fact, and a lower level never
+ * silently overrides a higher one.
  */
 export function createGhServer(options: GhServerOptions = {}): GhClient {
   const base = createGhMock(options.replies ?? {})

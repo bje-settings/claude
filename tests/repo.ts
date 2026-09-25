@@ -1,9 +1,10 @@
 // Shared helpers for the TypeScript ports of tests/test_skills.py and
-// tests/test_repo_layout.py (RFC 001 decision 10), kept in one file because
-// both suites walk the same two directory trees. Node has no `rglob`, so the
-// walk is written by hand; `root` is a parameter on the two walking
-// functions, not a hardcoded global, so a test can exercise the filtering
-// logic against a synthetic temporary tree as well as against the real one.
+// tests/test_repo_layout.py (RFC 001 decision 10). They sit in one file
+// because both suites walk the same two directory trees. Node has no
+// `rglob`, so this file writes the walk by hand. `root` is a parameter on
+// the two walking functions, not a hardcoded global. So a test can run the
+// filter against a synthetic temporary tree, as well as against the real
+// one.
 import { type Dirent, existsSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
 import path from 'node:path'
 
@@ -16,13 +17,13 @@ export const PLUGINS = path.join(ROOT, 'plugins')
 export const REPO_SKILLS = path.join(ROOT, '.claude', 'skills')
 export const SKILL_ROOTS = [PLUGINS, REPO_SKILLS] as const
 
-// Recursively finds every file named `name` under `dir`. Directories are
-// descended without limit; anything else is compared by name. No try/catch:
-// a missing root is a real error here, exactly as Python's `Path.iterdir()`
-// raising on a missing directory was in the code this replaces. A caller for
-// whom a missing root is not an error (skillsUnder's `optional` argument)
-// checks existence itself before calling in, rather than this function
-// swallowing ENOENT for everyone.
+// This recursively finds every file named `name` under `dir`. It
+// descends into directories without limit; it compares anything else by
+// name. There is no try/catch, because a missing root is a real error
+// here. Python's `Path.iterdir()` also raised on a missing directory, in
+// the code this replaces. A caller for whom a missing root is not an
+// error (skillsUnder's `optional` argument) checks existence itself
+// before it calls in. This function does not swallow ENOENT for everyone.
 function findFilesNamed(dir: string, name: string): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -36,19 +37,20 @@ function findFilesNamed(dir: string, name: string): string[] {
   return found
 }
 
-// Rooted at a named directory and walked to any depth, exactly what the shell
-// spec this replaced did: `find "$ROOT/plugins" -path '*/skills/*' -name
-// SKILL.md`. Walking from the repository root instead would descend into
-// .claude/worktrees/, where a checkout of this same repository doubles every
-// skill and makes the count meaningless. That is also why the second root
-// is .claude/skills and never .claude: a fixed-depth glob would quietly stop
-// checking a skill the day someone groups them into subdirectories.
+// This is rooted at a named directory and walks to any depth. That is
+// exactly what the shell spec this replaced did: `find "$ROOT/plugins"
+// -path '*/skills/*' -name SKILL.md`. Walking from the repository root
+// instead would descend into .claude/worktrees/, where a checkout of this
+// same repository doubles every skill and makes the count meaningless.
+// This is also why the second root is .claude/skills, never .claude: a
+// fixed-depth glob would quietly stop checking a skill the day someone
+// groups them into subdirectories.
 //
-// Whether `root` is already a skills/ directory rather than one to search for
-// `skills/` subdirectories under. Pulled out of skillsUnder so a test can
-// drive both arms directly: REPO_SKILLS has held no skill since #128, so the
-// `true` arm can no longer be reached by calling skillsUnder on the real
-// constant.
+// `alreadyUnderSkills` says whether `root` is already a skills/ directory,
+// rather than one to search for `skills/` subdirectories under. This is
+// pulled out of skillsUnder so a test can drive both arms directly.
+// REPO_SKILLS has held no skill since #128, so the `true` arm can no
+// longer be reached by a call to skillsUnder on the real constant.
 export function filterUnderSkillsDir(
   files: string[],
   root: string,
@@ -64,11 +66,12 @@ export function filterUnderSkillsDir(
   })
 }
 
-// `optional` is for a root allowed to not exist at all: git does not track an
-// empty directory, so REPO_SKILLS disappears from the checkout the moment its
-// last skill is deleted, which is the state #128 leaves it in. That is "no
-// repo-local skills", not an error, so it yields `[]` rather than throwing.
-// PLUGINS is never optional: a missing plugins/ is a real error.
+// `optional` is for a root allowed not to exist at all. Git does not
+// track an empty directory, so REPO_SKILLS disappears from the checkout
+// the moment its last skill is deleted, the state #128 leaves it in. That
+// is "no repo-local skills," not an error, so this function returns `[]`
+// instead of throwing. PLUGINS is never optional: a missing plugins/ is a
+// real error.
 export function skillsUnder(root: string, optional = false): string[] {
   if (optional && !existsSync(root)) return []
   const files = findFilesNamed(root, 'SKILL.md').sort()
@@ -84,11 +87,12 @@ export function skillFiles(): string[] {
 }
 
 // Directories directly under `root` (PLUGINS by default) that carry a
-// manifest, ported from test_repo_layout.py's plugin_dirs(). A directory
-// without .claude-plugin/ is not a plugin; a directory whose .claude-plugin
-// entry exists but is not itself a directory (a stray file with that name)
-// is not one either. `root` is a parameter, defaulted to PLUGINS, so the
-// filter can be exercised against a synthetic tree as well as the real one.
+// manifest. This is ported from test_repo_layout.py's plugin_dirs(). A
+// directory without .claude-plugin/ is not a plugin. A directory whose
+// .claude-plugin entry exists, but is not itself a directory (a stray file
+// with that name), is not one either. `root` is a parameter, defaulted to
+// PLUGINS, so a test can run the filter against a synthetic tree, as well
+// as the real one.
 export function pluginDirs(root: string = PLUGINS): string[] {
   const dirs: string[] = []
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -106,31 +110,33 @@ export function rel(p: string): string {
   return path.relative(ROOT, p)
 }
 
-// The symlink every plugin that needs the root lib carries, written exactly
-// as it must appear: `plugins/<p>/src/lib -> ../../../lib` (ADR 001, RFC 001
-// decision 4). The target is compared as a string rather than resolved,
-// because it is the string Claude Code's installer classifies: a link into
-// the same marketplace is dereferenced into the cache copy, and a link
-// resolving outside it is skipped. A second spelling that happens to resolve
-// to the same directory would install differently.
+// The symlink every plugin that needs the root lib carries, written
+// exactly as it must appear: `plugins/<p>/src/lib -> ../../../lib` (ADR
+// 001, RFC 001 decision 4). This compares the target as a string, not
+// resolved, because Claude Code's installer classifies the string itself.
+// A link into the same marketplace is dereferenced into the cache copy,
+// and a link that resolves outside it is skipped. A second spelling that
+// happens to resolve to the same directory would install differently.
 export const LIB_LINK_TARGET = path.join('..', '..', '..', 'lib')
 
-// Relative import specifiers, read lexically rather than parsed. Python's
-// `ast` gave test_repo_layout.py a real parse for free; node has no parser in
-// its standard library, and the dependency rule is that this repository's own
-// tooling takes none. The trade is deliberate: a specifier written inside a
-// comment or a string is read as an import here, which is a false positive a
-// contributor can see and rephrase, where a parser-shaped miss would be a
-// rule that silently stopped holding.
-// All three delimiters, with a backreference so the closing one matches the
-// opening one: a template literal is how `await import(`...`)` is often
-// written, and reading only the two quote characters would be exactly the
-// parser-shaped miss this comment says the lexical trade avoids. `require` is
-// in the alternation for the same reason: reached through `createRequire` it
-// loads a module out of the plugin exactly as `import` does. `\b` keeps
-// `createRequire` itself out, and `import.meta.resolve` and
-// `new URL(..., import.meta.url)` stay out on purpose, since they compute a
-// path and load nothing, and no lexical rule can follow path arithmetic.
+// Relative import specifiers, read lexically, not parsed. Python's `ast`
+// gave test_repo_layout.py a real parse for free. Node has no parser in
+// its standard library, and the dependency rule says this repository's
+// own tooling takes none. The trade is deliberate: a specifier written
+// inside a comment or a string reads as an import here. That is a false
+// positive a contributor can see and rephrase. A parser-shaped miss would
+// instead be a rule that silently stopped holding.
+//
+// This regex has all three delimiters, with a backreference so the
+// closing one matches the opening one. A template literal is how
+// `await import(`...`)` is often written, and a check of only the two
+// quote characters would be exactly the parser-shaped miss the paragraph
+// above warns against. `require` is in the alternation for the same
+// reason: reached through `createRequire`, it loads a module out of the
+// plugin exactly as `import` does. `\b` keeps `createRequire` itself out.
+// `import.meta.resolve` and `new URL(..., import.meta.url)` stay out on
+// purpose, since they compute a path and load nothing, and no lexical
+// rule can follow path arithmetic.
 const IMPORT = /\b(?:from|import|require)\s*\(?\s*(['"`])([^'"`]+)\1/g
 
 function relativeImports(file: string): string[] {
@@ -146,10 +152,10 @@ function relativeImports(file: string): string[] {
   return found
 }
 
-// Every `.ts` file under `dir`, at any depth. A symlink is neither descended
-// nor collected: `src/lib` is a directory of the root lib's files, and
-// walking into it would report the shared library's own imports as the
-// plugin's.
+// Every `.ts` file under `dir`, at any depth. This function neither
+// descends into a symlink nor collects it. `src/lib` is a directory of
+// the root lib's files, and a walk into it would report the shared
+// library's own imports as the plugin's.
 function tsFilesUnder(dir: string): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -167,10 +173,11 @@ function isInside(dir: string, target: string): boolean {
   return target.startsWith(dir + path.sep)
 }
 
-// The one entry named `name` directly inside `dir`, or undefined. Read from a
-// listing rather than by stat-ing the path, so a link whose target does not
-// exist is still seen: a wrong symlink target is exactly what this checks for,
-// and an existence test would skip the case it exists to catch.
+// The one entry named `name` directly inside `dir`, or undefined. This
+// reads from a directory listing, instead of a stat call on the path. So
+// a link whose target does not exist is still visible. A wrong symlink
+// target is exactly what this function checks for, and an existence test
+// would skip the very case it exists to catch.
 function childEntry(dir: string, name: string): Dirent | undefined {
   return readdirSync(dir, { withFileTypes: true }).find((entry) => entry.name === name)
 }
@@ -179,19 +186,21 @@ function childEntry(dir: string, name: string): Dirent | undefined {
  * Relative imports that leave the plugin they are written in.
  *
  * ADR 001: the `src/lib` symlink is the only path out of a plugin, and
- * nothing else imports across a plugin boundary. An import through `src/lib`
- * passes without a special case, because the link is a directory inside the
- * plugin and the specifier resolves inside it; an import that reaches the
- * root `lib/` by `../../../lib` does not, and that is the point, since the
- * installed copy of a plugin has no such path.
+ * nothing else imports across a plugin boundary. An import through
+ * `src/lib` passes without a special case, because the link is a
+ * directory inside the plugin, and the specifier resolves inside it. An
+ * import that reaches the root `lib/` by `../../../lib` does not pass;
+ * that is the point, since the installed copy of a plugin has no such
+ * path.
  *
- * A test file may additionally import `harness/`, which is where the shared
- * harness lives and which never ships (ADR 001, RFC 001 decision 10).
+ * A test file may additionally import `harness/`, which is where the
+ * shared harness lives, and which never ships (ADR 001, RFC 001 decision
+ * 10).
  *
- * `root` is a parameter, defaulted to PLUGINS, so the rule is exercised
- * against synthetic trees as well as against the real one: no plugin carries
- * the symlink until #126, so against this repository alone every branch below
- * would stay unrun.
+ * `root` is a parameter, defaulted to PLUGINS, so a test can run the rule
+ * against synthetic trees, as well as against the real one. No plugin
+ * carries the symlink until #126, so against this repository alone,
+ * every branch below would stay unrun.
  */
 export function crossPluginImports(root: string = PLUGINS): string[] {
   const harness = path.join(path.dirname(root), 'harness')
@@ -213,25 +222,28 @@ export function crossPluginImports(root: string = PLUGINS): string[] {
 /**
  * Every `plugins/<p>/src/lib` that is not the committed symlink.
  *
- * A plugin with no `src/lib` is not a violation: a plugin needs the root lib
- * only when it imports it. A plugin that has one must reach it the way the
- * installer understands, because a real directory there would be a second
- * copy of the shared library, and any other link target is the case the
- * three-way rule skips rather than dereferences (ADR 001).
+ * A plugin with no `src/lib` is not a violation. A plugin needs the root
+ * lib only when it imports it. A plugin that has one must reach it the way
+ * the installer understands. A real directory there would be a second
+ * copy of the shared library. Any other link target is the case the
+ * three-way rule skips, rather than dereferences (ADR 001).
  */
 export function libLinkViolations(root: string = PLUGINS): string[] {
   const violations: string[] = []
   for (const plugin of pluginDirs(root)) {
     const where = path.relative(root, plugin)
-    // Followed rather than read from the listing, which is the one place in
-    // this file that wants `stat` semantics: a `src` that is itself a symlink
-    // must be looked through, since skipping it would let a plugin hide a real
-    // copy of the shared library one link away from where the rule looks. A
-    // listing entry answers from `lstat` and would report such a `src` as
-    // neither a directory nor a file. Everything that is not a directory once
-    // followed, including a link pointing at nothing or at a file, is the same
-    // "no src here" as a plugin that has none: asking `readdirSync` about it
-    // would abort the whole rule with an fs error instead of reporting.
+    // This call follows the link, instead of reading it from the listing.
+    // This is the one place in this file that wants `stat` semantics. A
+    // `src` that is itself a symlink must be followed through, since a
+    // skip would let a plugin hide a real copy of the shared library one
+    // link away from where the rule looks. A listing entry answers from
+    // `lstat`, and would report such a `src` as neither a directory nor a
+    // file.
+    //
+    // Once followed, anything that is not a directory, including a link
+    // that points at nothing or at a file, is the same "no src here" as a
+    // plugin that has none. A call to `readdirSync` on it would abort the
+    // whole rule with an fs error, instead of a clean report.
     if (statSync(path.join(plugin, 'src'), { throwIfNoEntry: false })?.isDirectory() !== true) {
       continue
     }
@@ -250,22 +262,24 @@ export function libLinkViolations(root: string = PLUGINS): string[] {
 }
 
 /**
- * Every plugin carrying a top-level `bin/` directory.
+ * Every plugin that carries a top-level `bin/` directory.
  *
- * claude.ai refuses such a plugin outright, by marketplace sync and by direct
- * upload alike, so one `bin/` makes the plugin undistributable through
- * organization settings; the directory is also added to the Bash tool's
- * `PATH` while the plugin is enabled. The entry point lives in `scripts/`
- * instead (RFC 001 decision 16, #185, `.claude/rules/type-ts.md`).
+ * claude.ai refuses such a plugin outright, by marketplace sync and by
+ * direct upload alike. So one `bin/` makes the plugin undistributable
+ * through organization settings. The directory is also added to the Bash
+ * tool's `PATH` while the plugin is enabled. The entry point lives in
+ * `scripts/` instead (RFC 001 decision 16, #185,
+ * `.claude/rules/type-ts.md`).
  *
- * This is the rule here whose failure mode is furthest from a red test: a
- * reintroduced `bin/` breaks nothing in this repository and is refused later,
- * on a machine that is not this one, by a service no test can ask.
+ * This is the rule here whose failure mode sits furthest from a red test.
+ * A reintroduced `bin/` breaks nothing in this repository. It is refused
+ * later, on a machine that is not this one, by a service no test can ask.
  *
- * Followed rather than read from the listing, for the reason
- * `libLinkViolations` gives above: a link to a directory is dereferenced into
- * the cache copy and installs as a directory, so it is the same violation,
- * while a link pointing at nothing or at a file is not one.
+ * This follows the link, instead of reading it from the listing, for the
+ * reason `libLinkViolations` gives above. A link to a directory is
+ * dereferenced into the cache copy and installs as a directory, so it is
+ * the same violation. A link that points at nothing or at a file is not
+ * one.
  */
 export function binDirectories(root: string = PLUGINS): string[] {
   const violations: string[] = []

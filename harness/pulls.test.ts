@@ -1,13 +1,13 @@
-// The row builders' and the server's own claims, asserted here the way the gh
-// plugin's Python fixture test asserted the Python fixtures' before it was
-// deleted at #127: a builder that quietly stopped producing its state, or a
-// filter that quietly stopped filtering, would make every test built on it
-// pass for the wrong reason.
+// The row builders' and the server's own claims. These are asserted here
+// the way the gh plugin's Python fixture test asserted the Python
+// fixtures', before it was deleted at #127. A builder that quietly stopped
+// producing its state, or a filter that quietly stopped filtering, would
+// make every test built on it pass for the wrong reason.
 //
 // The Python this ports, `tests/gh/conftest.py` and the stub `gh` at
-// `tests/gh/bin/gh`, was deleted at #127; the file and line references below
-// are to what they held at `cd0d515`, kept because they say where each rule
-// came from.
+// `tests/gh/bin/gh`, was deleted at #127. The file and line references
+// below point to what they held at `cd0d515`, kept because they say where
+// each rule came from.
 import { expect, it } from 'vitest'
 import { createGhMock, GhError, ghFails } from './gh.ts'
 import {
@@ -219,9 +219,9 @@ it('reads a row with no state at all as merged, the way the stub did', async () 
 })
 
 it('reads a row whose state is the empty string as merged, the way `or` did', async () => {
-  // `r.get("state") or "MERGED"` in `tests/gh/bin/gh:212` is truthiness: a
+  // `r.get("state") or "MERGED"` in `tests/gh/bin/gh:212` is truthiness. A
   // `??` here would answer the empty string and drop the row from every
-  // listing, which is a filter disagreeing with the gh it stands in for.
+  // listing. That filter would disagree with the gh it stands in for.
   const gh = createGhServer({ prs: [{ headRefName: 'a', baseRefName: 'main', state: '' }] })
 
   await expect(gh.listPullRequests({ state: 'merged' })).resolves.toHaveLength(1)
@@ -341,8 +341,8 @@ it('answers a sequence in order and then repeats its last entry', async () => {
 
   await expect(gh.viewPullRequest({ pullRequest: 1 })).resolves.toMatchObject({ state: 'OPEN' })
   await expect(gh.viewPullRequest({ pullRequest: 1 })).resolves.toMatchObject({ state: 'MERGED' })
-  // The poll that runs one read longer reads the settled answer rather than
-  // falling off the end of the sequence.
+  // The poll that runs one read longer reads the settled answer. It does
+  // not run off the end of the sequence.
   await expect(gh.viewPullRequest({ pullRequest: 1 })).resolves.toMatchObject({ state: 'MERGED' })
 })
 
