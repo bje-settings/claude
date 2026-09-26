@@ -169,12 +169,13 @@ it('reads a field that is not the shape it asked for as unreadable', async () =>
             r1: { ...node(0, 0), merged: { nodes: 'none' } },
             r2: 'not a node',
             r3: { ...node(0, 0), merged: { nodes: [null] } },
+            r4: { ...node(0, 0), merged: { nodes: [{ headRefName: 'x', headRefOid: 'y' }] } },
           },
         }),
       }),
   })
 
-  const answer = await gh.repositoryStatus(['acme/a', 'acme/b', 'acme/c', 'acme/d'], {
+  const answer = await gh.repositoryStatus(['acme/a', 'acme/b', 'acme/c', 'acme/d', 'acme/e'], {
     boundMs: 1_000,
   })
 
@@ -185,6 +186,7 @@ it('reads a field that is not the shape it asked for as unreadable', async () =>
       'acme/a': { alerts: null, dependencies: null, mergedPullRequests: null },
       'acme/b': { alerts: 0, dependencies: 0, mergedPullRequests: null },
       'acme/d': { alerts: 0, dependencies: 0, mergedPullRequests: null },
+      'acme/e': { alerts: 0, dependencies: 0, mergedPullRequests: null },
     },
     unavailable: null,
   })
