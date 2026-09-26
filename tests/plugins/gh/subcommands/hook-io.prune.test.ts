@@ -224,6 +224,8 @@ it('does not count the default branch because a tag shares its name', async () =
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   rig.git.git(work, 'tag', 'main')
   rig.git.git(work, 'config', 'branch.main.merge', 'refs/heads/gone-main')
+  // Off `main`, so only the default-branch rule can keep it out.
+  rig.git.git(work, 'checkout', '-q', '-b', 'side')
 
   expect(await pruneOf(rig, work)).toBe(0)
 })
