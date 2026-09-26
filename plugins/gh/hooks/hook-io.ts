@@ -52,7 +52,7 @@ if (meetsNodeFloor(process.version)) {
   }
 } else {
   process.stdout.write(
-    `${JSON.stringify({ systemMessage: `\ngh: ${belowFloorMessage(process.version)}` })}\n`,
+    `${JSON.stringify({ systemMessage: `\ngh: ⚠️ ${belowFloorMessage(process.version)}` })}\n`,
   )
   process.exitCode = 0
 }

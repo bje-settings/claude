@@ -377,24 +377,24 @@ gh: ⚠️ GitHub CLI (gh) not found on PATH
 ```
 
 The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for each missing tool. The
-hook also writes `hookSpecificOutput.additionalContext`, naming the absent tools and saying the
-plugin cannot run, so the model does not start work that will fail. With every tool present,
-there is no `additionalContext` at all.
+hook also writes `hookSpecificOutput.additionalContext`. It states which tools are absent and
+that the plugin cannot run. The model then does not start work that will fail. With every tool
+present, there is no `additionalContext` at all.
 
 The hook never changes a branch, worktree, or working tree. The fetch changes only
 remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.
 
-When node is not on PATH at all, `hooks.json`'s own command string writes the alert, since no
-script can run to report that:
+When node is not on PATH at all, `hooks.json`'s own command string writes the alert. No script
+can run to report that:
 
 ```
-gh: node not found on PATH
+gh: ⚠️ node not found on PATH
 ```
 
-Below the node floor, the hook itself writes one line naming the floor, then exits 0:
+Below the node floor, the hook writes one line with the floor name, then exits 0:
 
 ```
-gh: node "v20.19.0" is below the floor: 22.18.0 or newer.
+gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.
 ```
 
 The hook is `hooks/hook-io.ts`. To see the lines by hand, run it with `status`:

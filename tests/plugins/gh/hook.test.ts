@@ -80,7 +80,7 @@ it('writes one line naming the floor when node is below it, and exits 0 (#245)',
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(
-    '{"systemMessage":"\\ngh: node \\"v20.19.0\\" is below the floor: 22.18.0 or newer."}\n',
+    '{"systemMessage":"\\ngh: ⚠️ node \\"v20.19.0\\" is below the floor: 22.18.0 or newer."}\n',
   )
   expect(result.stderr).toBe('')
 })
@@ -227,8 +227,9 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
   // expansion, not a TypeScript template.
   const expansion = `$${'{'}CLAUDE_PLUGIN_ROOT}`
   expect(entries[0]?.hooks.map((hook) => hook.command)).toEqual([
-    `command -v node >/dev/null 2>&1 && node "${expansion}/hooks/hook-io.ts" session-start || ` +
-      `printf '{"systemMessage":"\\\\ngh: node not found on PATH"}\\n'; exit 0`,
+    'if ! command -v node >/dev/null 2>&1; then ' +
+      `printf '{"systemMessage":"\\\\ngh: ⚠️ node not found on PATH"}\\n'; exit 0; fi; ` +
+      `node "${expansion}/hooks/hook-io.ts" session-start; exit 0`,
   ])
   // Well under the hook's own 3 s ceiling (`.claude/rules/_design-principles.md`).
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([3])
@@ -249,6 +250,24 @@ it('writes the node-missing alert itself, straight from the command string', () 
   })
 
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe('{"systemMessage":"\\ngh: node not found on PATH"}\n')
+  expect(result.stdout).toBe('{"systemMessage":"\\ngh: ⚠️ node not found on PATH"}\n')
   expect(result.stderr).toBe('')
+})
+
+it('does not claim node is missing when node runs but fails for another reason', () => {
+  // Node is on `PATH` here. `CLAUDE_PLUGIN_ROOT` is not set, so the real
+  // command resolves to a path with no file at it, and node itself exits
+  // non-zero. The command must not read that as "node not found": the
+  // `if` guard checks `command -v node` on its own, once, before it ever
+  // runs node.
+  const rig = createRig()
+
+  const result = runScript(path.join(FIXTURES, 'run-shell-command.ts'), {
+    args: [HOOKS_JSON],
+    env: rig.sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toContain('Cannot find module')
 })
