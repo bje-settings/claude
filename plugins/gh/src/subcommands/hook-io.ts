@@ -22,16 +22,18 @@
 // line to stderr and exits 2. `hooks.json`'s `; exit 0` absorbs that status.
 import { accessSync, constants, statSync } from 'node:fs'
 import path from 'node:path'
-
 import { discoverRepos } from '../discover.ts'
+import { absentDependencies, type Dependency } from '../lib/dependencies.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
+import { emit as libEmit } from '../lib/hook-output.ts'
 import type { Output } from '../lib/streams.ts'
 import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
 
 /** The time the whole check may take, in milliseconds. `hooks.json` gives
- *  the hook 10 seconds, so the line still arrives when the check runs out. */
-export const DEADLINE_MS = 5_000
+ *  the hook 3 seconds (`.claude/rules/_design-principles.md`), and this
+ *  stays well under it, so the line still arrives when the check runs out. */
+export const DEADLINE_MS = 2_500
 
 export const USAGE = 'usage: hook-io.ts {session-start|status [dir]}\n'
 
@@ -101,19 +103,29 @@ export const statusLine = (counts: StatusCounts, repoCount: number): string | nu
   return `${PREFIX} ${items.join(' ')}`
 }
 
-/** The tools the hook needs, in the order their lines show. The hook
- *  checks each one, so this is the only list. */
-const TOOLS = ['git', 'gh'] as const
-
-/** A tool the hook needs. */
-type Tool = (typeof TOOLS)[number]
-
-/** The name the line gives each tool. A tool with no name here, or a name
- *  for a tool that is not in {@link TOOLS}, does not compile. */
-const TOOL_NAMES: Readonly<Record<Tool, string>> = { git: 'git', gh: 'GitHub CLI (gh)' }
+/** The tools the hook needs, in the order their lines show
+ *  (`.claude/rules/_design-principles.md`, "Dependencies outside a
+ *  plugin"). `lib/dependencies.ts` checks this table; no plugin keeps its
+ *  own copy of the check. */
+const DEPENDENCIES: readonly Dependency[] = [
+  { tool: 'git', label: 'git' },
+  { tool: 'gh', label: 'GitHub CLI (gh)' },
+]
 
 /** The line for one problem. */
 const problemLine = (problem: string): string => `${PREFIX} ⚠️ ${problem}`
+
+/**
+ * The `additionalContext` for `absent`. It names the absent items and
+ * says the plugin cannot run, so the model does not start work that will
+ * fail (`.claude/rules/path-hooks.md`). The one caller checks `absent` is
+ * not empty first, so this does not carry that branch a second time.
+ */
+const dependencyContext = (absent: readonly Dependency[]): string => {
+  const labels = absent.map((dependency) => dependency.label).join(', ')
+  const verb = absent.length === 1 ? 'is' : 'are'
+  return `${labels} ${verb} absent. The gh plugin cannot run.`
+}
 
 /**
  * The kinds of failure, in the order of their problem lines. `words` is
@@ -205,33 +217,20 @@ export const githubRepository = (url: string): string | null => {
   return match === null ? null : `${match[1]}/${match[2]}`.toLowerCase()
 }
 
+/** The plugin prefix `lib/hook-output.ts` colours and tests, with no
+ *  trailing colon: `${PLUGIN_PREFIX}:` is {@link PREFIX}. */
+const PLUGIN_PREFIX = 'gh'
+
 /** The response `session-start` writes: one JSON document on one line. The
  *  line goes in `systemMessage`, which the CLI shows to the user. The CLI
  *  puts a `SessionStart:<source> says:` label before it. So the message
- *  starts with a newline, and `gh:` starts a line of its own. There is no
- *  `additionalContext`, so the model gets nothing from this hook
- *  (`.claude/rules/path-hooks.md`). */
-export const emit = (line: string): string =>
-  `${JSON.stringify({ systemMessage: `\n${line.split('\n').map(colour).join('\n')}` })}\n`
-
-/** SGR codes. The CLI keeps them in `systemMessage`. */
-const SGR = {
-  bold: '\u001b[1m',
-  normal: '\u001b[22m',
-  cyan: '\u001b[36m',
-  yellow: '\u001b[33m',
-  reset: '\u001b[0m',
-} as const
-
-/** One line of the message, in colour, with `gh:` in bold. A problem line
- *  is yellow and the status line is cyan. A line with no `gh:` prefix
- *  stays plain. Only `session-start` adds colour, so `status` output stays
- *  plain. */
-export const colour = (line: string): string => {
-  if (!line.startsWith(`${PREFIX} `)) return line
-  const tint = line.startsWith(`${PREFIX} ⚠️ `) ? SGR.yellow : SGR.cyan
-  return `${tint}${SGR.bold}${PREFIX}${SGR.normal}${line.slice(PREFIX.length)}${SGR.reset}`
-}
+ *  starts with a newline, and `gh:` starts a line of its own.
+ *  `additionalContext`, when given, reaches the model as well
+ *  (`.claude/rules/path-hooks.md`). `emit` and the colouring moved to
+ *  `lib/hook-output.ts` (round 10 plan, ruling P1), so a later hook uses
+ *  them with no copy of its own. */
+export const emit = (line: string, additionalContext?: string): string =>
+  libEmit(PLUGIN_PREFIX, line, additionalContext)
 
 /**
  * The `cwd` field of a SessionStart payload, or `""` when there is none to
@@ -623,18 +622,29 @@ const causeOf = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** What {@link checkStatus} answers: the lines to write, and the
+ *  `additionalContext` to write beside them, set only when a dependency
+ *  is absent (#243). */
+interface Status {
+  readonly line: string
+  readonly additionalContext?: string
+}
+
 /**
- * The lines for `target`, or `null` when there is nothing to show: the
+ * {@link Status} for `target`, or `null` when there is nothing to show: the
  * status line, then one problem line for each kind of failure. Each failure
  * also goes to stderr, one line each. A missing tool stops every check, and
  * each missing tool gets a problem line of its own instead.
  */
-const checkStatus = async (target: string, edges: HookEdges): Promise<string | null> => {
-  const missing = TOOLS.filter((tool) => which(tool, edges.env) === null)
-  if (missing.length > 0) {
-    const problems = missing.map((tool) => `${TOOL_NAMES[tool]} not found on PATH`)
+const checkStatus = async (target: string, edges: HookEdges): Promise<Status | null> => {
+  const absent = absentDependencies(DEPENDENCIES, (tool) => which(tool, edges.env) !== null)
+  if (absent.length > 0) {
+    const problems = absent.map((dependency) => `${dependency.label} not found on PATH`)
     for (const problem of problems) edges.output.err.write(`${problem}\n`)
-    return problems.map(problemLine).join('\n')
+    return {
+      line: problems.map(problemLine).join('\n'),
+      additionalContext: dependencyContext(absent),
+    }
   }
   const env = scrubRepositoryEnv(edges.env)
   const started = Date.now()
@@ -715,7 +725,7 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<string | n
   for (const failure of failures) edges.output.err.write(`${failure.line}\n`)
   const status = statusLine(tally, checkouts.length)
   const lines = [...(status === null ? [] : [status]), ...problemLines(failures, roots.length > 1)]
-  return lines.length === 0 ? null : lines.join('\n')
+  return lines.length === 0 ? null : { line: lines.join('\n') }
 }
 
 /**
@@ -737,13 +747,13 @@ export const runHookIo = async (argv: readonly string[], edges: HookEdges): Prom
   if (mode === 'session-start' && argv.length === 1) {
     const stated = payloadCwd(await readPayload(edges))
     const cwd = stated !== '' && isDirectory(stated) ? stated : edges.cwd()
-    const line = await checkStatus(cwd, edges)
-    if (line !== null) edges.output.out.write(emit(line))
+    const status = await checkStatus(cwd, edges)
+    if (status !== null) edges.output.out.write(emit(status.line, status.additionalContext))
     return 0
   }
   if (mode === 'status' && argv.length <= 2) {
-    const line = await checkStatus(dir ?? edges.cwd(), edges)
-    if (line !== null) edges.output.out.write(`${line}\n`)
+    const status = await checkStatus(dir ?? edges.cwd(), edges)
+    if (status !== null) edges.output.out.write(`${status.line}\n`)
     return 0
   }
   edges.output.err.write(USAGE)

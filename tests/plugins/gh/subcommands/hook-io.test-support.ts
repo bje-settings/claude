@@ -163,17 +163,29 @@ export const statusOf = (
 const PROBLEM = 'gh: ⚠️ '
 
 /**
- * The #230 acceptance rule for one run of `session-start`: nothing, or one
- * JSON document on one line, with `systemMessage` and no `additionalContext`
- * at all. `systemMessage` starts with a newline, then at most one status line. Each other
- * line is a problem line, and no kind of problem shows twice.
+ * The #230 and #243 acceptance rule for one run of `session-start`:
+ * nothing, or one JSON document on one line, with `systemMessage` and,
+ * only when a dependency is absent, a `hookSpecificOutput.additionalContext`
+ * beside it. `systemMessage` starts with a newline, then at most one status
+ * line. Each other line is a problem line, and no kind of problem shows
+ * twice.
  */
 export const expectStatusLines = (stdout: string): void => {
   if (stdout === '') return
   expect(stdout.endsWith('\n')).toBe(true)
   expect(stdout.slice(0, -1)).not.toContain('\n')
   const body = JSON.parse(stdout) as Record<string, unknown>
-  expect(Object.keys(body)).toEqual(['systemMessage'])
+  expect(Object.keys(body).sort()).toEqual(
+    Object.keys(body).includes('hookSpecificOutput')
+      ? ['hookSpecificOutput', 'systemMessage']
+      : ['systemMessage'],
+  )
+  if ('hookSpecificOutput' in body) {
+    expect(body.hookSpecificOutput).toMatchObject({ hookEventName: 'SessionStart' })
+    expect(typeof (body.hookSpecificOutput as Record<string, unknown>).additionalContext).toBe(
+      'string',
+    )
+  }
   expect(typeof body.systemMessage).toBe('string')
   expect(body.systemMessage).toMatch(/^\n/)
   // Colour codes wrap each line; the shape is checked on the text inside them.

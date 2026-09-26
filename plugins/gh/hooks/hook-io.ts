@@ -17,7 +17,14 @@
 // the `try` block, on purpose. A failure in an `await import`, or in
 // `createOutput`, is outside the `try` block and exits non-zero. Neither
 // writes to stdout, and `hooks.json`'s `; exit 0` absorbs both statuses.
-import { meetsNodeFloor } from '../src/lib/node-floor.ts'
+//
+// **Below the floor, this writes one line and exits 0 (#245).** A
+// `SessionStart` hook runs once, not on every tool call, so it may say so
+// where a per-tool-call hook must stay silent. `belowFloorMessage` builds
+// the line; this writes the `systemMessage` JSON itself, with no colour
+// and no further import, so the write cannot depend on a module graph the
+// runtime below the floor might not load.
+import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
   const { createOutput, readStdinText } = await import('../src/lib/streams.ts')
@@ -43,4 +50,9 @@ if (meetsNodeFloor(process.version)) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
     process.exitCode = 0
   }
+} else {
+  process.stdout.write(
+    `${JSON.stringify({ systemMessage: `\ngh: ${belowFloorMessage(process.version)}` })}\n`,
+  )
+  process.exitCode = 0
 }

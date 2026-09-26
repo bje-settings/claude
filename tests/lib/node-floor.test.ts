@@ -13,7 +13,13 @@
 // the module computes it.
 import { describe, expect, it } from 'vitest'
 
-import { assertNodeFloor, meetsNodeFloor, NODE_FLOOR, NodeFloorError } from '#lib/node-floor.ts'
+import {
+  assertNodeFloor,
+  belowFloorMessage,
+  meetsNodeFloor,
+  NODE_FLOOR,
+  NodeFloorError,
+} from '#lib/node-floor.ts'
 
 // The `v` prefix is here because that is the shape `process.version` has.
 // The bare spelling is here too, because a version read from anywhere else
@@ -110,5 +116,21 @@ describe('assertNodeFloor', () => {
     expect(() => {
       assertNodeFloor('banana')
     }).toThrow(/"banana"/)
+  })
+})
+
+describe('belowFloorMessage', () => {
+  // This is the shape a `SessionStart` hook needs (#245): a line for
+  // `systemMessage`, naming the version running and the floor it must
+  // meet. Unlike `assertNodeFloor`, this never throws: the hook must not
+  // read the below-floor case as an exception to catch.
+  it('names the running version and the floor, both quoted the same way', () => {
+    expect(belowFloorMessage('v22.17.1')).toBe(
+      'node "v22.17.1" is below the floor: 22.18.0 or newer.',
+    )
+  })
+
+  it('quotes an unreadable version the same way, with the floor', () => {
+    expect(belowFloorMessage('banana')).toBe('node "banana" is below the floor: 22.18.0 or newer.')
   })
 })
