@@ -621,3 +621,126 @@ it('answers about its own directory when no directory is named', async () => {
 
   expect(ran).toEqual({ status: 0, stdout: 'gh: [behind]\n', stderr: '' })
 })
+
+it('shows the first line of a cause, with no fatal: at its start', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const PATH = wrappedGit(
+    rig,
+    'bin-fetch',
+    "  fetch*) echo 'fatal: could not read from remote' >&2; echo 'second line' >&2; exit 128 ;;",
+  )
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  expect(ran.stdout).toBe('gh: ⚠️ fetch failed: could not read from remote\n')
+  expect(ran.stderr).toBe(
+    `${realpathSync(work)}: git fetch failed: fatal: could not read from remote second line\n`,
+  )
+})
+
+it('cuts a long cause at 80 characters', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const long = 'x'.repeat(100)
+  const PATH = wrappedGit(rig, 'bin-fetch', `  fetch*) echo '${long}' >&2; exit 128 ;;`)
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  expect(ran.stdout).toBe(`gh: ⚠️ fetch failed: ${'x'.repeat(80)}\n`)
+  expect(ran.stderr).toBe(`${realpathSync(work)}: git fetch failed: ${long}\n`)
+})
+
+it('shows no cause when the failure came with no message', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const PATH = wrappedGit(rig, 'bin-fetch', '  fetch*) exit 1 ;;')
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  expect(ran.stdout).toBe('gh: ⚠️ fetch failed\n')
+  expect(ran.stderr).toBe(`${realpathSync(work)}: git fetch failed: \n`)
+})
+
+it('shows the cause of the first of the joined GitHub reasons', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+
+  const ran = await statusOf(
+    rig,
+    work,
+    createGhMock({
+      repositoryStatus: {
+        repositories: {},
+        unavailable: 'gh: Bad credentials (HTTP 401); gh: Bad credentials (HTTP 401)',
+      },
+    }),
+  )
+
+  expect(ran.stdout).toBe('gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)\n')
+})
+
+it('shows the message of an error GitHub threw with no account of its own', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const throwing: GhClient = {
+    ...createGhMock(),
+    repositoryStatus: () => Promise.reject(new Error('socket hang up')),
+  }
+
+  const ran = await statusOf(rig, work, throwing)
+
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ GitHub request failed: socket hang up\n',
+    stderr: 'GitHub: Error: socket hang up\n',
+  })
+})
+
+it('shows a thrown value that is not an error as it is', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const throwing: GhClient = {
+    ...createGhMock(),
+    repositoryStatus: () => Promise.reject('refused'),
+  }
+
+  const ran = await statusOf(rig, work, throwing)
+
+  expect(ran.stdout).toBe('gh: ⚠️ GitHub request failed: refused\n')
+})
+
+it('shows one line for each kind in a folder, with how many repositories it hit', async () => {
+  const rig = createRig()
+  const folder = rig.sandbox.join('folder')
+  for (const name of ['a', 'b', 'c']) onGitHub(rig, rig.git.createAt(folder, name), `acme/${name}`)
+  const PATH = wrappedGit(rig, 'bin-fetch', "  fetch*) echo 'fatal: no route' >&2; exit 128 ;;")
+
+  const ran = await statusOf(
+    rig,
+    folder,
+    createGhMock({
+      repositoryStatus: {
+        repositories: {
+          'acme/a': { ...side(), alerts: null },
+          'acme/b': { ...side(), alerts: null },
+        },
+        unavailable: null,
+      },
+    }),
+    { env: { ...rig.sandbox.env, PATH } },
+  )
+
+  expect(ran.stdout).toBe(
+    'gh: ⚠️ fetch failed in 3 repos: no route\n' +
+      'gh: ⚠️ GitHub gave no answer in 1 repo\n' +
+      'gh: ⚠️ alerts could not be read in 2 repos\n',
+  )
+  expect(ran.stderr.split('\n')).toHaveLength(7)
+})
