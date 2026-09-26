@@ -439,6 +439,16 @@ it('answers --help in the second position, ahead of the too-many-arguments refus
   expect(result.stdout).toBe(`${HELP}\n`)
 })
 
+it('answers --help in the third position too, ahead of the too-many-arguments refusal', async () => {
+  // Three arguments alone are "one label per run" (refuse, exit 2). Help
+  // must still win: the loop that looks for it runs over every position,
+  // before the length check that would otherwise refuse this line.
+  const result = await drive((_sandbox, repo) => ({ argv: [repo, 'dependencies', '--help'] }))
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(`${HELP}\n`)
+})
+
 it('exits 1 when the open window saturates, and names the fix', async () => {
   // A repository with more open pull requests than the limit would
   // silently drop the oldest rows. `manyPrs`'s rows are MERGED, so this

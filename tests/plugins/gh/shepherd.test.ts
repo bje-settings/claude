@@ -570,6 +570,18 @@ describe('statusDocument', () => {
     expect(document.targets).toEqual([])
   })
 
+  it('reads autoMergeRequest by presence, not by truthiness', () => {
+    // `false` is not a shape gh answers with (the field is an object or
+    // null), but the check is `is not None`, not `Boolean(...)`, on
+    // purpose: a truthiness check would drop this row, and the field's own
+    // presence is what marks it as wanted.
+    const pulls = [{ number: 1, autoMergeRequest: false, createdAt: '2026-01-01' }]
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
+
+    expect(document.targets.map((target) => target.number)).toEqual([1])
+  })
+
   it('orders targets by band, then oldest first inside a band', () => {
     const pulls = [
       { number: 5, autoMergeRequest: {}, createdAt: '2026-01-01', labels: [{ name: 'x' }] },
