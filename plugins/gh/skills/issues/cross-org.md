@@ -9,9 +9,8 @@ or [batch.md](batch.md) step 1. Do them again before each write.
      directory is in a repository, its owner is also a source.
 2. Compare the owner names only. Ignore case. Orgs in one enterprise are different owners.
 3. For each source with a different owner, remove its details from the title, the body and
-   each comment. These are repository names, issue and pull request numbers, file
-   paths, URLs and branch names. Measurements are details too, such as a token count or a
-   run time. Write the idea in general words, for example "a skill in a different
+   each comment: repository names, issue and pull request numbers, file paths, URLs, branch
+   names and measurements such as a token count or a run time. Write the idea in general words, for example "a skill in a different
    repository".
 4. Add one line to the report that gives the kinds of detail that you removed. Do not
    give the details. For example: `Omitted: repository names, issue numbers, file paths`.

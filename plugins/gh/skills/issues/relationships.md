@@ -30,8 +30,6 @@ Use `--blocked-by <n,n>`, `--blocking <n,n>` and `--parent <n>` on `gh issue cre
 
 ## Change them on an issue that exists
 
-Run:
-
 ```bash
 gh issue edit <n> --add-blocked-by <n,n> --add-blocking <n,n> --parent <n>
 gh issue edit <n> --remove-blocked-by <n,n> --remove-blocking <n,n> --remove-parent
@@ -42,9 +40,8 @@ replace it only when the request says to.
 
 ## Move a dependency from text to a field
 
-A body or a comment can give a dependency in text. Set the field. For a body, also remove
-the text. Remove only the dependency text, keep every other line, and give the removed text
-in the report:
+Set the field. For a body, also remove only the dependency text. Keep every other line, and
+give the removed text in the report:
 
 ```bash
 gh issue edit <n> --add-blocked-by <n>
@@ -60,5 +57,3 @@ Do not edit a comment. Say which comment gave the dependency.
 ```bash
 gh issue view <n> --json blockedBy,blocking,parent,subIssues
 ```
-
-Report what the read-back shows, not what you sent.

@@ -301,12 +301,11 @@ Priority is an organization issue field (in the bje orgs: Urgent, High, Medium, 
 owns has no such field. The skill then gives the level in its report only. The rubric is in
 [`skills/issues/priority.md`](skills/issues/priority.md).
 
-The skill never asks for confirmation. A caller that starts it has decided to write. So the
-skill acts in the same way in the main session and in a subagent. After each write it
-reports every value from a read-back, so you can correct one. A value from the caller that
-does not exist is left out and named on a `Not set:` line. A value that the skill replaced
-is named on a `Replaced:` line. A failed write stops the skill, and the report says what is
-set.
+The skill never asks for confirmation, in the main session or in a subagent: a caller that
+starts it has decided to write. After each write it reports every value from a read-back, so
+you can correct one. A caller value that does not exist goes on a `Not set:` line, and a
+replaced value on a `Replaced:` line. A failed write stops the skill, and the report says
+what is set.
 
 An issue can go to a repository of a different owner than the work that gave it context.
 Then the issue names none of that source's repositories, numbers, paths or URLs. A comment on

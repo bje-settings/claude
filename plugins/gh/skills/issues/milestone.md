@@ -15,8 +15,7 @@ the issue. If none fits, set no milestone. Do not create a milestone for one iss
 
 Do this only when no open milestone fits a batch. Never create a milestone that the caller
 named. Two or more issues with one shared done condition are a milestone. Choose a title,
-and use the done condition as the description. Create it before the issues, so each issue gets it on
-creation:
+and use the done condition as the description:
 
 ```bash
 gh api repos/{owner}/{repo}/milestones -f title="<title>" -f description="<done condition>" --jq .title

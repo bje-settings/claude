@@ -69,10 +69,9 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The owner rule applies to each issue and each comment for a duplicate that the skill reports.
-The skill compares the owner of each source with the target owner, by name only. Text for a
-different owner names none of the details of that source. The report gives the kinds of
-detail that it removed.
+The owner rule applies to each issue and to each duplicate comment that the skill reports.
+The skill compares owner names only. Text for a different owner names none of the details of
+that source. The report gives the kinds of detail that it removed.
 
 The skill never creates a label. It prefers an issue type to a label with the same meaning.
 An owner with no Priority field is a fact to report, and the skill does not work around it.

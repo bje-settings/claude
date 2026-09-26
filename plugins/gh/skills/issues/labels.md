@@ -6,7 +6,7 @@ List the labels that the repository has:
 gh label list --limit 1000 --json name,description
 ```
 
-Never create a label. Use only a label from this list.
+Use only a label from this list.
 
 ## Prefer the issue type
 
@@ -27,9 +27,8 @@ Use a label only for a thing that the type does not give. Examples are an area
 
 ## No issue types
 
-When the repository has no issue types, use the label from the table that fits. Use it
-only if the repository has it. Add it with `--label` on `gh issue create` or `--add-label`
-on `gh issue edit`.
+When the repository has no issue types, use the label from the table that fits, if the
+repository has it.
 
 ## An issue that has a type label
 

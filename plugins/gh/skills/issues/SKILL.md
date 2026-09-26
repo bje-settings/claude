@@ -24,21 +24,19 @@ Do the operation that the request asks for. Read all of the files in its row, an
 | Set priority, type, labels, milestone or relationships on issues that exist | [triage.md](triage.md), [format.md](format.md), [labels.md](labels.md), [relationships.md](relationships.md), [milestone.md](milestone.md), [priority.md](priority.md) |
 
 Also read [cross-org.md](cross-org.md) for create, batch and triage if a source repository
-has a different owner than the target. Read it before the duplicate check.
+has a different owner than the target.
 
 ## Rules for every operation
 
-- Put a relationship in its field, never as text in a body or a comment. A sweep cannot see
-  a dependency in text.
-- Never create a label. Do not add a label that says the same thing as an issue type.
-- Do not ask for confirmation. The caller decided to write when it started the skill. Act in
-  the same way in the main session and in a subagent.
+- Put a relationship in its field, never as text in a body or a comment.
+- Never create a label.
+- Do not ask for confirmation, in the main session or in a subagent. The caller decided to
+  write when it started the skill.
 - The caller can give a milestone, priority, type, label, parent, blocked-by or blocking.
-  Make sure that it exists, and then use it. If it does not exist, do not create it. Write
-  without it, and add it to a `Not set:` line in the report.
+  If it does not exist, do not create it. Write without it, and name it on a `Not set:` line
+  in the report.
 - After a write, read back the issue and report the number, milestone, type, labels,
   priority and every relationship. Give each value that you replaced on a `Replaced:` line.
-  The caller corrects a value from this report.
 
   ```bash
   gh issue view <n> --json number,title,milestone,issueType,labels,blockedBy,blocking,parent
