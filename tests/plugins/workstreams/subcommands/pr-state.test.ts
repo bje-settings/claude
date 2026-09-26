@@ -696,6 +696,24 @@ describe('what it does with a read that fell short', () => {
     )
   })
 
+  it('still reports awaiting-pr, not a failed read, when the wait-hint sample also fails', async () => {
+    // GitHub already gave a complete answer: the number does not exist.
+    // An unrelated read failing beside it must not turn that answer into
+    // "nothing at all could be read".
+    const answer = await ran(['--json', '178'], {
+      viewPullRequestDetail: {
+        pullRequest: null,
+        unavailable: 'pull request 178 could not be read: Could not resolve to a PullRequest',
+        missing: true,
+      },
+      listWorkflowRuns: { rows: [], unavailable: 'gh: API rate limit exceeded' },
+    })
+
+    expect(answer.outcome).toBe('ok')
+    const report = JSON.parse(answer.outcome === 'ok' ? answer.value : '{}') as PrStateReport
+    expect(report.state).toBe('awaiting-pr')
+  })
+
   it('lets a thrown endpoint through rather than reporting a state it did not read', async () => {
     // Every endpoint this command uses answers, rather than throw. So a
     // throw here means the double found an endpoint the test did not
