@@ -160,9 +160,11 @@ const CAUSE_LIMIT = 80
  * `lib/gh.ts` joins the reasons of its batches with it.
  */
 const shortCause = (cause: string): string => {
-  const first = cause.trim().split('\n')[0] ?? ''
+  // A split with a limit of 1 gives the text before the first match, or
+  // all of the text when there is no match.
+  const first = cause.trim().split('\n', 1).join('')
   const bare = first.replace(/^(?:remote|fatal|gh): /, '')
-  const sentence = bare.split(/[.;] /)[0] ?? ''
+  const sentence = bare.split(/[.;] /, 1).join('')
   return Array.from(sentence).slice(0, CAUSE_LIMIT).join('').trimEnd()
 }
 
