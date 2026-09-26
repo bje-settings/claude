@@ -3,6 +3,8 @@
 // gets a github.com remote URL, and git's `insteadOf` maps that URL back to
 // the local bare origin. So the hook reads a GitHub name, and its fetch still
 // reaches nothing but the sandbox.
+import { mkdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { expect } from 'vitest'
 import type { Output, Writer } from '#gh/lib/streams.ts'
 import { type HookEdges, runHookIo } from '#gh/subcommands/hook-io.ts'
@@ -81,6 +83,22 @@ export const hangingFetch = (rig: Rig, work: string): void => {
   rig.git.git(work, 'config', 'protocol.ext.allow', 'always')
   const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
   rig.git.git(work, 'config', `url.ext::${sleep} 60.insteadOf`, url)
+}
+
+/**
+ * A PATH whose `git` runs `script` first, then the real git. `script` is
+ * shell `case` arms on `$*`, so an arm can fail, or wait, on one call.
+ */
+export const wrappedGit = (rig: Rig, name: string, script: string): string => {
+  const real = findOnPath('git', rig.sandbox.env.PATH) ?? 'git'
+  const bin = rig.sandbox.join(name)
+  mkdirSync(bin)
+  writeFileSync(
+    path.join(bin, 'git'),
+    `#!/bin/sh\ncase "$*" in\n${script}\nesac\nexec '${real}' "$@"\n`,
+    { mode: 0o755 },
+  )
+  return `${bin}${path.delimiter}${rig.sandbox.env.PATH}`
 }
 
 /** A work tree on GitHub as `name`, at `<root>/work`. */

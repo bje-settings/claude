@@ -12,12 +12,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { pluginFile } from '#harness/paths.ts'
+import { findOnPath } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
 import {
   createRig,
   expectOneLine,
   githubRepo,
   hangingFetch,
+  wrappedGit,
 } from './subcommands/hook-io.test-support.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -131,6 +133,36 @@ it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json giv
   // The shipped deadline is 5 s. The process ends only when its children
   // do, so the fetch must stop at the deadline too, not when it gives up.
   expect(Date.now() - started).toBeLessThan(10_000)
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️"}\n')
+  expect(result.stderr).toContain('did not finish in 5000 ms\n')
+})
+
+it('gives a late second origin read only the time that is left', () => {
+  const rig = createRig()
+  // The origin is not on github.com, so the hook reads the URL twice. The
+  // first read takes 3 s, and the second one never answers.
+  const local = rig.git.create(rig.sandbox.join('r'))
+  const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
+  const PATH = wrappedGit(
+    rig,
+    'bin-slow-origin',
+    [
+      `  *'config --get remote.origin.url'*) '${sleep}' 3 ;;`,
+      `  *'remote get-url'*) exec '${sleep}' 60 ;;`,
+    ].join('\n'),
+  )
+  const started = Date.now()
+
+  const result = runScript(HOOK, {
+    args: ['session-start'],
+    stdin: JSON.stringify({ session_id: 's1', cwd: local }),
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  // The process ends only when its children do. A second read with the
+  // time the first read had would live until about 8 s.
+  expect(Date.now() - started).toBeLessThan(7_000)
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️"}\n')
   expect(result.stderr).toContain('did not finish in 5000 ms\n')

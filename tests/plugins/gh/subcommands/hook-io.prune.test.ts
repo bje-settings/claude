@@ -8,9 +8,11 @@ import { createGhMock } from '#harness/gh.ts'
 import { createRig, githubRepo, type Rig, side, statusOf } from './hook-io.test-support.ts'
 
 /** One branch listing line, as `for-each-ref` writes it with the format
- *  `%(refname:lstrip=2)<tab>%(upstream)<tab>%(objectname)`. */
+ *  `%(refname:lstrip=2)<tab>%(upstream)<tab>%(objectname)<tab>%(HEAD)`.
+ *  The `%(HEAD)` mark is a space, because the current branch is an
+ *  argument of `countCandidates`, not a field it reads. */
 const branch = (name: string, upstream = '', tip = `${name}-tip`): string =>
-  `${name}\t${upstream}\t${tip}`
+  `${name}\t${upstream}\t${tip}\t `
 
 const ORIGIN_MAIN = 'refs/remotes/origin/main'
 

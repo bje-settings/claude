@@ -15,6 +15,7 @@ import {
   runHook,
   side,
   statusOf,
+  wrappedGit,
 } from './hook-io.test-support.ts'
 
 const answering = (repositories: Record<string, ReturnType<typeof side>>): GhClient =>
@@ -375,7 +376,7 @@ it('warns when GitHub is still open at the deadline', async () => {
   const ran = await statusOf(rig, work, never, { deadlineMs: 3_000 })
 
   expect(ran.stdout).toBe('gh: ⚠️\n')
-  expect(ran.stderr).toContain('GitHub: did not finish in 3000 ms\n')
+  expect(ran.stderr).toBe('GitHub: did not finish in 3000 ms\n')
 })
 
 it('warns, and counts from the cached refs, when the fetch fails', async () => {
@@ -415,6 +416,63 @@ it('warns when the default branch cannot be resolved', async () => {
   expect(ran.stdout).toBe('gh: ⚠️\n')
   // Discovery names each root by its real path, the way git reports it.
   expect(ran.stderr).toBe(`${realpathSync(work)}: no default branch\n`)
+})
+
+it('warns, and does not fall back to main, when origin/HEAD cannot be read', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.remoteAdvance(work)
+  // origin/HEAD is set, and a local main exists. A fallback to main would
+  // count behind 1 with no warning.
+  const PATH = wrappedGit(
+    rig,
+    'bin-symbolic',
+    `  *'symbolic-ref'*) echo "fatal: bad ref" >&2; exit 128 ;;`,
+  )
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(work)}: default branch could not be read\n`)
+})
+
+it('warns when git cannot say whether a local main exists', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.remoteAdvance(work)
+  rig.git.forgetOriginHead(work)
+  rig.git.git(work, 'config', 'remote.origin.followRemoteHEAD', 'never')
+  const PATH = wrappedGit(
+    rig,
+    'bin-show-ref',
+    `  *'show-ref --verify --quiet refs/heads/main'*) echo "fatal: bad ref" >&2; exit 128 ;;`,
+  )
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(work)}: default branch could not be read\n`)
+})
+
+it('warns, and does not wait, when an origin read is still open at the deadline', async () => {
+  const rig = createRig()
+  const local = rig.git.create(rig.sandbox.join('r'))
+  const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
+  // The origin is not on github.com, so the hook asks for the rewritten
+  // URL, and that call does not answer.
+  const PATH = wrappedGit(rig, 'bin-get-url', `  *'remote get-url'*) exec '${sleep}' 60 ;;`)
+
+  const ran = await statusOf(rig, local, createGhMock(), {
+    env: { ...rig.sandbox.env, PATH },
+    deadlineMs: 1_000,
+  })
+
+  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(local)}: did not finish in 1000 ms\n`)
 })
 
 it('warns when the local default branch cannot be compared with origin', async () => {

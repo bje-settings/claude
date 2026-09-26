@@ -23,7 +23,7 @@ import path from 'node:path'
 
 import { discoverRepos } from '../discover.ts'
 import type { GhClient, GhResults } from '../lib/gh.ts'
-import { defaultBranch, gitLines, gitOut, hasRef, type RepoOptions, runGit } from '../lib/git.ts'
+import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
 import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
 
@@ -194,24 +194,44 @@ export interface HookEdges {
   readonly deadlineMs: number
 }
 
-/**
- * The default branch, without a trip to the network: the cached
- * `origin/HEAD`, else the first of `main` and `master` that exists locally.
- */
-const localDefaultBranch = async (options: RepoOptions): Promise<string | null> => {
-  const ref = await defaultBranch(options)
-  if (ref !== null) return ref
-  for (const candidate of ['main', 'master']) {
-    if (await hasRef(`refs/heads/${candidate}`, options)) return candidate
-  }
-  return null
-}
-
 /** The namespaces that the ref lookups name in full. `--merged main` would
  *  accept a tag named `main` as easily as the branch. */
 const HEADS = 'refs/heads/'
 const REMOTES = 'refs/remotes/'
 const ORIGIN = `${REMOTES}origin/`
+
+/**
+ * What git writes for a question with a yes or no answer. Status 0 gives
+ * stdout. Status 1 gives `null`: the ref is not there. Any other end, such
+ * as a time limit or a git that did not start, gives `undefined`. So a
+ * failed read is never a ref that is not there.
+ */
+const lookUp = async (
+  args: readonly string[],
+  options: RepoOptions,
+): Promise<string | null | undefined> => {
+  const result = await runGit(args, options)
+  if (result.status === 1) return null
+  return result.status === 0 ? result.stdout.replace(/\n+$/, '') : undefined
+}
+
+/**
+ * The default branch, without a trip to the network: the cached
+ * `origin/HEAD`, else the first of `main` and `master` that exists locally.
+ * `null` when there is none. `undefined` when git could not answer, because
+ * then a fallback could name the wrong branch.
+ */
+const localDefaultBranch = async (options: RepoOptions): Promise<string | null | undefined> => {
+  const ref = await lookUp(['symbolic-ref', '--quiet', `${ORIGIN}HEAD`], options)
+  if (ref === undefined) return undefined
+  if (ref?.startsWith(ORIGIN)) return ref.slice(ORIGIN.length)
+  for (const candidate of ['main', 'master']) {
+    const found = await lookUp(['show-ref', '--verify', '--quiet', `${HEADS}${candidate}`], options)
+    if (found === undefined) return undefined
+    if (found !== null) return candidate
+  }
+  return null
+}
 
 /** The field separator of the branch listing. git refuses a control
  *  character in a ref name, so the split is unambiguous. */
@@ -246,7 +266,8 @@ const behindCount = async (target: string, options: RepoOptions): Promise<number
  * This function is pure. It takes the listings as arguments, so every way
  * it can end is reachable from a test with no git at all.
  *
- * - `branches` is `name<tab>upstream<tab>tip`, per local branch.
+ * - `branches` is `name<tab>upstream<tab>tip<tab>head`, per local branch.
+ *   `head` is the `%(HEAD)` mark, which only {@link currentOf} reads.
  * - `refs` is every ref under `refs/heads/` and `refs/remotes/`.
  * - `merged` is the local branches reachable from `origin/<target>`.
  * - `pulls` is the merged pull requests, or `null` when none were read.
@@ -341,10 +362,14 @@ const oneLine = (text: string): string => text.trim().replace(/\s*\n\s*/g, ' ')
  */
 const originName = async (
   root: string,
-  options: RepoOptions,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: () => number,
   failed: (line: string) => void,
 ): Promise<string | null> => {
-  const configured = await runGit(['config', '--get', 'remote.origin.url'], options)
+  // Each call gets the time that is left, so the second call cannot run
+  // past the deadline.
+  const options = (): RepoOptions => ({ cwd: root, env, timeoutMs: timeoutMs() })
+  const configured = await runGit(['config', '--get', 'remote.origin.url'], options())
   if (configured.status === 1) return null
   if (configured.status !== 0) {
     failed(`${root}: origin could not be read: ${oneLine(configured.stderr)}`)
@@ -352,7 +377,7 @@ const originName = async (
   }
   const name = githubRepository(configured.stdout.replace(/\n+$/, ''))
   if (name !== null) return name
-  const rewritten = await gitOut(['remote', 'get-url', 'origin'], options)
+  const rewritten = await gitOut(['remote', 'get-url', 'origin'], options())
   if (rewritten === null) {
     failed(`${root}: origin could not be read`)
     return null
@@ -379,6 +404,10 @@ const readCheckout = async (
   if (fetched.status !== 0) failed(`${root}: git fetch failed: ${oneLine(fetched.stderr)}`)
   const options = { cwd: root, env, timeoutMs: timeoutMs() }
   const target = await localDefaultBranch(options)
+  if (target === undefined) {
+    failed(`${root}: default branch could not be read`)
+    return null
+  }
   if (target === null) {
     failed(`${root}: no default branch`)
     return null
@@ -507,7 +536,7 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<string | n
     const named = await Promise.all(
       roots.map(async (root) => ({
         root,
-        name: await originName(root, { cwd: root, env, timeoutMs: timeoutMs() }, failed),
+        name: await settle(root, () => originName(root, env, timeoutMs, failed)),
       })),
     )
     checkouts = named.filter((checkout): checkout is Checkout => checkout.name !== null)
