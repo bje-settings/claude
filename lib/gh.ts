@@ -742,39 +742,68 @@ const joinedReasons = (reasons: readonly string[]): string | null =>
  *  small batch also costs no time. */
 const STATUS_BATCH = 5
 
-/** The fields `repositoryStatus` asks about each repository. */
+/** The fields `repositoryStatus` asks about each repository. All of them
+ *  are inside the repository node, so they follow its redirect after a
+ *  rename or a transfer, and they fail with it. */
 const STATUS_FIELDS = `
     vulnerabilityAlerts(states: OPEN) { totalCount }
+    open: pullRequests(states: OPEN, first: 100) {
+      totalCount
+      nodes { author { login } }
+    }
     merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { headRefName headRefOid isCrossRepository }
     }`
 
 /** One aliased query for a batch of `owner/name` values. The aliases start
- *  at `r0` and `d0` in each batch. `JSON.stringify` writes each name as a
- *  GraphQL string, with its quotes escaped.
- *
- *  `Repository.pullRequests` cannot filter by author, and a label can be on
- *  a pull request that someone else opened. So the Dependabot count is a
- *  search (`dN`) beside each repository node (`rN`). */
+ *  at `r0` in each batch. `JSON.stringify` writes each name as a GraphQL
+ *  string, with its quotes escaped. */
 const buildStatusQuery = (repos: readonly string[]): string => {
   const fields = repos.map((repo, index) => {
     const slash = repo.indexOf('/')
     const owner = JSON.stringify(repo.slice(0, slash))
     const name = JSON.stringify(repo.slice(slash + 1))
-    const search = JSON.stringify(`repo:${repo} is:pr is:open author:app/dependabot`)
-    return [
-      `  r${index}: repository(owner: ${owner}, name: ${name}) {${STATUS_FIELDS}\n  }`,
-      `  d${index}: search(query: ${search}, type: ISSUE, first: 0) { issueCount }`,
-    ].join('\n')
+    return `  r${index}: repository(owner: ${owner}, name: ${name}) {${STATUS_FIELDS}\n  }`
   })
   return `query {\n${fields.join('\n')}\n}`
 }
 
-/** The number in a `{ totalCount }` or `{ issueCount }` field, or `null`
- *  for any other shape. */
-const countOf = (value: unknown, key: 'totalCount' | 'issueCount'): number | null => {
-  const count = asRecord(value)?.[key]
+/** A `{ totalCount }` field's number, or `null` for any other shape. */
+const totalCount = (value: unknown): number | null => {
+  const count = asRecord(value)?.totalCount
   return typeof count === 'number' ? count : null
+}
+
+/** The login GraphQL gives the Dependabot app as a pull request author. */
+const DEPENDABOT = 'dependabot'
+
+/** One open pull request's author login. `null` is an author that GitHub
+ *  no longer has. `undefined` is a row that is not the shape asked for. */
+const authorLogin = (value: unknown): string | null | undefined => {
+  const row = asRecord(value)
+  if (row?.author === null) return null
+  const login = asRecord(row?.author)?.login
+  return typeof login === 'string' ? login : undefined
+}
+
+/**
+ * How many open pull requests Dependabot opened, or `null` when the list
+ * cannot give the answer.
+ *
+ * `Repository.pullRequests` cannot filter by author, and a label can be on
+ * a pull request that someone else opened. So this counts the authors of
+ * the first 100 open pull requests. A repository with more than 100 open
+ * pull requests gives `null`, not a count that is too low. A search can
+ * filter by author, but it does not follow a redirect, and one failed
+ * search makes all of `data` null.
+ */
+const dependabotCount = (value: unknown): number | null => {
+  const total = totalCount(value)
+  const nodes = asRecord(value)?.nodes
+  if (total === null || !Array.isArray(nodes) || nodes.length < total) return null
+  const logins = nodes.map(authorLogin)
+  if (logins.includes(undefined)) return null
+  return logins.filter((login) => login === DEPENDABOT).length
 }
 
 /** One merged pull request, or `null` when it is not the shape asked for. */
@@ -826,8 +855,8 @@ const readStatusBatch = (
     const answer = asRecord(data[`r${index}`])
     if (answer === undefined) return
     repositories[repo] = {
-      alerts: countOf(answer.vulnerabilityAlerts, 'totalCount'),
-      dependencies: countOf(data[`d${index}`], 'issueCount'),
+      alerts: totalCount(answer.vulnerabilityAlerts),
+      dependencies: dependabotCount(answer.open),
       mergedPullRequests: mergedHeads(answer.merged),
     }
   })

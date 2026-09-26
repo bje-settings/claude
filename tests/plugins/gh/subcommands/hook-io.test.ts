@@ -182,6 +182,7 @@ it('writes the response with JSON.stringify, and one newline', () => {
     '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [🛡️ 1]\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ fetch failed\\u001b[0m"}\n',
   )
   expect(emit('a "quote"')).toBe('{"systemMessage":"\\na \\"quote\\""}\n')
+  expect(emit('gh:[🛡️ 1]')).toBe('{"systemMessage":"\\ngh:[🛡️ 1]"}\n')
 })
 
 it('reads a payload cwd only when it is a string in a JSON object', () => {

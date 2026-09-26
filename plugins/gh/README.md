@@ -327,7 +327,7 @@ gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 | `repos: N` | The repositories checked, when there is more than one. |
 | `behind` | At least one local `<default>` is behind its `origin/<default>`. |
 | ✂️ | Local branches that `/gh:sync` can remove. See below. |
-| 🤖 | Open pull requests that Dependabot opened. |
+| 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem line. |
 | 🛡️ | Open Dependabot alerts. |
 
 The CLI shows the output under its own `SessionStart:<source> says:` label, which no hook can

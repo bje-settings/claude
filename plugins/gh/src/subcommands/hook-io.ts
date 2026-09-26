@@ -207,8 +207,8 @@ export const githubRepository = (url: string): string | null => {
 
 /** The response `session-start` writes: one JSON document on one line. The
  *  line goes in `systemMessage`, which the CLI shows to the user. The CLI
- *  puts a `SessionStart:<source> says:` label before it, so the message
- *  starts with a newline to put `gh:` on a line of its own. There is no
+ *  puts a `SessionStart:<source> says:` label before it. So the message
+ *  starts with a newline, and `gh:` starts a line of its own. There is no
  *  `additionalContext`, so the model gets nothing from this hook
  *  (`.claude/rules/path-hooks.md`). */
 export const emit = (line: string): string =>
