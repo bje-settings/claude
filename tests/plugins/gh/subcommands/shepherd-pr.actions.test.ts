@@ -79,6 +79,22 @@ it('refuses an unknown action before any gh call', async () => {
   expect(result.stderr).toBe(`unknown action: dance\n${HELP}\n`)
 })
 
+it('refuses an action name inherited from Object.prototype, before any gh call', async () => {
+  // `HANDLERS` is a plain object literal. `constructor`, `toString`, `valueOf`,
+  // and `hasOwnProperty` are not `undefined` on it, even though none of them
+  // is a declared action. The stand-in gh throws if it is called at all.
+  for (const action of ['constructor', 'hasOwnProperty', 'toString', 'valueOf']) {
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', action],
+      gh: createGhServer({}),
+    }))
+
+    expect(result.status, action).toBe(2)
+    expect(result.stdout, action).toBe('')
+    expect(result.stderr, action).toBe(`unknown action: ${action}\n${HELP}\n`)
+  }
+})
+
 // --- state, merged and the reads that failed -------------------------------------
 
 it('reports a gh failure with nothing to say as an answer it did not get', async () => {

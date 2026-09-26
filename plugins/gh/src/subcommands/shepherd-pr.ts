@@ -928,7 +928,12 @@ const shepherdPr = async (
 
   // This code checks the action before any gh call. An unknown action is a
   // usage error, and a usage error costs nothing (#218 finding 2).
-  const handler = HANDLERS[action]
+  //
+  // `Object.hasOwn`, not `HANDLERS[action] === undefined`. `HANDLERS` is a
+  // plain object literal, so it inherits `Object.prototype`. A plain lookup
+  // reads `constructor`, `toString`, `valueOf`, and `hasOwnProperty` as
+  // defined, though none names a real action.
+  const handler = Object.hasOwn(HANDLERS, action) ? HANDLERS[action] : undefined
   if (handler === undefined) {
     output.err.write(`unknown action: ${action}\n`)
     return refuse(HELP, 2)
