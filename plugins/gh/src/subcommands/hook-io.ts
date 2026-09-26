@@ -100,11 +100,16 @@ export const statusLine = (
   return `gh:${repoCount > 1 ? ` ${repoCount} repos` : ''} ${items.join(' ')}`
 }
 
-/** The tools the hook needs, and the name the line gives each one. */
-const TOOL_NAMES = { git: 'git', gh: 'GitHub CLI (gh)' } as const
+/** The tools the hook needs, in the order the line names them. The hook
+ *  checks each one, so this is the only list. */
+const TOOLS = ['git', 'gh'] as const
 
 /** A tool the hook needs. */
-export type Tool = keyof typeof TOOL_NAMES
+export type Tool = (typeof TOOLS)[number]
+
+/** The name the line gives each tool. A tool with no name here, or a name
+ *  for a tool that is not in {@link TOOLS}, does not compile. */
+const TOOL_NAMES: Readonly<Record<Tool, string>> = { git: 'git', gh: 'GitHub CLI (gh)' }
 
 /**
  * What is missing, in the words of the line, or `null` when no tool is
@@ -509,8 +514,7 @@ const addLocal = (
  * Each failure goes to stderr, one line each.
  */
 const checkStatus = async (target: string, edges: HookEdges): Promise<string | null> => {
-  const tools: readonly Tool[] = ['git', 'gh']
-  const problem = missingTools(tools.filter((tool) => which(tool, edges.env) === null))
+  const problem = missingTools(TOOLS.filter((tool) => which(tool, edges.env) === null))
   if (problem !== null) {
     edges.output.err.write(`${problem}\n`)
     return problemLine(problem)
