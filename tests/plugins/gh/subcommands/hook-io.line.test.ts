@@ -94,11 +94,14 @@ it('answers null for a remote that is not on github.com', () => {
   for (const url of others) expect([url, githubRepository(url)]).toEqual([url, null])
 })
 
-it('names each missing tool, and both in one phrase', () => {
-  expect(missingTools([])).toBeNull()
-  expect(missingTools(['git'])).toBe('git not found on PATH')
-  expect(missingTools(['gh'])).toBe('GitHub CLI (gh) not found on PATH')
-  expect(missingTools(['git', 'gh'])).toBe('git and GitHub CLI (gh) not found on PATH')
+it('names each missing tool as a problem of its own', () => {
+  expect(missingTools([])).toEqual([])
+  expect(missingTools(['git'])).toEqual(['git not found on PATH'])
+  expect(missingTools(['gh'])).toEqual(['GitHub CLI (gh) not found on PATH'])
+  expect(missingTools(['git', 'gh'])).toEqual([
+    'git not found on PATH',
+    'GitHub CLI (gh) not found on PATH',
+  ])
 })
 
 it('shows a problem that stops every check, and nothing else', () => {

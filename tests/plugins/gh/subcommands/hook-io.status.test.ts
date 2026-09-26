@@ -554,7 +554,7 @@ it('names a missing git in the line, and checks nothing', async () => {
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   rig.git.remoteAdvance(work)
 
-  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+  const ran = await statusOf(rig, work, createGhMock(), {
     env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('git') },
   })
 
@@ -570,7 +570,7 @@ it('names a missing GitHub CLI in the line, and checks nothing', async () => {
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   rig.git.remoteAdvance(work)
 
-  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+  const ran = await statusOf(rig, work, createGhMock(), {
     env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') },
   })
 
@@ -581,7 +581,7 @@ it('names a missing GitHub CLI in the line, and checks nothing', async () => {
   })
 })
 
-it('names both missing tools in one line', async () => {
+it('names each missing tool on a line of its own, git first', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
 
@@ -591,8 +591,8 @@ it('names both missing tools in one line', async () => {
 
   expect(ran).toEqual({
     status: 0,
-    stdout: 'gh: ⚠️ git and GitHub CLI (gh) not found on PATH\n',
-    stderr: 'git and GitHub CLI (gh) not found on PATH\n',
+    stdout: 'gh: ⚠️ git not found on PATH\ngh: ⚠️ GitHub CLI (gh) not found on PATH\n',
+    stderr: 'git not found on PATH\nGitHub CLI (gh) not found on PATH\n',
   })
 })
 

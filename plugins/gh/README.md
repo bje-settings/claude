@@ -351,7 +351,14 @@ count, and the line ends with ⚠️. The hook writes the reason to stderr, one 
 failure. `claude --debug` shows it.
 
 The plugin needs git and the GitHub CLI. When one of them is not on PATH, the hook checks
-nothing. The line names what is missing, for example `gh: ⚠️ GitHub CLI (gh) not found on PATH`.
+nothing. Each missing tool gets a line of its own instead, git first:
+
+```
+gh: ⚠️ git not found on PATH
+gh: ⚠️ GitHub CLI (gh) not found on PATH
+```
+
+The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for each missing tool.
 
 The hook never changes a branch, worktree, or working tree. The fetch changes only
 remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.

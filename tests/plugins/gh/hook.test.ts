@@ -16,7 +16,7 @@ import { findOnPath } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
 import {
   createRig,
-  expectOneLine,
+  expectStatusLines,
   githubRepo,
   hangingFetch,
   wrappedGit,
@@ -99,7 +99,7 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
   // would hold it open until the timer fires.
   expect(Date.now() - started).toBeLessThan(5_000)
   expect(result.status).toBe(0)
-  expectOneLine(result.stdout)
+  expectStatusLines(result.stdout)
   expect(result.stdout).toBe('{"systemMessage":"gh: [behind 1] [prune 1] ⚠️"}\n')
   expect(result.stderr).toBe('GitHub: gh: stand-in for tests\n')
   // The fetch moved `origin/main` and removed `origin/goner`. Nothing else
@@ -211,7 +211,7 @@ it('runs the hook entry with node, behind the silent guard, on start, resume and
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([10])
   expect(config.description).toBe(
     'One status line when a session starts: commits behind, branches to prune, dependency ' +
-      'pull requests and Dependabot alerts. Fetches, but never changes a branch, worktree, or ' +
-      'working tree.',
+      'pull requests and Dependabot alerts. A missing git or GitHub CLI gets a line of its ' +
+      'own. Fetches, but never changes a branch, worktree, or working tree.',
   )
 })

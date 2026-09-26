@@ -1,6 +1,8 @@
 // This file is the gh plugin's SessionStart hook. It writes one status line,
-// or nothing (#230). {@link statusLine} shapes the line, and
-// `plugins/gh/README.md` shows it.
+// or nothing (#230). When git or the GitHub CLI is not on PATH, it checks
+// nothing, and writes one line for each missing tool instead.
+// {@link statusLine} and {@link problemLine} shape the lines, and
+// `plugins/gh/README.md` shows them.
 //
 // The hook finds the repository that holds the session's directory, or the
 // repositories directly inside it (`discover.ts`). It skips a repository
@@ -79,7 +81,7 @@ export interface StatusCounts {
 
 /**
  * The status line, or `null` when there is nothing to show. This and
- * {@link problemLine} are the only places that shape the line.
+ * {@link problemLine} are the only places that shape a line.
  *
  * A zero count is left out. The repository count follows the prefix only
  * when there is more than one repository. The warning comes last, and
@@ -112,15 +114,14 @@ export type Tool = (typeof TOOLS)[number]
 const TOOL_NAMES: Readonly<Record<Tool, string>> = { git: 'git', gh: 'GitHub CLI (gh)' }
 
 /**
- * What is missing, in the words of the line, or `null` when no tool is
- * missing. The plugin cannot work without these tools.
+ * One problem for each missing tool, in the words of the line, and in the
+ * order of `missing`. The plugin cannot work without these tools.
  */
-export const missingTools = (missing: readonly Tool[]): string | null =>
-  missing.length === 0
-    ? null
-    : `${missing.map((tool) => TOOL_NAMES[tool]).join(' and ')} not found on PATH`
+export const missingTools = (missing: readonly Tool[]): string[] =>
+  missing.map((tool) => `${TOOL_NAMES[tool]} not found on PATH`)
 
-/** The line for a problem that stops every check. Only the problem shows. */
+/** The line for a problem that stops every check. Each problem gets a line
+ *  of its own, and no count shows. */
 export const problemLine = (problem: string): string => `gh: ⚠️ ${problem}`
 
 /**
@@ -511,13 +512,14 @@ const addLocal = (
 
 /**
  * The status line for `target`, or `null` when there is nothing to show.
- * Each failure goes to stderr, one line each.
+ * Each failure goes to stderr, one line each. A missing tool stops every
+ * check, and each missing tool gets a line of its own instead.
  */
 const checkStatus = async (target: string, edges: HookEdges): Promise<string | null> => {
-  const problem = missingTools(TOOLS.filter((tool) => which(tool, edges.env) === null))
-  if (problem !== null) {
-    edges.output.err.write(`${problem}\n`)
-    return problemLine(problem)
+  const problems = missingTools(TOOLS.filter((tool) => which(tool, edges.env) === null))
+  if (problems.length > 0) {
+    for (const problem of problems) edges.output.err.write(`${problem}\n`)
+    return problems.map(problemLine).join('\n')
   }
   const env = scrubRepositoryEnv(edges.env)
   const started = Date.now()

@@ -20,7 +20,7 @@ import {
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
 import {
   createRig,
-  expectOneLine,
+  expectStatusLines,
   githubRepo,
   hangingFetch,
   onGitHub,
@@ -255,6 +255,9 @@ interface Case {
     env?: NodeJS.ProcessEnv
   }
   readonly line: string | null
+  /** How many lines the status line has, 1 when not given. Only missing
+   *  tools give more: one line for each missing tool. */
+  readonly lines?: number
   /** How many failures the debug log gets, one line each. */
   readonly failures: number
 }
@@ -340,6 +343,16 @@ const CASES: readonly Case[] = [
     failures: 0,
   },
   {
+    name: 'a missing git',
+    build: (rig) => ({
+      cwd: ONE(rig),
+      gh: createGhMock(),
+      env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('git') },
+    }),
+    line: 'gh: ⚠️ git not found on PATH',
+    failures: 1,
+  },
+  {
     name: 'a missing GitHub CLI',
     build: (rig) => ({
       cwd: ONE(rig),
@@ -356,13 +369,14 @@ const CASES: readonly Case[] = [
       gh: createGhMock(),
       env: { ...rig.sandbox.env, PATH: rig.sandbox.join('no-bin') },
     }),
-    line: 'gh: ⚠️ git and GitHub CLI (gh) not found on PATH',
-    failures: 1,
+    line: 'gh: ⚠️ git not found on PATH\ngh: ⚠️ GitHub CLI (gh) not found on PATH',
+    lines: 2,
+    failures: 2,
   },
 ]
 
 for (const example of CASES) {
-  it(`writes at most one line, and no additionalContext, for ${example.name}`, async () => {
+  it(`writes at most one line per problem, and no additionalContext, for ${example.name}`, async () => {
     const rig = createRig()
     const built = example.build(rig)
 
@@ -373,7 +387,7 @@ for (const example of CASES) {
     })
 
     expect(ran.status).toBe(0)
-    expectOneLine(ran.stdout)
+    expectStatusLines(ran.stdout, example.lines)
     expect(ran.stdout).toBe(example.line === null ? '' : emit(example.line))
     // The account on stderr is for the debug log: one line per failure, even
     // when a reason held a newline of its own.

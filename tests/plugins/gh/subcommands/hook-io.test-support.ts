@@ -159,14 +159,19 @@ export const statusOf = (
   overrides: Partial<HookEdges> = {},
 ): Promise<Ran> => runHook(rig, ['status', dir], gh, overrides)
 
-/** The #230 acceptance rule for one run of `session-start`: at most one line
- *  in `systemMessage`, and no `additionalContext` at all. */
-export const expectOneLine = (stdout: string): void => {
+/** The #230 acceptance rule for one run of `session-start`: nothing, or one
+ *  JSON document on one line, with exactly `lines` lines in `systemMessage`
+ *  and no `additionalContext` at all. The status line is one line. Only a
+ *  missing tool gives more, one line for each tool. */
+export const expectStatusLines = (stdout: string, lines = 1): void => {
   if (stdout === '') return
   expect(stdout.endsWith('\n')).toBe(true)
   expect(stdout.slice(0, -1)).not.toContain('\n')
   const body = JSON.parse(stdout) as Record<string, unknown>
   expect(Object.keys(body)).toEqual(['systemMessage'])
   expect(typeof body.systemMessage).toBe('string')
-  expect(body.systemMessage as string).not.toMatch(/[\r\n\u2028\u2029]/)
+  const message = body.systemMessage as string
+  expect(message).not.toMatch(/[\r\u2028\u2029]/)
+  expect(message.split('\n')).toHaveLength(lines)
+  expect(message.split('\n')).not.toContain('')
 }
