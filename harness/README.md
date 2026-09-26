@@ -76,12 +76,15 @@ const gh = createGhMock({
 })
 ```
 
-`gh` is an injected mock, not a stub binary on `PATH` (ADR 001). Each endpoint is named after its
-operation, not after gh's own argv. This way, the interface survives a change to a gh flag. The
-endpoints are: `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`,
-`listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`,
-`listMilestones`, `listIssues`, `listOpenPullRequests`, `requiredContexts`,
-`viewPullRequestDetail`, `listWorkflowRuns`, `repositoryStatus`.
+`gh` is an injected mock, not a stub binary on `PATH` (ADR 001). The one exception is the stand-in
+`gh` that the hook tests put first on `PATH`
+(`tests/plugins/gh/subcommands/hook-io.test-support.ts`). It answers nothing and always fails. It
+lets the hook find a GitHub CLI on any machine, and it keeps a spawned run away from GitHub. Each
+endpoint is named after its operation, not after gh's own argv. This way, the interface survives a
+change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
+`viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
+`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `listOpenPullRequests`,
+`requiredContexts`, `viewPullRequestDetail`, `listWorkflowRuns`, `repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
