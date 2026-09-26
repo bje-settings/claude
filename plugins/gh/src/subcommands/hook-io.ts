@@ -24,7 +24,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import path from 'node:path'
 
 import { discoverRepos } from '../discover.ts'
-import type { GhClient, GhResults } from '../lib/gh.ts'
+import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
 import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
@@ -118,7 +118,7 @@ const problemLine = (problem: string): string => `${PREFIX} ⚠️ ${problem}`
 /**
  * The kinds of failure, in the order of their problem lines. `words` is
  * the fixed text of the line. `repos` is true when each failure of the
- * kind is about one repository, so a folder check can say how many.
+ * kind is about one repository. Then a folder check can say how many.
  */
 const KINDS = {
   notDirectory: { words: 'not a directory', repos: false },
@@ -154,10 +154,10 @@ interface Failure {
 const CAUSE_LIMIT = 80
 
 /**
- * A short form of `cause`: its first line, with no `remote: `, `fatal: ` or
- * `gh: ` at the start, up to the first sentence end, and at most
- * {@link CAUSE_LIMIT} characters. `; ` is a sentence end too, because
- * `lib/gh.ts` joins the reasons of its batches with it.
+ * A short form of `cause`. It is the first line, with no `remote: `,
+ * `fatal: ` or `gh: ` at the start. It stops at the first sentence end, and
+ * has at most {@link CAUSE_LIMIT} characters. `; ` is a sentence end too,
+ * because `lib/gh.ts` joins the reasons of its batches with it.
  */
 const shortCause = (cause: string): string => {
   // A split with a limit of 1 gives the text before the first match, or
@@ -172,7 +172,8 @@ const shortCause = (cause: string): string => {
  * One problem line for each kind that failed, in the order of
  * {@link KINDS}. `folder` is true when the check found more than one
  * repository. Then a kind about repositories says how many it hit. The
- * cause is the one the first failure of the kind came with.
+ * cause is the one the first failure of the kind came with. Failures are in
+ * the order they arrive, so in a folder the cause can change between runs.
  */
 const problemLines = (failures: readonly Failure[], folder: boolean): string[] =>
   (Object.keys(KINDS) as Kind[]).flatMap((kind) => {
@@ -596,9 +597,8 @@ const GITHUB_TASK: TaskKinds = { thrown: 'github', late: 'githubLate' }
 /** The message of a thrown value. A `GhError` keeps gh's own account in
  *  `detail`, without the command line that `message` holds. */
 const causeOf = (error: unknown): string => {
-  if (!(error instanceof Error)) return String(error)
-  const detail = (error as { detail?: unknown }).detail
-  return typeof detail === 'string' ? detail : error.message
+  if (error instanceof GhError) return error.detail
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**

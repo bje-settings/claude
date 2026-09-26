@@ -712,9 +712,12 @@ it('shows the cause of the first of the joined GitHub reasons', async () => {
 it('shows the message of an error GitHub threw with no account of its own', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // Only a `GhError` holds gh's own account. A `detail` on any other error
+  // is not one.
+  const failure = Object.assign(new Error('socket hang up'), { detail: 'not from gh' })
   const throwing: GhClient = {
     ...createGhMock(),
-    repositoryStatus: () => Promise.reject(new Error('socket hang up')),
+    repositoryStatus: () => Promise.reject(failure),
   }
 
   const ran = await statusOf(rig, work, throwing)
