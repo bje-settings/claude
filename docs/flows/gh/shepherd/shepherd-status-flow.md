@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, optionally narrowed by one label, and each way it stops.
+description: How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, one label at most. It also shows each way it stops.
 stale_after: 2027-03-25
 generated:
   by: claude-sonnet
@@ -47,6 +47,6 @@ flowchart TD
 
 A run list that gh cannot read is not a failure: the wait bound falls back to 300 seconds. A
 pull request list that gh cannot read is exit 1, because it says nothing about how many there
-are. A window that fills the limit is a window, not an answer, so this refuses rather than
-report a truncated list. Exit 3 is outside the documented set, so a caller cannot read a crash
-as an answer.
+are. A window that fills the limit is a window, not an answer. This command refuses instead; it
+does not report a truncated list. Exit 3 is outside the documented set, so a caller cannot read a
+crash as an answer.

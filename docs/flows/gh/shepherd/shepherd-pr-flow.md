@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request, with every result it can report.
+description: How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result.
 stale_after: 2027-03-25
 generated:
   by: claude-sonnet

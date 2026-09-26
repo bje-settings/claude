@@ -14,8 +14,8 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [gh/issues/_skill-flow.md](gh/issues/_skill-flow.md) | What the gh:issues skill does for each operation, and every way it declines to act. |
 | [gh/shepherd/_skill-flow.md](gh/shepherd/_skill-flow.md) | What the /gh:shepherd skill does, and every way it declines to act, given an optional label. |
 | [gh/shepherd/discover-flow.md](gh/shepherd/discover-flow.md) | How `gh.ts discover` finds the checkout roots in scope for a directory, and each way it stops. |
-| [gh/shepherd/shepherd-pr-flow.md](gh/shepherd/shepherd-pr-flow.md) | How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request, with every result it can report. |
-| [gh/shepherd/shepherd-status-flow.md](gh/shepherd/shepherd-status-flow.md) | How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, optionally narrowed by one label, and each way it stops. |
+| [gh/shepherd/shepherd-pr-flow.md](gh/shepherd/shepherd-pr-flow.md) | How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result. |
+| [gh/shepherd/shepherd-status-flow.md](gh/shepherd/shepherd-status-flow.md) | How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, one label at most. It also shows each way it stops. |
 | [gh/sync/_skill-flow.md](gh/sync/_skill-flow.md) | What the /gh:sync skill does, and every way it declines to act. |
 | [gh/sync/sync-flow.md](gh/sync/sync-flow.md) | How `gh.ts sync` finds its checkouts, syncs each one in process, and which outcome sets its exit status. |
 | [mermaid/view/_skill-flow.md](mermaid/view/_skill-flow.md) | What the /mermaid:view skill does, and every way it declines to act. |

@@ -134,8 +134,8 @@ Scope comes from the working directory, as with `/gh:sync`:
 
 An open, non-draft pull request that already has auto-merge enabled, whoever authored it.
 Auto-merge is the human's signal that they want the pull request. The skill never enables it
-itself. A second run named with a label targets only pull requests carrying that one label; a
-second label in the same run is refused.
+itself. A run named with a label targets only pull requests that carry it. A second label in the
+same run is refused.
 
 Order is gh-security's `merge-risk:<band>` label first (low, then unlabelled, then medium, then
 high), oldest first within a band.
@@ -144,7 +144,7 @@ high), oldest first within a band.
 
 | Flag | Effect |
 | --- | --- |
-| `<label>` | Shepherd only pull requests carrying this one label. |
+| `<label>` | Shepherd only pull requests that carry this one label. |
 | `--dry-run` | Print each repository's target list, in order, and stop. Nothing is rebased or waited for. |
 
 ### The loop, per pull request
