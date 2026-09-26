@@ -1914,13 +1914,15 @@ describe('the review loop reads', () => {
         await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
           pullRequest: null,
           unavailable: 'pull request 178 could not be read',
+          missing: false,
         })
       })
     }
 
     it('leads with what GraphQL said about a pull request it did not carry', async () => {
       // "No such pull request" and "this token may not see it" arrive as the
-      // same missing node, and only the error tells them apart.
+      // same missing node, and only the error tells them apart. Neither
+      // carries a NOT_FOUND type here. So missing stays false.
       const { gh } = clientAnsweringEach([
         REPO,
         {
@@ -1932,7 +1934,141 @@ describe('the review loop reads', () => {
       await expect(gh.viewPullRequestDetail({ pullRequest: 999 })).resolves.toEqual({
         pullRequest: null,
         unavailable: 'pull request 999 could not be read: Could not resolve to a PullRequest',
+        missing: false,
       })
+    })
+
+    it('marks a pull request missing when GraphQL names it NOT_FOUND', async () => {
+      // Verified live against this repository. `gh api graphql` for pull
+      // request 99999 answers a null node with a NOT_FOUND error. gh
+      // then exits 1.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(null, [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'pullRequest'],
+              message: 'Could not resolve to a PullRequest with the number of 99999.',
+            },
+          ]).stdout,
+        },
+      ])
+
+      await expect(gh.viewPullRequestDetail({ pullRequest: 99999 })).resolves.toEqual({
+        pullRequest: null,
+        unavailable:
+          'pull request 99999 could not be read: Could not resolve to a PullRequest with the number of 99999.',
+        missing: true,
+      })
+    })
+
+    it('leaves missing false for an error of another type, such as FORBIDDEN', async () => {
+      // A permissions error or a rate limit is not a report that the number
+      // does not exist.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(null, [
+            { type: 'FORBIDDEN', path: ['repository', 'pullRequest'], message: 'gone' },
+          ]).stdout,
+        },
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.missing).toBe(false)
+    })
+
+    it('leaves missing false for a null node with an empty errors list', async () => {
+      const { gh } = clientAnsweringEach([REPO, prReply(null, [])])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.missing).toBe(false)
+    })
+
+    it('leaves missing false for a null node with no errors field at all', async () => {
+      const { gh } = clientAnsweringEach([REPO, prReply(null)])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.missing).toBe(false)
+    })
+
+    it.each([
+      ['no path at all', { type: 'NOT_FOUND', message: 'gone' }],
+      [
+        'a path that is not an array',
+        { type: 'NOT_FOUND', path: 'repository.pullRequest', message: 'gone' },
+      ],
+      ['an empty path', { type: 'NOT_FOUND', path: [], message: 'gone' }],
+      [
+        'a path whose last entry is not a string',
+        { type: 'NOT_FOUND', path: ['repository', 0], message: 'gone' },
+      ],
+    ])(
+      // `notFoundAlias` (above) proves the same four shapes leave an alias
+      // unnamed. This proves `queryOnce`'s own check, a separate piece of
+      // code for a single, plain field name, reads each shape the same way.
+      'leaves missing false for a NOT_FOUND error with %s',
+      async (_case, error) => {
+        const { gh } = clientAnsweringEach([REPO, prReply(null, [error])])
+
+        const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+        expect(result.missing).toBe(false)
+      },
+    )
+
+    it('marks missing true for a NOT_FOUND on the pull request, read past an unrelated error', async () => {
+      // Two errors, and the NOT_FOUND for the pull request itself is
+      // second. A check that read only the first entry would miss it.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(null, [
+            { type: 'FORBIDDEN', path: ['repository', 'pullRequest', 'comments'], message: 'no' },
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'pullRequest'],
+              message: 'Could not resolve to a PullRequest with the number of 99999.',
+            },
+          ]).stdout,
+        },
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 99999 })
+
+      expect(result.missing).toBe(true)
+    })
+
+    it('leaves missing false for a NOT_FOUND on a field nested under the pull request', async () => {
+      // The pull request node itself came back. A nested field under it
+      // failed to resolve, and GraphQL nulled that field and named it
+      // NOT_FOUND. That is a different fact: the pull request exists, and
+      // this read only fell short of one of its facts.
+      const node = prNode({ commits: { nodes: [{ commit: null }] } })
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(node, [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'pullRequest', 'commits', 'nodes', 0, 'commit'],
+              message: 'Could not resolve to a Commit',
+            },
+          ]).stdout,
+        },
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.missing).toBe(false)
     })
 
     it('keeps the pull request AND the error when a query partly succeeded', async () => {
@@ -1947,7 +2083,7 @@ describe('the review loop reads', () => {
       expect(result.unavailable).toBe('Something went wrong')
     })
 
-    it('reports gh’s own words when the reply is not JSON at all', async () => {
+    it('reports gh’s own words when the reply is not JSON at all, and leaves missing false', async () => {
       const { gh } = clientAnsweringEach([
         REPO,
         { status: 1, stdout: 'gateway timeout', stderr: 'gh: HTTP 504\n' },
@@ -1956,6 +2092,7 @@ describe('the review loop reads', () => {
       await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
         pullRequest: null,
         unavailable: 'gh: HTTP 504',
+        missing: false,
       })
     })
 
@@ -1966,6 +2103,7 @@ describe('the review loop reads', () => {
 
       expect(result.pullRequest).toBeNull()
       expect(result.unavailable).toBe('gh exited 1')
+      expect(result.missing).toBe(false)
     })
 
     it('reports a repository it could not resolve, and asks nothing else', async () => {
@@ -1976,6 +2114,7 @@ describe('the review loop reads', () => {
       await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
         pullRequest: null,
         unavailable: 'gh: could not resolve to a Repository',
+        missing: false,
       })
       expect(calls).toHaveLength(1)
     })

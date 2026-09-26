@@ -40,9 +40,13 @@ import { type Envelope, failed, ok, refused } from './envelope.ts'
  * branch for "the flag was not passed", so no test has to reach that
  * branch. A command that wants to know whether a flag was passed asks for
  * a boolean option beside it.
+ *
+ * A boolean option may name one `short` letter. This passes straight to
+ * `parseArgs`. Left out, the option has no short form. `parseArgs` then
+ * refuses it, the same way it refuses any flag nobody declared.
  */
 export type OptionSpec =
-  | { readonly type: 'boolean' }
+  | { readonly type: 'boolean'; readonly short?: string }
   | { readonly type: 'string'; readonly default: string; readonly choices?: readonly string[] }
 
 export type ArgSpec = Readonly<Record<string, OptionSpec>>
@@ -108,10 +112,20 @@ const parseCore = <S extends ArgSpec>(
   spec: S,
   allowPositionals: boolean,
 ): Envelope<CommandLine<S>> => {
-  const options: Record<string, { type: 'string' | 'boolean'; default: string | boolean }> = {}
+  const options: Record<
+    string,
+    { type: 'string' | 'boolean'; default: string | boolean; short?: string }
+  > = {}
   for (const [name, option] of Object.entries(spec)) {
     if (option.type === 'boolean') {
-      options[name] = { type: 'boolean', default: false }
+      // `parseArgs` refuses a `short` key whose value is `undefined`. It
+      // checks the key is present. It does not check that the value is a
+      // string. An option with no short form must leave the key out
+      // entirely. It must never set the key to `undefined`.
+      options[name] =
+        option.short === undefined
+          ? { type: 'boolean', default: false }
+          : { type: 'boolean', default: false, short: option.short }
       continue
     }
     // A default outside the option's own choices is `failed`, not

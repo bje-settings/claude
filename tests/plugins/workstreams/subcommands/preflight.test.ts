@@ -198,6 +198,19 @@ describe('the command line', () => {
     expect(ran.stdout).toMatch(/^Check what the workstreams skills depend on/)
   })
 
+  it('accepts -h as the short form of --help', async () => {
+    const ran = await run(['-h'], createSandbox().env)
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toMatch(/^Check what the workstreams skills depend on/)
+  })
+
+  it('refuses an undeclared short flag', async () => {
+    const ran = await run(['-x'], createSandbox().env)
+
+    expect(ran.status).toBe(2)
+  })
+
   it('refuses a flag nobody declared, exit 2, with nothing on stdout', async () => {
     const ran = await run(['--nope'], createSandbox().env)
 

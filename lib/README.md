@@ -416,6 +416,17 @@ unlike the dependency connections in the sweep query. A list at the page ceiling
 through `unavailable`, rather than refused outright, because here there is a real page signal
 to read.
 
+`viewPullRequestDetail` also answers `missing`. This is true only when GraphQL names the pull
+request field itself NOT_FOUND. The check reads the error's own `path`, the same way
+`notFoundAlias` reads it for `issueStates`, over many numbers at once. Verified live against this
+repository on 2026-09-25. `gh api graphql` for pull request 99999 answers a null node beside a
+NOT_FOUND error whose path ends at `pullRequest`. gh then exits 1.
+
+Every other reason leaves `missing` false. A NOT_FOUND for a field nested under the pull request
+is one such reason. A null node with no error, a malformed reply, an unresolved repository, and a
+refused read are four more. A caller must not read a failed read, or an unrelated nested one, as
+proof the number is gone.
+
 `listWorkflowRuns` uses REST (`actions/runs`), because `listRuns` asks `gh run list` for a field
 list that carries neither `event` nor the head commit. So a caller cannot tell a `pull_request` run
 from a `push` run, nor say which head either ran on. `listWorkflowRuns` filters with `?branch=`,

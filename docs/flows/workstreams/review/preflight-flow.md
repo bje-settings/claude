@@ -15,9 +15,9 @@ skills run it first.
 
 ```mermaid
 flowchart TD
-    A[preflight run] --> B{Arguments valid?<br/>only --json and --help}
+    A[preflight run] --> B{Arguments valid?<br/>only --json, --help and -h}
     B -->|No| Z1([Refused: the parse error, exit 2]):::stop
-    B -->|--help| H([Print usage, exit 0])
+    B -->|--help or -h| H([Print usage, exit 0])
     B -->|Yes| C{gh runs?}
 
     subgraph ghchecks [gh: stops at the first gap]

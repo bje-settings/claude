@@ -93,8 +93,12 @@ never throws. So a test has nothing else to register beside its one reply.
 
 The three sweep reads never throw, for the same reason, and each answers `{ rows, unavailable }`.
 The three review-loop reads follow the same pattern. `requiredContexts` answers
-`{ contexts, unavailable }`. `viewPullRequestDetail` answers `{ pullRequest, unavailable }`, with
-a null pull request for one it could not read. `listWorkflowRuns` answers `{ rows, unavailable }`.
+`{ contexts, unavailable }`. `viewPullRequestDetail` answers `{ pullRequest, unavailable, missing }`,
+with a null pull request for one it could not read. `listWorkflowRuns` answers
+`{ rows, unavailable }`.
+
+`missing` is true only when GitHub itself said the number does not exist. It is false for every
+other reason the read came back short. A test that registers a reply must say which case it means.
 
 The double answers `listIssues` with the same reply for any milestone. One registration holds no
 state and has no conditional logic. A test that needs a different answer per milestone must build

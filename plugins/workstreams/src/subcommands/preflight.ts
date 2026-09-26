@@ -397,7 +397,7 @@ export interface PreflightContext {
   readonly run: Runner
 }
 
-const SPEC = { json: { type: 'boolean' }, help: { type: 'boolean' } } as const
+const SPEC = { json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } as const
 
 /**
  * Check everything, report it, and answer 0 when nothing is missing.

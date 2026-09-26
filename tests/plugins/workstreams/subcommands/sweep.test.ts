@@ -197,6 +197,19 @@ describe('the command line', () => {
     expect(answer.outcome === 'ok' ? answer.value : '').toMatch(/^What a round could start on/)
   })
 
+  it('accepts -h as the short form of --help', async () => {
+    const answer = await runSweep(['-h'], { gh: createGhMock() })
+
+    expect(answer.outcome).toBe('ok')
+    expect(answer.outcome === 'ok' ? answer.value : '').toMatch(/^What a round could start on/)
+  })
+
+  it('refuses an undeclared short flag', async () => {
+    const answer = await runSweep(['-x'], { gh: createGhMock() })
+
+    expect(answer.outcome).toBe('refused')
+  })
+
   it('refuses a flag nobody declared, in node’s own words', async () => {
     const answer = await runSweep(['--nope'], { gh: createGhMock() })
 
