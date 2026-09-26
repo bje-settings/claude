@@ -108,26 +108,24 @@ set, at length.
 
 ## What #216 removed
 
-#216 drops the `skip` action, and the `dependencies`-only default it replaces. Neither survives
-in the port, though both are still in these captures, because nobody edits a capture.
+#216 removes the `skip` action and the `dependencies`-only default. It is the one exception to the
+rule that nobody edits a capture. The edits remove content and add none.
 
-- **`skip`** is gone from `shepherd-pr`. `shepherd-pr-output.json` still holds its seven captured
-  cases: `skip_cannot_read_an_unknown_pull_request`, `skip_posts_the_reason`,
+- **`skip`** is gone from `shepherd-pr`. #216 deleted its seven cases from
+  `shepherd-pr-output.json`: `skip_cannot_read_an_unknown_pull_request`, `skip_posts_the_reason`,
   `skip_refuses_a_pull_request_that_is_not_open`, `skip_refuses_an_empty_reason_file`,
   `skip_reports_a_comment_it_could_not_post`, `skip_with_an_empty_reason_file_argument`, and
-  `skip_without_a_reason_file`. The parity suite no longer replays any of them: their entries, and
-  the `ARRANGEMENTS`, `REASONS`, and `PATHS` rows only they used, are deleted from
-  `shepherd-pr.test-support.ts`. `parity-1.test.ts`'s own check (`replayable.length +
-  NOT_REPLAYED.size === Object.keys(CAPTURE).length`) still holds. A case and its replay are
-  always deleted from the fixture together.
-- **`skipped_no_automerge`** is gone from `shepherd-status`'s report. `statusDocument` now answers
-  with `targets` alone; a pull request without auto-merge is left out, not listed under a key
-  nothing reads. The replay suite keeps every one of `shepherd-status-output.json`'s cases. It
-  sends `dependencies` as the label argument on every replay, to keep each case's captured
-  semantics. Each case's expected `stdout` is the capture's own document with
-  `skipped_no_automerge` removed, where the capture had it. `divergences-shepherd.json`'s
-  `skippedNoAutomerge` entry records the fact once, with no case names. The `sentences` array is
-  shared with `shepherd-pr`'s own parity check.
+  `skip_without_a_reason_file`. It also deleted the `ARRANGEMENTS`, `REASONS`, and `PATHS` rows
+  that only these cases used, from `shepherd-pr.test-support.ts`. `parity-1.test.ts`'s own check
+  (`replayable.length + NOT_REPLAYED.size === Object.keys(CAPTURE).length`) still holds. The
+  seven cases are in the history of this file at `3d70469`.
+- **`skipped_no_automerge`** is gone from the `shepherd-status` report. `statusDocument` now gives
+  `targets` only, and a pull request without auto-merge is left out. #216 removed this key from
+  the `stdout` of each case in `shepherd-status-output.json` that had it. Nothing else in a case
+  changed. The replay suite keeps every case, and sends `dependencies` as the label argument, so
+  each case keeps its captured semantics. The `skippedNoAutomerge` entry in
+  `divergences-shepherd.json` records the change once, with no case names, because its
+  `sentences` array is shared with the `shepherd-pr` parity check.
 
 One sentence deliberately did NOT change, though it names a script that is now a command:
 `settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits
@@ -139,13 +137,13 @@ injected `GhClient`. So its argv belongs to `lib/gh.ts`, and that module's own s
 comparing the stub's gh argv against it would assert the client's translation twice. `ghCalls` was
 the only record of what each WRITE asked to send. The tests assert that directly instead, against
 the client's own request rather than against gh argv, in `subcommands/shepherd-pr.*.test.ts`: `asks for
-a rebase of the pull request it was given, and never a merge`, `posts the words Dependabot
-answers, on the pull request it was given`, and `posts the reason file it was given, as the body
-of the comment`. Each of those three also asserts the CLIENT the request goes through, because
-`--repo` is not a field of any request here: it is a construction option. So the tests assert the
-repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`, rather than as argv.
-`subcommands/shepherd-status.test.ts` does the same for its two listings. The capture keeps the field
-because it is the Python's record, and nobody edits the captures.
+a rebase of the pull request it was given, and never a merge`, and `posts the words Dependabot
+answers, on the pull request it was given`. Each of those two also asserts the CLIENT the request
+goes through, because `--repo` is not a field of any request here: it is a construction option.
+So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`,
+rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
+capture keeps the field because it is the Python's record. Apart from the #216 removals above,
+nobody edits the captures.
 
 ## The capture script
 
