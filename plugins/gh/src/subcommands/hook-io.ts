@@ -1,7 +1,6 @@
 // This file is the gh plugin's SessionStart hook. It writes one status line,
-// or nothing (#230):
-//
-//   gh: 3 repos [behind 2] [prune 1] [🤖 4] [🛡️ 1] ⚠️
+// or nothing (#230). {@link statusLine} shapes the line, and
+// `plugins/gh/README.md` shows it.
 //
 // The hook finds the repository that holds the session's directory, or the
 // repositories directly inside it (`discover.ts`). It skips a repository
@@ -10,8 +9,8 @@
 // GitHub counts, at the same time as the fetches.
 //
 // One deadline applies to the whole check. A task that fails, or does not
-// finish in time, gives no count. The line then ends with ⚠️, and the
-// reason goes to stderr, one line for each failure. Claude Code keeps
+// finish in time, gives no count. The line then ends with a warning, and
+// the reason goes to stderr, one line for each failure. Claude Code keeps
 // stderr in its debug log.
 //
 // The hook never changes a branch, a worktree, or a working tree. The
