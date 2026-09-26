@@ -359,6 +359,37 @@ ${report}
 /gh:sync applies this for real.
 `
 
+/** The four counts the line can show, each summed over every repository. */
+export interface StatusCounts {
+  readonly behind: number
+  readonly prune: number
+  readonly dependencies: number
+  readonly alerts: number
+}
+
+/**
+ * The status line, or `null` when there is nothing to show. This is the
+ * only place that shapes the line.
+ *
+ * A zero count is left out. The repository count follows the prefix only
+ * when there is more than one repository. The warning comes last, and
+ * shows that an item failed or did not finish in time.
+ */
+export const statusLine = (
+  counts: StatusCounts,
+  repoCount: number,
+  failed: boolean,
+): string | null => {
+  const items: string[] = []
+  if (counts.behind > 0) items.push(`[behind ${counts.behind}]`)
+  if (counts.prune > 0) items.push(`[prune ${counts.prune}]`)
+  if (counts.dependencies > 0) items.push(`[🤖 ${counts.dependencies}]`)
+  if (counts.alerts > 0) items.push(`[🛡️ ${counts.alerts}]`)
+  if (failed) items.push('⚠️')
+  if (items.length === 0) return null
+  return `gh:${repoCount > 1 ? ` ${repoCount} repos` : ''} ${items.join(' ')}`
+}
+
 export const USAGE = 'usage: hook-io.ts {session-start|cwd|branch <current> <default>|report}\n'
 
 /**
