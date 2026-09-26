@@ -53,6 +53,9 @@ commands:
                                                   on in one repository
   shepherd-pr <path> <number> <action>            one deterministic step
                                                   against one pull request
+  org-scope --target <owner> <source-owner>...    whether each source owner
+                                                  shares an enterprise with
+                                                  the target
 
 gh.ts <command> --help prints that command's own usage.`
 
@@ -123,6 +126,10 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
   if (name === 'shepherd-pr') {
     const { runShepherdPr } = await import('../src/subcommands/shepherd-pr.ts')
     return runShepherdPr(argv, { ...edges, ...shepherdEdges })
+  }
+  if (name === 'org-scope') {
+    const { runOrgScope } = await import('../src/subcommands/org-scope.ts')
+    return runOrgScope(argv, { output, gh: createGhClient({ env: process.env }) })
   }
   return null
 }
