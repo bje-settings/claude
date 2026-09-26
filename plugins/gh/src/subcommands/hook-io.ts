@@ -1,8 +1,10 @@
 // This file is the gh plugin's SessionStart hook (#230). It writes at most
 // one status line, then one problem line for each kind of failure, or
 // nothing. When git or the GitHub CLI is not on PATH, it checks nothing, and
-// writes one problem line for each missing tool. {@link statusLine} and
-// {@link problemLines} shape the lines, and `plugins/gh/README.md` shows them.
+// writes one problem line for each missing tool, plus `additionalContext`
+// naming the absent tools so the model does not start work that will fail
+// (#243). {@link statusLine} and {@link problemLines} shape the lines, and
+// `plugins/gh/README.md` shows them.
 //
 // The hook finds the repository that holds the session's directory, or the
 // repositories directly inside it (`discover.ts`). It skips a repository
