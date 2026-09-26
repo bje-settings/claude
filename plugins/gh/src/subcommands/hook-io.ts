@@ -112,7 +112,8 @@ export const statusLine = (
  * A github.com remote URL, in each form git accepts. The first half is the
  * URL form with a scheme, an optional user, and an optional port. The second
  * half is the scp form, `[user@]github.com:`. Owner and name each hold only
- * the characters GitHub allows, so the two parts can go into a query as text.
+ * letters, digits, `-`, `_` and `.`. So no part can end a quoted string in a
+ * query.
  */
 const GITHUB_URL =
   /^(?:(?:https?|ssh|git):\/\/(?:[^@/]+@)?github\.com(?::[0-9]+)?\/|(?:[^@/:]+@)?github\.com:)([A-Za-z0-9_-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/i
@@ -185,8 +186,8 @@ export const which = (tool: string, env: NodeJS.ProcessEnv): string | null => {
 /** Everything the hook reads that is not a file and not git. */
 export interface HookEdges {
   /** This process's own directory. It is a call, because `process.cwd()`
-   *  throws for a directory that was deleted, and the hook asks only when
-   *  the payload names no directory. */
+   *  throws for a directory that was deleted. The hook asks only when the
+   *  payload names no directory. */
   readonly cwd: () => string
   readonly env: NodeJS.ProcessEnv
   /** Everything on stdin. It is a call, because only `session-start` reads

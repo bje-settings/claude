@@ -80,11 +80,7 @@ order, never in the order the jobs happened to finish.`
  * wording against the line it replaces.
  *
  * The mark comes from {@link REPORT}, not a literal string, because this
- * is a report line like any other. The SessionStart hook classifies it by
- * that constant (#110, `subcommands/hook-io.ts` `fanOutSummary`). That
- * function counts this line as a repository that no check could fully
- * cover. A literal here would let someone reword the mark in one place.
- * The hook would then silently count nothing.
+ * is a report line like any other.
  */
 export const failureLine = (error: unknown): string =>
   `${REPORT.bad}the sync failed: ${error instanceof Error ? error.message : String(error)}\n`

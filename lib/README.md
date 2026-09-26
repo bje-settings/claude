@@ -326,11 +326,11 @@ const { repositories, unavailable } = await gh.repositoryStatus(['acme/widgets']
 // repositories['acme/widgets'] -> { alerts: 1, dependencies: 2, mergedPullRequests: [...] }
 ```
 
-This is the GitHub half of the gh plugin's SessionStart status line (#230). For each
-`owner/name`, it reads three fields: open Dependabot alerts, open pull requests with the
-`dependencies` label, and the head of each of the last 100 merged pull requests. It reads them the
-way `issueStates` reads states: one `gh api graphql` query, one alias per repository (`r0`, `r1`,
-and so on).
+This is the GitHub half of the gh plugin's SessionStart status line (#230). It reads three
+fields for each `owner/name`. They are the open Dependabot alerts, the open pull requests with the
+`dependencies` label, and the heads of the last 100 merged pull requests. Like `issueStates`, it
+sends one aliased `gh api graphql` query. `issueStates` has one alias per number. This endpoint has
+one alias per repository (`r0`, `r1`, and so on).
 
 One query names five repositories at most (`STATUS_BATCH`). Each repository asks for 100 pull
 request rows, so a small batch stays far below GitHub's node limit. The batches go at the same
@@ -339,8 +339,8 @@ time, so the small batch costs no time. Each call stops at `boundMs`, through th
 
 **Never throws.** A failure costs only what it touches:
 
-- A batch with no body to read, a gh that did not start, a pipe that failed, or a call past its
-  bound costs the repositories of that batch. The reason goes into `unavailable`.
+- Some failures cost all the repositories of a batch: a batch with no body to read, a gh that did
+  not start, a pipe that failed, or a call past its bound. The reason goes into `unavailable`.
 - A repository that GitHub could not resolve is left out of `repositories`. Its error message goes
   into `unavailable`.
 - A field that is not the shape the query asked for is `null`, and the other fields stay. A token
@@ -351,7 +351,8 @@ time, so the small batch costs no time. Each call stops at `boundMs`, through th
   one row short could hide the row that proves a squash merge.
 
 Owner and name go into the query as text, through `JSON.stringify`, because an alias cannot be a
-variable. The hook's URL parser lets only the characters GitHub allows into a name.
+variable. The hook's URL parser lets only letters, digits, `-`, `_` and `.` into a name, so no
+name can end the quoted string.
 
 ### `listMilestones`, `listIssues` and `listOpenPullRequests`
 
