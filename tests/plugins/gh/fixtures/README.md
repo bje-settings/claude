@@ -93,3 +93,10 @@ this fixture would not catch it. Only an edit that also broke one of the OTHER s
 `scripts/gh.ts`, or another way to import it; that is outside this fixture's own scope.
 `vitest.config.ts`'s `**/fixtures/**` exclusion covers it, the same way it covers the other `.ts`
 fixtures. So it is linted and type-checked, but never measured.
+
+## `throwing-command-entry.ts`
+
+The same gap, for #218 finding 7's top-level catch. No externally reachable command throws
+through a spawned process with no `gh` reachable at all. So this fixture MIRRORS `scripts/gh.ts`'s
+own `run` dispatch and its catch, over one command that always throws. A future edit confined to
+that catch could break the exit-1, one-line, no-stack-trace contract without this fixture noticing.

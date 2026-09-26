@@ -31,11 +31,9 @@ import { createSandbox } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
 
 const BIN = pluginFile('gh', 'scripts', 'gh.ts')
-const THROWING_SYNC_ENTRY = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'fixtures',
-  'throwing-sync-entry.ts',
-)
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+const THROWING_SYNC_ENTRY = path.join(FIXTURES, 'throwing-sync-entry.ts')
+const THROWING_COMMAND_ENTRY = path.join(FIXTURES, 'throwing-command-entry.ts')
 
 /** The sandbox's environment, so the child carries no `GIT_` or `GH_`
  *  variable this test did not choose. */
@@ -184,6 +182,19 @@ it('exits 1 with the report on stdout when a job fails, at the real process boun
   expect(result.status).toBe(1)
   expect(result.stdout).toBe('  ✗ the sync failed: boom\n')
   expect(result.stderr).toBe(`the sync to ${path.basename(repo)} failed\n`)
+})
+
+it('reports a command that throws as one stderr line, with no stack trace, and exits 1', () => {
+  // #218 finding 7. This mirrors `scripts/gh.ts`'s own dispatch, the same
+  // way `THROWING_SYNC_ENTRY` mirrors its `sync` arm and `write`, for the
+  // same reason: nothing externally reachable can make a real command
+  // throw through a spawned process with no `gh` (see that fixture's own
+  // header, and `fixtures/README.md`).
+  const result = runScript(THROWING_COMMAND_ENTRY, { args: [], env: env() })
+
+  expect(result.status).toBe(1)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('gh: boom\n')
 })
 
 it('refuses a pull request number that is not one', () => {

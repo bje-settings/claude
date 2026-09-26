@@ -133,5 +133,14 @@ const [name = '', ...rest] = process.argv.slice(2)
 // To ask what this command can do is not a mistake. An unknown command is
 // a mistake. It gets exit 2, with the same list on stderr.
 const wantsUsage = name === '' || name === '-h' || name === '--help'
-const status = wantsUsage ? write(ok(USAGE)) : await run(name, rest)
+// #218 finding 7: a command that throws must not print node's own
+// internals stack trace. Exit 1 is what `lib/envelope.ts` calls `failed`:
+// this code went wrong. `plugins/audit/scripts/audit.ts` guards the same
+// way.
+const status = wantsUsage
+  ? write(ok(USAGE))
+  : await run(name, rest).catch((error: unknown) => {
+      output.err.write(`gh: ${error instanceof Error ? error.message : String(error)}\n`)
+      return 1
+    })
 process.exitCode = status === null ? write(refused(`unknown command: ${name}\n\n${USAGE}`)) : status
