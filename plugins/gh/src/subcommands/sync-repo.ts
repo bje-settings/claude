@@ -42,6 +42,7 @@ import { installDeps, LOCKFILES, NO_LOCKFILE } from '../install.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError } from '../lib/gh.ts'
 import {
+  currentBranch,
   gitLines,
   gitOk,
   gitOut,
@@ -851,6 +852,18 @@ class SyncRepoRun {
       }
       if (dirty !== '') {
         this.bad(`kept ${branch} and its worktree ${worktree} (uncommitted changes)`)
+        return
+      }
+      // #218 finding 6, round 2 review. `this.worktrees` was built once, by
+      // `readWorktrees`, before this loop began. A branch earlier in the
+      // loop can trigger its own gh call, and that call can take long
+      // enough for someone to switch this worktree to another branch. The
+      // dirty check above does not catch it: a clean switch leaves no
+      // tracked change. This check reads the worktree's branch again, right
+      // before the removal, and fails closed on any answer but a match.
+      const onBranch = await currentBranch(this.at(worktree))
+      if (onBranch !== branch) {
+        this.bad(`kept ${branch} and its worktree ${worktree} (worktree changed branch)`)
         return
       }
     }

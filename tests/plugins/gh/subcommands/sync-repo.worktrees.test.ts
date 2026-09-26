@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
 import { runSyncRepo } from '#gh/subcommands/sync-repo.ts'
 import { corepackEnv, createPackageFixtures } from '#harness/packages.ts'
+import { manyPrs } from '#harness/pulls.ts'
 import { fixture, ghDouble, normalise, run, SCENARIOS, shimmed } from './sync-repo.test-support.ts'
 
 // --- worktrees ------------------------------------------------------------------
@@ -117,6 +118,53 @@ describe('worktrees', () => {
           // Simulates the race: an external switch of the linked worktree
           // to a fresh, unmerged branch, with its own ignored file, after
           // preflight's one read and before the prune loop uses it.
+          f.git.git(f.sandbox.join('wt'), 'switch', '-c', 'other-work')
+          f.git.git(f.sandbox.join('wt'), 'commit', '--allow-empty', '-m', 'other work')
+          writeFileSync(f.sandbox.join('wt', '.gitignore'), '*.ignoreme\n')
+          f.git.git(f.sandbox.join('wt'), 'add', '.gitignore')
+          f.git.git(f.sandbox.join('wt'), 'commit', '-m', 'ignore')
+          writeFileSync(f.sandbox.join('wt', 'secret.ignoreme'), 'secret\n')
+        }
+        return base.listMergedPullRequests(query)
+      },
+    }
+
+    await run(f, [f.repo], { gh })
+
+    expect(existsSync(f.sandbox.join('wt'))).toBe(true)
+    expect(existsSync(f.sandbox.join('wt', 'secret.ignoreme'))).toBe(true)
+  })
+
+  it("does not remove a linked worktree that switches branch during a later branch's own gh call", async () => {
+    // Round 2 review of #218 finding 6. `readWorktrees` reads the list once,
+    // fresh, right before the prune loop starts. That single read is not
+    // enough on its own: the loop then walks every local branch in turn, and
+    // a saturated pull-request window makes it ask gh again, once per branch
+    // that the bulk window and ancestry could not already prove. Any of
+    // those per-branch calls can take long enough for someone to switch a
+    // linked worktree to another branch, the same race round 1 found, but
+    // now inside the loop the fresh read was meant to protect.
+    //
+    // `aaa-first` sorts before `wt-branch`, so its own per-branch gh call
+    // runs first and is where this test switches the worktree. By the time
+    // the loop reaches `wt-branch`, the map `readWorktrees` built still names
+    // the worktree's OLD branch.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'aaa-first')
+    f.git.branchWithWork(f.repo, 'wt-branch')
+    f.git.mergeCommit(f.repo, 'wt-branch')
+    f.git.worktree(f.repo, f.sandbox.join('wt'), 'wt-branch')
+
+    const base = ghDouble({ prs: manyPrs(200) })
+    let switched = false
+    const gh = {
+      ...base,
+      listMergedPullRequests: async (query: Parameters<typeof base.listMergedPullRequests>[0]) => {
+        if (query.head === 'aaa-first' && !switched) {
+          switched = true
+          // The same race round 1 fixed for the window before the loop:
+          // an external switch of the linked worktree to a fresh, unmerged
+          // branch, with its own ignored file.
           f.git.git(f.sandbox.join('wt'), 'switch', '-c', 'other-work')
           f.git.git(f.sandbox.join('wt'), 'commit', '--allow-empty', '-m', 'other work')
           writeFileSync(f.sandbox.join('wt', '.gitignore'), '*.ignoreme\n')
