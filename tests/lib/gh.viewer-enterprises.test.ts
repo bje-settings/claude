@@ -148,3 +148,73 @@ it('reports a gh that exits 0 and prints nothing, because silence is not an answ
 
   expect(result).toEqual({ enterprises: [], unavailable: 'gh exited 0' })
 })
+
+it('counts an enterprise row it cannot read into the reason, and keeps the rows it can', async () => {
+  const { gh } = clientAnswering([
+    page([
+      enterprise('acme-ent', ['acme-one']),
+      { slug: 'no-orgs-ent' },
+      { organizations: { nodes: [{ login: 'nameless-one' }] } },
+      enterprise('', ['blank-one']),
+      enterprise('bad-login-ent', ['ok-one', '']),
+      { slug: 'odd-login-ent', organizations: { nodes: [{ login: 7 }] } },
+    ]),
+  ])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result.enterprises).toEqual([{ slug: 'acme-ent', organizations: ['acme-one'] }])
+  expect(result.unavailable).toBe('5 enterprise row(s) could not be read')
+})
+
+it('stops and says so when the next page repeats the same cursor', async () => {
+  const { gh } = clientAnswering([
+    page([enterprise('acme-ent', ['acme-one'])], { hasNextPage: true, endCursor: 'c1' }),
+    page([enterprise('acme-ent', ['acme-one'])], { hasNextPage: true, endCursor: 'c1' }),
+  ])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result).toEqual({
+    enterprises: [{ slug: 'acme-ent', organizations: ['acme-one'] }],
+    unavailable: "enterprises' reply repeated the same cursor without advancing",
+  })
+})
+
+it('stops and says so when a page has more and names no cursor', async () => {
+  const { gh } = clientAnswering([
+    page([enterprise('acme-ent', ['acme-one'])], { hasNextPage: true, endCursor: null }),
+  ])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result).toEqual({
+    enterprises: [{ slug: 'acme-ent', organizations: ['acme-one'] }],
+    unavailable: 'enterprises has more pages and the reply named no cursor to ask with',
+  })
+})
+
+it('stops at 20 pages and says so', async () => {
+  const replies = Array.from({ length: 21 }, (_, index) =>
+    page([enterprise(`ent-${index}`, [`org-${index}`])], {
+      hasNextPage: true,
+      endCursor: `c${index}`,
+    }),
+  )
+  const { gh } = clientAnswering(replies)
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result.enterprises).toHaveLength(20)
+  expect(result.unavailable).toBe('enterprises has more pages than the 20 this reads')
+})
+
+it('reports a reply that carries no enterprises connection', async () => {
+  const { gh } = clientAnswering([
+    { stdout: '{"data":{"viewer":null},"errors":[{"message":"bad credentials"}]}', status: 1 },
+  ])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result).toEqual({ enterprises: [], unavailable: 'gh exited 1' })
+})

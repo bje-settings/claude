@@ -1378,10 +1378,11 @@ const parseEnterprisePage = (stdout: string): Page | undefined => {
     return undefined
   }
   const connection = asRecord(asRecord(asRecord(reply?.data)?.viewer)?.enterprises)
-  if (connection === undefined) return undefined
+  // `nodesOf` answers null for an absent connection too, so one check
+  // covers both.
   const nodes = nodesOf(connection)
   if (nodes === null) return undefined
-  const info = asRecord(connection.pageInfo)
+  const info = asRecord(connection?.pageInfo)
   const errorsField = reply?.errors
   const entries = Array.isArray(errorsField) ? errorsField : []
   const messages = entries
@@ -1395,15 +1396,25 @@ const parseEnterprisePage = (stdout: string): Page | undefined => {
   }
 }
 
-/** One enterprise node as a row. */
+/** A string with at least one character, or null. An empty slug or login
+ *  names nothing, so it reads the same as one that is absent. */
+const asName = (value: unknown): string | null => {
+  const text = asText(value)
+  return text === null || text === '' ? null : text
+}
+
+/** One enterprise node as a row, or null when its slug or any login cannot
+ *  be read. A row with one login dropped would be a short list that does not
+ *  say so. */
 const readEnterprise = (
   node: unknown,
 ): GhResults['viewerEnterprises']['enterprises'][number] | null => {
   const entry = asRecord(node)
-  const slug = asText(entry?.slug)
+  const slug = asName(entry?.slug)
   const organizations = nodesOf(asRecord(entry?.organizations))
   if (slug === null || organizations === null) return null
-  const logins = organizations.map((organization) => asText(asRecord(organization)?.login))
+  const logins = organizations.map((organization) => asName(asRecord(organization)?.login))
+  if (logins.includes(null)) return null
   return { slug, organizations: logins as string[] }
 }
 
@@ -1889,6 +1900,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     viewerEnterprises: async () => {
       const enterprises: GhResults['viewerEnterprises']['enterprises'][number][] = []
       const reasons: string[] = []
+      let unreadable = 0
       let cursor: string | null = null
       for (let page = 0; page < SWEEP_PAGES; page += 1) {
         const result = await invoke([
@@ -1903,9 +1915,18 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           reasons.push(accountOf(result))
           break
         }
+        // A cursor that does not advance would ask the same question
+        // forever, so the loop stops before it reads the same rows twice.
+        if (answer.endCursor !== null && answer.endCursor === cursor) {
+          reasons.push("enterprises' reply repeated the same cursor without advancing")
+          break
+        }
         for (const node of answer.nodes) {
           const row = readEnterprise(node)
-          if (row === null) continue
+          if (row === null) {
+            unreadable += 1
+            continue
+          }
           enterprises.push(row)
           // One page of organizations, and no cursor to ask for more. A
           // short list says so, because an owner on the page not read would
@@ -1918,8 +1939,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         }
         if (answer.errors !== null) reasons.push(answer.errors)
         if (!answer.hasNextPage) break
+        if (answer.endCursor === null) {
+          reasons.push('enterprises has more pages and the reply named no cursor to ask with')
+          break
+        }
+        if (page === SWEEP_PAGES - 1) {
+          reasons.push(`enterprises has more pages than the ${SWEEP_PAGES} this reads`)
+          break
+        }
         cursor = answer.endCursor
       }
+      if (unreadable > 0) reasons.push(`${unreadable} enterprise row(s) could not be read`)
       return { enterprises, unavailable: joinedReasons(reasons) }
     },
 
