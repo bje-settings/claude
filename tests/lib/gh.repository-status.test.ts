@@ -240,6 +240,50 @@ it('asks about five repositories at most in one query, and answers for all of th
   expect(answer.repositories['o/r0']?.alerts).toBe(0)
 })
 
+it('keeps the answers of the other batches when one batch fails, and every reason', async () => {
+  const all = Array.from({ length: 11 }, (_, index) => `o/r${index}`)
+  const server = serverFor(all)
+  // The first batch fails as a whole. The last batch has one repository,
+  // which GitHub could not resolve. The batch between them answers.
+  const gh = createGhClient({
+    run: async (command, args, options) => {
+      const repos = reposOf(queryOf(args))
+      if (repos.includes('o/r0')) return result({ status: 1, stderr: 'gh: first batch refused\n' })
+      if (repos.includes('o/r10')) {
+        return result({
+          status: 1,
+          stdout: JSON.stringify({
+            data: { r0: null },
+            errors: [{ message: "Could not resolve to a Repository with the name 'o/r10'." }],
+          }),
+        })
+      }
+      return server(command, args, options)
+    },
+  })
+
+  const answer = await gh.repositoryStatus(all, { boundMs: 1_000 })
+
+  expect(Object.keys(answer.repositories).sort()).toEqual(['o/r5', 'o/r6', 'o/r7', 'o/r8', 'o/r9'])
+  expect(answer.unavailable).toBe(
+    "gh: first batch refused; Could not resolve to a Repository with the name 'o/r10'.",
+  )
+})
+
+it('reads an errors field that is not a list as no reason, and keeps the answer', async () => {
+  const gh = createGhClient({
+    run: async () =>
+      result({ stdout: JSON.stringify({ data: { r0: node(1, 2) }, errors: 'not a list' }) }),
+  })
+
+  const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })
+
+  expect(answer).toEqual({
+    repositories: { 'acme/widgets': { alerts: 1, dependencies: 2, mergedPullRequests: [] } },
+    unavailable: null,
+  })
+})
+
 it('sends the batches at the same time, not one after another', async () => {
   const all = ['o/r0', 'o/r1', 'o/r2', 'o/r3', 'o/r4', 'o/r5']
   const server = serverFor(all)
