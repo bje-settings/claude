@@ -12,6 +12,7 @@
 // detail in the issue text. So every doubt reads as outside: a user
 // account, an owner in no enterprise the viewer can see, and a list gh
 // could not read whole ("unknown", which the skill treats as outside).
+import { parseCommandLine } from '../lib/args.ts'
 import type { GhClient } from '../lib/gh.ts'
 import type { Output } from '../lib/streams.ts'
 
@@ -49,6 +50,14 @@ export interface ScopeResult {
   readonly scope: Scope
   readonly enterprise?: string
 }
+
+const USAGE = 'usage: gh.ts org-scope --target <owner> <source-owner>...'
+
+/** Every option this command reads. */
+const SPEC = {
+  target: { type: 'string', default: '' },
+  help: { type: 'boolean', short: 'h' },
+} as const
 
 /** GitHub logins do not depend on case, so every comparison uses this form. */
 const key = (login: string): string => login.toLowerCase()
@@ -96,8 +105,23 @@ export const runOrgScope = async (
   context: OrgScopeContext,
 ): Promise<number> => {
   const { output, gh } = context
-  const target = argv[1] as string
-  const sources = argv.slice(2)
+  const refuse = (reason: string): number => {
+    output.err.write(`${reason}\n${USAGE}\n`)
+    return 2
+  }
+
+  const parsed = parseCommandLine(argv, SPEC)
+  if (parsed.outcome !== 'ok') return refuse(parsed.error)
+  const { options, positionals: sources } = parsed.value
+  if (options.help) {
+    output.out.write(`${HELP}\n`)
+    return 0
+  }
+  // An empty owner names nothing, so it reads the same as an absent one.
+  const target = options.target
+  if (target === '') return refuse('org-scope: --target is required')
+  if (sources.length === 0) return refuse('org-scope: name at least one source owner')
+  if (sources.includes('')) return refuse('org-scope: a source owner is empty')
   const others = sources.filter((source) => key(source) !== key(target))
   const { enterprises, unavailable } =
     others.length === 0 ? { enterprises: [], unavailable: null } : await readEnterprises(gh)

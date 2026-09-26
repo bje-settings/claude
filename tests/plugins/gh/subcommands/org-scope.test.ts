@@ -5,7 +5,7 @@
 // The logins and slugs are invented. No real organization name goes here.
 import { expect, it } from 'vitest'
 import type { Output, Writer } from '#gh/lib/streams.ts'
-import { runOrgScope } from '#gh/subcommands/org-scope.ts'
+import { HELP, runOrgScope } from '#gh/subcommands/org-scope.ts'
 import { createGhMock, type GhReplies, ghFails } from '#harness/gh.ts'
 
 const collector = (): Writer & { text: () => string } => {
@@ -170,3 +170,34 @@ it('answers each of several sources on its own, in the order given', async () =>
     ],
   })
 })
+
+it.each([
+  ['no --target', ['acme-one'], 'org-scope: --target is required'],
+  ['an empty --target', ['--target', '', 'acme-one'], 'org-scope: --target is required'],
+  ['no source', ['--target', 'acme-one'], 'org-scope: name at least one source owner'],
+  ['an empty source', ['--target', 'acme-one', ''], 'org-scope: a source owner is empty'],
+  ['an unknown flag', ['--target', 'acme-one', '--nope', 'acme-two'], "Unknown option '--nope'"],
+  ['--target with no value', ['--target'], "Option '--target <value>' argument missing"],
+])(
+  'refuses %s with exit 2, the reason and the usage on stderr, and nothing on stdout',
+  async (_name, argv, reason) => {
+    // No reply is registered, so a call to gh would throw.
+    const result = await orgScope(argv)
+
+    expect(result.status).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain(reason)
+    expect(result.stderr).toContain('usage: gh.ts org-scope --target <owner> <source-owner>...')
+  },
+)
+
+it.each([['--help'], ['-h']])(
+  'prints its help for %s with exit 0, and asks gh nothing',
+  async (flag) => {
+    const result = await orgScope([flag])
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe(`${HELP}\n`)
+    expect(result.stderr).toBe('')
+  },
+)
