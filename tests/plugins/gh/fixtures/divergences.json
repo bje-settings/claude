@@ -8,7 +8,7 @@
     "operation_in_progress_in_a_linked_worktree": {
       "was": "  · main already up to date (<sha>)\n",
       "now": "",
-      "why": "#218 finding 6: the linked-worktree in-progress check moved from readWorktrees into preflight, before the fetch and the advance. The shell version, and the port until now, ran the check too late, so a repository otherwise ready to advance reported it as up to date before it skipped. The check now fires on sight, the same as the check for this checkout's own in-progress marker, and the advance line never prints."
+      "why": "#218 finding 6: the linked-worktree in-progress check now also runs in preflight, before the fetch and the advance, the same as the check for this checkout's own in-progress marker. The shell version, and the port until now, ran the check only later, so a repository otherwise ready to advance reported it as up to date before it skipped. The check still runs again in readWorktrees, fresh, right before the prune loop: a worktree can switch branch in the window a fetch, an install, and a gh call open. The early check is what makes the advance line never print here."
     }
   },
   "scenarioSubstitutions": {

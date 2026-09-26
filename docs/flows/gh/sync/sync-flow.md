@@ -4,7 +4,7 @@ description: How `gh.ts sync` finds its checkouts, syncs each one in process, an
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-09-26
 ---
 
 # sync flow
@@ -53,9 +53,9 @@ flowchart TD
         R5 -->|Yes| R6[Fast-forward when it can, or report diverged;<br/>after a move, install with pnpm if a lock file changed]
         R6 --> R7{Merged pull requests or<br/>ancestry readable?}
         R7 -->|Neither| RP([No branch pruned: no merge proof can be read]):::stop
-        R7 -->|Yes| R8{Branches listable?}
+        R7 -->|Yes| R8{Worktrees and branches listable,<br/>and no linked worktree mid-operation now?}
         R8 -->|No| RS
-        R8 -->|Yes| R9{Branch has merge proof, a clean or no worktree,<br/>and a tip not at the origin default?}
+        R8 -->|Yes| R9{Branch has merge proof, a clean or no worktree<br/>on the same branch still, and a tip not at the origin default?}
         R9 -->|No| RK([Keep the branch, say why]):::stop
         R9 -->|Yes| RD([Remove its worktree, delete the branch])
     end
@@ -68,11 +68,16 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-A skipped repository and a kept branch are normal outcomes, and the job answers nothing either
-way: only a throw makes `sync` exit 1, and the report is on stdout before the verdict. The
-in-progress check on another worktree runs early, in the same preflight step as the other
-checkout guards, before the fetch and the advance. So a stopped rebase there skips the whole
-repository on sight, with nothing fetched and no line about the default branch. With `--dry-run`,
-each change becomes a `would ...` line and nothing changes. `--no-install` removes the install
-step. `scripts/gh.ts` catches an error it did not expect, in a job or outside one, and reports it
-as one stderr line, rather than node's own stack trace.
+A skipped repository is a normal outcome. So is a kept branch. The job answers nothing either
+way. Only a throw makes `sync` exit 1. The report is on stdout before the verdict.
+
+The in-progress check on another worktree runs twice. It runs early, in the same preflight step
+as the other checkout guards, before the fetch and the advance. It runs again, fresh, right
+before the prune loop, because a worktree can switch branch in between. So a stopped rebase there
+skips the whole repository on sight. Nothing is fetched, and no line names the default branch. A
+worktree that switches branch afterward is checked again, right before its branch would be
+removed.
+
+With `--dry-run`, each change becomes a `would ...` line and nothing changes. `--no-install`
+removes the install step. `scripts/gh.ts` catches an error it did not expect, in a job or outside
+one. It reports that error as one stderr line, rather than node's own stack trace.
