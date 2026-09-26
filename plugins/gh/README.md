@@ -305,9 +305,9 @@ Before a write, the skill asks you to confirm. In a subagent it cannot ask. Ther
 only when the request sets every value. Otherwise it returns the proposal to its caller.
 
 An issue can go to a repository of a different owner than the work that gave it context.
-Then the skill runs `gh.ts org-scope` for each source owner before it confirms. For an owner
-outside the source's enterprise, or a result it cannot read, the issue names none of the
-source's repositories, numbers, paths or URLs. The proposal gets an `Omitted:` line with the
+Then the skill runs `gh.ts org-scope` for each source owner before it confirms. The target
+can be outside the source's enterprise, or the check can fail. Then the issue names none of
+the source's repositories, numbers, paths or URLs. The proposal gets an `Omitted:` line with the
 kinds of detail that it removed. The rule is in
 [`skills/issues/cross-org.md`](skills/issues/cross-org.md).
 

@@ -20,10 +20,10 @@ value, do them before the write.
 
    If the command does not exit 0, do step 4 for each source.
 
-4. In the title, the body and each proposed comment, remove these details of the source:
-   repository names, issue and pull request numbers, file paths, URLs, branch names and
-   measurements. Write the idea in general words, for example "a skill in a different
-   repository".
+4. Remove the details of the source from the title, the body and each proposed comment.
+   These are repository names, issue and pull request numbers, file paths, URLs, branch
+   names and measurements. Write the idea in general words, for example "a skill in a
+   different repository".
 5. Add one line to the proposal that gives the kinds of detail that you removed, not the
    details: `Omitted: repository names, issue numbers, file paths`. A subagent adds the
    same line to the proposal that it returns.
