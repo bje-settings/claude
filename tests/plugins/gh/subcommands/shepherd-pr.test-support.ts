@@ -22,7 +22,7 @@
 // its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from the
 // tree. The file and line references below point to what those files held at
 // `cd0d515`. Each reference stays because it says where a rule came from.
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from 'vitest'
@@ -330,10 +330,6 @@ export const ARRANGEMENTS: Record<string, GhServerOptions> = {
   recreate_reports_a_comment_it_could_not_post: {
     replies: { addComment: ghFails('HTTP 403: Resource not accessible by integration') },
   },
-  skip_posts_the_reason: { replies: { addComment: COMMENT_URL } },
-  skip_reports_a_comment_it_could_not_post: {
-    replies: { addComment: ghFails('HTTP 403: Resource not accessible by integration') },
-  },
   wait_reports_pending_when_its_bound_is_hit: { replies: { watchChecks: WATCH_BOUND } },
   wait_clamps_the_bound_to_the_maximum: { replies: { watchChecks: WATCH_PENDING } },
   wait_reports_the_rollup_once_the_watcher_returns: { replies: { watchChecks: WATCH_PENDING } },
@@ -364,9 +360,12 @@ export const USAGE_TEXT = new Map([
  *  names the example that pins the contract another way. */
 export const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-pr'] ?? {}))
 
-/** What the reason file held in each case that names one. Only its existence
- *  and its size decide anything. */
-export const REASONS: Record<string, string> = { skip_refuses_an_empty_reason_file: '' }
+/** What a case's positional argument held, for a case that names a reason
+ *  file. #216 deleted the one case that used it (`skip`'s reason file), and
+ *  the `PATHS` builder that read it. Nothing reads this map today. It stays
+ *  empty only so the parity test's existence check still lists it. A future
+ *  case that names a reason file needs its own `PATHS` builder too. */
+export const REASONS: Record<string, string> = {}
 
 export const PATHS: Record<string, (sandbox: Sandbox, repo: string, name: string) => string> = {
   '<sandbox>/r/work': (_sandbox, repo) => repo,
@@ -381,11 +380,6 @@ export const PATHS: Record<string, (sandbox: Sandbox, repo: string, name: string
     mkdirSync(closed, { recursive: true })
     chmodSync(closed, 0o000)
     return closed
-  },
-  '<sandbox>/reason.md': (sandbox, _repo, name) => {
-    const reason = sandbox.join('reason.md')
-    writeFileSync(reason, REASONS[name] ?? 'reason\n')
-    return reason
   },
 }
 

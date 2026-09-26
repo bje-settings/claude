@@ -1,8 +1,7 @@
-// shepherd-pr, part of its tests: settle, skip, a reader that walked away, the overrides and an internal error.
+// shepherd-pr, part of its tests: settle, a reader that walked away, the overrides and an internal error.
 // The file is one of several so that vitest can run them at the same time (#205).
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import { writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
 import { type GhClient, ghFails } from '#harness/gh.ts'
@@ -11,13 +10,10 @@ import { createGhServer, depPr } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
 import {
   CAPTURE,
-  COMMENT_URL,
   capture,
-  clients,
   closedPipe,
   divergence,
   drive,
-  PATHS,
   REPOSITORY,
   recording,
   settleEnv,
@@ -266,136 +262,6 @@ it('reports open with the count when a read failed and a later one recovered', a
   expect(result.document.read_error).toBe('')
 })
 
-// --- skip -----------------------------------------------------------------------------
-
-it('refuses a reason file that is not there at all', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'skip', sandbox.join('nothing.md')],
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }),
-  }))
-
-  expect(result.document.ok).toBe(false)
-  expect(result.document.detail).toContain('reason file is missing or empty')
-})
-
-it('refuses a reason file that is a directory', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'skip', sandbox.path],
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }),
-  }))
-
-  expect(result.document.ok).toBe(false)
-  expect(result.document.detail).toContain('reason file is missing or empty')
-})
-
-it('posts the reason file it was given, as the body of the comment', async () => {
-  // This uses `--body-file`, never `--body`. The reason is a file the caller
-  // wrote. A literal here would post something nobody reviewed
-  // (`gh-shepherd-pr.py:928`). The number is the one the caller named.
-  const record = recording({
-    prs: [depPr(4)],
-    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-  })
-  let reason = ''
-  let target = ''
-
-  const result = await drive((sandbox, repo) => {
-    reason = PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''
-    target = repo
-    return { argv: [repo, '4', 'skip', reason], gh: record.gh }
-  })
-
-  expect(record.comments).toEqual([{ pullRequest: 4, bodyFile: reason }])
-  expect(result.ghOptions).toEqual(clients(target))
-})
-
-it('vets the reason file gh will read, not one beside this process', async () => {
-  // The Python changed directory (`os.chdir`) to the target before both the
-  // check and the comment (`gh-shepherd-pr.py:1007`, `:920`, `:928`). So a
-  // relative path named one file to both. This port does not change
-  // directory, and gh runs with the target as its own working directory. So
-  // the path must resolve against the target. Otherwise, the file this test
-  // vets is not the file it posts.
-  const record = recording({
-    prs: [depPr(1)],
-    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-  })
-  let expected = ''
-
-  const result = await drive((_sandbox, repo) => {
-    writeFileSync(path.join(repo, 'why.md'), 'not a mechanical fix\n')
-    expected = path.join(realpathSync(repo), 'why.md')
-    return { argv: [repo, '1', 'skip', 'why.md'], gh: record.gh }
-  })
-
-  expect(result.document.ok).toBe(true)
-  expect(result.document.detail).toBe('skip comment posted')
-  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: expected }])
-})
-
-it('posts the file it vetted, even when the target is a symbolic link', async () => {
-  // The two derivations of the path must be one value. `chdir` resolved
-  // symbolic links for the Python. `path.resolve` does not, and gh runs with
-  // the target as its own working directory. The example takes a target that
-  // is a link, with a reason file that climbs out of it with `..`. That
-  // names `<link>/../why.md` to the guard, and `<real>/../why.md` to gh: two
-  // different files. The guard checks one, but gh could post the other,
-  // unchecked, on someone else's pull request.
-  const record = recording({
-    prs: [depPr(1)],
-    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-  })
-  let posted = ''
-  let vetted = ''
-
-  const result = await drive((sandbox, repo) => {
-    // The file gh reaches through the link, and the one a lexical resolution
-    // would reach instead. Only the first is ever stat'd.
-    vetted = path.join(realpathSync(repo), '..', 'why.md')
-    writeFileSync(vetted, 'the reason that was vetted\n')
-    mkdirSync(sandbox.join('elsewhere'), { recursive: true })
-    posted = sandbox.join('elsewhere', 'link')
-    symlinkSync(repo, posted)
-    // This is the decoy, so the lexical answer is a file that EXISTS.
-    // Without it, the guard simply refuses. This case matters when both files
-    // exist and the wrong one goes out.
-    writeFileSync(sandbox.join('elsewhere', 'why.md'), 'never looked at\n')
-    return { argv: [posted, '1', 'skip', path.join('..', 'why.md')], gh: record.gh }
-  })
-
-  expect(result.document.ok).toBe(true)
-  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: path.resolve(vetted) }])
-})
-
-it('reports no comment url when gh printed none', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'skip', PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''],
-    gh: createGhServer({
-      prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, addComment: 'nothing that looks like a link\n' },
-    }),
-  }))
-
-  expect(result.document.ok).toBe(true)
-  expect(result.document.comment_url).toBe('')
-})
-
-it('reports the last url gh printed as the comment url', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'skip', PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''],
-    gh: createGhServer({
-      prs: [depPr(1)],
-      replies: {
-        viewRepository: REPOSITORY,
-        addComment:
-          'https://github.com/acme/widgets/pull/1 https://github.com/last#issuecomment-2\n',
-      },
-    }),
-  }))
-
-  expect(result.document.comment_url).toBe('https://github.com/last#issuecomment-2')
-})
-
 it('lets a reader that left stop the report, never the rebase', async () => {
   // `test_shepherd_pr.py:1135` asserted the composite: the reader is gone,
   // the branch was still updated, and the status is 0. Two other tests pin
@@ -418,26 +284,6 @@ it('lets a reader that left stop the report, never the rebase', async () => {
   expect(result.status).toBe(0)
   expect(result.stderr).toBe('')
   expect(record.updates).toEqual([{ pullRequest: 1, rebase: true }])
-})
-
-it('lets a reader that left stop the report, never the skip comment', async () => {
-  // `test_shepherd_pr.py:1149` is the same composite, for the other write.
-  // The command posts the comment before it writes the report. So a reader
-  // that goes away cannot take the comment with it.
-  const record = recording({
-    prs: [depPr(1)],
-    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-  })
-  let reason = ''
-
-  const result = await drive((sandbox, repo) => {
-    reason = PATHS['<sandbox>/reason.md']?.(sandbox, repo, 'x') ?? ''
-    return { argv: [repo, '1', 'skip', reason], gh: record.gh, reader: closedPipe }
-  })
-
-  expect(result.status).toBe(0)
-  expect(result.stderr).toBe('')
-  expect(record.comments).toEqual([{ pullRequest: 1, bodyFile: reason }])
 })
 
 // --- the environment overrides that were not used ----------------------------------------

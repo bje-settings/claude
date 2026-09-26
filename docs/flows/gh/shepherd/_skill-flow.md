@@ -1,9 +1,9 @@
 ---
 type: Reference
-description: What the /gh:shepherd skill does, and every way it declines to act.
+description: What the /gh:shepherd skill does, and every way it declines to act, given an optional label.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
+  by: claude-sonnet
   at: 2026-09-25
 ---
 
@@ -21,9 +21,8 @@ flowchart TD
         A4 -->|No| A5([Stop: no git repositories directly inside cwd]):::stop
     end
 
-    A1 --> B[List dependencies PRs per repo]
+    A1 --> B[List open, non-draft, auto-merge PRs per repo,<br/>narrowed to one label when given]
     A4 -->|Yes| B
-    B -->|PR has no auto-merge| N([Report it; never enable auto-merge]):::stop
     B -->|--dry-run| Z2([Print each repo's plan, change nothing]):::stop
     B -->|Targets remain| C[One worker per repo, repos in parallel]
 
@@ -31,35 +30,36 @@ flowchart TD
         direction TB
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
+        T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
         T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
         T -->|Conflicts, Dependabot branch| RC[Ask Dependabot to recreate]
         RC -->|Head moved| W
         RC -->|Closed, head unmoved: usually superseded by another PR| CS([Closed, terminal]):::stop --> S
         RC -->|Merged, head unmoved| S
-        RC -->|Head never moved, comment failed, or PR unreadable| BR([Blocked: recreate did not land]):::stop --> S
-        T -->|Conflicts, human branch| E([Needs escalation: a human or larger model decides]):::stop --> S
+        RC -->|Head never moved, comment failed, or PR unreadable| BR([Skipped: recreate did not land]):::stop --> S
+        T -->|Conflicts, human branch| E([Skipped: needs a human or larger model]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
         W -->|Checks green| P[Settle: read until GitHub decides]
         P -->|Merged| S
-        P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Blocked: reason names only what was read]):::stop --> S
+        P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Skipped: reason names only what was read]):::stop --> S
         P -->|Bound passed, nothing reported against it| BL
         P -->|Base moved: BEHIND or DIRTY| T
         P -->|Closed while settle runs| CS
         W -->|Still in progress| W
-        W -->|Still in progress after three waits, head unchanged| BP([Blocked: checks did not finish]):::stop --> S
+        W -->|Still in progress after three waits, head unchanged| BP([Skipped: checks did not finish]):::stop --> S
         W -->|Checks failed| K{Fix is mechanical?}
-        K -->|Yes, first attempt| F[Fix in a throwaway worktree, push] --> W
-        K -->|No: touches logic, tests, or config meaning| SK([Skip, comment says why]):::stop --> S
+        K -->|Yes, first attempt, any author| F[Fix in a throwaway worktree, push] --> W
+        K -->|No: touches logic, tests, or config meaning| SK([Skipped: not mechanical]):::stop --> S
         K -->|Cannot tell, or mechanical but unverifiable locally| E
     end
 
     C --> D[Collate worker reports]
-    D --> V{Blocked, CLEAN or UNKNOWN, auto-merge on?}
+    D --> V{Skipped, CLEAN or UNKNOWN, auto-merge on,<br/>no cause named?}
     V -->|Yes: one merged read| V2{Merged after all?}
     V2 -->|Yes| V3[Move it to merged] --> Z3
     V2 -->|No| Z3
-    V -->|No: GitHub named a cause| Z3([Table per repo; offer escalation; suggest resolve-alerts])
+    V -->|No: a cause was named| Z3([Table per repo; suggest resolve-alerts<br/>when something merged])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```

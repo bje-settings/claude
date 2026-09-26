@@ -41,7 +41,7 @@ import type { Output } from './lib/streams.ts'
  * This is the counterpart of `CommandContext` in `subcommands/sync-repo.ts`.
  * It is a type of its own for three reasons that command does not share.
  * `createGh` takes a repository as well as a directory, because seven of
- * the ten `gh` calls these commands make name the repository with `--repo`
+ * the nine `gh` calls these commands make name the repository with `--repo`
  * (`gh-shepherd-pr.py:399` and on), while the first call resolves the
  * repository from the checkout. `now` and `sleep` are here because
  * `recreate` polls, `wait` has a bound, and `settle` polls until a bound. A
@@ -466,18 +466,11 @@ export const ciSeconds = (runs: unknown): number => {
   return median === undefined ? DEFAULT_CI_SECONDS : median
 }
 
-export interface SkippedPull {
-  readonly number: unknown
-  readonly title: unknown
-  readonly author: unknown
-}
-
 export interface StatusDocument {
   readonly repo: string
   readonly default_branch: string
   readonly ci_seconds: number
   readonly targets: readonly PullSummary[]
-  readonly skipped_no_automerge: readonly SkippedPull[]
 }
 
 /** `createdAt` as the sort key, or `""`. This is the port of
@@ -492,11 +485,10 @@ const byText = (left: string, right: string): number => (left < right ? -1 : lef
 /**
  * The whole `gh-shepherd-status.py` report.
  *
- * Drafts are out of scope entirely. Of what is left, a pull request that
- * a human has already marked for auto-merge is a target. One without that
- * mark is reported under `skipped_no_automerge`, and never enabled,
- * because auto-merge is the human's signal that the pull request is
- * wanted.
+ * Drafts are out of scope entirely. Of what is left, a target is a pull
+ * request that a human has already marked for auto-merge. One without that
+ * mark is left out: auto-merge is the human's signal that the pull request
+ * is wanted, and this never enables it.
  */
 export const statusDocument = (
   pulls: unknown,
@@ -507,23 +499,16 @@ export const statusDocument = (
   const rows: unknown[] = Array.isArray(pulls) ? pulls : []
   const open = rows.filter((pull) => !isTruthy(field(pull, 'isDraft')))
   const targets = open.filter((pull) => hasAutoMerge(pull))
-  const skipped = open.filter((pull) => !hasAutoMerge(pull))
-  // Both sorts are stable in Python and in JavaScript. Two pull requests
-  // with the same key keep the order gh listed them in.
+  // Stable in Python and in JavaScript. Two pull requests with the same key
+  // keep the order gh listed them in.
   targets.sort(
     (left, right) => rank(left) - rank(right) || byText(createdAt(left), createdAt(right)),
   )
-  skipped.sort((left, right) => byText(createdAt(left), createdAt(right)))
   return {
     repo,
     default_branch: defaultBranch,
     ci_seconds: ci,
     targets: targets.map(summary),
-    skipped_no_automerge: skipped.map((pull) => ({
-      number: answered(field(pull, 'number')),
-      title: answered(field(pull, 'title')),
-      author: answered(field(field(pull, 'author'), 'login')),
-    })),
   }
 }
 

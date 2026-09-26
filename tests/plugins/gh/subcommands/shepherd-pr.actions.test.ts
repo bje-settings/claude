@@ -25,7 +25,7 @@ it('prints its own usage for --help, naming every action it accepts', async () =
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(`${HELP}\n`)
-  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'skip', 'merged']) {
+  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'merged']) {
     expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
   }
   expect(result.stderr).toBe('')
@@ -55,13 +55,43 @@ it('answers -h the same way it answers --help', async () => {
 it('accepts every action it advertises', async () => {
   // An action the command runs but does not advertise is one nobody calls.
   // One it advertises and rejects is worse.
-  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'skip', 'merged']) {
+  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'merged']) {
     const result = await drive((_sandbox, repo) => ({
-      argv: [repo, '1', action, 'reason-file-that-is-not-there'],
+      argv: [repo, '1', action],
       gh: createGhServer({ prs: [], replies: { viewRepository: REPOSITORY } }),
     }))
 
     expect(result.stderr, action).not.toContain(`unknown action: ${action}`)
+  }
+})
+
+it('refuses an unknown action before any gh call', async () => {
+  // The stand-in gh throws if it is called at all: no endpoint is
+  // registered. A gh call here would fail the test for the wrong reason
+  // (#218 finding 2).
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '1', 'dance'],
+    gh: createGhServer({}),
+  }))
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(`unknown action: dance\n${HELP}\n`)
+})
+
+it('refuses an action name inherited from Object.prototype, before any gh call', async () => {
+  // `HANDLERS` is a plain object literal. `constructor`, `toString`, `valueOf`,
+  // and `hasOwnProperty` are not `undefined` on it, even though none of them
+  // is a declared action. The stand-in gh throws if it is called at all.
+  for (const action of ['constructor', 'hasOwnProperty', 'toString', 'valueOf']) {
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, '1', action],
+      gh: createGhServer({}),
+    }))
+
+    expect(result.status, action).toBe(2)
+    expect(result.stdout, action).toBe('')
+    expect(result.stderr, action).toBe(`unknown action: ${action}\n${HELP}\n`)
   }
 })
 

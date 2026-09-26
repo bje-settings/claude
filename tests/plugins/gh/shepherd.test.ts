@@ -548,7 +548,7 @@ describe('summary', () => {
 })
 
 describe('statusDocument', () => {
-  it('splits targets from pull requests without auto-merge', () => {
+  it('keeps only pull requests a human marked for auto-merge', () => {
     const pulls = [
       { number: 1, autoMergeRequest: { mergeMethod: 'MERGE' }, createdAt: '2026-01-01' },
       { number: 2, autoMergeRequest: null, createdAt: '2026-01-02', title: 't' },
@@ -557,19 +557,29 @@ describe('statusDocument', () => {
     const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
 
     expect(document.targets.map((target) => target.number)).toEqual([1])
-    expect(document.skipped_no_automerge).toEqual([{ number: 2, title: 't', author: null }])
     expect(document.repo).toBe('acme/widgets')
     expect(document.default_branch).toBe('main')
     expect(document.ci_seconds).toBe(42)
   })
 
-  it('drops drafts from both lists', () => {
-    const pulls = [{ number: 1, isDraft: true, autoMergeRequest: null, createdAt: '2026-01-01' }]
+  it('drops drafts', () => {
+    const pulls = [{ number: 1, isDraft: true, autoMergeRequest: {}, createdAt: '2026-01-01' }]
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
 
     expect(document.targets).toEqual([])
-    expect(document.skipped_no_automerge).toEqual([])
+  })
+
+  it('reads autoMergeRequest by presence, not by truthiness', () => {
+    // `false` is not a shape gh answers with (the field is an object or
+    // null), but the check is `is not None`, not `Boolean(...)`, on
+    // purpose: a truthiness check would drop this row, and the field's own
+    // presence is what marks it as wanted.
+    const pulls = [{ number: 1, autoMergeRequest: false, createdAt: '2026-01-01' }]
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
+
+    expect(document.targets.map((target) => target.number)).toEqual([1])
   })
 
   it('orders targets by band, then oldest first inside a band', () => {
@@ -594,29 +604,17 @@ describe('statusDocument', () => {
     expect(document.targets.map((target) => target.number)).toEqual([7, 6, 5])
   })
 
-  it('orders the skipped list oldest first, reading a missing stamp as oldest', () => {
-    const pulls = [
-      { number: 1, autoMergeRequest: null, createdAt: '2026-01-02' },
-      { number: 2, autoMergeRequest: null },
-      { number: 3, autoMergeRequest: null, createdAt: '2026-01-01' },
-    ]
-
-    const document = statusDocument(pulls, 'acme/widgets', 'main', 300)
-
-    expect(document.skipped_no_automerge.map((row) => row.number)).toEqual([2, 3, 1])
-  })
-
-  it('leaves two pull requests opened at the same moment in the order gh listed them', () => {
+  it('leaves two targets opened at the same moment in the order gh listed them', () => {
     // Both languages use a stable sort. When the comparator answers
     // "equal", the report does not break the tie itself.
     const pulls = [
-      { number: 9, autoMergeRequest: null, createdAt: '2026-01-01' },
-      { number: 4, autoMergeRequest: null, createdAt: '2026-01-01' },
+      { number: 9, autoMergeRequest: {}, createdAt: '2026-01-01' },
+      { number: 4, autoMergeRequest: {}, createdAt: '2026-01-01' },
     ]
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300)
 
-    expect(document.skipped_no_automerge.map((row) => row.number)).toEqual([9, 4])
+    expect(document.targets.map((target) => target.number)).toEqual([9, 4])
   })
 
   it('reads a listing that is not a list at all as no pull requests', () => {

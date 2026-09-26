@@ -58,6 +58,13 @@
       "now": "could not read the failed job's log: <words> for both",
       "why": "The two are one GhError now, and telling them apart would mean branching on prose.",
       "cases": []
+    },
+    {
+      "id": "skippedNoAutomerge",
+      "was": "\"skipped_no_automerge\": [...]",
+      "now": "the key is gone",
+      "why": "#216 narrows shepherd-status to targets only. A pull request without auto-merge is left out of the report, rather than listed under a key nothing reads. The replay adds `dependencies` as the label argument, to keep the captured rows' semantics, and its expected stdout is the capture's own document with this one key removed, in every case that had it. This entry names the fact once rather than as a per-case literal, because its cases live only in shepherd-status-output.json, and this array is shared with shepherd-pr's parity test.",
+      "cases": []
     }
   ],
   "unchanged": {

@@ -1,16 +1,16 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-pr` checks its arguments, then runs one of seven steps on one pull request, with every result it can report.
+description: How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
+  by: claude-sonnet
   at: 2026-09-25
 ---
 
 # shepherd-pr flow
 
 `node scripts/gh.ts shepherd-pr` does one step on one pull request and prints one JSON object.
-The `/gh:shepherd` skill and the `shepherd-repo` agent run it and decide the next step.
+The `/gh:shepherd` skill and the `shepherd-prs` agent run it and decide the next step.
 
 ```mermaid
 flowchart TD
@@ -18,25 +18,21 @@ flowchart TD
     B -->|Yes| H([Print usage, exit 0])
     B -->|No| C{Three arguments or more, path a directory<br/>you can enter, a positive number, a checkout?}
     C -->|No| Z1([Refused, exit 2]):::stop
-    C -->|Yes| G{gh names the repository?}
+    C -->|Yes| I{Action known?}
+    I -->|No| Z1
+    I -->|Yes| G{gh names the repository?}
     G -->|gh not on PATH| Z2([gh is required, exit 1]):::stop
     G -->|No| Z3([could not resolve the repository, exit 1]):::stop
-    G -->|Yes| I{Action known, and skip<br/>has a reason file argument?}
-    I -->|No| Z1
-    I -->|skip| K{Reason file there and not empty?}
-    K -->|No| RF([ok false: refused, exit 0]):::stop
-    K -->|Yes| R
-    I -->|Any other action| R{Pull request read,<br/>with every field?}
+    G -->|Yes| R{Pull request read,<br/>with every field?}
     R -->|No| RU([ok false: could not read, exit 0]):::stop
     R -->|state| S([ok true: the pull request, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
-    subgraph writes [rebase, recreate, skip: the only writes]
-        R -->|rebase or skip| RB{Open?}
-        RB -->|No| RF
-        RB -->|Yes| RB2{gh accepted the update<br/>or the comment?}
-        RB2 -->|Yes, rebase| RB3([ok true: rebased, head unmoved,<br/>or re-read failed, exit 0])
-        RB2 -->|Yes, skip| SK3([ok true: comment URL, exit 0])
+    subgraph writes [rebase and recreate: the only writes]
+        R -->|rebase| RB{Open?}
+        RB -->|No| RF([ok false: refused, exit 0]):::stop
+        RB -->|Yes| RB2{gh accepted the update?}
+        RB2 -->|Yes| RB3([ok true: rebased, head unmoved,<br/>or re-read failed, exit 0])
         R -->|recreate| RC{Authored by Dependabot, and open?}
         RC -->|No| RF
         RC -->|Yes| RC2{Recreate comment posted?}
@@ -79,9 +75,8 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-Once the arguments pass and gh names the repository, every step exits 0. Its JSON `ok` field
-carries the result, and a refusal of a step is `ok: false`, not a status. `skip` checks its
-reason file before it reads the pull request. The action name is checked only after gh answers,
-so an unknown action with no gh is exit 1, not 2. A poll whose read fails keeps the last
-snapshot. So one BLOCKED read and then a failed read give `blocked`, although the usage text
-says two reads.
+The action name is checked before any gh call, so an unknown action exits 2 with no gh call.
+Once the arguments and the action pass, and gh names the repository, every step exits 0. Its
+JSON `ok` field carries the result, and a refusal of a step is `ok: false`, not a status. A poll
+whose read fails keeps the last snapshot. So one BLOCKED read and then a failed read give
+`blocked`, although the usage text says two reads.

@@ -30,28 +30,26 @@ import {
  *  days on an active repository, and still cost one API call. */
 const RUN_SAMPLE = 20
 
-/** The listing window for `dependencies` pull requests. A repository with
- *  more than this open at once has a bigger problem than the shepherd
- *  loop. */
-const PR_LIMIT = 100
+/** The listing window for open pull requests. A repository with more than
+ *  this open at once needs a label to narrow the window, rather than a
+ *  bigger number here. gh pages the request itself. */
+const PR_LIMIT = 500
 
 export const HELP = `What /gh:shepherd would work on in one repository.
 
 Usage:
-  gh.ts shepherd-status [path]
+  gh.ts shepherd-status [path] [label]
 
 Prints one JSON document and changes nothing:
 
-  repo                  owner/name
-  default_branch        the branch pull requests are merged into
-  ci_seconds            median wall time of recent completed workflow runs on
-                        the default branch; 300 when there are none
-  targets               open, non-draft pull requests labelled \`dependencies\`
-                        that a human has already marked for auto-merge, in
-                        the order the loop should take them
-  skipped_no_automerge  \`dependencies\` pull requests without auto-merge. They
-                        are reported, never enabled: auto-merge is the
-                        human's signal that the pull request is wanted.
+  repo             owner/name
+  default_branch   the branch pull requests are merged into
+  ci_seconds       median wall time of recent completed workflow runs on the
+                   default branch; 300 when there are none
+  targets          open, non-draft pull requests that a human has already
+                   marked for auto-merge, in the order the loop should take
+                   them. A label narrows this list to pull requests that
+                   carry it
 
 Ordering: gh-security's merge-risk:<band> label first (low, then unlabelled,
 then medium, then high), oldest first within a band. Each target carries the
@@ -59,8 +57,9 @@ fields the loop needs to pick its next step, plus a \`checks\` summary reduced
 from statusCheckRollup so the caller does not have to know both the CheckRun
 and StatusContext shapes.
 
-Exits 2 on a usage error, 1 when gh cannot answer for the repository, and 3 on
-an internal error, which is outside the documented set so a caller cannot
+Exits 2 on a usage error (a bad path, or more than one label), 1 when gh
+cannot answer for the repository or the open window is full, and 3 on an
+internal error, which is outside the documented set so a caller cannot
 mistake it for an answer.`
 
 /**
@@ -113,11 +112,17 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     return code
   }
 
-  const [first] = argv
-  if (first === '-h' || first === '--help') {
-    output.out.write(`${HELP}\n`)
-    return 0
+  // `-h`/`--help` is read in any position, as `sync-repo.ts` and `sync.ts`
+  // do. A path or a label can never collide with it: neither one is ever
+  // this exact word.
+  for (const arg of argv) {
+    if (arg === '-h' || arg === '--help') {
+      output.out.write(`${HELP}\n`)
+      return 0
+    }
   }
+  if (argv.length > 2) return refuse('one label per run', 2)
+  const [first, second] = argv
 
   // The path as typed, or the caller's own directory. An empty argument is
   // a path, not an absent one. This is what `argv[0] if argv else` says.
@@ -128,7 +133,7 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     return refuse(`not a git repository: ${target}`, 2)
   }
 
-  // Resolved from the checkout. Of the four calls, this is the one that
+  // Resolved from the checkout. Of the three calls, this is the one that
   // names no repository, because it is the call that answers what the
   // repository is.
   const resolved = await resolveRepository(context.createGh({ cwd: target }))
@@ -140,16 +145,30 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
   const gh = context.createGh({ cwd: target, repository: resolved.repo })
   let pulls: unknown[]
   try {
-    pulls = await gh.listPullRequests({
-      state: 'open',
-      label: 'dependencies',
-      limit: PR_LIMIT,
-    })
+    // The label is left out of the query when none is given. `lib/gh.ts`
+    // already drops an absent filter, and the caller (the skill) sends at
+    // most one label.
+    pulls = await gh.listPullRequests(
+      second === undefined
+        ? { state: 'open', limit: PR_LIMIT }
+        : { state: 'open', label: second, limit: PR_LIMIT },
+    )
   } catch (error) {
     // Not "no pull requests". A listing that could not be read says
     // nothing about how many there are.
     return refuse(
       `could not list pull requests for ${resolved.repo}: ${ghRefusal(error).detail}`,
+      1,
+    )
+  }
+
+  // A saturated window is a window, not an answer. A repository with more
+  // open pull requests than the limit would silently drop the oldest
+  // rows. This refuses instead, and names the fix.
+  if (pulls.length >= PR_LIMIT) {
+    return refuse(
+      `more than ${PR_LIMIT} open pull requests for ${resolved.repo}; use a label to narrow ` +
+        'the window',
       1,
     )
   }
