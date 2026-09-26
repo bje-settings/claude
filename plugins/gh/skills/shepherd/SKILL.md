@@ -16,7 +16,7 @@ disable-model-invocation: true
 Shepherd the open, auto-merge pull requests of the current checkout, or of every checkout one
 level down. Serial within a repo, parallel across repos.
 
-## Step 1 — Discover
+## Step 1: Discover
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover "$PWD"
@@ -25,7 +25,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover "$PWD"
 One path per line. If there are none, say "No git repositories directly inside <cwd>" and
 stop. Do not classify the directory yourself. The command already did that.
 
-## Step 2 — Status
+## Step 2: Status
 
 Parse `$ARGUMENTS`: `--dry-run` when present, and the one remaining word, if any, as the label.
 Do not enforce a second label yourself; the script refuses it.
@@ -40,7 +40,7 @@ Read `targets`. A repo with no targets gets no agent. Report it in one line. If 
 given, print each repo's target list in order (number, title, author, `mergeStateStatus`,
 `checks.state`), and stop here.
 
-## Step 3 — Shepherd
+## Step 3: Shepherd
 
 Launch one `shepherd-prs` agent per repo that has targets. Send them all in a single message, so
 they run in parallel. Each agent gets the repo path, the ordered pull request numbers from
@@ -48,7 +48,7 @@ they run in parallel. Each agent gets the repo path, the ordered pull request nu
 start a second agent for the same repo. Do not shepherd a repo yourself. The serial-within-a-repo
 guarantee lives in the agent.
 
-## Step 4 — Verify the skipped entries
+## Step 4: Verify the skipped entries
 
 Auto-merge fires on GitHub's own schedule. A pull request can merge in the seconds between the
 worker's last read and its report. One `skipped` shape is that race's signature: a
@@ -64,7 +64,7 @@ skipped, unchanged. This is a read, and one round trip per entry. It never merge
 not run for a skipped entry that names a cause: `BLOCKED`, `DIRTY`, `BEHIND`, or a
 `reviewDecision`. GitHub decided those, not timing.
 
-## Step 5 — Report
+## Step 5: Report
 
 Collate the agents' JSON into one table per repo:
 
