@@ -53,7 +53,8 @@ it('writes the line as the systemMessage of one JSON document, and nothing else'
 
   expect(ran).toEqual({
     status: 0,
-    stdout: '{"systemMessage":"gh: [behind] [🤖 2]"}\n',
+    stdout:
+      '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind] [🤖 2]\\u001b[0m"}\n',
     stderr: '',
   })
 })
@@ -83,7 +84,8 @@ it('still exits 0 when the check found only a failure', async () => {
 
   expect(ran).toEqual({
     status: 0,
-    stdout: '{"systemMessage":"gh: ⚠️ GitHub request failed: HTTP 401"}\n',
+    stdout:
+      '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: HTTP 401\\u001b[0m"}\n',
     stderr: 'GitHub: GhError: gh: HTTP 401\n',
   })
 })
@@ -104,7 +106,10 @@ it('falls back to its own directory when the payload names none it can use', asy
     JSON.stringify({ cwd: rig.sandbox.join('not-there') }),
   ]) {
     const ran = await sessionStart(rig, payload, gh, work)
-    expect([payload, ran.stdout]).toEqual([payload, '{"systemMessage":"gh: [behind]"}\n'])
+    expect([payload, ran.stdout]).toEqual([
+      payload,
+      '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
+    ])
   }
 })
 
@@ -122,7 +127,9 @@ it('prefers the payload directory over its own directory', async () => {
     elsewhere,
   )
 
-  expect(ran.stdout).toBe('{"systemMessage":"gh: [behind]"}\n')
+  expect(ran.stdout).toBe(
+    '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
+  )
 })
 
 it('still runs the whole check when stdin itself cannot be read', async () => {
@@ -135,7 +142,11 @@ it('still runs the whole check when stdin itself cannot be read', async () => {
     cwd: () => work,
   })
 
-  expect(ran).toEqual({ status: 0, stdout: '{"systemMessage":"gh: [behind]"}\n', stderr: '' })
+  expect(ran).toEqual({
+    status: 0,
+    stdout: '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
+    stderr: '',
+  })
 })
 
 it('bounds the whole check at five seconds by default', () => {
@@ -168,9 +179,9 @@ it('names both subcommands in its usage line', () => {
 
 it('writes the response with JSON.stringify, and one newline', () => {
   expect(emit('gh: [🛡️ 1]\ngh: ⚠️ fetch failed')).toBe(
-    '{"systemMessage":"gh: [🛡️ 1]\\ngh: ⚠️ fetch failed"}\n',
+    '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [🛡️ 1]\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ fetch failed\\u001b[0m"}\n',
   )
-  expect(emit('a "quote"')).toBe('{"systemMessage":"a \\"quote\\""}\n')
+  expect(emit('a "quote"')).toBe('{"systemMessage":"\\na \\"quote\\""}\n')
 })
 
 it('reads a payload cwd only when it is a string in a JSON object', () => {

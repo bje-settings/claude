@@ -330,6 +330,10 @@ gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 | 🤖 | Open pull requests with the `dependencies` label. |
 | 🛡️ | Open Dependabot alerts. |
 
+The CLI shows the output under its own `SessionStart:<source> says:` label, which no hook can
+hide. So the output starts on the line after the label. The status line is cyan, each problem
+line is yellow, and `gh:` is bold. `hook-io.ts status` (below) writes the same lines with no colour.
+
 The status line shows only the items above zero. When every count is zero and nothing failed,
 the hook writes nothing.
 
