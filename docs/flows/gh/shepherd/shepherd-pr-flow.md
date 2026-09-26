@@ -14,9 +14,9 @@ The `/gh:shepherd` skill and the `shepherd-prs` agent run it and decide the next
 
 ```mermaid
 flowchart TD
-    A[shepherd-pr run] --> B{Help in any position?}
+    A[shepherd-pr run] --> B{First argument asks for help?}
     B -->|Yes| H([Print usage, exit 0])
-    B -->|No| C{Three arguments, path a directory<br/>you can enter, a positive number, a checkout?}
+    B -->|No| C{Three arguments or more, path a directory<br/>you can enter, a positive number, a checkout?}
     C -->|No| Z1([Refused, exit 2]):::stop
     C -->|Yes| I{Action known?}
     I -->|No| Z1

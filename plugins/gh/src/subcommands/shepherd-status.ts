@@ -133,7 +133,7 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     return refuse(`not a git repository: ${target}`, 2)
   }
 
-  // Resolved from the checkout. Of the four calls, this is the one that
+  // Resolved from the checkout. Of the three calls, this is the one that
   // names no repository, because it is the call that answers what the
   // repository is.
   const resolved = await resolveRepository(context.createGh({ cwd: target }))

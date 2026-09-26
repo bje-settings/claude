@@ -360,10 +360,11 @@ export const USAGE_TEXT = new Map([
  *  names the example that pins the contract another way. */
 export const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-pr'] ?? {}))
 
-/** What a case's positional argument held, for a case that names a path this
- *  way. #216 deleted the one case that used it (`skip`'s reason file), so
- *  this is empty for now. It stays as the general mechanism `replay` reads,
- *  for the next case that needs it. */
+/** What a case's positional argument held, for a case that names a reason
+ *  file. #216 deleted the one case that used it (`skip`'s reason file), and
+ *  the `PATHS` builder that read it. Nothing reads this map today. It stays
+ *  empty only so the parity test's existence check still lists it. A future
+ *  case that names a reason file needs its own `PATHS` builder too. */
 export const REASONS: Record<string, string> = {}
 
 export const PATHS: Record<string, (sandbox: Sandbox, repo: string, name: string) => string> = {
