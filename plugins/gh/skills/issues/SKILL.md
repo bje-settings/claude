@@ -42,6 +42,10 @@ has a different owner than the target.
   gh issue view <n> --json number,title,milestone,issueType,labels,blockedBy,blocking,parent
   ```
 
+- End each run with an `Issues opened:` list: the number, title and URL of each issue that
+  you created, or `none`. In a subagent, put this list in your final output, and tell the
+  caller to show it to the user.
+
 - If a write fails, do not run it again. Read back, and report what is set and what is not.
   A failed `gh issue create` can still create the issue: search for its title first. In a
   batch, stop at the first failure.

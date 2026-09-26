@@ -305,7 +305,8 @@ The skill never asks for confirmation, in the main session or in a subagent: a c
 starts it has decided to write. After each write it reports every value from a read-back, so
 you can correct one. A caller value that does not exist goes on a `Not set:` line, and a
 replaced value on a `Replaced:` line. A failed write stops the skill, and the report says
-what is set.
+what is set. Each run ends with an `Issues opened:` list, also in a subagent, so you see each
+issue that the model filed on its own. Close an unwanted one as not planned.
 
 An issue can go to a repository of a different owner than the work that gave it context.
 Then the issue names none of that source's repositories, numbers, paths or URLs. A comment on

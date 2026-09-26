@@ -60,7 +60,7 @@ flowchart TD
     J1 --> K
     J2 --> K
     LW --> K
-    K([Report from the read-back,<br/>with Not set and Replaced lines])
+    K([Report from the read-back, with Not set<br/>and Replaced lines and the Issues opened list])
 
     WF[A write fails] -.-> WF1([Do not run it again: read back,<br/>report what is set, stop the batch]):::stop
 
