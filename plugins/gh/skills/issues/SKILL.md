@@ -31,16 +31,25 @@ has a different owner than the target. Read it before the duplicate check.
 - Put a relationship in its field, never as text in a body or a comment. A sweep cannot see
   a dependency in text.
 - Never create a label. Do not add a label that says the same thing as an issue type.
-- Do not ask for confirmation. The caller decided to write when it invoked the skill. Act in
+- Do not ask for confirmation. The caller decided to write when it started the skill. Act in
   the same way in the main session and in a subagent.
-- The caller can give a milestone, priority, type or parent. Make sure that it exists, and
-  then use it. If it does not exist, do not create it. Write without it, and report the
-  value that you did not set.
-- After a write, report the issue number, milestone, type, labels, priority and every
-  relationship. The caller corrects a value from this report.
+- The caller can give a milestone, priority, type, label, parent, blocked-by or blocking.
+  Make sure that it exists, and then use it. If it does not exist, do not create it. Write
+  without it, and add it to a `Not set:` line in the report.
+- After a write, read back the issue and report the number, milestone, type, labels,
+  priority and every relationship. Give each value that you replaced on a `Replaced:` line.
+  The caller corrects a value from this report.
+
+  ```bash
+  gh issue view <n> --json number,title,milestone,issueType,labels,blockedBy,blocking,parent
+  ```
+
+- If a write fails, do not run it again. Read back, and report what is set and what is not.
+  A failed `gh issue create` can still create the issue: search for its title first. In a
+  batch, stop at the first failure.
 - The commands use the repository of the working directory. For a different repository,
   add `--repo <owner>/<name>` to each `gh issue` command. Also put its owner and name in
   place of `{owner}` and `{repo}`.
-- If `gh` refuses a flag such as `--type` or `--blocked-by`, say that the skill needs gh
-  2.94 or later, and stop.
+- If `gh` gives `unknown flag` for a flag such as `--type` or `--blocked-by`, say that the
+  skill needs gh 2.94 or later, and stop.
 - Do not add attribution lines, emoji or em-dashes to a title, body or comment.

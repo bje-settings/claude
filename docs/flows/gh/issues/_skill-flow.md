@@ -18,9 +18,12 @@ flowchart TD
     A{Which operation?}
     A -->|Create one| B{Same work in an issue that exists?}
     B -->|Yes, and the caller did not say it is different| B1([Report the duplicate and a comment<br/>under the owner rule, create nothing]):::stop
-    B -->|No| C[Choose title, body, type, labels,<br/>relationships, milestone, priority]
+    B -->|No, or the caller said it is different| C[Choose title, body, type, labels,<br/>relationships, milestone, priority]
     A -->|Create a batch| BB[Take each duplicate out of the batch,<br/>report it with a comment under the owner rule]
-    BB --> BM[Choose a milestone for<br/>a shared done condition]
+    BB --> BN{Issues left?}
+    BN -->|None| BN0([Report the duplicates, create nothing]):::stop
+    BN -->|One| C
+    BN -->|Two or more| BM[Use an open milestone that fits,<br/>or choose a new one]
     BM --> C
     A -->|Link| L[Choose the relationship change]
     A -->|Triage| T{Any gap: empty field, type label,<br/>dependency in text?}
@@ -57,7 +60,9 @@ flowchart TD
     J1 --> K
     J2 --> K
     LW --> K
-    K([Report from the read-back])
+    K([Report from the read-back,<br/>with Not set and Replaced lines])
+
+    WF[A write fails] -.-> WF1([Do not run it again: read back,<br/>report what is set, stop the batch]):::stop
 
     X[gh refuses a flag] -.-> X1([Stop: gh 2.94 or later needed]):::stop
 

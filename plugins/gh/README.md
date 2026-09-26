@@ -284,10 +284,10 @@ or a triage. Other skills can also start it. It has no slash command
 
 | Operation | What it does |
 | --- | --- |
-| Create one issue | Looks for a duplicate first, and reports it instead of a new issue. Then chooses the title, body, type, labels, relationships, milestone and priority, and creates the issue. |
-| Create a batch | Chooses one milestone for a shared done condition. Creates the issues in dependency order, parents and blockers first. |
+| Create one issue | Looks for a duplicate first. If it finds one, it reports it with a comment to add, and creates nothing. Otherwise it chooses the title, body, type, labels, relationships, milestone and priority, and creates the issue. |
+| Create a batch | Uses an open milestone that fits, or creates one for a shared done condition. Creates the issues in dependency order, parents and blockers first. |
 | Link | Adds or removes blocked-by, blocking and parent on issues that exist. |
-| Triage | Sets a value for each empty field. Also replaces a type label with the type, and a dependency in text with its field. |
+| Triage | Sets a value for each empty field, or leaves it open and says why. Also replaces a type label with the type, and a dependency in text with its field. |
 
 The skill puts each relationship in its field, never in a body or a comment. It never
 creates a label. The issue type comes from the types that the repository defines. The
@@ -301,9 +301,12 @@ Priority is an organization issue field (in the bje orgs: Urgent, High, Medium, 
 owns has no such field. The skill then gives the level in its report only. The rubric is in
 [`skills/issues/priority.md`](skills/issues/priority.md).
 
-The skill never asks for confirmation. A caller that invokes it has decided to write. So the
-skill acts in the same way in the main session and in a subagent. After each write it reports every value
-from a read-back, so you can correct one.
+The skill never asks for confirmation. A caller that starts it has decided to write. So the
+skill acts in the same way in the main session and in a subagent. After each write it
+reports every value from a read-back, so you can correct one. A value from the caller that
+does not exist is left out and named on a `Not set:` line. A value that the skill replaced
+is named on a `Replaced:` line. A failed write stops the skill, and the report says what is
+set.
 
 An issue can go to a repository of a different owner than the work that gave it context.
 Then the issue names none of that source's repositories, numbers, paths or URLs. A comment on

@@ -19,8 +19,9 @@
 4. Choose a value for each gap, from [format.md](format.md), [labels.md](labels.md),
    [milestone.md](milestone.md), [priority.md](priority.md) and
    [relationships.md](relationships.md). If no value fits, leave the gap open and say why.
-5. Apply the type, labels and milestone. Leave out each flag that has no value. An empty
-   `--milestone` removes the milestone that the issue has:
+5. Apply the type, labels and milestone. Leave out each flag that has no value. Give
+   `--milestone` only for a milestone gap. Never give it an empty value, because that
+   removes the milestone that the issue has:
 
    ```bash
    gh issue edit <n> --type "<type>" --add-label "<label>" --remove-label "<label>" --milestone "<milestone>"

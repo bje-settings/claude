@@ -34,7 +34,9 @@ on `gh issue edit`.
 ## An issue that has a type label
 
 This applies only when the repository defines issue types. An issue can have a label from
-the table, with or without a type. Set the type and remove the label:
+the table, with or without a type. If the issue has no type, set the type and remove the
+label. If it has a type, remove the label only when the label agrees with the type.
+Otherwise keep both, and report the conflict:
 
 ```bash
 gh issue edit <n> --type "<type>" --remove-label "<label>"

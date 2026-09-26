@@ -7,9 +7,11 @@
    gh issue list --search "<words>" --state all --limit 20 --json number,title,state
    ```
 
-   If an issue is the same work, do not create the issue. Report the duplicate and a
-   comment with the new context to the caller, and stop. If the caller said that the issue
-   is different, create it.
+   An issue is the same work when its Acceptance would also close the new issue. A closed
+   issue that was completed is not the same work: put it under References. If an issue is
+   the same work, do not create the issue. Report the duplicate and a comment with the new
+   context, say that the comment is not posted, and stop. If the caller said that the
+   issue is different, create it.
 
 2. Write the title and body, and choose the type ([format.md](format.md)).
 3. Choose the labels ([labels.md](labels.md)).
