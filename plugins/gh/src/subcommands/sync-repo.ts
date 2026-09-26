@@ -333,6 +333,25 @@ class SyncRepoRun {
     return ''
   }
 
+  /** Whether a linked worktree, other than the checkout root itself, is
+   *  mid-operation. This answers with the reason to skip, or `null` to
+   *  carry on. It fails closed: an unreadable worktree list is a skip, the
+   *  same answer {@link readWorktrees} gives for the same failure, because
+   *  a hidden operation must never look free. */
+  private async linkedWorktreeInProgress(): Promise<string | null> {
+    const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
+    if (out === null) return 'cannot list worktrees'
+    let current = ''
+    for (const line of out.split('\n')) {
+      if (!line.startsWith('worktree ')) continue
+      current = line.slice('worktree '.length)
+      if (current === this.top) continue
+      const marker = await this.checkInProgress(current)
+      if (marker !== '') return `git operation in progress in ${current} (${marker})`
+    }
+    return null
+  }
+
   /** Refuse before anything is written, or resolve the checkout root. Answers
    *  with the reason to skip, or `null` to carry on. */
   private async preflight(): Promise<string | null> {
@@ -368,6 +387,13 @@ class SyncRepoRun {
 
     const marker = await this.checkInProgress(this.top)
     if (marker !== '') return `git operation in progress (${marker})`
+
+    // #218 finding 6: this runs here, before the fetch and the advance
+    // below, not inside readWorktrees after them. A stopped rebase in
+    // another worktree must block the whole sync on sight, the same as one
+    // in this checkout does above.
+    const linked = await this.linkedWorktreeInProgress()
+    if (linked !== null) return linked
 
     // Untracked files deliberately do not block this. Checkout,
     // fast-forward, and branch deletion cannot touch them. Only tracked
@@ -659,28 +685,23 @@ class SyncRepoRun {
   // ------------------------------------------------------------- prune ---
 
   /** Fills `worktrees` with branch -> worktree path. This answers with a
-   *  reason to skip when the list cannot be read, or when a linked
-   *  worktree is mid-operation. Both mean this run must not delete
-   *  anything. */
+   *  reason to skip when the list cannot be read: an empty map would make
+   *  every branch look free of a worktree, and this map is what stands
+   *  between real uncommitted work and a force delete. This runs after the
+   *  checkout has switched, so the map shows the post-switch branch. The
+   *  linked-worktree in-progress check now runs earlier, in
+   *  {@link preflight} through {@link linkedWorktreeInProgress}, before the
+   *  fetch and the advance (#218 finding 6). This function keeps only the
+   *  branch map. */
   private async readWorktrees(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) {
-      // This fails closed. An empty map would make every branch look free
-      // of a worktree. This map is what stands between real uncommitted
-      // work and a force delete.
       return 'cannot list worktrees'
     }
     let current = ''
     for (const line of out.split('\n')) {
       if (line.startsWith('worktree ')) {
         current = line.slice('worktree '.length)
-        // Any linked worktree that is mid-operation has a detached HEAD.
-        // So it maps to no branch, and its work would be invisible to the
-        // guards below.
-        if (current !== this.top) {
-          const marker = await this.checkInProgress(current)
-          if (marker !== '') return `git operation in progress in ${current} (${marker})`
-        }
       } else if (line.startsWith('branch refs/heads/')) {
         // The Python writes this with `setdefault`, which keeps the first
         // worktree named for a branch. git refuses to check one branch out

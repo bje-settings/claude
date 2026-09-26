@@ -4,6 +4,11 @@
       "was": "could not read merged pull requests; using ancestry alone",
       "now": "could not read merged pull requests (gh: simulated failure); using ancestry alone",
       "why": "The port names why the lookup failed, which the shell version never did. Carried over from tests/gh/test_output_parity.py's DIVERGENCES table unchanged: the reason now reaches the line from GhError rather than from the Python's gh_json, and reads the same."
+    },
+    "operation_in_progress_in_a_linked_worktree": {
+      "was": "  · main already up to date (<sha>)\n",
+      "now": "",
+      "why": "#218 finding 6: the linked-worktree in-progress check moved from readWorktrees into preflight, before the fetch and the advance. The shell version, and the port until now, ran the check too late, so a repository otherwise ready to advance reported it as up to date before it skipped. The check now fires on sight, the same as the check for this checkout's own in-progress marker, and the advance line never prints."
     }
   },
   "scenarioSubstitutions": {

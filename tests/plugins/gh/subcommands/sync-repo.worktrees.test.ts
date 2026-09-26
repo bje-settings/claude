@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
 import { runSyncRepo } from '#gh/subcommands/sync-repo.ts'
 import { corepackEnv, createPackageFixtures } from '#harness/packages.ts'
-import { fixture, ghDouble, run, SCENARIOS, shimmed } from './sync-repo.test-support.ts'
+import { fixture, ghDouble, normalise, run, SCENARIOS, shimmed } from './sync-repo.test-support.ts'
 
 // --- worktrees ------------------------------------------------------------------
 
@@ -66,6 +66,28 @@ describe('worktrees', () => {
     expect(result.stdout).toContain('would remove worktree')
     expect(existsSync(f.sandbox.join('wt'))).toBe(true)
     expect(f.git.branches(f.repo)).toContain('wt')
+  })
+
+  it('skips before any fetch when a linked worktree is stopped mid-rebase', async () => {
+    // #218 finding 6. The check used to run inside readWorktrees, after the
+    // fetch and the advance. It now runs in preflight, before either one.
+    // A repository that is otherwise ready to advance must still skip on
+    // sight, with no fetch and no report of a default branch that moved.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'wt-branch')
+    f.git.worktree(f.repo, f.sandbox.join('wt'), 'wt-branch')
+    f.git.inProgress(f.sandbox.join('wt'), 'rebase-merge')
+    const before = f.git.git(f.repo, 'rev-parse', 'refs/remotes/origin/main')
+    // Origin moves, so a fetch this run should never make would be
+    // provable: the local answer for origin/main would move with it.
+    f.git.remoteAdvance(f.repo)
+
+    const result = await run(f, [f.repo])
+
+    expect(normalise(result.stdout, f.sandbox)).toBe(
+      `${path.basename(f.repo)}\n  ✗ skipped: git operation in progress in <sandbox>/wt (rebase-merge)\n`,
+    )
+    expect(f.git.git(f.repo, 'rev-parse', 'refs/remotes/origin/main')).toBe(before)
   })
 
   it('skips when the worktree list cannot be read', async () => {
