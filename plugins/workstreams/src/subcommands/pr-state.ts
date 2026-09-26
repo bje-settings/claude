@@ -535,9 +535,9 @@ export const runPrState = async (
   // and no head to ask the other two about, so the run sample is the one
   // read left. A gh that could not answer that either is a gh that
   // answered nothing. A pull request GitHub itself named NOT_FOUND is a
-  // different fact: gh gave a complete answer, and `missing` alone must
-  // decide `awaiting-pr` against `deriveState` below. This guard is only
-  // for a read that answered nothing at all.
+  // different fact: gh gave a complete answer. Only `deriveState` below,
+  // from `missing`, decides `awaiting-pr`. This guard is only for a read
+  // that answered nothing at all.
   if (detail === null && !viewed.missing && sample.unavailable !== null) {
     return failed(`pr-state read nothing about #${requested.value}: ${unavailable.join('; ')}`)
   }
