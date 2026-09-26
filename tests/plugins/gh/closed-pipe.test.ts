@@ -97,12 +97,12 @@ it('finishes clean when the reader of shepherd-status --help leaves at once', as
 it('finishes clean when the reader of the hook response leaves at once', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
-  // No `gh`, so the hook has a line to write: the GitHub half fails.
-  const env = { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') }
+  // The rig's `gh` always fails, so the hook has a line to write: the
+  // GitHub half fails.
   const running = startScript(HOOK, {
     args: ['session-start'],
     stdin: JSON.stringify({ cwd: work }),
-    env,
+    env: rig.sandbox.env,
   })
 
   running.closeStdout()
