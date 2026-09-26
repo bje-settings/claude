@@ -14,7 +14,7 @@ The `/gh:shepherd` skill and the `shepherd-prs` agent run it and decide the next
 
 ```mermaid
 flowchart TD
-    A[shepherd-pr run] --> B{First argument asks for help?}
+    A[shepherd-pr run] --> B{-h or --help,<br/>in any position?}
     B -->|Yes| H([Print usage, exit 0])
     B -->|No| C{Three arguments or more, path a directory<br/>you can enter, a positive number, a checkout?}
     C -->|No| Z1([Refused, exit 2]):::stop
@@ -57,13 +57,18 @@ flowchart TD
         W3 -->|Failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
         R -->|settle| ST{Merged? Or open, auto-merge on,<br/>and checks passed or none?}
         ST -->|Merged| MG
-        ST -->|Yes| ST3{Read to the bound:<br/>what does GitHub report?}
+        ST -->|Yes| ST3{Evaluate the last successful<br/>read: what does it say?}
         ST3 -->|Merged| MG
         ST3 -->|Closed| ST4([ok true: result closed, exit 0])
-        ST3 -->|BLOCKED at two polls in a row, or<br/>a review decision that blocks| ST5([ok true: result blocked,<br/>reason names the fields, exit 0])
+        ST3 -->|A review decision blocks, or BLOCKED<br/>and the read before it was ALSO BLOCKED| ST5([ok true: result blocked,<br/>reason names the fields, exit 0])
         ST3 -->|BEHIND or DIRTY| ST6([ok true: result changed,<br/>decide again, exit 0])
-        ST3 -->|Bound passed, nothing decisive| ST7{Last read succeeded?}
+        ST3 -->|No verdict yet| ST9{Bound reached?}
+        ST9 -->|Yes| ST7{Last read attempt succeeded?}
         ST7 -->|Yes| ST8([ok true: result open, exit 0])
+        ST9 -->|No| ST10[Sleep, then read again]
+        ST10 --> ST11{That read succeeded?}
+        ST11 -->|Yes: becomes the new<br/>last successful read| ST3
+        ST11 -->|No: the last successful read<br/>stands, unevaluated again| ST9
     end
     ST -->|No| RF
     W2 -->|No: gh failed on its own| OF
@@ -77,6 +82,4 @@ flowchart TD
 
 The action name is checked before any gh call, so an unknown action exits 2 with no gh call.
 Once the arguments and the action pass, and gh names the repository, every step exits 0. Its
-JSON `ok` field carries the result, and a refusal of a step is `ok: false`, not a status. A poll
-whose read fails keeps the last snapshot. So one BLOCKED read and then a failed read give
-`blocked`, although the usage text says two reads.
+JSON `ok` field carries the result, and a refusal of a step is `ok: false`, not a status.

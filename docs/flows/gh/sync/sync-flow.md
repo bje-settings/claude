@@ -38,9 +38,9 @@ flowchart TD
     N -->|Yes| Z7([Failure line in that section, then failed:<br/>n of m repositories failed to sync, exit 1]):::stop
     N -->|No| OK2([ok, exit 0])
 
-    subgraph job [one repository job: answers 0 unless it throws]
+    subgraph job [one repository job: answers nothing unless it throws]
         direction TB
-        R1{Checkout, origin remote, no operation<br/>in progress, tree readable and clean?}
+        R1{Checkout, origin remote, tree readable and clean,<br/>no operation in progress here or in<br/>any linked worktree?}
         R1 -->|No| RS([skipped: the reason]):::stop
         R1 -->|Yes| R2{Default branch known? origin HEAD,<br/>then gh, then main or master}
         R2 -->|No| RS
@@ -53,7 +53,7 @@ flowchart TD
         R5 -->|Yes| R6[Fast-forward when it can, or report diverged;<br/>after a move, install with pnpm if a lock file changed]
         R6 --> R7{Merged pull requests or<br/>ancestry readable?}
         R7 -->|Neither| RP([No branch pruned: no merge proof can be read]):::stop
-        R7 -->|Yes| R8{Worktrees and branches listable,<br/>and no other worktree mid-operation?}
+        R7 -->|Yes| R8{Branches listable?}
         R8 -->|No| RS
         R8 -->|Yes| R9{Branch has merge proof, a clean or no worktree,<br/>and a tip not at the origin default?}
         R9 -->|No| RK([Keep the branch, say why]):::stop
@@ -63,13 +63,16 @@ flowchart TD
     J -.-> R1
     L -.-> R1
 
-    X[Any error outside a job<br/>that it did not expect] --> Z8([node's own stack trace, exit 1]):::stop
+    X[Any error, in a job or outside one,<br/>that it did not expect] --> Z8([scripts/gh.ts's own catch:<br/>gh: message, exit 1]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-A skipped repository and a kept branch are normal outcomes, and the job still answers 0. Only a
-job that throws makes `sync` exit 1, and the report is on stdout before the verdict. With
-`--dry-run`, each change becomes a `would ...` line and nothing changes. `--no-install` removes
-the install step. `gh.ts` has no catch-all, so an error outside a job ends in node's own stack
-trace.
+A skipped repository and a kept branch are normal outcomes, and the job answers nothing either
+way: only a throw makes `sync` exit 1, and the report is on stdout before the verdict. The
+in-progress check on another worktree runs early, in the same preflight step as the other
+checkout guards, before the fetch and the advance. So a stopped rebase there skips the whole
+repository on sight, with nothing fetched and no line about the default branch. With `--dry-run`,
+each change becomes a `would ...` line and nothing changes. `--no-install` removes the install
+step. `scripts/gh.ts` catches an error it did not expect, in a job or outside one, and reports it
+as one stderr line, rather than node's own stack trace.
