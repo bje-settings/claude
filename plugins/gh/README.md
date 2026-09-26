@@ -348,7 +348,8 @@ repositories. The queries and the fetches run at the same time.
 
 The whole check has 5 seconds. A part that fails, or does not finish in that time, gives no
 count, and the line ends with ⚠️. The hook writes the reason to stderr, one line for each
-failure. `claude --debug` shows it.
+failure. `claude --debug` shows it. When git is not on PATH, the hook checks nothing and writes
+no line. It writes only the reason to stderr.
 
 The hook never changes a branch, worktree, or working tree. The fetch changes only
 remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.
