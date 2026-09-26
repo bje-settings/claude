@@ -10,8 +10,8 @@ generated:
 # shepherd-status flow
 
 `node scripts/gh.ts shepherd-status` prints one JSON document about what `/gh:shepherd` would
-work on in one repository, and changes nothing. The `/gh:shepherd` skill and the
-`shepherd-repo` agent run it.
+work on in one repository, and changes nothing. The `/gh:shepherd` skill runs it, then dispatches
+the `shepherd-prs` agent with the targets it names.
 
 ```mermaid
 flowchart TD

@@ -10,7 +10,7 @@ generated:
 # shepherd-pr flow
 
 `node scripts/gh.ts shepherd-pr` does one step on one pull request and prints one JSON object.
-The `/gh:shepherd` skill and the `shepherd-repo` agent run it and decide the next step.
+The `/gh:shepherd` skill and the `shepherd-prs` agent run it and decide the next step.
 
 ```mermaid
 flowchart TD
