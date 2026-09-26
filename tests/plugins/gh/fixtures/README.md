@@ -58,9 +58,9 @@ example asserts two things: each state now reads in the Python's own words, and 
 to print appears nowhere in the report. This check is what prevents a quiet return of the old
 lines to the table. The sentence this replaced claimed as much, but nothing enforced it.
 
-`exitStatus` is #81's table too. `#218` finding 8 trimmed it: the arm that read a non-zero job
-status is gone, because nothing could ever produce one. The other arm still holds: a job that
-threw once made the single-repository path exit 0, and now makes it exit 1.
+`exitStatus` is #81's table too. `#218` finding 8 trimmed it. The arm that read a non-zero job
+status is gone, because nothing could ever produce one. The other arm still holds. A job that
+threw once made the single-repository path exit 0. It now makes that path exit 1.
 
 `failureSummary` is #81's other table. It states the new stderr wording. It does not substitute
 for an old one, because there is no shell or Python line it replaces.

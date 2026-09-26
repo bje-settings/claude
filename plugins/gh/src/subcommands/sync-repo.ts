@@ -341,15 +341,17 @@ class SyncRepoRun {
    *
    *  This reads `git worktree list --porcelain` itself, and so does
    *  {@link readWorktrees}, later. A round 1 review (#218) proved why
-   *  neither read can stand in for the other: between this one and the
-   *  prune loop, a fetch, an install, and a gh call all run, and any of
-   *  them can take long enough for a person, or another agent, to switch a
-   *  linked worktree to a different branch. A map built from this read
-   *  alone would then be stale exactly where {@link readWorktrees} needs
-   *  it fresh, and git's own worktree-remove refusal does not catch that:
-   *  it refuses only on a tracked change, never on a file `.gitignore`
-   *  excludes. So this read exists to skip early, before any fetch. It
-   *  answers no question {@link readWorktrees} still needs answered. */
+   *  neither read can replace the other. A fetch, an install, and a gh
+   *  call sit between this read and the prune loop. Any of them can take
+   *  long enough for someone to switch a linked worktree to another
+   *  branch.
+   *
+   *  A map from this read alone would then be stale exactly where
+   *  {@link readWorktrees} needs it fresh. Git's own worktree-remove
+   *  refusal does not catch that. It refuses only a tracked change, never
+   *  a file `.gitignore` excludes. So this read exists to skip early,
+   *  before any fetch. It answers no question {@link readWorktrees} still
+   *  needs answered. */
   private async linkedWorktreeInProgress(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) return 'cannot list worktrees'
@@ -400,10 +402,11 @@ class SyncRepoRun {
     const marker = await this.checkInProgress(this.top)
     if (marker !== '') return `git operation in progress (${marker})`
 
-    // #218 finding 6: this ALSO runs here, before the fetch and the
-    // advance below, not only inside readWorktrees right before the prune
-    // loop. A stopped rebase in another worktree must block the whole sync
-    // on sight, the same as one in this checkout does above.
+    // #218 finding 6: this also runs here, before the fetch and the
+    // advance below. readWorktrees checks again, right before the prune
+    // loop. A stopped rebase in another worktree must block the whole
+    // sync on sight. This checkout's own in-progress marker, above, does
+    // the same.
     const linked = await this.linkedWorktreeInProgress()
     if (linked !== null) return linked
 
@@ -700,7 +703,7 @@ class SyncRepoRun {
    *  reason to skip when the list cannot be read. It reads the list itself,
    *  again, right before the prune loop uses it. {@link preflight} already
    *  read it once, through {@link linkedWorktreeInProgress}, but that read
-   *  is minutes old by now: a fetch, an install, and a gh call sit between
+   *  is minutes old by now. A fetch, an install, and a gh call sit between
    *  it and this call. A map built from that earlier read could send a
    *  force delete at a worktree that has since moved to other, uncommitted
    *  work (round 1 review, #218 finding 6). This read is what stands

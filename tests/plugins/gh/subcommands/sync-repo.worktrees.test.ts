@@ -96,10 +96,11 @@ describe('worktrees', () => {
     // prune loop. This test protects that second read. A gh call
     // (`readMergeProof`) sits between the two reads. A person, or another
     // agent, can switch a linked worktree to a new branch in that window.
+    //
     // A map from the early read alone would then name the OLD branch for
     // that worktree. The prune loop would call `git worktree remove` on a
     // worktree that now holds unrelated, uncommitted work. Git's own
-    // safety net does not catch this: it refuses only a tracked change,
+    // safety net does not catch this. It refuses only a tracked change,
     // never a file `.gitignore` excludes.
     const f = fixture()
     f.git.branchWithWork(f.repo, 'wt-branch')

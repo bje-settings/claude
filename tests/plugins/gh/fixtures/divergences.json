@@ -91,7 +91,7 @@
     "now": "  ✗ the sync failed: <message>"
   },
   "exitStatus": {
-    "why": "gh-sync.sh dropped the single-repository path's child status at its lines 72 to 73, so that path always exited 0, whatever a job answered or threw. #81 (round 7) made a throw exit 1 there instead, once every report line had been written; #218 finding 8 later removed the RepoJob arm that answered a non-zero status without throwing, because syncRepo never produced one. Only the throw half of this divergence still holds.",
+    "why": "gh-sync.sh dropped the single-repository path's child status at its lines 72 to 73. That path always exited 0, whatever a job answered or threw. #81 (round 7) made a throw exit 1 there instead, once every report line had been written. #218 finding 8 later removed the RepoJob arm that answered a non-zero status without throwing, because syncRepo never produced one. Only the throw half of this divergence still holds.",
     "was": "always exits 0, whatever a job answered or threw",
     "now": "exits 1 when a job threw; a skipped repository still answers 0"
   },
