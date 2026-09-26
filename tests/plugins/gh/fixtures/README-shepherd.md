@@ -118,16 +118,15 @@ in the port, though both are still in these captures, because nobody edits a cap
   `skip_without_a_reason_file`. The parity suite no longer replays any of them: their entries, and
   the `ARRANGEMENTS`, `REASONS`, and `PATHS` rows only they used, are deleted from
   `shepherd-pr.test-support.ts`. `parity-1.test.ts`'s own check (`replayable.length +
-  NOT_REPLAYED.size === Object.keys(CAPTURE).length`) still holds, because deleting a case from
-  the fixture and deleting its replay happen together.
+  NOT_REPLAYED.size === Object.keys(CAPTURE).length`) still holds. A case and its replay are
+  always deleted from the fixture together.
 - **`skipped_no_automerge`** is gone from `shepherd-status`'s report. `statusDocument` now answers
   with `targets` alone; a pull request without auto-merge is left out, not listed under a key
   nothing reads. The replay suite keeps every one of `shepherd-status-output.json`'s cases. It
   sends `dependencies` as the label argument on every replay, to keep each case's captured
-  semantics (the label was hardcoded before; now it is a call the test makes explicit). Each
-  case's expected `stdout` is the capture's own document with `skipped_no_automerge` removed,
-  where the capture had it. `divergences-shepherd.json`'s `skippedNoAutomerge` entry records the
-  fact once, empty of case names: its cases live only in this file, and the `sentences` array is
+  semantics. Each case's expected `stdout` is the capture's own document with
+  `skipped_no_automerge` removed, where the capture had it. `divergences-shepherd.json`'s
+  `skippedNoAutomerge` entry records the fact once, with no case names. The `sentences` array is
   shared with `shepherd-pr`'s own parity check.
 
 One sentence deliberately did NOT change, though it names a script that is now a command:
