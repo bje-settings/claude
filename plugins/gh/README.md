@@ -317,8 +317,8 @@ kinds of detail that it removed. The rule is in
 
 ## Session start hook
 
-When a session starts, resumes, or clears, the plugin writes a status line. Then it writes one
-line for each kind of problem:
+When a session starts, resumes, clears, or compacts, the plugin writes a status line. Then it
+writes one line for each kind of problem:
 
 ```
 gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1]
@@ -356,8 +356,9 @@ whose `origin` is not on github.com. For each repository, it runs `git fetch --p
 reads the local refs. One GraphQL query reads the GitHub items for each group of five
 repositories. The queries and the fetches run at the same time.
 
-The whole check has 5 seconds. A part that fails, or does not finish in that time, gives no
-count. It gives a `gh: ⚠️` line instead, one line for each kind of problem, never one for each
+The whole check has 2.5 seconds, well under the hook's own 3 second ceiling
+(`.claude/rules/_design-principles.md`). A part that fails, or does not finish in that time, gives
+no count. It gives a `gh: ⚠️` line instead, one line for each kind of problem, never one for each
 repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In a folder of
 repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1 repo`.
 
@@ -375,12 +376,26 @@ gh: ⚠️ git not found on PATH
 gh: ⚠️ GitHub CLI (gh) not found on PATH
 ```
 
-The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for each missing tool.
+The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for each missing tool. The
+hook also writes `hookSpecificOutput.additionalContext`, naming the absent tools and saying the
+plugin cannot run, so the model does not start work that will fail. With every tool present,
+there is no `additionalContext` at all.
 
 The hook never changes a branch, worktree, or working tree. The fetch changes only
 remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.
-`hooks.json` runs it as `command -v node ... ; exit 0`, which gives the same result when node is
-not on PATH. Below the node floor, the hook exits 0 and writes nothing.
+
+When node is not on PATH at all, `hooks.json`'s own command string writes the alert, since no
+script can run to report that:
+
+```
+gh: node not found on PATH
+```
+
+Below the node floor, the hook itself writes one line naming the floor, then exits 0:
+
+```
+gh: node "v20.19.0" is below the floor: 22.18.0 or newer.
+```
 
 The hook is `hooks/hook-io.ts`. To see the lines by hand, run it with `status`:
 
@@ -421,8 +436,9 @@ for `--help`.
 Everything in this plugin is TypeScript. Node runs it directly, with no build step. It needs
 **node 22.18 or newer**: that is the release whose type stripping runs a `.ts` file as it stands.
 The plugin takes no dependency of its own, and carries no `package.json`, so it needs no install
-to use. Every entry point checks the current version before it loads anything else. The
-session-start hook does this in silence. A command states which version it found.
+to use. Every entry point checks the current version before it loads anything else. A command
+states which version it found. The session-start hook writes one line naming the floor instead,
+because it runs once and may say so where a hook on every tool call must stay silent.
 
 ## Tests
 
@@ -436,7 +452,7 @@ into another base, worktrees clean and dirty), every preflight refusal, and the 
 `--dry-run` changes nothing it says it would change. Each command's tests check it against the
 report its predecessor printed, captured scenario by scenario before the tests deleted that
 version. The session-start hook's tests check that each case writes one JSON document, on one
-line, with `systemMessage` and nothing else.
+line, with `systemMessage`, and `hookSpecificOutput.additionalContext` only when a tool is absent.
 
 pnpm's install path has a test that runs a real `pnpm install`. What remains uncovered is
 defensive branches that guard against states nobody can provoke, such as a ref that resolves

@@ -139,7 +139,12 @@ hook, 42 ms for a bare `node` start and 70 ms for a hook-shaped `.ts`. It is pai
 does not keep an entire second toolchain alive.~~ **Deviation
 ([#138](https://github.com/bje-settings/claude/issues/138)):** only the `gh` SessionStart hook
 ported, with the silent Node floor guard; `field-test` was retired rather than ported, and its
-hooks with it.
+hooks with it. **Deviation ([#245](https://github.com/bje-settings/claude/issues/245)):** silent
+is the requirement for a hook on every tool call, not for `SessionStart`, which runs once. Below
+the floor, the gh hook now writes one `systemMessage` line naming the floor
+(`lib/node-floor.ts`'s `belowFloorMessage`), and `hooks.json`'s own command string writes a line
+when `command -v node` fails, since no script can run to report that. A hook on each tool call
+still checks `meetsNodeFloor` and stays silent.
 
 **A plugin never carries its own `package.json`.** Claude Code runs a dependency install inside the
 cache copy when it finds a `package.json` and an npm or bun lockfile together, which turns
