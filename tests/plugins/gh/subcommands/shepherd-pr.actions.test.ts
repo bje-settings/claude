@@ -66,6 +66,22 @@ it('reads --help in any position, before the argument-count refusal', async () =
   expect(result.stderr).toBe('')
 })
 
+it('reads --help before the argument-count refusal, on an argv too short for it', async () => {
+  // #218 finding 5, round 2 review. Every other case for this fix names
+  // three or more arguments, so the count check never fires either way.
+  // This one is short: one path, then --help, with no number and no
+  // action. Only reading help first, before `argv.length < 3`, answers
+  // help here instead of the usage refusal at exit 2.
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '--help'],
+    gh: createGhServer({}),
+  }))
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(`${HELP}\n`)
+  expect(result.stderr).toBe('')
+})
+
 it('accepts every action it advertises', async () => {
   // An action the command runs but does not advertise is one nobody calls.
   // One it advertises and rejects is worse.
