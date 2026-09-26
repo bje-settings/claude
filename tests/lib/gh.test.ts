@@ -260,28 +260,17 @@ describe('argv', () => {
     expect(calls[1]?.args).toEqual(['pr', 'update-branch', '7'])
   })
 
-  it('passes a comment body as one argument, or names the file holding it', async () => {
+  it('passes a comment body as one argument', async () => {
     // As an argument, never through a shell: a body that has backticks or a
-    // semicolon in it is text, not something a shell gets to re-read. The
-    // file form is `gh-shepherd-pr.py:928`, where the reason is a file the
-    // agent wrote, and the body would otherwise be a command line of its
-    // own.
+    // semicolon in it is text, not something a shell gets to re-read.
     const { gh, calls } = clientAnswering({ stdout: 'https://github.com/a/b/pull/7#issue-1\n' })
     await gh.addComment({ pullRequest: 7, body: 'done; `rm -rf /`' })
-    await gh.addComment({ pullRequest: 7, bodyFile: '/tmp/reason.md' })
     expect(calls[0]?.args).toEqual(['pr', 'comment', '7', '--body', 'done; `rm -rf /`'])
-    expect(calls[1]?.args).toEqual(['pr', 'comment', '7', '--body-file', '/tmp/reason.md'])
 
-    // Round 5's handoff fact 5 is that this is exactly one of the two. The
-    // enforcement is the type, not a runtime check, so the two refusals are
-    // pinned the way `args.test.ts` pins its own: through the compiler. Without
-    // these lines, `CommentText` could loosen to a bare optional-both shape,
-    // and nothing in the suite would turn red. `gh` itself refuses `--body`
-    // with `--body-file`, and a call with neither would reach gh with no
-    // body at all.
-    // @ts-expect-error a comment that has both a body and a body file
-    await gh.addComment({ pullRequest: 7, body: 'both', bodyFile: '/tmp/reason.md' })
-    // @ts-expect-error a comment with neither
+    // `body` is required, not a runtime check. #216 removed the file form
+    // (`skip`'s only caller), so a call with no body is the one refusal
+    // `CommentText` still has to make.
+    // @ts-expect-error a comment with no body
     await gh.addComment({ pullRequest: 7 })
   })
 

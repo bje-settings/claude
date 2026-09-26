@@ -1,9 +1,9 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-status` reads one repository's dependencies pull requests into targets and skipped rows, and each way it stops.
+description: How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, optionally narrowed by one label, and each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
+  by: claude-sonnet
   at: 2026-09-25
 ---
 
@@ -15,9 +15,11 @@ work on in one repository, and changes nothing. The `/gh:shepherd` skill and the
 
 ```mermaid
 flowchart TD
-    A[shepherd-status run] --> B{First argument asks for help?}
+    A[shepherd-status run] --> B{Help in any position?}
     B -->|Yes| H([Print usage, exit 0])
-    B -->|No| C[Target: the first argument,<br/>or the working directory when there is none]
+    B -->|No| B2{More than two arguments?}
+    B2 -->|Yes| Z0([Refused: one label per run, exit 2]):::stop
+    B2 -->|No| C[Target: the first argument, or the working<br/>directory when there is none; label: the<br/>second argument, if any]
     C --> D{Target is a directory<br/>you can enter?}
     D -->|No| Z1([Refused: not a directory,<br/>or cannot enter, exit 2]):::stop
     D -->|Yes| E{Inside a git checkout?}
@@ -25,18 +27,19 @@ flowchart TD
     E -->|Yes| F{gh names the repository<br/>and its default branch?}
     F -->|gh not on PATH| Z3([gh is required, exit 1]):::stop
     F -->|No answer, or a name absent| Z4([could not resolve the repository, exit 1]):::stop
-    F -->|Yes| G{Open dependencies pull requests listed?}
+    F -->|Yes| G{Open pull requests listed,<br/>narrowed to the label when one is given?}
     G -->|No| Z5([could not list pull requests, exit 1]):::stop
-    G -->|Yes| I{Recent completed runs on<br/>the default branch readable?}
+    G -->|Yes| G2{Window of 500 full?}
+    G2 -->|Yes| Z7([more than 500 open pull requests;<br/>use a label, exit 1]):::stop
+    G2 -->|No| I{Recent completed runs on<br/>the default branch readable?}
     I -->|No| J[CI time: 300 s]
     I -->|Yes| K[CI time: median run duration;<br/>300 s when no run is usable]
     J --> L[Drop draft pull requests]
     K --> L
     L --> M{Auto-merge enabled?}
     M -->|Yes| N[targets: merge-risk low, then no label,<br/>then medium, then high, then a band<br/>it does not know; oldest first in a band]
-    M -->|No| O[skipped_no_automerge: oldest first;<br/>reported, never enabled]
+    M -->|No| O([Left out of the report;<br/>reported, never enabled])
     N --> P([Print one JSON document, exit 0])
-    O --> P
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
@@ -44,4 +47,6 @@ flowchart TD
 
 A run list that gh cannot read is not a failure: the wait bound falls back to 300 seconds. A
 pull request list that gh cannot read is exit 1, because it says nothing about how many there
-are. Exit 3 is outside the documented set, so a caller cannot read a crash as an answer.
+are. A window that fills the limit is a window, not an answer, so this refuses rather than
+report a truncated list. Exit 3 is outside the documented set, so a caller cannot read a crash
+as an answer.

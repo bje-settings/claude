@@ -49,9 +49,9 @@ commands:
   sync [--dry-run] [--no-install] [-j N] [path]   sync a checkout, or every
                                                   checkout one level down
   sync-repo [--dry-run] [--no-install] <path>     sync one checkout
-  shepherd-status [path]                          what /gh:shepherd would work
+  shepherd-status [path] [label]                  what /gh:shepherd would work
                                                   on in one repository
-  shepherd-pr <path> <number> <action> [reason]   one deterministic step
+  shepherd-pr <path> <number> <action>            one deterministic step
                                                   against one pull request
 
 gh.ts <command> --help prints that command's own usage.`

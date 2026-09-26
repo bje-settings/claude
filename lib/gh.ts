@@ -345,19 +345,13 @@ export interface GhResults {
 export type GhEndpoint = keyof GhResults
 
 /**
- * A comment's text, from a string or from a file, exactly one of the two.
+ * A comment's text.
  *
- * The `never` arms are what make it exactly one. A value that carries both
- * is refused at the call site, rather than in a runtime check this file would
- * then need a test for. `gh` itself refuses `--body` with `--body-file`
- * anyway (round 5's handoff fact 5). Both arms have a consumer:
- * `gh-shepherd-pr.py:533` posts `@dependabot recreate` as a string, and
- * `gh-shepherd-pr.py:928` posts the skip comment with `--body-file`, because
- * the reason is a file the agent wrote.
+ * `#216` removed the `skip` action, `shepherd-pr`'s only caller that posted
+ * from a file. `recreate` posts `@dependabot recreate` as a string
+ * (`gh-shepherd-pr.py:533`), and it is the one caller left.
  */
-export type CommentText =
-  | { readonly body: string; readonly bodyFile?: never }
-  | { readonly bodyFile: string; readonly body?: never }
+export type CommentText = { readonly body: string }
 
 /** The operations the plugins ask `gh` for. `createGhClient`, below,
  *  implements it, and so does `createGhMock` in the harness. A command takes
@@ -1677,7 +1671,6 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         String(comment.pullRequest),
         ...repository,
         ...filter('body', comment.body),
-        ...filter('body-file', comment.bodyFile),
       ]),
 
     // The blocking call, and the only one that takes a bound. Round 5's

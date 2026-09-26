@@ -28,7 +28,7 @@ import { expect, it } from 'vitest'
 import { FLOWS, PLUGINS } from './repo.ts'
 
 const GH = path.join(PLUGINS, 'gh')
-const AGENT = path.join(GH, 'agents', 'shepherd-repo.md')
+const AGENT = path.join(GH, 'agents', 'shepherd-prs.md')
 const SKILL = path.join(GH, 'skills', 'shepherd', 'SKILL.md')
 const FLOW = path.join(FLOWS, 'gh', 'shepherd', '_skill-flow.md')
 
