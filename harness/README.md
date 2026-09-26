@@ -81,7 +81,7 @@ operation, not after gh's own argv. This way, the interface survives a change to
 endpoints are: `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`,
 `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`,
 `listMilestones`, `listIssues`, `listOpenPullRequests`, `requiredContexts`,
-`viewPullRequestDetail`, `listWorkflowRuns`.
+`viewPullRequestDetail`, `listWorkflowRuns`, `repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
@@ -96,6 +96,9 @@ The three review-loop reads follow the same pattern. `requiredContexts` answers
 `{ contexts, unavailable }`. `viewPullRequestDetail` answers `{ pullRequest, unavailable, missing }`,
 with a null pull request for one it could not read. `listWorkflowRuns` answers
 `{ rows, unavailable }`.
+
+`repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The
+SessionStart hook reads it (#230).
 
 `missing` is true only when GitHub itself said the number does not exist. It is false for every
 other reason the read came back short. A test that registers a reply must say which case it means.
@@ -126,7 +129,8 @@ does this with its captured replies.
 `GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`,
 `WatchResult`, and `IssueState` live in `lib/gh.ts`. The result shapes that the sweep and the
 review loop read also live there: `MilestoneSummary`, `IssueSummary`, `PullRequestSummary`,
-`PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`. The first of them moved there
+`PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`. The status line reads
+`RepositoryStatus` and `MergedHead`. The first of them moved there
 at [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
 against them.
 
