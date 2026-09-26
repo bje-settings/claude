@@ -900,11 +900,13 @@ const shepherdPr = async (
     return code
   }
 
-  const [target = '', number = '', action = ''] = argv
-  if (target === '-h' || target === '--help') {
+  // #218 finding 5: this reads help in any position, before the
+  // argument-count refusal below. `#231` kept this at `argv[0]` alone.
+  if (argv.includes('-h') || argv.includes('--help')) {
     output.out.write(`${HELP}\n`)
     return 0
   }
+  const [target = '', number = '', action = ''] = argv
   if (argv.length < 3) return refuse(HELP, 2)
 
   const refusal = directoryRefusal(target)

@@ -52,6 +52,20 @@ it('answers -h the same way it answers --help', async () => {
   expect(result.stdout).toBe(`${HELP}\n`)
 })
 
+it('reads --help in any position, before the argument-count refusal', async () => {
+  // #218 finding 5, shepherd-pr half. #231 kept help at argv[0] only. A
+  // caller who names a path, a number, and then --help must still get
+  // help, with no gh call at all.
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '1', '--help'],
+    gh: createGhServer({}),
+  }))
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(`${HELP}\n`)
+  expect(result.stderr).toBe('')
+})
+
 it('accepts every action it advertises', async () => {
   // An action the command runs but does not advertise is one nobody calls.
   // One it advertises and rejects is worse.
