@@ -28,7 +28,7 @@ always gives an empty list. Then put the level in the report only. Do not do "Se
 "Read it back", and do not use a label or the body instead.
 
 Find the option by its name. Do not keep an ID from an earlier run. If the option names are
-not the four levels above, show how the levels map to them, and ask.
+not the four levels above, use the option that is closest in meaning, and report the map.
 
 ## Set it
 

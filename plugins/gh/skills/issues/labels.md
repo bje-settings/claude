@@ -6,7 +6,7 @@ List the labels that the repository has:
 gh label list --limit 1000 --json name,description
 ```
 
-Never create a label. Use only a label from this list.
+Use only a label from this list.
 
 ## Prefer the issue type
 
@@ -27,17 +27,18 @@ Use a label only for a thing that the type does not give. Examples are an area
 
 ## No issue types
 
-When the repository has no issue types, use the label from the table that fits. Use it
-only if the repository has it. Add it with `--label` on `gh issue create` or `--add-label`
-on `gh issue edit`.
+When the repository has no issue types, use the label from the table that fits, if the
+repository has it.
 
 ## An issue that has a type label
 
 This applies only when the repository defines issue types. An issue can have a label from
-the table, with or without a type. Propose that you set the type and remove the label:
+the table, with or without a type. If the issue has no type, set the type and remove the
+label. If it has a type, remove the label only when the label agrees with the type.
+Otherwise keep both, and report the conflict:
 
 ```bash
 gh issue edit <n> --type "<type>" --remove-label "<label>"
 ```
 
-Confirm first. Remove the label in the same command that sets the type.
+Remove the label in the same command that sets the type.
