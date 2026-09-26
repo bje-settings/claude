@@ -24,4 +24,4 @@ export interface Dependency {
 export const absentDependencies = (
   table: readonly Dependency[],
   present: (tool: string) => boolean,
-): Dependency[] => table.filter((dependency) => !present(dependency.tool))
+): readonly Dependency[] => table.filter((dependency) => !present(dependency.tool))
