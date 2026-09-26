@@ -95,6 +95,9 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
   and names itself. This is the property a stub binary cannot give. A command that reached for
   `gh`, where the test expected no call, fails instead. It does not read an empty reply as an
   answer.
+- One exception, at the level of a contract test: the hook tests' rig puts a `gh` that always
+  fails first on `PATH`. The hook checks only that `gh` is there, and a spawned run never reaches
+  GitHub. The stand-in answers nothing. Answers still come only from `createGhMock`.
 - git is not mocked. `harness/git.ts` builds real temporary repositories, with real local bare
   origins. So fetch, merge, ancestry, and worktree operations behave as they do in production.
 - No call-count, call-order, or request-log assertions. Assert the verdict the command reached,
