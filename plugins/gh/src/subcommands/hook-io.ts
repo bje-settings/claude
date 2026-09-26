@@ -296,9 +296,10 @@ export const countCandidates = (
  *  no branch is current. The mark comes from the same listing as the
  *  branches, so a failed read cannot hide the current branch alone. */
 const currentOf = (branches: readonly string[] | null): string | null => {
+  // `%(HEAD)` is the last field, and it is `*` only on the current branch.
+  // The name is the first field, and a ref name holds no tab.
   for (const line of branches ?? []) {
-    const [name = '', , , head] = line.split(FIELD)
-    if (head === '*') return name
+    if (line.endsWith(`${FIELD}*`)) return line.slice(0, line.indexOf(FIELD))
   }
   return null
 }
