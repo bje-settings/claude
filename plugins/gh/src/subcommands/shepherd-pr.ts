@@ -25,8 +25,6 @@
 // the tree. The file and line references below point to what they held at
 // `cd0d515`. This file keeps them because each one says where a rule came
 // from.
-import { realpathSync, statSync } from 'node:fs'
-import path from 'node:path'
 import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import type { Writer } from '../lib/streams.ts'
@@ -54,8 +52,6 @@ const POSITIVE_RE = /^[1-9][0-9]*$/
  *  escape is a control character. A linter forbids a regular expression
  *  literal from carrying one. The whole point here is to match one. */
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
-
-const URL_RE = /https:\/\/[^ \n]+/g
 
 const DEFAULT_CI_SECONDS = 300
 const DEFAULT_LOG_LINES = 60
@@ -127,7 +123,6 @@ Usage:
   gh.ts shepherd-pr <path> <number> recreate
   gh.ts shepherd-pr <path> <number> wait
   gh.ts shepherd-pr <path> <number> settle
-  gh.ts shepherd-pr <path> <number> skip <reason-file>
   gh.ts shepherd-pr <path> <number> merged
 
 Every action prints one JSON object: {"action", "ok", "detail", ...}. The
@@ -166,13 +161,11 @@ cannot make it act on the wrong pull request.
             checks are neither passed nor absent; an already MERGED one is
             answered, not refused. Never watches checks (that is \`wait\`),
             never comments, and never merges.
-  skip      posts the comment in <reason-file> and reports its URL. Refuses
-            an empty file: a skip without a reason is not a skip.
   merged    whether the pull request is MERGED, and its merge commit.
 
 This command never merges, never enables or disables auto-merge, never edits a
-label, and never bypasses a check. The only writes are the rebase, the two
-comments, and nothing else.
+label, and never bypasses a check. The only writes are the rebase and the
+one comment, and nothing else.
 
 Environment:
   SHEPHERD_CI_SECONDS    typical CI wall time, from gh.ts shepherd-status
@@ -256,30 +249,12 @@ const ghAccount = (error: unknown): string => {
   throw error
 }
 
-/** Whether a reason file can supply a comment: the port of
- *  `os.path.isfile(f) and os.path.getsize(f) != 0`. */
-const usableReason = (path: string): boolean => {
-  try {
-    const stats = statSync(path)
-    return stats.isFile() && stats.size > 0
-  } catch {
-    return false
-  }
-}
-
 /** The measured seconds of a duration in milliseconds, as `int()` read the
  *  monotonic clock: truncated, never rounded up. */
 const seconds = (milliseconds: number): number => Math.floor(milliseconds / 1000)
 
 interface WorkerOptions {
   readonly repo: string
-  /** The checkout that every `git` and `gh` call names. This is also the
-   *  directory that a relative path on the command line resolves against.
-   *  The Python changed directory to it with `os.chdir`
-   *  (`gh-shepherd-pr.py:1007`). Nothing here changes directory. Instead,
-   *  this code resolves the path by hand, at the one place that needs
-   *  it. */
-  readonly target: string
   readonly number: number
   readonly action: string
   readonly ciSeconds: number
@@ -900,64 +875,17 @@ class Shepherd {
       },
     )
   }
-
-  async skip(reasonFile: string): Promise<void> {
-    // This code resolves the path once. It then both checks that path and
-    // sends it. The Python changed directory to the target with
-    // `os.chdir` before this check ran (`gh-shepherd-pr.py:1007`, then
-    // `:920`), and before gh read the same relative path through
-    // `--body-file` (`:928`). One directory decision governed both steps.
-    //
-    // Nothing here changes directory. The check runs in this process,
-    // whose directory never changes. gh runs as a separate process, with
-    // the target as its own working directory (`lib/gh.ts` gets
-    // `cwd: target`).
-    //
-    // If this code derived the path twice, the two values could disagree.
-    // One comes from lexical rules, here. The other comes from the
-    // kernel, inside gh. `chdir` resolves symbolic links; `path.resolve`
-    // does not. Take a target that is a symbolic link, with a reason file
-    // that climbs out of it with `..`. The guard would check one file,
-    // and gh would comment on a different one.
-    //
-    // This code resolves the path against `realpathSync(target)`, the same
-    // path that `chdir` gave the Python. It hands gh that same value, so
-    // the two paths cannot diverge.
-    //
-    // The refusal still prints the path as the caller wrote it, the way
-    // the Python's did (`:921`).
-    const resolved = path.resolve(realpathSync(this.options.target), reasonFile)
-    if (!usableReason(resolved)) {
-      this.emit(false, `refused: reason file is missing or empty: ${reasonFile}`)
-      return
-    }
-    const pull = await this.readPr()
-    if (pull === null) return this.unreadable()
-    if (pull.state !== 'OPEN') return this.refuseNotOpen(pull)
-    const [posted, out] = await this.ghText(
-      this.options.gh.addComment({ pullRequest: this.options.number, bodyFile: resolved }),
-    )
-    if (!posted) {
-      this.emit(false, `could not post the skip comment: ${out}`)
-      return
-    }
-    const urls = out.match(URL_RE) ?? []
-    // The last URL gh printed, because a comment's own URL is the last thing
-    // it says; no URL at all is reported as none rather than as a failure.
-    this.emit(true, 'skip comment posted', { comment_url: urls[urls.length - 1] ?? '' })
-  }
 }
 
 /** The action each name runs, which is also the set the usage advertises: a
  *  name with no entry here is the unknown-action refusal, so the two cannot
  *  drift apart. */
-const HANDLERS: Record<string, (worker: Shepherd, reason: string) => Promise<void>> = {
+const HANDLERS: Record<string, (worker: Shepherd) => Promise<void>> = {
   state: (worker) => worker.state(),
   rebase: (worker) => worker.rebase(),
   recreate: (worker) => worker.recreate(),
   wait: (worker) => worker.wait(),
   settle: (worker) => worker.settle(),
-  skip: (worker, reason) => worker.skip(reason),
   merged: (worker) => worker.merged(),
 }
 
@@ -972,7 +900,7 @@ const shepherdPr = async (
     return code
   }
 
-  const [target = '', number = '', action = '', ...rest] = argv
+  const [target = '', number = '', action = ''] = argv
   if (target === '-h' || target === '--help') {
     output.out.write(`${HELP}\n`)
     return 0
@@ -986,7 +914,27 @@ const shepherdPr = async (
     return refuse(`not a git repository: ${target}`, 2)
   }
 
-  // This call resolves from the checkout. It is the one call of the seven
+  // This code reads these values before it checks the action. A caller who
+  // set a value that goes unused still hears about anything else it asked
+  // for.
+  const ciSeconds = envInt(context.env, output.err, 'SHEPHERD_CI_SECONDS', DEFAULT_CI_SECONDS)
+  const logLines = envInt(
+    context.env,
+    output.err,
+    'SHEPHERD_LOG_LINES',
+    DEFAULT_LOG_LINES,
+    POSITIVE_RE,
+  )
+
+  // This code checks the action before any gh call. An unknown action is a
+  // usage error, and a usage error costs nothing (#218 finding 2).
+  const handler = HANDLERS[action]
+  if (handler === undefined) {
+    output.err.write(`unknown action: ${action}\n`)
+    return refuse(HELP, 2)
+  }
+
+  // This call resolves from the checkout. It is the one call of the six
   // that names no repository, because it answers what the repository is.
   let view: Record<string, unknown>
   try {
@@ -1000,35 +948,9 @@ const shepherdPr = async (
     return refuse('could not resolve the repository with gh: gh answered without nameWithOwner', 1)
   }
 
-  // This code reads these values before it checks the action, the way the
-  // Python did. This way, a caller who set a value that goes unused still
-  // hears about anything else it asked for.
-  const ciSeconds = envInt(context.env, output.err, 'SHEPHERD_CI_SECONDS', DEFAULT_CI_SECONDS)
-  const logLines = envInt(
-    context.env,
-    output.err,
-    'SHEPHERD_LOG_LINES',
-    DEFAULT_LOG_LINES,
-    POSITIVE_RE,
-  )
-
-  const handler = HANDLERS[action]
-  if (handler === undefined) {
-    output.err.write(`unknown action: ${action}\n`)
-    return refuse(HELP, 2)
-  }
-  const [reason = ''] = rest
-  if (action === 'skip' && reason === '') {
-    // An empty argument is the same usage error as no argument. This is
-    // what the shell version's `[ -z "$4" ]` said. `skip ""` is a caller
-    // that lost its variable, not a skip whose reason file is missing.
-    return refuse('skip needs a reason file', 2)
-  }
-
   await handler(
     new Shepherd({
       repo: String(name),
-      target,
       number: Number(number),
       action,
       ciSeconds,
@@ -1036,7 +958,6 @@ const shepherdPr = async (
       context,
       gh: context.createGh({ cwd: target, repository: String(name) }),
     }),
-    reason,
   )
   return 0
 }
