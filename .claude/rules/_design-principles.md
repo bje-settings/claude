@@ -1,8 +1,7 @@
 # Design Principles
 
 Every skill, agent, hook, script and command function here is small, does one job, and composes
-with the others. Each one costs tokens and time on every use, so keep both low. These rules apply
-to design talks, plans, and reviews, as well as to code.
+with the others. Each one costs tokens and time on every use, so keep both low.
 
 ## Challenge a divergence
 
