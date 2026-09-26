@@ -97,8 +97,8 @@ It still checks each tool that it uses, so that a user who is not set up gets an
 - A script cannot report that node is missing. The `hooks.json` command string checks
   `command -v node` and writes the `systemMessage` JSON itself. Shell in a `hooks.json` string is
   not a bash file.
-- Below the node floor, a `SessionStart` hook writes one `systemMessage` line naming the floor,
-  because it runs once, not on every tool call. A hook on each tool call still checks
+- A `SessionStart` hook runs once, not on every tool call. Below the node floor, it may write one
+  `systemMessage` line with the floor version. A hook on each tool call still checks
   `meetsNodeFloor` and stays silent.
 - Do not check an optional plugin. A skill sees the available skills in its listing, and works
   around an absent one.

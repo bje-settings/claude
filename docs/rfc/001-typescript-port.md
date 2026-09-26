@@ -291,12 +291,13 @@ keeps the entire Python toolchain alive for one file: the floor, `uv.lock`, ruff
 argument against is recorded in Decisions & Follow-ups, and if the measurement turns out worse in
 the field than on the bench, the hook is the one thing small enough to reconsider on its own.
 
-**Revised at [#245](https://github.com/bje-settings/claude/issues/245):** "says nothing on the
-happy path" held for a hook on every tool call, where an alert would land in every one of them.
-It does not hold for `SessionStart`, which runs once per session. Below the node floor, the gh
-hook now writes one `systemMessage` line naming the floor, and the `hooks.json` command string
-itself writes a line when `command -v node` fails, since no script can run to report that. A hook
-on each tool call, such as the workstreams guard, still checks `meetsNodeFloor` and stays silent.
+**Revised at [#245](https://github.com/bje-settings/claude/issues/245):** the phrase "says
+nothing on the happy path" held for a hook on every tool call. There, an alert would land in
+every call. It does not hold for `SessionStart`, which runs once per session. Below the node
+floor, the gh hook now writes one `systemMessage` line with the floor version. The `hooks.json`
+command string writes a line when `command -v node` fails, since no script can run to report
+that. A hook on each tool call, such as the workstreams guard, still checks `meetsNodeFloor` and
+stays silent.
 
 ### Publishing
 
@@ -565,7 +566,7 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    floor guard; `field-test`'s hooks were deleted with the plugin (decision 8). **Revised at
    [#245](https://github.com/bje-settings/claude/issues/245):** the silent guard is
    `meetsNodeFloor`, for a hook on every tool call. A `SessionStart` hook runs once, so it may
-   alert: below the floor it writes one line naming the floor, and `hooks.json`'s own command
+   alert. Below the floor, it writes one line with the floor version. `hooks.json`'s own command
    string writes a line when `command -v node` fails. *Against:* the node check is now shell in a
    `hooks.json` string as well as a TypeScript guard, so the alert has two places with logic
    instead of one.
