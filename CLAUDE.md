@@ -34,12 +34,8 @@ symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugi
 Nothing under `plugins/` is bash. A plugin takes no dependency and carries no `package.json`.
 A command's exit codes and stdout are a contract with its callers.
 
-Cross-plugin dependencies, declared through a preflight script rather than vendored:
-
-- `workstreams` depends on `gh` and the `gh stack` extension, through
-  `plugins/workstreams/src/subcommands/preflight.ts`. A new cross-plugin dependency is a row in its
-  `REQUIRED_PLUGINS` table. It goes in `OPTIONAL_PLUGINS` instead when a skill works around its
-  absence. It is never a vendored copy.
+`.claude/rules/_design-principles.md` holds the design approach: composition, mechanisms, state,
+and how a plugin declares and checks a dependency outside its directory.
 
 ### Plugin domains
 
@@ -61,49 +57,6 @@ Signals that a domain boundary is off:
 - A user who wants one skill would have to install several unrelated ones to get it.
 - A skill's description leads with a tool or system that no other skill in the plugin touches.
 - Two plugins would each want the same skill.
-
-### Plugin design
-
-Pick the mechanism by the decision rule in the
-[extension overview](https://code.claude.com/docs/en/features-overview#match-features-to-your-goal).
-If a plugin grows and needs a different mechanism, raise it before the work starts, or in review.
-
-- Skills and tools should aim to be as simple as possible.
-- Anything that becomes too complex may need to become modular primitives instead.
-- Hook when the action must always happen the same way and the agent need not reason about it.
-  Hooks cost zero context unless they return output. Guardrails belong in `PreToolUse` hooks. An
-  instruction in CLAUDE.md or a skill is a request, not enforcement.
-- Skill when Claude has to decide how to apply the steps, or the content is knowledge.
-- Subagent only for context isolation or parallel work. A subagent that must wait on something
-  external waits in the foreground with a bounded blocking call. It returns once, with structured
-  output. It must not arm a Monitor or a scheduled wake, then end its turn. That idles the
-  worker, and the orchestrator then sees only "waiting". Wakes belong to the session that
-  dispatched it, if anywhere.
-- Anything deterministic runs in a script, not an agent. Split work so the script emits
-  structured output and the agent decides from it. When an agent is needed, set `model` and
-  `effort` in its frontmatter to the smallest value that passes the specs. The caller can size it
-  instead. A call can set `model`, but not `effort`. A caller-sized agent, such as the workstreams
-  `stream` agent, leaves both unset and inherits the session's effort.
-- A skill that another skill or an orchestrator invokes never sets `disable-model-invocation:
-  true`. That flag hides the skill from the `Skill` tool, so its callers cannot reach it at all.
-  Use `user-invocable: false` instead, when only the model should start the skill. The
-  workstreams primitives are the example: `question`, `stream`, and `review` are model-only, and
-  `sweep` is open to both. Reserve `disable-model-invocation: true` for a workflow only a person
-  should trigger.
-- Keep `SKILL.md` under 500 lines, and put reference material in supporting files. Put the key
-  use case first in `description`, since the listing truncates at 1,536 characters.
-- New plugins use `skills/`, not `commands/`. The docs treat `commands/` as the flat legacy form.
-- Plugin state lives under `${CLAUDE_PLUGIN_DATA}`. `${CLAUDE_PLUGIN_ROOT}` changes on update.
-- Derive what a plugin needs each time it runs. Do not write a file to remember it. State on
-  disk is a last resort: it is the copy that goes stale.
-- A plugin that must keep state, or a plan, owns its whole lifecycle, not just the write. That
-  lifecycle runs from creation through resume and reconciliation with the source of truth. It
-  ends with archive or removal when the work finishes.
-- A plugin works generally, on any machine and any repository layout. Nothing in one may assume
-  the author's directory structure, tool setup, or environment beyond what its preflight script
-  checks and reports. Paths come from `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, and the
-  target repository's own conventions. A literal path, or a tool the preflight does not check, is
-  a defect.
 
 ### Skills
 
