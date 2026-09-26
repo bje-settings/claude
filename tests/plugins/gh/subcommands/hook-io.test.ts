@@ -145,7 +145,14 @@ it('bounds the whole check at five seconds by default', () => {
 it('answers anything it does not know with the usage line and exit 2', async () => {
   const rig = createRig()
 
-  for (const argv of [[], ['session_start'], ['report'], ['cwd'], ['status', 'a', 'b']]) {
+  for (const argv of [
+    [],
+    ['session_start'],
+    ['session-start', 'extra'],
+    ['report'],
+    ['cwd'],
+    ['status', 'a', 'b'],
+  ]) {
     const ran = await runHook(rig, argv, createGhMock())
     expect([argv, ran]).toEqual([argv, { status: 2, stdout: '', stderr: USAGE }])
   }
