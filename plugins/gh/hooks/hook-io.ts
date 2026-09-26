@@ -7,9 +7,9 @@
 // `import` declaration before any statement here runs. A second static
 // import would load its whole module graph on the runtime that this guard
 // must refuse. This file calls `meetsNodeFloor`, not `assertNodeFloor`: a
-// hook that writes to stderr writes into the session. Below the floor, this
-// file exits 0 and writes nothing. `hooks.json`'s `command -v node ... ;
-// exit 0` covers a machine with no node, and a hook file that is missing.
+// hook that writes to stderr writes into the session. Below the floor, see
+// the note below (#245). `hooks.json`'s own guard covers a machine with no
+// node, and a hook file that is missing.
 //
 // **Nothing here may stop a session.** An unexpected error inside the `try`
 // block writes its stack to stderr, which Claude Code keeps in its debug
