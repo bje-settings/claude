@@ -82,6 +82,21 @@ it('calls a source that one enterprise lists beside the target same-enterprise, 
   })
 })
 
+it('matches the logins of an enterprise whatever their case', async () => {
+  const result = await orgScope(['--target', 'acme-two', 'acme-one'], {
+    viewerEnterprises: {
+      enterprises: [{ slug: 'acme-ent', organizations: ['Acme-One', 'ACME-TWO'] }],
+      unavailable: null,
+    },
+  })
+
+  expect(result.status).toBe(0)
+  expect(JSON.parse(result.stdout)).toEqual({
+    target: 'acme-two',
+    results: [{ source: 'acme-one', scope: 'same-enterprise', enterprise: 'acme-ent' }],
+  })
+})
+
 it('calls a source in a different enterprise from the target outside', async () => {
   const result = await orgScope(['--target', 'zeta-one', 'acme-one'], ENTERPRISES)
 
@@ -176,6 +191,11 @@ it.each([
   ['an empty --target', ['--target', '', 'acme-one'], 'org-scope: --target is required'],
   ['no source', ['--target', 'acme-one'], 'org-scope: name at least one source owner'],
   ['an empty source', ['--target', 'acme-one', ''], 'org-scope: a source owner is empty'],
+  [
+    'an empty source after a good one',
+    ['--target', 'acme-one', 'acme-two', ''],
+    'org-scope: a source owner is empty',
+  ],
   ['an unknown flag', ['--target', 'acme-one', '--nope', 'acme-two'], "Unknown option '--nope'"],
   ['--target with no value', ['--target'], "Option '--target <value>' argument missing"],
 ])(
@@ -186,8 +206,11 @@ it.each([
 
     expect(result.status).toBe(2)
     expect(result.stdout).toBe('')
-    expect(result.stderr).toContain(reason)
-    expect(result.stderr).toContain('usage: gh.ts org-scope --target <owner> <source-owner>...')
+    // Node words its own refusals, and adds advice after them, so the first
+    // line starts with the reason. Nothing else is on stderr.
+    const [first, ...rest] = result.stderr.split('\n')
+    expect(first?.startsWith(reason)).toBe(true)
+    expect(rest).toEqual(['usage: gh.ts org-scope --target <owner> <source-owner>...', ''])
   },
 )
 
