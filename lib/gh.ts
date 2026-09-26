@@ -324,10 +324,7 @@ export interface GhResults {
    *  organizations it lists, or the reason the list is not whole (see
    *  {@link GhClient.viewerEnterprises}). */
   viewerEnterprises: {
-    readonly enterprises: readonly {
-      readonly slug: string
-      readonly organizations: readonly string[]
-    }[]
+    readonly enterprises: readonly Enterprise[]
     readonly unavailable: string | null
   }
   /** The repository's open milestones. */
@@ -433,16 +430,16 @@ export interface GhClient {
    */
   issueStates(query: { readonly numbers: readonly number[] }): Promise<GhResults['issueStates']>
   /**
-   * Every enterprise the viewer (the account gh is logged in as) belongs to,
-   * with the logins of the organizations each one lists. `org-scope` (#233)
+   * Every enterprise of the viewer, the account that gh uses. Each one comes
+   * with the logins of the organizations it lists. `org-scope` (#233)
    * reads it to find whether two owners share an enterprise. GraphQL has no
    * field that names the enterprise of an organization, so the viewer's own
    * list is the one source.
    *
    * Never throws. A failed read, a partial answer, or a list that has more
    * pages than this reads, sets `unavailable`. A caller must then not read
-   * the list as whole: an owner absent from a short list is not proof that
-   * it is outside every enterprise.
+   * the list as whole. An owner absent from a short list can still be in an
+   * enterprise.
    */
   viewerEnterprises(): Promise<GhResults['viewerEnterprises']>
   /**
@@ -1357,11 +1354,19 @@ const record = (result: RunResult, what: string): Record<string, unknown> => {
   return value as Record<string, unknown>
 }
 
+/** One enterprise the viewer belongs to, with the logins of the
+ *  organizations it lists. */
+export interface Enterprise {
+  readonly slug: string
+  readonly organizations: readonly string[]
+}
+
 /**
  * The GraphQL query for {@link GhClient.viewerEnterprises}. The enterprises
  * connection takes a cursor, and the organizations connection asks only
- * whether it has more. An enterprise with more than 100 organizations the
- * viewer can see is not paged: the endpoint reports it as a short answer.
+ * whether it has more. This does not page the organizations of one
+ * enterprise. When there are more than 100, the endpoint reports a short
+ * answer.
  */
 const VIEWER_ENTERPRISES_QUERY =
   'query($cursor: String) { viewer { enterprises(first: 100, after: $cursor) { ' +
@@ -1406,9 +1411,7 @@ const asName = (value: unknown): string | null => {
 /** One enterprise node as a row, or null when its slug or any login cannot
  *  be read. A row with one login dropped would be a short list that does not
  *  say so. */
-const readEnterprise = (
-  node: unknown,
-): GhResults['viewerEnterprises']['enterprises'][number] | null => {
+const readEnterprise = (node: unknown): Enterprise | null => {
   const entry = asRecord(node)
   const slug = asName(entry?.slug)
   const organizations = nodesOf(asRecord(entry?.organizations))
@@ -1898,7 +1901,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     // Never throws (the interface's own contract), and reads the body
     // through `invoke` whatever the exit status, for `issueStates`' reason.
     viewerEnterprises: async () => {
-      const enterprises: GhResults['viewerEnterprises']['enterprises'][number][] = []
+      const enterprises: Enterprise[] = []
       const reasons: string[] = []
       let unreadable = 0
       let cursor: string | null = null
@@ -1916,7 +1919,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           break
         }
         // A cursor that does not advance would ask the same question
-        // forever, so the loop stops before it reads the same rows twice.
+        // forever. So the loop stops before it reads the same rows twice.
         if (answer.endCursor !== null && answer.endCursor === cursor) {
           reasons.push("enterprises' reply repeated the same cursor without advancing")
           break

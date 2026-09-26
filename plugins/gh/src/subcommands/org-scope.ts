@@ -9,11 +9,12 @@
 //
 // It fails closed. A wrong "same enterprise" leaks private details into a
 // place where they stay in the edit history. A wrong "outside" costs only
-// detail in the issue text. So every doubt reads as outside: a user
-// account, an owner in no enterprise the viewer can see, and a list gh
-// could not read whole ("unknown", which the skill treats as outside).
+// detail in the issue text. So every doubt reads as outside. A user
+// account and an owner in no visible enterprise are "outside". A list that
+// gh could not read whole gives "unknown", and the skill treats it as
+// outside.
 import { parseCommandLine } from '../lib/args.ts'
-import type { GhClient } from '../lib/gh.ts'
+import type { Enterprise, GhClient } from '../lib/gh.ts'
 import type { Output } from '../lib/streams.ts'
 
 export const HELP = `Whether each source owner shares an enterprise with a target owner.
@@ -40,16 +41,11 @@ export interface OrgScopeContext {
   readonly gh: GhClient
 }
 
-/** What one source owner is to the target owner. */
-export type Scope = 'same-owner' | 'same-enterprise' | 'outside' | 'unknown'
-
-/** One source owner and its scope. `enterprise` is there only for
- *  `same-enterprise`. */
-export interface ScopeResult {
-  readonly source: string
-  readonly scope: Scope
-  readonly enterprise?: string
-}
+/** One source owner and its scope. Only `same-enterprise` names the
+ *  enterprise, and it always does. */
+export type ScopeResult =
+  | { readonly source: string; readonly scope: 'same-owner' | 'outside' | 'unknown' }
+  | { readonly source: string; readonly scope: 'same-enterprise'; readonly enterprise: string }
 
 const USAGE = 'usage: gh.ts org-scope --target <owner> <source-owner>...'
 
@@ -63,7 +59,7 @@ const SPEC = {
 const key = (login: string): string => login.toLowerCase()
 
 /** The enterprises as `gh` answered them. */
-type Enterprises = Awaited<ReturnType<GhClient['viewerEnterprises']>>['enterprises']
+type Enterprises = readonly Enterprise[]
 
 /** The scope of one source owner that is not the target, read from a whole
  *  enterprise list. */
@@ -80,9 +76,9 @@ const scopeOf = (source: string, target: string, enterprises: Enterprises): Scop
 /**
  * The viewer's enterprises, or the reason the list is not whole.
  *
- * The endpoint's contract is that it never throws. This still catches, so
- * a client that breaks the contract reads as "unknown", never as a crash
- * that loses the answer for a same-owner source.
+ * The endpoint's contract is that it never throws. This still catches. A
+ * client that breaks the contract then gives "unknown", not a crash. A crash
+ * would lose the answer for a same-owner source.
  */
 const readEnterprises = async (
   gh: GhClient,
@@ -97,8 +93,8 @@ const readEnterprises = async (
 }
 
 /**
- * Print the scope of each source owner against `--target`, as one JSON
- * document on stdout, and answer with the exit status.
+ * Print the scope of each source owner against `--target` as one JSON
+ * document on stdout. Answer with the exit status.
  */
 export const runOrgScope = async (
   argv: readonly string[],
