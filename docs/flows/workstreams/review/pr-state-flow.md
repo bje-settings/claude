@@ -23,7 +23,7 @@ flowchart TD
     D -->|Yes| Z1
     D -->|No| E[Read the pull request; if read, the base branch's<br/>required contexts and the head branch's runs]
     E --> F[Read recent runs for a wait hint]
-    F --> G{Pull request and recent runs<br/>both unread?}
+    F --> G{Pull request unread, not<br/>NOT_FOUND, and recent runs<br/>also unread?}
     G -->|Yes| Z2([failed: read nothing, exit 1]):::stop
     G -->|No| I{Pull request read?}
     I -->|Yes| J{Every pull request field, rule<br/>and head run read?}
@@ -58,4 +58,5 @@ block `done`, and plain comments do not.
 
 State `awaiting-pr` means GitHub itself named the number NOT_FOUND. Every other reason leaves no
 state at all. A malformed reply is one such reason. A repository gh could not resolve is
-another. A read gh refused outright is a third.
+another. A read gh refused outright is a third. A NOT_FOUND for a field nested under the pull
+request, rather than the pull request itself, is a fourth: that field is gone, not the number.

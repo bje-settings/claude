@@ -338,9 +338,8 @@ export interface GhResults {
     readonly pullRequest: PullRequestDetail | null
     readonly unavailable: string | null
     /** True only when GraphQL named this pull request itself NOT_FOUND.
-     *  That means the number does not exist. A NOT_FOUND for a field
-     *  nested under it, a malformed reply, and a read gh refused are each
-     *  false instead. */
+     *  That means the number does not exist. `lib/README.md` names every
+     *  other reason this stays false. */
     readonly missing: boolean
   }
   /** Workflow runs, newest first. */
@@ -1507,7 +1506,9 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    * One GraphQL read that is not paginated. It resolves the repository the
    * one way, reads the body through `invoke` whatever gh's exit status (a
    * partial body is still an answer), and returns every reason there is no
-   * answer as a sentence, rather than throw.
+   * answer as a sentence, rather than throw. It also names whether the
+   * caller's own field, `notFoundField`, is the one GraphQL said does not
+   * exist.
    *
    * `data` is the `repository` object, so a caller reads its own field off
    * it, exactly as {@link parseConnection} does for the paginated reads.
@@ -1874,11 +1875,9 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           // node, and only the error tells them apart.
           unavailable: answer.unavailable === null ? said : `${said}: ${answer.unavailable}`,
           // True only when GraphQL itself named this pull request field
-          // NOT_FOUND. A NOT_FOUND for a field nested under it, a malformed
-          // reply, a read gh refused, and a repository it could not
-          // resolve are each false instead. A caller then never reports a
-          // read failure, or an unrelated nested one, as "no such pull
-          // request".
+          // NOT_FOUND. `lib/README.md` names every other reason this stays
+          // false. A caller then never reports a read failure, or an
+          // unrelated nested one, as "no such pull request".
           missing: answer.notFound,
         }
       }
