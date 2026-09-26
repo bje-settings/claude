@@ -168,12 +168,15 @@ it('reads a field that is not the shape it asked for as unreadable', async () =>
             },
             r1: { ...node(0, 0), merged: { nodes: 'none' } },
             r2: 'not a node',
+            r3: { ...node(0, 0), merged: { nodes: [null] } },
           },
         }),
       }),
   })
 
-  const answer = await gh.repositoryStatus(['acme/a', 'acme/b', 'acme/c'], { boundMs: 1_000 })
+  const answer = await gh.repositoryStatus(['acme/a', 'acme/b', 'acme/c', 'acme/d'], {
+    boundMs: 1_000,
+  })
 
   // One malformed pull request makes the whole list unreadable. A list that
   // is one row short could hide the row that proves a squash merge.
@@ -181,6 +184,7 @@ it('reads a field that is not the shape it asked for as unreadable', async () =>
     repositories: {
       'acme/a': { alerts: null, dependencies: null, mergedPullRequests: null },
       'acme/b': { alerts: 0, dependencies: 0, mergedPullRequests: null },
+      'acme/d': { alerts: 0, dependencies: 0, mergedPullRequests: null },
     },
     unavailable: null,
   })
