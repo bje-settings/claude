@@ -58,10 +58,12 @@ example asserts two things: each state now reads in the Python's own words, and 
 to print appears nowhere in the report. This check is what prevents a quiet return of the old
 lines to the table. The sentence this replaced claimed as much, but nothing enforced it.
 
-`failureSummary` is #81's table. It states the new stderr wording. It does not substitute for an
-old one, because there is no shell or Python line it replaces. #218 finding 8 removed
-`exitStatus`: the arms it once described read a non-zero job status that nothing could ever
-produce, and both are gone.
+`exitStatus` is #81's table too. `#218` finding 8 trimmed it: the arm that read a non-zero job
+status is gone, because nothing could ever produce one. The other arm still holds: a job that
+threw once made the single-repository path exit 0, and now makes it exit 1.
+
+`failureSummary` is #81's other table. It states the new stderr wording. It does not substitute
+for an old one, because there is no shell or Python line it replaces.
 
 ## `deleted-cwd.ts`
 

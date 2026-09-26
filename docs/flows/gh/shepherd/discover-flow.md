@@ -22,7 +22,7 @@ flowchart TD
     D --> E{Target is a directory?}
     E -->|No| Z2([not a directory, exit 1]):::stop
     E -->|Yes| F{Target inside a git checkout?}
-    F -->|Yes| G[Found: that checkout root]
+    F -->|Yes| G[Discovery finished]
     F -->|No| I{Target can be listed?}
     I -->|No| Z3([could not read the target, exit 1]):::stop
     I -->|Yes| J[Each entry, in name order]
