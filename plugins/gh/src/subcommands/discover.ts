@@ -65,12 +65,14 @@ export const runDiscover = async (
   context: DiscoverContext,
 ): Promise<number> => {
   const { output } = context
-  const [first, ...rest] = argv
-
-  if (first === '-h' || first === '--help') {
+  // #218 finding 5: this reads help in any position, before the
+  // extra-argument refusal below. `sync.ts` and `sync-repo.ts` already
+  // read help this way.
+  if (argv.includes('-h') || argv.includes('--help')) {
     output.out.write(`${HELP}\n`)
     return 0
   }
+  const [first, ...rest] = argv
   if (rest.length > 0) {
     // This code accepts one target or none. It would silently ignore a
     // second one. A caller that meant two directories would read one

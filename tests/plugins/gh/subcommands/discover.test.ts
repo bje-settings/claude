@@ -267,6 +267,23 @@ it('prints its own usage for --help, and for -h, with a status of 0', async () =
   }
 })
 
+it('reads --help in any position, before the extra-argument refusal', async () => {
+  // #218 finding 5, discover half. A caller who puts a flag after the
+  // target must still get help, not a refusal about a second argument.
+  const sandbox = createSandbox()
+
+  for (const argv of [
+    [sandbox.path, '--help'],
+    ['--help', sandbox.path],
+  ]) {
+    const ran = await runIn(sandbox, argv)
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toBe(`${HELP}\n`)
+    expect(ran.stderr).toBe('')
+  }
+})
+
 it('refuses a second target rather than answering about one of them', async () => {
   const sandbox = createSandbox()
 
