@@ -314,7 +314,7 @@ kinds of detail that it removed. The rule is in
 ## Session start hook
 
 When a session starts, resumes, or clears, the plugin writes a status line. Then it writes one
-line for each kind of problem. When there is nothing to show, it writes nothing:
+line for each kind of problem:
 
 ```
 gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1]

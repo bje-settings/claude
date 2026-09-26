@@ -1,6 +1,7 @@
-// A local task that throws. Only discovery can throw: it calls
-// `realpathSync` after its own directory check. This file makes that call
-// throw for one path, so the hook's `check failed` kind has a test.
+// A local task that throws. The git reads give an answer, not a throw
+// (`lib/process.ts`). Discovery can throw: it calls `realpathSync` after its
+// own directory check. This file makes that call throw for one path, so the
+// hook's `check failed` kind has a test.
 import { mkdirSync } from 'node:fs'
 import { expect, it, vi } from 'vitest'
 import { createGhMock } from '#harness/gh.ts'
