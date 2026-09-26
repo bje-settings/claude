@@ -390,8 +390,15 @@ it('warns when GitHub is still open at the deadline', async () => {
 
   const ran = await statusOf(rig, work, never, { deadlineMs: 3_000 })
 
-  expect(ran.stdout).toBe('gh: ⚠️ GitHub request timed out\n')
-  expect(ran.stderr).toBe('GitHub: did not finish in 3000 ms\n')
+  // Under the load of a whole suite, the local reads can also run past 3 s.
+  // That gives a line of its own kind, before the GitHub line.
+  expect(ran.stdout).toMatch(/^(?:gh: ⚠️ timed out\n)?gh: ⚠️ GitHub request timed out\n$/)
+  const late = `${realpathSync(work)}: did not finish in 3000 ms`
+  const lines = ran.stderr.split('\n').slice(0, -1)
+  expect(lines).toContain('GitHub: did not finish in 3000 ms')
+  expect(lines.filter((line) => !line.startsWith('GitHub: '))).toEqual(
+    lines.length === 2 ? [late] : [],
+  )
 })
 
 it('warns, and counts from the cached refs, when the fetch fails', async () => {
