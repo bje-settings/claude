@@ -390,6 +390,21 @@ export const statusLine = (
   return `gh:${repoCount > 1 ? ` ${repoCount} repos` : ''} ${items.join(' ')}`
 }
 
+/**
+ * A github.com remote URL, in each form git accepts. The first half is the
+ * URL form with a scheme, an optional user, and an optional port. The second
+ * half is the scp form, `[user@]github.com:`. Owner and name each hold only
+ * the characters GitHub allows, so the two parts can go into a query as text.
+ */
+const GITHUB_URL =
+  /^(?:(?:https?|ssh|git):\/\/(?:[^@/]+@)?github\.com(?::[0-9]+)?\/|(?:[^@/:]+@)?github\.com:)([A-Za-z0-9_-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/i
+
+/** `owner/name` for a github.com remote URL, or `null` for any other URL. */
+export const githubRepository = (url: string): string | null => {
+  const match = GITHUB_URL.exec(url)
+  return match === null ? null : `${match[1]}/${match[2]}`
+}
+
 export const USAGE = 'usage: hook-io.ts {session-start|cwd|branch <current> <default>|report}\n'
 
 /**
