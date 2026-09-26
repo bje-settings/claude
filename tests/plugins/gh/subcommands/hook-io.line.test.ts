@@ -76,6 +76,7 @@ it('answers null for a remote that is not on github.com', () => {
     'https://github.example.com/acme/widgets.git',
     'https://notgithub.com/acme/widgets.git',
     'https://github.com.evil.test/acme/widgets.git',
+    'https://mirror.example/https://github.com/acme/widgets.git',
     'https://github.com/acme',
     'https://github.com/acme/widgets/tree/main',
     'git@github.com:acme/widgets.git\n',
