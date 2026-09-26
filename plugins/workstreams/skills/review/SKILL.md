@@ -54,7 +54,7 @@ the pull request.
 
    | State | What to do |
    | --- | --- |
-   | `awaiting-pr` | Nothing answered for this number. Read `unavailable` before you say there is no such pull request: a read gh refused lands here too. Stop either way. |
+   | `awaiting-pr` | GitHub said this pull request number does not exist. Stop. A read gh refused for another reason gives `state: null` instead. Step 2 already tells you to stop on that. |
    | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`, once, then step 2 again. A second `no-run` after a reopen is a stop. |
    | `ci-pending` | Wait, then step 2 again. |
    | `red` | CI was red before any round ran. That belongs to whoever opened the pull request: report it and stop. |

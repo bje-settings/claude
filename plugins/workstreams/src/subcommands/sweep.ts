@@ -52,7 +52,7 @@ which a caller reads before acting on the sets.`
 const SPEC = {
   milestone: { type: 'string', default: '' },
   json: { type: 'boolean' },
-  help: { type: 'boolean' },
+  help: { type: 'boolean', short: 'h' },
 } as const
 
 /** Which of the three sets an issue falls in. Each value is also the key its

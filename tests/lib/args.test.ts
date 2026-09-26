@@ -185,6 +185,43 @@ describe('parseArguments', () => {
       value: { quiet: true },
     })
   })
+
+  it('reads a declared short flag as its long name', () => {
+    // Finding 4 (#218): `sweep`, `pr-state` and `preflight` refuse `-h`
+    // today. `parseArgs` only answers a short flag paired with a long one.
+    expect(parseArguments(['-h'], { help: { type: 'boolean', short: 'h' } })).toEqual({
+      outcome: 'ok',
+      value: { help: true },
+    })
+  })
+
+  it('still refuses a short flag nobody declared', () => {
+    const parsed = parseArguments(['-x'], { help: { type: 'boolean', short: 'h' } })
+    expect(parsed.outcome).toBe('refused')
+    expect(parsed).toMatchObject({ error: expect.stringContaining('-x') })
+  })
+
+  it('leaves a boolean with no short flag reachable only by its long name', () => {
+    const parsed = parseArguments(['-q'], { quiet: { type: 'boolean' } })
+    expect(parsed.outcome).toBe('refused')
+    expect(parsed).toMatchObject({ error: expect.stringContaining('-q') })
+  })
+
+  it('parses a spec where only one boolean of several declares a short flag', () => {
+    // node's `parseArgs` refuses a `short` key set to `undefined`. It
+    // checks the key is present. It does not check that its value is a
+    // string. A spec with one short flag beside plain booleans must
+    // still leave those out cleanly.
+    const spec = {
+      substantial: { type: 'boolean' },
+      json: { type: 'boolean' },
+      help: { type: 'boolean', short: 'h' },
+    } as const
+    expect(parseArguments(['-h'], spec)).toEqual({
+      outcome: 'ok',
+      value: { substantial: false, json: false, help: true },
+    })
+  })
 })
 
 describe('parseCommandLine', () => {

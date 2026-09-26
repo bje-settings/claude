@@ -76,7 +76,7 @@ caller runs a rot check at the end.
 
 | State | What it means |
 | --- | --- |
-| `awaiting-pr` | Nothing answered for that number. |
+| `awaiting-pr` | GitHub said this pull request number does not exist. A failed read gives `state: null` instead. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
 | `ci-pending` | A required context has not reported. Wait. |
 | `red` | A required context failed before any round ran, so it belongs to whoever opened it. |

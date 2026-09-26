@@ -57,6 +57,10 @@ The verdict over the required contexts:
   no-run      no workflow run with event pull_request exists for the head
   unavailable something needed to answer could not be read
 
+State awaiting-pr means GitHub said this pull request number does not exist.
+A read that failed for any other reason leaves state null instead. The
+reason then appears under "unavailable".
+
 Nothing here throws. Every read that fell short is listed under "unavailable",
 and a verdict of "unavailable" means the sets below it are not an answer.
 Exits 2 on a usage error, and 1 only when nothing at all could be read.`
@@ -72,7 +76,7 @@ const SPEC = {
   substantial: { type: 'boolean' },
   'rot-checked': { type: 'boolean' },
   json: { type: 'boolean' },
-  help: { type: 'boolean' },
+  help: { type: 'boolean', short: 'h' },
 } as const
 
 /** How many recent runs the wait hint is measured over. Large enough that one
@@ -247,14 +251,17 @@ export const verdictOf = (
  * loop that counted it would never reach `done`.
  */
 export const deriveState = (facts: {
-  readonly hasPullRequest: boolean
+  /** True only when GitHub itself said this pull request number does not
+   *  exist. A read that failed for any other reason gives `null`, not
+   *  `awaiting-pr`. */
+  readonly missing: boolean
   readonly verdict: Verdict
   readonly unresolvedThreads: number
   readonly round: number
   readonly substantial: boolean
   readonly rotChecked: boolean
 }): LoopState | null => {
-  if (!facts.hasPullRequest) return 'awaiting-pr'
+  if (facts.missing) return 'awaiting-pr'
   if (facts.verdict === 'unavailable') return null
   if (facts.verdict === 'no-run') return 'no-run'
   if (facts.round === 0) {
@@ -589,7 +596,7 @@ export const runPrState = async (
     substantial,
     rotChecked,
     state: deriveState({
-      hasPullRequest: detail !== null,
+      missing: viewed.missing,
       verdict,
       unresolvedThreads: detail === null ? 0 : detail.unresolvedThreadAuthors.length,
       round,

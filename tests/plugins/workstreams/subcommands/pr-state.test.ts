@@ -51,7 +51,7 @@ const run = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
 
 /** Every read, answered, with whichever of them a case is about replaced. */
 const replies = (overrides: GhReplies = {}): GhReplies => ({
-  viewPullRequestDetail: { pullRequest: detail(), unavailable: null },
+  viewPullRequestDetail: { pullRequest: detail(), unavailable: null, missing: false },
   requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
   listWorkflowRuns: { rows: [run()], unavailable: null },
   ...overrides,
@@ -78,6 +78,19 @@ describe('the command line', () => {
 
     expect(answer.outcome).toBe('ok')
     expect(answer.outcome === 'ok' && answer.value).toMatch(/^One pull request's review-loop state/)
+  })
+
+  it('accepts -h as the short form of --help', async () => {
+    const answer = await ran(['-h'], {})
+
+    expect(answer.outcome).toBe('ok')
+    expect(answer.outcome === 'ok' && answer.value).toMatch(/^One pull request's review-loop state/)
+  })
+
+  it('refuses an undeclared short flag', async () => {
+    const answer = await ran(['178', '-x'], {})
+
+    expect(answer.outcome).toBe('refused')
   })
 
   for (const [what, argv, reason] of [
@@ -160,6 +173,7 @@ describe('the facts it reads', () => {
             commentAuthors: ['github-code-quality', 'reviewer-a'],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -222,6 +236,7 @@ describe('the verdict over the required contexts', () => {
             ],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -240,6 +255,7 @@ describe('the verdict over the required contexts', () => {
             checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -266,6 +282,7 @@ describe('the verdict over the required contexts', () => {
             ],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -295,6 +312,7 @@ describe('the verdict over the required contexts', () => {
               ],
             }),
             unavailable: null,
+            missing: false,
           },
         }),
       )
@@ -322,6 +340,7 @@ describe('the verdict over the required contexts', () => {
             ],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -382,6 +401,7 @@ describe('a base branch no ruleset covers', () => {
         viewPullRequestDetail: {
           pullRequest: detail({ base: 'wktr-130-ws-sweep' }),
           unavailable: null,
+          missing: false,
         },
         requiredContexts: { contexts: [], unavailable: null },
       }),
@@ -403,6 +423,7 @@ describe('a base branch no ruleset covers', () => {
         viewPullRequestDetail: {
           pullRequest: detail({ base: 'wktr-130-ws-sweep', checks: [] }),
           unavailable: null,
+          missing: false,
         },
         requiredContexts: { contexts: [], unavailable: null },
         listWorkflowRuns: { rows: [], unavailable: null },
@@ -423,6 +444,7 @@ describe('a base branch no ruleset covers', () => {
         viewPullRequestDetail: {
           pullRequest: detail({ base: 'wktr-130-ws-sweep', checks: [] }),
           unavailable: null,
+          missing: false,
         },
         requiredContexts: { contexts: [], unavailable: null },
         listWorkflowRuns: { rows: [run()], unavailable: null },
@@ -448,6 +470,7 @@ describe('a base branch no ruleset covers', () => {
             checks: [{ name: 'plugin-validate', status: 'COMPLETED', conclusion: 'SUCCESS' }],
           }),
           unavailable: null,
+          missing: false,
         },
         requiredContexts: { contexts: [], unavailable: null },
         listWorkflowRuns: {
@@ -471,6 +494,7 @@ describe('a base branch no ruleset covers', () => {
         viewPullRequestDetail: {
           pullRequest: detail({ base: 'wktr-130-ws-sweep' }),
           unavailable: null,
+          missing: false,
         },
         requiredContexts: { contexts: [], unavailable: null },
         listWorkflowRuns: {
@@ -496,6 +520,7 @@ describe('a base branch no ruleset covers', () => {
             ],
           }),
           unavailable: null,
+          missing: false,
         },
         requiredContexts: { contexts: [], unavailable: null },
       }),
@@ -516,6 +541,7 @@ describe('what it does with a read that fell short', () => {
         viewPullRequestDetail: {
           pullRequest: detail(),
           unavailable: 'pull request 178 has more review threads than the 100 this reads',
+          missing: false,
         },
       }),
     )
@@ -528,13 +554,17 @@ describe('what it does with a read that fell short', () => {
     ])
   })
 
-  it('reports a pull request gh answered nothing about as awaiting-pr, and exits 0', async () => {
-    // gh answered the run sample, so gh works and there is no such pull
-    // request yet. That is a state the loop has a name for.
+  it('reports a pull request GitHub named NOT_FOUND as awaiting-pr, and exits 0', async () => {
+    // `missing` is true only when GraphQL itself said the number does not
+    // exist. That is a state the loop has a name for.
     const report = await reportOf(
       ['178'],
       replies({
-        viewPullRequestDetail: { pullRequest: null, unavailable: 'pull request 178 not found' },
+        viewPullRequestDetail: {
+          pullRequest: null,
+          unavailable: 'pull request 178 could not be read: Could not resolve to a PullRequest',
+          missing: true,
+        },
       }),
     )
 
@@ -546,14 +576,69 @@ describe('what it does with a read that fell short', () => {
     expect(report.contextsFrom).toBe('unread')
     expect(report.title).toBeNull()
     expect(report.unresolvedThreads).toBe(0)
-    expect(report.unavailable).toEqual(['pull request 178 not found'])
+    expect(report.unavailable).toEqual([
+      'pull request 178 could not be read: Could not resolve to a PullRequest',
+    ])
+  })
+
+  it('names no state, never awaiting-pr, for a failed read that was not NOT_FOUND', async () => {
+    // A read gh refused is not a report that the number does not exist.
+    // Neither is a malformed reply or an unresolved repository. Only
+    // `missing` says that. Here it is false.
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: null,
+          unavailable: 'gh: HTTP 500',
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.state).toBeNull()
+    expect(report.verdict).toBe('unavailable')
+    expect(report.unavailable).toEqual(['gh: HTTP 500'])
+  })
+
+  it('leads with "The state below holds" when a state was named despite a short reason', async () => {
+    // A read can fall short without a cost to the answer. The verdict
+    // deliberately leaves out the wait hint's own sample. So the report
+    // still names a state. The text must then say the state holds, not
+    // that the whole report is incomplete.
+    const gh = createGhMock(replies())
+    const answer = await runPrState(['178'], {
+      gh: {
+        ...gh,
+        listWorkflowRuns: async (query = {}) => {
+          if (query.branch !== undefined) return { rows: [run()], unavailable: null }
+          return { rows: [], unavailable: 'gh: API rate limit exceeded' }
+        },
+      },
+    })
+
+    expect(answer.outcome === 'ok' && answer.value).toContain('The state below holds')
+    expect(answer.outcome === 'ok' && answer.value).toContain('gh: API rate limit exceeded')
+    expect(answer.outcome === 'ok' && answer.value).not.toMatch(/^INCOMPLETE:/)
+  })
+
+  it('leads with INCOMPLETE, never "The state below holds", for a failed read with a good sample', async () => {
+    const answer = await ran(
+      ['178'],
+      replies({
+        viewPullRequestDetail: { pullRequest: null, unavailable: 'gh: HTTP 500', missing: false },
+      }),
+    )
+
+    expect(answer.outcome === 'ok' && answer.value).toMatch(/^INCOMPLETE:/)
+    expect(answer.outcome === 'ok' && answer.value).not.toContain('The state below holds')
   })
 
   it('asks nothing about rules or runs for a pull request it could not read', async () => {
     // There is no base and no head to ask about. To ask about a guess
     // would be worse than to ask nothing. An unregistered endpoint throws.
     const answer = await ran(['--json', '178'], {
-      viewPullRequestDetail: { pullRequest: null, unavailable: 'not found' },
+      viewPullRequestDetail: { pullRequest: null, unavailable: 'not found', missing: false },
       listWorkflowRuns: { rows: [run()], unavailable: null },
     })
 
@@ -597,7 +682,11 @@ describe('what it does with a read that fell short', () => {
 
   it('fails, writing nothing to stdout, when nothing at all could be read', async () => {
     const answer = await ran(['178'], {
-      viewPullRequestDetail: { pullRequest: null, unavailable: 'gh: could not resolve' },
+      viewPullRequestDetail: {
+        pullRequest: null,
+        unavailable: 'gh: could not resolve',
+        missing: false,
+      },
       listWorkflowRuns: { rows: [], unavailable: 'gh: could not resolve' },
     })
 
@@ -620,7 +709,7 @@ describe('what it does with a read that fell short', () => {
 describe('the state the facts add up to', () => {
   const facts = (overrides: Parameters<typeof deriveState>[0]) => deriveState(overrides)
   const green = {
-    hasPullRequest: true,
+    missing: false,
     verdict: 'green',
     unresolvedThreads: 0,
     round: 0,
@@ -629,7 +718,7 @@ describe('the state the facts add up to', () => {
   } as const
 
   for (const [expected, overrides] of [
-    ['awaiting-pr', { hasPullRequest: false }],
+    ['awaiting-pr', { missing: true }],
     ['review-1', {}],
     ['fixing', { round: 1, verdict: 'pending' }],
     ['fixing', { round: 1, verdict: 'red' }],
@@ -816,6 +905,7 @@ describe('the report a person reads', () => {
             ],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -833,6 +923,7 @@ describe('the report a person reads', () => {
             checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )
@@ -844,7 +935,11 @@ describe('the report a person reads', () => {
     const answer = await ran(
       ['178'],
       replies({
-        viewPullRequestDetail: { pullRequest: detail({ base: 'topic' }), unavailable: null },
+        viewPullRequestDetail: {
+          pullRequest: detail({ base: 'topic' }),
+          unavailable: null,
+          missing: false,
+        },
         requiredContexts: { contexts: [], unavailable: null },
       }),
     )
@@ -875,7 +970,7 @@ describe('the report a person reads', () => {
     const answer = await ran(
       ['178'],
       replies({
-        viewPullRequestDetail: { pullRequest: null, unavailable: 'not found' },
+        viewPullRequestDetail: { pullRequest: null, unavailable: 'not found', missing: false },
       }),
     )
 
@@ -946,6 +1041,7 @@ describe('the report a person reads', () => {
             commentAuthors: [],
           }),
           unavailable: null,
+          missing: false,
         },
       }),
     )

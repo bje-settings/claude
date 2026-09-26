@@ -14,9 +14,9 @@ tracker. The `/workstreams:sweep` skill runs it.
 
 ```mermaid
 flowchart TD
-    A[sweep run] --> B{Flags known, and no positional?<br/>only --milestone, --json, --help}
+    A[sweep run] --> B{Flags known, and no positional?<br/>only --milestone, --json, --help and -h}
     B -->|No| Z1([Refused, exit 2]):::stop
-    B -->|--help| H([Print usage, exit 0])
+    B -->|--help or -h| H([Print usage, exit 0])
     B -->|Yes| C{--milestone given twice?}
     C -->|Yes| Z1
     C -->|No| D{Each milestone a<br/>positive whole number?}

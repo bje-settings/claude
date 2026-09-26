@@ -23,7 +23,7 @@ flowchart TD
     D -->|No, no state at all| D1([Stop: say which fact nobody could see]):::stop
     D -->|Yes| E{which state?}
 
-    E -->|awaiting-pr| E1([Stop: nothing answered for this number]):::stop
+    E -->|awaiting-pr| E1([Stop: GitHub said this number does not exist]):::stop
     E -->|no-run| F{already reopened once?}
     F -->|No| F1[Close and reopen the pull request] --> C
     F -->|Yes| F2([Stop: a head with no run twice is not a wait]):::stop

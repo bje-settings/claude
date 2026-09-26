@@ -102,6 +102,7 @@ it('answers every endpoint it declares', async () => {
         commentAuthors: ['github-code-quality'],
       },
       unavailable: null,
+      missing: false,
     },
     listWorkflowRuns: {
       rows: [

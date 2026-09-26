@@ -16,7 +16,7 @@ generated:
 flowchart TD
     A[pr-state run] --> B{Flags known, --round 0, 1 or 2?}
     B -->|No| Z1([Refused, exit 2]):::stop
-    B -->|--help| H([Print usage, exit 0])
+    B -->|--help or -h| H([Print usage, exit 0])
     B -->|Yes| C{Exactly one positive<br/>pull request number?}
     C -->|No| Z1
     C -->|Yes| D{--substantial or --rot-checked<br/>with round 0?}
@@ -26,8 +26,10 @@ flowchart TD
     F --> G{Pull request and recent runs<br/>both unread?}
     G -->|Yes| Z2([failed: read nothing, exit 1]):::stop
     G -->|No| I{Pull request read?}
-    I -->|No| S0([state awaiting-pr,<br/>verdict unavailable, exit 0])
     I -->|Yes| J{Every pull request field, rule<br/>and head run read?}
+    I -->|No| N{GitHub named this<br/>number NOT_FOUND?}
+    N -->|Yes| S0([state awaiting-pr,<br/>verdict unavailable, exit 0])
+    N -->|No| S0b([no state,<br/>verdict unavailable, exit 0]):::stop
     J -->|No| S1([verdict unavailable, no state,<br/>reasons listed, exit 0]):::stop
     J -->|Yes| K{A pull_request run<br/>for the head commit?}
     K -->|No| S2([state no-run, exit 0])
@@ -53,3 +55,7 @@ SUCCESS, SKIPPED and NEUTRAL each satisfy a context, and any other conclusion fa
 contexts list from the head is settled only when every run for the head has completed. A failed
 wait-hint read adds a reason to the list but does not change the verdict. Unresolved threads
 block `done`, and plain comments do not.
+
+State `awaiting-pr` means GitHub itself named the number NOT_FOUND. Every other reason leaves no
+state at all. A malformed reply is one such reason. A repository gh could not resolve is
+another. A read gh refused outright is a third.

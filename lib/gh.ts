@@ -337,6 +337,11 @@ export interface GhResults {
   viewPullRequestDetail: {
     readonly pullRequest: PullRequestDetail | null
     readonly unavailable: string | null
+    /** True only when GraphQL named this pull request number NOT_FOUND.
+     *  That means the number does not exist. Every other reason leaves
+     *  this false. A malformed reply and a read gh refused are both such
+     *  reasons. */
+    readonly missing: boolean
   }
   /** Workflow runs, newest first. */
   listWorkflowRuns: PagedResult<WorkflowRun>
@@ -1513,9 +1518,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const queryOnce = async (
     query: string,
     variables: readonly string[],
-  ): Promise<{ data: Record<string, unknown> | null; unavailable: string | null }> => {
+  ): Promise<{
+    data: Record<string, unknown> | null
+    unavailable: string | null
+    /** True when `errors` names a `NOT_FOUND` entry. GraphQL uses this to
+     *  report that the thing asked for does not exist. No other reason a
+     *  read comes back short sets this flag. */
+    notFound: boolean
+  }> => {
     const parts = await repositoryParts()
-    if (parts.unavailable !== null) return { data: null, unavailable: parts.unavailable }
+    if (parts.unavailable !== null)
+      return { data: null, unavailable: parts.unavailable, notFound: false }
     const result = await invoke([
       'api',
       'graphql',
@@ -1531,16 +1544,19 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     try {
       reply = asRecord(JSON.parse(result.stdout))
     } catch {
-      return { data: null, unavailable: accountOf(result) }
+      return { data: null, unavailable: accountOf(result), notFound: false }
     }
     const repository = asRecord(asRecord(reply?.data)?.repository)
-    if (repository === undefined) return { data: null, unavailable: accountOf(result) }
+    if (repository === undefined) {
+      return { data: null, unavailable: accountOf(result), notFound: false }
+    }
     const errorsField = reply?.errors
     const entries = Array.isArray(errorsField) ? errorsField : []
     const messages = entries
       .map((entry) => asRecord(entry)?.message)
       .filter((message): message is string => typeof message === 'string')
-    return { data: repository, unavailable: joinedReasons(messages) }
+    const notFound = entries.some((entry) => asRecord(entry)?.type === 'NOT_FOUND')
+    return { data: repository, unavailable: joinedReasons(messages), notFound }
   }
 
   /**
@@ -1828,7 +1844,9 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         '-F',
         `number=${pull.pullRequest}`,
       ])
-      if (answer.data === null) return { pullRequest: null, unavailable: answer.unavailable }
+      if (answer.data === null) {
+        return { pullRequest: null, unavailable: answer.unavailable, missing: false }
+      }
       const read = readPullRequestDetail(answer.data.pullRequest)
       if (read === null) {
         const said = `pull request ${pull.pullRequest} could not be read`
@@ -1838,10 +1856,16 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           // and "this token may not see it" arrive as the same missing
           // node, and only the error tells them apart.
           unavailable: answer.unavailable === null ? said : `${said}: ${answer.unavailable}`,
+          // True only when GraphQL itself named this number NOT_FOUND. A
+          // malformed reply, a read gh refused, and a repository it could
+          // not resolve are each false instead. A caller then never
+          // reports a read failure as "no such pull request".
+          missing: answer.notFound,
         }
       }
       return {
         pullRequest: read.detail,
+        missing: false,
         unavailable: joinedReasons(
           answer.unavailable === null ? read.reasons : [...read.reasons, answer.unavailable],
         ),
