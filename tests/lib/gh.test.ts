@@ -1998,6 +1998,31 @@ describe('the review loop reads', () => {
       expect(result.missing).toBe(false)
     })
 
+    it.each([
+      ['no path at all', { type: 'NOT_FOUND', message: 'gone' }],
+      [
+        'a path that is not an array',
+        { type: 'NOT_FOUND', path: 'repository.pullRequest', message: 'gone' },
+      ],
+      ['an empty path', { type: 'NOT_FOUND', path: [], message: 'gone' }],
+      [
+        'a path whose last entry is not a string',
+        { type: 'NOT_FOUND', path: ['repository', 0], message: 'gone' },
+      ],
+    ])(
+      // `notFoundAlias` (above) proves the same four shapes leave an alias
+      // unnamed. This proves `queryOnce`'s own check, a separate piece of
+      // code for a single, plain field name, reads each shape the same way.
+      'leaves missing false for a NOT_FOUND error with %s',
+      async (_case, error) => {
+        const { gh } = clientAnsweringEach([REPO, prReply(null, [error])])
+
+        const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+        expect(result.missing).toBe(false)
+      },
+    )
+
     it('marks missing true for a NOT_FOUND on the pull request, read past an unrelated error', async () => {
       // Two errors, and the NOT_FOUND for the pull request itself is
       // second. A check that read only the first entry would miss it.
@@ -2078,6 +2103,7 @@ describe('the review loop reads', () => {
 
       expect(result.pullRequest).toBeNull()
       expect(result.unavailable).toBe('gh exited 1')
+      expect(result.missing).toBe(false)
     })
 
     it('reports a repository it could not resolve, and asks nothing else', async () => {
