@@ -305,9 +305,10 @@ Before a write, the skill asks you to confirm. In a subagent it cannot ask. Ther
 only when the request sets every value. Otherwise it returns the proposal to its caller.
 
 An issue can go to a repository of a different owner than the work that gave it context.
-Then the issue names none of that source's repositories, numbers, paths or URLs, even when
-the two owners are in one enterprise. The skill compares owners only, with no API call. The
-proposal gets an `Omitted:` line with the kinds of detail that it removed. The rule is in
+Then the issue names none of that source's repositories, numbers, paths or URLs. A comment on
+a duplicate follows the same rule. The skill compares owner names only, with no API call. Two
+orgs in one enterprise are different owners. The proposal gets an `Omitted:` line with the
+kinds of detail that it removed. The rule is in
 [`skills/issues/cross-org.md`](skills/issues/cross-org.md).
 
 ## Session start hook

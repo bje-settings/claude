@@ -24,7 +24,7 @@ Do the operation that the request asks for. Read all of the files in its row, an
 | Set priority, type, labels, milestone or relationships on issues that exist | [triage.md](triage.md), [format.md](format.md), [labels.md](labels.md), [relationships.md](relationships.md), [milestone.md](milestone.md), [priority.md](priority.md) |
 
 Also read [cross-org.md](cross-org.md) for create, batch and triage if a source repository
-has a different owner than the target.
+has a different owner than the target. Read it before the duplicate check.
 
 ## Rules for every operation
 
