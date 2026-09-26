@@ -32,11 +32,13 @@ const reposOf = (query: string): string[] =>
   )
 
 /** One repository node, as GitHub answers it. */
-const node = (alerts: number, dependencies: number, merged: unknown[] = []) => ({
+const node = (alerts: number, merged: unknown[] = []) => ({
   vulnerabilityAlerts: { totalCount: alerts },
-  dependencies: { totalCount: dependencies },
   merged: { nodes: merged },
 })
+
+/** One Dependabot search, as GitHub answers it. */
+const found = (count: number) => ({ issueCount: count })
 
 /** A runner that answers every query with a node per repository it names,
  *  numbered by the repository's place in `all`. */
@@ -45,7 +47,8 @@ const serverFor =
   async (_command, args) => {
     const data: Record<string, unknown> = {}
     reposOf(queryOf(args)).forEach((repo, index) => {
-      data[`r${index}`] = node(all.indexOf(repo), 0)
+      data[`r${index}`] = node(all.indexOf(repo))
+      data[`d${index}`] = found(0)
     })
     return result({ stdout: JSON.stringify({ data }) })
   }
@@ -55,7 +58,7 @@ it('asks gh one aliased query, bounded by the time it was given', async () => {
   const gh = createGhClient({
     run: async (_command, args = [], options) => {
       calls.push({ args, timeoutMs: options?.timeoutMs })
-      return result({ stdout: JSON.stringify({ data: { r0: node(0, 0) } }) })
+      return result({ stdout: JSON.stringify({ data: { r0: node(0), d0: found(0) } }) })
     },
   })
 
@@ -70,11 +73,11 @@ it('asks gh one aliased query, bounded by the time it was given', async () => {
         `query=query {
   r0: repository(owner: "acme", name: "widgets") {
     vulnerabilityAlerts(states: OPEN) { totalCount }
-    dependencies: pullRequests(states: OPEN, labels: ["dependencies"]) { totalCount }
     merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { headRefName headRefOid isCrossRepository }
     }
   }
+  d0: search(query: "repo:acme/widgets is:pr is:open author:app/dependabot", type: ISSUE, first: 0) { issueCount }
 }`,
       ],
       timeoutMs: 4_000,
@@ -86,7 +89,11 @@ it('answers each repository with its two counts and its merged pull requests', a
   const head = { headRefName: 'feature', headRefOid: 'abc123', isCrossRepository: false }
   const gh = createGhClient({
     run: async () =>
-      result({ stdout: JSON.stringify({ data: { r0: node(2, 3, [head]), r1: node(0, 1) } }) }),
+      result({
+        stdout: JSON.stringify({
+          data: { r0: node(2, [head]), d0: found(3), r1: node(0), d1: found(1) },
+        }),
+      }),
   })
 
   const answer = await gh.repositoryStatus(['acme/widgets', 'acme/gadgets'], { boundMs: 1_000 })
@@ -109,7 +116,7 @@ it('drops only the field a partial answer could not give, and says why', async (
         status: 1,
         stderr: 'gh: Resource not accessible by integration\n',
         stdout: JSON.stringify({
-          data: { r0: { ...node(0, 4), vulnerabilityAlerts: null } },
+          data: { r0: { ...node(0), vulnerabilityAlerts: null }, d0: found(4) },
           errors: [
             {
               type: 'FORBIDDEN',
@@ -135,7 +142,7 @@ it('leaves out a repository GitHub could not resolve, and keeps the others', asy
       result({
         status: 1,
         stdout: JSON.stringify({
-          data: { r0: null, r1: node(1, 0) },
+          data: { r0: null, d0: found(0), r1: node(1), d1: found(0) },
           errors: [
             {
               type: 'NOT_FOUND',
@@ -163,13 +170,17 @@ it('reads a field that is not the shape it asked for as unreadable', async () =>
           data: {
             r0: {
               vulnerabilityAlerts: { totalCount: '2' },
-              dependencies: {},
               merged: { nodes: [{ headRefName: 'feature', headRefOid: 7 }] },
             },
-            r1: { ...node(0, 0), merged: { nodes: 'none' } },
+            d0: { totalCount: 2 },
+            r1: { ...node(0), merged: { nodes: 'none' } },
+            d1: found(0),
             r2: 'not a node',
-            r3: { ...node(0, 0), merged: { nodes: [null] } },
-            r4: { ...node(0, 0), merged: { nodes: [{ headRefName: 'x', headRefOid: 'y' }] } },
+            d2: found(0),
+            r3: { ...node(0), merged: { nodes: [null] } },
+            d3: found(0),
+            r4: { ...node(0), merged: { nodes: [{ headRefName: 'x', headRefOid: 'y' }] } },
+            d4: found(0),
           },
         }),
       }),
@@ -204,7 +215,7 @@ it('reports a call that gave no body it could read, and answers for no repositor
     [{ status: null, signal: 'SIGKILL', timedOut: true }, 'gh did not answer in 250 ms'],
     [
       {
-        stdout: JSON.stringify({ data: { r0: node(1, 1) } }),
+        stdout: JSON.stringify({ data: { r0: node(1), d0: found(1) } }),
         streamErrors: [{ code: 'EIO', message: 'read EIO' }],
       },
       "gh's output could not be read: EIO, read EIO",
@@ -273,7 +284,9 @@ it('keeps the answers of the other batches when one batch fails, and every reaso
 it('reads an errors field that is not a list as no reason, and keeps the answer', async () => {
   const gh = createGhClient({
     run: async () =>
-      result({ stdout: JSON.stringify({ data: { r0: node(1, 2) }, errors: 'not a list' }) }),
+      result({
+        stdout: JSON.stringify({ data: { r0: node(1), d0: found(2) }, errors: 'not a list' }),
+      }),
   })
 
   const answer = await gh.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })

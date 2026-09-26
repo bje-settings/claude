@@ -327,10 +327,12 @@ const { repositories, unavailable } = await gh.repositoryStatus(['acme/widgets']
 ```
 
 This is the GitHub half of the gh plugin's SessionStart status line (#230). It reads three
-fields for each `owner/name`: the open Dependabot alerts, and the open pull requests with the
-`dependencies` label. The third field is the heads of the last 100 merged pull requests. Like `issueStates`, it
-sends one aliased `gh api graphql` query. `issueStates` has one alias per number. This endpoint has
-one alias per repository (`r0`, `r1`, and so on).
+fields for each `owner/name`: the open Dependabot alerts, and the open pull requests that
+Dependabot opened. The third field is the heads of the last 100 merged pull requests. Like
+`issueStates`, it sends one aliased `gh api graphql` query. `issueStates` has one alias per
+number. This endpoint has two aliases per repository: the repository node (`r0`, `r1`, and so
+on) and a search for `author:app/dependabot` (`d0`, `d1`, and so on). `Repository.pullRequests`
+cannot filter by author, and a label can be on a pull request that someone else opened.
 
 One query names five repositories at most (`STATUS_BATCH`). Each repository asks for 100 pull
 request rows, so a small batch stays far below GitHub's node limit. The batches go at the same

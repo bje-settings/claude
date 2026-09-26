@@ -304,7 +304,7 @@ export interface MergedHead {
 export interface RepositoryStatus {
   /** Open Dependabot alerts. */
   readonly alerts: number | null
-  /** Open pull requests with the `dependencies` label. */
+  /** Open pull requests that Dependabot opened. */
   readonly dependencies: number | null
   /** The last 100 merged pull requests, most recently updated first. */
   readonly mergedPullRequests: readonly MergedHead[] | null
@@ -535,7 +535,7 @@ export interface GhClient {
     readonly perPage?: number
   }): Promise<GhResults['listWorkflowRuns']>
   /**
-   * Open Dependabot alerts, open `dependencies` pull requests, and the last
+   * Open Dependabot alerts, open Dependabot pull requests, and the last
    * 100 merged pull requests, for each `owner/name` in `repos`.
    *
    * One aliased `gh api graphql` query asks about five repositories at
@@ -745,27 +745,35 @@ const STATUS_BATCH = 5
 /** The fields `repositoryStatus` asks about each repository. */
 const STATUS_FIELDS = `
     vulnerabilityAlerts(states: OPEN) { totalCount }
-    dependencies: pullRequests(states: OPEN, labels: ["dependencies"]) { totalCount }
     merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { headRefName headRefOid isCrossRepository }
     }`
 
 /** One aliased query for a batch of `owner/name` values. The aliases start
- *  at `r0` in each batch. `JSON.stringify` writes each name as a GraphQL
- *  string, with its quotes escaped. */
+ *  at `r0` and `d0` in each batch. `JSON.stringify` writes each name as a
+ *  GraphQL string, with its quotes escaped.
+ *
+ *  `Repository.pullRequests` cannot filter by author, and a label can be on
+ *  a pull request that someone else opened. So the Dependabot count is a
+ *  search (`dN`) beside each repository node (`rN`). */
 const buildStatusQuery = (repos: readonly string[]): string => {
   const fields = repos.map((repo, index) => {
     const slash = repo.indexOf('/')
     const owner = JSON.stringify(repo.slice(0, slash))
     const name = JSON.stringify(repo.slice(slash + 1))
-    return `  r${index}: repository(owner: ${owner}, name: ${name}) {${STATUS_FIELDS}\n  }`
+    const search = JSON.stringify(`repo:${repo} is:pr is:open author:app/dependabot`)
+    return [
+      `  r${index}: repository(owner: ${owner}, name: ${name}) {${STATUS_FIELDS}\n  }`,
+      `  d${index}: search(query: ${search}, type: ISSUE, first: 0) { issueCount }`,
+    ].join('\n')
   })
   return `query {\n${fields.join('\n')}\n}`
 }
 
-/** A `{ totalCount }` field's number, or `null` for any other shape. */
-const totalCount = (value: unknown): number | null => {
-  const count = asRecord(value)?.totalCount
+/** The number in a `{ totalCount }` or `{ issueCount }` field, or `null`
+ *  for any other shape. */
+const countOf = (value: unknown, key: 'totalCount' | 'issueCount'): number | null => {
+  const count = asRecord(value)?.[key]
   return typeof count === 'number' ? count : null
 }
 
@@ -818,8 +826,8 @@ const readStatusBatch = (
     const answer = asRecord(data[`r${index}`])
     if (answer === undefined) return
     repositories[repo] = {
-      alerts: totalCount(answer.vulnerabilityAlerts),
-      dependencies: totalCount(answer.dependencies),
+      alerts: countOf(answer.vulnerabilityAlerts, 'totalCount'),
+      dependencies: countOf(data[`d${index}`], 'issueCount'),
       mergedPullRequests: mergedHeads(answer.merged),
     }
   })
