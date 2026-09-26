@@ -38,7 +38,7 @@ flowchart TD
     K --> L
     L --> M{Auto-merge enabled?}
     M -->|Yes| N[targets: merge-risk low, then no label,<br/>then medium, then high, then a band<br/>it does not know; oldest first in a band]
-    M -->|No| O([Left out of the report;<br/>reported, never enabled])
+    M -->|No| O([Left out; never enabled])
     N --> P([Print one JSON document, exit 0])
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
 

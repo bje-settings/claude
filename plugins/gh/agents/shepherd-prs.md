@@ -60,8 +60,8 @@ number, in the order given:
 
 1. `state`. If `pr.state` is `MERGED`, record it and continue. If `CLOSED`, record as closed
    and continue. If `pr.autoMerge` is false, record it as skipped ("auto-merge turned off after
-   selection") and continue: auto-merge may have changed since the caller selected this pull
-   request, and this script never turns it on.
+   selection") and continue. Auto-merge may have changed since the caller selected this pull
+   request. This script never turns it on.
 2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
    - `BEHIND` → `rebase`, then `wait`.
      If `rebase` returns `ok:false`, re-read `state` and decide again. This usually means GitHub
@@ -193,8 +193,8 @@ from step 1, or the `recreate` detail when the pull request closed while `recrea
 Every pull request that did not merge or close is one `skipped` entry, with a `reason`. It also
 carries `mergeStateStatus`, `reviewDecision`, `autoMerge`, and `waited`, whichever of them came
 from a read that named them; omit a field you did not read. This covers what used to be three
-separate lists: a conflict on a human branch, a check that GitHub itself blocked, and a failure
-that needed a judgment call all become one `skipped` entry now. Nothing here posts a comment.
+separate lists. A conflict on a human branch, a check that GitHub itself blocked, and a failure
+that needed a judgment call now all become one `skipped` entry. Nothing here posts a comment.
 
 `hypothesis` is optional, and only for a skipped entry whose fix you could not verify. It states
 what you think the fix is, and why (a plausible mechanical fix behind CI-only secrets, for

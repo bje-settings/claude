@@ -48,7 +48,8 @@ Prints one JSON document and changes nothing:
                    default branch; 300 when there are none
   targets          open, non-draft pull requests that a human has already
                    marked for auto-merge, in the order the loop should take
-                   them; the label narrows this list to one label
+                   them. A label narrows this list to pull requests that
+                   carry it
 
 Ordering: gh-security's merge-risk:<band> label first (low, then unlabelled,
 then medium, then high), oldest first within a band. Each target carries the

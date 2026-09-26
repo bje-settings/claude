@@ -360,8 +360,10 @@ export const USAGE_TEXT = new Map([
  *  names the example that pins the contract another way. */
 export const NOT_REPLAYED = new Set(Object.keys(DIVERGENCES.notReplayed['shepherd-pr'] ?? {}))
 
-/** What a case's positional argument held, for the one case that still names
- *  a path this way. Only its existence and its size decide anything. */
+/** What a case's positional argument held, for a case that names a path this
+ *  way. #216 deleted the one case that used it (`skip`'s reason file), so
+ *  this is empty for now. It stays as the general mechanism `replay` reads,
+ *  for the next case that needs it. */
 export const REASONS: Record<string, string> = {}
 
 export const PATHS: Record<string, (sandbox: Sandbox, repo: string, name: string) => string> = {
