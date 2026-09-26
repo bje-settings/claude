@@ -35,12 +35,14 @@ export type {
   IssueRef,
   IssueState,
   IssueSummary,
+  MergedHead,
   MergedPullRequestQuery,
   MilestoneSummary,
   PagedResult,
   PullRequestDetail,
   PullRequestQuery,
   PullRequestSummary,
+  RepositoryStatus,
   RunQuery,
   WatchResult,
   WorkflowRun,
@@ -127,5 +129,6 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     requiredContexts: async () => answer(replies, 'requiredContexts'),
     viewPullRequestDetail: async () => answer(replies, 'viewPullRequestDetail'),
     listWorkflowRuns: async () => answer(replies, 'listWorkflowRuns'),
+    repositoryStatus: async () => answer(replies, 'repositoryStatus'),
   }
 }

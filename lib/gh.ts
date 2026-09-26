@@ -289,6 +289,27 @@ export interface PagedResult<T> {
   readonly unavailable: string | null
 }
 
+/** The head of one merged pull request, as the status line reads it. */
+export interface MergedHead {
+  readonly headRefName: string
+  readonly headRefOid: string
+  readonly isCrossRepository: boolean
+}
+
+/**
+ * One repository's GitHub side, for the gh plugin's status line. Each field
+ * is `null` when the reply did not give it in the shape the query asked
+ * for. So one field that could not be read costs only that field.
+ */
+export interface RepositoryStatus {
+  /** Open Dependabot alerts. */
+  readonly alerts: number | null
+  /** Open pull requests with the `dependencies` label. */
+  readonly dependencies: number | null
+  /** The last 100 merged pull requests, most recently updated first. */
+  readonly mergedPullRequests: readonly MergedHead[] | null
+}
+
 /** What each endpoint answers with. One entry per operation, so the reply map
  *  and the client cannot drift apart. */
 export interface GhResults {
@@ -344,6 +365,12 @@ export interface GhResults {
   }
   /** Workflow runs, newest first. */
   listWorkflowRuns: PagedResult<WorkflowRun>
+  /** Each repository GitHub answered for, by `owner/name`. A repository with
+   *  no answer at all is left out, and the reason goes into `unavailable`. */
+  repositoryStatus: {
+    readonly repositories: Readonly<Record<string, RepositoryStatus>>
+    readonly unavailable: string | null
+  }
 }
 
 export type GhEndpoint = keyof GhResults
@@ -507,6 +534,21 @@ export interface GhClient {
     readonly branch?: string
     readonly perPage?: number
   }): Promise<GhResults['listWorkflowRuns']>
+  /**
+   * Open Dependabot alerts, open `dependencies` pull requests, and the last
+   * 100 merged pull requests, for each `owner/name` in `repos`.
+   *
+   * One aliased `gh api graphql` query asks about five repositories at
+   * most. The queries go at the same time, and each one stops at `boundMs`.
+   *
+   * Never throws. A query that failed costs only its own repositories, and
+   * a field that failed costs only that field. The reason goes into
+   * `unavailable`.
+   */
+  repositoryStatus(
+    repos: readonly string[],
+    options: { readonly boundMs: number },
+  ): Promise<GhResults['repositoryStatus']>
 }
 
 /**
@@ -693,6 +735,100 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined =>
 /** Several reasons as one sentence, or null when there are none. */
 const joinedReasons = (reasons: readonly string[]): string | null =>
   reasons.length === 0 ? null : reasons.join('; ')
+
+/** How many repositories `repositoryStatus` puts in one query. Each
+ *  repository asks for 100 pull requests, so a small batch keeps each query
+ *  far below GitHub's node limit. The batches go at the same time, so a
+ *  small batch also costs no time. */
+const STATUS_BATCH = 5
+
+/** The fields `repositoryStatus` asks about each repository. */
+const STATUS_FIELDS = `
+    vulnerabilityAlerts(states: OPEN) { totalCount }
+    dependencies: pullRequests(states: OPEN, labels: ["dependencies"]) { totalCount }
+    merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes { headRefName headRefOid isCrossRepository }
+    }`
+
+/** One aliased query for a batch of `owner/name` values. The aliases start
+ *  at `r0` in each batch. `JSON.stringify` writes each name as a GraphQL
+ *  string, with its quotes escaped. */
+const buildStatusQuery = (repos: readonly string[]): string => {
+  const fields = repos.map((repo, index) => {
+    const slash = repo.indexOf('/')
+    const owner = JSON.stringify(repo.slice(0, slash))
+    const name = JSON.stringify(repo.slice(slash + 1))
+    return `  r${index}: repository(owner: ${owner}, name: ${name}) {${STATUS_FIELDS}\n  }`
+  })
+  return `query {\n${fields.join('\n')}\n}`
+}
+
+/** A `{ totalCount }` field's number, or `null` for any other shape. */
+const totalCount = (value: unknown): number | null => {
+  const count = asRecord(value)?.totalCount
+  return typeof count === 'number' ? count : null
+}
+
+/** One merged pull request, or `null` when it is not the shape asked for. */
+const mergedHead = (value: unknown): MergedHead | null => {
+  const row = asRecord(value)
+  const { headRefName, headRefOid, isCrossRepository } = row ?? {}
+  return typeof headRefName === 'string' &&
+    typeof headRefOid === 'string' &&
+    typeof isCrossRepository === 'boolean'
+    ? { headRefName, headRefOid, isCrossRepository }
+    : null
+}
+
+/** A `{ nodes }` field's merged pull requests, or `null` when the list, or
+ *  any one row in it, is not the shape asked for. A list that is one row
+ *  short could hide the row that proves a squash merge. */
+const mergedHeads = (value: unknown): MergedHead[] | null => {
+  const nodes = asRecord(value)?.nodes
+  if (!Array.isArray(nodes)) return null
+  const heads = nodes.map(mergedHead)
+  return heads.every((head) => head !== null) ? heads : null
+}
+
+/**
+ * One batch's reply, by `owner/name`, or the reason there is none.
+ *
+ * gh exits 1 when any alias fails, and still prints the whole body. So this
+ * reads the body whatever the status, the way `issueStates` does. A pipe
+ * that failed makes the body untrusted, so the whole batch fails.
+ */
+const readStatusBatch = (
+  result: RunResult,
+  repos: readonly string[],
+  boundMs: number,
+): { repositories: Record<string, RepositoryStatus>; reason: string | null } => {
+  if (result.timedOut) return { repositories: {}, reason: `gh did not answer in ${boundMs} ms` }
+  let reply: Record<string, unknown> | undefined
+  try {
+    reply = asRecord(JSON.parse(result.stdout))
+  } catch {
+    reply = undefined
+  }
+  const data = asRecord(reply?.data)
+  if (data === undefined || result.streamErrors.length !== 0) {
+    return { repositories: {}, reason: accountOf(result) }
+  }
+  const repositories: Record<string, RepositoryStatus> = {}
+  repos.forEach((repo, index) => {
+    const answer = asRecord(data[`r${index}`])
+    if (answer === undefined) return
+    repositories[repo] = {
+      alerts: totalCount(answer.vulnerabilityAlerts),
+      dependencies: totalCount(answer.dependencies),
+      mergedPullRequests: mergedHeads(answer.merged),
+    }
+  })
+  const errors = Array.isArray(reply?.errors) ? reply.errors : []
+  const messages = errors
+    .map((entry) => asRecord(entry)?.message)
+    .filter((message): message is string => typeof message === 'string')
+  return { repositories, reason: joinedReasons(messages) }
+}
 
 /**
  * The GraphQL query for a batch of issue and pull-request numbers, in one
@@ -1915,6 +2051,28 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         unavailable:
           unreadable === 0 ? null : `${unreadable} workflow run row(s) could not be read`,
       }
+    },
+
+    // Never throws (the interface's own contract). One batch that failed
+    // costs only its own repositories.
+    repositoryStatus: async (repos, options) => {
+      const batches: string[][] = []
+      for (let i = 0; i < repos.length; i += STATUS_BATCH) {
+        batches.push(repos.slice(i, i + STATUS_BATCH))
+      }
+      const answers = await Promise.all(
+        batches.map(async (batch) => {
+          const args = ['api', 'graphql', '-f', `query=${buildStatusQuery(batch)}`]
+          return readStatusBatch(await invoke(args, options.boundMs), batch, options.boundMs)
+        }),
+      )
+      const repositories: Record<string, RepositoryStatus> = {}
+      const reasons: string[] = []
+      for (const answer of answers) {
+        Object.assign(repositories, answer.repositories)
+        if (answer.reason !== null) reasons.push(answer.reason)
+      }
+      return { repositories, unavailable: joinedReasons(reasons) }
     },
   }
   return client
