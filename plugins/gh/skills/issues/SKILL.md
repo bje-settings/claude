@@ -10,7 +10,7 @@ description: >
   review priority, type or labels; move a dependency from an issue body to its
   field. Also use it when work on an issue finds a follow-up or a dependency,
   and when another skill or agent creates issues.
-allowed-tools: Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue create *) Bash(gh issue edit *) Bash(gh label list *) Bash(gh api graphql *) Bash(gh api repos/*/milestones *) Read AskUserQuestion
+allowed-tools: Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue create *) Bash(gh issue edit *) Bash(gh label list *) Bash(gh api graphql *) Bash(gh api repos/*/milestones *) Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" org-scope *) Read AskUserQuestion
 user-invocable: false
 ---
 
@@ -22,6 +22,9 @@ Do the operation that the request asks for. Read all of the files in its row, an
 | Create two or more related issues | [batch.md](batch.md), [create.md](create.md), [format.md](format.md), [labels.md](labels.md), [relationships.md](relationships.md), [milestone.md](milestone.md), [priority.md](priority.md) |
 | Add or remove blocked-by, blocking or parent on issues that exist | [relationships.md](relationships.md) |
 | Set priority, type, labels, milestone or relationships on issues that exist | [triage.md](triage.md), [format.md](format.md), [labels.md](labels.md), [relationships.md](relationships.md), [milestone.md](milestone.md), [priority.md](priority.md) |
+
+For create, batch and triage, also read [cross-org.md](cross-org.md) when the owner of the
+target repository is not the owner of each source of the issue's context.
 
 ## Rules for every operation
 

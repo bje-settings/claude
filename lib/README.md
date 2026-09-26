@@ -439,6 +439,30 @@ that asserts a run exists for a head would otherwise read a dropped row as "no r
 whole list. This repository held 1,733 runs when that was measured, and every caller wants the
 recent ones, not all of them. Ask this endpoint only what the newest page can answer.
 
+### `viewerEnterprises`
+
+```ts
+const { enterprises, unavailable } = await gh.viewerEnterprises()
+// enterprises: [{ slug: 'acme-ent', organizations: ['acme-one', 'acme-two'] }]
+```
+
+Every enterprise the gh account belongs to, with the logins of the organizations each one lists.
+`gh.ts org-scope` (#233) reads it to find whether two owners share an enterprise. GraphQL has no
+field that names the enterprise of an organization, so the viewer's own list is the one source.
+
+It never throws, and it reads the body whatever gh's exit status, for `issueStates`' reason. It
+pages the enterprises, up to the same 20 pages as the sweep reads. It does not page the
+organizations of one enterprise. Each of these sets `unavailable`, beside the rows it could read:
+
+- a reply with no `viewer.enterprises` connection (`accountOf` the run)
+- GraphQL errors
+- an enterprise row with no slug, no organization list, or an empty or absent login
+- a cursor that does not advance, a next page with no cursor, or more than 20 pages
+- an enterprise with more than 100 organizations
+
+A caller must not read a list with `unavailable` set as whole. An owner absent from a short list
+is not proof that it is outside every enterprise.
+
 ## The TypeSafe transport and the Jev client
 
 ```ts

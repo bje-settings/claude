@@ -12,6 +12,7 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [audit/context/_skill-flow.md](audit/context/_skill-flow.md) | What the /audit:context skill does, and every way it declines to act. |
 | [audit/context/context-flow.md](audit/context/context-flow.md) | How `audit.ts context` checks its arguments and checkout, runs tier 0 and the model stages, and which outcome sets its exit status. |
 | [gh/issues/_skill-flow.md](gh/issues/_skill-flow.md) | What the gh:issues skill does for each operation, and every way it declines to act. |
+| [gh/issues/org-scope-flow.md](gh/issues/org-scope-flow.md) | How `gh.ts org-scope` finds whether each source owner shares an enterprise with a target owner, and why each doubt reads as outside. |
 | [gh/shepherd/_skill-flow.md](gh/shepherd/_skill-flow.md) | What the /gh:shepherd skill does, and every way it declines to act, given an optional label. |
 | [gh/shepherd/discover-flow.md](gh/shepherd/discover-flow.md) | How `gh.ts discover` finds the checkout roots in scope for a directory, and each way it stops. |
 | [gh/shepherd/shepherd-pr-flow.md](gh/shepherd/shepherd-pr-flow.md) | How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result. |

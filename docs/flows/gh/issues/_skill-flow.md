@@ -26,9 +26,16 @@ flowchart TD
     T -->|No| T1([Report that every field has a value]):::stop
     T -->|Yes| T2[Propose a value for each gap,<br/>or leave it open and say why]
 
-    C --> G
+    C --> O
+    T2 --> O
+    O{Target owner differs from<br/>an owner of the context?}
+    O -->|No| G
+    O -->|Yes| OS[Find the scope of each source owner]
+    OS --> OR{Any source outside or unknown,<br/>or the check did not exit 0?}
+    OR -->|No: same enterprise| G
+    OR -->|Yes| OX[Remove that source's names, numbers,<br/>paths, URLs, branches, measurements;<br/>add an Omitted line]
+    OX --> G
     L --> G
-    T2 --> G
     G{Each value the caller gave exists?}
     G -->|No| G1([Say so and ask, write nothing]):::stop
     G -->|Yes| E{Request already sets every value?}
@@ -63,6 +70,10 @@ flowchart TD
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+Before it confirms a create, a batch or a triage, the skill checks each owner that gave the
+issue context against the target owner. An issue in an owner outside the source's enterprise
+names none of the source's details, and the proposal says which kinds it removed.
 
 The skill never creates a label. It prefers an issue type to a label with the same meaning.
 An owner with no Priority field is a fact to report, and the skill does not work around it.
