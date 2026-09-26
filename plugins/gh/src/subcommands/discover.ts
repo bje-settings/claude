@@ -38,8 +38,8 @@ and callers compare against them.
 
 A directory with no checkouts in it prints nothing and exits 0: that is an
 answer. Exit 1 means the target could not be read at all, or git itself could
-not run, which is a different fact and says so on stderr. Exit 2 means the
-arguments were refused.`
+not run. Either way, that is a different fact, said on stderr. Exit 2 means
+the arguments were refused.`
 
 /** The edges this command reads: the same three `scripts/gh.ts` hands
  *  every envelope command, and no `gh`. Discovery asks git, and nothing

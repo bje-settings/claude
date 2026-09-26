@@ -336,9 +336,9 @@ class SyncRepoRun {
 
   /** Whether a linked worktree, other than the checkout root itself, is
    *  mid-operation. This answers with the reason to skip, or `null` to
-   *  carry on. It fails closed: an unreadable worktree list is a skip, the
-   *  same answer {@link readWorktrees} gives for the same failure, because
-   *  a hidden operation must never look free.
+   *  carry on. It fails closed. An unreadable worktree list is a skip.
+   *  That is the same answer {@link readWorktrees} gives for the same
+   *  failure, because a hidden operation must never look free.
    *
    *  This reads `git worktree list --porcelain` itself, and so does
    *  {@link readWorktrees}, later. A round 1 review (#218) proved why
@@ -705,10 +705,16 @@ class SyncRepoRun {
    *  again, right before the prune loop uses it. {@link preflight} already
    *  read it once, through {@link linkedWorktreeInProgress}, but that read
    *  is minutes old by now. A fetch, an install, and a gh call sit between
-   *  it and this call. A map built from that earlier read could send a
-   *  force delete at a worktree that has since moved to other, uncommitted
-   *  work (round 1 review, #218 finding 6). This read is what stands
-   *  between that work and the loss of it. */
+   *  it and this call.
+   *
+   *  A map built from that earlier read alone could go stale. It could
+   *  then send a force delete at a worktree that has since moved to
+   *  other, uncommitted work. Round 1 review (#218 finding 6) proved this.
+   *
+   *  This read closes that window. It does not close every window. The
+   *  prune loop below can itself make a gh call, per branch. {@link
+   *  pruneBranch} checks the worktree's branch once more for that reason,
+   *  right before it removes anything (round 2 review). */
   private async readWorktrees(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) {
@@ -856,11 +862,11 @@ class SyncRepoRun {
       }
       // #218 finding 6, round 2 review. `this.worktrees` was built once, by
       // `readWorktrees`, before this loop began. A branch earlier in the
-      // loop can trigger its own gh call, and that call can take long
-      // enough for someone to switch this worktree to another branch. The
-      // dirty check above does not catch it: a clean switch leaves no
-      // tracked change. This check reads the worktree's branch again, right
-      // before the removal, and fails closed on any answer but a match.
+      // loop can trigger its own gh call. That call can take long enough
+      // for someone to switch this worktree to another branch. The dirty
+      // check above does not catch it: a clean switch leaves no tracked
+      // change. This check reads the worktree's branch again, right before
+      // the removal, and fails closed on any answer but a match.
       const onBranch = await currentBranch(this.at(worktree))
       if (onBranch !== branch) {
         this.bad(`kept ${branch} and its worktree ${worktree} (worktree changed branch)`)

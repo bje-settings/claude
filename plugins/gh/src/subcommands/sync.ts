@@ -317,11 +317,11 @@ export const createSyncCommand =
     // so.
     const only = repos.length === 1 ? repos[0] : undefined
     if (only !== undefined && (await toplevel(found.resolved, context.env)) !== null) {
-      // #81: this code used to drop a throw outright, the way the shell
-      // version dropped its child's exit status at its lines 72 to 73. A
-      // skipped repository is still exit 0 (`sync-repo.ts` always answers
-      // that for one). Only a job that throws now makes this path answer
-      // `failed`.
+      // #81: this code used to drop a throw outright. That is the same
+      // way the shell version dropped its child's exit status at its
+      // lines 72 to 73. A skipped repository is still exit 0
+      // (`sync-repo.ts` always answers that for one). Only a job that
+      // throws now makes this path answer `failed`.
       let repoFailed = false
       try {
         await job({

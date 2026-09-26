@@ -272,7 +272,7 @@ Repository discovery is shared with `/gh:sync`. Both skills resolve their scope 
 `node <plugin>/scripts/gh.ts discover <path>` is that rule on its own, one checkout root per
 line. A directory with no checkouts in it prints nothing, and exits **0**. That is an answer, not
 a failure. Exit **1** means the command could not read the target at all, or git itself could not
-run, with the reason on stderr either way. Exit **2** means the command refused the arguments.
+run. Either way, the reason is on stderr. Exit **2** means the command refused the arguments.
 `sync` answers 2 where `discover` answers 1 on the same states. So a skill that runs both must
 read each status against its own command.
 
