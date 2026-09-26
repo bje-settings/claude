@@ -1,8 +1,8 @@
-// This file is the gh plugin's SessionStart hook. It writes one status line,
-// or nothing (#230). When git or the GitHub CLI is not on PATH, it checks
-// nothing, and writes one line for each missing tool instead.
-// {@link statusLine} and {@link problemLine} shape the lines, and
-// `plugins/gh/README.md` shows them.
+// This file is the gh plugin's SessionStart hook (#230). It writes at most
+// one status line, then one problem line for each kind of failure, or
+// nothing. When git or the GitHub CLI is not on PATH, it checks nothing, and
+// writes one problem line for each missing tool. {@link statusLine} and
+// {@link problemLines} shape the lines, and `plugins/gh/README.md` shows them.
 //
 // The hook finds the repository that holds the session's directory, or the
 // repositories directly inside it (`discover.ts`). It skips a repository
@@ -11,9 +11,9 @@
 // GitHub counts, at the same time as the fetches.
 //
 // One deadline applies to the whole check. A task that fails, or does not
-// finish in time, gives no count. The line then ends with a warning, and
-// the reason goes to stderr, one line for each failure. Claude Code keeps
-// stderr in its debug log.
+// finish in time, gives no count. It gives a problem line for its kind
+// instead, and its full reason goes to stderr, one line for each failure.
+// Claude Code keeps stderr in its debug log.
 //
 // The hook never changes a branch, a worktree, or a working tree. The
 // fetch changes only remote-tracking refs. `session-start` always exits 0,
@@ -79,27 +79,26 @@ export interface StatusCounts {
   readonly alerts: number
 }
 
+/** The start of every line the hook writes. */
+const PREFIX = 'gh:'
+
 /**
  * The status line, or `null` when there is nothing to show. This and
- * {@link problemLine} are the only places that shape a line.
+ * {@link problemLines} are the only places that shape a line.
  *
- * A zero count is left out. The repository count follows the prefix only
- * when there is more than one repository. The warning comes last, and
- * shows that an item failed or did not finish in time.
+ * A zero count is left out. `behind` shows no number. The repository count
+ * comes first, only when there is more than one repository, and never
+ * alone.
  */
-export const statusLine = (
-  counts: StatusCounts,
-  repoCount: number,
-  failed: boolean,
-): string | null => {
+export const statusLine = (counts: StatusCounts, repoCount: number): string | null => {
   const items: string[] = []
-  if (counts.behind > 0) items.push(`[behind ${counts.behind}]`)
-  if (counts.prune > 0) items.push(`[prune ${counts.prune}]`)
+  if (counts.behind > 0) items.push('[behind]')
+  if (counts.prune > 0) items.push(`[✂️ ${counts.prune}]`)
   if (counts.dependencies > 0) items.push(`[🤖 ${counts.dependencies}]`)
   if (counts.alerts > 0) items.push(`[🛡️ ${counts.alerts}]`)
-  if (failed) items.push('⚠️')
   if (items.length === 0) return null
-  return `gh:${repoCount > 1 ? ` ${repoCount} repos` : ''} ${items.join(' ')}`
+  if (repoCount > 1) items.unshift(`[repos: ${repoCount}]`)
+  return `${PREFIX} ${items.join(' ')}`
 }
 
 /** The tools the hook needs, in the order the line names them. The hook
@@ -113,16 +112,77 @@ export type Tool = (typeof TOOLS)[number]
  *  for a tool that is not in {@link TOOLS}, does not compile. */
 const TOOL_NAMES: Readonly<Record<Tool, string>> = { git: 'git', gh: 'GitHub CLI (gh)' }
 
-/**
- * One problem for each missing tool, in the words of the line, and in the
- * order of `missing`. The plugin cannot work without these tools.
- */
-export const missingTools = (missing: readonly Tool[]): string[] =>
-  missing.map((tool) => `${TOOL_NAMES[tool]} not found on PATH`)
+/** The line for one problem. */
+const problemLine = (problem: string): string => `${PREFIX} ⚠️ ${problem}`
 
-/** The line for a problem that stops every check. Each problem gets a line
- *  of its own, and no count shows. */
-export const problemLine = (problem: string): string => `gh: ⚠️ ${problem}`
+/**
+ * The kinds of failure, in the order of their problem lines. `words` is
+ * the fixed text of the line. `repos` is true when each failure of the
+ * kind is about one repository, so a folder check can say how many.
+ */
+const KINDS = {
+  notDirectory: { words: 'not a directory', repos: false },
+  unreadable: { words: 'folder could not be read', repos: false },
+  origin: { words: 'origin could not be read', repos: true },
+  fetch: { words: 'fetch failed', repos: true },
+  defaultUnread: { words: 'default branch could not be read', repos: true },
+  noDefault: { words: 'no default branch', repos: true },
+  behind: { words: 'behind could not be counted', repos: true },
+  branches: { words: 'branches could not be listed', repos: true },
+  late: { words: 'timed out', repos: true },
+  thrown: { words: 'check failed', repos: true },
+  github: { words: 'GitHub request failed', repos: false },
+  githubLate: { words: 'GitHub request timed out', repos: false },
+  noAnswer: { words: 'GitHub gave no answer', repos: true },
+  alerts: { words: 'alerts could not be read', repos: true },
+  dependencies: { words: 'dependency pull requests could not be read', repos: true },
+  merged: { words: 'merged pull requests could not be read', repos: true },
+} as const
+
+/** A kind of failure. */
+type Kind = keyof typeof KINDS
+
+/** One failure. `line` is its full account for stderr. `cause` is the
+ *  message it came with, or `null` when it came with none. */
+interface Failure {
+  readonly kind: Kind
+  readonly line: string
+  readonly cause: string | null
+}
+
+/** The longest cause a problem line shows, in characters. */
+const CAUSE_LIMIT = 80
+
+/**
+ * A short form of `cause`: its first line, with no `remote: `, `fatal: ` or
+ * `gh: ` at the start, up to the first sentence end, and at most
+ * {@link CAUSE_LIMIT} characters. `; ` is a sentence end too, because
+ * `lib/gh.ts` joins the reasons of its batches with it.
+ */
+const shortCause = (cause: string): string => {
+  const first = cause.trim().split('\n')[0] ?? ''
+  const bare = first.replace(/^(?:remote|fatal|gh): /, '')
+  const sentence = bare.split(/[.;] /)[0] ?? ''
+  return Array.from(sentence).slice(0, CAUSE_LIMIT).join('').trimEnd()
+}
+
+/**
+ * One problem line for each kind that failed, in the order of
+ * {@link KINDS}. `folder` is true when the check found more than one
+ * repository. Then a kind about repositories says how many it hit. The
+ * cause is the one the first failure of the kind came with.
+ */
+const problemLines = (failures: readonly Failure[], folder: boolean): string[] =>
+  (Object.keys(KINDS) as Kind[]).flatMap((kind) => {
+    const hits = failures.filter((failure) => failure.kind === kind)
+    const [first] = hits
+    if (first === undefined) return []
+    const { words, repos } = KINDS[kind]
+    const count =
+      folder && repos ? ` in ${hits.length} ${hits.length === 1 ? 'repo' : 'repos'}` : ''
+    const cause = first.cause === null ? '' : shortCause(first.cause)
+    return [problemLine(`${words}${count}${cause === '' ? '' : `: ${cause}`}`)]
+  })
 
 /**
  * A github.com remote URL, in each form git accepts. The first half is the
@@ -370,6 +430,10 @@ interface Checkout {
 /** `text` on one line, so one failure is one line of the debug log. */
 const oneLine = (text: string): string => text.trim().replace(/\s*\n\s*/g, ' ')
 
+/** Takes one failure: its kind, its line for stderr, and the message it came
+ *  with, if any. */
+type Failed = (kind: Kind, line: string, cause?: string) => void
+
 /**
  * The GitHub `owner/name` of the origin of `root`, or `null` when it has no
  * origin on GitHub.
@@ -388,7 +452,7 @@ const originName = async (
   root: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: () => number,
-  failed: (line: string) => void,
+  failed: Failed,
 ): Promise<string | null> => {
   // Each call gets the time that is left, so the second call cannot run
   // past the deadline.
@@ -396,14 +460,18 @@ const originName = async (
   const configured = await runGit(['config', '--get', 'remote.origin.url'], options())
   if (configured.status === 1) return null
   if (configured.status !== 0) {
-    failed(`${root}: origin could not be read: ${oneLine(configured.stderr)}`)
+    failed(
+      'origin',
+      `${root}: origin could not be read: ${oneLine(configured.stderr)}`,
+      configured.stderr,
+    )
     return null
   }
   const name = githubRepository(configured.stdout.replace(/\n+$/, ''))
   if (name !== null) return name
   const rewritten = await gitOut(['remote', 'get-url', 'origin'], options())
   if (rewritten === null) {
-    failed(`${root}: origin could not be read`)
+    failed('origin', `${root}: origin could not be read`)
     return null
   }
   return githubRepository(rewritten)
@@ -418,22 +486,23 @@ const readCheckout = async (
   root: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: () => number,
-  failed: (line: string) => void,
+  failed: Failed,
 ): Promise<LocalRead | null> => {
   const fetched = await runGit(['fetch', '--prune', '--quiet', 'origin'], {
     cwd: root,
     env,
     timeoutMs: timeoutMs(),
   })
-  if (fetched.status !== 0) failed(`${root}: git fetch failed: ${oneLine(fetched.stderr)}`)
+  if (fetched.status !== 0)
+    failed('fetch', `${root}: git fetch failed: ${oneLine(fetched.stderr)}`, fetched.stderr)
   const options = { cwd: root, env, timeoutMs: timeoutMs() }
   const target = await localDefaultBranch(options)
   if (target === undefined) {
-    failed(`${root}: default branch could not be read`)
+    failed('defaultUnread', `${root}: default branch could not be read`)
     return null
   }
   if (target === null) {
-    failed(`${root}: no default branch`)
+    failed('noDefault', `${root}: no default branch`)
     return null
   }
   const [branches, refs, merged] = await Promise.all([
@@ -469,22 +538,24 @@ const addGitHub = (
   tally: Tally,
   names: readonly string[],
   answer: GhResults['repositoryStatus'],
-  failed: (line: string) => void,
+  failed: Failed,
 ): void => {
-  if (answer.unavailable !== null) failed(`GitHub: ${oneLine(answer.unavailable)}`)
+  if (answer.unavailable !== null)
+    failed('github', `GitHub: ${oneLine(answer.unavailable)}`, answer.unavailable)
   for (const name of names) {
     const status = answer.repositories[name]
     if (status === undefined) {
       // A reason given already covers the repositories it cost.
-      if (answer.unavailable === null) failed(`${name}: GitHub gave no answer`)
+      if (answer.unavailable === null) failed('noAnswer', `${name}: GitHub gave no answer`)
       continue
     }
-    if (status.alerts === null) failed(`${name}: alerts could not be read`)
+    if (status.alerts === null) failed('alerts', `${name}: alerts could not be read`)
     else tally.alerts += status.alerts
-    if (status.dependencies === null) failed(`${name}: dependency pull requests could not be read`)
+    if (status.dependencies === null)
+      failed('dependencies', `${name}: dependency pull requests could not be read`)
     else tally.dependencies += status.dependencies
     if (status.mergedPullRequests === null)
-      failed(`${name}: merged pull requests could not be read`)
+      failed('merged', `${name}: merged pull requests could not be read`)
   }
 }
 
@@ -494,9 +565,9 @@ const addLocal = (
   root: string,
   read: LocalRead,
   pulls: readonly PullRequestRow[] | null,
-  failed: (line: string) => void,
+  failed: Failed,
 ): void => {
-  if (read.behind === null) failed(`${root}: behind could not be counted`)
+  if (read.behind === null) failed('behind', `${root}: behind could not be counted`)
   else tally.behind += read.behind
   const prune = countCandidates(
     read.branches,
@@ -506,27 +577,47 @@ const addLocal = (
     read.current,
     read.target,
   )
-  if (prune === null) failed(`${root}: branches could not be listed`)
+  if (prune === null) failed('branches', `${root}: branches could not be listed`)
   else tally.prune += prune
 }
 
+/** The kinds a failed task gives: one for a task that threw, one for a
+ *  task that did not finish in time. */
+interface TaskKinds {
+  readonly thrown: Kind
+  readonly late: Kind
+}
+
+const LOCAL_TASK: TaskKinds = { thrown: 'thrown', late: 'late' }
+const GITHUB_TASK: TaskKinds = { thrown: 'github', late: 'githubLate' }
+
+/** The message of a thrown value. A `GhError` keeps gh's own account in
+ *  `detail`, without the command line that `message` holds. */
+const causeOf = (error: unknown): string => {
+  if (!(error instanceof Error)) return String(error)
+  const detail = (error as { detail?: unknown }).detail
+  return typeof detail === 'string' ? detail : error.message
+}
+
 /**
- * The status line for `target`, or `null` when there is nothing to show.
- * Each failure goes to stderr, one line each. A missing tool stops every
- * check, and each missing tool gets a line of its own instead.
+ * The lines for `target`, or `null` when there is nothing to show: the
+ * status line, then one problem line for each kind of failure. Each failure
+ * also goes to stderr, one line each. A missing tool stops every check, and
+ * each missing tool gets a problem line of its own instead.
  */
 const checkStatus = async (target: string, edges: HookEdges): Promise<string | null> => {
-  const problems = missingTools(TOOLS.filter((tool) => which(tool, edges.env) === null))
-  if (problems.length > 0) {
+  const missing = TOOLS.filter((tool) => which(tool, edges.env) === null)
+  if (missing.length > 0) {
+    const problems = missing.map((tool) => `${TOOL_NAMES[tool]} not found on PATH`)
     for (const problem of problems) edges.output.err.write(`${problem}\n`)
     return problems.map(problemLine).join('\n')
   }
   const env = scrubRepositoryEnv(edges.env)
   const started = Date.now()
   const timeoutMs = (): number => Math.max(1, edges.deadlineMs - (Date.now() - started))
-  const failures: string[] = []
-  const failed = (line: string): void => {
-    failures.push(line)
+  const failures: Failure[] = []
+  const failed: Failed = (kind, line, cause) => {
+    failures.push({ kind, line, cause: cause ?? null })
   }
 
   // One deadline for every task. A task still open when it fires gives no
@@ -537,28 +628,35 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<string | n
   const deadline = new Promise<typeof late>((resolve) => {
     timer = setTimeout(resolve, edges.deadlineMs, late)
   })
-  /** What `task` answers, or `null` and a failure line when it throws or
-   *  does not finish before the deadline. */
-  const settle = async <T>(label: string, task: () => Promise<T>): Promise<T | null> => {
+  /** What `task` answers, or `null` and a failure when it throws or does
+   *  not finish before the deadline. */
+  const settle = async <T>(
+    label: string,
+    task: () => Promise<T>,
+    kinds: TaskKinds = LOCAL_TASK,
+  ): Promise<T | null> => {
     try {
       const answer = await Promise.race([task(), deadline])
       if (answer !== late) return answer as T
-      failed(`${label}: did not finish in ${edges.deadlineMs} ms`)
+      failed(kinds.late, `${label}: did not finish in ${edges.deadlineMs} ms`)
     } catch (error) {
-      failed(`${label}: ${oneLine(String(error))}`)
+      failed(kinds.thrown, `${label}: ${oneLine(String(error))}`, causeOf(error))
     }
     return null
   }
 
   const tally: Tally = { behind: 0, prune: 0, dependencies: 0, alerts: 0 }
+  let roots: readonly string[] = []
   let checkouts: Checkout[] = []
   try {
     // `discoverRepos` calls `realpathSync` with no guard, so it can throw.
     // That throw is a failure like any other.
     const discovered = await settle(target, () => discoverRepos(target, env))
-    if (discovered?.outcome === 'not-a-directory') failed(`${target}: not a directory`)
-    if (discovered?.outcome === 'unreadable') failed(`${target}: ${oneLine(discovered.reason)}`)
-    const roots = discovered?.outcome === 'ok' ? discovered.roots : []
+    if (discovered?.outcome === 'not-a-directory')
+      failed('notDirectory', `${target}: not a directory`)
+    if (discovered?.outcome === 'unreadable')
+      failed('unreadable', `${target}: ${oneLine(discovered.reason)}`, discovered.reason)
+    roots = discovered?.outcome === 'ok' ? discovered.roots : []
     const named = await Promise.all(
       roots.map(async (root) => ({
         root,
@@ -571,8 +669,10 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<string | n
     const [answer, ...reads] = await Promise.all([
       names.length === 0
         ? null
-        : settle('GitHub', () =>
-            edges.createGh(env).repositoryStatus(names, { boundMs: timeoutMs() }),
+        : settle(
+            'GitHub',
+            () => edges.createGh(env).repositoryStatus(names, { boundMs: timeoutMs() }),
+            GITHUB_TASK,
           ),
       ...checkouts.map((checkout) =>
         settle(checkout.root, () => readCheckout(checkout.root, env, timeoutMs, failed)),
@@ -588,8 +688,10 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<string | n
   } finally {
     clearTimeout(timer)
   }
-  for (const line of failures) edges.output.err.write(`${line}\n`)
-  return statusLine(tally, checkouts.length, failures.length > 0)
+  for (const failure of failures) edges.output.err.write(`${failure.line}\n`)
+  const status = statusLine(tally, checkouts.length)
+  const lines = [...(status === null ? [] : [status]), ...problemLines(failures, roots.length > 1)]
+  return lines.length === 0 ? null : lines.join('\n')
 }
 
 /**

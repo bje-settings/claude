@@ -37,7 +37,7 @@ it('fetches first, so behind counts what origin gained since the last fetch', as
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }))
 
-  expect(ran).toEqual({ status: 0, stdout: 'gh: [behind 1]\n', stderr: '' })
+  expect(ran).toEqual({ status: 0, stdout: 'gh: [behind]\n', stderr: '' })
 })
 
 it('shows the GitHub counts from the reply', async () => {
@@ -61,7 +61,7 @@ it('shows every item together, in order', async () => {
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side(4, 5) }))
 
-  expect(ran.stdout).toBe('gh: [behind 1] [prune 1] [🤖 5] [🛡️ 4]\n')
+  expect(ran.stdout).toBe('gh: [behind] [✂️ 1] [🤖 5] [🛡️ 4]\n')
 })
 
 it('sums a folder of repositories, and names how many it checked', async () => {
@@ -73,7 +73,7 @@ it('sums a folder of repositories, and names how many it checked', async () => {
 
   const ran = await statusOf(rig, folder, answering({ 'acme/a': side(1, 2), 'acme/b': side(3, 4) }))
 
-  expect(ran).toEqual({ status: 0, stdout: 'gh: 2 repos [behind 1] [🤖 6] [🛡️ 4]\n', stderr: '' })
+  expect(ran).toEqual({ status: 0, stdout: 'gh: [repos: 2] [behind] [🤖 6] [🛡️ 4]\n', stderr: '' })
 })
 
 it('skips a repository whose remote is not on GitHub, and says nothing about it', async () => {
@@ -135,7 +135,7 @@ it('still counts on a branch with no commit yet, where git names no current bran
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }))
 
-  expect(ran).toEqual({ status: 0, stdout: 'gh: [prune 1]\n', stderr: '' })
+  expect(ran).toEqual({ status: 0, stdout: 'gh: [✂️ 1]\n', stderr: '' })
 })
 
 it('counts a GitHub repository once, however many checkouts it has', async () => {
@@ -146,7 +146,7 @@ it('counts a GitHub repository once, however many checkouts it has', async () =>
 
   const ran = await statusOf(rig, folder, answering({ 'acme/widgets': side(1, 1) }))
 
-  expect(ran.stdout).toBe('gh: 2 repos [🤖 1] [🛡️ 1]\n')
+  expect(ran.stdout).toBe('gh: [repos: 2] [🤖 1] [🛡️ 1]\n')
 })
 
 it('counts one repository once when two checkouts spell its name in different cases', async () => {
@@ -157,7 +157,7 @@ it('counts one repository once when two checkouts spell its name in different ca
 
   const ran = await statusOf(rig, folder, answering({ 'acme/widgets': side(1, 1) }))
 
-  expect(ran).toEqual({ status: 0, stdout: 'gh: 2 repos [🤖 1] [🛡️ 1]\n', stderr: '' })
+  expect(ran).toEqual({ status: 0, stdout: 'gh: [repos: 2] [🤖 1] [🛡️ 1]\n', stderr: '' })
 })
 
 it('finds a GitHub origin that only an insteadOf short name puts on github.com', async () => {
@@ -170,7 +170,7 @@ it('finds a GitHub origin that only an insteadOf short name puts on github.com',
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side(0, 1) }))
 
-  expect(ran.stdout).toBe('gh: [🤖 1] ⚠️\n')
+  expect(ran.stdout).toMatch(/^gh: \[🤖 1\]\ngh: ⚠️ fetch failed: .*https.*\n$/)
   expect(ran.stderr).toMatch(/^.*\/work: git fetch failed: .*https.*\n$/)
 })
 
@@ -193,7 +193,7 @@ it('warns, and does not skip in silence, when the origin cannot be read', async 
     env: { ...rig.sandbox.env, PATH: `${bin}${path.delimiter}${rig.sandbox.env.PATH}` },
   })
 
-  expect(ran.stdout).toBe('gh: [🤖 1] ⚠️\n')
+  expect(ran.stdout).toBe('gh: [🤖 1]\ngh: ⚠️ origin could not be read in 1 repo: bad config\n')
   expect(ran.stderr).toBe(`${realpathSync(broken)}: origin could not be read: fatal: bad config\n`)
 })
 
@@ -210,7 +210,7 @@ it('warns when the rewritten URL of an origin that is not on github.com cannot b
     },
   })
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ origin could not be read\n')
   expect(ran.stderr).toBe(`${realpathSync(local)}: origin could not be read\n`)
 })
 
@@ -228,7 +228,7 @@ it('still counts behind when the ref listing fails', async () => {
     },
   })
 
-  expect(ran.stdout).toBe('gh: [behind 1] ⚠️\n')
+  expect(ran.stdout).toBe('gh: [behind]\ngh: ⚠️ branches could not be listed\n')
   expect(ran.stderr).toBe(`${realpathSync(work)}: branches could not be listed\n`)
 })
 
@@ -250,7 +250,7 @@ it('warns, and still counts behind, when the branch listing fails', async () => 
     env: { ...rig.sandbox.env, PATH: `${bin}${path.delimiter}${rig.sandbox.env.PATH}` },
   })
 
-  expect(ran.stdout).toBe('gh: [behind 1] ⚠️\n')
+  expect(ran.stdout).toBe('gh: [behind]\ngh: ⚠️ branches could not be listed\n')
   expect(ran.stderr).toBe(`${realpathSync(work)}: branches could not be listed\n`)
 })
 
@@ -261,7 +261,11 @@ it('warns, and asks nothing more, when discovery does not finish in time', async
   // Discovery runs git, which takes longer than 1 ms.
   const ran = await statusOf(rig, work, createGhMock(), { deadlineMs: 1 })
 
-  expect(ran).toEqual({ status: 0, stdout: 'gh: ⚠️\n', stderr: `${work}: did not finish in 1 ms\n` })
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ timed out\n',
+    stderr: `${work}: did not finish in 1 ms\n`,
+  })
 })
 
 it('warns, and keeps the local items, when the GitHub call fails', async () => {
@@ -275,7 +279,7 @@ it('warns, and keeps the local items, when the GitHub call fails', async () => {
     createGhMock({ repositoryStatus: ghFails('gh: API rate limit exceeded') }),
   )
 
-  expect(ran.stdout).toBe('gh: [behind 1] ⚠️\n')
+  expect(ran.stdout).toBe('gh: [behind]\ngh: ⚠️ GitHub request failed: API rate limit exceeded\n')
   expect(ran.stderr).toBe('GitHub: GhError: gh: API rate limit exceeded\n')
 })
 
@@ -294,7 +298,11 @@ it('warns about the one field GitHub could not give, and keeps the others', asyn
     }),
   )
 
-  expect(ran.stdout).toBe('gh: [🤖 2] ⚠️\n')
+  expect(ran.stdout).toBe(
+    'gh: [🤖 2]\n' +
+      'gh: ⚠️ GitHub request failed: Resource not accessible by integration\n' +
+      'gh: ⚠️ alerts could not be read\n',
+  )
   expect(ran.stderr).toBe(
     'GitHub: Resource not accessible by integration\nacme/widgets: alerts could not be read\n',
   )
@@ -317,7 +325,11 @@ it('warns about each field that came back empty, even with no reason given', asy
     }),
   )
 
-  expect(ran.stdout).toBe('gh: [🛡️ 3] ⚠️\n')
+  expect(ran.stdout).toBe(
+    'gh: [🛡️ 3]\n' +
+      'gh: ⚠️ dependency pull requests could not be read\n' +
+      'gh: ⚠️ merged pull requests could not be read\n',
+  )
   expect(ran.stderr).toBe(
     'acme/widgets: dependency pull requests could not be read\n' +
       'acme/widgets: merged pull requests could not be read\n',
@@ -332,7 +344,7 @@ it('warns about a repository the reply left out', async () => {
 
   const ran = await statusOf(rig, folder, answering({ 'acme/a': side(0, 1) }))
 
-  expect(ran.stdout).toBe('gh: 2 repos [🤖 1] ⚠️\n')
+  expect(ran.stdout).toBe('gh: [repos: 2] [🤖 1]\ngh: ⚠️ GitHub gave no answer in 1 repo\n')
   expect(ran.stderr).toBe('acme/gone: GitHub gave no answer\n')
 })
 
@@ -351,7 +363,9 @@ it('gives one line for a repository GitHub could not resolve, not two', async ()
     }),
   )
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe(
+    "gh: ⚠️ GitHub request failed: Could not resolve to a Repository with the name 'acme/gone'.\n",
+  )
   expect(ran.stderr).toBe("GitHub: Could not resolve to a Repository with the name 'acme/gone'.\n")
 })
 
@@ -364,7 +378,7 @@ it('warns, and keeps the GitHub counts, when a fetch is still open at the deadli
     deadlineMs: 3_000,
   })
 
-  expect(ran.stdout).toBe('gh: [🤖 2] ⚠️\n')
+  expect(ran.stdout).toBe('gh: [🤖 2]\ngh: ⚠️ timed out\n')
   expect(ran.stderr).toBe(`${realpathSync(work)}: did not finish in 3000 ms\n`)
 })
 
@@ -375,7 +389,7 @@ it('warns when GitHub is still open at the deadline', async () => {
 
   const ran = await statusOf(rig, work, never, { deadlineMs: 3_000 })
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ GitHub request timed out\n')
   expect(ran.stderr).toBe('GitHub: did not finish in 3000 ms\n')
 })
 
@@ -397,7 +411,7 @@ it('warns, and counts from the cached refs, when the fetch fails', async () => {
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }))
 
-  expect(ran.stdout).toBe('gh: [prune 1] ⚠️\n')
+  expect(ran.stdout).toMatch(/^gh: \[✂️ 1\]\ngh: ⚠️ fetch failed: [^\n]+\n$/)
   expect(ran.stderr).toMatch(/^.*\/work: git fetch failed: fatal: .+\n$/)
 })
 
@@ -413,7 +427,7 @@ it('warns when the default branch cannot be resolved', async () => {
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }))
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ no default branch\n')
   // Discovery names each root by its real path, the way git reports it.
   expect(ran.stderr).toBe(`${realpathSync(work)}: no default branch\n`)
 })
@@ -434,7 +448,7 @@ it('warns, and does not fall back to main, when origin/HEAD cannot be read', asy
     env: { ...rig.sandbox.env, PATH },
   })
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ default branch could not be read\n')
   expect(ran.stderr).toBe(`${realpathSync(work)}: default branch could not be read\n`)
 })
 
@@ -454,7 +468,7 @@ it('warns when git cannot say whether a local main exists', async () => {
     env: { ...rig.sandbox.env, PATH },
   })
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ default branch could not be read\n')
   expect(ran.stderr).toBe(`${realpathSync(work)}: default branch could not be read\n`)
 })
 
@@ -471,7 +485,7 @@ it('warns, and does not wait, when an origin read is still open at the deadline'
     deadlineMs: 1_000,
   })
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ timed out\n')
   expect(ran.stderr).toBe(`${realpathSync(local)}: did not finish in 1000 ms\n`)
 })
 
@@ -488,7 +502,7 @@ it('warns when the local default branch cannot be compared with origin', async (
 
   // The local `main` is the fallback default. With no `origin/main`, neither
   // behind nor prune has an answer.
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ behind could not be counted\ngh: ⚠️ branches could not be listed\n')
   const root = realpathSync(work)
   expect(ran.stderr).toBe(
     `${root}: behind could not be counted\n${root}: branches could not be listed\n`,
@@ -503,7 +517,7 @@ it('warns about a folder it cannot list', async () => {
   try {
     const ran = await statusOf(rig, folder, createGhMock())
 
-    expect(ran.stdout).toBe('gh: ⚠️\n')
+    expect(ran.stdout).toMatch(/^gh: ⚠️ folder could not be read: EACCES: [^\n]+\n$/)
     expect(ran.stderr).toMatch(/^.*folder: EACCES: .+\n$/)
   } finally {
     chmodSync(folder, 0o700)
@@ -515,7 +529,7 @@ it('warns about a path that is not a directory', async () => {
 
   const ran = await statusOf(rig, rig.sandbox.join('missing'), createGhMock())
 
-  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stdout).toBe('gh: ⚠️ not a directory\n')
   expect(ran.stderr).toBe(`${rig.sandbox.join('missing')}: not a directory\n`)
 })
 
@@ -545,7 +559,7 @@ it('asks about the directory it was given, whatever GIT_DIR and GH_REPO name', a
     },
   })
 
-  expect(ran.stdout).toBe('gh: [behind 1]\n')
+  expect(ran.stdout).toBe('gh: [behind]\n')
   expect(seen.map((env) => [env.GIT_DIR, env.GH_REPO])).toEqual([[undefined, undefined]])
 })
 
@@ -605,5 +619,5 @@ it('answers about its own directory when no directory is named', async () => {
     cwd: () => work,
   })
 
-  expect(ran).toEqual({ status: 0, stdout: 'gh: [behind 1]\n', stderr: '' })
+  expect(ran).toEqual({ status: 0, stdout: 'gh: [behind]\n', stderr: '' })
 })

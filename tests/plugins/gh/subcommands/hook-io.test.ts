@@ -3,8 +3,9 @@
 // built from. `hook-io.status.test.ts` covers the check itself, and
 // `hook-io.prune.test.ts` covers the prune rule.
 //
-// The #230 acceptance test is the table at the end. Every state it builds
-// writes at most one line, in `systemMessage`, and no `additionalContext`.
+// The #230 acceptance test is the table at the end. For every state it
+// builds, `systemMessage` holds at most one status line, then one problem
+// line for each kind of failure, and there is no `additionalContext`.
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
@@ -27,6 +28,7 @@ import {
   type Rig,
   runHook,
   side,
+  wrappedGit,
 } from './hook-io.test-support.ts'
 
 const answering = (repositories: Record<string, ReturnType<typeof side>>): GhClient =>
@@ -51,7 +53,7 @@ it('writes the line as the systemMessage of one JSON document, and nothing else'
 
   expect(ran).toEqual({
     status: 0,
-    stdout: '{"systemMessage":"gh: [behind 1] [🤖 2]"}\n',
+    stdout: '{"systemMessage":"gh: [behind] [🤖 2]"}\n',
     stderr: '',
   })
 })
@@ -81,7 +83,7 @@ it('still exits 0 when the check found only a failure', async () => {
 
   expect(ran).toEqual({
     status: 0,
-    stdout: '{"systemMessage":"gh: ⚠️"}\n',
+    stdout: '{"systemMessage":"gh: ⚠️ GitHub request failed: HTTP 401"}\n',
     stderr: 'GitHub: GhError: gh: HTTP 401\n',
   })
 })
@@ -102,7 +104,7 @@ it('falls back to its own directory when the payload names none it can use', asy
     JSON.stringify({ cwd: rig.sandbox.join('not-there') }),
   ]) {
     const ran = await sessionStart(rig, payload, gh, work)
-    expect([payload, ran.stdout]).toEqual([payload, '{"systemMessage":"gh: [behind 1]"}\n'])
+    expect([payload, ran.stdout]).toEqual([payload, '{"systemMessage":"gh: [behind]"}\n'])
   }
 })
 
@@ -120,7 +122,7 @@ it('prefers the payload directory over its own directory', async () => {
     elsewhere,
   )
 
-  expect(ran.stdout).toBe('{"systemMessage":"gh: [behind 1]"}\n')
+  expect(ran.stdout).toBe('{"systemMessage":"gh: [behind]"}\n')
 })
 
 it('still runs the whole check when stdin itself cannot be read', async () => {
@@ -133,7 +135,7 @@ it('still runs the whole check when stdin itself cannot be read', async () => {
     cwd: () => work,
   })
 
-  expect(ran).toEqual({ status: 0, stdout: '{"systemMessage":"gh: [behind 1]"}\n', stderr: '' })
+  expect(ran).toEqual({ status: 0, stdout: '{"systemMessage":"gh: [behind]"}\n', stderr: '' })
 })
 
 it('bounds the whole check at five seconds by default', () => {
@@ -165,7 +167,9 @@ it('names both subcommands in its usage line', () => {
 // --- the helpers -------------------------------------------------------------
 
 it('writes the response with JSON.stringify, and one newline', () => {
-  expect(emit('gh: [🛡️ 1] ⚠️')).toBe('{"systemMessage":"gh: [🛡️ 1] ⚠️"}\n')
+  expect(emit('gh: [🛡️ 1]\ngh: ⚠️ fetch failed')).toBe(
+    '{"systemMessage":"gh: [🛡️ 1]\\ngh: ⚠️ fetch failed"}\n',
+  )
   expect(emit('a "quote"')).toBe('{"systemMessage":"a \\"quote\\""}\n')
 })
 
@@ -255,14 +259,22 @@ interface Case {
     env?: NodeJS.ProcessEnv
   }
   readonly line: string | null
-  /** How many lines the status line has, 1 when not given. Only missing
-   *  tools give more: one line for each missing tool. */
-  readonly lines?: number
   /** How many failures the debug log gets, one line each. */
   readonly failures: number
 }
 
 const ONE = (rig: Rig): string => githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+
+/** A git whose fetch fails as GitHub refuses a bad token. */
+const BAD_TOKEN = (rig: Rig): string =>
+  wrappedGit(
+    rig,
+    'bin-bad-token',
+    [
+      "  fetch*) echo 'remote: Invalid username or token. Password authentication is not supported.' >&2",
+      "    echo 'fatal: Authentication failed' >&2; exit 128 ;;",
+    ].join('\n'),
+  )
 
 const CASES: readonly Case[] = [
   {
@@ -285,7 +297,7 @@ const CASES: readonly Case[] = [
       }
       return { cwd: work, gh: answering({ 'acme/widgets': side(2, 3, [row]) }) }
     },
-    line: 'gh: [behind 1] [prune 1] [🤖 3] [🛡️ 2]',
+    line: 'gh: [behind] [✂️ 1] [🤖 3] [🛡️ 2]',
     failures: 0,
   },
   {
@@ -296,7 +308,7 @@ const CASES: readonly Case[] = [
       onGitHub(rig, rig.git.createAt(folder, 'b'), 'acme/b')
       return { cwd: folder, gh: answering({ 'acme/a': side(1), 'acme/b': side(1) }) }
     },
-    line: 'gh: 2 repos [🛡️ 2]',
+    line: 'gh: [repos: 2] [🛡️ 2]',
     failures: 0,
   },
   {
@@ -305,7 +317,7 @@ const CASES: readonly Case[] = [
       cwd: ONE(rig),
       gh: createGhMock({ repositoryStatus: ghFails('gh: first line\nsecond line') }),
     }),
-    line: 'gh: ⚠️',
+    line: 'gh: ⚠️ GitHub request failed: first line',
     failures: 1,
   },
   {
@@ -319,7 +331,7 @@ const CASES: readonly Case[] = [
         },
       }),
     }),
-    line: 'gh: [🤖 1] ⚠️',
+    line: 'gh: [🤖 1]\ngh: ⚠️ GitHub request failed: one\ngh: ⚠️ alerts could not be read',
     failures: 2,
   },
   {
@@ -333,7 +345,7 @@ const CASES: readonly Case[] = [
       gh: { ...createGhMock(), repositoryStatus: () => new Promise(() => {}) },
       deadlineMs: 2_000,
     }),
-    line: 'gh: ⚠️',
+    line: 'gh: ⚠️ timed out\ngh: ⚠️ GitHub request timed out',
     failures: 2,
   },
   {
@@ -341,6 +353,31 @@ const CASES: readonly Case[] = [
     build: (rig) => ({ cwd: rig.git.create(rig.sandbox.join('r')), gh: createGhMock() }),
     line: null,
     failures: 0,
+  },
+  {
+    name: 'one cause in a folder of three repositories',
+    build: (rig) => {
+      const folder = rig.sandbox.join('folder')
+      for (const name of ['a', 'b', 'c'])
+        onGitHub(rig, rig.git.createAt(folder, name), `acme/${name}`)
+      return {
+        cwd: folder,
+        gh: answering({ 'acme/a': side(), 'acme/b': side(), 'acme/c': side(1) }),
+        env: { ...rig.sandbox.env, PATH: BAD_TOKEN(rig) },
+      }
+    },
+    line: 'gh: [repos: 3] [🛡️ 1]\ngh: ⚠️ fetch failed in 3 repos: Invalid username or token',
+    failures: 3,
+  },
+  {
+    name: 'one cause in one repository',
+    build: (rig) => ({
+      cwd: ONE(rig),
+      gh: answering({ 'acme/widgets': side() }),
+      env: { ...rig.sandbox.env, PATH: BAD_TOKEN(rig) },
+    }),
+    line: 'gh: ⚠️ fetch failed: Invalid username or token',
+    failures: 1,
   },
   {
     name: 'a missing git',
@@ -370,13 +407,12 @@ const CASES: readonly Case[] = [
       env: { ...rig.sandbox.env, PATH: rig.sandbox.join('no-bin') },
     }),
     line: 'gh: ⚠️ git not found on PATH\ngh: ⚠️ GitHub CLI (gh) not found on PATH',
-    lines: 2,
     failures: 2,
   },
 ]
 
 for (const example of CASES) {
-  it(`writes at most one line per problem, and no additionalContext, for ${example.name}`, async () => {
+  it(`writes one status line and one line per kind, and no additionalContext, for ${example.name}`, async () => {
     const rig = createRig()
     const built = example.build(rig)
 
@@ -387,7 +423,7 @@ for (const example of CASES) {
     })
 
     expect(ran.status).toBe(0)
-    expectStatusLines(ran.stdout, example.lines)
+    expectStatusLines(ran.stdout)
     expect(ran.stdout).toBe(example.line === null ? '' : emit(example.line))
     // The account on stderr is for the debug log: one line per failure, even
     // when a reason held a newline of its own.

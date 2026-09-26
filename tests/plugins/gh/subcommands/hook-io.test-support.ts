@@ -159,11 +159,16 @@ export const statusOf = (
   overrides: Partial<HookEdges> = {},
 ): Promise<Ran> => runHook(rig, ['status', dir], gh, overrides)
 
-/** The #230 acceptance rule for one run of `session-start`: nothing, or one
- *  JSON document on one line, with exactly `lines` lines in `systemMessage`
- *  and no `additionalContext` at all. The status line is one line. Only a
- *  missing tool gives more, one line for each tool. */
-export const expectStatusLines = (stdout: string, lines = 1): void => {
+/** The start of each problem line. */
+const PROBLEM = 'gh: ⚠️ '
+
+/**
+ * The #230 acceptance rule for one run of `session-start`: nothing, or one
+ * JSON document on one line, with `systemMessage` and no `additionalContext`
+ * at all. In `systemMessage`, at most one status line comes first. Each other
+ * line is a problem line, and no kind of problem shows twice.
+ */
+export const expectStatusLines = (stdout: string): void => {
   if (stdout === '') return
   expect(stdout.endsWith('\n')).toBe(true)
   expect(stdout.slice(0, -1)).not.toContain('\n')
@@ -172,6 +177,13 @@ export const expectStatusLines = (stdout: string, lines = 1): void => {
   expect(typeof body.systemMessage).toBe('string')
   const message = body.systemMessage as string
   expect(message).not.toMatch(/[\r\u2028\u2029]/)
-  expect(message.split('\n')).toHaveLength(lines)
-  expect(message.split('\n')).not.toContain('')
+  const [first = '', ...rest] = message.split('\n')
+  const problems = first.startsWith(PROBLEM) ? [first, ...rest] : rest
+  if (!first.startsWith(PROBLEM)) expect(first).toMatch(/^gh: \[[^\n]+\]$/)
+  for (const line of problems) expect(line.startsWith(PROBLEM), line).toBe(true)
+  // The kind is the fixed text, before a count or a cause.
+  const kinds = problems.map(
+    (line) => line.slice(PROBLEM.length).split(/: | in [0-9]+ repos?\b/)[0],
+  )
+  expect(new Set(kinds).size, message).toBe(kinds.length)
 }

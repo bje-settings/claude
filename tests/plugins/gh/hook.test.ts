@@ -100,7 +100,9 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
   expect(Date.now() - started).toBeLessThan(5_000)
   expect(result.status).toBe(0)
   expectStatusLines(result.stdout)
-  expect(result.stdout).toBe('{"systemMessage":"gh: [behind 1] [prune 1] ⚠️"}\n')
+  expect(result.stdout).toBe(
+    '{"systemMessage":"gh: [behind] [✂️ 1]\\ngh: ⚠️ GitHub request failed: stand-in for tests"}\n',
+  )
   expect(result.stderr).toBe('GitHub: gh: stand-in for tests\n')
   // The fetch moved `origin/main` and removed `origin/goner`. Nothing else
   // changed.
@@ -115,7 +117,9 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
 
   // `status` writes the same line, bare.
   const status = runScript(HOOK, { args: ['status', work], env })
-  expect(status.stdout).toBe('gh: [behind 1] [prune 1] ⚠️\n')
+  expect(status.stdout).toBe(
+    'gh: [behind] [✂️ 1]\ngh: ⚠️ GitHub request failed: stand-in for tests\n',
+  )
 })
 
 it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json gives it', () => {
@@ -135,7 +139,9 @@ it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json giv
   // do, so the fetch must stop at the deadline too, not when it gives up.
   expect(Date.now() - started).toBeLessThan(10_000)
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️"}\n')
+  expect(result.stdout).toBe(
+    '{"systemMessage":"gh: ⚠️ timed out\\ngh: ⚠️ GitHub request failed: stand-in for tests"}\n',
+  )
   expect(result.stderr).toContain('did not finish in 5000 ms\n')
 })
 
@@ -165,7 +171,7 @@ it('gives a late second origin read only the time that is left', () => {
   // time the first read had would live until about 8 s.
   expect(Date.now() - started).toBeLessThan(7_000)
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️"}\n')
+  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️ timed out"}\n')
   expect(result.stderr).toContain('did not finish in 5000 ms\n')
 })
 

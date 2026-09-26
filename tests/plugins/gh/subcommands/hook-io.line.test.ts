@@ -1,50 +1,46 @@
-// The pure parts of the SessionStart hook: the line, the response that
-// carries it, and the origin URL parser. Each is a function of its
-// arguments alone, so these tests start no process and build no repository.
+// The pure parts of the SessionStart hook: the status line and the origin
+// URL parser. Each is a function of its arguments alone, so these tests
+// start no process and build no repository.
 import { expect, it } from 'vitest'
-import {
-  githubRepository,
-  missingTools,
-  problemLine,
-  type StatusCounts,
-  statusLine,
-} from '#gh/subcommands/hook-io.ts'
+import { githubRepository, type StatusCounts, statusLine } from '#gh/subcommands/hook-io.ts'
 
 const ZERO: StatusCounts = { behind: 0, prune: 0, dependencies: 0, alerts: 0 }
 
-it('says nothing when every count is zero and nothing failed', () => {
-  expect(statusLine(ZERO, 1, false)).toBeNull()
-  expect(statusLine(ZERO, 5, false)).toBeNull()
+it('says nothing when every count is zero', () => {
+  expect(statusLine(ZERO, 1)).toBeNull()
+  expect(statusLine(ZERO, 5)).toBeNull()
 })
 
 it('writes each item alone, in its own words', () => {
-  expect(statusLine({ ...ZERO, behind: 3 }, 1, false)).toBe('gh: [behind 3]')
-  expect(statusLine({ ...ZERO, prune: 2 }, 1, false)).toBe('gh: [prune 2]')
-  expect(statusLine({ ...ZERO, dependencies: 4 }, 1, false)).toBe('gh: [🤖 4]')
-  expect(statusLine({ ...ZERO, alerts: 1 }, 1, false)).toBe('gh: [🛡️ 1]')
+  expect(statusLine({ ...ZERO, behind: 3 }, 1)).toBe('gh: [behind]')
+  expect(statusLine({ ...ZERO, prune: 2 }, 1)).toBe('gh: [✂️ 2]')
+  expect(statusLine({ ...ZERO, dependencies: 4 }, 1)).toBe('gh: [🤖 4]')
+  expect(statusLine({ ...ZERO, alerts: 1 }, 1)).toBe('gh: [🛡️ 1]')
 })
 
-it('writes every item together, in the fixed order, with the warning last', () => {
-  expect(statusLine({ behind: 1, prune: 2, dependencies: 3, alerts: 4 }, 1, true)).toBe(
-    'gh: [behind 1] [prune 2] [🤖 3] [🛡️ 4] ⚠️',
+it('writes every item together, in the fixed order', () => {
+  expect(statusLine({ behind: 1, prune: 2, dependencies: 3, alerts: 4 }, 1)).toBe(
+    'gh: [behind] [✂️ 2] [🤖 3] [🛡️ 4]',
   )
 })
 
 it('leaves out a zero count between two counts above zero', () => {
-  expect(statusLine({ behind: 1, prune: 0, dependencies: 0, alerts: 4 }, 1, false)).toBe(
-    'gh: [behind 1] [🛡️ 4]',
+  expect(statusLine({ behind: 1, prune: 0, dependencies: 0, alerts: 4 }, 1)).toBe(
+    'gh: [behind] [🛡️ 4]',
   )
 })
 
-it('writes the warning alone when something failed and no count is above zero', () => {
-  expect(statusLine(ZERO, 1, true)).toBe('gh: ⚠️')
+it('names the repository count first, only when there is more than one repository', () => {
+  expect(statusLine({ ...ZERO, prune: 1 }, 2)).toBe('gh: [repos: 2] [✂️ 1]')
+  expect(statusLine({ behind: 9, prune: 27, dependencies: 0, alerts: 0 }, 21)).toBe(
+    'gh: [repos: 21] [behind] [✂️ 27]',
+  )
+  expect(statusLine({ ...ZERO, prune: 1 }, 1)).toBe('gh: [✂️ 1]')
+  expect(statusLine({ ...ZERO, prune: 1 }, 0)).toBe('gh: [✂️ 1]')
 })
 
-it('names the repository count only when there is more than one repository', () => {
-  expect(statusLine({ ...ZERO, prune: 1 }, 2, false)).toBe('gh: 2 repos [prune 1]')
-  expect(statusLine({ ...ZERO, prune: 1 }, 21, true)).toBe('gh: 21 repos [prune 1] ⚠️')
-  expect(statusLine({ ...ZERO, prune: 1 }, 1, false)).toBe('gh: [prune 1]')
-  expect(statusLine({ ...ZERO, prune: 1 }, 0, false)).toBe('gh: [prune 1]')
+it('shows no line for the repository count alone', () => {
+  expect(statusLine(ZERO, 21)).toBeNull()
 })
 
 it('reads owner and name from every github.com URL form git accepts', () => {
@@ -92,18 +88,4 @@ it('answers null for a remote that is not on github.com', () => {
     'git@github.com:acme/widgets.git\n',
   ]
   for (const url of others) expect([url, githubRepository(url)]).toEqual([url, null])
-})
-
-it('names each missing tool as a problem of its own', () => {
-  expect(missingTools([])).toEqual([])
-  expect(missingTools(['git'])).toEqual(['git not found on PATH'])
-  expect(missingTools(['gh'])).toEqual(['GitHub CLI (gh) not found on PATH'])
-  expect(missingTools(['git', 'gh'])).toEqual([
-    'git not found on PATH',
-    'GitHub CLI (gh) not found on PATH',
-  ])
-})
-
-it('shows a problem that stops every check, and nothing else', () => {
-  expect(problemLine('git not found on PATH')).toBe('gh: ⚠️ git not found on PATH')
 })

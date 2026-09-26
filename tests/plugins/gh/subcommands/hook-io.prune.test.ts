@@ -130,7 +130,7 @@ const pruneOf = async (rig: Rig, work: string, merged: unknown[] = []): Promise<
   const ran = await statusOf(rig, work, gh)
   expect(ran.stderr).toBe('')
   if (ran.stdout === '') return 0
-  const match = /^gh: \[prune ([0-9]+)\]\n$/.exec(ran.stdout)
+  const match = /^gh: \[✂️ ([0-9]+)\]\n$/.exec(ran.stdout)
   expect(match, ran.stdout).not.toBeNull()
   return Number(match?.[1])
 }
