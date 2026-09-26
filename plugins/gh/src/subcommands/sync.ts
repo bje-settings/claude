@@ -16,15 +16,14 @@
 // finished.
 //
 // Anything with no in-process counterpart went away with the child
-// process. The PR body lists each such line and the test that pinned it.
-// The job's own section reported three cases. A child could fail to
-// start. A child could exit non-zero. Or a signal could kill a child.
+// process. The job's own section reported three cases. A child could fail
+// to start. A child could exit non-zero. Or a signal could kill a child.
 //
-// A direct call cannot fail to start. The real job, `syncRepo`, never
-// answers anything but 0 (its own status is dead weight in production).
-// `RepoJob`'s status exists for the stand-in a test drives. #81 (round 7)
-// decided this: a non-zero answer, like a throw, now makes this command
-// answer `failed`. Before, nobody read that answer.
+// A direct call cannot fail to start, and it has no exit status of its
+// own: `RepoJob` answers `Promise<void>`. Only a throw is left. #81 (round
+// 7) decided that a throw makes this command answer `failed`. #218
+// finding 8 removed the two arms that once read a non-zero status nothing
+// could produce.
 //
 // **#127 deleted the Python this ports.** `plugins/gh/scripts/*.py`, its
 // `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from the
@@ -85,24 +84,11 @@ order, never in the order the jobs happened to finish.`
 export const failureLine = (error: unknown): string =>
   `${REPORT.bad}the sync failed: ${error instanceof Error ? error.message : String(error)}\n`
 
-/**
- * What a job says when it returns a non-zero status and does not throw.
- * It uses the same vocabulary {@link failureLine} uses for a job that
- * threw. See #81, round 7 ruling 2, `tests/plugins/gh/fixtures/divergences.json`
- * "exitStatus". `RepoJob` promises a status, but the real job, `syncRepo`,
- * never answers anything but 0. A test can reach this code only through a
- * stand-in it drives. This is the same way a test reaches `failureLine`,
- * through a job that throws.
- */
-export const statusLine = (status: number): string =>
-  `${REPORT.bad}the sync failed: exited with status ${status}\n`
-
 /** The section a repository's job left, and whether that job counts as
- *  failed. Failed means a throw, or a non-zero status with no throw.
- *  This is data. It is never a mark the command re-reads out of the text
- *  (round 7 ruling B). A section can print its own `✗`, from a
- *  merge-proof lookup that could not be read. That does not mean this
- *  repository's job failed. */
+ *  failed. Failed means the job threw. This is data. It is never a mark
+ *  the command re-reads out of the text (round 7 ruling B). A section can
+ *  print its own `✗`, from a merge-proof lookup that could not be read.
+ *  That does not mean this repository's job failed. */
 export interface RepoResult {
   readonly section: string
   readonly failed: boolean
@@ -140,7 +126,7 @@ const appendFailure = (chunks: string[], repo: string, line: string): void => {
  *  (`TIMED_JOB`, `SPLIT_JOB` in `tests/gh/test_gh_sync.py`). With the
  *  fan-out in-process, the stand-in is a function instead of a file. A
  *  test still asserts the throttle and the section order the same way. */
-export type RepoJob = (options: SyncRepoOptions) => Promise<number>
+export type RepoJob = (options: SyncRepoOptions) => Promise<void>
 
 /** What the command line asked for. */
 export interface SyncRequest {
@@ -289,7 +275,7 @@ export const createSyncCommand =
       })
       let repoFailed = false
       try {
-        const status = await job({
+        await job({
           repo,
           dryRun,
           noInstall,
@@ -297,15 +283,6 @@ export const createSyncCommand =
           createGh: context.createGh,
           report,
         })
-        // #81 (round 7 ruling A): a status that nobody reads is dead
-        // weight. The real job, `syncRepo`, never answers anything but 0.
-        // A stand-in that a test drives can answer non-zero and not throw.
-        // That counts as a failure of this repository's job, exactly as a
-        // throw does.
-        if (status !== 0) {
-          repoFailed = true
-          appendFailure(chunks, repo, statusLine(status))
-        }
       } catch (error) {
         // `gh-sync.py:123` to `:135` states the rule for a job that raises:
         // "would otherwise raise out of the pool and take every other
@@ -340,15 +317,14 @@ export const createSyncCommand =
     // so.
     const only = repos.length === 1 ? repos[0] : undefined
     if (only !== undefined && (await toplevel(found.resolved, context.env)) !== null) {
-      // #81: this code used to drop the status outright, the way the
-      // shell version dropped it at its lines 72 to 73. See
-      // `tests/plugins/gh/fixtures/divergences.json` "exitStatus". A skipped repository
-      // is still exit 0 (`sync-repo.ts` always answers 0 for one). That
-      // has not changed. Only a job that threw, or answered non-zero, now
-      // makes this path answer `failed`.
+      // #81: this code used to drop a throw outright, the way the shell
+      // version dropped its child's exit status at its lines 72 to 73. A
+      // skipped repository is still exit 0 (`sync-repo.ts` always answers
+      // that for one). Only a job that throws now makes this path answer
+      // `failed`.
       let repoFailed = false
       try {
-        const status = await job({
+        await job({
           repo: only,
           dryRun,
           noInstall,
@@ -356,10 +332,6 @@ export const createSyncCommand =
           createGh: context.createGh,
           report: context.output.out,
         })
-        if (status !== 0) {
-          repoFailed = true
-          context.output.out.write(statusLine(status))
-        }
       } catch (error) {
         // This gives the same account, but on a path with no section to
         // fold it into. `gh-sync.py:245` to `:251` did the same for a

@@ -79,11 +79,10 @@ describe('the fan-out', () => {
     for (const name of ['a', 'b', 'c']) f.git.createAt(f.sandbox.join('fan'), name)
 
     const result = await run(f, [f.sandbox.join('fan')], {
-      job: async (options: SyncRepoOptions): Promise<number> => {
+      job: async (options: SyncRepoOptions): Promise<void> => {
         const name = path.basename(options.repo)
         if (name === 'b') throw new Error('boom')
         options.report.write(`${name}\n`)
-        return 0
       },
     })
 
@@ -111,11 +110,10 @@ describe('the fan-out', () => {
     f.git.createAt(f.sandbox.join('fan'), 'b')
 
     const result = await run(f, [f.sandbox.join('fan')], {
-      job: async (options: SyncRepoOptions): Promise<number> => {
+      job: async (options: SyncRepoOptions): Promise<void> => {
         const name = path.basename(options.repo)
         options.report.write(name === 'a' ? 'half a line' : `${name}\n`)
         if (name === 'a') throw new Error('boom')
-        return 0
       },
     })
 
@@ -133,11 +131,10 @@ describe('the fan-out', () => {
     f.git.createAt(f.sandbox.join('fan'), 'b')
 
     const result = await run(f, [f.sandbox.join('fan')], {
-      job: async (options: SyncRepoOptions): Promise<number> => {
+      job: async (options: SyncRepoOptions): Promise<void> => {
         const name = path.basename(options.repo)
         options.report.write(`${name}\n`)
         if (name === 'a') throw new Error('boom')
-        return 0
       },
     })
 
@@ -161,7 +158,7 @@ describe('the fan-out', () => {
     const notAnError: unknown = 'boom'
 
     const result = await run(f, [work], {
-      job: async (): Promise<number> => {
+      job: async (): Promise<void> => {
         throw notAnError
       },
     })
@@ -221,11 +218,10 @@ describe('the fan-out', () => {
   it('hands each job its own writer, so one job cannot silence another', async () => {
     const f = fixture()
     for (const name of ['a', 'b']) f.git.createAt(f.sandbox.join('fan'), name)
-    const job = async (options: SyncRepoOptions): Promise<number> => {
+    const job = async (options: SyncRepoOptions): Promise<void> => {
       const name = path.basename(options.repo)
       if (name === 'a') options.report.silence()
       options.report.write(`${name}\n`)
-      return 0
     }
 
     const result = await run(f, [f.sandbox.join('fan')], { job })

@@ -246,6 +246,16 @@ class SyncRepoRun {
   private tip = ''
   /** branch -> worktree path. Filled once the prune section is reached. */
   private readonly worktrees = new Map<string, string>()
+  /** `git worktree list --porcelain`, split into lines. {@link preflight}
+   *  fills this once, through {@link linkedWorktreeInProgress}, before the
+   *  fetch and the advance. {@link readWorktrees} reads it back rather than
+   *  asking git a second time (#218 finding 6): a second read, moments
+   *  later, of the same fact preflight already answered would be a branch
+   *  no test could tell apart from the first. Only this checkout's own
+   *  entry can be stale by the time {@link readWorktrees} runs, and its
+   *  worktree path is `top` either way, before or after a switch, so a
+   *  branch it names reads as "not linked" under both. */
+  private worktreeLines: string[] = []
   /** Pull-request state, all of it "unknown" until the bulk lookup runs. */
   private prLookupOk = false
   private prRows: PullRequestRow[] = []
@@ -341,8 +351,9 @@ class SyncRepoRun {
   private async linkedWorktreeInProgress(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) return 'cannot list worktrees'
+    this.worktreeLines = out.split('\n')
     let current = ''
-    for (const line of out.split('\n')) {
+    for (const line of this.worktreeLines) {
       if (!line.startsWith('worktree ')) continue
       current = line.slice('worktree '.length)
       if (current === this.top) continue
@@ -684,22 +695,19 @@ class SyncRepoRun {
 
   // ------------------------------------------------------------- prune ---
 
-  /** Fills `worktrees` with branch -> worktree path. This answers with a
-   *  reason to skip when the list cannot be read: an empty map would make
-   *  every branch look free of a worktree, and this map is what stands
-   *  between real uncommitted work and a force delete. This runs after the
-   *  checkout has switched, so the map shows the post-switch branch. The
-   *  linked-worktree in-progress check now runs earlier, in
-   *  {@link preflight} through {@link linkedWorktreeInProgress}, before the
-   *  fetch and the advance (#218 finding 6). This function keeps only the
-   *  branch map. */
-  private async readWorktrees(): Promise<string | null> {
-    const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
-    if (out === null) {
-      return 'cannot list worktrees'
-    }
+  /** Fills `worktrees` with branch -> worktree path, from the lines
+   *  {@link preflight} already read through {@link linkedWorktreeInProgress}.
+   *  That read fails closed: an unreadable list skips the whole run before
+   *  this function is ever reached, so `worktreeLines` is always the real
+   *  list by now. This function asks git nothing a second time (#218
+   *  finding 6): a second read, moments after the first, of the exact same
+   *  fact would be a branch no test could tell apart from the first. Only
+   *  this checkout's own entry can be stale here (the checkout may have
+   *  switched branch since), and its worktree path is `top` either way, so
+   *  a branch it names reads as "not linked" under both. */
+  private readWorktrees(): void {
     let current = ''
-    for (const line of out.split('\n')) {
+    for (const line of this.worktreeLines) {
       if (line.startsWith('worktree ')) {
         current = line.slice('worktree '.length)
       } else if (line.startsWith('branch refs/heads/')) {
@@ -711,7 +719,6 @@ class SyncRepoRun {
         this.worktrees.set(line.slice('branch refs/heads/'.length), current)
       }
     }
-    return null
   }
 
   private async prune(ancestry: string[] | null): Promise<string | null> {
@@ -914,8 +921,7 @@ class SyncRepoRun {
       return null
     }
 
-    const occupied = await this.readWorktrees()
-    if (occupied !== null) return occupied
+    this.readWorktrees()
     const unpruned = await this.prune(ancestry)
     if (unpruned !== null) return unpruned
 
@@ -923,9 +929,10 @@ class SyncRepoRun {
     return null
   }
 
-  /** The job's own status, which is 0 for a synced repository and for a
-   *  skipped one alike. */
-  async run(): Promise<number> {
+  /** Sync or skip. #218 finding 8: this answers nothing, because nothing
+   *  read its status. Only a throw ever made this command's own answer
+   *  anything but ok. */
+  async run(): Promise<void> {
     const skipped = await this.attempt()
     if (skipped !== null) {
       // A skipped repository prints its reason and ends cleanly. Every
@@ -934,7 +941,6 @@ class SyncRepoRun {
       // fetch.
       this.bad(`${REPORT.skipped}${skipped}`)
     }
-    return 0
   }
 }
 
@@ -959,8 +965,7 @@ const isPresent = (target: string): boolean => {
  * child process the Python starts becomes a direct call, with a
  * concurrency limit instead.
  */
-export const syncRepo = (options: SyncRepoOptions): Promise<number> =>
-  new SyncRepoRun(options).run()
+export const syncRepo = (options: SyncRepoOptions): Promise<void> => new SyncRepoRun(options).run()
 
 /** What the command line asked for. */
 export interface SyncRepoRequest {

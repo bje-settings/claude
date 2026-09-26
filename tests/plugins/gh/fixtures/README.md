@@ -58,9 +58,10 @@ example asserts two things: each state now reads in the Python's own words, and 
 to print appears nowhere in the report. This check is what prevents a quiet return of the old
 lines to the table. The sentence this replaced claimed as much, but nothing enforced it.
 
-`exitStatus` and `failureSummary` are #81's tables. The first is a was/now/why row, like the
-others. The second states the new stderr wording. It does not substitute for an old one, because
-there is no shell or Python line that either one replaces.
+`failureSummary` is #81's table. It states the new stderr wording. It does not substitute for an
+old one, because there is no shell or Python line it replaces. #218 finding 8 removed
+`exitStatus`: the arms it once described read a non-zero job status that nothing could ever
+produce, and both are gone.
 
 ## `deleted-cwd.ts`
 

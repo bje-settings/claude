@@ -15,9 +15,10 @@
 // order exactly as before.
 //
 // The code used to drop the status at this point. Issue #81 (round 7)
-// changed that: a throw, or a non-zero answer, now makes the run answer
-// `failed`. The section "the exit status" below describes where that fact
-// lands.
+// changed that: a throw now makes the run answer `failed`. The section
+// "the exit status" below describes where that fact lands. `RepoJob`
+// promised a status too, until #218 finding 8 removed the dead arms that
+// read it: the real job, `syncRepo`, never answered anything but 0.
 //
 // **Issue #127 deleted the Python code this file ports.**
 // `plugins/gh/scripts/*.py`, its `lib/`, `plugins/gh/hooks/hook-io.py`, and
@@ -119,7 +120,7 @@ export function fixture(): Fixture {
 export async function run(
   f: Fixture,
   argv: readonly string[],
-  options: { job?: (job: SyncRepoOptions) => Promise<number>; cwd?: string } = {},
+  options: { job?: (job: SyncRepoOptions) => Promise<void>; cwd?: string } = {},
 ) {
   const captured = capture()
   const command = options.job === undefined ? runSync : createSyncCommand(options.job)
@@ -149,12 +150,11 @@ export function normalise(text: string, sandbox: Sandbox): string {
  *  from the outside, not from a guess based on the output order. This
  *  function is the port of the Python's `TIMED_JOB`. */
 export function timedJob(spans: { name: string; start: number; end: number }[], ms: number) {
-  return async (options: SyncRepoOptions): Promise<number> => {
+  return async (options: SyncRepoOptions): Promise<void> => {
     const start = performance.now()
     await new Promise((resolve) => setTimeout(resolve, ms))
     spans.push({ name: path.basename(options.repo), start, end: performance.now() })
     options.report.write(`${path.basename(options.repo)}\n`)
-    return 0
   }
 }
 
