@@ -69,6 +69,25 @@ const scopeOf = (source: string, target: string, enterprises: Enterprises): Scop
 }
 
 /**
+ * The viewer's enterprises, or the reason the list is not whole.
+ *
+ * The endpoint's contract is that it never throws. This still catches, so
+ * a client that breaks the contract reads as "unknown", never as a crash
+ * that loses the answer for a same-owner source.
+ */
+const readEnterprises = async (
+  gh: GhClient,
+): Promise<{ enterprises: Enterprises; unavailable: string | null }> => {
+  try {
+    return await gh.viewerEnterprises()
+  } catch (error) {
+    // The cast adds no branch. What a client throws is an `Error`, and a
+    // guard for anything else would be an arm no input can reach.
+    return { enterprises: [], unavailable: (error as Error).message }
+  }
+}
+
+/**
  * Print the scope of each source owner against `--target`, as one JSON
  * document on stdout, and answer with the exit status.
  */
@@ -80,13 +99,18 @@ export const runOrgScope = async (
   const target = argv[1] as string
   const sources = argv.slice(2)
   const others = sources.filter((source) => key(source) !== key(target))
-  const { enterprises } = others.length === 0 ? { enterprises: [] } : await gh.viewerEnterprises()
-  const results = sources.map(
-    (source): ScopeResult =>
-      key(source) === key(target)
-        ? { source, scope: 'same-owner' }
-        : scopeOf(source, target, enterprises),
-  )
+  const { enterprises, unavailable } =
+    others.length === 0 ? { enterprises: [], unavailable: null } : await readEnterprises(gh)
+  // A short list fails closed for every source. The rows read so far may
+  // name both owners, but a list that is not whole is not an answer.
+  if (unavailable !== null) {
+    output.err.write(`org-scope: the enterprise list could not be read: ${unavailable}\n`)
+  }
+  const results = sources.map((source): ScopeResult => {
+    if (key(source) === key(target)) return { source, scope: 'same-owner' }
+    if (unavailable !== null) return { source, scope: 'unknown' }
+    return scopeOf(source, target, enterprises)
+  })
   output.out.write(`${JSON.stringify({ target, results })}\n`)
   return 0
 }

@@ -6,7 +6,7 @@
 import { expect, it } from 'vitest'
 import type { Output, Writer } from '#gh/lib/streams.ts'
 import { runOrgScope } from '#gh/subcommands/org-scope.ts'
-import { createGhMock, type GhReplies } from '#harness/gh.ts'
+import { createGhMock, type GhReplies, ghFails } from '#harness/gh.ts'
 
 const collector = (): Writer & { text: () => string } => {
   const chunks: string[] = []
@@ -109,5 +109,64 @@ it('calls a source in no enterprise the viewer can see outside', async () => {
   expect(JSON.parse(result.stdout)).toEqual({
     target: 'acme-one',
     results: [{ source: 'unseen-org', scope: 'outside' }],
+  })
+})
+
+it('calls every source but the same owner unknown when gh fails, with the reason on stderr', async () => {
+  const result = await orgScope(['--target', 'acme-one', 'acme-two', 'ACME-ONE'], {
+    viewerEnterprises: ghFails('gh: API rate limit exceeded'),
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe(
+    'org-scope: the enterprise list could not be read: gh: API rate limit exceeded\n',
+  )
+  expect(JSON.parse(result.stdout)).toEqual({
+    target: 'acme-one',
+    results: [
+      { source: 'acme-two', scope: 'unknown' },
+      { source: 'ACME-ONE', scope: 'same-owner' },
+    ],
+  })
+})
+
+it('calls a source unknown when the list is short, even when the rows read so far name both owners', async () => {
+  const result = await orgScope(['--target', 'acme-one', 'acme-two', 'unseen-org'], {
+    viewerEnterprises: {
+      enterprises: [{ slug: 'acme-ent', organizations: ['acme-one', 'acme-two'] }],
+      unavailable: 'enterprise acme-ent has more organizations than the 100 this reads',
+    },
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe(
+    'org-scope: the enterprise list could not be read: ' +
+      'enterprise acme-ent has more organizations than the 100 this reads\n',
+  )
+  expect(JSON.parse(result.stdout)).toEqual({
+    target: 'acme-one',
+    results: [
+      { source: 'acme-two', scope: 'unknown' },
+      { source: 'unseen-org', scope: 'unknown' },
+    ],
+  })
+})
+
+it('answers each of several sources on its own, in the order given', async () => {
+  const result = await orgScope(
+    ['--target', 'acme-one', 'acme-one', 'acme-two', 'zeta-one', 'some-user'],
+    ENTERPRISES,
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.stderr).toBe('')
+  expect(JSON.parse(result.stdout)).toEqual({
+    target: 'acme-one',
+    results: [
+      { source: 'acme-one', scope: 'same-owner' },
+      { source: 'acme-two', scope: 'same-enterprise', enterprise: 'acme-ent' },
+      { source: 'zeta-one', scope: 'outside' },
+      { source: 'some-user', scope: 'outside' },
+    ],
   })
 })
