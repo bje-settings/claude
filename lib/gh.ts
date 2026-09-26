@@ -320,13 +320,6 @@ export interface GhResults {
     readonly states: Readonly<Record<string, IssueState | 'not_found'>>
     readonly unavailable: string | null
   }
-  /** Every enterprise the viewer belongs to, each with the logins of the
-   *  organizations it lists, or the reason the list is not whole (see
-   *  {@link GhClient.viewerEnterprises}). */
-  viewerEnterprises: {
-    readonly enterprises: readonly Enterprise[]
-    readonly unavailable: string | null
-  }
   /** The repository's open milestones. */
   listMilestones: PagedResult<MilestoneSummary>
   /** Open issues, with their dependency relationships. */
@@ -429,19 +422,6 @@ export interface GhClient {
    * a finding out of a failure to ask.
    */
   issueStates(query: { readonly numbers: readonly number[] }): Promise<GhResults['issueStates']>
-  /**
-   * Every enterprise of the viewer, the account that gh uses. Each one comes
-   * with the logins of the organizations it lists. `org-scope` (#233)
-   * reads it to find whether two owners share an enterprise. GraphQL has no
-   * field that names the enterprise of an organization, so the viewer's own
-   * list is the one source.
-   *
-   * Never throws. A failed read, a partial answer, or a list that has more
-   * pages than this reads, sets `unavailable`. A caller must then not read
-   * the list as whole. An owner absent from a short list can still be in an
-   * enterprise.
-   */
-  viewerEnterprises(): Promise<GhResults['viewerEnterprises']>
   /**
    * The repository's open milestones, with their open and closed issue
    * counts. Never throws, for {@link PagedResult}'s reason.
@@ -1354,73 +1334,6 @@ const record = (result: RunResult, what: string): Record<string, unknown> => {
   return value as Record<string, unknown>
 }
 
-/** One enterprise the viewer belongs to, with the logins of the
- *  organizations it lists. */
-export interface Enterprise {
-  readonly slug: string
-  readonly organizations: readonly string[]
-}
-
-/**
- * The GraphQL query for {@link GhClient.viewerEnterprises}. The enterprises
- * connection takes a cursor, and the organizations connection asks only
- * whether it has more. This does not page the organizations of one
- * enterprise. When there are more than 100, the endpoint reports a short
- * answer.
- */
-const VIEWER_ENTERPRISES_QUERY =
-  'query($cursor: String) { viewer { enterprises(first: 100, after: $cursor) { ' +
-  'nodes { slug organizations(first: 100) { nodes { login } pageInfo { hasNextPage } } } ' +
-  'pageInfo { hasNextPage endCursor } } } }'
-
-/** One page of `viewer.enterprises`, or `undefined` when the reply carries
- *  no such connection. */
-const parseEnterprisePage = (stdout: string): Page | undefined => {
-  let reply: Record<string, unknown> | undefined
-  try {
-    reply = asRecord(JSON.parse(stdout))
-  } catch {
-    return undefined
-  }
-  const connection = asRecord(asRecord(asRecord(reply?.data)?.viewer)?.enterprises)
-  // `nodesOf` answers null for an absent connection too, so one check
-  // covers both.
-  const nodes = nodesOf(connection)
-  if (nodes === null) return undefined
-  const info = asRecord(connection?.pageInfo)
-  const errorsField = reply?.errors
-  const entries = Array.isArray(errorsField) ? errorsField : []
-  const messages = entries
-    .map((entry) => asRecord(entry)?.message)
-    .filter((message): message is string => typeof message === 'string')
-  return {
-    nodes,
-    hasNextPage: info?.hasNextPage === true,
-    endCursor: asText(info?.endCursor),
-    errors: joinedReasons(messages),
-  }
-}
-
-/** A string with at least one character, or null. An empty slug or login
- *  names nothing, so it reads the same as one that is absent. */
-const asName = (value: unknown): string | null => {
-  const text = asText(value)
-  return text === null || text === '' ? null : text
-}
-
-/** One enterprise node as a row, or null when its slug or any login cannot
- *  be read. A row with one login dropped would be a short list that does not
- *  say so. */
-const readEnterprise = (node: unknown): Enterprise | null => {
-  const entry = asRecord(node)
-  const slug = asName(entry?.slug)
-  const organizations = nodesOf(asRecord(entry?.organizations))
-  if (slug === null || organizations === null) return null
-  const logins = organizations.map((organization) => asName(asRecord(organization)?.login))
-  if (logins.includes(null)) return null
-  return { slug, organizations: logins as string[] }
-}
-
 /** A `GhClient` that runs the real `gh`. */
 export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const spawn = options.run ?? run
@@ -1896,64 +1809,6 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         if (answer.errors !== null) reasons.push(answer.errors)
       }
       return { states, unavailable: joinedReasons(reasons) }
-    },
-
-    // Never throws (the interface's own contract), and reads the body
-    // through `invoke` whatever the exit status, for `issueStates`' reason.
-    viewerEnterprises: async () => {
-      const enterprises: Enterprise[] = []
-      const reasons: string[] = []
-      let unreadable = 0
-      let cursor: string | null = null
-      for (let page = 0; page < SWEEP_PAGES; page += 1) {
-        const result = await invoke([
-          'api',
-          'graphql',
-          ...(cursor === null ? [] : ['-f', `cursor=${cursor}`]),
-          '-f',
-          `query=${VIEWER_ENTERPRISES_QUERY}`,
-        ])
-        const answer = parseEnterprisePage(result.stdout)
-        if (answer === undefined) {
-          reasons.push(accountOf(result))
-          break
-        }
-        // A cursor that does not advance would ask the same question
-        // forever. So the loop stops before it reads the same rows twice.
-        if (answer.endCursor !== null && answer.endCursor === cursor) {
-          reasons.push("enterprises' reply repeated the same cursor without advancing")
-          break
-        }
-        for (const node of answer.nodes) {
-          const row = readEnterprise(node)
-          if (row === null) {
-            unreadable += 1
-            continue
-          }
-          enterprises.push(row)
-          // One page of organizations, and no cursor to ask for more. A
-          // short list says so, because an owner on the page not read would
-          // otherwise read as outside the enterprise.
-          if (asRecord(asRecord(asRecord(node)?.organizations)?.pageInfo)?.hasNextPage === true) {
-            reasons.push(
-              `enterprise ${row.slug} has more organizations than the ${SWEEP_PAGE} this reads`,
-            )
-          }
-        }
-        if (answer.errors !== null) reasons.push(answer.errors)
-        if (!answer.hasNextPage) break
-        if (answer.endCursor === null) {
-          reasons.push('enterprises has more pages and the reply named no cursor to ask with')
-          break
-        }
-        if (page === SWEEP_PAGES - 1) {
-          reasons.push(`enterprises has more pages than the ${SWEEP_PAGES} this reads`)
-          break
-        }
-        cursor = answer.endCursor
-      }
-      if (unreadable > 0) reasons.push(`${unreadable} enterprise row(s) could not be read`)
-      return { enterprises, unavailable: joinedReasons(reasons) }
     },
 
     listMilestones: async () => collect('milestones', MILESTONES_QUERY, [], readMilestone),

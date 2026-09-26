@@ -10,7 +10,7 @@ description: >
   review priority, type or labels; move a dependency from an issue body to its
   field. Also use it when work on an issue finds a follow-up or a dependency,
   and when another skill or agent creates issues.
-allowed-tools: Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue create *) Bash(gh issue edit *) Bash(gh label list *) Bash(gh api graphql *) Bash(gh api repos/*/milestones *) Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" org-scope *) Read AskUserQuestion
+allowed-tools: Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue create *) Bash(gh issue edit *) Bash(gh label list *) Bash(gh api graphql *) Bash(gh api repos/*/milestones *) Read AskUserQuestion
 user-invocable: false
 ---
 

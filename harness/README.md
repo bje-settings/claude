@@ -81,7 +81,7 @@ operation, not after gh's own argv. This way, the interface survives a change to
 endpoints are: `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`,
 `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`,
 `listMilestones`, `listIssues`, `listOpenPullRequests`, `requiredContexts`,
-`viewPullRequestDetail`, `listWorkflowRuns`, `viewerEnterprises`.
+`viewPullRequestDetail`, `listWorkflowRuns`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
@@ -99,8 +99,6 @@ with a null pull request for one it could not read. `listWorkflowRuns` answers
 
 `missing` is true only when GitHub itself said the number does not exist. It is false for every
 other reason the read came back short. A test that registers a reply must say which case it means.
-
-`viewerEnterprises` answers `{ enterprises, unavailable }`, and never throws either.
 
 The double answers `listIssues` with the same reply for any milestone. One registration holds no
 state and has no conditional logic. A test that needs a different answer per milestone must build

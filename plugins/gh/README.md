@@ -305,10 +305,9 @@ Before a write, the skill asks you to confirm. In a subagent it cannot ask. Ther
 only when the request sets every value. Otherwise it returns the proposal to its caller.
 
 An issue can go to a repository of a different owner than the work that gave it context.
-Then the skill runs `gh.ts org-scope` for each source owner before it confirms. The target
-can be outside the source's enterprise, or the check can fail. Then the issue names none of
-the source's repositories, numbers, paths or URLs. The proposal gets an `Omitted:` line with the
-kinds of detail that it removed. The rule is in
+Then the issue names none of that source's repositories, numbers, paths or URLs, even when
+the two owners are in one enterprise. The skill compares owners only, with no API call. The
+proposal gets an `Omitted:` line with the kinds of detail that it removed. The rule is in
 [`skills/issues/cross-org.md`](skills/issues/cross-org.md).
 
 ## Session start hook
@@ -381,7 +380,6 @@ node <plugin>/scripts/gh.ts sync-repo --dry-run /path/to/a/repo
 node <plugin>/scripts/gh.ts discover /path/to/a/directory-of-repos
 node <plugin>/scripts/gh.ts shepherd-status /path/to/a/repo
 node <plugin>/scripts/gh.ts shepherd-pr /path/to/a/repo 12 state
-node <plugin>/scripts/gh.ts org-scope --target acme-one acme-two
 ```
 
 `node <plugin>/scripts/gh.ts` with no command prints the list, and each command prints its own usage
