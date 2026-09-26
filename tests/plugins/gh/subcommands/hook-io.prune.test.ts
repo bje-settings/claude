@@ -4,6 +4,8 @@
 // upstream and a squash merge are the states git itself produces.
 import { expect, it } from 'vitest'
 import { countCandidates } from '#gh/subcommands/hook-io.ts'
+import { createGhMock } from '#harness/gh.ts'
+import { createRig, githubRepo, type Rig, side, statusOf } from './hook-io.test-support.ts'
 
 /** One branch listing line, as `for-each-ref` writes it with the format
  *  `%(refname:lstrip=2)<tab>%(upstream)<tab>%(objectname)`. */
@@ -104,4 +106,124 @@ it('reads a listing line with no separator as a branch with no upstream and no t
   expect(countCandidates(['orphan'], [], [], [], 'side', 'main')).toBe(0)
   const row = { headRefName: 'orphan', headRefOid: '', isCrossRepository: false }
   expect(countCandidates(['orphan'], [], [], [row], 'side', 'main')).toBe(0)
+})
+
+// --- the same rule, on real repositories -------------------------------------
+
+/** Push `name`, and make it track its own remote branch. */
+const pushed = (rig: Rig, work: string, name: string): void => {
+  rig.git.branchWithWork(work, name)
+  rig.git.push(work, name)
+  rig.git.git(work, 'branch', `--set-upstream-to=origin/${name}`, name)
+}
+
+/** The prune count `status` writes for `work`, or 0 for a silent run. */
+const pruneOf = async (rig: Rig, work: string, merged: unknown[] = []): Promise<number> => {
+  const gh = createGhMock({
+    repositoryStatus: {
+      repositories: { 'acme/widgets': side(0, 0, merged) },
+      unavailable: null,
+    },
+  })
+  const ran = await statusOf(rig, work, gh)
+  expect(ran.stderr).toBe('')
+  if (ran.stdout === '') return 0
+  const match = /^gh: \[prune ([0-9]+)\]\n$/.exec(ran.stdout)
+  expect(match, ran.stdout).not.toBeNull()
+  return Number(match?.[1])
+}
+
+it('counts a branch whose remote branch was deleted, once the fetch prunes it', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  pushed(rig, work, 'goner')
+  // The remote branch goes after the merge. The fetch the hook runs is what
+  // removes `origin/goner` here.
+  rig.git.git(rig.sandbox.join('r', 'origin.git'), 'branch', '-D', 'goner')
+
+  expect(await pruneOf(rig, work)).toBe(1)
+})
+
+it('counts a branch merged by ancestry that tracks its own remote branch', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  pushed(rig, work, 'landed')
+  rig.git.mergeCommit(work, 'landed')
+
+  expect(await pruneOf(rig, work)).toBe(1)
+})
+
+it('counts a fast-forward merge that tracks its own remote branch', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  pushed(rig, work, 'landed')
+  rig.git.mergeFf(work, 'landed')
+
+  expect(await pruneOf(rig, work)).toBe(1)
+})
+
+it('does not count a new branch that tracks origin/main', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // `git switch -c <new> origin/main` makes exactly this branch: merged by
+  // ancestry, because it has no commit of its own yet.
+  rig.git.git(work, 'branch', '--track', 'fresh', 'origin/main')
+
+  expect(await pruneOf(rig, work)).toBe(0)
+})
+
+it('does not count a merged branch that was never pushed', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.branchWithWork(work, 'local-only')
+  rig.git.mergeCommit(work, 'local-only')
+
+  expect(await pruneOf(rig, work)).toBe(0)
+})
+
+it('counts a squash merge only through a merged pull request at the same tip', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.branchWithWork(work, 'squashed')
+  rig.git.mergeSquash(work, 'squashed')
+  const tip = rig.git.sha(work, 'squashed')
+  const row = { headRefName: 'squashed', headRefOid: tip, isCrossRepository: false }
+
+  expect(await pruneOf(rig, work, [row])).toBe(1)
+  expect(await pruneOf(rig, work, [{ ...row, headRefOid: rig.git.sha(work, 'main') }])).toBe(0)
+  expect(await pruneOf(rig, work, [])).toBe(0)
+})
+
+it('ignores a merged pull request from a fork that names a local branch', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.branchWithWork(work, 'patch-1')
+  const fork = {
+    headRefName: 'patch-1',
+    headRefOid: rig.git.sha(work, 'patch-1'),
+    isCrossRepository: true,
+  }
+
+  expect(await pruneOf(rig, work, [fork])).toBe(0)
+})
+
+it('never counts the current branch or the default branch', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  pushed(rig, work, 'side')
+  rig.git.git(work, 'checkout', '-q', 'side')
+  rig.git.git(rig.sandbox.join('r', 'origin.git'), 'branch', '-D', 'side')
+  // `main` tracks a remote branch that does not exist either.
+  rig.git.git(work, 'config', 'branch.main.merge', 'refs/heads/gone-main')
+
+  expect(await pruneOf(rig, work)).toBe(0)
+})
+
+it('does not count the default branch because a tag shares its name', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.git(work, 'tag', 'main')
+  rig.git.git(work, 'config', 'branch.main.merge', 'refs/heads/gone-main')
+
+  expect(await pruneOf(rig, work)).toBe(0)
 })
