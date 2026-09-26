@@ -313,8 +313,8 @@ kinds of detail that it removed. The rule is in
 
 ## Session start hook
 
-When a session starts, resumes, or clears, the plugin writes a status line, then one line for
-each kind of problem, or nothing:
+When a session starts, resumes, or clears, the plugin writes a status line. Then it writes one
+line for each kind of problem. When there is nothing to show, it writes nothing:
 
 ```
 gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1]
@@ -351,9 +351,10 @@ repositories. The queries and the fetches run at the same time.
 The whole check has 5 seconds. A part that fails, or does not finish in that time, gives no
 count. It gives a `gh: ⚠️` line instead, one line for each kind of problem, never one for each
 repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In a folder of
-repositories, the line says how many repositories the kind hit: `in 15 repos`. A short cause
-follows when the failure came with a message. It is the first line of the first failure's
-message, up to its first sentence end, at most 80 characters.
+repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1 repo`.
+
+A short cause follows when the failure came with a message. It is the first line of the first
+failure's message, up to its first sentence end, at most 80 characters.
 
 The hook writes each failure in full to stderr, one line for each failure, with its repository.
 `claude --debug` shows it.
