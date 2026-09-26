@@ -8,6 +8,7 @@ import {
   EXIT_CODES,
   exitCodeFor,
   failed,
+  failedOnThrow,
   isOk,
   ok,
   refused,
@@ -111,5 +112,40 @@ describe.each([
       stderr: 'internal error: TypeError',
       exitCode: 1,
     })
+  })
+})
+
+describe('failedOnThrow', () => {
+  const recorder = (): { text: string[]; write: (line: string) => boolean } => {
+    const text: string[] = []
+    return { text, write: (line) => text.push(line) > 0 }
+  }
+
+  it('passes a settled status through and writes nothing', async () => {
+    const err = recorder()
+
+    await expect(failedOnThrow(Promise.resolve(2), 'gh', err)).resolves.toBe(2)
+    expect(err.text).toEqual([])
+  })
+
+  it('passes a null answer through, so an unknown command stays a refusal', async () => {
+    const err = recorder()
+
+    await expect(failedOnThrow(Promise.resolve(null), 'gh', err)).resolves.toBeNull()
+    expect(err.text).toEqual([])
+  })
+
+  it('turns a thrown Error into one stderr line and exit 1', async () => {
+    const err = recorder()
+
+    await expect(failedOnThrow(Promise.reject(new Error('boom')), 'gh', err)).resolves.toBe(1)
+    expect(err.text).toEqual(['gh: boom\n'])
+  })
+
+  it('writes a thrown value that is not an Error as text', async () => {
+    const err = recorder()
+
+    await expect(failedOnThrow(Promise.reject('bare'), 'gh', err)).resolves.toBe(1)
+    expect(err.text).toEqual(['gh: bare\n'])
   })
 })
