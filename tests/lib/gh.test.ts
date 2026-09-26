@@ -1090,6 +1090,7 @@ it("defaults to the root lib's own process runner", () => {
     'viewPullRequest',
     'viewPullRequestDetail',
     'viewRepository',
+    'viewerEnterprises',
     'watchChecks',
   ])
 })
