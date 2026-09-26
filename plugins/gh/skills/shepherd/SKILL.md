@@ -2,12 +2,12 @@
 name: shepherd
 description: >
   Merge every open, non-draft pull request that has auto-merge set, one at a time. An optional
-  argument narrows this to one label. Rebase each, wait for CI, and fix mechanical failures, on
-  any pull request whether a human or a bot authored it. Let auto-merge land each one before you
-  move to the next. Scope comes from the working directory. Inside a git repo, it shepherds that
-  repo. Outside one, it shepherds every immediate subdirectory that is a git repo, one subagent
-  per repo, in parallel. It never merges by hand, never enables auto-merge, and never bypasses a
-  check.
+  argument narrows this to one label. Rebase each, wait for CI, and fix mechanical failures. This
+  applies to any pull request, whether a human or a bot authored it. Let auto-merge land each one
+  before you move to the next. Scope comes from the working directory. Inside a git repo, it
+  shepherds that repo. Outside one, it shepherds every immediate subdirectory that is a git repo,
+  one subagent per repo, in parallel. It never merges by hand, never enables auto-merge, and
+  never bypasses a check.
 allowed-tools: Bash, Agent
 argument-hint: "[label] [--dry-run]"
 disable-model-invocation: true
@@ -27,7 +27,7 @@ stop. Do not classify the directory yourself. The command already did that.
 
 ## Step 2: Status
 
-Parse `$ARGUMENTS`: `--dry-run` when present, and the one remaining word, if any, as the label.
+Parse `$ARGUMENTS`: `--dry-run` when present, and whatever text remains, if any, as one label.
 Do not enforce a second label yourself; the script refuses it.
 
 For each path:
@@ -76,9 +76,9 @@ Collate the agents' JSON into one table per repo:
 
 Then list the `ci_seconds` each agent measured.
 
-If the `gh-security` plugin is installed, and at least one pull request merged, mention that
-`/gh-security:resolve-alerts` is the natural next step. A merge of auto-merge pull requests
-usually shrinks the alert set.
+The `gh-security` plugin may be installed. When it is, and at least one pull request merged,
+mention `/gh-security:resolve-alerts` as the natural next step. A merge of auto-merge pull
+requests usually shrinks the alert set.
 
 ## What this skill never does
 
