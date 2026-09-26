@@ -663,6 +663,21 @@ it('cuts a long cause at 80 characters', async () => {
   expect(ran.stderr).toBe(`${realpathSync(work)}: git fetch failed: ${long}\n`)
 })
 
+it('cuts a long cause between characters, never inside one', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // The emoji is two UTF-16 units. It is the 80th character, so a cut by
+  // units would keep only its first half.
+  const long = `${'x'.repeat(79)}🙂yyy`
+  const PATH = wrappedGit(rig, 'bin-fetch', `  fetch*) echo '${long}' >&2; exit 128 ;;`)
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  expect(ran.stdout).toBe(`gh: ⚠️ fetch failed: ${'x'.repeat(79)}🙂\n`)
+})
+
 it('shows no cause when the failure came with no message', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
@@ -751,6 +766,57 @@ it('shows one line for each kind in a folder, with how many repositories it hit'
       'gh: ⚠️ alerts could not be read in 2 repos\n',
   )
   expect(ran.stderr.split('\n')).toHaveLength(7)
+})
+
+it('keeps the order of the kinds, and counts each one, in a folder', async () => {
+  const rig = createRig()
+  const folder = rig.sandbox.join('folder')
+  onGitHub(rig, rig.git.createAt(folder, 'a'), 'acme/a')
+  // b has no default branch at all.
+  const b = onGitHub(rig, rig.git.createAt(folder, 'b'), 'acme/b')
+  rig.git.git(b, 'checkout', '-q', '-b', 'side')
+  rig.git.git(b, 'branch', '-D', 'main')
+  rig.git.forgetOriginHead(b)
+  rig.git.git(b, 'config', 'remote.origin.followRemoteHEAD', 'never')
+  // c has a local main, and no origin/main to compare it with.
+  const c = onGitHub(rig, rig.git.createAt(folder, 'c'), 'acme/c')
+  rig.git.forgetOriginHead(c)
+  rig.git.dropRemoteBranches(c)
+  rig.git.git(c, 'config', '--unset-all', 'remote.origin.fetch')
+  // In a, git fails the read of origin/HEAD.
+  const real = findOnPath('git', rig.sandbox.env.PATH) ?? 'git'
+  const bin = rig.sandbox.join('bin-a')
+  mkdirSync(bin)
+  writeFileSync(
+    path.join(bin, 'git'),
+    `#!/bin/sh\ncase "$(pwd -P)" in\n  */a) case "$*" in\n    *symbolic-ref*) echo "fatal: bad ref" >&2; exit 128 ;;\n  esac ;;\nesac\nexec '${real}' "$@"\n`,
+    { mode: 0o755 },
+  )
+
+  const ran = await statusOf(
+    rig,
+    folder,
+    createGhMock({
+      repositoryStatus: {
+        repositories: {
+          'acme/a': { ...side(), dependencies: null },
+          'acme/b': { ...side(), mergedPullRequests: null },
+          'acme/c': side(),
+        },
+        unavailable: null,
+      },
+    }),
+    { env: { ...rig.sandbox.env, PATH: `${bin}${path.delimiter}${rig.sandbox.env.PATH}` } },
+  )
+
+  expect(ran.stdout).toBe(
+    'gh: ⚠️ default branch could not be read in 1 repo\n' +
+      'gh: ⚠️ no default branch in 1 repo\n' +
+      'gh: ⚠️ behind could not be counted in 1 repo\n' +
+      'gh: ⚠️ branches could not be listed in 1 repo\n' +
+      'gh: ⚠️ dependency pull requests could not be read in 1 repo\n' +
+      'gh: ⚠️ merged pull requests could not be read in 1 repo\n',
+  )
 })
 
 it("shows gh's own account of a thrown GhError, not the command line", async () => {
