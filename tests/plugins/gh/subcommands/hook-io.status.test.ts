@@ -5,6 +5,7 @@
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
+import { GhError } from '#gh/lib/gh.ts'
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
 import { findOnPath } from '#harness/sandbox.ts'
 import {
@@ -743,4 +744,40 @@ it('shows one line for each kind in a folder, with how many repositories it hit'
       'gh: ⚠️ alerts could not be read in 2 repos\n',
   )
   expect(ran.stderr.split('\n')).toHaveLength(7)
+})
+
+it("shows gh's own account of a thrown GhError, not the command line", async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const failure = new GhError('gh api graphql failed: gh: Bad credentials (HTTP 401)', 1, {
+    cause: null,
+    detail: 'gh: Bad credentials (HTTP 401)',
+  })
+  const throwing: GhClient = {
+    ...createGhMock(),
+    repositoryStatus: () => Promise.reject(failure),
+  }
+
+  const ran = await statusOf(rig, work, throwing)
+
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)\n',
+    stderr: 'GitHub: GhError: gh api graphql failed: gh: Bad credentials (HTTP 401)\n',
+  })
+})
+
+it('gives no count to a GitHub request that failed for a whole folder', async () => {
+  const rig = createRig()
+  const folder = rig.sandbox.join('folder')
+  onGitHub(rig, rig.git.createAt(folder, 'a'), 'acme/a')
+  onGitHub(rig, rig.git.createAt(folder, 'b'), 'acme/b')
+
+  const ran = await statusOf(
+    rig,
+    folder,
+    createGhMock({ repositoryStatus: { repositories: {}, unavailable: 'gh: Bad credentials' } }),
+  )
+
+  expect(ran.stdout).toBe('gh: ⚠️ GitHub request failed: Bad credentials\n')
 })
