@@ -193,7 +193,12 @@ it('prints nothing for a directory with no checkouts in it', async () => {
   expectParity(await runIn(sandbox, [empty]), 'no_repositories')
 })
 
-it('prints nothing, and exits 0, when git cannot be run at all', async () => {
+it('reports missing git rather than an answer with nothing in it, and exits 1', async () => {
+  // #218 finding 3. Discovery itself answers "no checkouts" when git cannot
+  // run at all, the same answer a directory with nothing in it gives. That
+  // answer is not this command's own account of what happened. This
+  // command checks git itself, after discovery and before any output line,
+  // and says so on stderr instead.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
@@ -202,11 +207,9 @@ it('prints nothing, and exits 0, when git cannot be run at all', async () => {
 
   const status = await runDiscover([work], { cwd: sandbox.path, env: withoutGit, output })
 
-  // "Discovery asks git whether a directory is a checkout, and answers no
-  // when git cannot be run at all." The command publishes that fact as it
-  // found it. `gh.ts sync` is where a missing git becomes a sentence.
-  expect(output.stdout()).toBe(python('missing_git').stdout)
-  expect(status).toBe(python('missing_git').status)
+  expect(output.stdout()).toBe('')
+  expect(output.stderr()).toBe('missing git: not on PATH\n')
+  expect(status).toBe(1)
 })
 
 it('refuses a target that is not a directory, on stderr and with exit 1', async () => {
@@ -257,6 +260,23 @@ it('prints its own usage for --help, and for -h, with a status of 0', async () =
 
   for (const flag of ['--help', '-h']) {
     const ran = await runIn(sandbox, [flag])
+
+    expect(ran.status).toBe(0)
+    expect(ran.stdout).toBe(`${HELP}\n`)
+    expect(ran.stderr).toBe('')
+  }
+})
+
+it('reads --help in any position, before the extra-argument refusal', async () => {
+  // #218 finding 5, discover half. A caller who puts a flag after the
+  // target must still get help, not a refusal about a second argument.
+  const sandbox = createSandbox()
+
+  for (const argv of [
+    [sandbox.path, '--help'],
+    ['--help', sandbox.path],
+  ]) {
+    const ran = await runIn(sandbox, argv)
 
     expect(ran.status).toBe(0)
     expect(ran.stdout).toBe(`${HELP}\n`)

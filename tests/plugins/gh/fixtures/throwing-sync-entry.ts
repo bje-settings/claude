@@ -30,7 +30,7 @@ import { createSyncCommand } from '#gh/subcommands/sync.ts'
 
 const output = createOutput(process.stdout, process.stderr)
 
-const job = async (): Promise<number> => {
+const job = async (): Promise<void> => {
   throw new Error('boom')
 }
 

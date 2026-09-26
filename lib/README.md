@@ -38,7 +38,7 @@ check them.
 | --- | --- |
 | `node-floor.ts` | The Node 22.18 floor. `assertNodeFloor` checks it for an entry point. `meetsNodeFloor` checks it for a hook that must stay silent. Imports nothing. |
 | `args.ts` | `parseArguments`, built on `node:util`'s `parseArgs`. It takes a declared option set. It returns an envelope. |
-| `envelope.ts` | The answer a command gives back. Two renderers turn that answer into stdout, stderr, and an exit code. |
+| `envelope.ts` | The answer a command gives back. Two renderers turn that answer into stdout, stderr, and an exit code. `failedOnThrow` turns a throw at an entry point into one stderr line and exit 1. |
 | `process.ts` | `run`. It starts one child process, with no shell, with a cwd, an env, stdin, and a time bound. Its answer tells apart "could not start" from "ran and failed". |
 | `git.ts` | The git calls the ported scripts make more than once, built on `process.ts`. Not a full git SDK. |
 | `streams.ts` | Writers that go quiet only on a broken pipe. Also UTF-8 stdin. |

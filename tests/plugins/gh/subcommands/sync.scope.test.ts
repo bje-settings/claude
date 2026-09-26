@@ -194,11 +194,10 @@ describe('the report', () => {
     for (const name of ['aaa', 'bbb', 'ccc']) f.git.createAt(f.sandbox.join('fan'), name)
     // The first job takes the longest, so a report written in finish order
     // would put it last.
-    const job = async (options: SyncRepoOptions): Promise<number> => {
+    const job = async (options: SyncRepoOptions): Promise<void> => {
       const name = path.basename(options.repo)
       await new Promise((resolve) => setTimeout(resolve, name === 'aaa' ? 60 : 0))
       options.report.write(`${name}\n`)
-      return 0
     }
 
     const result = await run(f, ['--dry-run', '-j', '3', f.sandbox.join('fan')], { job })
@@ -219,14 +218,13 @@ describe('the report', () => {
     const names = ['aaa', 'bbb', 'ccc', 'ddd']
     for (const name of names) f.git.createAt(f.sandbox.join('fan'), name)
     const spans: { name: string; start: number; end: number }[] = []
-    const job = async (options: SyncRepoOptions): Promise<number> => {
+    const job = async (options: SyncRepoOptions): Promise<void> => {
       const name = path.basename(options.repo)
       const start = performance.now()
       options.report.write(`${name}\n  first half of ${name}\n`)
       await new Promise((resolve) => setTimeout(resolve, 60))
       options.report.write(`  second half of ${name}\n`)
       spans.push({ name, start, end: performance.now() })
-      return 0
     }
 
     const result = await run(f, ['-j', '2', f.sandbox.join('fan')], { job })

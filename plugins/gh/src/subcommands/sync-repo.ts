@@ -42,6 +42,7 @@ import { installDeps, LOCKFILES, NO_LOCKFILE } from '../install.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError } from '../lib/gh.ts'
 import {
+  currentBranch,
   gitLines,
   gitOk,
   gitOut,
@@ -333,6 +334,39 @@ class SyncRepoRun {
     return ''
   }
 
+  /** Whether a linked worktree, other than the checkout root itself, is
+   *  mid-operation. This answers with the reason to skip, or `null` to
+   *  carry on. It fails closed. An unreadable worktree list is a skip.
+   *  That is the same answer {@link readWorktrees} gives for the same
+   *  failure, because a hidden operation must never look free.
+   *
+   *  This reads `git worktree list --porcelain` itself, and so does
+   *  {@link readWorktrees}, later. A round 1 review (#218) proved why
+   *  neither read can replace the other. A fetch, an install, and a gh
+   *  call sit between this read and the prune loop. Any of them can take
+   *  long enough for someone to switch a linked worktree to another
+   *  branch.
+   *
+   *  A map from this read alone would then be stale exactly where
+   *  {@link readWorktrees} needs it fresh. Git's own worktree-remove
+   *  refusal does not catch that. It refuses only a tracked change, never
+   *  a file `.gitignore` excludes. So this read exists to skip early,
+   *  before any fetch. It answers no question {@link readWorktrees} still
+   *  needs answered. */
+  private async linkedWorktreeInProgress(): Promise<string | null> {
+    const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
+    if (out === null) return 'cannot list worktrees'
+    let current = ''
+    for (const line of out.split('\n')) {
+      if (!line.startsWith('worktree ')) continue
+      current = line.slice('worktree '.length)
+      if (current === this.top) continue
+      const marker = await this.checkInProgress(current)
+      if (marker !== '') return `git operation in progress in ${current} (${marker})`
+    }
+    return null
+  }
+
   /** Refuse before anything is written, or resolve the checkout root. Answers
    *  with the reason to skip, or `null` to carry on. */
   private async preflight(): Promise<string | null> {
@@ -368,6 +402,14 @@ class SyncRepoRun {
 
     const marker = await this.checkInProgress(this.top)
     if (marker !== '') return `git operation in progress (${marker})`
+
+    // #218 finding 6: this also runs here, before the fetch and the
+    // advance below. readWorktrees checks again, right before the prune
+    // loop. A stopped rebase in another worktree must block the whole
+    // sync on sight. This checkout's own in-progress marker, above, does
+    // the same.
+    const linked = await this.linkedWorktreeInProgress()
+    if (linked !== null) return linked
 
     // Untracked files deliberately do not block this. Checkout,
     // fast-forward, and branch deletion cannot touch them. Only tracked
@@ -659,9 +701,20 @@ class SyncRepoRun {
   // ------------------------------------------------------------- prune ---
 
   /** Fills `worktrees` with branch -> worktree path. This answers with a
-   *  reason to skip when the list cannot be read, or when a linked
-   *  worktree is mid-operation. Both mean this run must not delete
-   *  anything. */
+   *  reason to skip when the list cannot be read. It reads the list itself,
+   *  again, right before the prune loop uses it. {@link preflight} already
+   *  read it once, through {@link linkedWorktreeInProgress}, but that read
+   *  is minutes old by now. A fetch, an install, and a gh call sit between
+   *  it and this call.
+   *
+   *  A map built from that earlier read alone could go stale. It could
+   *  then send a force delete at a worktree that has since moved to
+   *  other, uncommitted work. Round 1 review (#218 finding 6) proved this.
+   *
+   *  This read closes that window. It does not close every window. The
+   *  prune loop below can itself make a gh call, per branch. {@link
+   *  pruneBranch} checks the worktree's branch once more for that reason,
+   *  right before it removes anything (round 2 review). */
   private async readWorktrees(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) {
@@ -807,6 +860,18 @@ class SyncRepoRun {
         this.bad(`kept ${branch} and its worktree ${worktree} (uncommitted changes)`)
         return
       }
+      // #218 finding 6, round 2 review. `this.worktrees` was built once, by
+      // `readWorktrees`, before this loop began. A branch earlier in the
+      // loop can trigger its own gh call. That call can take long enough
+      // for someone to switch this worktree to another branch. The dirty
+      // check above does not catch it: a clean switch leaves no tracked
+      // change. This check reads the worktree's branch again, right before
+      // the removal, and fails closed on any answer but a match.
+      const onBranch = await currentBranch(this.at(worktree))
+      if (onBranch !== branch) {
+        this.bad(`kept ${branch} and its worktree ${worktree} (worktree changed branch)`)
+        return
+      }
     }
 
     // A branch that points at the same commit as origin/<default> has
@@ -902,9 +967,10 @@ class SyncRepoRun {
     return null
   }
 
-  /** The job's own status, which is 0 for a synced repository and for a
-   *  skipped one alike. */
-  async run(): Promise<number> {
+  /** Sync or skip. #218 finding 8: this answers nothing, because nothing
+   *  read its status. Only a throw ever made this command's own answer
+   *  anything but ok. */
+  async run(): Promise<void> {
     const skipped = await this.attempt()
     if (skipped !== null) {
       // A skipped repository prints its reason and ends cleanly. Every
@@ -913,7 +979,6 @@ class SyncRepoRun {
       // fetch.
       this.bad(`${REPORT.skipped}${skipped}`)
     }
-    return 0
   }
 }
 
@@ -938,8 +1003,7 @@ const isPresent = (target: string): boolean => {
  * child process the Python starts becomes a direct call, with a
  * concurrency limit instead.
  */
-export const syncRepo = (options: SyncRepoOptions): Promise<number> =>
-  new SyncRepoRun(options).run()
+export const syncRepo = (options: SyncRepoOptions): Promise<void> => new SyncRepoRun(options).run()
 
 /** What the command line asked for. */
 export interface SyncRepoRequest {

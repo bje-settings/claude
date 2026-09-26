@@ -4,6 +4,11 @@
       "was": "could not read merged pull requests; using ancestry alone",
       "now": "could not read merged pull requests (gh: simulated failure); using ancestry alone",
       "why": "The port names why the lookup failed, which the shell version never did. Carried over from tests/gh/test_output_parity.py's DIVERGENCES table unchanged: the reason now reaches the line from GhError rather than from the Python's gh_json, and reads the same."
+    },
+    "operation_in_progress_in_a_linked_worktree": {
+      "was": "  · main already up to date (<sha>)\n",
+      "now": "",
+      "why": "#218 finding 6: the linked-worktree in-progress check now also runs in preflight, before the fetch and the advance, the same as the check for this checkout's own in-progress marker. The shell version, and the port until now, ran the check only later, so a repository otherwise ready to advance reported it as up to date before it skipped. The check still runs again in readWorktrees, fresh, right before the prune loop: a worktree can switch branch in the window a fetch, an install, and a gh call open. The early check is what makes the advance line never print here."
     }
   },
   "scenarioSubstitutions": {
@@ -86,9 +91,9 @@
     "now": "  ✗ the sync failed: <message>"
   },
   "exitStatus": {
-    "why": "#81 (round 7 ruling 2): a job that threw, or a RepoJob stand-in that answered a non-zero status without throwing, now makes gh.ts sync exit 1, on the single-repository path and the fan-out alike, once every report line has been written. The real job, syncRepo, always answers 0 for both a synced and a skipped repository (sync-repo.ts:843 to 851 is unchanged), so a skip is still exit 0 either way; only a thrown or non-zero job counts as a failure. gh-sync.sh dropped the single-repository path's status at its lines 72 to 73, and the port kept that for parity until now; the fan-out already reported each job's own line but still answered 0 regardless of what it said (gh-sync.py never summarised the fan-out's own exit status either, so there is no shell line this divergence replaces).",
+    "why": "gh-sync.sh dropped the single-repository path's child status at its lines 72 to 73. That path always exited 0, whatever a job answered or threw. #81 (round 7) made a throw exit 1 there instead, once every report line had been written. #218 finding 8 later removed the RepoJob arm that answered a non-zero status without throwing, because syncRepo never produced one. Only the throw half of this divergence still holds.",
     "was": "always exits 0, whatever a job answered or threw",
-    "now": "exits 1 when any job threw or returned a non-zero status; a skipped repository still answers 0"
+    "now": "exits 1 when a job threw; a skipped repository still answers 0"
   },
   "failureSummary": {
     "why": "The stderr line `failed(...)` carries once every report line is on stdout: how many repositories failed, of how many were tried. New with #81; there is no shell or Python line it replaces, so this is a statement of the new contract rather than a table of substitutions.",

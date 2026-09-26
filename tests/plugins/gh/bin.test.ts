@@ -31,11 +31,8 @@ import { createSandbox } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
 
 const BIN = pluginFile('gh', 'scripts', 'gh.ts')
-const THROWING_SYNC_ENTRY = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'fixtures',
-  'throwing-sync-entry.ts',
-)
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+const THROWING_SYNC_ENTRY = path.join(FIXTURES, 'throwing-sync-entry.ts')
 
 /** The sandbox's environment, so the child carries no `GIT_` or `GH_`
  *  variable this test did not choose. */

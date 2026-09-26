@@ -164,6 +164,53 @@ it('refuses when the bound arrives on a read that failed', async () => {
   expect(result.document.read_error).toBe('HTTP 502: Bad gateway')
 })
 
+it('does not corroborate a BLOCKED read with the failed re-read that followed it', async () => {
+  // #218 finding 9. A failed re-read must neither settle a verdict from the
+  // stale snapshot, nor count as the second BLOCKED sample. When the bound
+  // arrives on that failed read, this reports the stale refusal, not
+  // `blocked`.
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'settle'],
+    env: settleEnv(sandbox, '1'),
+    gh: createGhServer({
+      replies: { viewRepository: REPOSITORY },
+      sequences: {
+        viewPullRequest: [depPr(1, { merge: 'BLOCKED' }), ghFails('HTTP 502: Bad gateway')],
+      },
+    }),
+  }))
+
+  expect(result.document.ok).toBe(false)
+  expect(result.document).not.toHaveProperty('result')
+  expect(result.document.reads_ok).toBe(1)
+  expect(result.document.read_failures).toBe(1)
+})
+
+it('corroborates a BLOCKED read across a failed re-read that followed it', async () => {
+  // #218 finding 9. The read that recovered corroborates the ORIGINAL
+  // BLOCKED sample. It does not treat the failed attempt as a second
+  // sample. The count says so: one successful read corroborated by a
+  // second, with one failure between them.
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'settle'],
+    env: settleEnv(sandbox, '8'),
+    gh: createGhServer({
+      replies: { viewRepository: REPOSITORY },
+      sequences: {
+        viewPullRequest: [
+          depPr(1, { merge: 'BLOCKED' }),
+          ghFails('HTTP 502: Bad gateway'),
+          depPr(1, { merge: 'BLOCKED' }),
+        ],
+      },
+    }),
+  }))
+
+  expect(result.document.result).toBe('blocked')
+  expect(result.document.reads_ok).toBe(2)
+  expect(result.document.read_failures).toBe(1)
+})
+
 it('polls at least once when the bound is shorter than the interval', async () => {
   // A bound below one interval must still buy a read, not answer from the
   // first one.

@@ -794,29 +794,38 @@ class Shepherd {
     // snapshot fresh. A failure at the end leaves `pull` older than the
     // bound that this is about to report.
     let stale = false
+    // Whether `pull` still needs a verdict against it. A failed re-read
+    // says nothing about the pull request (#218 finding 9): it must not be
+    // read twice, once as itself and once again as the sample before it.
+    // So a failed read turns this false, and the loop then sleeps and reads
+    // again. It asks for no verdict, and it does not move `blockedBefore`,
+    // against the same stale snapshot a second time.
+    let pending = true
     while (true) {
-      const verdict = this.settleVerdict(pull, blockedBefore)
-      if (verdict !== null) {
-        const [result, detail] = verdict
-        const extra: Record<string, unknown> = {}
-        if (result === 'merged') extra.mergeCommit = pull.mergeCommit
-        // The agent copies this verbatim into its report, which is the point:
-        // a reason it wrote itself is a reason it can speculate in.
-        if (result === 'blocked') extra.reason = detail
-        this.emit(true, detail, {
-          result,
-          waited: spent(),
-          reads_ok: readsOk,
-          read_failures: readsFailed,
-          read_error: readsFailed > 0 ? this.readErr : '',
-          pr: pull,
-          ...extra,
-        })
-        return
+      if (pending) {
+        const verdict = this.settleVerdict(pull, blockedBefore)
+        if (verdict !== null) {
+          const [result, detail] = verdict
+          const extra: Record<string, unknown> = {}
+          if (result === 'merged') extra.mergeCommit = pull.mergeCommit
+          // The agent copies this verbatim into its report, which is the
+          // point: a reason it wrote itself is a reason it can speculate in.
+          if (result === 'blocked') extra.reason = detail
+          this.emit(true, detail, {
+            result,
+            waited: spent(),
+            reads_ok: readsOk,
+            read_failures: readsFailed,
+            read_error: readsFailed > 0 ? this.readErr : '',
+            pr: pull,
+            ...extra,
+          })
+          return
+        }
+        blockedBefore = BLOCKING_MERGE_STATES.includes(
+          isTruthy(pull.mergeStateStatus) ? String(pull.mergeStateStatus) : '',
+        )
       }
-      blockedBefore = BLOCKING_MERGE_STATES.includes(
-        isTruthy(pull.mergeStateStatus) ? String(pull.mergeStateStatus) : '',
-      )
       if (spent() >= bound) break
       await this.options.context.sleep(interval * 1000)
       const fresh = await this.readPr()
@@ -826,11 +835,13 @@ class Shepherd {
       if (fresh === null) {
         readsFailed += 1
         stale = true
+        pending = false
         continue
       }
       readsOk += 1
       stale = false
       pull = fresh
+      pending = true
     }
 
     if (stale) {
@@ -900,11 +911,13 @@ const shepherdPr = async (
     return code
   }
 
-  const [target = '', number = '', action = ''] = argv
-  if (target === '-h' || target === '--help') {
+  // #218 finding 5: this reads help in any position, before the
+  // argument-count refusal below. `#231` kept this at `argv[0]` alone.
+  if (argv.includes('-h') || argv.includes('--help')) {
     output.out.write(`${HELP}\n`)
     return 0
   }
+  const [target = '', number = '', action = ''] = argv
   if (argv.length < 3) return refuse(HELP, 2)
 
   const refusal = directoryRefusal(target)

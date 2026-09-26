@@ -125,3 +125,26 @@ export const renderText = (envelope: Envelope<string>): Rendered =>
   envelope.outcome === 'ok'
     ? { stdout: envelope.value, stderr: '', exitCode: EXIT_CODES.ok }
     : renderFailure(envelope)
+
+/**
+ * The status for a command that threw, in place of node's own crash.
+ *
+ * A command answers with an envelope for every outcome it decides. So a
+ * throw that reaches the entry point is a defect, not a refusal. Without
+ * this guard, node writes an internals stack trace to stderr and exits with
+ * a status the envelope contract never chose. This guard writes one line,
+ * `<label>: <message>`, and answers {@link EXIT_CODES}`.failed` (#218
+ * finding 7). Any status the command settled on, or `null`, passes through
+ * unchanged.
+ *
+ * The writer is structural, so this file still imports nothing.
+ */
+export const failedOnThrow = async <T>(
+  pending: Promise<T>,
+  label: string,
+  err: { write(text: string): unknown },
+): Promise<T | typeof EXIT_CODES.failed> =>
+  pending.catch((error: unknown) => {
+    err.write(`${label}: ${error instanceof Error ? error.message : String(error)}\n`)
+    return EXIT_CODES.failed
+  })

@@ -38,7 +38,7 @@ import { assertNodeFloor } from '../src/lib/node-floor.ts'
 assertNodeFloor(process.version)
 
 const { createGhClient } = await import('../src/lib/gh.ts')
-const { ok, refused, renderText } = await import('../src/lib/envelope.ts')
+const { failedOnThrow, ok, refused, renderText } = await import('../src/lib/envelope.ts')
 const { createOutput } = await import('../src/lib/streams.ts')
 
 const USAGE = `usage: gh.ts <command> [options]
@@ -133,5 +133,10 @@ const [name = '', ...rest] = process.argv.slice(2)
 // To ask what this command can do is not a mistake. An unknown command is
 // a mistake. It gets exit 2, with the same list on stderr.
 const wantsUsage = name === '' || name === '-h' || name === '--help'
-const status = wantsUsage ? write(ok(USAGE)) : await run(name, rest)
+// #218 finding 7: a command that throws gets one stderr line and exit 1,
+// not node's own stack trace. `lib/envelope.ts` `failedOnThrow` holds the
+// rule and its tests.
+const status = wantsUsage
+  ? write(ok(USAGE))
+  : await failedOnThrow(run(name, rest), 'gh', output.err)
 process.exitCode = status === null ? write(refused(`unknown command: ${name}\n\n${USAGE}`)) : status
