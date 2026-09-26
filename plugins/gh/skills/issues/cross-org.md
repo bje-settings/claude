@@ -24,6 +24,6 @@ value, do them before the write.
    These are repository names, issue and pull request numbers, file paths, URLs, branch
    names and measurements. Write the idea in general words, for example "a skill in a
    different repository".
-5. Add one line to the proposal that gives the kinds of detail that you removed, not the
-   details: `Omitted: repository names, issue numbers, file paths`. A subagent adds the
-   same line to the proposal that it returns.
+5. Add one line to the proposal that gives the kinds of detail that you removed. Do not
+   give the details. For example: `Omitted: repository names, issue numbers, file paths`.
+   A subagent adds the same line to the proposal that it returns.

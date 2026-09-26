@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: How `gh.ts org-scope` finds whether each source owner shares an enterprise with a target owner, and why each doubt reads as outside.
+description: How `gh.ts org-scope` finds if each source owner shares an enterprise with the target owner. Each doubt reads as outside.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
