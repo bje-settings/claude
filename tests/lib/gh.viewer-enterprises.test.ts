@@ -88,3 +88,63 @@ it('asks gh api graphql for every enterprise the viewer is in, with the logins o
     unavailable: null,
   })
 })
+
+it('follows the enterprises cursor to the next page, and joins the pages', async () => {
+  const { gh, args } = clientAnswering([
+    page([enterprise('acme-ent', ['acme-one'])], { hasNextPage: true, endCursor: 'c1' }),
+    page([enterprise('zeta-ent', ['zeta-one'])]),
+  ])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(args[1]?.slice(0, 4)).toEqual(['api', 'graphql', '-f', 'cursor=c1'])
+  expect(result).toEqual({
+    enterprises: [
+      { slug: 'acme-ent', organizations: ['acme-one'] },
+      { slug: 'zeta-ent', organizations: ['zeta-one'] },
+    ],
+    unavailable: null,
+  })
+})
+
+it('says the list is short when an enterprise has more organizations than one page', async () => {
+  // A truncated list must never read as whole (round 8). An owner on the
+  // second page, unread, would otherwise read as outside the enterprise.
+  const { gh } = clientAnswering([page([enterprise('acme-ent', ['acme-one'], true)])])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result.enterprises).toEqual([{ slug: 'acme-ent', organizations: ['acme-one'] }])
+  expect(result.unavailable).toBe(
+    'enterprise acme-ent has more organizations than the 100 this reads',
+  )
+})
+
+it('reports GraphQL errors beside a page that gh printed with exit 0, and does not throw', async () => {
+  const { gh } = clientAnswering([
+    page([enterprise('acme-ent', ['acme-one'])], {}, [
+      { message: 'Resource not accessible by integration' },
+    ]),
+  ])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result.enterprises).toEqual([{ slug: 'acme-ent', organizations: ['acme-one'] }])
+  expect(result.unavailable).toBe('Resource not accessible by integration')
+})
+
+it("reports gh's own words when gh exits non-zero with nothing to read", async () => {
+  const { gh } = clientAnswering([{ status: 1, stderr: 'gh: API rate limit exceeded\n' }])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result).toEqual({ enterprises: [], unavailable: 'gh: API rate limit exceeded' })
+})
+
+it('reports a gh that exits 0 and prints nothing, because silence is not an answer', async () => {
+  const { gh } = clientAnswering([{ stdout: '' }])
+
+  const result = await gh.viewerEnterprises()
+
+  expect(result).toEqual({ enterprises: [], unavailable: 'gh exited 0' })
+})

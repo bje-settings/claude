@@ -1382,11 +1382,16 @@ const parseEnterprisePage = (stdout: string): Page | undefined => {
   const nodes = nodesOf(connection)
   if (nodes === null) return undefined
   const info = asRecord(connection.pageInfo)
+  const errorsField = reply?.errors
+  const entries = Array.isArray(errorsField) ? errorsField : []
+  const messages = entries
+    .map((entry) => asRecord(entry)?.message)
+    .filter((message): message is string => typeof message === 'string')
   return {
     nodes,
     hasNextPage: info?.hasNextPage === true,
     endCursor: asText(info?.endCursor),
-    errors: null,
+    errors: joinedReasons(messages),
   }
 }
 
@@ -1882,14 +1887,40 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     // Never throws (the interface's own contract), and reads the body
     // through `invoke` whatever the exit status, for `issueStates`' reason.
     viewerEnterprises: async () => {
-      const result = await invoke(['api', 'graphql', '-f', `query=${VIEWER_ENTERPRISES_QUERY}`])
-      const answer = parseEnterprisePage(result.stdout)
       const enterprises: GhResults['viewerEnterprises']['enterprises'][number][] = []
-      for (const node of answer?.nodes ?? []) {
-        const row = readEnterprise(node)
-        if (row !== null) enterprises.push(row)
+      const reasons: string[] = []
+      let cursor: string | null = null
+      for (let page = 0; page < SWEEP_PAGES; page += 1) {
+        const result = await invoke([
+          'api',
+          'graphql',
+          ...(cursor === null ? [] : ['-f', `cursor=${cursor}`]),
+          '-f',
+          `query=${VIEWER_ENTERPRISES_QUERY}`,
+        ])
+        const answer = parseEnterprisePage(result.stdout)
+        if (answer === undefined) {
+          reasons.push(accountOf(result))
+          break
+        }
+        for (const node of answer.nodes) {
+          const row = readEnterprise(node)
+          if (row === null) continue
+          enterprises.push(row)
+          // One page of organizations, and no cursor to ask for more. A
+          // short list says so, because an owner on the page not read would
+          // otherwise read as outside the enterprise.
+          if (asRecord(asRecord(asRecord(node)?.organizations)?.pageInfo)?.hasNextPage === true) {
+            reasons.push(
+              `enterprise ${row.slug} has more organizations than the ${SWEEP_PAGE} this reads`,
+            )
+          }
+        }
+        if (answer.errors !== null) reasons.push(answer.errors)
+        if (!answer.hasNextPage) break
+        cursor = answer.endCursor
       }
-      return { enterprises, unavailable: null }
+      return { enterprises, unavailable: joinedReasons(reasons) }
     },
 
     listMilestones: async () => collect('milestones', MILESTONES_QUERY, [], readMilestone),
