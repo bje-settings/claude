@@ -1085,6 +1085,7 @@ it("defaults to the root lib's own process runner", () => {
     'listRuns',
     'listWorkflowRuns',
     'readFailedRunLog',
+    'repositoryStatus',
     'requiredContexts',
     'updateBranch',
     'viewPullRequest',

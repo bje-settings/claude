@@ -76,12 +76,15 @@ const gh = createGhMock({
 })
 ```
 
-`gh` is an injected mock, not a stub binary on `PATH` (ADR 001). Each endpoint is named after its
-operation, not after gh's own argv. This way, the interface survives a change to a gh flag. The
-endpoints are: `listPullRequests`, `listMergedPullRequests`, `viewPullRequest`, `viewRepository`,
-`listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`, `watchChecks`, `issueStates`,
-`listMilestones`, `listIssues`, `listOpenPullRequests`, `requiredContexts`,
-`viewPullRequestDetail`, `listWorkflowRuns`.
+`gh` is an injected mock, not a stub binary on `PATH` (ADR 001). The one exception is the stand-in
+`gh` that the hook tests put first on `PATH`
+(`tests/plugins/gh/subcommands/hook-io.test-support.ts`). It answers nothing and always fails. It
+lets the hook find a GitHub CLI on any machine, and it keeps a spawned run away from GitHub. Each
+endpoint is named after its operation, not after gh's own argv. This way, the interface survives a
+change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
+`viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
+`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `listOpenPullRequests`,
+`requiredContexts`, `viewPullRequestDetail`, `listWorkflowRuns`, `repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
@@ -96,6 +99,9 @@ The three review-loop reads follow the same pattern. `requiredContexts` answers
 `{ contexts, unavailable }`. `viewPullRequestDetail` answers `{ pullRequest, unavailable, missing }`,
 with a null pull request for one it could not read. `listWorkflowRuns` answers
 `{ rows, unavailable }`.
+
+`repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The
+SessionStart hook reads it (#230).
 
 `missing` is true only when GitHub itself said the number does not exist. It is false for every
 other reason the read came back short. A test that registers a reply must say which case it means.
@@ -128,7 +134,7 @@ does this with its captured replies.
 review loop read also live there: `MilestoneSummary`, `IssueSummary`, `PullRequestSummary`,
 `PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`. The first of them moved there
 at [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
-against them.
+against them. The status line reads `RepositoryStatus` and `MergedHead`, which also live there.
 
 `gh.ts` imports these types back and re-exports them. This way, a test reaches the double and the
 interface it implements through one module. The harness keeps only what does not ship: the

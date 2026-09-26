@@ -131,18 +131,13 @@ export interface SyncRepoOptions {
  * The vocabulary of a report line. This file names each term here. It does
  * not write the term out again at each call site that builds a line.
  *
- * The SessionStart hook classifies each section of a `--dry-run` report by
- * these terms. It uses them to compute the summary it leads with (#110,
- * `subcommands/hook-io.ts` `fanOutSummary`). So the words are a contract with a
- * second reader, not only prose. Because this file names them here, a
- * person who rewords a line will see the hook's dependency. A reworded
- * reference then moves with the text. A plain text match would instead stop
- * silently and find nothing.
+ * No other code reads the report since #230: the SessionStart hook counts
+ * from git refs and GitHub, not from this text.
  *
  * `marks` are the three line prefixes, indent included. The indent is what
  * tells a repository's lines from the heading above them. The rest are the
- * openings of the lines the hook counts. They are the `--dry-run` forms,
- * because that is the only mode the hook's own child ever runs in.
+ * openings of lines: `skipped` in every mode, and the `would` notes of a
+ * `--dry-run`.
  */
 export const REPORT = {
   ok: '  ✓ ',

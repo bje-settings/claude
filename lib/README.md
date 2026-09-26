@@ -319,6 +319,41 @@ called `execFileSync` directly and parsed what THAT call threw (`parseIssueChunk
 the endpoint takes the argv through the injected `Runner` seam every other endpoint uses. That seam
 answers, rather than rejects, so there is no caught error to parse a second way.
 
+### `repositoryStatus`
+
+```ts
+const { repositories, unavailable } = await gh.repositoryStatus(['acme/widgets'], { boundMs: 4_000 })
+// repositories['acme/widgets'] -> { alerts: 1, dependencies: 2, mergedPullRequests: [...] }
+```
+
+This is the GitHub half of the gh plugin's SessionStart status line (#230). It reads three
+fields for each `owner/name`: the open Dependabot alerts, and the open pull requests with the
+`dependencies` label. The third field is the heads of the last 100 merged pull requests. Like `issueStates`, it
+sends one aliased `gh api graphql` query. `issueStates` has one alias per number. This endpoint has
+one alias per repository (`r0`, `r1`, and so on).
+
+One query names five repositories at most (`STATUS_BATCH`). Each repository asks for 100 pull
+request rows, so a small batch stays far below GitHub's node limit. The batches go at the same
+time, so the small batch costs no time. Each call stops at `boundMs`, through the runner's
+`timeoutMs`, which kills the whole process group.
+
+**Never throws.** A failure costs only what it touches:
+
+- Some failures cost all the repositories of a batch. These are a body that cannot be read, a gh
+  that did not start, a pipe that failed, and a call past its bound. The reason goes into
+  `unavailable`. The other batches keep their answers.
+- A repository that GitHub could not resolve is left out of `repositories`. Its error message goes
+  into `unavailable`.
+- A field that is not the shape the query asked for is `null`, and the other fields stay. A token
+  that cannot read Dependabot alerts gets `null` there, and an entry in `errors`. gh then exits 1,
+  and the body is still an answer. So this endpoint reads the body whatever the exit status, the
+  same as `issueStates`.
+- One merged pull request row that is not the shape asked for makes the whole list `null`. A list
+  one row short could hide the row that proves a squash merge.
+
+Owner and name go into the query as text. `JSON.stringify` writes each one as a GraphQL string. The hook's URL parser lets only letters, digits, `-`, `_` and `.` into a name, so no
+name can end the quoted string.
+
 ### `listMilestones`, `listIssues` and `listOpenPullRequests`
 
 ```ts

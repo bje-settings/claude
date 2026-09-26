@@ -21,6 +21,7 @@ import { createGitFixtures } from '#harness/git.ts'
 import { pluginFile } from '#harness/paths.ts'
 import { createSandbox } from '#harness/sandbox.ts'
 import { startScript } from '#harness/spawn.ts'
+import { createRig, githubRepo } from './subcommands/hook-io.test-support.ts'
 
 const BIN = pluginFile('gh', 'scripts', 'gh.ts')
 const HOOK = pluginFile('gh', 'hooks', 'hook-io.ts')
@@ -94,8 +95,15 @@ it('finishes clean when the reader of shepherd-status --help leaves at once', as
 })
 
 it('finishes clean when the reader of the hook response leaves at once', async () => {
-  const sandbox = createSandbox()
-  const running = startScript(HOOK, { args: ['branch', 'side', 'main'], env: sandbox.env })
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // The rig's `gh` always fails, so the hook has a line to write: the
+  // GitHub half fails.
+  const running = startScript(HOOK, {
+    args: ['session-start'],
+    stdin: JSON.stringify({ cwd: work }),
+    env: rig.sandbox.env,
+  })
 
   running.closeStdout()
   const ended = await running.ended()

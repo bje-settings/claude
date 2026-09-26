@@ -62,10 +62,16 @@ lines to the table. The sentence this replaced claimed as much, but nothing enfo
 others. The second states the new stderr wording. It does not substitute for an old one, because
 there is no shell or Python line that either one replaces.
 
+## `deleted-cwd.ts`
+
+`hook.test.ts` runs the hook entry point through this fixture. The fixture enters a directory,
+removes it, and then imports the hook. So `process.cwd()` throws, and the test proves that the
+entry point's outermost handler still exits 0.
+
 ## `throwing-sync-entry.ts`
 
-This is a `.ts` fixture, not a JSON one, like `deleted-cwd.ts` and the other two. The suite that
-needs it has no other place to put a program.
+This is a `.ts` fixture, not a JSON one, like `deleted-cwd.ts`. The suite that needs it has no
+other place to put a program.
 
 `syncRepo`, the real job, never throws through any state a test can reach from the outside.
 (`lib/process.ts`'s `run` never rejects. Every git call answers `null` on failure, instead of

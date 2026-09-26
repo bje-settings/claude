@@ -1,274 +1,202 @@
 // This is the one spawned contract test for the hook entry point. It also
 // tests the wiring that `hooks.json` carries.
 //
-// `subcommands/hook-io.test.ts` exercises the hook's decisions, in process,
-// against the captured Python. This file tests the process boundary itself.
-// It tests the floor guard in front of it, argv, stdin, both streams, and
-// the exit status. It also runs the one test that starts the real
-// `scripts/gh.ts` child, rather than an injected one.
+// `subcommands/hook-io*.test.ts` run the hook's decisions in process. This
+// file runs the process boundary itself: the floor guard in front of it,
+// argv, stdin, both streams, and the exit status. On the `vitest-floor` leg,
+// the child runs on node 22.18, so each case here also proves the entry
+// point loads on the floor. Nothing here reaches GitHub: every case either
+// has no GitHub remote, or runs with the rig's `gh`, which always fails.
 import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { createGitFixtures } from '#harness/git.ts'
 import { pluginFile } from '#harness/paths.ts'
-import { createSandbox } from '#harness/sandbox.ts'
+import { findOnPath } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
+import {
+  createRig,
+  expectStatusLines,
+  githubRepo,
+  hangingFetch,
+  wrappedGit,
+} from './subcommands/hook-io.test-support.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const HOOK = pluginFile('gh', 'hooks', 'hook-io.ts')
 const HOOKS_JSON = pluginFile('gh', 'hooks', 'hooks.json')
 const FIXTURES = path.join(HERE, 'fixtures')
 
-interface Capture {
-  runs: Record<
-    string,
-    { argv: string[]; stdin: string; status: number; stdout: string; stderr: string }
-  >
-}
-interface Divergences {
-  text: { python: string; port: string }[]
-}
-
-/** This fills a case's own state into the placeholders a divergence row
- *  carries. `subcommands/hook-io.test.ts` documents the mechanism, and
- *  `fixtures/divergences-hook.json` names every placeholder. */
-type Fields = Record<string, string>
-
-const capture = JSON.parse(readFileSync(path.join(FIXTURES, 'hook-output.json'), 'utf8')) as Capture
-const divergences = JSON.parse(
-  readFileSync(path.join(FIXTURES, 'divergences-hook.json'), 'utf8'),
-) as Divergences
-
-const fill = (text: string, fields: Fields): string =>
-  text.replace(/\{([a-z]+)\}/g, (_match, name: string) => fields[name] ?? '')
-
-/** This is one string as it appears inside the hook's JSON document. There,
- *  `emit` escapes a newline as a backslash and an `n`. */
-const inJson = (text: string): string => JSON.stringify(text).slice(1, -1)
-
-/** This is the Python's text with every recorded substitution applied. It
- *  is raw for stderr and escaped for the document on stdout. */
-const expected = (text: string, fields: Fields = {}): string => {
-  let answer = text
-  for (const entry of divergences.text) {
-    const python = fill(entry.python, fields)
-    const port = fill(entry.port, fields)
-    answer = answer.split(python).join(port)
-    answer = answer.split(inJson(python)).join(inJson(port))
-  }
-  return answer
-}
-
-const row = (name: string) => {
-  const captured = capture.runs[name]
-  if (captured === undefined) throw new Error(`no captured run named ${name}`)
-  return captured
-}
-
-/** This returns the `additionalContext` of a `SessionStart` response. It
- *  checks the contract on the way past: the event name, and the fact that
- *  `systemMessage` carries the identical text. Every message this hook
- *  emits must reach the user, whether or not the model ever takes a turn. */
-const contextOf = (stdout: string): string => {
-  const body = JSON.parse(stdout) as {
-    systemMessage: string
-    hookSpecificOutput: { hookEventName: string; additionalContext: string }
-  }
-  expect(body.hookSpecificOutput.hookEventName).toBe('SessionStart')
-  expect(body.systemMessage).toBe(body.hookSpecificOutput.additionalContext)
-  return body.hookSpecificOutput.additionalContext
-}
-
 it('answers a wiring mistake with the usage line and exit 2, and nothing on stdout', () => {
-  const sandbox = createSandbox()
-  const captured = row('usage/no-subcommand')
+  const rig = createRig()
 
-  const result = runScript(HOOK, { env: sandbox.env })
+  for (const args of [[], ['report']]) {
+    const result = runScript(HOOK, { args, env: rig.sandbox.env })
 
-  expect(result.status).toBe(captured.status)
-  expect(result.stdout).toBe(captured.stdout)
-  expect(result.stderr).toBe(expected(captured.stderr))
-})
-
-it('prints the usage line the Python printed, on stderr', () => {
-  const sandbox = createSandbox()
-
-  const result = runScript(HOOK, { args: ['session_start'], env: sandbox.env })
-
-  expect(result.status).toBe(2)
-  expect(result.stdout).toBe('')
-  expect(result.stderr).toBe(
-    'usage: hook-io.ts {session-start|cwd|branch <current> <default>|report}\n',
-  )
-})
-
-it('reads the payload cwd off stdin, byte for byte', () => {
-  const sandbox = createSandbox()
-  const captured = row('cwd/non-ascii')
-
-  const result = runScript(HOOK, { args: captured.argv, stdin: captured.stdin, env: sandbox.env })
-
-  expect(result.status).toBe(captured.status)
-  expect(result.stdout).toBe(captured.stdout)
-})
-
-it('writes the branch message the Python wrote, byte for byte', () => {
-  const sandbox = createSandbox()
-  const captured = row('branch/non-ascii')
-
-  const result = runScript(HOOK, { args: captured.argv, env: sandbox.env })
-
-  expect(result.status).toBe(captured.status)
-  // The seam gets two branch names and no repository. So neither count has
-  // an answer. The message is the branch line and the two closing lines.
-  expect(result.stdout).toBe(expected(captured.stdout, { target: 'main' }))
-})
-
-it('wraps a report holding ✓, ✗ and · whatever the locale says', () => {
-  const sandbox = createSandbox()
-  const captured = row('report/non-ascii')
-
-  const result = runScript(HOOK, {
-    args: captured.argv,
-    stdin: captured.stdin,
-    // node writes strings as UTF-8 whatever the locale says. That is the
-    // half of `use_utf8` with no counterpart here (`lib/streams.ts`).
-    env: { ...sandbox.env, LC_ALL: 'en_US.ISO8859-1' },
-  })
-
-  expect(result.status).toBe(captured.status)
-  expect(result.stdout).toBe(expected(captured.stdout))
-  expect(result.stderr).toBe('')
-})
-
-it('runs the whole session-start path in a real checkout, byte for byte', () => {
-  const sandbox = createSandbox()
-  const git = createGitFixtures(sandbox)
-  const repository = git.create(sandbox.join('r'))
-  git.git(repository, 'checkout', '-q', '-b', 'side')
-
-  const result = runScript(HOOK, {
-    args: ['session-start'],
-    stdin: JSON.stringify({ session_id: 's1', cwd: repository }),
-    env: sandbox.env,
-  })
-
-  expect(result.status).toBe(0)
-  // This is a fresh clone on its own branch. The default branch is current
-  // with the cached origin. Only the current branch is reachable from it.
-  // So both counts are zero, and neither writes a line.
-  expect(result.stdout).toBe(expected(row('in-repo/off-default-branch').stdout, { target: 'main' }))
-  expect(result.stderr).toBe('')
-})
-
-it('stays silent in a checkout that is already on its default branch', () => {
-  const sandbox = createSandbox()
-  const git = createGitFixtures(sandbox)
-  const repository = git.create(sandbox.join('r'))
-
-  const result = runScript(HOOK, {
-    args: ['session-start'],
-    stdin: JSON.stringify({ session_id: 's1', cwd: repository }),
-    env: sandbox.env,
-  })
-
-  expect(result.status).toBe(0)
-  expect(result.stdout).toBe('')
-  // This check matters. The crash path also answers with "exit 0 with an
-  // empty stdout" (see the outermost-handler example below). Without this
-  // check, a hook that threw before any decision would still pass here.
-  expect(result.stderr).toBe('')
-})
-
-it('starts the real scripts/gh.ts child for a directory of checkouts', () => {
-  const sandbox = createSandbox()
-  const git = createGitFixtures(sandbox)
-  const fan = sandbox.join('fan')
-  git.createAt(fan, 'a')
-  git.branchWithWork(path.join(fan, 'a'), 'wip')
-  // There is no `gh` at all. So the fan-out reports a lookup it could not
-  // make, one of the three actionable markers. Nothing in this test reaches
-  // the real GitHub (ADR 001: `gh` is injected, never a binary on PATH).
-  const env = { ...sandbox.env, PATH: sandbox.pathWithout('gh') }
-
-  const work = path.join(fan, 'a')
-  const before = {
-    branches: git.branches(work),
-    current: git.currentBranch(work),
-    head: git.headSha(work),
+    expect(result.status).toBe(2)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toBe('usage: hook-io.ts {session-start|status [dir]}\n')
   }
+})
+
+it('stays silent in a clean checkout', () => {
+  const rig = createRig()
+  // A remote that is not on GitHub: the hook asks `gh` nothing about it.
+  const work = rig.git.create(rig.sandbox.join('r'))
 
   const result = runScript(HOOK, {
     args: ['session-start'],
-    stdin: JSON.stringify({ session_id: 's1', cwd: fan }),
-    env,
+    stdin: JSON.stringify({ session_id: 's1', cwd: work }),
+    env: rig.sandbox.env,
   })
 
   expect(result.status).toBe(0)
-  const context = contextOf(result.stdout)
-  expect(context).toContain('A read-only /gh:sync check ran for the repositories below')
-  expect(context).toContain('could not')
-  // This is the summary the real child's real report makes true. The hook
-  // computes it in the process that `hooks.json` starts, not in the
-  // in-process seam.
-  expect(context).toContain(
-    '1 repository checked: 0 with upstream changes, 0 with prunable branches, ' +
-      '0 skipped, 1 not fully checked.',
-  )
-  // The hook writes the sentence "No branch, worktree, or working tree was
-  // changed". This is the one example in this layer that starts the real
-  // child. So it is the only place that can check that claim
-  // (`test_reports_prunable_work_and_changes_nothing`).
-  expect({
-    branches: git.branches(work),
-    current: git.currentBranch(work),
-    head: git.headSha(work),
-  }).toEqual(before)
+  expect(result.stdout).toBe('')
+  // The crash path also exits 0 with nothing on stdout. An empty stderr is
+  // what shows that silence was the decision.
+  expect(result.stderr).toBe('')
 })
 
 it('exits 0 in silence when the payload is not a document at all', () => {
-  const sandbox = createSandbox()
+  const rig = createRig()
 
-  // The fallback is the process's own directory. Here, it holds no
-  // checkout, so it has nothing to say.
   const result = runScript(HOOK, {
     args: ['session-start'],
     stdin: 'not json at all',
-    env: sandbox.env,
-    cwd: sandbox.path,
+    env: rig.sandbox.env,
+    cwd: rig.sandbox.path,
   })
 
+  expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' })
+})
+
+it('writes the status and problem lines for a real checkout, end to end, and changes no branch', () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.branchWithWork(work, 'goner')
+  rig.git.push(work, 'goner')
+  rig.git.git(work, 'branch', '--set-upstream-to=origin/goner', 'goner')
+  rig.git.git(rig.sandbox.join('r', 'origin.git'), 'branch', '-D', 'goner')
+  rig.git.remoteAdvance(work)
+  const before = {
+    branches: rig.git.branches(work),
+    current: rig.git.currentBranch(work),
+    head: rig.git.headSha(work),
+  }
+  // The rig's `gh` always fails, so the GitHub half fails, and a problem
+  // line says so.
+  const env = rig.sandbox.env
+  const started = Date.now()
+
+  const result = runScript(HOOK, {
+    args: ['session-start'],
+    stdin: JSON.stringify({ session_id: 's1', cwd: work }),
+    env,
+  })
+
+  // stderr below names no late task, so the check ended before its 5 s
+  // deadline. The process must end then too: a deadline timer left set
+  // would hold it open until the timer fires.
+  expect(Date.now() - started).toBeLessThan(5_000)
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe('')
-  // As above: silence has to be the decision, not a crash before one.
-  expect(result.stderr).toBe('')
+  expectStatusLines(result.stdout)
+  expect(result.stdout).toBe(
+    '{"systemMessage":"gh: [behind] [✂️ 1]\\ngh: ⚠️ GitHub request failed: stand-in for tests"}\n',
+  )
+  expect(result.stderr).toBe('GitHub: gh: stand-in for tests\n')
+  // The fetch moved `origin/main` and removed `origin/goner`. Nothing else
+  // changed.
+  expect({
+    branches: rig.git.branches(work),
+    current: rig.git.currentBranch(work),
+    head: rig.git.headSha(work),
+  }).toEqual(before)
+  expect(
+    rig.git.tryGit(work, 'rev-parse', '--verify', 'refs/remotes/origin/goner').status,
+  ).not.toBe(0)
+
+  // `status` writes the same line, bare.
+  const status = runScript(HOOK, { args: ['status', work], env })
+  expect(status.stdout).toBe(
+    'gh: [behind] [✂️ 1]\ngh: ⚠️ GitHub request failed: stand-in for tests\n',
+  )
+})
+
+it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json gives it', () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  hangingFetch(rig, work)
+  const env = rig.sandbox.env
+  const started = Date.now()
+
+  const result = runScript(HOOK, {
+    args: ['session-start'],
+    stdin: JSON.stringify({ session_id: 's1', cwd: work }),
+    env,
+  })
+
+  // The shipped deadline is 5 s. The process ends only when its children
+  // do, so the fetch must stop at the deadline too, not when it gives up.
+  expect(Date.now() - started).toBeLessThan(10_000)
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(
+    '{"systemMessage":"gh: ⚠️ timed out\\ngh: ⚠️ GitHub request failed: stand-in for tests"}\n',
+  )
+  expect(result.stderr).toContain('did not finish in 5000 ms\n')
+})
+
+it('gives a late second origin read only the time that is left', () => {
+  const rig = createRig()
+  // The origin is not on github.com, so the hook reads the URL twice. The
+  // first read takes 3 s, and the second one never answers.
+  const local = rig.git.create(rig.sandbox.join('r'))
+  const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
+  const PATH = wrappedGit(
+    rig,
+    'bin-slow-origin',
+    [
+      `  *'config --get remote.origin.url'*) '${sleep}' 3 ;;`,
+      `  *'remote get-url'*) exec '${sleep}' 60 ;;`,
+    ].join('\n'),
+  )
+  const started = Date.now()
+
+  const result = runScript(HOOK, {
+    args: ['session-start'],
+    stdin: JSON.stringify({ session_id: 's1', cwd: local }),
+    env: { ...rig.sandbox.env, PATH },
+  })
+
+  // The process ends only when its children do. A second read with the
+  // time the first read had would live until about 8 s.
+  expect(Date.now() - started).toBeLessThan(7_000)
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️ timed out"}\n')
+  expect(result.stderr).toContain('did not finish in 5000 ms\n')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
-  const sandbox = createSandbox()
-  const doomed = sandbox.join('doomed')
+  const rig = createRig()
+  const doomed = rig.sandbox.join('doomed')
   mkdirSync(doomed, { recursive: true })
 
   // The fixture enters `doomed`, removes it, and then runs the hook. So
-  // `process.cwd()` raises, and the payload has no cwd to use instead.
+  // `process.cwd()` throws, and the payload has no cwd to use instead.
   const result = runScript(path.join(FIXTURES, 'deleted-cwd.ts'), {
     args: [doomed, HOOK],
     stdin: '{"session_id":"s1"}',
-    env: sandbox.env,
+    env: rig.sandbox.env,
   })
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
-  // This is node's own account, kept where `claude --debug` keeps it. The
-  // Python's traceback went to the same place.
   expect(result.stderr).toContain('ENOENT')
   expect(result.stderr).toMatch(/\n {4}at /)
 })
 
 // --- the wiring hooks.json carries -------------------------------------------
 
-it('runs the hook entry with node, behind the silent guard, at the same matcher', () => {
+it('runs the hook entry with node, behind the silent guard, on start, resume and clear', () => {
   const config = JSON.parse(readFileSync(HOOKS_JSON, 'utf8')) as {
     description: string
     hooks: { SessionStart: { matcher: string; hooks: { command: string; timeout: number }[] }[] }
@@ -276,20 +204,21 @@ it('runs the hook entry with node, behind the silent guard, at the same matcher'
   const entries = config.hooks.SessionStart
 
   expect(entries).toHaveLength(1)
-  expect(entries[0]?.matcher).toBe('startup')
+  expect(entries[0]?.matcher).toBe('startup|resume|clear')
   // This is spelled in two pieces because biome refuses a `${` inside a
-  // plain string. The value under test is a shell command. It carries
-  // Claude Code's own expansion, not a TypeScript template.
+  // plain string. The value is a shell command with Claude Code's own
+  // expansion, not a TypeScript template.
   const expansion = `$${'{'}CLAUDE_PLUGIN_ROOT}`
   expect(entries[0]?.hooks.map((hook) => hook.command)).toEqual([
     `command -v node >/dev/null 2>&1 && node "${expansion}/hooks/hook-io.ts" session-start; exit 0`,
   ])
-  // This is the budget that sizes the 50 second bound on the fan-out.
-  expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([60])
-  // The description is what a user reads in the plugin listing. It still
-  // describes what the hook does.
+  // Twice the check's own 5 s deadline, so the line arrives before Claude
+  // Code stops the hook.
+  expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([10])
   expect(config.description).toBe(
-    'Report-only sync check when a session starts. Fetches, but never changes a branch, ' +
-      'worktree, or working tree.',
+    'One status line when a session starts: commits behind, branches to prune, dependency ' +
+      'pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a ' +
+      'missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or ' +
+      'working tree.',
   )
 })

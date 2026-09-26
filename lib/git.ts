@@ -29,10 +29,9 @@ export interface GitOptions {
    *  pin one. The test suite passes `harness/sandbox.ts`'s `env`. This keeps
    *  a developer's own git configuration out of a fixture. */
   readonly env?: NodeJS.ProcessEnv
-  /** A time limit, in milliseconds. No code in this port sets one today,
-   *  because every git call here runs on the local disk. The field exists
-   *  because {@link run} takes one. A caller that fetches over the network
-   *  should not need code outside this file to set a limit. */
+  /** A time limit, in milliseconds. The gh plugin's SessionStart hook sets
+   *  one on each git call. Its fetch goes over the network, and the whole
+   *  check has a deadline. */
   readonly timeoutMs?: number
 }
 

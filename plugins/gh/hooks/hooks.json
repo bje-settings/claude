@@ -1,14 +1,14 @@
 {
-  "description": "Report-only sync check when a session starts. Fetches, but never changes a branch, worktree, or working tree.",
+  "description": "One status line when a session starts: commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or working tree.",
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup",
+        "matcher": "startup|resume|clear",
         "hooks": [
           {
             "type": "command",
             "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.ts\" session-start; exit 0",
-            "timeout": 60
+            "timeout": 10
           }
         ]
       }

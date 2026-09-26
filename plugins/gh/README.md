@@ -313,48 +313,72 @@ kinds of detail that it removed. The rule is in
 
 ## Session start hook
 
-On session start only (not on resume, `/clear`, or compaction), the plugin runs a **report-only**
-check. If there is anything worth an action, it writes a status line about it. The script
-computes everything it says. It ends with the name of the command that acts on it, stated once,
-as a fact. It never asks anyone to offer anything.
+When a session starts, resumes, or clears, the plugin writes a status line. Then it writes one
+line for each kind of problem:
 
-- Outside a git repository, it runs the fan-out check in `--dry-run`, and reports the findings.
-  One line leads the report. It counts how many repositories the check looked at, how many have
-  upstream changes, how many have prunable branches, how many it skipped, and how many it could
-  not fully check. No such line appears above a run that produced no report, or one where the
-  check could not count any repository. A line of zeros over a report that says otherwise would
-  be worse than no line at all.
-- Inside a git repository, if HEAD is not on the default branch, it says so. It adds how far the
-  default branch is behind the cached `origin/<default>`, and how many local branches are
-  prunable candidates, each only when the number is above zero. This code path is purely local,
-  and does not hit the network, so the numbers are as of the last fetch, and the message says so.
-  `/gh:sync --dry-run` is what reports the current answer, including what `/gh:sync` would do
-  with the default branch, which this message does not claim. Prunable candidates are candidates
-  only: they are local branches with a gone upstream, or ones already merged into the default
-  branch, minus any that sit on the commit the cached `origin/<default>` names, which `/gh:sync`
-  keeps and says so. Ancestry cannot see a squash merge, which is what `/gh:sync` asks the merged
-  pull request list about. When a lookup cannot run, the hook drops that line, instead of showing
-  a zero.
-- Otherwise it stays silent.
+```
+gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1]
+gh: ⚠️ fetch failed in 15 repos: Invalid username or token
+gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
+```
 
-The whole hook is `hooks/hook-io.ts`, run as `hook-io.ts session-start`. It reads the payload,
-picks the branch the payload's directory calls for, and writes the response. Its `cwd`, `branch`,
-and `report` subcommands are the pieces that build that decision. The hook keeps them as seams,
-for the tests, and for anyone who wants to debug the hook by hand.
+| Item | What it shows |
+| --- | --- |
+| `repos: N` | The repositories checked, when there is more than one. |
+| `behind` | At least one local `<default>` is behind its `origin/<default>`. |
+| ✂️ | Local branches that `/gh:sync` can remove. See below. |
+| 🤖 | Open pull requests with the `dependencies` label. |
+| 🛡️ | Open Dependabot alerts. |
 
-The hook never changes a branch, worktree, or working tree. Every path through `session-start`
-exits 0, so it can never stop a session, or surprise you with a change you did not ask for.
-`hooks.json` wraps it in `command -v node ... ; exit 0`, which holds that guarantee even where the
-file never runs at all: no node on PATH, or a hooks directory this file was never installed into.
-A node below the floor gets the same silence. The hook checks the current version first, and
-exits 0 without a write, because a hook that explains itself on stderr writes into the session.
-In fan-out mode it fetches, which updates remote-tracking refs. That is one network round trip
-per repository, against the hook's 60 second budget. The fan-out stops at 50 seconds, so there is
-time left to report that it ran out. A degraded run (a missing `scripts/gh.ts`, no git on PATH, or
-`sync` itself that times out or leaves no report at all) leaves a line on stderr for
-`claude --debug`. It says so in the session only when there is something to act on. A `sync` that
-ran to completion, but answered exit 1 because a repository's own job failed, is not degraded:
-the report it already wrote is what the session sees, the same as a clean run.
+The status line shows only the items above zero. When every count is zero and nothing failed,
+the hook writes nothing.
+
+A local branch counts for ✂️ when one of these is true. The default branch and the current
+branch never count.
+
+- Its upstream is set, and the remote branch is gone.
+- It is merged into `origin/<default>`, and it tracks its own remote branch. A new branch that
+  tracks `origin/<default>` does not count.
+- Its tip is the head of one of the last 100 merged pull requests of the repository. A pull
+  request from a fork does not count.
+
+The hook checks the repository that holds the session's directory. Outside a repository, it
+checks each repository directly inside that directory, and adds the counts. It skips a repository
+whose `origin` is not on github.com. For each repository, it runs `git fetch --prune origin`, then
+reads the local refs. One GraphQL query reads the GitHub items for each group of five
+repositories. The queries and the fetches run at the same time.
+
+The whole check has 5 seconds. A part that fails, or does not finish in that time, gives no
+count. It gives a `gh: ⚠️` line instead, one line for each kind of problem, never one for each
+repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In a folder of
+repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1 repo`.
+
+A short cause follows when the failure came with a message. It is the first line of the first
+failure's message, up to its first sentence end, at most 80 characters.
+
+The hook writes each failure in full to stderr, one line for each failure, with its repository.
+`claude --debug` shows it.
+
+The plugin needs git and the GitHub CLI. When one of them is not on PATH, the hook checks
+nothing. Each missing tool gets a line of its own instead, git first:
+
+```
+gh: ⚠️ git not found on PATH
+gh: ⚠️ GitHub CLI (gh) not found on PATH
+```
+
+The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for each missing tool.
+
+The hook never changes a branch, worktree, or working tree. The fetch changes only
+remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.
+`hooks.json` runs it as `command -v node ... ; exit 0`, which gives the same result when node is
+not on PATH. Below the node floor, the hook exits 0 and writes nothing.
+
+The hook is `hooks/hook-io.ts`. To see the lines by hand, run it with `status`:
+
+```bash
+node <plugin>/hooks/hook-io.ts status /path/to/a/repo-or-folder
+```
 
 ## Credentials
 
@@ -403,8 +427,8 @@ something (each merge signal, a reused branch name, a fork's pull request, a pul
 into another base, worktrees clean and dirty), every preflight refusal, and the guarantee that
 `--dry-run` changes nothing it says it would change. Each command's tests check it against the
 report its predecessor printed, captured scenario by scenario before the tests deleted that
-version. The tests compare the session-start hook's response byte for byte. It is a JSON document
-Claude Code parses, so its shape is a contract, not a rendering.
+version. The session-start hook's tests check that each case writes one JSON document, on one
+line, with `systemMessage` and nothing else.
 
 pnpm's install path has a test that runs a real `pnpm install`. What remains uncovered is
 defensive branches that guard against states nobody can provoke, such as a ref that resolves

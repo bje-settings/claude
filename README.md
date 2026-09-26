@@ -35,7 +35,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Hooks</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: report-only check on startup that offers <code>/gh:sync</code> when there is something to act on. Never changes a branch, worktree, or working tree.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: one status line on start, resume and clear. It shows commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem gets a line of its own, such as a failed fetch or a missing git. Never changes a branch, worktree, or working tree.</li>
       </ul>
     </td>
   </tr>

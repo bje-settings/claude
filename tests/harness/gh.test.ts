@@ -31,6 +31,7 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['requiredContexts', (client) => client.requiredContexts({ branch: 'main' })],
   ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
+  ['repositoryStatus', (client) => client.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })],
 ]
 
 it('answers with the reply registered for the endpoint', async () => {
@@ -116,6 +117,12 @@ it('answers every endpoint it declares', async () => {
           updatedAt: '2026-09-22T06:33:14Z',
         },
       ],
+      unavailable: null,
+    },
+    repositoryStatus: {
+      repositories: {
+        'acme/widgets': { alerts: 1, dependencies: 2, mergedPullRequests: [] },
+      },
       unavailable: null,
     },
   })
