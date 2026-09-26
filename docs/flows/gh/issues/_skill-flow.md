@@ -4,7 +4,7 @@ description: What the gh:issues skill does for each operation, and every way it 
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-09-26
 ---
 
 # gh:issues skill flow
@@ -16,9 +16,9 @@ the skill. It has no slash command.
 flowchart TD
     A{Which operation?}
     A -->|Create one| B{Similar issue found?}
-    B -->|Yes, and the user agrees| B1([Propose a comment on it, create nothing]):::stop
+    B -->|Yes, and the user agrees| B1([Propose a comment on it under the<br/>owner rule below, create nothing]):::stop
     B -->|No, or the user says it is different| C[Propose title, body, type, labels,<br/>relationships, milestone, priority]
-    A -->|Create a batch| BB[Take each duplicate out of the batch,<br/>propose a comment on it]
+    A -->|Create a batch| BB[Take each duplicate out of the batch,<br/>propose a comment on it under the owner rule]
     BB --> BM[Propose a milestone for<br/>a shared done condition]
     BM --> C
     A -->|Link| L[Propose the relationship change]
@@ -26,9 +26,13 @@ flowchart TD
     T -->|No| T1([Report that every field has a value]):::stop
     T -->|Yes| T2[Propose a value for each gap,<br/>or leave it open and say why]
 
-    C --> G
+    C --> O
+    T2 --> O
+    O{Target owner differs from<br/>an owner of the context?}
+    O -->|No| G
+    O -->|Yes| OX[Remove the details of each source<br/>with a different owner, add an Omitted line]
+    OX --> G
     L --> G
-    T2 --> G
     G{Each value the caller gave exists?}
     G -->|No| G1([Say so and ask, write nothing]):::stop
     G -->|Yes| E{Request already sets every value?}
@@ -63,6 +67,11 @@ flowchart TD
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+The owner rule applies to each issue and each comment on a duplicate that the skill proposes.
+The skill compares the owner of each source with the target owner, by name only. Text for a
+different owner names none of the details of that source. The proposal gives the kinds of
+detail that it removed.
 
 The skill never creates a label. It prefers an issue type to a label with the same meaning.
 An owner with no Priority field is a fact to report, and the skill does not work around it.

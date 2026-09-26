@@ -304,6 +304,13 @@ owns has no such field. The skill then gives the level in its report only. The r
 Before a write, the skill asks you to confirm. In a subagent it cannot ask. There it writes
 only when the request sets every value. Otherwise it returns the proposal to its caller.
 
+An issue can go to a repository of a different owner than the work that gave it context.
+Then the issue names none of that source's repositories, numbers, paths or URLs. A comment on
+a duplicate follows the same rule. The skill compares owner names only, with no API call. Two
+orgs in one enterprise are different owners. The proposal gets an `Omitted:` line with the
+kinds of detail that it removed. The rule is in
+[`skills/issues/cross-org.md`](skills/issues/cross-org.md).
+
 ## Session start hook
 
 On session start only (not on resume, `/clear`, or compaction), the plugin runs a **report-only**
