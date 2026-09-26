@@ -23,15 +23,7 @@ import path from 'node:path'
 
 import { discoverRepos } from '../discover.ts'
 import type { GhClient, GhResults } from '../lib/gh.ts'
-import {
-  currentBranch,
-  defaultBranch,
-  gitLines,
-  gitOut,
-  hasRef,
-  type RepoOptions,
-  runGit,
-} from '../lib/git.ts'
+import { defaultBranch, gitLines, gitOut, hasRef, type RepoOptions, runGit } from '../lib/git.ts'
 import type { Output } from '../lib/streams.ts'
 import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
 
@@ -118,10 +110,12 @@ export const statusLine = (
 const GITHUB_URL =
   /^(?:(?:https?|ssh|git):\/\/(?:[^@/]+@)?github\.com(?::[0-9]+)?\/|(?:[^@/:]+@)?github\.com:)([A-Za-z0-9_-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/i
 
-/** `owner/name` for a github.com remote URL, or `null` for any other URL. */
+/** `owner/name` for a github.com remote URL, or `null` for any other URL.
+ *  The answer is in lower case, because GitHub ignores case in these names.
+ *  So two spellings of one repository give one name, and count once. */
 export const githubRepository = (url: string): string | null => {
   const match = GITHUB_URL.exec(url)
-  return match === null ? null : `${match[1]}/${match[2]}`
+  return match === null ? null : `${match[1]}/${match[2]}`.toLowerCase()
 }
 
 /** The response `session-start` writes: one JSON document on one line. The
@@ -298,11 +292,22 @@ export const countCandidates = (
   return count
 }
 
+/** The branch that `%(HEAD)` marks in the branch listing, or `null` when
+ *  no branch is current. The mark comes from the same listing as the
+ *  branches, so a failed read cannot hide the current branch alone. */
+const currentOf = (branches: readonly string[] | null): string | null => {
+  for (const line of branches ?? []) {
+    const [name = '', , , head] = line.split(FIELD)
+    if (head === '*') return name
+  }
+  return null
+}
+
 /** What one checkout says about itself, from local refs after the fetch. */
 interface LocalRead {
   readonly behind: number | null
-  /** `null` when git names no current branch, as on a branch with no
-   *  commit yet. */
+  /** `null` when no branch is current: a detached HEAD, or a branch with
+   *  no commit yet. */
   readonly current: string | null
   readonly target: string
   readonly branches: string[] | null
@@ -318,6 +323,41 @@ interface Checkout {
 
 /** `text` on one line, so one failure is one line of the debug log. */
 const oneLine = (text: string): string => text.trim().replace(/\s*\n\s*/g, ' ')
+
+/**
+ * The GitHub `owner/name` of the origin of `root`, or `null` when it has no
+ * origin on GitHub.
+ *
+ * This reads the URL git holds in its configuration first. `git remote
+ * get-url` rewrites it by `insteadOf`, and a rewrite can send a github.com
+ * URL to a mirror. When the configured URL is not on github.com, the
+ * rewrite can be what puts it there, as `gh:owner/name` does with
+ * `url.https://github.com/.insteadOf gh:`. So only then does this ask for
+ * the rewritten URL.
+ *
+ * git exits 1 for a key that is not set: a checkout with no origin. Any
+ * other failure is a warning, not a checkout with no origin.
+ */
+const originName = async (
+  root: string,
+  options: RepoOptions,
+  failed: (line: string) => void,
+): Promise<string | null> => {
+  const configured = await runGit(['config', '--get', 'remote.origin.url'], options)
+  if (configured.status === 1) return null
+  if (configured.status !== 0) {
+    failed(`${root}: origin could not be read: ${oneLine(configured.stderr)}`)
+    return null
+  }
+  const name = githubRepository(configured.stdout.replace(/\n+$/, ''))
+  if (name !== null) return name
+  const rewritten = await gitOut(['remote', 'get-url', 'origin'], options)
+  if (rewritten === null) {
+    failed(`${root}: origin could not be read`)
+    return null
+  }
+  return githubRepository(rewritten)
+}
 
 /**
  * Fetch one checkout, then read its refs. `failed` takes a line for each
@@ -342,11 +382,13 @@ const readCheckout = async (
     failed(`${root}: no default branch`)
     return null
   }
-  const [current, hasLocal, branches, refs, merged] = await Promise.all([
-    currentBranch(options),
-    hasRef(`${HEADS}${target}`, options),
+  const [branches, refs, merged] = await Promise.all([
     gitLines(
-      ['for-each-ref', `--format=${SHORT}${FIELD}%(upstream)${FIELD}%(objectname)`, HEADS],
+      [
+        'for-each-ref',
+        `--format=${SHORT}${FIELD}%(upstream)${FIELD}%(objectname)${FIELD}%(HEAD)`,
+        HEADS,
+      ],
       options,
     ),
     gitLines(['for-each-ref', '--format=%(refname)', HEADS, REMOTES], options),
@@ -356,9 +398,12 @@ const readCheckout = async (
     ),
   ])
   // With no local default branch, nothing is behind: there is nothing to
-  // update.
-  const behind = hasLocal ? await behindCount(target, options) : 0
-  return { behind, current, target, branches, refs, merged }
+  // update. The ref listing gives that answer. A probe of its own would
+  // read a failed probe as "no branch", and give 0 with no warning. When
+  // the listing failed, the count asks git, and a failure there warns.
+  const behind =
+    refs !== null && !refs.includes(`${HEADS}${target}`) ? 0 : await behindCount(target, options)
+  return { behind, current: currentOf(branches), target, branches, refs, merged }
 }
 
 /** A version of {@link StatusCounts} that the sum can change. */
@@ -458,17 +503,11 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<string | n
     if (discovered?.outcome === 'not-a-directory') failed(`${target}: not a directory`)
     if (discovered?.outcome === 'unreadable') failed(`${target}: ${oneLine(discovered.reason)}`)
     const roots = discovered?.outcome === 'ok' ? discovered.roots : []
-    // The URL git holds in its configuration, not `git remote get-url`,
-    // which rewrites it by `insteadOf`.
     const named = await Promise.all(
-      roots.map(async (root) => {
-        const url = await gitOut(['config', '--get', 'remote.origin.url'], {
-          cwd: root,
-          env,
-          timeoutMs: timeoutMs(),
-        })
-        return { root, name: githubRepository(url ?? '') }
-      }),
+      roots.map(async (root) => ({
+        root,
+        name: await originName(root, { cwd: root, env, timeoutMs: timeoutMs() }, failed),
+      })),
     )
     checkouts = named.filter((checkout): checkout is Checkout => checkout.name !== null)
     const names = [...new Set(checkouts.map((checkout) => checkout.name))]

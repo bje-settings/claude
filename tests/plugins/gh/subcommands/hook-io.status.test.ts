@@ -2,10 +2,11 @@
 // the local counts, the GitHub counts, the sum and the line. Git is real
 // (`harness/git.ts`); `gh` is the injected double. Each test asserts the
 // line the hook wrote and the account it left on stderr.
-import { chmodSync, mkdirSync, realpathSync } from 'node:fs'
+import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
+import { findOnPath } from '#harness/sandbox.ts'
 import {
   createRig,
   githubRepo,
@@ -145,6 +146,99 @@ it('counts a GitHub repository once, however many checkouts it has', async () =>
   const ran = await statusOf(rig, folder, answering({ 'acme/widgets': side(1, 1) }))
 
   expect(ran.stdout).toBe('gh: 2 repos [🤖 1] [🛡️ 1]\n')
+})
+
+it('counts one repository once when two checkouts spell its name in different cases', async () => {
+  const rig = createRig()
+  const folder = rig.sandbox.join('folder')
+  onGitHub(rig, rig.git.createAt(folder, 'a'), 'Acme/Widgets')
+  onGitHub(rig, rig.git.createAt(folder, 'b'), 'acme/widgets')
+
+  const ran = await statusOf(rig, folder, answering({ 'acme/widgets': side(1, 1) }))
+
+  expect(ran).toEqual({ status: 0, stdout: 'gh: 2 repos [🤖 1] [🛡️ 1]\n', stderr: '' })
+})
+
+it('finds a GitHub origin that only an insteadOf short name puts on github.com', async () => {
+  const rig = createRig()
+  const work = rig.git.create(rig.sandbox.join('r'))
+  rig.git.git(work, 'config', 'remote.origin.url', 'gh:acme/widgets')
+  rig.git.git(work, 'config', 'url.https://github.com/.insteadOf', 'gh:')
+  // The fetch now names github.com. This refuses it before any connection.
+  rig.git.git(work, 'config', 'protocol.https.allow', 'never')
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side(0, 1) }))
+
+  expect(ran.stdout).toBe('gh: [🤖 1] ⚠️\n')
+  expect(ran.stderr).toMatch(/^.*\/work: git fetch failed: .*https.*\n$/)
+})
+
+it('warns, and does not skip in silence, when the origin cannot be read', async () => {
+  const rig = createRig()
+  const folder = rig.sandbox.join('folder')
+  onGitHub(rig, rig.git.createAt(folder, 'a'), 'acme/a')
+  const broken = onGitHub(rig, rig.git.createAt(folder, 'b'), 'acme/b')
+  // A git that fails the origin read with a status other than "not set".
+  const real = findOnPath('git', rig.sandbox.env.PATH) ?? 'git'
+  const bin = rig.sandbox.join('bin-origin')
+  mkdirSync(bin)
+  writeFileSync(
+    path.join(bin, 'git'),
+    `#!/bin/sh\ncase "$(pwd -P)" in\n  */b) case " $* " in\n    *" remote.origin.url "*) echo "fatal: bad config" >&2; exit 128 ;;\n  esac ;;\nesac\nexec '${real}' "$@"\n`,
+    { mode: 0o755 },
+  )
+
+  const ran = await statusOf(rig, folder, answering({ 'acme/a': side(0, 1) }), {
+    env: { ...rig.sandbox.env, PATH: `${bin}${path.delimiter}${rig.sandbox.env.PATH}` },
+  })
+
+  expect(ran.stdout).toBe('gh: [🤖 1] ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(broken)}: origin could not be read: fatal: bad config\n`)
+})
+
+it('warns when the rewritten URL of an origin that is not on github.com cannot be read', async () => {
+  const rig = createRig()
+  const local = rig.git.create(rig.sandbox.join('r'))
+  const shim = rig.git.gitShim('remote get-url')
+
+  const ran = await statusOf(rig, local, createGhMock(), {
+    env: {
+      ...rig.sandbox.env,
+      PATH: `${shim.directory}${path.delimiter}${rig.sandbox.env.PATH}`,
+      GIT_STUB_FAIL: shim.failing,
+    },
+  })
+
+  expect(ran.stdout).toBe('gh: ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(local)}: origin could not be read\n`)
+})
+
+it('still counts behind when the ref listing fails', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.remoteAdvance(work)
+  const shim = rig.git.gitShim('for-each-ref --format=%(refname)')
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: {
+      ...rig.sandbox.env,
+      PATH: `${shim.directory}${path.delimiter}${rig.sandbox.env.PATH}`,
+      GIT_STUB_FAIL: shim.failing,
+    },
+  })
+
+  expect(ran.stdout).toBe('gh: [behind 1] ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(work)}: branches could not be listed\n`)
+})
+
+it('warns, and asks nothing more, when discovery does not finish in time', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+
+  // Discovery runs git, which takes longer than 1 ms.
+  const ran = await statusOf(rig, work, createGhMock(), { deadlineMs: 1 })
+
+  expect(ran).toEqual({ status: 0, stdout: 'gh: ⚠️\n', stderr: `${work}: did not finish in 1 ms\n` })
 })
 
 it('warns, and keeps the local items, when the GitHub call fails', async () => {

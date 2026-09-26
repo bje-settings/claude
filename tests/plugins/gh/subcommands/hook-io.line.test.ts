@@ -66,6 +66,10 @@ it('keeps the dots, dashes and underscores a repository name can hold', () => {
   expect(githubRepository('https://github.com/a_b/c_d')).toBe('a_b/c_d')
 })
 
+it('answers in lower case, because GitHub ignores case in a name', () => {
+  expect(githubRepository('git@GitHub.com:Acme/Widgets.git')).toBe('acme/widgets')
+})
+
 it('answers null for a remote that is not on github.com', () => {
   const others = [
     '',

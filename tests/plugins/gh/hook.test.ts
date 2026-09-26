@@ -13,7 +13,12 @@ import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { pluginFile } from '#harness/paths.ts'
 import { runScript } from '#harness/spawn.ts'
-import { createRig, expectOneLine, githubRepo } from './subcommands/hook-io.test-support.ts'
+import {
+  createRig,
+  expectOneLine,
+  githubRepo,
+  hangingFetch,
+} from './subcommands/hook-io.test-support.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const HOOK = pluginFile('gh', 'hooks', 'hook-io.ts')
@@ -78,6 +83,7 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
   }
   // No `gh` at all, so the GitHub half fails, and the line says so.
   const env = { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') }
+  const started = Date.now()
 
   const result = runScript(HOOK, {
     args: ['session-start'],
@@ -85,6 +91,10 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
     env,
   })
 
+  // stderr below names no late task, so the check ended before its 5 s
+  // deadline. The process must end then too: a deadline timer left set
+  // would hold it open until the timer fires.
+  expect(Date.now() - started).toBeLessThan(5_000)
   expect(result.status).toBe(0)
   expectOneLine(result.stdout)
   expect(result.stdout).toBe('{"systemMessage":"gh: [behind 1] [prune 1] ⚠️"}\n')
@@ -103,6 +113,27 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
   // `status` writes the same line, bare.
   const status = runScript(HOOK, { args: ['status', work], env })
   expect(status.stdout).toBe('gh: [behind 1] [prune 1] ⚠️\n')
+})
+
+it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json gives it', () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  hangingFetch(rig, work)
+  const env = { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') }
+  const started = Date.now()
+
+  const result = runScript(HOOK, {
+    args: ['session-start'],
+    stdin: JSON.stringify({ session_id: 's1', cwd: work }),
+    env,
+  })
+
+  // The shipped deadline is 5 s. The process ends only when its children
+  // do, so the fetch must stop at the deadline too, not when it gives up.
+  expect(Date.now() - started).toBeLessThan(10_000)
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️"}\n')
+  expect(result.stderr).toContain('did not finish in 5000 ms\n')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {

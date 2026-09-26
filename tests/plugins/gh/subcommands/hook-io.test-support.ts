@@ -8,7 +8,7 @@ import type { Output, Writer } from '#gh/lib/streams.ts'
 import { type HookEdges, runHookIo } from '#gh/subcommands/hook-io.ts'
 import type { GhClient } from '#harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '#harness/git.ts'
-import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
+import { createSandbox, findOnPath, type Sandbox } from '#harness/sandbox.ts'
 
 /** A writer that keeps whatever text it receives. */
 const collector = (): Writer & { text: () => string } => {
@@ -71,13 +71,16 @@ export const onGitHub = (rig: Rig, work: string, name: string): string => {
  * Make the fetch of `work` hang until the hook kills it. git's `ext`
  * transport runs a command in place of a server, and `sleep` never answers.
  * So this repository is late for any deadline, however fast the machine is.
+ * `sleep` is named by its full path, because a test can run the hook with a
+ * PATH that holds only a few tools.
  */
 export const hangingFetch = (rig: Rig, work: string): void => {
   const url = rig.git.git(work, 'config', '--get', 'remote.origin.url')
   const bare = rig.git.git(work, 'remote', 'get-url', 'origin')
   rig.git.git(work, 'config', '--unset', `url.${bare}.insteadOf`)
   rig.git.git(work, 'config', 'protocol.ext.allow', 'always')
-  rig.git.git(work, 'config', 'url.ext::sleep 60.insteadOf', url)
+  const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
+  rig.git.git(work, 'config', `url.ext::${sleep} 60.insteadOf`, url)
 }
 
 /** A work tree on GitHub as `name`, at `<root>/work`. */
