@@ -70,7 +70,7 @@ it('exits 0 in silence when the payload is not a document at all', () => {
   expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' })
 })
 
-it('writes one line for a real checkout, end to end, and changes no branch', () => {
+it('writes the status and problem lines for a real checkout, end to end, and changes no branch', () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   rig.git.branchWithWork(work, 'goner')
@@ -83,8 +83,8 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
     current: rig.git.currentBranch(work),
     head: rig.git.headSha(work),
   }
-  // The rig's `gh` always fails, so the GitHub half fails, and the line
-  // says so.
+  // The rig's `gh` always fails, so the GitHub half fails, and a problem
+  // line says so.
   const env = rig.sandbox.env
   const started = Date.now()
 
@@ -217,7 +217,8 @@ it('runs the hook entry with node, behind the silent guard, on start, resume and
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([10])
   expect(config.description).toBe(
     'One status line when a session starts: commits behind, branches to prune, dependency ' +
-      'pull requests and Dependabot alerts. A missing git or GitHub CLI gets a line of its ' +
-      'own. Fetches, but never changes a branch, worktree, or working tree.',
+      'pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a ' +
+      'missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or ' +
+      'working tree.',
   )
 })

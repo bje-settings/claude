@@ -25,6 +25,25 @@ may paraphrase it, or silently drop it, and that is acceptable.
 
 Reference: [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
 
+## Status line hooks
+
+A plugin hook that shows status writes this pattern in `systemMessage`, one line after the other:
+
+```
+gh: [repos: 21] [behind] [✂️ 27]
+gh: ⚠️ fetch failed in 15 repos: Invalid username or token
+gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
+```
+
+- One status line at most: the plugin prefix, then bracketed items. Leave out an item that is zero.
+- Then one `<prefix>: ⚠️ <problem>` line for each kind of problem. Each kind has fixed words.
+- One line per kind, not per repository. In a folder of repositories, write the count: `in N
+  repos`. Add a short cause after `: `, from the first failure of that kind.
+- Write the full detail of each failure to stderr, one line each. Claude Code keeps stderr in its
+  debug log.
+- A missing required tool is a problem line of its own. It stops all other checks.
+- When there is nothing to show, write nothing.
+
 ## Scope: terminal CLI only
 
 This guidance targets the Claude Code terminal/CLI, which is what every plugin here targets.

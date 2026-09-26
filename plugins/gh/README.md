@@ -313,25 +313,27 @@ kinds of detail that it removed. The rule is in
 
 ## Session start hook
 
-When a session starts, resumes, or clears, the plugin writes one status line, or nothing:
+When a session starts, resumes, or clears, the plugin writes a status line, then one line for
+each kind of problem, or nothing:
 
 ```
-gh: 3 repos [behind 2] [prune 1] [🤖 4] [🛡️ 1] ⚠️
+gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1]
+gh: ⚠️ fetch failed in 15 repos: Invalid username or token
+gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
 
-| Item | What it counts |
+| Item | What it shows |
 | --- | --- |
-| `N repos` | The repositories checked, when there is more than one. |
-| `behind` | Commits in `origin/<default>` that the local `<default>` does not have. |
-| `prune` | Local branches that `/gh:sync` can remove. See below. |
+| `repos: N` | The repositories checked, when there is more than one. |
+| `behind` | At least one local `<default>` is behind its `origin/<default>`. |
+| ✂️ | Local branches that `/gh:sync` can remove. See below. |
 | 🤖 | Open pull requests with the `dependencies` label. |
 | 🛡️ | Open Dependabot alerts. |
-| ⚠️ | A check failed or did not finish in time. That item is not in the line. |
 
-The line shows only the items above zero. When every count is zero and nothing failed, the hook
-writes nothing.
+The status line shows only the items above zero. When every count is zero and nothing failed,
+the hook writes nothing.
 
-A local branch counts for `prune` when one of these is true. The default branch and the current
+A local branch counts for ✂️ when one of these is true. The default branch and the current
 branch never count.
 
 - Its upstream is set, and the remote branch is gone.
@@ -347,8 +349,14 @@ reads the local refs. One GraphQL query reads the GitHub items for each group of
 repositories. The queries and the fetches run at the same time.
 
 The whole check has 5 seconds. A part that fails, or does not finish in that time, gives no
-count, and the line ends with ⚠️. The hook writes the reason to stderr, one line for each
-failure. `claude --debug` shows it.
+count. It gives a `gh: ⚠️` line instead, one line for each kind of problem, never one for each
+repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In a folder of
+repositories, the line says how many repositories the kind hit: `in 15 repos`. A short cause
+follows when the failure came with a message. It is the first line of the first failure's
+message, up to its first sentence end, at most 80 characters.
+
+The hook writes each failure in full to stderr, one line for each failure, with its repository.
+`claude --debug` shows it.
 
 The plugin needs git and the GitHub CLI. When one of them is not on PATH, the hook checks
 nothing. Each missing tool gets a line of its own instead, git first:
@@ -365,7 +373,7 @@ remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a 
 `hooks.json` runs it as `command -v node ... ; exit 0`, which gives the same result when node is
 not on PATH. Below the node floor, the hook exits 0 and writes nothing.
 
-The hook is `hooks/hook-io.ts`. To see the line by hand, run it with `status`:
+The hook is `hooks/hook-io.ts`. To see the lines by hand, run it with `status`:
 
 ```bash
 node <plugin>/hooks/hook-io.ts status /path/to/a/repo-or-folder

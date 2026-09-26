@@ -1,5 +1,5 @@
 {
-  "description": "One status line when a session starts: commits behind, branches to prune, dependency pull requests and Dependabot alerts. A missing git or GitHub CLI gets a line of its own. Fetches, but never changes a branch, worktree, or working tree.",
+  "description": "One status line when a session starts: commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or working tree.",
   "hooks": {
     "SessionStart": [
       {

@@ -101,12 +101,12 @@ export const statusLine = (counts: StatusCounts, repoCount: number): string | nu
   return `${PREFIX} ${items.join(' ')}`
 }
 
-/** The tools the hook needs, in the order the line names them. The hook
+/** The tools the hook needs, in the order their lines show. The hook
  *  checks each one, so this is the only list. */
 const TOOLS = ['git', 'gh'] as const
 
 /** A tool the hook needs. */
-export type Tool = (typeof TOOLS)[number]
+type Tool = (typeof TOOLS)[number]
 
 /** The name the line gives each tool. A tool with no name here, or a name
  *  for a tool that is not in {@link TOOLS}, does not compile. */
@@ -446,7 +446,7 @@ type Failed = (kind: Kind, line: string, cause?: string) => void
  * the rewritten URL.
  *
  * git exits 1 for a key that is not set: a checkout with no origin. Any
- * other failure is a warning, not a checkout with no origin.
+ * other failure is a problem, not a checkout with no origin.
  */
 const originName = async (
   root: string,
@@ -522,8 +522,8 @@ const readCheckout = async (
   ])
   // With no local default branch, nothing is behind: there is nothing to
   // update. The ref listing gives that answer. A probe of its own would
-  // read a failed probe as "no branch", and give 0 with no warning. When
-  // the listing failed, the count asks git, and a failure there warns.
+  // read a failed probe as "no branch", and give 0 with no problem line.
+  // When the listing failed, the count asks git, and a failure there shows.
   const behind =
     refs !== null && !refs.includes(`${HEADS}${target}`) ? 0 : await behindCount(target, options)
   return { behind, current: currentOf(branches), target, branches, refs, merged }
