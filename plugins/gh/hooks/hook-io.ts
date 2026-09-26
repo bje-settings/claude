@@ -51,6 +51,15 @@ if (meetsNodeFloor(process.version)) {
     process.exitCode = 0
   }
 } else {
+  // A closed reader makes this write fail asynchronously, as an `error`
+  // event, the same failure `lib/streams.ts` guards on every other write
+  // in this plugin. This branch cannot import `createOutput`: it must
+  // stay inside the one-static-import contract above. So the guard is
+  // inline instead, with no import, and it keeps the same rule: only
+  // EPIPE is swallowed, and anything else still surfaces.
+  process.stdout.on('error', (error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error
+  })
   process.stdout.write(
     `${JSON.stringify({ systemMessage: `\ngh: ⚠️ ${belowFloorMessage(process.version)}` })}\n`,
   )
