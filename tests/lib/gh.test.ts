@@ -1998,6 +1998,54 @@ describe('the review loop reads', () => {
       expect(result.missing).toBe(false)
     })
 
+    it('marks missing true for a NOT_FOUND on the pull request, read past an unrelated error', async () => {
+      // Two errors, and the NOT_FOUND for the pull request itself is
+      // second. A check that read only the first entry would miss it.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(null, [
+            { type: 'FORBIDDEN', path: ['repository', 'pullRequest', 'comments'], message: 'no' },
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'pullRequest'],
+              message: 'Could not resolve to a PullRequest with the number of 99999.',
+            },
+          ]).stdout,
+        },
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 99999 })
+
+      expect(result.missing).toBe(true)
+    })
+
+    it('leaves missing false for a NOT_FOUND on a field nested under the pull request', async () => {
+      // The pull request node itself came back. A nested field under it
+      // failed to resolve, and GraphQL nulled that field and named it
+      // NOT_FOUND. That is a different fact: the pull request exists, and
+      // this read only fell short of one of its facts.
+      const node = prNode({ commits: { nodes: [{ commit: null }] } })
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: prReply(node, [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository', 'pullRequest', 'commits', 'nodes', 0, 'commit'],
+              message: 'Could not resolve to a Commit',
+            },
+          ]).stdout,
+        },
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.missing).toBe(false)
+    })
+
     it('keeps the pull request AND the error when a query partly succeeded', async () => {
       const { gh } = clientAnsweringEach([
         REPO,

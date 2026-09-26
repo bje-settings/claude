@@ -337,10 +337,10 @@ export interface GhResults {
   viewPullRequestDetail: {
     readonly pullRequest: PullRequestDetail | null
     readonly unavailable: string | null
-    /** True only when GraphQL named this pull request number NOT_FOUND.
-     *  That means the number does not exist. Every other reason leaves
-     *  this false. A malformed reply and a read gh refused are both such
-     *  reasons. */
+    /** True only when GraphQL named this pull request itself NOT_FOUND.
+     *  That means the number does not exist. A NOT_FOUND for a field
+     *  nested under it, a malformed reply, and a read gh refused are each
+     *  false instead. */
     readonly missing: boolean
   }
   /** Workflow runs, newest first. */
@@ -1518,12 +1518,20 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const queryOnce = async (
     query: string,
     variables: readonly string[],
+    /** The last segment of the one path a NOT_FOUND error must end in for
+     *  {@link notFound} to trust it. `notFoundAlias` (above) reads the same
+     *  fact for a batched query with an alias per number; a single, plain
+     *  field name is this query's version of the same check. */
+    notFoundField: string,
   ): Promise<{
     data: Record<string, unknown> | null
     unavailable: string | null
-    /** True when `errors` names a `NOT_FOUND` entry. GraphQL uses this to
-     *  report that the thing asked for does not exist. No other reason a
-     *  read comes back short sets this flag. */
+    /** True when `errors` names a `NOT_FOUND` entry whose `path` ends at
+     *  `notFoundField`. GraphQL uses this to report that the thing asked
+     *  for does not exist. A NOT_FOUND elsewhere in the same reply, for a
+     *  field nested under it, does not set this: that reports a different
+     *  field missing, not this one. No other reason a read comes back
+     *  short sets this flag either. */
     notFound: boolean
   }> => {
     const parts = await repositoryParts()
@@ -1555,7 +1563,12 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     const messages = entries
       .map((entry) => asRecord(entry)?.message)
       .filter((message): message is string => typeof message === 'string')
-    const notFound = entries.some((entry) => asRecord(entry)?.type === 'NOT_FOUND')
+    const notFound = entries.some((entry) => {
+      const error = asRecord(entry)
+      if (error?.type !== 'NOT_FOUND') return false
+      const path = error.path
+      return Array.isArray(path) && path[path.length - 1] === notFoundField
+    })
     return { data: repository, unavailable: joinedReasons(messages), notFound }
   }
 
@@ -1838,12 +1851,16 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     },
 
     viewPullRequestDetail: async (pull) => {
-      const answer = await queryOnce(PULL_REQUEST_DETAIL_QUERY, [
-        // `-F`, not `-f`: `number` is an `Int!`. `-f` would send it as the
-        // string "178", which GraphQL refuses outright.
-        '-F',
-        `number=${pull.pullRequest}`,
-      ])
+      const answer = await queryOnce(
+        PULL_REQUEST_DETAIL_QUERY,
+        [
+          // `-F`, not `-f`: `number` is an `Int!`. `-f` would send it as the
+          // string "178", which GraphQL refuses outright.
+          '-F',
+          `number=${pull.pullRequest}`,
+        ],
+        'pullRequest',
+      )
       if (answer.data === null) {
         return { pullRequest: null, unavailable: answer.unavailable, missing: false }
       }
@@ -1856,10 +1873,12 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           // and "this token may not see it" arrive as the same missing
           // node, and only the error tells them apart.
           unavailable: answer.unavailable === null ? said : `${said}: ${answer.unavailable}`,
-          // True only when GraphQL itself named this number NOT_FOUND. A
-          // malformed reply, a read gh refused, and a repository it could
-          // not resolve are each false instead. A caller then never
-          // reports a read failure as "no such pull request".
+          // True only when GraphQL itself named this pull request field
+          // NOT_FOUND. A NOT_FOUND for a field nested under it, a malformed
+          // reply, a read gh refused, and a repository it could not
+          // resolve are each false instead. A caller then never reports a
+          // read failure, or an unrelated nested one, as "no such pull
+          // request".
           missing: answer.notFound,
         }
       }
