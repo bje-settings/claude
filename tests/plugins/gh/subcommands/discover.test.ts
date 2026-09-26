@@ -193,7 +193,12 @@ it('prints nothing for a directory with no checkouts in it', async () => {
   expectParity(await runIn(sandbox, [empty]), 'no_repositories')
 })
 
-it('prints nothing, and exits 0, when git cannot be run at all', async () => {
+it('reports missing git rather than an answer with nothing in it, and exits 1', async () => {
+  // #218 finding 3. Discovery itself answers "no checkouts" when git cannot
+  // run at all, the same answer a directory with nothing in it gives. That
+  // answer is not this command's own account of what happened. This
+  // command checks git itself, after discovery and before any output line,
+  // and says so on stderr instead.
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
@@ -202,11 +207,9 @@ it('prints nothing, and exits 0, when git cannot be run at all', async () => {
 
   const status = await runDiscover([work], { cwd: sandbox.path, env: withoutGit, output })
 
-  // "Discovery asks git whether a directory is a checkout, and answers no
-  // when git cannot be run at all." The command publishes that fact as it
-  // found it. `gh.ts sync` is where a missing git becomes a sentence.
-  expect(output.stdout()).toBe(python('missing_git').stdout)
-  expect(status).toBe(python('missing_git').status)
+  expect(output.stdout()).toBe('')
+  expect(output.stderr()).toBe('missing git: not on PATH\n')
+  expect(status).toBe(1)
 })
 
 it('refuses a target that is not a directory, on stderr and with exit 1', async () => {

@@ -18,7 +18,7 @@
 //
 // The command function is the seam (ADR 001). Arguments and the process's
 // edges go in. An exit status comes out, with nothing spawned.
-import { discoverRepos } from '../discover.ts'
+import { discoverRepos, gitUnavailable } from '../discover.ts'
 import type { Output } from '../lib/streams.ts'
 
 export const HELP = `The checkout roots in scope for a directory, one per line.
@@ -37,8 +37,9 @@ ever cloned. Paths are symlink-resolved, because git reports resolved paths
 and callers compare against them.
 
 A directory with no checkouts in it prints nothing and exits 0: that is an
-answer. Exit 1 means the target could not be read at all, which is a different
-fact and says so on stderr. Exit 2 means the arguments were refused.`
+answer. Exit 1 means the target could not be read at all, or git itself could
+not run, which is a different fact and says so on stderr. Exit 2 means the
+arguments were refused.`
 
 /** The edges this command reads: the same three `scripts/gh.ts` hands
  *  every envelope command, and no `gh`. Discovery asks git, and nothing
@@ -98,6 +99,19 @@ export const runDiscover = async (
     output.err.write(`could not read ${target}: ${found.reason}\n`)
     return 1
   }
+
+  // This check runs after discovery, and before this code writes any line.
+  // Discovery answers "no checkouts" when git cannot run at all, the same
+  // answer a directory with nothing in it gives. Without this check, a
+  // machine with no git on PATH would read as one with no checkouts to
+  // report. `gh.ts sync` guards against the same fact with the same
+  // function, `../discover.ts`'s `gitUnavailable`.
+  const unavailable = await gitUnavailable(context.env)
+  if (unavailable !== null) {
+    output.err.write(`missing git: ${unavailable}\n`)
+    return 1
+  }
+
   for (const root of found.roots) output.out.write(`${root}\n`)
   return 0
 }
