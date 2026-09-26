@@ -136,7 +136,8 @@ export interface SyncRepoOptions {
  *
  * `marks` are the three line prefixes, indent included. The indent is what
  * tells a repository's lines from the heading above them. The rest are the
- * openings of the `--dry-run` notes.
+ * openings of lines: `skipped` in every mode, and the `would` notes of a
+ * `--dry-run`.
  */
 export const REPORT = {
   ok: '  ✓ ',

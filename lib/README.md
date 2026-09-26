@@ -327,8 +327,8 @@ const { repositories, unavailable } = await gh.repositoryStatus(['acme/widgets']
 ```
 
 This is the GitHub half of the gh plugin's SessionStart status line (#230). It reads three
-fields for each `owner/name`. They are the open Dependabot alerts, the open pull requests with the
-`dependencies` label, and the heads of the last 100 merged pull requests. Like `issueStates`, it
+fields for each `owner/name`: the open Dependabot alerts, and the open pull requests with the
+`dependencies` label. The third field is the heads of the last 100 merged pull requests. Like `issueStates`, it
 sends one aliased `gh api graphql` query. `issueStates` has one alias per number. This endpoint has
 one alias per repository (`r0`, `r1`, and so on).
 
@@ -339,8 +339,9 @@ time, so the small batch costs no time. Each call stops at `boundMs`, through th
 
 **Never throws.** A failure costs only what it touches:
 
-- Some failures cost all the repositories of a batch: a batch with no body to read, a gh that did
-  not start, a pipe that failed, or a call past its bound. The reason goes into `unavailable`.
+- Some failures cost all the repositories of a batch. These are a body that cannot be read, a gh
+  that did not start, a pipe that failed, and a call past its bound. The reason goes into
+  `unavailable`. The other batches keep their answers.
 - A repository that GitHub could not resolve is left out of `repositories`. Its error message goes
   into `unavailable`.
 - A field that is not the shape the query asked for is `null`, and the other fields stay. A token
@@ -350,8 +351,7 @@ time, so the small batch costs no time. Each call stops at `boundMs`, through th
 - One merged pull request row that is not the shape asked for makes the whole list `null`. A list
   one row short could hide the row that proves a squash merge.
 
-Owner and name go into the query as text, through `JSON.stringify`, because an alias cannot be a
-variable. The hook's URL parser lets only letters, digits, `-`, `_` and `.` into a name, so no
+Owner and name go into the query as text. `JSON.stringify` writes each one as a GraphQL string. The hook's URL parser lets only letters, digits, `-`, `_` and `.` into a name, so no
 name can end the quoted string.
 
 ### `listMilestones`, `listIssues` and `listOpenPullRequests`

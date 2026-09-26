@@ -30,8 +30,8 @@ export interface GitOptions {
    *  a developer's own git configuration out of a fixture. */
   readonly env?: NodeJS.ProcessEnv
   /** A time limit, in milliseconds. The gh plugin's SessionStart hook sets
-   *  one on each git call, because its fetch goes over the network and the
-   *  whole check has a deadline. */
+   *  one on each git call. Its fetch goes over the network, and the whole
+   *  check has a deadline. */
   readonly timeoutMs?: number
 }
 

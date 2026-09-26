@@ -129,10 +129,9 @@ does this with its captured replies.
 `GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`,
 `WatchResult`, and `IssueState` live in `lib/gh.ts`. The result shapes that the sweep and the
 review loop read also live there: `MilestoneSummary`, `IssueSummary`, `PullRequestSummary`,
-`PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`. The status line reads
-`RepositoryStatus` and `MergedHead`. The first of them moved there
+`PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`. The first of them moved there
 at [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
-against them.
+against them. The status line reads `RepositoryStatus` and `MergedHead`, which also live there.
 
 `gh.ts` imports these types back and re-exports them. This way, a test reaches the double and the
 interface it implements through one module. The harness keeps only what does not ship: the
