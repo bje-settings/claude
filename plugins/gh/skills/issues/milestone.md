@@ -8,12 +8,12 @@ gh api repos/{owner}/{repo}/milestones -X GET -f state=open -f per_page=100 --pa
 
 ## Suggest
 
-Propose an open milestone only when its title and description fit the area and the type of
-the issue. If none fits, propose no milestone. Do not create a milestone for one issue.
+Choose an open milestone only when its title and description fit the area and the type of
+the issue. If none fits, set no milestone. Do not create a milestone for one issue.
 
 ## Create for a batch
 
-Two or more issues with one shared done condition are a milestone. Propose a title, and use
+Two or more issues with one shared done condition are a milestone. Choose a title, and use
 the done condition as the description. Create it before the issues, so each issue gets it on
 creation:
 

@@ -21,7 +21,7 @@ gh issue view <n> --json title,body,comments,blockedBy,blocking,parent,subIssues
 - Blocking: that issue cannot finish until this issue closes.
 - Parent: this issue is one part of the work that the other issue tracks.
 
-Propose a relationship only when you can say what the dependency is. Do not propose one
+Set a relationship only when you can say what the dependency is. Do not set one
 only because two issues are in the same area.
 
 ## Set them on a new issue
@@ -30,7 +30,7 @@ Use `--blocked-by <n,n>`, `--blocking <n,n>` and `--parent <n>` on `gh issue cre
 
 ## Change them on an issue that exists
 
-Confirm the change, then run it:
+Run:
 
 ```bash
 gh issue edit <n> --add-blocked-by <n,n> --add-blocking <n,n> --parent <n>
@@ -39,8 +39,8 @@ gh issue edit <n> --remove-blocked-by <n,n> --remove-blocking <n,n> --remove-par
 
 ## Move a dependency from text to a field
 
-A body or a comment can give a dependency in text. Propose the field. For a body, also
-propose that you remove the text. Confirm both, then run:
+A body or a comment can give a dependency in text. Set the field. For a body, also remove
+the text:
 
 ```bash
 gh issue edit <n> --add-blocked-by <n>

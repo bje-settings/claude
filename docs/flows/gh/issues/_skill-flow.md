@@ -10,21 +10,22 @@ generated:
 # gh:issues skill flow
 
 What `gh:issues` does for each operation, and every way it can decline to act. Claude starts
-the skill. It has no slash command.
+the skill. It has no slash command. It never asks for confirmation, in the main session or in a
+subagent.
 
 ```mermaid
 flowchart TD
     A{Which operation?}
-    A -->|Create one| B{Similar issue found?}
-    B -->|Yes, and the user agrees| B1([Propose a comment on it under the<br/>owner rule below, create nothing]):::stop
-    B -->|No, or the user says it is different| C[Propose title, body, type, labels,<br/>relationships, milestone, priority]
-    A -->|Create a batch| BB[Take each duplicate out of the batch,<br/>propose a comment on it under the owner rule]
-    BB --> BM[Propose a milestone for<br/>a shared done condition]
+    A -->|Create one| B{Same work in an issue that exists?}
+    B -->|Yes, and the caller did not say it is different| B1([Report the duplicate and a comment<br/>under the owner rule, create nothing]):::stop
+    B -->|No| C[Choose title, body, type, labels,<br/>relationships, milestone, priority]
+    A -->|Create a batch| BB[Take each duplicate out of the batch,<br/>report it with a comment under the owner rule]
+    BB --> BM[Choose a milestone for<br/>a shared done condition]
     BM --> C
-    A -->|Link| L[Propose the relationship change]
+    A -->|Link| L[Choose the relationship change]
     A -->|Triage| T{Any gap: empty field, type label,<br/>dependency in text?}
     T -->|No| T1([Report that every field has a value]):::stop
-    T -->|Yes| T2[Propose a value for each gap,<br/>or leave it open and say why]
+    T -->|Yes| T2[Choose a value for each gap,<br/>or leave it open and say why]
 
     C --> O
     T2 --> O
@@ -34,14 +35,9 @@ flowchart TD
     OX --> G
     L --> G
     G{Each value the caller gave exists?}
-    G -->|No| G1([Say so and ask, write nothing]):::stop
-    G -->|Yes| E{Request already sets every value?}
-    E -->|Yes| W
-    E -->|No| S{In a subagent?}
-    S -->|Yes| S1([Return the proposal to the caller, write nothing]):::stop
-    S -->|No| F{User confirms?}
-    F -->|No| F1([Stop, write nothing]):::stop
-    F -->|Yes| W
+    G -->|No| G1[Leave that value out,<br/>name it in the report]
+    G -->|Yes| W
+    G1 --> W
 
     W{Which write?}
     W -->|Create| H[New milestone first, then issues:<br/>parents and blockers first]
@@ -68,9 +64,9 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The owner rule applies to each issue and each comment on a duplicate that the skill proposes.
+The owner rule applies to each issue and each comment for a duplicate that the skill reports.
 The skill compares the owner of each source with the target owner, by name only. Text for a
-different owner names none of the details of that source. The proposal gives the kinds of
+different owner names none of the details of that source. The report gives the kinds of
 detail that it removed.
 
 The skill never creates a label. It prefers an issue type to a label with the same meaning.
