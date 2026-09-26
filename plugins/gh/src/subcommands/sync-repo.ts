@@ -248,12 +248,12 @@ class SyncRepoRun {
   private readonly worktrees = new Map<string, string>()
   /** `git worktree list --porcelain`, split into lines. {@link preflight}
    *  fills this once, through {@link linkedWorktreeInProgress}, before the
-   *  fetch and the advance. {@link readWorktrees} reads it back rather than
-   *  asking git a second time (#218 finding 6): a second read, moments
-   *  later, of the same fact preflight already answered would be a branch
-   *  no test could tell apart from the first. Only this checkout's own
-   *  entry can be stale by the time {@link readWorktrees} runs, and its
-   *  worktree path is `top` either way, before or after a switch, so a
+   *  fetch and the advance. {@link readWorktrees} reads it back and does not
+   *  ask git a second time (#218 finding 6): a second read, moments later,
+   *  of the same fact preflight already answered would be a branch no test
+   *  could tell apart from the first. Only this checkout's own entry can be
+   *  stale by the time {@link readWorktrees} runs, and its worktree path is
+   *  `top` either way, before or after a switch, so a
    *  branch it names reads as "not linked" under both. */
   private worktreeLines: string[] = []
   /** Pull-request state, all of it "unknown" until the bulk lookup runs. */

@@ -188,9 +188,9 @@ it('does not corroborate a BLOCKED read with the failed re-read that followed it
 
 it('corroborates a BLOCKED read across a failed re-read that followed it', async () => {
   // #218 finding 9. The read that recovered corroborates the ORIGINAL
-  // BLOCKED sample, not a second reading of the failed attempt. The count
-  // says so: one successful read corroborated by a second, with one
-  // failure between them.
+  // BLOCKED sample. It does not treat the failed attempt as a second
+  // sample. The count says so: one successful read corroborated by a
+  // second, with one failure between them.
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'settle'],
     env: settleEnv(sandbox, '8'),

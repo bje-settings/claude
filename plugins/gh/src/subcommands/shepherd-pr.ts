@@ -797,9 +797,9 @@ class Shepherd {
     // Whether `pull` still needs a verdict against it. A failed re-read
     // says nothing about the pull request (#218 finding 9): it must not be
     // read twice, once as itself and once again as the sample before it.
-    // So a failed read turns this false, and the loop then sleeps and
-    // reads again without asking for a verdict, or moving `blockedBefore`,
-    // on the same stale snapshot a second time.
+    // So a failed read turns this false, and the loop then sleeps and reads
+    // again. It asks for no verdict, and it does not move `blockedBefore`,
+    // against the same stale snapshot a second time.
     let pending = true
     while (true) {
       if (pending) {

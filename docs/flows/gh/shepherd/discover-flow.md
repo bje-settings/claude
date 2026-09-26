@@ -44,7 +44,7 @@ flowchart TD
 A directory with no checkouts in it is an answer: empty stdout and exit 0. The two exit 1
 outcomes at `not a directory` and `could not read the target` are different facts, because the
 target itself could not be read. This command asks git whether it can run at all after discovery
-finishes and before it prints a line. On a missing git, it says so and exits 1, instead of
-reading "no checkouts found" as the answer to a question discovery never asked. `scripts/gh.ts`
+finishes and before it prints a line. On a missing git, it says so and exits 1. It never treats
+"no checkouts found" as the answer to a question discovery never asked. `scripts/gh.ts`
 catches an error this command did not expect, and reports it as one stderr line, rather than
 node's own stack trace.
