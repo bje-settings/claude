@@ -304,7 +304,7 @@ export interface MergedHead {
 export interface RepositoryStatus {
   /** Open Dependabot alerts. */
   readonly alerts: number | null
-  /** Open pull requests with the `dependencies` label. */
+  /** Open pull requests that Dependabot opened. */
   readonly dependencies: number | null
   /** The last 100 merged pull requests, most recently updated first. */
   readonly mergedPullRequests: readonly MergedHead[] | null
@@ -535,7 +535,7 @@ export interface GhClient {
     readonly perPage?: number
   }): Promise<GhResults['listWorkflowRuns']>
   /**
-   * Open Dependabot alerts, open `dependencies` pull requests, and the last
+   * Open Dependabot alerts, open Dependabot pull requests, and the last
    * 100 merged pull requests, for each `owner/name` in `repos`.
    *
    * One aliased `gh api graphql` query asks about five repositories at
@@ -742,10 +742,15 @@ const joinedReasons = (reasons: readonly string[]): string | null =>
  *  small batch also costs no time. */
 const STATUS_BATCH = 5
 
-/** The fields `repositoryStatus` asks about each repository. */
+/** The fields `repositoryStatus` asks about each repository. All of them
+ *  are inside the repository node, so they follow its redirect after a
+ *  rename or a transfer, and they fail with it. */
 const STATUS_FIELDS = `
     vulnerabilityAlerts(states: OPEN) { totalCount }
-    dependencies: pullRequests(states: OPEN, labels: ["dependencies"]) { totalCount }
+    open: pullRequests(states: OPEN, first: 100) {
+      totalCount
+      nodes { author { login } }
+    }
     merged: pullRequests(states: MERGED, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { headRefName headRefOid isCrossRepository }
     }`
@@ -767,6 +772,38 @@ const buildStatusQuery = (repos: readonly string[]): string => {
 const totalCount = (value: unknown): number | null => {
   const count = asRecord(value)?.totalCount
   return typeof count === 'number' ? count : null
+}
+
+/** The login GraphQL gives the Dependabot app as a pull request author. */
+const DEPENDABOT = 'dependabot'
+
+/** One open pull request's author login. `null` is an author that GitHub
+ *  no longer has. `undefined` is a row that is not the shape asked for. */
+const authorLogin = (value: unknown): string | null | undefined => {
+  const row = asRecord(value)
+  if (row?.author === null) return null
+  const login = asRecord(row?.author)?.login
+  return typeof login === 'string' ? login : undefined
+}
+
+/**
+ * How many open pull requests Dependabot opened, or `null` when the list
+ * cannot give the answer.
+ *
+ * `Repository.pullRequests` cannot filter by author, and a label can be on
+ * a pull request that someone else opened. So this counts the authors of
+ * the first 100 open pull requests. A repository with more than 100 open
+ * pull requests gives `null`, not a count that is too low. A search can
+ * filter by author, but it does not follow a redirect, and one failed
+ * search makes all of `data` null.
+ */
+const dependabotCount = (value: unknown): number | null => {
+  const total = totalCount(value)
+  const nodes = asRecord(value)?.nodes
+  if (total === null || !Array.isArray(nodes) || nodes.length < total) return null
+  const logins = nodes.map(authorLogin)
+  if (logins.includes(undefined)) return null
+  return logins.filter((login) => login === DEPENDABOT).length
 }
 
 /** One merged pull request, or `null` when it is not the shape asked for. */
@@ -819,7 +856,7 @@ const readStatusBatch = (
     if (answer === undefined) return
     repositories[repo] = {
       alerts: totalCount(answer.vulnerabilityAlerts),
-      dependencies: totalCount(answer.dependencies),
+      dependencies: dependabotCount(answer.open),
       mergedPullRequests: mergedHeads(answer.merged),
     }
   })

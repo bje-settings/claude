@@ -327,8 +327,12 @@ gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 | `repos: N` | The repositories checked, when there is more than one. |
 | `behind` | At least one local `<default>` is behind its `origin/<default>`. |
 | ✂️ | Local branches that `/gh:sync` can remove. See below. |
-| 🤖 | Open pull requests with the `dependencies` label. |
+| 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem line. |
 | 🛡️ | Open Dependabot alerts. |
+
+The CLI shows the output under its own `SessionStart:<source> says:` label, which no hook can
+hide. So the output starts on the line after the label. The status line is cyan, each problem
+line is yellow, and `gh:` is bold. `hook-io.ts status` (below) writes the same lines with no colour.
 
 The status line shows only the items above zero. When every count is zero and nothing failed,
 the hook writes nothing.

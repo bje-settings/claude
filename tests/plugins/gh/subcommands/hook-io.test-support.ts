@@ -165,7 +165,7 @@ const PROBLEM = 'gh: ⚠️ '
 /**
  * The #230 acceptance rule for one run of `session-start`: nothing, or one
  * JSON document on one line, with `systemMessage` and no `additionalContext`
- * at all. In `systemMessage`, at most one status line comes first. Each other
+ * at all. `systemMessage` starts with a newline, then at most one status line. Each other
  * line is a problem line, and no kind of problem shows twice.
  */
 export const expectStatusLines = (stdout: string): void => {
@@ -175,7 +175,13 @@ export const expectStatusLines = (stdout: string): void => {
   const body = JSON.parse(stdout) as Record<string, unknown>
   expect(Object.keys(body)).toEqual(['systemMessage'])
   expect(typeof body.systemMessage).toBe('string')
-  const message = body.systemMessage as string
+  expect(body.systemMessage).toMatch(/^\n/)
+  // Colour codes wrap each line; the shape is checked on the text inside them.
+  const message = (body.systemMessage as string)
+    .slice(1)
+    .split('\u001b')
+    .map((part, index) => (index === 0 ? part : part.replace(/^\[[0-9;]*m/, '')))
+    .join('')
   expect(message).not.toMatch(/[\r\u2028\u2029]/)
   const [first = '', ...rest] = message.split('\n')
   const problems = first.startsWith(PROBLEM) ? [first, ...rest] : rest

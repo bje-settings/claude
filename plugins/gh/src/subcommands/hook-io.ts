@@ -206,10 +206,32 @@ export const githubRepository = (url: string): string | null => {
 }
 
 /** The response `session-start` writes: one JSON document on one line. The
- *  line goes in `systemMessage`, which the CLI shows to the user. There is
- *  no `additionalContext`, so the model gets nothing from this hook
+ *  line goes in `systemMessage`, which the CLI shows to the user. The CLI
+ *  puts a `SessionStart:<source> says:` label before it. So the message
+ *  starts with a newline, and `gh:` starts a line of its own. There is no
+ *  `additionalContext`, so the model gets nothing from this hook
  *  (`.claude/rules/path-hooks.md`). */
-export const emit = (line: string): string => `${JSON.stringify({ systemMessage: line })}\n`
+export const emit = (line: string): string =>
+  `${JSON.stringify({ systemMessage: `\n${line.split('\n').map(colour).join('\n')}` })}\n`
+
+/** SGR codes. The CLI keeps them in `systemMessage`. */
+const SGR = {
+  bold: '\u001b[1m',
+  normal: '\u001b[22m',
+  cyan: '\u001b[36m',
+  yellow: '\u001b[33m',
+  reset: '\u001b[0m',
+} as const
+
+/** One line of the message, in colour, with `gh:` in bold. A problem line
+ *  is yellow and the status line is cyan. A line with no `gh:` prefix
+ *  stays plain. Only `session-start` adds colour, so `status` output stays
+ *  plain. */
+export const colour = (line: string): string => {
+  if (!line.startsWith(`${PREFIX} `)) return line
+  const tint = line.startsWith(`${PREFIX} ⚠️ `) ? SGR.yellow : SGR.cyan
+  return `${tint}${SGR.bold}${PREFIX}${SGR.normal}${line.slice(PREFIX.length)}${SGR.reset}`
+}
 
 /**
  * The `cwd` field of a SessionStart payload, or `""` when there is none to

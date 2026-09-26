@@ -101,7 +101,7 @@ it('writes the status and problem lines for a real checkout, end to end, and cha
   expect(result.status).toBe(0)
   expectStatusLines(result.stdout)
   expect(result.stdout).toBe(
-    '{"systemMessage":"gh: [behind] [✂️ 1]\\ngh: ⚠️ GitHub request failed: stand-in for tests"}\n',
+    '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind] [✂️ 1]\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: stand-in for tests\\u001b[0m"}\n',
   )
   expect(result.stderr).toBe('GitHub: gh: stand-in for tests\n')
   // The fetch moved `origin/main` and removed `origin/goner`. Nothing else
@@ -140,7 +140,7 @@ it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json giv
   expect(Date.now() - started).toBeLessThan(10_000)
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(
-    '{"systemMessage":"gh: ⚠️ timed out\\ngh: ⚠️ GitHub request failed: stand-in for tests"}\n',
+    '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ timed out\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: stand-in for tests\\u001b[0m"}\n',
   )
   expect(result.stderr).toContain('did not finish in 5000 ms\n')
 })
@@ -171,7 +171,9 @@ it('gives a late second origin read only the time that is left', () => {
   // time the first read had would live until about 8 s.
   expect(Date.now() - started).toBeLessThan(7_000)
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe('{"systemMessage":"gh: ⚠️ timed out"}\n')
+  expect(result.stdout).toBe(
+    '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ timed out\\u001b[0m"}\n',
+  )
   expect(result.stderr).toContain('did not finish in 5000 ms\n')
 })
 
