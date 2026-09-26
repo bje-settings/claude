@@ -320,6 +320,16 @@ export interface GhResults {
     readonly states: Readonly<Record<string, IssueState | 'not_found'>>
     readonly unavailable: string | null
   }
+  /** Every enterprise the viewer belongs to, each with the logins of the
+   *  organizations it lists, or the reason the list is not whole (see
+   *  {@link GhClient.viewerEnterprises}). */
+  viewerEnterprises: {
+    readonly enterprises: readonly {
+      readonly slug: string
+      readonly organizations: readonly string[]
+    }[]
+    readonly unavailable: string | null
+  }
   /** The repository's open milestones. */
   listMilestones: PagedResult<MilestoneSummary>
   /** Open issues, with their dependency relationships. */
@@ -422,6 +432,19 @@ export interface GhClient {
    * a finding out of a failure to ask.
    */
   issueStates(query: { readonly numbers: readonly number[] }): Promise<GhResults['issueStates']>
+  /**
+   * Every enterprise the viewer (the account gh is logged in as) belongs to,
+   * with the logins of the organizations each one lists. `org-scope` (#233)
+   * reads it to find whether two owners share an enterprise. GraphQL has no
+   * field that names the enterprise of an organization, so the viewer's own
+   * list is the one source.
+   *
+   * Never throws. A failed read, a partial answer, or a list that has more
+   * pages than this reads, sets `unavailable`. A caller must then not read
+   * the list as whole: an owner absent from a short list is not proof that
+   * it is outside every enterprise.
+   */
+  viewerEnterprises(): Promise<GhResults['viewerEnterprises']>
   /**
    * The repository's open milestones, with their open and closed issue
    * counts. Never throws, for {@link PagedResult}'s reason.
@@ -1334,6 +1357,51 @@ const record = (result: RunResult, what: string): Record<string, unknown> => {
   return value as Record<string, unknown>
 }
 
+/**
+ * The GraphQL query for {@link GhClient.viewerEnterprises}. The enterprises
+ * connection takes a cursor, and the organizations connection asks only
+ * whether it has more. An enterprise with more than 100 organizations the
+ * viewer can see is not paged: the endpoint reports it as a short answer.
+ */
+const VIEWER_ENTERPRISES_QUERY =
+  'query($cursor: String) { viewer { enterprises(first: 100, after: $cursor) { ' +
+  'nodes { slug organizations(first: 100) { nodes { login } pageInfo { hasNextPage } } } ' +
+  'pageInfo { hasNextPage endCursor } } } }'
+
+/** One page of `viewer.enterprises`, or `undefined` when the reply carries
+ *  no such connection. */
+const parseEnterprisePage = (stdout: string): Page | undefined => {
+  let reply: Record<string, unknown> | undefined
+  try {
+    reply = asRecord(JSON.parse(stdout))
+  } catch {
+    return undefined
+  }
+  const connection = asRecord(asRecord(asRecord(reply?.data)?.viewer)?.enterprises)
+  if (connection === undefined) return undefined
+  const nodes = nodesOf(connection)
+  if (nodes === null) return undefined
+  const info = asRecord(connection.pageInfo)
+  return {
+    nodes,
+    hasNextPage: info?.hasNextPage === true,
+    endCursor: asText(info?.endCursor),
+    errors: null,
+  }
+}
+
+/** One enterprise node as a row. */
+const readEnterprise = (
+  node: unknown,
+): GhResults['viewerEnterprises']['enterprises'][number] | null => {
+  const entry = asRecord(node)
+  const slug = asText(entry?.slug)
+  const organizations = nodesOf(asRecord(entry?.organizations))
+  if (slug === null || organizations === null) return null
+  const logins = organizations.map((organization) => asText(asRecord(organization)?.login))
+  return { slug, organizations: logins as string[] }
+}
+
 /** A `GhClient` that runs the real `gh`. */
 export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const spawn = options.run ?? run
@@ -1809,6 +1877,19 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         if (answer.errors !== null) reasons.push(answer.errors)
       }
       return { states, unavailable: joinedReasons(reasons) }
+    },
+
+    // Never throws (the interface's own contract), and reads the body
+    // through `invoke` whatever the exit status, for `issueStates`' reason.
+    viewerEnterprises: async () => {
+      const result = await invoke(['api', 'graphql', '-f', `query=${VIEWER_ENTERPRISES_QUERY}`])
+      const answer = parseEnterprisePage(result.stdout)
+      const enterprises: GhResults['viewerEnterprises']['enterprises'][number][] = []
+      for (const node of answer?.nodes ?? []) {
+        const row = readEnterprise(node)
+        if (row !== null) enterprises.push(row)
+      }
+      return { enterprises, unavailable: null }
     },
 
     listMilestones: async () => collect('milestones', MILESTONES_QUERY, [], readMilestone),
