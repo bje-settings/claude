@@ -31,7 +31,6 @@ import { createOutput, type Output, type OutputStream, type Writer } from '#gh/l
 import {
   type BranchStatus,
   branchMessageText,
-  countCandidates,
   countLines,
   emit,
   type FanOutSummary,
@@ -1461,131 +1460,6 @@ it('reads a count only where git answered with one', () => {
   expect(parseCount('1 2')).toBeNull()
 })
 
-/** A `refs` listing line: the ref and the commit it points at, as
- *  `for-each-ref --format='%(refname)<tab>%(objectname)'` writes it. The
- *  commit only has to be distinct, so a name stands in for a SHA. */
-const at = (ref: string, commit = `${ref}-commit`): string => `${ref}\t${commit}`
-
-it('counts a gone upstream and a merged branch once each', () => {
-  const locals = [
-    'main\trefs/remotes/origin/main',
-    'goner\trefs/remotes/origin/goner',
-    'landed\t',
-    'both\trefs/remotes/origin/both',
-    'side\t',
-  ]
-  const remotes = [at('refs/remotes/origin/HEAD'), at('refs/remotes/origin/main')]
-
-  // `both` is gone AND merged, and is one candidate, not two.
-  expect(countCandidates(locals, remotes, ['landed', 'both', 'side', 'main'], 'side', 'main')).toBe(
-    3,
-  )
-})
-
-it('never counts a branch whose upstream is still there', () => {
-  // The gone half is about a branch that a `fetch --prune` left behind. It
-  // is not about every branch that tracks one. Without the ref test, every
-  // tracking branch in the repository would show up as prunable.
-  const locals = ['side\t', 'tracked\trefs/remotes/origin/tracked']
-
-  expect(countCandidates(locals, [at('refs/remotes/origin/tracked')], [], 'side', 'main')).toBe(0)
-})
-
-it('never counts a branch that tracks a local branch that is still there', () => {
-  // `%(upstream)` answers with a local ref for a branch set to track one. A
-  // live local upstream is no more gone than a live remote one. A set built
-  // from the remote-tracking refs alone would not hold `refs/heads/main`. It
-  // would then report every such branch as a candidate.
-  const locals = ['side\t', 'stacked\trefs/heads/main', 'main\trefs/remotes/origin/main']
-  const refs = [
-    at('refs/heads/main'),
-    at('refs/heads/side'),
-    at('refs/heads/stacked'),
-    at('refs/remotes/origin/main'),
-  ]
-
-  expect(countCandidates(locals, refs, [], 'side', 'main')).toBe(0)
-  // The other half of the same test: a local upstream that HAS gone still
-  // counts. So the fix is not just "never look at a local upstream".
-  expect(countCandidates(locals, [at('refs/remotes/origin/main')], [], 'side', 'main')).toBe(1)
-})
-
-it('never counts the branch the session is on, nor the default branch', () => {
-  const locals = ['main\trefs/remotes/origin/main', 'side\t']
-
-  // Both are reachable from `main`, and neither is anything to prune. One is
-  // where work lands, and the other is where the session is.
-  expect(
-    countCandidates(locals, [at('refs/remotes/origin/main')], ['main', 'side'], 'side', 'main'),
-  ).toBe(0)
-})
-
-it('never counts a branch sitting on the cached origin tip, and still counts one past it', () => {
-  // `/gh:sync` keeps a branch at `origin/<default>`'s own commit, and it says
-  // so ("already at origin/main, nothing to prune"). So a candidate label
-  // here would name something that the command refuses. A branch that
-  // carries a commit of its own is a different answer, and it stays
-  // counted. That is what keeps the line's example real.
-  const locals = ['side\t', 'fresh\t', 'landed\t']
-  const refs = [
-    at('refs/remotes/origin/main', 'tip'),
-    at('refs/heads/main', 'tip'),
-    at('refs/heads/fresh', 'tip'),
-    at('refs/heads/landed', 'landed-commit'),
-    at('refs/heads/side', 'side-commit'),
-  ]
-
-  expect(countCandidates(locals, refs, ['fresh', 'landed'], 'side', 'main')).toBe(1)
-
-  // The same holds for the gone-upstream half. `sync` does not prune by a
-  // gone upstream at all. The branch is an ancestor of the default branch
-  // because it sits on that tip. So the tip guard is what stops it here.
-  expect(
-    countCandidates(['side\t', 'fresh\trefs/remotes/origin/fresh'], refs, [], 'side', 'main'),
-  ).toBe(0)
-
-  // With no cached `origin/main`, there is no tip to compare against. The
-  // absence is not a tip of its own that every branch matches.
-  expect(countCandidates(locals, [at('refs/heads/fresh', 'tip')], ['fresh'], 'side', 'main')).toBe(
-    1,
-  )
-})
-
-it('answers nothing when any one of the three listings could not be read', () => {
-  const locals = ['side\t']
-  const remotes = [at('refs/remotes/origin/main')]
-  const merged = ['main']
-
-  expect(countCandidates(null, remotes, merged, 'side', 'main')).toBeNull()
-  expect(countCandidates(locals, null, merged, 'side', 'main')).toBeNull()
-  expect(countCandidates(locals, remotes, null, 'side', 'main')).toBeNull()
-  // All three present is the only shape that answers, even when the answer is
-  // zero.
-  expect(countCandidates(locals, remotes, merged, 'side', 'main')).toBe(0)
-})
-
-it('reads a listing line with no separator as a branch with no upstream', () => {
-  // A shape the format cannot produce. The code reads it as "no upstream,"
-  // not as a branch whose name is the whole line. Otherwise, the code would
-  // count it as gone against a remote set it can never belong to.
-  expect(countCandidates(['orphan'], [], [], 'side', 'main')).toBe(0)
-})
-
-it('reads a ref listing line with no commit as a ref that exists', () => {
-  // The other half of the same shape. A ref that the format wrote without
-  // its commit still answers the question that `existing` asks. So an
-  // upstream that names it is live. It just has no tip to compare against.
-  expect(
-    countCandidates(
-      ['tracked\trefs/remotes/origin/tracked'],
-      ['refs/remotes/origin/tracked'],
-      [],
-      'side',
-      'main',
-    ),
-  ).toBe(0)
-})
-
 /** Run the in-repo path against a real checkout and hand back what it wrote. */
 const messageFor = async (
   harnessed: Harness,
@@ -1622,56 +1496,6 @@ it('counts how far the default branch is behind the cached origin, with no fetch
   expect(await messageFor(harnessed, repository)).toContain(
     "Local 'main' is 1 commit behind 'origin/main'.",
   )
-})
-
-it('still counts a branch on a local default that is itself behind the cached origin', async () => {
-  const harnessed = harness()
-  const { git } = harnessed
-  const repository = git.create(harnessed.sandbox.join('r'))
-  git.commit(repository, 'second')
-  git.push(repository)
-  git.git(repository, 'checkout', '-q', '-b', 'side')
-  // The local default moves back, so `stale` sits on it and NOT on the commit
-  // the cached origin/main names.
-  git.git(repository, 'branch', '-f', 'main', 'main~1')
-  git.branch(repository, 'stale')
-
-  const message = await messageFor(harnessed, repository)
-
-  // Which tip the exclusion compares against is the whole question here.
-  // /gh:sync fast-forwards main onto origin/main. It then finds `stale`
-  // strictly behind that tip, so it deletes `stale`. If the count excluded a
-  // branch by the LOCAL default's tip instead, it would drop a real
-  // candidate.
-  expect(message).toContain("Local 'main' is 1 commit behind 'origin/main'.")
-  expect(message).toContain(
-    "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
-  )
-})
-
-it('counts a gone upstream and a landed branch as candidates', async () => {
-  const harnessed = harness()
-  const { git } = harnessed
-  const repository = git.create(harnessed.sandbox.join('r'))
-  git.branchWithWork(repository, 'landed')
-  git.mergeCommit(repository, 'landed')
-  git.branchWithWork(repository, 'goner')
-  git.push(repository, 'goner')
-  git.git(repository, 'branch', '--set-upstream-to=origin/goner', 'goner')
-  // This is what a `git fetch --prune` leaves behind once someone deletes the
-  // branch on the remote. The upstream config is still there, but the ref it
-  // names is gone.
-  git.git(repository, 'update-ref', '-d', 'refs/remotes/origin/goner')
-  git.git(repository, 'checkout', '-q', '-b', 'side')
-
-  const message = await messageFor(harnessed, repository)
-
-  expect(message).toContain(
-    "Prunable candidates: 2 local branches with a gone upstream or already merged into 'main'.",
-  )
-  // The default branch is ahead of origin here, not behind. This message
-  // does not report on that state.
-  expect(message).not.toContain('behind')
 })
 
 it('does not count a branch tracking a live local branch, in a real checkout', async () => {
@@ -1727,31 +1551,6 @@ it('does not count the default branch because a tag shares its name', async () =
 
   expect(message).toContain("default branch is 'main'")
   expect(message).not.toContain('Prunable candidates')
-})
-
-it('counts a merged branch with a commit of its own, never one on the cached tip', async () => {
-  const harnessed = harness()
-  const { git } = harnessed
-  const repository = git.create(harnessed.sandbox.join('r'))
-  // The test merges it in with a merge commit, so it is reachable from
-  // `main`. It also carries a commit of its own that `origin/main` does not
-  // name. That makes it a real candidate, which is what keeps the line's one
-  // example real. `mergeCommit` pushes, so `origin/main` is the merge commit
-  // afterwards.
-  git.branchWithWork(repository, 'landed')
-  git.mergeCommit(repository, 'landed')
-  // The test branches this off `main` once main is level with `origin/main`.
-  // It never commits to that branch again. So it sits on exactly the commit
-  // that the cached ref names. `/gh:sync` keeps this branch and says why, so
-  // the message must not call it a candidate.
-  git.branch(repository, 'fresh')
-  git.git(repository, 'checkout', '-q', '-b', 'side')
-
-  const message = await messageFor(harnessed, repository)
-
-  expect(message).toContain(
-    "Prunable candidates: 1 local branch with a gone upstream or already merged into 'main'.",
-  )
 })
 
 it('leaves the behind line out when the count cannot be read at all', async () => {

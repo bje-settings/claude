@@ -55,6 +55,7 @@ import {
 } from '../lib/git.ts'
 import type { Runner } from '../lib/process.ts'
 import type { Output } from '../lib/streams.ts'
+import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
 import { REPORT } from './sync-repo.ts'
 
 /** The event name the response names itself with. */
@@ -985,115 +986,76 @@ const behindCount = async (target: string, options: RepoOptions): Promise<number
   )
 
 /**
- * The prunable candidates among `locals`, or `null` when a listing failed.
+ * How many local branches are safe to prune, or `null` when a ref listing
+ * could not be read.
  *
- * This function is pure. It takes all three listings as arguments. It
- * does not fetch them itself. So every way this function can end is
- * reachable. A test needs no git that fails one call and answers correctly
- * on the next two.
+ * This function is pure. It takes the listings as arguments, so every way
+ * it can end is reachable from a test with no git at all.
  *
- * `locals` is `name<tab>upstream`, per local branch. `refs` is
- * `ref<tab>objectname`, for every ref that an upstream can name and that
- * exists. `merged` is the local branches already reachable from the
- * default branch.
+ * - `branches` is `name<tab>upstream<tab>tip`, per local branch.
+ * - `refs` is every ref under `refs/heads/` and `refs/remotes/`.
+ * - `merged` is the local branches reachable from `origin/<target>`.
+ * - `pulls` is the merged pull requests, or `null` when none were read.
  *
- * A branch counts as a candidate in two cases. The first is when its
- * upstream is configured and no longer exists. The second is when its
- * work is already in the default branch. Neither the default branch nor
- * the branch the session is on ever counts. One of them is where the work
- * lands, and the other is where the session is.
+ * A branch counts when one of three rules holds:
  *
- * `refs` spans both namespaces, because `%(upstream)` does too. A branch
- * set to track another LOCAL branch answers `refs/heads/<name>`. A set
- * built from the remote-tracking refs alone would call that live upstream
- * gone. It would then count every such branch as a candidate.
+ * - Its upstream is set, and the ref it names is gone.
+ * - It is merged into `origin/<target>`, and it tracks its own upstream. A
+ *   new branch made from `origin/<target>` tracks that ref, and sits on its
+ *   tip. That branch is new work, so it does not count.
+ * - Its tip is the head of a merged pull request from this repository. This
+ *   rule finds a squash merge, which ancestry cannot see.
  *
- * A branch that sits on the cached `origin/<target>`'s own commit does not
- * count either. `/gh:sync` keeps exactly that branch, for a reason it can
- * tell locally (`sync-repo.ts`, "already at origin/<default>, nothing to
- * prune"). A candidate that the command would refuse to prune is not a
- * real candidate.
+ * The default branch and the current branch never count.
  *
- * The comparison uses the CACHED remote tip, not the local branch's tip.
- * That cached tip is the commit `/gh:sync` compares against once it has
- * fetched. A branch that rests on a local default that is itself behind
- * is one the command fast-forwards past, then deletes.
- *
- * This function answers `null` when ANY listing failed, rather than a
- * count of what the rest hold. The line states a number of candidates. A
- * number assembled from a partial answer would understate what it claims
- * to count.
+ * This code reads refs, not `%(upstream:track)`. Git translates the
+ * `[gone]` text, so a session in another locale would find no gone
+ * upstream at all.
  */
 export const countCandidates = (
-  locals: readonly string[] | null,
+  branches: readonly string[] | null,
   refs: readonly string[] | null,
   merged: readonly string[] | null,
+  pulls: readonly PullRequestRow[] | null,
   current: string,
   target: string,
 ): number | null => {
-  if (locals === null || refs === null || merged === null) return null
-  const existing = new Set<string>()
-  const tips = new Map<string, string>()
-  for (const line of refs) {
-    const separator = line.indexOf(FIELD)
-    // This code reads a line with no separator as a ref with no commit.
-    // It is not a ref named after the whole line. It still says the ref
-    // exists, which is what `existing` is for.
-    const ref = separator === -1 ? line : line.slice(0, separator)
-    existing.add(ref)
-    if (separator !== -1) tips.set(ref, line.slice(separator + 1))
+  if (branches === null || refs === null || merged === null) return null
+  const existing = new Set(refs)
+  const landed = new Set(merged)
+  const own = ownRows(pulls ?? [])
+  let count = 0
+  for (const line of branches) {
+    const [name = '', upstream = '', tip] = line.split(FIELD)
+    if (name === current || name === target) continue
+    const gone = upstream !== '' && !existing.has(upstream)
+    const ancestry = landed.has(name) && upstream !== '' && upstream !== `${ORIGIN}${target}`
+    // A line with no tip field has nothing to match a pull request against.
+    const squashed = tip !== undefined && hasMatch(own, name, tip)
+    if (gone || ancestry || squashed) count += 1
   }
-  const candidates = new Set(merged)
-  for (const line of locals) {
-    const separator = line.indexOf(FIELD)
-    // A line with no separator at all is a line this format cannot
-    // produce. This code reads it as a branch with no upstream. It is not
-    // a branch named after the whole line with an empty upstream.
-    if (separator === -1) continue
-    const upstream = line.slice(separator + 1)
-    if (upstream !== '' && !existing.has(upstream)) candidates.add(line.slice(0, separator))
-  }
-  candidates.delete(current)
-  candidates.delete(target)
-  const tip = tips.get(`${ORIGIN}${target}`)
-  // No cached remote tip means there is no comparison to make. It is not
-  // a tip of `undefined` that every unread branch would match.
-  if (tip !== undefined) {
-    for (const branch of candidates) {
-      if (tips.get(`${HEADS}${branch}`) === tip) candidates.delete(branch)
-    }
-  }
-  return candidates.size
+  return count
 }
 
 /** The candidate count for one checkout, from three local ref listings. */
 const prunableCandidates = async (
   current: string,
   target: string,
+  pulls: readonly PullRequestRow[] | null,
   options: RepoOptions,
 ): Promise<number | null> => {
-  const locals = await gitLines(
-    ['for-each-ref', `--format=${SHORT}${FIELD}%(upstream)`, HEADS],
-    options,
-  )
-  // This code asks for refs, not for `%(upstream:track)`, whose `[gone]`
-  // text is translated. A session in a French locale would silently report
-  // no gone upstreams at all.
-  //
-  // This listing covers both namespaces in one call, because an upstream
-  // may name either one. git writes `refs/heads/<name>` for a branch that
-  // tracks a local branch. A set of remote-tracking refs alone would not
-  // hold that ref. The commit comes along too, so the tip comparison above
-  // needs no second call.
-  const refs = await gitLines(
-    ['for-each-ref', `--format=%(refname)${FIELD}%(objectname)`, HEADS, REMOTES],
-    options,
-  )
-  const merged = await gitLines(
-    ['for-each-ref', `--format=${SHORT}`, '--merged', `${HEADS}${target}`, HEADS],
-    options,
-  )
-  return countCandidates(locals, refs, merged, current, target)
+  const [branches, refs, merged] = await Promise.all([
+    gitLines(
+      ['for-each-ref', `--format=${SHORT}${FIELD}%(upstream)${FIELD}%(objectname)`, HEADS],
+      options,
+    ),
+    gitLines(['for-each-ref', '--format=%(refname)', HEADS, REMOTES], options),
+    gitLines(
+      ['for-each-ref', `--format=${SHORT}`, '--merged', `${ORIGIN}${target}`, HEADS],
+      options,
+    ),
+  ])
+  return countCandidates(branches, refs, merged, pulls, current, target)
 }
 
 /**
@@ -1125,7 +1087,7 @@ const branchMessage = async (options: RepoOptions): Promise<string | null> => {
     current,
     target,
     behind: await behindCount(target, options),
-    candidates: await prunableCandidates(current, target, options),
+    candidates: await prunableCandidates(current, target, null, options),
   })
 }
 
