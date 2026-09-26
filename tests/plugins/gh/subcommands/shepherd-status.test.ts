@@ -279,7 +279,14 @@ const replay = async (name: string): Promise<void> => {
   const expected = CAPTURE[name] as CapturedCase
 
   const result = await drive((sandbox, repo) => ({
-    argv: expected.argv.map((argument) => (PATHS[argument] ?? (() => argument))(sandbox, repo)),
+    // Every capture was recorded against the Python's own hardcoded
+    // `dependencies` filter. This port sends no label unless one is given,
+    // so the replay adds it here to keep the captured semantics: the same
+    // rows, filtered the same way.
+    argv: [
+      ...expected.argv.map((argument) => (PATHS[argument] ?? (() => argument))(sandbox, repo)),
+      'dependencies',
+    ],
     gh: createGhServer({
       prs: expected.prs ?? [],
       ...ARRANGEMENTS[name],
@@ -329,7 +336,7 @@ it('prints its own usage for --help, naming the command rather than a script', a
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(`${HELP}\n`)
-  expect(result.stdout).toContain('Usage:\n  gh.ts shepherd-status [path]')
+  expect(result.stdout).toContain('Usage:\n  gh.ts shepherd-status [path] [label]')
   expect(result.stderr).toBe('')
 })
 
@@ -361,7 +368,7 @@ it('takes the working directory as the target when none is given', async () => {
   expect(result.ghOptions).toEqual(clients(target))
 })
 
-it('asks for the open dependencies pull requests, with the window it reads', async () => {
+it('asks for every open pull request, with the window it reads, when no label is given', async () => {
   // This checks the whole request, not how many times it was sent. GitHub
   // applies the filters. So a query missing one filter would report a
   // different set of pull requests.
@@ -386,10 +393,84 @@ it('asks for the open dependencies pull requests, with the window it reads', asy
     }
   })
 
-  expect(queries).toEqual([{ state: 'open', label: 'dependencies', limit: 100 }])
+  expect(queries).toEqual([{ state: 'open', limit: 500 }])
   // This also checks the repository the query targets. `--repo` is not part
   // of the query; it is a property of the client that sends the query.
   expect(result.ghOptions).toEqual(clients(target))
+})
+
+it('passes the one label given through to the query', async () => {
+  const queries: unknown[] = []
+  const server = createGhServer({
+    prs: [],
+    replies: { viewRepository: REPOSITORY, listRuns: [] },
+  })
+
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, 'dependencies'],
+    gh: {
+      ...server,
+      listPullRequests: async (query) => {
+        queries.push(query)
+        return server.listPullRequests(query)
+      },
+    },
+  }))
+
+  expect(queries).toEqual([{ state: 'open', label: 'dependencies', limit: 500 }])
+  expect(result.status).toBe(0)
+})
+
+it('refuses a third argument, naming one label per run', async () => {
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, 'dependencies', 'enhancement'],
+    gh: createGhServer({ prs: [], replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+  }))
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('one label per run\n')
+})
+
+it('answers --help in the second position, ahead of the too-many-arguments refusal', async () => {
+  const result = await drive((_sandbox, repo) => ({ argv: [repo, '--help'] }))
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(`${HELP}\n`)
+})
+
+it('exits 1 when the open window saturates, and names the fix', async () => {
+  // A repository with more open pull requests than the limit would
+  // silently drop the oldest rows. `manyPrs`'s rows are MERGED, so this
+  // builds its own OPEN set instead.
+  const openPrs = Array.from({ length: 500 }, (_unused, index) => depPr(index + 1))
+  const result = await drive(() => ({
+    argv: [],
+    gh: createGhServer({
+      prs: openPrs,
+      replies: { viewRepository: REPOSITORY, listRuns: [] },
+    }),
+  }))
+
+  expect(result.status).toBe(1)
+  expect(result.stderr).toBe(
+    'more than 500 open pull requests for acme/widgets; use a label to narrow the window\n',
+  )
+  expect(result.stdout).toBe('')
+})
+
+it('does not saturate one below the limit', async () => {
+  const openPrs = Array.from({ length: 499 }, (_unused, index) => depPr(index + 1))
+  const result = await drive(() => ({
+    argv: [],
+    gh: createGhServer({
+      prs: openPrs,
+      replies: { viewRepository: REPOSITORY, listRuns: [] },
+    }),
+  }))
+
+  expect(result.status).toBe(0)
+  expect(JSON.parse(result.stdout).targets).toHaveLength(499)
 })
 
 it('asks for the completed runs on the default branch, with the sample size', async () => {

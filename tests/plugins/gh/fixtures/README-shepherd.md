@@ -7,7 +7,7 @@ the rule both sets live by: nobody edits a capture after the commit that made it
 
 | File | What it holds |
 | --- | --- |
-| `shepherd-pr-output.json` | 67 runs of `plugins/gh/scripts/gh-shepherd-pr.py`, one per case. |
+| `shepherd-pr-output.json` | 60 runs of `plugins/gh/scripts/gh-shepherd-pr.py`, one per case. #216 removed the 7 `skip` cases the script once captured; see "What #216 removed" below. |
 | `shepherd-status-output.json` | 21 runs of `plugins/gh/scripts/gh-shepherd-status.py`. |
 
 `subcommands/shepherd-pr.*.test.ts` and `subcommands/shepherd-status.test.ts` read both.
@@ -105,6 +105,30 @@ set, at length.
 | `wait_answers_failed_*` with a log `gh` refused | `could not read the failed job's log: <words>` for a refusal, and a bare `cannot run gh: ...` for a `gh` that never started | one prefix for both, because the two are one `GhError` now; to tell them apart would mean a branch on prose. |
 | `help`, `usage_with_too_few_arguments`, `an_unknown_action` | the script's own docstring, which opens `gh-shepherd-pr.py — ...` and spells `gh-shepherd-pr.py <path> <number> <action>` | the command's own usage, which opens with the same sentence and spells `gh.ts shepherd-pr <path> <number> <action>`. The test compares the line in FRONT of the usage (`unknown action: dance`) against the Python's. It compares the usage itself against this command's, and asserts that the command accepts every action it advertises. |
 | `an_internal_error` | `gh-shepherd-pr.py: internal error: <type>: <message>` | `gh.ts shepherd-pr: internal error: <name>: <message>`. The file is `scripts/gh.ts` for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged. |
+
+## What #216 removed
+
+#216 drops the `skip` action, and the `dependencies`-only default it replaces. Neither survives
+in the port, though both are still in these captures, because nobody edits a capture.
+
+- **`skip`** is gone from `shepherd-pr`. `shepherd-pr-output.json` still holds its seven captured
+  cases: `skip_cannot_read_an_unknown_pull_request`, `skip_posts_the_reason`,
+  `skip_refuses_a_pull_request_that_is_not_open`, `skip_refuses_an_empty_reason_file`,
+  `skip_reports_a_comment_it_could_not_post`, `skip_with_an_empty_reason_file_argument`, and
+  `skip_without_a_reason_file`. The parity suite no longer replays any of them: their entries, and
+  the `ARRANGEMENTS`, `REASONS`, and `PATHS` rows only they used, are deleted from
+  `shepherd-pr.test-support.ts`. `parity-1.test.ts`'s own check (`replayable.length +
+  NOT_REPLAYED.size === Object.keys(CAPTURE).length`) still holds, because deleting a case from
+  the fixture and deleting its replay happen together.
+- **`skipped_no_automerge`** is gone from `shepherd-status`'s report. `statusDocument` now answers
+  with `targets` alone; a pull request without auto-merge is left out, not listed under a key
+  nothing reads. The replay suite keeps every one of `shepherd-status-output.json`'s cases. It
+  sends `dependencies` as the label argument on every replay, to keep each case's captured
+  semantics (the label was hardcoded before; now it is a call the test makes explicit). Each
+  case's expected `stdout` is the capture's own document with `skipped_no_automerge` removed,
+  where the capture had it. `divergences-shepherd.json`'s `skippedNoAutomerge` entry records the
+  fact once, empty of case names: its cases live only in this file, and the `sentences` array is
+  shared with `shepherd-pr`'s own parity check.
 
 One sentence deliberately did NOT change, though it names a script that is now a command:
 `settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits
