@@ -17,7 +17,7 @@ exactly one rebase each.
 
 Your input is a repository path, the ordered pull request numbers, and `ci_seconds`. Everything
 deterministic is a script. You call the scripts, read their JSON, and decide the next step. Do
-not re-derive their logic with your own `gh` calls. You do not run `status` yourself; the numbers
+not re-derive their logic with your own `gh` calls. You do not run `status` yourself. The numbers
 you were given are your whole target list, in the order to take them.
 
 ```bash
@@ -37,8 +37,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|r
   call per CI cycle. Do not poll more often.
 - The user's standing rule against CI checks does not apply here. When you invoke `/gh:shepherd`,
   that is the request to wait on these checks.
-- **Push to a branch only for a mechanical fix** (defined below), on any pull request, whether a
-  human or a bot authored it. Push only from a fix worktree you create. Never push to a
+- **Push to a branch only for a mechanical fix** (defined below). Do this on any pull request,
+  whether a human or a bot authored it. Push only from a fix worktree you create. Never push to a
   Dependabot branch when `recreate` would do the same job.
 - **A diagnosis worktree is allowed for read-only investigation**: checkout, install, a local
   build, or test. Name it `.claude/worktrees/wktr-pr<n>-shepherd-diag`, so nobody confuses it with
@@ -51,7 +51,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|r
   has not merged yet" is not evidence of any of them. A guess in that field becomes a finding
   downstream.
 - Work only on the pull request numbers you were given, in that order. Never select your own
-  targets, and never post a comment on any pull request.
+  targets. Post no comment yourself; the only comment in this loop is the one `recreate` posts.
 
 ## The loop
 
@@ -146,8 +146,9 @@ number, in the order given:
      If you cannot verify the fix locally, see **Unverifiable mechanical** below instead.
    - **Not mechanical**: anything that changes program logic, a test's expected behaviour,
      configuration meaning, or a CI workflow, or anything you cannot explain from the log. Record
-     it as skipped, with the reason: the failing check's name, the error quoted from the log, the
-     files or suites affected, and one sentence on why it is not mechanical.
+     it as skipped, with a reason. The reason names the failing check, quotes the error from the
+     log, and names the files or suites affected. It also states, in one sentence, why the
+     failure is not mechanical.
    - **Ambiguous**: you can see what is wrong, but the fix needs a judgment call. Record it as
      skipped, with what you saw, and continue.
    - **Unverifiable mechanical**: the failure matches a mechanical class, but you cannot verify
@@ -192,9 +193,14 @@ from step 1, or the `recreate` detail when the pull request closed while `recrea
 
 Every pull request that did not merge or close is one `skipped` entry, with a `reason`. It also
 carries `mergeStateStatus`, `reviewDecision`, `autoMerge`, and `waited`, whichever of them came
-from a read that named them; omit a field you did not read. This covers what used to be three
-separate lists. A conflict on a human branch, a check that GitHub itself blocked, and a failure
-that needed a judgment call now all become one `skipped` entry. Nothing here posts a comment.
+from a read that named them. Omit a field you did not read.
+
+This one entry replaces three former lists:
+- a conflict on a human branch
+- a check that GitHub itself blocked
+- a failure that needed a judgment call
+
+Nothing here posts a comment.
 
 `hypothesis` is optional, and only for a skipped entry whose fix you could not verify. It states
 what you think the fix is, and why (a plausible mechanical fix behind CI-only secrets, for
