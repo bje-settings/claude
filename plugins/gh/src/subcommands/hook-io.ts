@@ -78,8 +78,8 @@ export interface StatusCounts {
 }
 
 /**
- * The status line, or `null` when there is nothing to show. This is the
- * only place that shapes the line.
+ * The status line, or `null` when there is nothing to show. This and
+ * {@link problemLine} are the only places that shape the line.
  *
  * A zero count is left out. The repository count follows the prefix only
  * when there is more than one repository. The warning comes last, and
@@ -99,6 +99,24 @@ export const statusLine = (
   if (items.length === 0) return null
   return `gh:${repoCount > 1 ? ` ${repoCount} repos` : ''} ${items.join(' ')}`
 }
+
+/** The tools the hook needs, and the name the line gives each one. */
+const TOOL_NAMES = { git: 'git', gh: 'GitHub CLI (gh)' } as const
+
+/** A tool the hook needs. */
+export type Tool = keyof typeof TOOL_NAMES
+
+/**
+ * What is missing, in the words of the line, or `null` when no tool is
+ * missing. The plugin cannot work without these tools.
+ */
+export const missingTools = (missing: readonly Tool[]): string | null =>
+  missing.length === 0
+    ? null
+    : `${missing.map((tool) => TOOL_NAMES[tool]).join(' and ')} not found on PATH`
+
+/** The line for a problem that stops every check. Only the problem shows. */
+export const problemLine = (problem: string): string => `gh: ⚠️ ${problem}`
 
 /**
  * A github.com remote URL, in each form git accepts. The first half is the
@@ -491,9 +509,11 @@ const addLocal = (
  * Each failure goes to stderr, one line each.
  */
 const checkStatus = async (target: string, edges: HookEdges): Promise<string | null> => {
-  if (which('git', edges.env) === null) {
-    edges.output.err.write('git is not on PATH\n')
-    return null
+  const tools: readonly Tool[] = ['git', 'gh']
+  const problem = missingTools(tools.filter((tool) => which(tool, edges.env) === null))
+  if (problem !== null) {
+    edges.output.err.write(`${problem}\n`)
+    return problemLine(problem)
   }
   const env = scrubRepositoryEnv(edges.env)
   const started = Date.now()

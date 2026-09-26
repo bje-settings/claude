@@ -52,6 +52,13 @@ export interface Rig {
 
 export const createRig = (): Rig => {
   const sandbox = createSandbox()
+  // A `gh` that always fails comes first on PATH. The hook then finds a
+  // GitHub CLI on any machine, and a spawned run never reaches GitHub. An
+  // in-process run gets its client from the test, so it never runs this.
+  const bin = sandbox.stubPath(sandbox.join('bin-gh'))
+  writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho "gh: stand-in for tests" >&2\nexit 1\n', {
+    mode: 0o755,
+  })
   return { sandbox, git: createGitFixtures(sandbox) }
 }
 

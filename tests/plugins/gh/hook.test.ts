@@ -6,7 +6,7 @@
 // argv, stdin, both streams, and the exit status. On the `vitest-floor` leg,
 // the child runs on node 22.18, so each case here also proves the entry
 // point loads on the floor. Nothing here reaches GitHub: every case either
-// has no GitHub remote, or runs with no `gh` on PATH.
+// has no GitHub remote, or runs with the rig's `gh`, which always fails.
 import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,8 +83,9 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
     current: rig.git.currentBranch(work),
     head: rig.git.headSha(work),
   }
-  // No `gh` at all, so the GitHub half fails, and the line says so.
-  const env = { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') }
+  // The rig's `gh` always fails, so the GitHub half fails, and the line
+  // says so.
+  const env = rig.sandbox.env
   const started = Date.now()
 
   const result = runScript(HOOK, {
@@ -100,7 +101,7 @@ it('writes one line for a real checkout, end to end, and changes no branch', () 
   expect(result.status).toBe(0)
   expectOneLine(result.stdout)
   expect(result.stdout).toBe('{"systemMessage":"gh: [behind 1] [prune 1] ⚠️"}\n')
-  expect(result.stderr).toMatch(/^GitHub: cannot run gh: .*ENOENT.*\n$/)
+  expect(result.stderr).toBe('GitHub: gh: stand-in for tests\n')
   // The fetch moved `origin/main` and removed `origin/goner`. Nothing else
   // changed.
   expect({
@@ -121,7 +122,7 @@ it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json giv
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   hangingFetch(rig, work)
-  const env = { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') }
+  const env = rig.sandbox.env
   const started = Date.now()
 
   const result = runScript(HOOK, {

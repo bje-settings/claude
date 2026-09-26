@@ -248,7 +248,12 @@ it('removes only the variables that displace the repository a call names', () =>
 /** One state the hook can meet, and the line it must write for it. */
 interface Case {
   readonly name: string
-  readonly build: (rig: Rig) => { cwd: string; gh: GhClient; deadlineMs?: number }
+  readonly build: (rig: Rig) => {
+    cwd: string
+    gh: GhClient
+    deadlineMs?: number
+    env?: NodeJS.ProcessEnv
+  }
   readonly line: string | null
   /** How many failures the debug log gets, one line each. */
   readonly failures: number
@@ -334,6 +339,26 @@ const CASES: readonly Case[] = [
     line: null,
     failures: 0,
   },
+  {
+    name: 'a missing GitHub CLI',
+    build: (rig) => ({
+      cwd: ONE(rig),
+      gh: createGhMock(),
+      env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') },
+    }),
+    line: 'gh: ⚠️ GitHub CLI (gh) not found on PATH',
+    failures: 1,
+  },
+  {
+    name: 'a missing git and GitHub CLI',
+    build: (rig) => ({
+      cwd: ONE(rig),
+      gh: createGhMock(),
+      env: { ...rig.sandbox.env, PATH: rig.sandbox.join('no-bin') },
+    }),
+    line: 'gh: ⚠️ git and GitHub CLI (gh) not found on PATH',
+    failures: 1,
+  },
 ]
 
 for (const example of CASES) {
@@ -344,6 +369,7 @@ for (const example of CASES) {
     const ran = await runHook(rig, ['session-start'], built.gh, {
       stdin: () => Promise.resolve(JSON.stringify({ cwd: built.cwd })),
       ...(built.deadlineMs === undefined ? {} : { deadlineMs: built.deadlineMs }),
+      ...(built.env === undefined ? {} : { env: built.env }),
     })
 
     expect(ran.status).toBe(0)

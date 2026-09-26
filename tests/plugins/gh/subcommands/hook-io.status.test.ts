@@ -549,7 +549,39 @@ it('asks about the directory it was given, whatever GIT_DIR and GH_REPO name', a
   expect(seen.map((env) => [env.GIT_DIR, env.GH_REPO])).toEqual([[undefined, undefined]])
 })
 
-it('says nothing, and notes why, when git is not on PATH', async () => {
+it('names a missing git in the line, and checks nothing', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.remoteAdvance(work)
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('git') },
+  })
+
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ git not found on PATH\n',
+    stderr: 'git not found on PATH\n',
+  })
+})
+
+it('names a missing GitHub CLI in the line, and checks nothing', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.remoteAdvance(work)
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('gh') },
+  })
+
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ GitHub CLI (gh) not found on PATH\n',
+    stderr: 'GitHub CLI (gh) not found on PATH\n',
+  })
+})
+
+it('names both missing tools in one line', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
 
@@ -557,7 +589,11 @@ it('says nothing, and notes why, when git is not on PATH', async () => {
     env: { ...rig.sandbox.env, PATH: rig.sandbox.join('no-bin') },
   })
 
-  expect(ran).toEqual({ status: 0, stdout: '', stderr: 'git is not on PATH\n' })
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ git and GitHub CLI (gh) not found on PATH\n',
+    stderr: 'git and GitHub CLI (gh) not found on PATH\n',
+  })
 })
 
 it('answers about its own directory when no directory is named', async () => {
