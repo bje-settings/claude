@@ -231,6 +231,28 @@ it('still counts behind when the ref listing fails', async () => {
   expect(ran.stderr).toBe(`${realpathSync(work)}: branches could not be listed\n`)
 })
 
+it('warns, and still counts behind, when the branch listing fails', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  rig.git.remoteAdvance(work)
+  // A git that fails only the listing that marks the current branch.
+  const real = findOnPath('git', rig.sandbox.env.PATH) ?? 'git'
+  const bin = rig.sandbox.join('bin-branches')
+  mkdirSync(bin)
+  writeFileSync(
+    path.join(bin, 'git'),
+    `#!/bin/sh\ncase "$*" in\n  *'%(HEAD)'*) echo "fatal: bad ref" >&2; exit 128 ;;\nesac\nexec '${real}' "$@"\n`,
+    { mode: 0o755 },
+  )
+
+  const ran = await statusOf(rig, work, answering({ 'acme/widgets': side() }), {
+    env: { ...rig.sandbox.env, PATH: `${bin}${path.delimiter}${rig.sandbox.env.PATH}` },
+  })
+
+  expect(ran.stdout).toBe('gh: [behind 1] ⚠️\n')
+  expect(ran.stderr).toBe(`${realpathSync(work)}: branches could not be listed\n`)
+})
+
 it('warns, and asks nothing more, when discovery does not finish in time', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
