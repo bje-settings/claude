@@ -1,7 +1,7 @@
 // sync-repo, part of its tests: worktrees, the default branch, the install, --dry-run and a reader that goes away.
 // The file is one of several so that vitest can run them at the same time (#205).
 // `sync-repo.test-support.ts` holds the helpers and the header that says what the tests prove.
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
@@ -88,6 +88,114 @@ describe('worktrees', () => {
       `${path.basename(f.repo)}\n  ✗ skipped: git operation in progress in <sandbox>/wt (rebase-merge)\n`,
     )
     expect(f.git.git(f.repo, 'rev-parse', 'refs/remotes/origin/main')).toBe(before)
+  })
+
+  it('does not remove a linked worktree that switched to another branch after preflight', async () => {
+    // #218 finding 6, round 1 review. `preflight` reads the worktree list
+    // once, early. `readWorktrees` reads it again, fresh, right before the
+    // prune loop. This test protects that second read. A gh call
+    // (`readMergeProof`) sits between the two reads. A person, or another
+    // agent, can switch a linked worktree to a new branch in that window.
+    // A map from the early read alone would then name the OLD branch for
+    // that worktree. The prune loop would call `git worktree remove` on a
+    // worktree that now holds unrelated, uncommitted work. Git's own
+    // safety net does not catch this: it refuses only a tracked change,
+    // never a file `.gitignore` excludes.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'wt-branch')
+    f.git.mergeCommit(f.repo, 'wt-branch')
+    f.git.worktree(f.repo, f.sandbox.join('wt'), 'wt-branch')
+
+    const base = ghDouble()
+    let switched = false
+    const gh = {
+      ...base,
+      listMergedPullRequests: async (query: Parameters<typeof base.listMergedPullRequests>[0]) => {
+        if (!switched) {
+          switched = true
+          // Simulates the race: an external switch of the linked worktree
+          // to a fresh, unmerged branch, with its own ignored file, after
+          // preflight's one read and before the prune loop uses it.
+          f.git.git(f.sandbox.join('wt'), 'switch', '-c', 'other-work')
+          f.git.git(f.sandbox.join('wt'), 'commit', '--allow-empty', '-m', 'other work')
+          writeFileSync(f.sandbox.join('wt', '.gitignore'), '*.ignoreme\n')
+          f.git.git(f.sandbox.join('wt'), 'add', '.gitignore')
+          f.git.git(f.sandbox.join('wt'), 'commit', '-m', 'ignore')
+          writeFileSync(f.sandbox.join('wt', 'secret.ignoreme'), 'secret\n')
+        }
+        return base.listMergedPullRequests(query)
+      },
+    }
+
+    await run(f, [f.repo], { gh })
+
+    expect(existsSync(f.sandbox.join('wt'))).toBe(true)
+    expect(existsSync(f.sandbox.join('wt', 'secret.ignoreme'))).toBe(true)
+  })
+
+  it('skips before pruning when the worktree list cannot be read a second time', async () => {
+    // The list is readable at preflight, so the run gets past the early
+    // check. It stops being readable only later, right when `readWorktrees`
+    // asks again before the prune loop. This proves that second ask is
+    // still there, and still fails closed on its own.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'wip')
+    f.git.mergeCommit(f.repo, 'wip')
+    const shim = f.git.gitShim('worktree list')
+    const env: NodeJS.ProcessEnv = {
+      ...f.env,
+      PATH: `${shim.directory}${path.delimiter}${f.env.PATH ?? ''}`,
+    }
+
+    const base = ghDouble()
+    let asked = false
+    const gh = {
+      ...base,
+      listMergedPullRequests: async (query: Parameters<typeof base.listMergedPullRequests>[0]) => {
+        if (!asked) {
+          asked = true
+          env.GIT_STUB_FAIL = shim.failing
+        }
+        return base.listMergedPullRequests(query)
+      },
+    }
+
+    const result = await run(f, [f.repo], { env, gh })
+
+    expect(result.stdout).toContain('skipped: cannot list worktrees')
+    expect(f.git.branches(f.repo)).toContain('wip')
+  })
+
+  it('skips before pruning when a linked worktree starts an operation after preflight', async () => {
+    // A linked worktree is clean and idle at preflight's early check, so
+    // the run gets past it. It starts a rebase only later, in the same
+    // window a gh call opens. `readWorktrees`'s own recheck, right before
+    // the prune loop, is what still catches this.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'wt-branch')
+    f.git.mergeCommit(f.repo, 'wt-branch')
+    f.git.worktree(f.repo, f.sandbox.join('wt'), 'wt-branch')
+
+    const base = ghDouble()
+    let asked = false
+    const gh = {
+      ...base,
+      listMergedPullRequests: async (query: Parameters<typeof base.listMergedPullRequests>[0]) => {
+        if (!asked) {
+          asked = true
+          f.git.inProgress(f.sandbox.join('wt'), 'rebase-merge')
+        }
+        return base.listMergedPullRequests(query)
+      },
+    }
+
+    const result = await run(f, [f.repo], { gh })
+
+    expect(normalise(result.stdout, f.sandbox)).toContain(
+      'skipped: git operation in progress in <sandbox>/wt (rebase-merge)',
+    )
+    expect(f.git.branches(f.repo)).toContain('wt-branch')
+    expect(existsSync(f.sandbox.join('wt'))).toBe(true)
   })
 
   it('skips when the worktree list cannot be read', async () => {

@@ -246,16 +246,6 @@ class SyncRepoRun {
   private tip = ''
   /** branch -> worktree path. Filled once the prune section is reached. */
   private readonly worktrees = new Map<string, string>()
-  /** `git worktree list --porcelain`, split into lines. {@link preflight}
-   *  fills this once, through {@link linkedWorktreeInProgress}, before the
-   *  fetch and the advance. {@link readWorktrees} reads it back and does not
-   *  ask git a second time (#218 finding 6): a second read, moments later,
-   *  of the same fact preflight already answered would be a branch no test
-   *  could tell apart from the first. Only this checkout's own entry can be
-   *  stale by the time {@link readWorktrees} runs, and its worktree path is
-   *  `top` either way, before or after a switch, so a
-   *  branch it names reads as "not linked" under both. */
-  private worktreeLines: string[] = []
   /** Pull-request state, all of it "unknown" until the bulk lookup runs. */
   private prLookupOk = false
   private prRows: PullRequestRow[] = []
@@ -347,13 +337,24 @@ class SyncRepoRun {
    *  mid-operation. This answers with the reason to skip, or `null` to
    *  carry on. It fails closed: an unreadable worktree list is a skip, the
    *  same answer {@link readWorktrees} gives for the same failure, because
-   *  a hidden operation must never look free. */
+   *  a hidden operation must never look free.
+   *
+   *  This reads `git worktree list --porcelain` itself, and so does
+   *  {@link readWorktrees}, later. A round 1 review (#218) proved why
+   *  neither read can stand in for the other: between this one and the
+   *  prune loop, a fetch, an install, and a gh call all run, and any of
+   *  them can take long enough for a person, or another agent, to switch a
+   *  linked worktree to a different branch. A map built from this read
+   *  alone would then be stale exactly where {@link readWorktrees} needs
+   *  it fresh, and git's own worktree-remove refusal does not catch that:
+   *  it refuses only on a tracked change, never on a file `.gitignore`
+   *  excludes. So this read exists to skip early, before any fetch. It
+   *  answers no question {@link readWorktrees} still needs answered. */
   private async linkedWorktreeInProgress(): Promise<string | null> {
     const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
     if (out === null) return 'cannot list worktrees'
-    this.worktreeLines = out.split('\n')
     let current = ''
-    for (const line of this.worktreeLines) {
+    for (const line of out.split('\n')) {
       if (!line.startsWith('worktree ')) continue
       current = line.slice('worktree '.length)
       if (current === this.top) continue
@@ -399,10 +400,10 @@ class SyncRepoRun {
     const marker = await this.checkInProgress(this.top)
     if (marker !== '') return `git operation in progress (${marker})`
 
-    // #218 finding 6: this runs here, before the fetch and the advance
-    // below, not inside readWorktrees after them. A stopped rebase in
-    // another worktree must block the whole sync on sight, the same as one
-    // in this checkout does above.
+    // #218 finding 6: this ALSO runs here, before the fetch and the
+    // advance below, not only inside readWorktrees right before the prune
+    // loop. A stopped rebase in another worktree must block the whole sync
+    // on sight, the same as one in this checkout does above.
     const linked = await this.linkedWorktreeInProgress()
     if (linked !== null) return linked
 
@@ -695,21 +696,34 @@ class SyncRepoRun {
 
   // ------------------------------------------------------------- prune ---
 
-  /** Fills `worktrees` with branch -> worktree path, from the lines
-   *  {@link preflight} already read through {@link linkedWorktreeInProgress}.
-   *  That read fails closed: an unreadable list skips the whole run before
-   *  this function is ever reached, so `worktreeLines` is always the real
-   *  list by now. This function asks git nothing a second time (#218
-   *  finding 6): a second read, moments after the first, of the exact same
-   *  fact would be a branch no test could tell apart from the first. Only
-   *  this checkout's own entry can be stale here (the checkout may have
-   *  switched branch since), and its worktree path is `top` either way, so
-   *  a branch it names reads as "not linked" under both. */
-  private readWorktrees(): void {
+  /** Fills `worktrees` with branch -> worktree path. This answers with a
+   *  reason to skip when the list cannot be read. It reads the list itself,
+   *  again, right before the prune loop uses it. {@link preflight} already
+   *  read it once, through {@link linkedWorktreeInProgress}, but that read
+   *  is minutes old by now: a fetch, an install, and a gh call sit between
+   *  it and this call. A map built from that earlier read could send a
+   *  force delete at a worktree that has since moved to other, uncommitted
+   *  work (round 1 review, #218 finding 6). This read is what stands
+   *  between that work and the loss of it. */
+  private async readWorktrees(): Promise<string | null> {
+    const out = await gitOut(['worktree', 'list', '--porcelain'], this.here)
+    if (out === null) {
+      // This fails closed. An empty map would make every branch look free
+      // of a worktree. This map is what stands between real uncommitted
+      // work and a force delete.
+      return 'cannot list worktrees'
+    }
     let current = ''
-    for (const line of this.worktreeLines) {
+    for (const line of out.split('\n')) {
       if (line.startsWith('worktree ')) {
         current = line.slice('worktree '.length)
+        // Any linked worktree that is mid-operation has a detached HEAD.
+        // So it maps to no branch, and its work would be invisible to the
+        // guards below.
+        if (current !== this.top) {
+          const marker = await this.checkInProgress(current)
+          if (marker !== '') return `git operation in progress in ${current} (${marker})`
+        }
       } else if (line.startsWith('branch refs/heads/')) {
         // The Python writes this with `setdefault`, which keeps the first
         // worktree named for a branch. git refuses to check one branch out
@@ -719,6 +733,7 @@ class SyncRepoRun {
         this.worktrees.set(line.slice('branch refs/heads/'.length), current)
       }
     }
+    return null
   }
 
   private async prune(ancestry: string[] | null): Promise<string | null> {
@@ -921,7 +936,8 @@ class SyncRepoRun {
       return null
     }
 
-    this.readWorktrees()
+    const occupied = await this.readWorktrees()
+    if (occupied !== null) return occupied
     const unpruned = await this.prune(ancestry)
     if (unpruned !== null) return unpruned
 
