@@ -535,8 +535,9 @@ export const runPrState = async (
   // and no head to ask the other two about, so the run sample is the one
   // read left. A gh that could not answer that either is a gh that
   // answered nothing. A pull request that could not be read, while the
-  // sample WAS read, is a different fact, and a reportable one: gh works,
-  // and there is no such pull request yet. That is `awaiting-pr`.
+  // sample WAS read, is a different fact: gh works. Whether that fact is
+  // `awaiting-pr` or a plain `state: null` is `deriveState`'s call below,
+  // from `missing`, not this guard's.
   if (detail === null && sample.unavailable !== null) {
     return failed(`pr-state read nothing about #${requested.value}: ${unavailable.join('; ')}`)
   }

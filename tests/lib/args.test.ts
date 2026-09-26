@@ -187,8 +187,9 @@ describe('parseArguments', () => {
   })
 
   it('reads a declared short flag as its long name', () => {
-    // Finding 4 (#218): `sweep`, `pr-state` and `preflight` refuse `-h`
-    // today. `parseArgs` only answers a short flag paired with a long one.
+    // Finding 4 (#218): before this fix, `sweep`, `pr-state` and
+    // `preflight` refused `-h`. `parseArgs` only answers a short flag
+    // paired with a declared long one.
     expect(parseArguments(['-h'], { help: { type: 'boolean', short: 'h' } })).toEqual({
       outcome: 'ok',
       value: { help: true },
