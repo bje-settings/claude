@@ -44,10 +44,11 @@ const done = (name: string, conclusion = 'SUCCESS', startedAt: string | null = n
 })
 
 /** What gh answers on one poll. `required` is by branch; a branch it does
- *  not name has no ruleset. */
+ *  not name has no ruleset. A branch's own entry can fail on its own,
+ *  distinct from every branch failing at once (#265). */
 interface Poll {
   readonly heads?: GhReplies['listOpenPullRequestHeads'] | Error
-  readonly required?: Readonly<Record<string, readonly string[]>> | Error
+  readonly required?: Readonly<Record<string, readonly string[] | Error>> | Error
   readonly repository?: GhReplies['viewRepository'] | Error
   readonly detail?: GhReplies['viewPullRequestDetail']
 }
@@ -84,7 +85,9 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
     requiredContexts: async ({ branch }) => {
       const byBranch = current().required ?? { main: REQUIRED }
       if (byBranch instanceof Error) return { contexts: [], unavailable: byBranch.message }
-      return { contexts: byBranch[branch] ?? [], unavailable: null }
+      const answer = byBranch[branch] ?? []
+      if (answer instanceof Error) return { contexts: [], unavailable: answer.message }
+      return { contexts: answer, unavailable: null }
     },
     viewPullRequestDetail: async () => reply(current().detail, 'viewPullRequestDetail'),
   }
@@ -239,6 +242,27 @@ describe('a watch over the open pull requests', () => {
     expect(lines).toEqual([
       `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
       '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed',
+      `#259 new head ${SHA_B}, required 0/3 reported`,
+      '#259 bbbbbbb vitest: SUCCESS',
+      '#259 bbbbbbb types: SUCCESS',
+      '#259 bbbbbbb biome: SUCCESS',
+      '#259 bbbbbbb CONCLUDED: 3/3 required reported, all passed',
+    ])
+  })
+
+  it('writes one new-head line over old, new, old, new heads, names the newest on CONCLUDED (#264)', async () => {
+    const all = REQUIRED.map((name) => done(name))
+    const { context, lines } = watchOver([
+      { heads: heads(head()) },
+      { heads: heads(head({ headSha: SHA_B })) },
+      { heads: heads(head()) },
+      { heads: heads(head({ headSha: SHA_B, checks: all })) },
+    ])
+
+    await runWatch(['--ticks', '4'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
       `#259 new head ${SHA_B}, required 0/3 reported`,
       '#259 bbbbbbb vitest: SUCCESS',
       '#259 bbbbbbb types: SUCCESS',
@@ -497,6 +521,62 @@ describe('a watch over the open pull requests', () => {
     expect(lines).toEqual(['poll failed: gh: HTTP 404'])
   })
 
+  it(
+    "reads each base on its own: one base's failed read does not stop another " +
+      'base from concluding, and the failure and its recovery each write once (#265)',
+    async () => {
+      const release = head({ base: 'release', checks: [done('release-check')] })
+      const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+      const down = ghFails('gh: HTTP 404')
+      const { context, lines } = watchOver([
+        {
+          heads: heads(release, flaky),
+          required: { main: REQUIRED, release: ['release-check'], flaky: down },
+        },
+        {
+          heads: heads(release, flaky),
+          required: { main: REQUIRED, release: ['release-check'], flaky: down },
+        },
+        {
+          heads: heads(release, flaky),
+          required: { main: REQUIRED, release: ['release-check'], flaky: [] },
+        },
+      ])
+
+      await runWatch(['--ticks', '3'], context)
+
+      expect(lines).toEqual([
+        'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+        `#259 open: wktr-219-pr-sweep -> release, head ${SHA_A}, draft, required 1/1 reported`,
+        '#259 aaaaaaa CONCLUDED: 1/1 required reported, all passed',
+        'required contexts for flaky read again',
+        `#260 open: wktr-260-flaky -> flaky, head ${SHA_A}, draft, required 0/3 reported`,
+      ])
+    },
+  )
+
+  it(
+    'unreads every pull request that falls back to a failed default branch, ' +
+      'then reads them once it reads again (P9, #265)',
+    async () => {
+      const stacked = head({ base: 'wktr-244-ws-hook' })
+      const down = ghFails('gh: HTTP 500')
+      const { context, lines } = watchOver([
+        { heads: heads(stacked), required: { main: down, 'wktr-244-ws-hook': [] } },
+        { heads: heads(stacked), required: { main: REQUIRED, 'wktr-244-ws-hook': [] } },
+      ])
+
+      await runWatch(['--ticks', '2'], context)
+
+      expect(lines).toEqual([
+        'required contexts for the default branch main could not be read: gh: HTTP 500; ' +
+          'every pull request that falls back to it is unread',
+        'required contexts for main read again',
+        `#259 open: wktr-219-pr-sweep -> wktr-244-ws-hook, head ${SHA_A}, draft, required 0/3 reported`,
+      ])
+    },
+  )
+
   it('reports a failure that is not a gh error in its own words', async () => {
     const { context, lines } = watchOver([{ heads: heads(head()), repository: new Error('boom') }])
 
@@ -568,6 +648,17 @@ describe('a watch that was told what it already knows', () => {
     const { context, lines } = watchOver([{ heads: heads(head({ headSha: SHA_B })) }])
 
     await runWatch(['--ticks', '1', '--concluded', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([`#259 new head ${SHA_B}, required 0/3 reported`])
+  })
+
+  it('writes nothing when a seeded head comes back after a later one (#264)', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ headSha: SHA_B })) },
+      { heads: heads(head()) },
+    ])
+
+    await runWatch(['--ticks', '2', '--since-head', `259=${SHA_A}`], context)
 
     expect(lines).toEqual([`#259 new head ${SHA_B}, required 0/3 reported`])
   })
