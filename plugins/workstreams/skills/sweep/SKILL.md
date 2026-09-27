@@ -24,11 +24,12 @@ and report per milestone.
    If `pullRequests` is not empty, name each one before you go on. A round planned around
    a branch someone else is about to merge collides on files the sweep cannot see.
 
-   If nothing is unblocked, stop. Say what the next tier is waiting for.
+   If nothing is unblocked, stop. Name the blocked issues (`blocked`) and how many there are.
 
-2. Read, do not remember. For every issue in the unblocked set and the next tier, read the
-   full body **and every comment**. A findings comment is often the specification; the body
-   is often out of date.
+2. Read, do not remember. For every issue in the unblocked set, read the full body **and
+   every comment**. A findings comment is often the specification; the body is often out
+   of date. Leave the blocked set alone: nothing there is read, mapped, sized, or
+   commented on.
 
    Then read the decision records for the milestone: every file under `docs/rfc/` and
    `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
@@ -64,10 +65,9 @@ and report per milestone.
       without the other.
    3. **Parallel streams**, when the file sets are disjoint.
 
-6. Post the sequencing comment. Post one comment on **every** issue in the round, and on
-   every issue the round unlocks. It carries the unblocked set, the next tier, the file
-   map, the collisions, the recommended shape with its argument, the size, and the hidden
-   dependencies, each cited.
+6. Post the sequencing comment. Post one comment on **every** issue in the round. It
+   carries the unblocked set and the file map. It names the collisions, the recommended
+   shape with its argument, the size, and the hidden dependencies, each cited.
 
    Check every hidden dependency against the code before you post the comment.
 
@@ -81,8 +81,8 @@ and report per milestone.
 
    1. The unblocked set, with what each issue is.
    2. The stream shape, with the argument for it.
-   3. What the round unlocks once it lands.
-   4. What nothing can reach yet, and what it waits for.
+   3. What the round unlocks once it lands, from each issue's own `unlocks`.
+   4. How many issues are blocked, and their numbers.
 
 8. Go on to the question phase: invoke `/workstreams:question` with the same milestones. The
    report above is its input, and nobody has to ask for it.

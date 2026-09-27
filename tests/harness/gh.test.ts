@@ -99,7 +99,7 @@ it('answers every endpoint it declares', async () => {
         headSha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
         mergeable: 'MERGEABLE',
         checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        unresolvedThreadAuthors: [],
+        unresolvedThreads: [],
         commentAuthors: ['github-code-quality'],
       },
       unavailable: null,

@@ -56,20 +56,20 @@ command answers:
 
 | Set | Rule |
 | --- | --- |
-| unblocked | Every `blockedBy` entry is closed or merged, or there are none at all. |
-| next tier | Exactly one open blocker, and that blocker is itself unblocked. |
-| blocked | Everything else, with its open blockers named. |
+| unblocked | Every `blockedBy` entry is closed or merged, or there are none at all. Carries `unlocks`: the open issues it is the only open blocker of. |
+| blocked | At least one open `blockedBy` entry. Reported as a count, number and title only. |
 
 "No blockers at all" and "every blocker closed" both count as unblocked, but the report
 lists them apart. The first case is work nothing blocked. The second case is work a
-round just released.
+round just released. A blocked issue carries no reason, and no blocker list. The round
+does not read, map, size, or comment on it.
 
-The skill does the reading. It reads every issue body and every comment. It reads the
-Decisions lists in `docs/rfc/` and `docs/adr/` against what has merged. It maps the files
-each issue touches. It classifies and sizes each issue. It chooses between parallel
-streams, a stack, and one pull request. It posts the sequencing comment on every affected
-issue. `skills/sweep/` carries the rules. `file-map.md` holds the mapping rules a file map
-must apply.
+The skill does the reading. It reads every issue body and every comment, for the
+unblocked set alone. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
+what has merged. It maps the files each issue touches. It classifies and sizes each
+issue. It chooses between parallel streams, a stack, and one pull request. It posts the
+sequencing comment on every issue in the round. `skills/sweep/` carries the rules.
+`file-map.md` holds the mapping rules a file map must apply.
 
 Both the user and the model can invoke it: it starts a round. Its last step continues
 into `/workstreams:question` with the same scope. Nobody has to ask for the question
@@ -90,9 +90,9 @@ caller runs a rot check at the end.
 | `ci-pending` | A required context has not reported. Wait. |
 | `red` | A required context failed before any round ran, so it belongs to whoever opened it. |
 | `review-1`, `review-2` | Dispatch a round. |
-| `fixing` | The round's own fixes have not landed, or a review thread is unresolved. |
+| `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
 | `rot-check` | Check the title and body against the final diff. |
-| `done` | Two rounds at most, CI green, nothing unresolved, the body true. |
+| `done` | Two rounds at most, CI green, no unresolved thread from a person, the body true. A bot's own thread can still be open. |
 
 The rules a round runs under are in `skills/review/round-brief.md`, the brief template.
 `round-2.md` adds the round 2 rules. `rot-check.md` covers the caller's last step. Each
@@ -260,7 +260,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep [--milestone 4,5] [--j
 
 Reports the open milestones with their issue counts, every open pull request, including
 ones no round opened, and, for each milestone asked for plus the issues on no milestone
-at all, the three sets. `--milestone` takes one number or a comma-separated list. It is
+at all, the two sets. `--milestone` takes one number or a comma-separated list. It is
 refused if given twice, because `parseArgs` would otherwise keep only the last one, and
 say nothing. Left out, the report covers every open milestone, plus any other milestone
 the issues name, so an open issue left on a closed milestone is still reported. `--json`
@@ -294,9 +294,11 @@ a read that fell short, so it is a field of its own. A caller keys on `unavailab
 decide whether the report is an answer at all, and every layer of a stack is an answer.
 
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
-has answered nothing for a head whose runs existed. An unresolved review THREAD is
-counted, and a comment is not. The enterprise coverage bot posts a comment on every pull
-request, and a loop that counted it would never reach `done`.
+has answered nothing for a head whose runs existed. Only an unresolved thread from a
+PERSON holds the loop. A bot's own thread, review bots included, is counted apart under
+`botThreads` and does not hold it (#219). A plain comment is never counted at all: the
+enterprise coverage bot posts a comment on every pull request, and a loop that counted it
+would never reach `done`.
 
 `--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
 read, so the caller carries them.

@@ -40,7 +40,7 @@ const USAGE = `usage: workstreams.ts <command> [options]
 commands:
   sweep [--milestone 4,5] [--json]   what a round could start on: milestones,
                                      open pull requests, the unblocked set,
-                                     the next tier, and what is further out
+                                     what it unlocks, and the blocked count
   pr-state <number> [--round 0|1|2]  where the review loop is on one pull
     [--substantial] [--rot-checked]  request: its required contexts, its
     [--json]                         checks, its unresolved threads and the

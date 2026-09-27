@@ -459,6 +459,13 @@ unlike the dependency connections in the sweep query. A list at the page ceiling
 through `unavailable`, rather than refused outright, because here there is a real page signal
 to read.
 
+`unresolvedThreads` carries one `{ author, bot }` row per unresolved thread. `bot` says
+whether that thread's first comment came from a bot account, read straight from
+`__typename`. This is not like a check run and a commit status, told apart by which fields
+answered. GraphQL names the type here, so the parse reads it directly. An author GitHub no
+longer names gives `bot: false`, the safe side. `workstreams pr-state` then holds the loop
+at `fixing` only for a thread from a person, and names a bot's apart.
+
 `viewPullRequestDetail` also answers `missing`. This is true only when GraphQL names the pull
 request field itself NOT_FOUND. The check reads the error's own `path`, the same way
 `notFoundAlias` reads it for `issueStates`, over many numbers at once. Verified live against this

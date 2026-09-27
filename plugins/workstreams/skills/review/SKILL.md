@@ -51,7 +51,7 @@ the pull request.
    | `ci-pending` | Wait, then step 1 again. |
    | `red` | CI was red before any round ran. That belongs to whoever opened the pull request: report it and stop. |
    | `review-1`, `review-2` | Step 3. |
-   | `fixing` | The round's own fixes have not landed, or a review thread is unresolved. Wait, then step 1 again. |
+   | `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. Wait, then step 1 again. A bot's own thread, review bots such as Copilot included, is named under `botThreadAuthors`. It does not hold this state: say what it is, and move on. The loop can reach `done` with such a thread still open (#219). |
    | `rot-check` | Step 5. |
    | `done` | Step 6. |
 
@@ -92,6 +92,7 @@ the pull request.
 5. Rot check. Read [rot-check.md](rot-check.md) and do what it says with the rot lists the
    rounds returned.
 
-6. Report four things: the state reached, what each round applied and rejected with its
-   reason, the rot check's corrections, and anything returned under `lower_layer`. Name
-   each round's cost from its task notification.
+6. Report five things: the state reached, what each round applied and rejected with its
+   reason, the rot check's corrections, anything returned under `lower_layer`, and any
+   thread still open under `botThreadAuthors`. Name each round's cost from its task
+   notification.

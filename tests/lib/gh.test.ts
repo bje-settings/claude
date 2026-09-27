@@ -1681,6 +1681,15 @@ describe('the review loop reads', () => {
       ])
       expect(calls[1]?.args[9]).toContain('$number: Int!')
       expect(calls[1]?.args[9]).toContain('commits(last: 1)')
+      // The query must ask for `__typename` on a thread's first comment's
+      // author. This tells a bot-opened thread from a person's thread.
+      // Assert the exact selection, not a bare `__typename` substring. The
+      // same query also asks for `__typename` on a check context, for an
+      // unrelated reason. A bare `toContain` would still pass with the
+      // field gone from the thread's own selection.
+      expect(calls[1]?.args[9]).toContain(
+        'comments(first: 1) { nodes { author { __typename login } } } }',
+      )
       expect(result.unavailable).toBeNull()
       expect(result.pullRequest).toEqual({
         number: 178,
@@ -1692,7 +1701,7 @@ describe('the review loop reads', () => {
         headSha: '9b13a20',
         mergeable: 'MERGEABLE',
         checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        unresolvedThreadAuthors: [],
+        unresolvedThreads: [],
         commentAuthors: [],
       })
     })
@@ -1727,8 +1736,54 @@ describe('the review loop reads', () => {
 
       const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
 
-      expect(result.pullRequest?.unresolvedThreadAuthors).toEqual(['waiting', 'unknown', 'unknown'])
+      // None of these three is a bot: a person, and two threads whose author
+      // GitHub no longer names. An unknown author is read as a person, the
+      // safe side, never as a bot.
+      expect(result.pullRequest?.unresolvedThreads).toEqual([
+        { author: 'waiting', bot: false },
+        { author: 'unknown', bot: false },
+        { author: 'unknown', bot: false },
+      ])
       expect(result.pullRequest?.commentAuthors).toEqual(['github-code-quality', 'unknown'])
+    })
+
+    it('names a thread a bot opened, by its first comment’s author `__typename`', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({
+            reviewThreads: {
+              pageInfo: { hasNextPage: false },
+              nodes: [
+                {
+                  isResolved: false,
+                  comments: {
+                    nodes: [{ author: { __typename: 'Bot', login: 'github-actions' } }],
+                  },
+                },
+                {
+                  isResolved: false,
+                  comments: { nodes: [{ author: { __typename: 'User', login: 'reviewer-a' } }] },
+                },
+                // A `__typename` gh does not answer at all: read as a
+                // person, never silently promoted to a bot.
+                {
+                  isResolved: false,
+                  comments: { nodes: [{ author: { login: 'reviewer-b' } }] },
+                },
+              ],
+            },
+          }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(result.pullRequest?.unresolvedThreads).toEqual([
+        { author: 'github-actions', bot: true },
+        { author: 'reviewer-a', bot: false },
+        { author: 'reviewer-b', bot: false },
+      ])
     })
 
     it('reads a commit status, which has no status of its own, beside a check run', async () => {

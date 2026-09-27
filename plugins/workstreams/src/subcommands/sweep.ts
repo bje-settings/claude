@@ -3,11 +3,11 @@
 //
 // The deterministic half of the sweep is here. The judgement is in
 // `skills/sweep` (CLAUDE.md, "Plugin design"). This command answers which
-// issues are unblocked, which are one issue behind that, and which are
-// further out. It answers nothing about what any of them touches, or how
-// they should be sequenced. Those come from readings of the issue bodies
-// and of the tree. A script that guessed at them would guess where the
-// skill can look instead.
+// issues are unblocked, what each one unlocks, and how many issues are
+// still blocked. It answers nothing about what any of them touches, or
+// how they should be sequenced. Those come from readings of the issue
+// bodies and of the tree. A script that guessed at them would guess
+// where the skill can look instead.
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
@@ -30,9 +30,11 @@ Reports the repository's open milestones with their issue counts, every open
 pull request including ones no round opened, and, for each milestone asked
 for plus the issues on no milestone at all:
 
-  unblocked   every blockedBy entry closed, or none at all
-  next tier   exactly one open blocker, and that blocker is itself unblocked
-  blocked     everything else, with its open blockers named
+  unblocked   every blockedBy entry closed, or none at all. Carries
+              unlocks: the open issues it is the only blocker of
+  blocked     at least one open blockedBy entry. Reported as a count,
+              number and title only: never read, mapped, sized, or
+              commented on
 
 --milestone takes one number or a comma-separated list, and scopes the report
 to those milestones and the issues on none. Left out, every open milestone is
@@ -55,17 +57,16 @@ const SPEC = {
   help: { type: 'boolean', short: 'h' },
 } as const
 
-/** Which of the three sets an issue falls in. Each value is also the key its
- *  set has on a {@link Group}, so a caller that holds a tier can read the
- *  set without a lookup table between them. */
-export type Tier = 'unblocked' | 'next' | 'blocked'
+/** Which of the two sets an issue falls in. Each value is also the key its
+ *  set has on `combined`, so a caller that holds a tier can read the set
+ *  without a lookup table between them. */
+export type Tier = 'unblocked' | 'blocked'
 
-const TIERS: readonly Tier[] = ['unblocked', 'next', 'blocked']
+const TIERS: readonly Tier[] = ['unblocked', 'blocked']
 
 /** What each tier is called in the report a person reads. */
 const TIER_LABELS: Record<Tier, string> = {
   unblocked: 'unblocked',
-  next: 'next tier',
   blocked: 'blocked',
 }
 
@@ -95,7 +96,19 @@ export interface ReportedIssue {
   readonly blocking: readonly ReportedRef[]
   /** The pull requests that would close this issue, including closed ones. */
   readonly pullRequests: readonly ReportedRef[]
+  /** The open issues this one is the ONLY open blocker of (#195). Empty for
+   *  a blocked issue: it has not been released yet, so it unlocks nothing
+   *  itself. */
+  readonly unlocks: readonly number[]
   readonly tier: Tier
+}
+
+/** A blocked issue, as the report carries it: existence only. #195 keeps
+ *  the reason out, because the round does not read, map, size, or comment
+ *  on a blocked issue. */
+export interface BlockedIssue {
+  readonly number: number
+  readonly title: string
 }
 
 /** A milestone as a group's header. `title` and the counts are null for a
@@ -108,13 +121,12 @@ export interface GroupHeader {
   readonly closedIssues: number | null
 }
 
-/** One milestone's three sets, or the unassigned issues' when `milestone` is
+/** One milestone's two sets, or the unassigned issues' when `milestone` is
  *  null. */
 export interface Group {
   readonly milestone: GroupHeader | null
   readonly unblocked: readonly ReportedIssue[]
-  readonly next: readonly ReportedIssue[]
-  readonly blocked: readonly ReportedIssue[]
+  readonly blocked: readonly BlockedIssue[]
 }
 
 export interface SweepReport {
@@ -122,7 +134,7 @@ export interface SweepReport {
   readonly pullRequests: readonly PullRequestSummary[]
   readonly groups: readonly Group[]
   readonly unassigned: Group
-  /** The same three sets across every group above, as numbers. */
+  /** The same two sets across every group above, as numbers. */
   readonly combined: Record<Tier, readonly number[]>
   /** Every reason this report is short of what was asked for. An empty list
    *  is the only value that means the sets are complete. */
@@ -134,15 +146,14 @@ const refs = (list: readonly IssueRef[]): ReportedRef[] =>
   list.map((ref) => ({ number: ref.number, state: ref.state }))
 
 /**
- * Every issue's tier, computed over the whole set that was read, rather
- * than once per milestone.
+ * Every issue's tier and `unlocks`, computed over the whole set that was
+ * read, rather than once per milestone.
  *
- * The next tier is defined against the unblocked set. A blocker is
- * frequently on another milestone, or on none at all, so a per-milestone
- * computation would answer a different question for each group; the
- * answer would depend on where its blockers happened to live. The command
- * reads the unfiltered issue list once. That is what makes one answer
- * possible.
+ * `unlocks` is defined against the unblocked set. A blocker is frequently
+ * on another milestone, or on none at all, so a per-milestone computation
+ * would answer a different question for each group; the answer would
+ * depend on where its blockers happened to live. The command reads the
+ * unfiltered issue list once. That is what makes one answer possible.
  *
  * An issue whose single open blocker was not read at all cannot be in the
  * unblocked set, so it reports as blocked. That is the conservative
@@ -162,39 +173,49 @@ export const classify = (issues: readonly IssueSummary[]): ReportedIssue[] => {
     entries.filter((entry) => entry.openBlockers.length === 0).map((entry) => entry.issue.number),
   )
 
-  return entries.map(({ issue, openBlockers }) => {
-    let tier: Tier = 'blocked'
-    if (openBlockers.length === 0) tier = 'unblocked'
+  // Every issue with exactly one open blocker, and that blocker itself
+  // unblocked, unlocks that blocker's own entry. A blocked issue is never
+  // a key here. It has not been released yet. So nothing it lists as its
+  // sole blocker counts against it.
+  const unlocksOf = new Map<number, number[]>()
+  for (const entry of entries) {
+    if (entry.openBlockers.length !== 1) continue
     // The cast exists because `noUncheckedIndexedAccess` is exact about an
     // array of unknown length: the count was just checked, so index 0 is
-    // there. This is worth saying, because a weakened count check would not
-    // fail here. It would make `has(undefined)` quietly false, and misfile
-    // the issue.
-    else if (openBlockers.length === 1 && unblocked.has(openBlockers[0] as number)) tier = 'next'
-    return {
-      number: issue.number,
-      title: issue.title,
-      milestone: issue.milestone === null ? null : issue.milestone.number,
-      labels: [...issue.labels],
-      blockedBy: refs(issue.blockedBy),
-      openBlockers,
-      blocking: refs(issue.blocking),
-      pullRequests: refs(issue.pullRequests),
-      tier,
-    }
-  })
+    // there.
+    const blocker = entry.openBlockers[0] as number
+    if (!unblocked.has(blocker)) continue
+    const list = unlocksOf.get(blocker)
+    if (list === undefined) unlocksOf.set(blocker, [entry.issue.number])
+    else list.push(entry.issue.number)
+  }
+
+  return entries.map(({ issue, openBlockers }) => ({
+    number: issue.number,
+    title: issue.title,
+    milestone: issue.milestone === null ? null : issue.milestone.number,
+    labels: [...issue.labels],
+    blockedBy: refs(issue.blockedBy),
+    openBlockers,
+    blocking: refs(issue.blocking),
+    pullRequests: refs(issue.pullRequests),
+    unlocks: unlocksOf.get(issue.number) ?? [],
+    tier: openBlockers.length === 0 ? 'unblocked' : 'blocked',
+  }))
 }
 
-/** One group, from the classified issues that belong to its milestone. */
+/** One group, from the classified issues that belong to its milestone. A
+ *  blocked issue is stripped down to {@link BlockedIssue} here, the one
+ *  place the round's "exists only" rule (#195) takes effect. */
 const groupOf = (milestone: GroupHeader | null, issues: readonly ReportedIssue[]): Group => {
   const number = milestone === null ? null : milestone.number
   const mine = issues.filter((issue) => issue.milestone === number)
-  const taken = (tier: Tier): ReportedIssue[] => mine.filter((issue) => issue.tier === tier)
   return {
     milestone,
-    unblocked: taken('unblocked'),
-    next: taken('next'),
-    blocked: taken('blocked'),
+    unblocked: mine.filter((issue) => issue.tier === 'unblocked'),
+    blocked: mine
+      .filter((issue) => issue.tier === 'blocked')
+      .map((issue) => ({ number: issue.number, title: issue.title })),
   }
 }
 
@@ -231,16 +252,25 @@ export const requestedMilestones = (value: string): Envelope<number[]> => {
 export const repeatedMilestone = (argv: readonly string[]): boolean =>
   argv.filter((word) => word === '--milestone' || word.startsWith('--milestone=')).length > 1
 
-/** One issue, for a person, with the reason it sits in the set it does. */
+/** One unblocked issue, for a person: why it needs no more work, and what
+ *  it unlocks. `openBlockers` is always empty here. That is what defines
+ *  the unblocked set. A blocked issue's "behind #N" case never applies to
+ *  one of these. */
 const issueLine = (issue: ReportedIssue): string => {
-  let why = 'no blockers'
-  if (issue.openBlockers.length > 0) {
-    why = `behind ${issue.openBlockers.map((number) => `#${number}`).join(', ')}`
-  } else if (issue.blockedBy.length > 0) {
-    why = `every blocker closed: ${issue.blockedBy.map((ref) => `#${ref.number}`).join(', ')}`
-  }
-  return `    #${issue.number}  ${issue.title}\n        ${why}`
+  const why =
+    issue.blockedBy.length === 0
+      ? 'no blockers'
+      : `every blocker closed: ${issue.blockedBy.map((ref) => `#${ref.number}`).join(', ')}`
+  const unlocks =
+    issue.unlocks.length === 0
+      ? ''
+      : `\n        unlocks: ${issue.unlocks.map((number) => `#${number}`).join(', ')}`
+  return `    #${issue.number}  ${issue.title}\n        ${why}${unlocks}`
 }
+
+/** One blocked issue, for a person: it exists, and nothing else. The round
+ *  does not read, map, size, or comment on it (#195). */
+const blockedLine = (issue: BlockedIssue): string => `    #${issue.number}  ${issue.title}`
 
 /** A group's heading, which is also the one place a group says whether it is
  *  a milestone at all. */
@@ -254,14 +284,14 @@ const headingFor = (milestone: GroupHeader | null): string => {
 }
 
 /** One group, for a person. A set with nothing in it still prints its
- *  heading: "next tier (0)" is an answer, and a missing heading reads as a
+ *  heading: "blocked (0)" is an answer, and a missing heading reads as a
  *  set nobody looked at. */
 const groupText = (group: Group): string[] => {
   const lines = ['', headingFor(group.milestone)]
-  for (const tier of TIERS) {
-    lines.push(`  ${TIER_LABELS[tier]} (${group[tier].length})`)
-    for (const issue of group[tier]) lines.push(issueLine(issue))
-  }
+  lines.push(`  ${TIER_LABELS.unblocked} (${group.unblocked.length})`)
+  for (const issue of group.unblocked) lines.push(issueLine(issue))
+  lines.push(`  ${TIER_LABELS.blocked} (${group.blocked.length})`)
+  for (const issue of group.blocked) lines.push(blockedLine(issue))
   return lines
 }
 
@@ -422,7 +452,6 @@ export const runSweep = async (
   const reported = [...groups, unassigned]
   const combined = {
     unblocked: reported.flatMap((group) => group.unblocked.map((issue) => issue.number)),
-    next: reported.flatMap((group) => group.next.map((issue) => issue.number)),
     blocked: reported.flatMap((group) => group.blocked.map((issue) => issue.number)),
   }
 

@@ -3,8 +3,8 @@ type: Reference
 description: What the /workstreams:review skill does, and every way it declines to act.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
-  at: 2026-09-26
+  by: claude-sonnet
+  at: 2026-09-27
 ---
 
 # /workstreams:review skill flow
@@ -43,7 +43,7 @@ flowchart TD
     O -->|Yes| P[Watch CI in the foreground] --> C
 
     E -->|rot-check| Q[Title and body against the final diff]
-    Q --> S([Report: state, applied, rejected,<br/>corrections, lower_layer])
+    Q --> S([Report: state, applied, rejected,<br/>corrections, lower_layer, open bot threads])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```

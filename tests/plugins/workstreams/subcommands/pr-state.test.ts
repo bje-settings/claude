@@ -33,7 +33,7 @@ const detail = (overrides: Partial<PullRequestDetail> = {}): PullRequestDetail =
     { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
     { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS' },
   ],
-  unresolvedThreadAuthors: [],
+  unresolvedThreads: [],
   commentAuthors: ['github-code-quality'],
   ...overrides,
 })
@@ -169,7 +169,7 @@ describe('the facts it reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['reviewer-a'],
+            unresolvedThreads: [{ author: 'reviewer-a', bot: false }],
             commentAuthors: ['github-code-quality', 'reviewer-a'],
           }),
           unavailable: null,
@@ -181,6 +181,80 @@ describe('the facts it reads', () => {
     expect(report.unresolvedThreads).toBe(1)
     expect(report.unresolvedThreadAuthors).toEqual(['reviewer-a'])
     expect(report.comments).toBe(2)
+  })
+
+  it('leaves fixing once every unresolved thread is a bot preview, and names them', async () => {
+    // #219: 12 of #213's 13 unresolved threads were the mermaid-preview
+    // workflow, posted by `github-actions` on every changed file. A bot
+    // thread is informational, so it must not hold the loop at fixing.
+    const report = await reportOf(
+      ['178', '--round', '1'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            unresolvedThreads: [
+              { author: 'github-actions', bot: true },
+              { author: 'github-actions', bot: true },
+            ],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.unresolvedThreads).toBe(0)
+    expect(report.unresolvedThreadAuthors).toEqual([])
+    expect(report.botThreads).toBe(2)
+    // Raw, one entry per thread, the way `unresolvedThreadAuthors` already
+    // is: `renderReport`'s own `authors()` helper is what dedupes for a
+    // person to read.
+    expect(report.botThreadAuthors).toEqual(['github-actions', 'github-actions'])
+    expect(report.state).toBe('rot-check')
+  })
+
+  it('holds fixing on a mixed set, and names both counts apart', async () => {
+    const report = await reportOf(
+      ['178', '--round', '1'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            unresolvedThreads: [
+              { author: 'github-actions', bot: true },
+              { author: 'reviewer-a', bot: false },
+            ],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.unresolvedThreads).toBe(1)
+    expect(report.unresolvedThreadAuthors).toEqual(['reviewer-a'])
+    expect(report.botThreads).toBe(1)
+    expect(report.botThreadAuthors).toEqual(['github-actions'])
+    expect(report.state).toBe('fixing')
+  })
+
+  it('holds fixing on a person-only set, with no bot threads named', async () => {
+    const report = await reportOf(
+      ['178', '--round', '1'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            unresolvedThreads: [{ author: 'reviewer-a', bot: false }],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.unresolvedThreads).toBe(1)
+    expect(report.botThreads).toBe(0)
+    expect(report.botThreadAuthors).toEqual([])
+    expect(report.state).toBe('fixing')
   })
 
   it('asks the rules about the pull request’s OWN base branch', async () => {
@@ -1055,7 +1129,10 @@ describe('the report a person reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['reviewer-a', 'reviewer-a'],
+            unresolvedThreads: [
+              { author: 'reviewer-a', bot: false },
+              { author: 'reviewer-a', bot: false },
+            ],
             commentAuthors: [],
           }),
           unavailable: null,
@@ -1068,5 +1145,35 @@ describe('the report a person reads', () => {
       'unresolved review threads: 2 (reviewer-a)',
     )
     expect(answer.outcome === 'ok' && answer.value).toContain('comments: 0')
+  })
+
+  it('names the bot threads on their own line, apart from the ones that hold fixing', async () => {
+    const answer = await ran(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            unresolvedThreads: [
+              { author: 'github-actions', bot: true },
+              { author: 'reviewer-a', bot: false },
+            ],
+            commentAuthors: [],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    const text = answer.outcome === 'ok' ? answer.value : ''
+    expect(text).toContain('unresolved review threads: 1 (reviewer-a)')
+    expect(text).toContain('bot threads (informational, not waited on): 1 (github-actions)')
+  })
+
+  it('says nothing about bot threads when there are none', async () => {
+    const answer = await ran(['178'])
+
+    const text = answer.outcome === 'ok' ? answer.value : ''
+    expect(text).not.toContain('bot threads')
   })
 })

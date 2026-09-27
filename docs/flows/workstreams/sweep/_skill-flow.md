@@ -21,8 +21,8 @@ flowchart TD
     E -->|Yes| E1([Name each one first]):::pause
     E -->|No| F
     E1 --> F{anything unblocked?}
-    F -->|No| F1([Stop: say what blocks the next tier]):::stop
-    F -->|Yes| G[Read every body and every comment]
+    F -->|No| F1([Stop: name the blocked issues]):::stop
+    F -->|Yes| G[Read every body and every comment<br/>of the unblocked set only]
 
     G --> H[Read the Decisions lists in docs/rfc and docs/adr]
     H --> I{a decision no issue body carries?}
@@ -49,7 +49,7 @@ flowchart TD
     S --> T{hidden dependencies checked against the code?}
     T -->|No| T1[Check them; the last one stated from bodies alone was wrong]
     T1 --> S
-    T -->|Yes| U[Report: unblocked set, shape, what it unlocks,<br/>what nothing can reach yet]
+    T -->|Yes| U[Report: unblocked set, shape,<br/>what unlocks, blocked count]
     U --> V([Invoke /workstreams:question])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

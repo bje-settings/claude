@@ -3,8 +3,8 @@ type: Reference
 description: How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
-  at: 2026-09-25
+  by: claude-sonnet
+  at: 2026-09-27
 ---
 
 # pr-state flow
@@ -40,9 +40,9 @@ flowchart TD
     Q0 -->|red| T1([state red, exit 0])
     Q0 -->|pending| T2([state ci-pending, exit 0])
     Q0 -->|green| T3([state review-1, exit 0])
-    Q -->|1 or 2| Q1{Green, and no<br/>unresolved threads?}
+    Q -->|1 or 2| Q1{Green, and no unresolved<br/>thread from a person?}
     Q1 -->|No| T4([state fixing, exit 0])
-    Q1 -->|Yes| Q2{Round 1, and --substantial?}
+    Q1 -->|Yes, a bot's own thread<br/>may still be unresolved| Q2{Round 1, and --substantial?}
     Q2 -->|Yes| T5([state review-2, exit 0])
     Q2 -->|No| Q3{--rot-checked?}
     Q3 -->|No| T6([state rot-check, exit 0])
@@ -53,8 +53,12 @@ flowchart TD
 
 SUCCESS, SKIPPED and NEUTRAL each satisfy a context, and any other conclusion fails it. A
 contexts list from the head is settled only when every run for the head has completed. A failed
-wait-hint read adds a reason to the list but does not change the verdict. Unresolved threads
-block `done`, and plain comments do not.
+wait-hint read adds a reason to the list but does not change the verdict. An unresolved thread
+from a person blocks `done`.
+
+A bot's own thread, a review bot such as Copilot included, is named apart. It does not block
+`done`, and neither does a plain comment (#219). A review bot's own finding is named, but the
+loop does not wait on it.
 
 State `awaiting-pr` means GitHub itself named the number NOT_FOUND. Every other reason leaves no
 state at all. A malformed reply is one such reason. A repository gh could not resolve is

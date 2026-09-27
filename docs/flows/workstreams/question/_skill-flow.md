@@ -14,7 +14,7 @@ What `/workstreams:question` does to one sweep report, and every way it declines
 ```mermaid
 flowchart TD
     C{sequencing comment posted?}
-    C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, size,<br/>hidden dependencies]
+    C -->|Yes| C1[Read it: unblocked set, what it unlocks,<br/>file map, collisions, shape, size,<br/>hidden dependencies]
     C -->|No| C2[Invoke /workstreams:sweep with the same milestone or issue set]
     C2 --> C3{sweep stopped before it posted one?}
     C3 -->|Yes| C3a([Stop: report what sweep returned]):::stop
