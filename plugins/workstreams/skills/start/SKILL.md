@@ -2,7 +2,7 @@
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. With `#<pr>`, take one pull request through review to done. The one entry to the workstreams primitives.
 argument-hint: [milestone | #pr]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh stack view *) Bash(git -C * switch *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh stack view *) Bash(git -C * switch *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
 ---
 
 Round: $ARGUMENTS. A milestone, or nothing, starts or continues a round. `#<pr>` reviews
@@ -15,9 +15,13 @@ and nothing wakes it.
 
 Derive it on each call. Write nothing to disk.
 
-1. **The plan.** The comment on the round's issues whose first line names it the plan,
-   `<round> plan, approved <date>.` It names each layer's issues, branch, model, allowed
-   file set and reviewers.
+1. **The plan.** The latest comment whose first line reads `<round> plan, approved <date>.`
+   It names each layer's issues, branch, model, allowed file set and reviewers. Find the
+   open issues that carry one, with `--milestone <milestone>` when one is given:
+
+   ```bash
+   gh issue list --state open --search '"plan, approved" in:comments' --json number,title
+   ```
 2. **The pull requests.** `gh pr list --json number,headRefName,baseRefName,closingIssuesReferences`
    names the ones that close a round issue. `gh stack view --json` gives the layer order,
    and names a layer whose body only refers to an issue. Take each head from `intersect`,
@@ -34,7 +38,7 @@ Derive it on each call. Write nothing to disk.
 2. `#<pr>`: that pull request is the whole round. Ask the person for the review model if
    no plan names one. Go to step 4.
 3. When the layer below is `done`, or there is none, invoke `/workstreams:stream` with the
-   next layer's issues. A stack builds one layer at a time.
+   next layer's issues.
 4. Wait for a wake. Then run the tick in [tick.md](tick.md), and wait again.
 5. When every pull request is `done` and the plan has no layer left, do
    [round-end.md](round-end.md). Nothing merges.
