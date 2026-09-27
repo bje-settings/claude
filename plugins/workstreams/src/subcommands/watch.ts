@@ -10,13 +10,14 @@
 // stays silent about it.
 //
 // **A head this watch has already seen is not a new head.** For a short
-// time after a push, GitHub answers the old head, then the new head. The
+// time after a push, the API answers the old head, then the new head. The
 // watch keeps every head it has seen for each pull request, not only the
 // current one. A head that returns after a later one writes no line. It
 // does not move the current head, the reported contexts, or CONCLUDED
 // (#264). `--since-head` and `--concluded` seed this memory with their own
-// head. One known limit: a force push back to an earlier head, between two
-// polls, is not reported.
+// head. One known limit: a force push back to an earlier head silences
+// that pull request. No later line, not even CONCLUDED, is written again
+// for it, until the watch restarts.
 //
 // **A head concludes only when every required context has reported**
 // (ruling P9). The list comes from the base branch's rules, and from the
@@ -513,10 +514,10 @@ export const runWatch = async (
         if (left.line !== null) lines.push(left.line)
         if (left.settled) memory.delete(number)
       }
-      // A pull request is unread this poll when its own base's read failed,
-      // or its base falls back to a default branch whose read failed
-      // (#265). It is left as this watch last knew it, and read again once
-      // the base it needs reads.
+      // A pull request is unread this poll when its own base's read failed.
+      // It is also unread when its base falls back to a default branch
+      // whose read failed (#265). It is left as this watch last knew it,
+      // and read again once the base it needs reads.
       for (const pull of pulls) {
         const own = listFor(pull.base)
         if (own === undefined) continue
@@ -534,6 +535,15 @@ export const runWatch = async (
       // claim what no poll could see.
       context.write(
         oneLine(`heartbeat: ${failedPolls} failed polls in a row, the last: ${lastFailed}`),
+      )
+      quietSince = context.now()
+    } else if (context.now() - quietSince >= HEARTBEAT_MS && baseFailures.size > 0) {
+      // The memory for a branch still unread is as old as its last good
+      // read. "No change" would claim what no poll could see for it (#265).
+      const branches = [...baseFailures.keys()].sort().join(', ')
+      const reason = [...baseFailures.values()].at(-1)
+      context.write(
+        oneLine(`heartbeat: required contexts for ${branches} still unread, the last: ${reason}`),
       )
       quietSince = context.now()
     } else if (context.now() - quietSince >= HEARTBEAT_MS) {
