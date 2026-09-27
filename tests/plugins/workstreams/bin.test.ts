@@ -147,16 +147,19 @@ it('fails intersect outside a git checkout, exit 1, with nothing on stdout', () 
 //
 // The watch is the one arm that runs until it is stopped. A SIGTERM ends it
 // with exit 0, and so does a reader that closed the pipe. Neither run
-// reaches GitHub. The `gh` first on PATH always fails. So each poll writes
-// one "poll failed" line, and the watch polls again.
+// reaches GitHub. The `gh` first on PATH always fails. So the first poll
+// writes one "poll failed" line, and the watch polls again. The watch writes
+// a reason that stays the same only once. A stub that gives a new reason on
+// each call makes each poll write a line.
 
 /** A sandbox and a checkout in it, with a `gh` that always fails first on
- *  PATH. */
-const watchRig = (): { env: NodeJS.ProcessEnv; work: string } => {
+ *  PATH. With `changing`, each call fails with a reason of its own. */
+const watchRig = (changing = false): { env: NodeJS.ProcessEnv; work: string } => {
   const sandbox = createSandbox()
   const stubs = sandbox.join('stub-bin')
   mkdirSync(stubs, { recursive: true })
-  writeFileSync(path.join(stubs, 'gh'), '#!/bin/sh\necho "gh stub: offline" >&2\nexit 1\n', {
+  const reason = changing ? 'gh stub: offline $$' : 'gh stub: offline'
+  writeFileSync(path.join(stubs, 'gh'), `#!/bin/sh\necho "${reason}" >&2\nexit 1\n`, {
     mode: 0o755,
   })
   sandbox.stubPath(stubs)
@@ -214,10 +217,11 @@ it('keeps polling after a poll that failed, and ends with exit 0 on SIGTERM', as
 })
 
 it('ends with exit 0 when the reader closes the pipe', async () => {
-  const { env: rigEnv, work } = watchRig()
+  // Each poll must write, so that a write meets the closed pipe.
+  const { env: rigEnv, work } = watchRig(true)
   const watch = startScript(BIN, { args: ['watch', '--interval', '1'], env: rigEnv, cwd: work })
 
-  await expect(watch.firstLine()).resolves.toBe('poll failed: gh stub: offline')
+  await expect(watch.firstLine()).resolves.toMatch(/^poll failed: gh stub: offline \d+$/)
   watch.closeStdout()
 
   await expect(watch.ended()).resolves.toEqual({ status: 0, signal: null, stderr: '' })
