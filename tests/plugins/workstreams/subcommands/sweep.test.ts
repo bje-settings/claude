@@ -117,8 +117,8 @@ const capturedIssues = (): readonly CapturedIssue[] => {
     try {
       parsed = JSON.parse(call.stdout)
     } catch {
-      // A call whose stdout is not JSON at all carries no issue node either
-      // way, so it is skipped here rather than read as one.
+      // A call whose stdout is not JSON at all carries no issue node
+      // either way. It is skipped here, rather than read as one.
       continue
     }
     const record = parsed as { data?: { repository?: { issues?: { nodes?: unknown[] } } } }
