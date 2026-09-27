@@ -6,11 +6,18 @@
 // `pull_request` run, and clean checkouts.
 //
 // **git does the work, on objects fetched by sha.** The command fetches
-// each head as `git fetch origin <sha>`. That fetch has no refspec to write,
-// and writes no `FETCH_HEAD`. So the command leaves no named ref behind
-// (ruling 10). `git merge-base`,
+// each head as `git fetch --no-write-fetch-head origin <sha>`. That fetch has
+// no refspec to write, and the flag stops the `FETCH_HEAD` write. So the
+// command leaves no named ref behind (ruling 10). `git merge-base`,
 // `git diff` and `git merge-tree --write-tree` then use the same objects.
 // `merge-tree` writes tree objects to the object store and no ref.
+//
+// **A stack layer is paired on its own files.** Its base is the head of
+// another open pull request. Against the default branch, its files include
+// every layer below it. So two layers of one stack would always share files.
+// A pair uses the files each head changes against its own base, as
+// `gh pr diff` shows them. The merge-tree against the default branch still
+// takes the whole stack.
 //
 // **A value that could not be read is reported as itself.** A head that
 // could not be fetched has no merge base, no file list and no merge result.
@@ -97,6 +104,13 @@ export interface PullReport {
   readonly behind: number | null
   /** The files the head changes against the merge base, or null. */
   readonly files: readonly string[] | null
+  /** The open pull request whose head is this one's base: the layer below
+   *  in a stack. Null when the base is no open pull request's head. */
+  readonly stackedOn: number | null
+  /** The files the head changes against its own base, as `gh pr diff`
+   *  shows them. For a stack layer, that is against the head of the layer
+   *  below. Otherwise it is `files`. Null when git could not read it. */
+  readonly ownFiles: readonly string[] | null
   readonly againstDefault: MergeResult
   /** Whether a run with event `pull_request` exists for the exact head.
    *  Null when the run list fell short and did not show one. */
@@ -104,6 +118,9 @@ export interface PullReport {
   /** The worktree on the head branch, or null when there is none. */
   readonly worktree: Checkout | null
 }
+
+/** One head's facts before its place in a stack is known. */
+type HeadFacts = Omit<PullReport, 'stackedOn' | 'ownFiles'>
 
 /** Two heads that change a common file. */
 export interface PairReport {
@@ -233,6 +250,10 @@ export const renderReport = (report: IntersectReport): string => {
             : `${plural(pull.behind, 'commit')} ahead of it`)
     lines.push(`    head ${short(pull.headSha)}${fetched}, ${base}`)
     lines.push(`    changed files: ${pull.files === null ? 'unread' : pull.files.length}`)
+    if (pull.stackedOn !== null) {
+      const own = pull.ownFiles === null ? 'unread' : pull.ownFiles.length
+      lines.push(`    stacked on #${pull.stackedOn}, own files: ${own}`)
+    }
     lines.push(`    against ${main}: ${mergeText(pull.againstDefault)}`)
     const run = pull.pullRequestRun === null ? 'unread' : pull.pullRequestRun ? 'yes' : 'no'
     lines.push(`    pull_request run: ${run}`)
@@ -332,14 +353,18 @@ export const runIntersect = async (
   const root = trees[0]?.path ?? top
   const checkout: Checkout = { path: root, clean: await statusOf(root) }
 
-  const pullRequests: PullReport[] = []
+  const read: HeadFacts[] = []
   for (const pull of heads.rows) {
-    pullRequests.push(await readPull(pull))
+    read.push(await readPull(pull))
+  }
+  const pullRequests: PullReport[] = []
+  for (const pull of read) {
+    pullRequests.push(await placeInStack(pull))
   }
 
   /** One head's facts. Each read that fell short leaves its own fact null,
    *  and adds its reason. */
-  async function readPull(pull: PullRequestHead): Promise<PullReport> {
+  async function readPull(pull: PullRequestHead): Promise<HeadFacts> {
     const note = (reason: string): void => {
       unavailable.push(`#${pull.number}: ${reason}`)
     }
@@ -411,13 +436,44 @@ export const runIntersect = async (
     }
   }
 
-  // Each pair of heads with a file in common. A head whose file list is
-  // unread cannot be paired. The report says so once, and does not leave it
-  // out in silence. On the right side of a pair, an unread list is an empty
-  // set, so it shares nothing.
+  /**
+   * A head with the layer below it, if any, and its own files. A pull
+   * request on the default branch is never a stack layer. A fork's head
+   * branch is often named `main`, and a pull request on `main` does not sit
+   * on top of it.
+   */
+  async function placeInStack(pull: HeadFacts): Promise<PullReport> {
+    const below =
+      pull.base === name
+        ? undefined
+        : read.find((other) => other.number !== pull.number && other.head === pull.base)
+    if (below === undefined) return { ...pull, stackedOn: null, ownFiles: pull.files }
+    const unread = (reason: string): PullReport => {
+      unavailable.push(
+        `#${pull.number}: its own files against #${below.number} are unread: ${reason}`,
+      )
+      return { ...pull, stackedOn: below.number, ownFiles: null }
+    }
+    // Three dots: the files from the merge base of the two heads to this
+    // head. That is the diff `gh pr diff` shows. A head that was not
+    // fetched makes git refuse, and git's reason is reported.
+    const changed = await answer([
+      'diff',
+      '--name-only',
+      '-z',
+      `${below.headSha}...${pull.headSha}`,
+    ])
+    if ('reason' in changed) return unread(changed.reason)
+    return { ...pull, stackedOn: below.number, ownFiles: nulList(changed.out) }
+  }
+
+  // Each pair of heads with a file in common, from each head's own files.
+  // A head whose own file list is unread cannot be paired. The report says
+  // so once, and does not leave it out in silence. On the right side of a
+  // pair, an unread list is an empty set, so it shares nothing.
   const pairs: PairReport[] = []
   for (const [index, left] of pullRequests.entries()) {
-    if (left.files === null) {
+    if (left.ownFiles === null) {
       if (pullRequests.length > 1) {
         unavailable.push(
           `#${left.number}: its changed files are unread, so no pair with it was compared`,
@@ -426,8 +482,8 @@ export const runIntersect = async (
       continue
     }
     for (const right of pullRequests.slice(index + 1)) {
-      const theirs = new Set(right.files ?? [])
-      const shared = left.files.filter((file) => theirs.has(file))
+      const theirs = new Set(right.ownFiles ?? [])
+      const shared = left.ownFiles.filter((file) => theirs.has(file))
       if (shared.length === 0) continue
       pairs.push({
         pullRequests: [left.number, right.number],

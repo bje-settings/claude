@@ -155,6 +155,99 @@ describe('pairs of pull requests', () => {
   })
 })
 
+describe('a stack of pull requests', () => {
+  /** Each row's stack facts, and the two fields a stack layer changes. */
+  const stackFacts = (report: IntersectReport) =>
+    report.pullRequests.map((row) => ({
+      number: row.number,
+      base: row.base,
+      draft: row.draft,
+      stackedOn: row.stackedOn,
+      files: row.files,
+      ownFiles: row.ownFiles,
+    }))
+
+  it('pairs two layers on the files each changes against the layer below, as gh pr diff does', async () => {
+    const r = rig()
+    const lower = r.push('lower', { 'shared.txt': 'lower\n', 'lower.txt': 'l\n' })
+    const upper = r.push('upper', { 'upper.txt': 'u\n' }, 'origin/lower')
+
+    const report = await intersect(r, [
+      pull(1, 'lower', lower),
+      { ...pull(2, 'upper', upper, 'lower'), draft: false },
+    ])
+
+    expect(stackFacts(report)).toEqual([
+      {
+        number: 1,
+        base: 'main',
+        draft: true,
+        stackedOn: null,
+        files: ['lower.txt', 'shared.txt'],
+        ownFiles: ['lower.txt', 'shared.txt'],
+      },
+      {
+        number: 2,
+        base: 'lower',
+        draft: false,
+        stackedOn: 1,
+        files: ['lower.txt', 'shared.txt', 'upper.txt'],
+        ownFiles: ['upper.txt'],
+      },
+    ])
+    expect(report.pairs).toEqual([])
+    expect(report.unavailable).toEqual([])
+  })
+
+  it('still pairs a file that the upper layer changes again', async () => {
+    const r = rig()
+    const lower = r.push('lower', { 'shared.txt': 'lower\n' })
+    const upper = r.push('upper', { 'shared.txt': 'upper\n' }, 'origin/lower')
+
+    const report = await intersect(r, [pull(1, 'lower', lower), pull(2, 'upper', upper, 'lower')])
+
+    expect(report.pairs).toEqual([
+      { pullRequests: [1, 2], shared: ['shared.txt'], merge: { result: 'clean' } },
+    ])
+  })
+
+  it('never stacks a pull request on the default branch, even under a head of that name', async () => {
+    const r = rig()
+    // A fork's pull request often comes from a branch named `main`.
+    const fork = r.push('fork', { 'shared.txt': 'fork\n' })
+    const a = r.push('alpha', { 'shared.txt': 'alpha\n' })
+
+    const report = await intersect(r, [pull(1, 'main', fork), pull(2, 'alpha', a)])
+
+    expect(report.pullRequests.map((row) => row.stackedOn)).toEqual([null, null])
+    expect(report.pairs).toEqual([
+      {
+        pullRequests: [1, 2],
+        shared: ['shared.txt'],
+        merge: { result: 'conflict', paths: ['shared.txt'] },
+      },
+    ])
+  })
+
+  it('reports the own files of a layer as unread when the layer below was not fetched', async () => {
+    const r = rig()
+    const upper = r.push('upper', { 'upper.txt': 'u\n' })
+
+    const report = await intersect(r, [
+      pull(1, 'lower', 'f'.repeat(40)),
+      pull(2, 'upper', upper, 'lower'),
+    ])
+
+    expect(stackFacts(report)[1]).toMatchObject({ stackedOn: 1, ownFiles: null })
+    expect(report.unavailable).toContainEqual(
+      expect.stringMatching(/^#2: its own files against #1 are unread: fatal: /),
+    )
+    expect(report.unavailable).toContain(
+      '#2: its changed files are unread, so no pair with it was compared',
+    )
+  })
+})
+
 describe('each head against the default branch', () => {
   it('counts the commits main has gained since the merge base: the rebase debt', async () => {
     const r = rig()
@@ -449,6 +542,8 @@ describe('renderReport', () => {
     mergeBase: null,
     behind: null,
     files: null,
+    stackedOn: null,
+    ownFiles: null,
     pullRequestRun: null,
     worktree: { path: '/w', clean: null },
   }
@@ -457,7 +552,9 @@ describe('renderReport', () => {
     const text = renderReport({
       defaultBranch: null,
       checkout: { path: '/r', clean: null },
-      pullRequests: [{ ...row, againstDefault: { result: 'unread', reason: 'no fetch' } }],
+      pullRequests: [
+        { ...row, stackedOn: 4, againstDefault: { result: 'unread', reason: 'no fetch' } },
+      ],
       pairs: [
         { pullRequests: [7, 8], shared: ['a', 'b'], merge: { result: 'unread', reason: 'boom' } },
         { pullRequests: [7, 9], shared: ['a'], merge: { result: 'clean' } },
@@ -477,6 +574,7 @@ describe('renderReport', () => {
         '  #7  h -> main  ready',
         '    head ccccccc (not fetched), merge base unread',
         '    changed files: unread',
+        '    stacked on #4, own files: unread',
         '    against the default branch: unread (no fetch)',
         '    pull_request run: unread',
         '    worktree: /w, unread',
@@ -533,6 +631,8 @@ describe('renderReport', () => {
           mergeBase: 'e'.repeat(40),
           behind: 1,
           files: ['a', 'b'],
+          stackedOn: 3,
+          ownFiles: ['b'],
           pullRequestRun: false,
           worktree: { path: '/w', clean: true },
           againstDefault: { result: 'conflict', paths: ['a', 'b'] },
@@ -551,6 +651,7 @@ describe('renderReport', () => {
         '  #7  h -> main  ready',
         '    head ccccccc, merge base eeeeeee, main is 1 commit ahead of it',
         '    changed files: 2',
+        '    stacked on #3, own files: 1',
         '    against main: conflict in a, b',
         '    pull_request run: no',
         '    worktree: /w, clean',
@@ -637,6 +738,21 @@ describe('a git read that fails', () => {
     expect(noDiff.unavailable).toEqual([
       '#1: the changed files could not be read: git stub: refusing diff',
     ])
+  })
+
+  it('reports the own files of a stack layer that git could not diff as unread', async () => {
+    const r = rig()
+    const lower = r.push('lower', { 'lower.txt': 'l\n' })
+    const upper = r.push('upper', { 'upper.txt': 'u\n' }, 'origin/lower')
+
+    const report = await withShim(r, [pull(1, 'lower', lower), pull(2, 'upper', upper, 'lower')], {
+      fail: ['diff'],
+    })
+
+    expect(report.pullRequests[1]).toMatchObject({ stackedOn: 1, ownFiles: null })
+    expect(report.unavailable).toContain(
+      '#2: its own files against #1 are unread: git stub: refusing diff',
+    )
   })
 
   it('reports a worktree list it could not read, and a status it could not run', async () => {
