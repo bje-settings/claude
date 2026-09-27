@@ -3,14 +3,14 @@ type: Reference
 description: How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-sonnet
+  by: claude-opus
   at: 2026-09-27
 ---
 
 # pr-state flow
 
 `node scripts/workstreams.ts pr-state` reports where the review loop is on one pull request. The
-`/workstreams:review` and `/workstreams:stream` skills run it.
+`/workstreams:review` and `/workstreams:start` skills run it.
 
 ```mermaid
 flowchart TD

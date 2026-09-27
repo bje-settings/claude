@@ -161,7 +161,7 @@ All of the following:
 - A draft pull request against `<lower branch>`.
 - Every required context reported success on the final head, with a workflow run of
   event `pull_request`.
-- No unresolved review threads.
+- No unresolved review thread from a person. A bot's own thread does not count.
 - `<the local gates: the suites, the type check, the formatter, any validator>` green.
 - The worktree on your branch, and the root checkout, both clean.
 - `<each lower branch>` still at `<its sha>`.

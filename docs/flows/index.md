@@ -20,9 +20,12 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [gh/sync/sync-flow.md](gh/sync/sync-flow.md) | How `gh.ts sync` finds its checkouts, syncs each one in process, and which outcome sets its exit status. |
 | [mermaid/view/_skill-flow.md](mermaid/view/_skill-flow.md) | What the /mermaid:view skill does, and every way it declines to act. |
 | [workstreams/question/_skill-flow.md](workstreams/question/_skill-flow.md) | What the /workstreams:question skill does, and every way it declines to act. |
-| [workstreams/review/_skill-flow.md](workstreams/review/_skill-flow.md) | What the /workstreams:review skill does, and every way it declines to act. |
+| [workstreams/review/_skill-flow.md](workstreams/review/_skill-flow.md) | What the /workstreams:review skill does in one step, and every way it declines to act. |
 | [workstreams/review/pr-state-flow.md](workstreams/review/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
-| [workstreams/stream/_skill-flow.md](workstreams/stream/_skill-flow.md) | What the /workstreams:stream skill does, and every way it declines to act. |
-| [workstreams/stream/pr-state-flow.md](workstreams/stream/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
+| [workstreams/start/_skill-flow.md](workstreams/start/_skill-flow.md) | What the /workstreams:start skill does on each call and each wake, and every way it stops. |
+| [workstreams/start/intersect-flow.md](workstreams/start/intersect-flow.md) | How `workstreams.ts intersect` reads each open pull request's head against the default branch and against the other heads, and each way it stops or reports a fact as unread. |
+| [workstreams/start/pr-state-flow.md](workstreams/start/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
+| [workstreams/start/watch-flow.md](workstreams/start/watch-flow.md) | How `workstreams.ts watch` polls each open pull request and writes one line for each event, and each way it stops or goes quiet. |
+| [workstreams/stream/_skill-flow.md](workstreams/stream/_skill-flow.md) | What the /workstreams:stream skill does in one step, and every way it declines to act. |
 | [workstreams/sweep/_skill-flow.md](workstreams/sweep/_skill-flow.md) | What the /workstreams:sweep skill does, and every way it declines to act. |
 | [workstreams/sweep/sweep-flow.md](workstreams/sweep/sweep-flow.md) | How `workstreams.ts sweep` reads the tracker, puts each open issue in a tier, and when its report is short or empty. |

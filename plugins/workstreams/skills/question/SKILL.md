@@ -2,7 +2,7 @@
 name: question
 description: Turn a sweep report into an approved plan, one question at a time.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion Skill EnterPlanMode ExitPlanMode
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion EnterPlanMode ExitPlanMode
 user-invocable: false
 ---
 
@@ -16,13 +16,7 @@ reaches step 3 and cannot ask.
 
 ## Process
 
-1. Read the sequencing comment the sweep posted.
-
-   If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool) with the same
-   milestone or issue set. If it stops before it posts one, for an incomplete read or
-   nothing unblocked, report what it returned, and stop here too. Otherwise its own
-   last step continues into the question phase itself. Once it returns, the round has
-   already been questioned and planned. Stop here rather than repeat steps 2 onward.
+1. Read the sequencing comment the sweep posted. If there is none, say so, and stop.
 
 2. Explore before you ask. For every open item the sweep names, open the file, the
    record (`docs/rfc`, `docs/adr`, the repository's own rules), or the docs it turns on.
@@ -53,10 +47,11 @@ reaches step 3 and cannot ask.
    [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval. The human
    approves or edits the plan there.
 
-7. After approval, post the plan comment. Trim the approved plan to layers, file sets,
-   size, the done condition, the review shape, and an estimate. Post it as a comment on
-   every issue in the round. End it with the same `_Recorded by <effort name>, <date>._`
-   line.
+7. After approval, post the plan comment. Its first line names it the plan:
+   `<round> plan, approved <date>.` Trim the approved plan to its layers, with each
+   layer's issues, branch, model and file set. Add the done condition, the review shape,
+   and an estimate. Post it on every issue in the round, and end it with the same
+   `_Recorded by <effort name>, <date>._` line.
 
 8. Housekeeping, before the first worktree.
 

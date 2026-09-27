@@ -4,7 +4,7 @@ description: What the /workstreams:sweep skill does, and every way it declines t
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-26
+  at: 2026-09-27
 ---
 
 # /workstreams:sweep skill flow
@@ -49,8 +49,7 @@ flowchart TD
     S --> T{hidden dependencies checked against the code?}
     T -->|No| T1[Check them; the last one stated from bodies alone was wrong]
     T1 --> S
-    T -->|Yes| U[Report: unblocked set, shape,<br/>what unlocks, blocked count]
-    U --> V([Invoke /workstreams:question])
+    T -->|Yes| U([Report: unblocked set, shape,<br/>what unlocks, blocked count])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000

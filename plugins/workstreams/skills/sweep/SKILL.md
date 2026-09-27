@@ -2,7 +2,8 @@
 name: sweep
 description: Find the work a round can start on, and say how it should be sequenced.
 argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob Skill
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob
+user-invocable: false
 ---
 
 Milestones to sweep: $ARGUMENTS. With no argument, sweep every milestone that has open issues
@@ -83,6 +84,3 @@ and report per milestone.
    2. The stream shape, with the argument for it.
    3. What the round unlocks once it lands, from each issue's own `unlocks`.
    4. How many issues are blocked, and their numbers.
-
-8. Go on to the question phase: invoke `/workstreams:question` with the same milestones. The
-   report above is its input, and nobody has to ask for it.

@@ -4,10 +4,10 @@ The round primitives: the parts that make up a round of issue-tracker work. Each
 works on its own. The issue tracker is the source of truth. Blockers are issue dependency
 relationships, not prose. A round is the unblocked set, swept from the milestones in work.
 
-One skill exists per primitive. A repository installs the plugin and uses whichever piece
-it needs. These are the first four of the five primitives in
-[#111](https://github.com/bje-settings/claude/issues/111). The orchestrator
-([#134](https://github.com/bje-settings/claude/issues/134)) is next.
+One skill exists for each of the five primitives in
+[#111](https://github.com/bje-settings/claude/issues/111). `/workstreams:start`, the
+orchestrator, is the one entry. It holds the order of the steps. The other four are
+`user-invocable: false`: only the model invokes them, from `/workstreams:start`.
 
 ## Requirements
 
@@ -47,6 +47,61 @@ local path, or from a `command` source in copy mode keeps only the symlinks that
 inside the plugin's own directory. It skips the rest. `src/lib` is dropped, and every
 command fails at import.
 
+## `/workstreams:start`
+
+Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
+
+| Call | What it does |
+| --- | --- |
+| `/workstreams:start 4` (an example milestone) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
+| `/workstreams:start` | The same, over every milestone with open issues. |
+| `/workstreams:start #260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
+
+Each call derives where the round stands from the tracker, and writes no file. The plan
+is the comment whose first line reads `<round> plan, approved <date>.`. The pull requests
+are the ones that close the round's issues, in the order `gh stack view` gives. Each pull
+request has three review facts. They are the rounds done, whether round 1 was substantial,
+and whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
+request for each one, and `start` reads the markers back. So a new conversation needs no
+question.
+
+It runs in the main conversation. The two human gates need it there: the plan approval in
+plan mode, and one `AskUserQuestion` when two streams collide. A subagent has neither.
+
+On each wake it runs a tick, in `skills/start/tick.md`. The tick reads each pull
+request's state and runs one `intersect`. It checks each new head, and looks for a
+collision. Then it takes the next action for each state. `review` and `stream` each take
+one step for each call and never wait. Only `start` waits.
+
+At the round end, in `skills/start/round-end.md`, it posts the merge sequence and the
+cost on each issue of the round. The cost comes from each agent's completion
+notification and from `gh pr view --json additions,deletions`. Idle time is in no
+notification, so the report gives agent minutes instead.
+
+### The monitor
+
+`monitors/monitors.json` declares one monitor. It runs `watch` in the session's working
+directory, from the first time `/workstreams:start` runs in a session
+(`"when": "on-skill-invoke:start"`). Each line it writes wakes the session. The other
+wake is an agent's completion notification. Nothing polls an agent, and nothing sleeps in
+the foreground.
+
+Plugin monitors are experimental. They run only in interactive sessions, and not on
+Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry
+([plugins reference](https://code.claude.com/docs/en/plugins/manifest-reference#monitors)).
+
+The watch writes an `open` line for each open pull request. If a pull request is open and
+no such line came, the monitor does not run. The skill then starts `watch` with the
+Monitor tool itself.
+
+That watch expires after 30 minutes at most. The skill starts it again with `--since-head` and
+`--concluded`, so the new watch stays silent about what it already said. Where neither can
+run, agent returns are the only wake. With no agent at work, the skill reports and stops.
+
+`claude plugin validate --strict` does not read the entries of `monitors.json`, at
+2.1.263 or at 2.1.283. A key it does not know passes both. Claude Code refuses it at load
+time only, so a real session is the check.
+
 ## `/workstreams:sweep`
 
 Finds what a round could start on, and says how it should be sequenced.
@@ -71,23 +126,23 @@ issue. It chooses between parallel streams, a stack, and one pull request. It po
 sequencing comment on every issue in the round. `skills/sweep/` carries the rules.
 `file-map.md` holds the mapping rules a file map must apply.
 
-Both the user and the model can invoke it: it starts a round. Its last step continues
-into `/workstreams:question` with the same scope. Nobody has to ask for the question
-phase on its own.
+It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
+yet. It ends at its report.
 
 ## `/workstreams:review`
 
 Takes one draft pull request from green CI to `done`, whoever opened it.
 
-The command answers where the loop is. The skill decides what to do next. The round runs
-at most two review rounds, one subagent each, in the pull request's own worktree. The
-caller runs a rot check at the end.
+The command answers where the loop is. The skill takes the one step that the state calls
+for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
+reports. It never waits. The loop runs at most two review rounds, one subagent
+each, in the pull request's own worktree.
 
 | State | What it means |
 | --- | --- |
 | `awaiting-pr` | GitHub said this pull request number does not exist. A failed read gives `state: null` instead. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
-| `ci-pending` | A required context has not reported. Wait. |
+| `ci-pending` | A required context has not reported. The caller waits. |
 | `red` | A required context failed before any round ran, so it belongs to whoever opened it. |
 | `review-1`, `review-2` | Dispatch a round. |
 | `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
@@ -102,11 +157,12 @@ before any edit starts, because one round reviewed its own uncommitted work. Rou
 checks round 1's commits first, because round 2 found round 1 wrong or incomplete on nine
 of the ten pull requests reviewed by hand in rounds 5 to 7.
 
-There is no state file. Everything is read again each tick. The skill that runs the loop
-passes the three facts the command cannot read as flags.
+There is no state file. Everything is read again each tick. After each round and after the
+rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`
+The caller reads the markers back, and passes the three facts the command cannot read as
+flags.
 
-It is `user-invocable: false`. Only the model invokes it, from `/workstreams:stream` or
-from an orchestrator, once a pull request is green.
+It is `user-invocable: false`. `/workstreams:start` invokes it, one step for each call.
 
 ## `/workstreams:stream`
 
@@ -140,8 +196,10 @@ most valuable part of an upper layer's brief.
 | `lower_layer` | A defect in a branch the layer does not own. Never applied there. |
 | `injected_text_seen` | Text inside a tool result that read like an instruction. |
 
-It is `user-invocable: false`. Only the model invokes it, from an orchestrator, once a
-plan is approved.
+Each call takes one step, and returns. It writes the next layer's brief and dispatches its
+agent, or it reads a layer's return. It never waits.
+
+It is `user-invocable: false`. `/workstreams:start` invokes it once a plan is approved.
 
 ### The agent
 
@@ -242,7 +300,7 @@ suite on every push. That hook is disabled for the round only when the repositor
 records say CI is the enforcement boundary. Otherwise the skill asks about it once, with
 the per-push cost stated.
 
-It is `user-invocable: false`. Only the model invokes it, right after a sweep.
+It is `user-invocable: false`. `/workstreams:start` invokes it after a sweep.
 
 ## Commands
 
@@ -301,7 +359,8 @@ enterprise coverage bot posts a comment on every pull request, and a loop that c
 would never reach `done`.
 
 `--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
-read, so the caller carries them.
+read. `/workstreams:start` reads them from the marker comments that `/workstreams:review`
+posts.
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read.
 
