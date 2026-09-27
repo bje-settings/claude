@@ -60,20 +60,22 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 Each call derives where the round stands from the tracker, and writes no file. The plan
 is the comment whose first line reads `<round> plan, approved <date>.`. The pull requests
 are the ones that close the round's issues, in the order `gh stack view` gives. Three
-review facts per pull request live only in the conversation: the rounds done, whether
-round 1 was substantial, and whether the rot check is done. In a new conversation, the
-skill asks the person for them.
+review facts per pull request live only in the conversation. They are the rounds done,
+whether round 1 was substantial, and whether the rot check is done. In a new
+conversation, the skill asks the person for them.
 
 It runs in the main conversation. The two human gates need it there: the plan approval in
 plan mode, and one `AskUserQuestion` when two streams collide. A subagent has neither.
 
-On each wake it runs a tick, in `skills/start/tick.md`: `pr-state` for each pull request
-and one `intersect`, the check of each new head, the collision check, and the next action
-for each state. `review` and `stream` each take one step for each call and never wait.
-Only `start` waits. At the round end, in `skills/start/round-end.md`, it posts the merge
-sequence and the cost on each issue of the round. The cost comes from each agent's
-completion notification and from `gh pr view --json additions,deletions`. Idle time is in
-no notification, so the report gives agent minutes instead.
+On each wake it runs a tick, in `skills/start/tick.md`. The tick reads each pull
+request's state and runs one `intersect`. It checks each new head, and looks for a
+collision. Then it takes the next action for each state. `review` and `stream` each take
+one step for each call and never wait. Only `start` waits.
+
+At the round end, in `skills/start/round-end.md`, it posts the merge sequence and the
+cost on each issue of the round. The cost comes from each agent's completion
+notification and from `gh pr view --json additions,deletions`. Idle time is in no
+notification, so the report gives agent minutes instead.
 
 ### The monitor
 
@@ -86,10 +88,12 @@ the foreground.
 Plugin monitors are experimental. They run only in interactive sessions, and not on
 Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry
 ([plugins reference](https://code.claude.com/docs/en/plugins/manifest-reference#monitors)).
-The watch writes an `open` line for each open pull request. When a pull request is open
-and no such line came, the monitor does not run, and the skill starts `watch` with the
-Monitor tool itself. That
-watch expires after 30 minutes at most. The skill starts it again with `--since-head` and
+
+The watch writes an `open` line for each open pull request. If a pull request is open and
+no such line came, the monitor does not run. The skill then starts `watch` with the
+Monitor tool itself.
+
+That watch expires after 30 minutes at most. The skill starts it again with `--since-head` and
 `--concluded`, so the new watch stays silent about what it already said. Where neither can
 run, agent returns are the only wake. With no agent at work, the skill reports and stops.
 
@@ -128,9 +132,9 @@ yet. It ends at its report.
 
 Takes one draft pull request from green CI to `done`, whoever opened it.
 
-The command answers where the loop is. The skill takes the one step that state calls for,
-and returns: it dispatches a round, closes and reopens for a missing run, does the rot
-check, or reports. It never waits. The loop runs at most two review rounds, one subagent
+The command answers where the loop is. The skill takes the one step that the state calls
+for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
+reports. It never waits. The loop runs at most two review rounds, one subagent
 each, in the pull request's own worktree.
 
 | State | What it means |
@@ -189,7 +193,7 @@ most valuable part of an upper layer's brief.
 | `lower_layer` | A defect in a branch the layer does not own. Never applied there. |
 | `injected_text_seen` | Text inside a tool result that read like an instruction. |
 
-Each call takes one step, and returns: it writes the next layer's brief and dispatches its
+Each call takes one step, and returns. It writes the next layer's brief and dispatches its
 agent, or it reads a layer's return. It never waits.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it once a plan is approved.

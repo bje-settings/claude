@@ -22,7 +22,7 @@ Derive it on each call. Write nothing to disk.
    names the ones that close a round issue. `gh stack view --json` gives the layer order,
    and names a layer whose body only refers to an issue. Take each head from `intersect`,
    not from `gh stack view`: its local heads can be old.
-3. **The review facts** of each pull request: the rounds done, whether round 1 was
+3. **The review facts.** For each pull request: the rounds done, whether round 1 was
    substantial, and whether the rot check is done. Only this conversation holds them.
    When they are not in view, ask the person for them. Do not guess.
 

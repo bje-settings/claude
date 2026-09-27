@@ -16,15 +16,15 @@ Recommend it from `intersect` and `gh stack view --json`:
   in the order of the fewest conflicts against the default branch.
 - **Retargets.** Name each pull request whose base is a branch that merges before it. It
   moves to the default branch when that branch merges.
-- **Expected rebase conflicts.** Each path under `againstDefault` that conflicts, each pair
-  whose `merge.result` is `conflict`, and each head with `behind` above 0.
+- **Expected rebase conflicts.** Each conflict path under `againstDefault`, each pair with
+  a `conflict` result, and each head with `behind` above 0.
 - **Open items.** Each `lower_layer` finding not applied, and each open bot thread
   (`botThreadAuthors` from `pr-state`).
 
 ## 3. The cost
 
-One table row for each agent the round dispatched, from its completion notification: the
-agent, its pull request and round, its model, tokens, tool uses, and duration. Add the
+One table row for each agent the round dispatched, from its completion notification. Give
+the agent, its pull request and round, its model, tokens, tool uses, and duration. Add the
 totals, and the elapsed time from the first dispatch to now. Idle time is not in any
 notification. Say so, and give the sum of agent minutes instead.
 
@@ -43,4 +43,4 @@ Post the merge sequence and the cost as one comment on each issue of the round. 
 the round's `_Recorded by <effort>, <date>._` line.
 
 Then report to the person: each pull request with its head and state, the merge sequence,
-the cost totals, and the open items. Stop the watch with `TaskStop`.
+the cost, and the open items. Stop the watch with `TaskStop`.

@@ -10,13 +10,14 @@ action that depends on it.
 
 ## 2. Check each new head
 
-A head is new when the watch names it (`open`, or `new head`), or when a layer or a round
-agent returns. For each new head, check what its agent cannot be the only witness to:
+A head is new when the watch names it in an `open` or `new head` line, or an agent
+returns. For each new head, check what its agent cannot be the only witness to:
 
 - **Files.** Its `ownFiles` against the layer's allowed set in the plan. A file outside the
   set that the layer did not declare under `outside_set` goes back to the layer.
 - **Lower layers.** Each lower layer's `headSha` is the same as at the last tick. A lower
-  head that no step of this round moved is a stop: an agent wrote a branch it does not own.
+  head moved, and no step of this round moved it: stop. An agent wrote a branch it does
+  not own.
 - **The run.** `pullRequestRun` is `true`. `pr-state` names the remedy (`no-run`).
 - **The checkouts.** `checkout.clean` is `true`. Agent artifacts have landed in the root
   checkout before. When no agent writes to a worktree, its `worktree.clean` is `true` too.

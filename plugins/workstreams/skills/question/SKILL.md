@@ -48,9 +48,9 @@ reaches step 3 and cannot ask.
    approves or edits the plan there.
 
 7. After approval, post the plan comment. Its first line names it the plan:
-   `<round> plan, approved <date>.` Trim the approved plan to layers, with each layer's
-   issues, branch, model and file set, the done condition, the review shape, and an
-   estimate. Post it as a comment on every issue in the round. End it with the same
+   `<round> plan, approved <date>.` Trim the approved plan to its layers, with each
+   layer's issues, branch, model and file set. Add the done condition, the review shape,
+   and an estimate. Post it on every issue in the round, and end it with the same
    `_Recorded by <effort name>, <date>._` line.
 
 8. Housekeeping, before the first worktree.

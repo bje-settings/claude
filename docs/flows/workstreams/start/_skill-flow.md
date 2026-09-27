@@ -68,5 +68,5 @@ flowchart TD
 ```
 
 A layer's return goes to `/workstreams:stream` to read. A round agent's return raises the rounds
-done by one. A `lower_layer` finding goes into its layer only in a gap, when no agent writes to
-that layer or above it. Otherwise it waits for the round-end report.
+done by one. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
+layer or above it. Otherwise the finding waits for the round-end report.

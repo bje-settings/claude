@@ -13,8 +13,8 @@ Its worktree comes from `git worktree list`, matched against the pull request's 
 branch. The round's issues are the ones its body closes (`gh pr view <number>`), or
 the ones the caller names. The model for the round agent comes from the plan comment on
 those issues, or from the caller. No match, more than one match, or no model is a stop.
-Name what is absent: a round dispatched into a guessed worktree, or with a guessed model,
-is a round that will guess again inside it.
+Name what is absent. A round dispatched into a guessed worktree, or with a guessed model,
+will guess again inside it.
 
 Both commands below run in that worktree. They take no repository argument, and read it
 from the working directory. So, outside a checkout, they report on git rather than on

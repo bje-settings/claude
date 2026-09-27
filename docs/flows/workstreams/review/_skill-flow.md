@@ -38,7 +38,7 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-Inside the round agent, the rules of the round brief hold: reviewers are read-only and finish
-first, the findings file comes before any edit, each finding and each rejection is cited, and a
-claim that something is tested is mutated first. Round 2 checks round 1's commits before
-anything else.
+The round brief holds the rules inside the round agent. Reviewers are read-only, and finish
+before any edit. The findings file comes before any edit. Each finding and each rejection is
+cited. A claim that something is tested is mutated first. Round 2 checks round 1's commits
+before anything else.
