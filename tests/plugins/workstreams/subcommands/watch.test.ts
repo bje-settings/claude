@@ -389,6 +389,21 @@ describe('a watch over the open pull requests', () => {
     ])
   })
 
+  it('counts each outage from its own start, and writes its reason again', async () => {
+    const down = { heads: { rows: [], unavailable: 'gh: HTTP 502' } }
+    const up = { heads: heads(head()) }
+    const { context, lines } = watchOver([up, down, up, down, up])
+
+    await runWatch(['--ticks', '5'], context)
+
+    expect(lines.slice(1)).toEqual([
+      'poll failed: gh: HTTP 502',
+      'poll read again after 1 failed poll',
+      'poll failed: gh: HTTP 502',
+      'poll read again after 1 failed poll',
+    ])
+  })
+
   it('writes a heartbeat that names the failure, not "no change", while polls fail', async () => {
     const { context, lines } = watchOver([
       { heads: { rows: [], unavailable: 'gh: HTTP 502\nretry' } },
