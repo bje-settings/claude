@@ -452,6 +452,11 @@ export const runWatch = async (
   }
 
   const memory = seededMemory(sinceHead.value, concluded.value)
+  /** Every pull request number this watch has seen open, whether or not its
+   *  base's required contexts have ever been read. A pull request whose
+   *  base stays down never enters {@link memory}, but it can still leave
+   *  the open list. This set is how the watch notices that (#265). */
+  const knownOpen = new Set<number>(memory.keys())
   let noticed = false
   /** The reason the last poll's list fell short, so a reason that stays
    *  the same is written once and not on every poll. */
@@ -493,8 +498,14 @@ export const runWatch = async (
         baseFailures.set(branch, reason)
       }
       for (const branch of [...baseFailures.keys()]) {
-        if (!baseFailed.has(branch)) {
+        if (required.has(branch)) {
           lines.push(baseRecoveryLine(branch))
+          baseFailures.delete(branch)
+        } else if (!baseFailed.has(branch)) {
+          // No open pull request needs this branch's list any more, so
+          // `readPoll` never asked about it this poll. Drop it with no
+          // line: this watch cannot say it read again what it did not
+          // read (#265).
           baseFailures.delete(branch)
         }
       }
@@ -508,17 +519,22 @@ export const runWatch = async (
         )
       }
       const open = new Set(pulls.map((pull) => pull.number))
-      for (const number of [...memory.keys()]) {
+      for (const number of [...knownOpen]) {
         if (open.has(number)) continue
         const left = await leftOpenList(context.gh, number)
         if (left.line !== null) lines.push(left.line)
-        if (left.settled) memory.delete(number)
+        if (left.settled) {
+          memory.delete(number)
+          knownOpen.delete(number)
+        }
       }
       // A pull request is unread this poll when its own base's read failed.
       // It is also unread when its base falls back to a default branch
       // whose read failed (#265). It is left as this watch last knew it,
-      // and read again once the base it needs reads.
+      // and read again once the base it needs reads. It still counts as
+      // open, so a merge or a close is not lost while its base stays down.
       for (const pull of pulls) {
+        knownOpen.add(pull.number)
         const own = listFor(pull.base)
         if (own === undefined) continue
         if (own.length === 0 && !required.has(defaultBranch)) continue

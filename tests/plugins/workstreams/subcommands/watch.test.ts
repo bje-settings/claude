@@ -483,6 +483,30 @@ describe('a watch over the open pull requests', () => {
     },
   )
 
+  it(
+    'reports a pull request that merged while its own base stayed unread, and ' +
+      'writes no false recovery for that base (#265)',
+    async () => {
+      const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+      const merged = { pullRequest: null, unavailable: null, missing: false }
+      const down = ghFails('gh: HTTP 404')
+      const { context, lines } = watchOver([
+        { heads: heads(flaky), required: { main: REQUIRED, flaky: down } },
+        {
+          heads: heads(),
+          detail: { ...merged, pullRequest: { ...detailOf(260), state: 'MERGED' } },
+        },
+      ])
+
+      await runWatch(['--ticks', '2'], context)
+
+      expect(lines).toEqual([
+        'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+        '#260 merged',
+      ])
+    },
+  )
+
   it('writes a reason gh gave on two lines as one line', async () => {
     const { context, lines } = watchOver([
       { heads: heads() },
