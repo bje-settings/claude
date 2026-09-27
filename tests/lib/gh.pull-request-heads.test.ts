@@ -96,6 +96,8 @@ it('asks for every open pull request with its head commit and the checks on it',
   expect(query).toContain('pullRequests(states: OPEN, first: 100, after: $cursor')
   expect(query).toContain('number title isDraft headRefName headRefOid baseRefName')
   expect(query).toContain('commits(last: 1) { nodes { commit { statusCheckRollup {')
+  // One page of checks per head: a row whose checks run past it is refused.
+  expect(query).toContain('contexts(first: 100) {')
   expect(answer).toEqual({
     rows: [
       {
