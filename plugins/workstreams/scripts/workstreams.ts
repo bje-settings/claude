@@ -9,8 +9,8 @@
 // `src/subcommands/` is the seam a test reaches without a process. This adapter
 // only turns `process.argv` and this process's streams into that function's
 // arguments, and its answer into an exit code. `tests/plugins/workstreams/bin.test.ts`, through
-// `harness/spawn.ts`, is the one spawned test, on the paths that need no
-// `gh` at all.
+// `harness/spawn.ts`, is the one spawned test. It never reaches GitHub:
+// each run needs no `gh`, or meets a `gh` that always fails.
 //
 // **One dispatcher, not one entry point per command.** RFC 001 "Shape" wrote
 // one adapter per command. `plugins/gh/scripts/gh.ts` and
@@ -21,8 +21,11 @@
 // command nobody asked for is never loaded. A new command changes no other
 // line here.
 //
-// Both arms answer with an envelope. Each one's whole output is one
-// payload a caller either gets or does not (`lib/envelope.ts`). A third
+// Every arm answers with an envelope. For `sweep`, `pr-state` and
+// `intersect`, the whole output is one payload a caller either gets or
+// does not (`lib/envelope.ts`). `watch` writes a line for each event while
+// it runs, and its envelope is only the end: empty, or the one line that
+// says there is nothing to watch. A third
 // arm, `preflight`, once answered with a status, and wrote its own
 // report. That arm is gone: a skill has no preflight step
 // (`.claude/rules/_design-principles.md`). The check it ran now runs
@@ -90,6 +93,16 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     const { runPrState } = await import('../src/subcommands/pr-state.ts')
     return write(
       await runPrState(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
+    )
+  }
+  if (name === 'intersect') {
+    const { runIntersect } = await import('../src/subcommands/intersect.ts')
+    return write(
+      await runIntersect(argv, {
+        gh: createGhClient({ cwd: process.cwd(), env: process.env }),
+        cwd: process.cwd(),
+        env: process.env,
+      }),
     )
   }
   if (name === 'watch') {

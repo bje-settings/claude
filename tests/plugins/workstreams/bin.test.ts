@@ -4,11 +4,13 @@
 // `subcommands/*.test.ts`. This is the only place the process boundary
 // itself, and the floor guard in front of it, are real.
 //
-// Only the paths that need no `gh` and touch no real checkout: the usage,
-// the refusals, and each arm's own `--help`. A spawned child cannot be
-// handed the injected `gh` client (ADR 001, and the reason the command
+// Only the paths that reach no GitHub: the usage, the refusals, each arm's
+// own `--help`, and the process edges of the watch. A spawned child cannot
+// be handed the injected `gh` client (ADR 001, and the reason the command
 // function is the seam at all). So a test that drove `sweep` itself here
-// would reach for the real `gh`, and assert against a machine's login.
+// would reach for the real `gh`, and assert against a machine's login. The
+// watch examples run in a sandbox checkout, with a `gh` that always fails
+// first on PATH, as the hook tests do.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
@@ -31,6 +33,8 @@ it('prints the command list with no arguments at all, and exits 0', () => {
   expect(result.stdout).toMatch(/^usage: workstreams\.ts <command>/)
   expect(result.stdout).toContain('sweep [--milestone 4,5] [--json]')
   expect(result.stdout).toContain('pr-state <number> [--round 0|1|2]')
+  expect(result.stdout).toContain('intersect [--json]')
+  expect(result.stdout).toContain('watch [--interval 60] [--ticks 0]')
   expect(result.stderr).toBe('')
 })
 
@@ -119,6 +123,24 @@ it('refuses a pr-state round outside the three the loop has', () => {
   expect(result.status).toBe(2)
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('--round must be one of 0, 1, 2')
+})
+
+it('prints intersect’s own usage for its --help', () => {
+  const result = runScript(BIN, { args: ['intersect', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^Every open pull request's head against the default branch/)
+  expect(result.stderr).toBe('')
+})
+
+it('fails intersect outside a git checkout, exit 1, with nothing on stdout', () => {
+  const sandbox = createSandbox()
+
+  const result = runScript(BIN, { args: ['intersect'], env: sandbox.env, cwd: sandbox.path })
+
+  expect(result.status).toBe(1)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toMatch(/^intersect runs inside a git checkout, and .* is not in one\n$/)
 })
 
 // --- watch -------------------------------------------------------------------
