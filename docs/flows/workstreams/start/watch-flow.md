@@ -70,6 +70,8 @@ open, and a head seeded as concluded does not conclude again. The watch keeps al
 memory, and writes no file.
 
 A head this watch has already seen is not a new head, even after a later one. For a short time
-after a push, the API can answer the old head and the new head in turn. One known limit: a force
-push back to an earlier head silences that pull request. No later line, not even CONCLUDED, is
-written again for it, until the watch restarts.
+after a push, the API can answer the old head and the new head in turn.
+
+One known limit: a force push back to an earlier head silences that pull request. No later line,
+not even CONCLUDED, is written for it. The silence lasts while the head returns only to heads
+already seen. A head not yet seen ends it.

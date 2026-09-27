@@ -424,9 +424,11 @@ The watch keeps what it has seen in memory, and writes no file.
 A head this watch has already seen is not a new head, even after a later one. For a
 short time after a push, the API can answer the old head and the new head in turn. The
 watch keeps every head it has seen for each pull request, not the current one alone
-(#264). One known limit: a force push back to an earlier head silences that pull
-request. No later line, not even `CONCLUDED`, is written again for it, until the watch
-restarts. `--since-head` and `--concluded` seed this memory with their own head.
+(#264). `--since-head` and `--concluded` seed this memory with their own head.
+
+One known limit: a force push back to an earlier head silences that pull request. No
+later line, not even `CONCLUDED`, is written for it. The silence lasts while the head
+returns only to heads already seen. A head not yet seen ends it.
 
 A head is `CONCLUDED` only when every required context has reported. The list comes
 from the rules of the base branch. When no ruleset covers the base, the list comes from

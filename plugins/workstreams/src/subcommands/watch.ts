@@ -15,9 +15,12 @@
 // current one. A head that returns after a later one writes no line. It
 // does not move the current head, the reported contexts, or CONCLUDED
 // (#264). `--since-head` and `--concluded` seed this memory with their own
-// head. One known limit: a force push back to an earlier head silences
-// that pull request. No later line, not even CONCLUDED, is written again
-// for it, until the watch restarts.
+// head.
+//
+// One known limit: a force push back to an earlier head silences that
+// pull request. No later line, not even CONCLUDED, is written for it. The
+// silence lasts while the head returns only to heads already seen. A head
+// not yet seen ends it.
 //
 // **A head concludes only when every required context has reported**
 // (ruling P9). The list comes from the base branch's rules, and from the
