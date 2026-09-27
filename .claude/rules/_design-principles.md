@@ -82,7 +82,8 @@ It still checks each tool that it uses, so that a user who is not set up gets an
   A dependency on another plugin is a row in that table, never a copy of its code.
 - A `SessionStart` hook checks the table. Its matcher is `startup|resume|clear|compact`, so the
   result comes back after compaction. The check is fast and local, with a deadline well under the
-  hook's `timeout`.
+  hook's `timeout`. A `SessionStart` hook finishes in less than 3 seconds, with `"timeout": 3`
+  in `hooks.json`.
 - When everything is present, the hook writes nothing. When something is missing, it writes JSON
   with both fields (`.claude/rules/path-hooks.md`):
   - `systemMessage`: one line for each missing item, with the plugin name first, for the user.
@@ -96,6 +97,9 @@ It still checks each tool that it uses, so that a user who is not set up gets an
 - A script cannot report that node is missing. The `hooks.json` command string checks
   `command -v node` and writes the `systemMessage` JSON itself. Shell in a `hooks.json` string is
   not a bash file.
+- A `SessionStart` hook runs once, not on every tool call. Below the node floor, it may write one
+  `systemMessage` line with the floor version. A hook on each tool call still checks
+  `meetsNodeFloor` and stays silent.
 - Do not check an optional plugin. A skill sees the available skills in its listing, and works
   around an absent one.
 

@@ -3,12 +3,12 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.ts\" session-start; exit 0",
-            "timeout": 10
+            "command": "if ! command -v node >/dev/null 2>&1; then printf '{\"systemMessage\":\"\\\\ngh: ⚠️ node not found on PATH\"}\\n'; exit 0; fi; node \"${CLAUDE_PLUGIN_ROOT}/hooks/hook-io.ts\" session-start; exit 0",
+            "timeout": 3
           }
         ]
       }

@@ -149,8 +149,8 @@ it('still runs the whole check when stdin itself cannot be read', async () => {
   })
 })
 
-it('bounds the whole check at five seconds by default', () => {
-  expect(DEADLINE_MS).toBe(5_000)
+it('bounds the whole check well under the 3 second hooks.json timeout', () => {
+  expect(DEADLINE_MS).toBe(2_500)
 })
 
 // --- the usage contract ------------------------------------------------------
@@ -259,7 +259,8 @@ it('removes only the variables that displace the repository a call names', () =>
   })
 })
 
-// --- #230 acceptance: one line, and no additionalContext ---------------------
+// --- #230 and #243 acceptance: one line, and additionalContext only when a
+// tool is absent ---------------------------------------------------------
 
 /** One state the hook can meet, and the line it must write for it. */
 interface Case {
@@ -273,6 +274,8 @@ interface Case {
   readonly line: string | null
   /** How many failures the debug log gets, one line each. */
   readonly failures: number
+  /** Set only for a case where a tool is absent. */
+  readonly additionalContext?: string
 }
 
 const ONE = (rig: Rig): string => githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
@@ -400,6 +403,7 @@ const CASES: readonly Case[] = [
     }),
     line: 'gh: ⚠️ git not found on PATH',
     failures: 1,
+    additionalContext: 'git is absent. The gh plugin cannot run.',
   },
   {
     name: 'a missing GitHub CLI',
@@ -410,6 +414,7 @@ const CASES: readonly Case[] = [
     }),
     line: 'gh: ⚠️ GitHub CLI (gh) not found on PATH',
     failures: 1,
+    additionalContext: 'GitHub CLI (gh) is absent. The gh plugin cannot run.',
   },
   {
     name: 'a missing git and GitHub CLI',
@@ -420,11 +425,14 @@ const CASES: readonly Case[] = [
     }),
     line: 'gh: ⚠️ git not found on PATH\ngh: ⚠️ GitHub CLI (gh) not found on PATH',
     failures: 2,
+    additionalContext: 'git, GitHub CLI (gh) are absent. The gh plugin cannot run.',
   },
 ]
 
 for (const example of CASES) {
-  it(`writes one status line and one line per kind, and no additionalContext, for ${example.name}`, async () => {
+  const contextWords =
+    example.additionalContext === undefined ? 'no additionalContext' : 'additionalContext'
+  it(`writes one status line and one line per kind, and ${contextWords}, for ${example.name}`, async () => {
     const rig = createRig()
     const built = example.build(rig)
 
@@ -436,7 +444,9 @@ for (const example of CASES) {
 
     expect(ran.status).toBe(0)
     expectStatusLines(ran.stdout)
-    expect(ran.stdout).toBe(example.line === null ? '' : emit(example.line))
+    expect(ran.stdout).toBe(
+      example.line === null ? '' : emit(example.line, example.additionalContext),
+    )
     // The account on stderr is for the debug log: one line per failure, even
     // when a reason held a newline of its own.
     expect(ran.stderr === '' ? 0 : ran.stderr.split('\n').length - 1).toBe(example.failures)

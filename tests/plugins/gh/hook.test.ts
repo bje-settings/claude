@@ -70,6 +70,21 @@ it('exits 0 in silence when the payload is not a document at all', () => {
   expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' })
 })
 
+it('writes one line naming the floor when node is below it, and exits 0 (#245)', () => {
+  const rig = createRig()
+
+  const result = runScript(path.join(FIXTURES, 'old-node-version.ts'), {
+    args: [HOOK],
+    env: rig.sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe(
+    '{"systemMessage":"\\ngh: ⚠️ node \\"v20.19.0\\" is below the floor: 22.18.0 or newer."}\n',
+  )
+  expect(result.stderr).toBe('')
+})
+
 it('writes the status and problem lines for a real checkout, end to end, and changes no branch', () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
@@ -94,10 +109,10 @@ it('writes the status and problem lines for a real checkout, end to end, and cha
     env,
   })
 
-  // stderr below names no late task, so the check ended before its 5 s
+  // stderr below names no late task, so the check ended before its 2.5 s
   // deadline. The process must end then too: a deadline timer left set
   // would hold it open until the timer fires.
-  expect(Date.now() - started).toBeLessThan(5_000)
+  expect(Date.now() - started).toBeLessThan(2_500)
   expect(result.status).toBe(0)
   expectStatusLines(result.stdout)
   expect(result.stdout).toBe(
@@ -135,27 +150,27 @@ it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json giv
     env,
   })
 
-  // The shipped deadline is 5 s. The process ends only when its children
+  // The shipped deadline is 2.5 s. The process ends only when its children
   // do, so the fetch must stop at the deadline too, not when it gives up.
-  expect(Date.now() - started).toBeLessThan(10_000)
+  expect(Date.now() - started).toBeLessThan(5_000)
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(
     '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ timed out\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: stand-in for tests\\u001b[0m"}\n',
   )
-  expect(result.stderr).toContain('did not finish in 5000 ms\n')
+  expect(result.stderr).toContain('did not finish in 2500 ms\n')
 })
 
 it('gives a late second origin read only the time that is left', () => {
   const rig = createRig()
   // The origin is not on github.com, so the hook reads the URL twice. The
-  // first read takes 3 s, and the second one never answers.
+  // first read takes 1 s, and the second one never answers.
   const local = rig.git.create(rig.sandbox.join('r'))
   const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
   const PATH = wrappedGit(
     rig,
     'bin-slow-origin',
     [
-      `  *'config --get remote.origin.url'*) '${sleep}' 3 ;;`,
+      `  *'config --get remote.origin.url'*) '${sleep}' 1 ;;`,
       `  *'remote get-url'*) exec '${sleep}' 60 ;;`,
     ].join('\n'),
   )
@@ -168,13 +183,13 @@ it('gives a late second origin read only the time that is left', () => {
   })
 
   // The process ends only when its children do. A second read with the
-  // time the first read had would live until about 8 s.
-  expect(Date.now() - started).toBeLessThan(7_000)
+  // time the first read had would live until about 3.5 s.
+  expect(Date.now() - started).toBeLessThan(3_000)
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(
     '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ timed out\\u001b[0m"}\n',
   )
-  expect(result.stderr).toContain('did not finish in 5000 ms\n')
+  expect(result.stderr).toContain('did not finish in 2500 ms\n')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
@@ -198,7 +213,7 @@ it('leaves its account on stderr and still exits 0 when nothing else caught it',
 
 // --- the wiring hooks.json carries -------------------------------------------
 
-it('runs the hook entry with node, behind the silent guard, on start, resume and clear', () => {
+it('runs the hook entry with node, behind the silent guard, on start, resume, clear and compact', () => {
   const config = JSON.parse(readFileSync(HOOKS_JSON, 'utf8')) as {
     description: string
     hooks: { SessionStart: { matcher: string; hooks: { command: string; timeout: number }[] }[] }
@@ -206,21 +221,53 @@ it('runs the hook entry with node, behind the silent guard, on start, resume and
   const entries = config.hooks.SessionStart
 
   expect(entries).toHaveLength(1)
-  expect(entries[0]?.matcher).toBe('startup|resume|clear')
+  expect(entries[0]?.matcher).toBe('startup|resume|clear|compact')
   // This is spelled in two pieces because biome refuses a `${` inside a
   // plain string. The value is a shell command with Claude Code's own
   // expansion, not a TypeScript template.
   const expansion = `$${'{'}CLAUDE_PLUGIN_ROOT}`
   expect(entries[0]?.hooks.map((hook) => hook.command)).toEqual([
-    `command -v node >/dev/null 2>&1 && node "${expansion}/hooks/hook-io.ts" session-start; exit 0`,
+    'if ! command -v node >/dev/null 2>&1; then ' +
+      `printf '{"systemMessage":"\\\\ngh: ⚠️ node not found on PATH"}\\n'; exit 0; fi; ` +
+      `node "${expansion}/hooks/hook-io.ts" session-start; exit 0`,
   ])
-  // Twice the check's own 5 s deadline, so the line arrives before Claude
-  // Code stops the hook.
-  expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([10])
+  // Well under the hook's own 3 s ceiling (`.claude/rules/_design-principles.md`).
+  expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([3])
   expect(config.description).toBe(
     'One status line when a session starts: commits behind, branches to prune, dependency ' +
       'pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a ' +
       'missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or ' +
       'working tree.',
   )
+})
+
+it('writes the node-missing alert itself, straight from the command string', () => {
+  const rig = createRig()
+
+  const result = runScript(path.join(FIXTURES, 'run-shell-command.ts'), {
+    args: [HOOKS_JSON],
+    env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('node') },
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('{"systemMessage":"\\ngh: ⚠️ node not found on PATH"}\n')
+  expect(result.stderr).toBe('')
+})
+
+it('does not claim node is missing when node runs but fails for another reason', () => {
+  // Node is on `PATH` here. `CLAUDE_PLUGIN_ROOT` is not set, so the real
+  // command resolves to a path with no file at it, and node itself exits
+  // non-zero. The command must not read that as "node not found": the
+  // `if` guard checks `command -v node` on its own, once, before it ever
+  // runs node.
+  const rig = createRig()
+
+  const result = runScript(path.join(FIXTURES, 'run-shell-command.ts'), {
+    args: [HOOKS_JSON],
+    env: rig.sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toContain('Cannot find module')
 })

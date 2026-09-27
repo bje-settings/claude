@@ -291,6 +291,14 @@ keeps the entire Python toolchain alive for one file: the floor, `uv.lock`, ruff
 argument against is recorded in Decisions & Follow-ups, and if the measurement turns out worse in
 the field than on the bench, the hook is the one thing small enough to reconsider on its own.
 
+**Revised at [#245](https://github.com/bje-settings/claude/issues/245):** the phrase "says
+nothing on the happy path" held for a hook on every tool call. There, an alert would land in
+every call. It does not hold for `SessionStart`, which runs once per session. Below the node
+floor, the gh hook now writes one `systemMessage` line with the floor version. The `hooks.json`
+command string writes a line when `command -v node` fails, since no script can run to report
+that. A hook on each tool call, such as the workstreams guard, still checks `meetsNodeFloor` and
+stays silent.
+
 ### Publishing
 
 ~~`publish-plugin` ports in [#128](https://github.com/bje-settings/claude/issues/128) and keeps
@@ -555,7 +563,13 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    session with `field-test` installed, and `SurveyMonkey/skills` kept its per-call hook in bash for
    exactly this reason, as a stated non-goal of its own port.~~ **Revised at
    [#138](https://github.com/bje-settings/claude/issues/138):** only the `gh` hook ported, with the
-   floor guard; `field-test`'s hooks were deleted with the plugin (decision 8).
+   floor guard; `field-test`'s hooks were deleted with the plugin (decision 8). **Revised at
+   [#245](https://github.com/bje-settings/claude/issues/245):** the silent guard is
+   `meetsNodeFloor`, for a hook on every tool call. A `SessionStart` hook runs once, so it may
+   alert. Below the floor, it writes one line with the floor version. `hooks.json`'s own command
+   string writes a line when `command -v node` fails. *Against:* the node check is now shell in a
+   `hooks.json` string, as well as a TypeScript guard. The alert has two places with logic,
+   instead of one.
 6. **No version-bump gate, for now.** No check that a plugin's `plugin.json` version moved when its
    files did. *Against:* the failure it catches is silent by construction, an unbumped plugin simply
    does not update for anyone who has it installed. ~~The `sm-incubator/org-claude` mirror makes

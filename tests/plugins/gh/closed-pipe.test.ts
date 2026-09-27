@@ -16,6 +16,7 @@
 // can land before or after the pipe closes. That is the race this guard
 // exists for. Either way, the answer must be the same.
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { createGitFixtures } from '#harness/git.ts'
 import { pluginFile } from '#harness/paths.ts'
@@ -23,6 +24,8 @@ import { createSandbox } from '#harness/sandbox.ts'
 import { startScript } from '#harness/spawn.ts'
 import { createRig, githubRepo } from './subcommands/hook-io.test-support.ts'
 
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const FIXTURES = path.join(HERE, 'fixtures')
 const BIN = pluginFile('gh', 'scripts', 'gh.ts')
 const HOOK = pluginFile('gh', 'hooks', 'hook-io.ts')
 
@@ -111,6 +114,24 @@ it('finishes clean when the reader of the hook response leaves at once', async (
   // Nothing here changes state, so there is nothing left to finish. The point
   // is that the shutdown flush does not turn this into a trace on stderr. If
   // it did, the debug log would record it as a hook failure.
+  expect(ended.status).toBe(0)
+  expectNoCrash(ended.stderr)
+})
+
+it('finishes clean when the reader of the below-floor alert leaves at once', async () => {
+  const rig = createRig()
+  // The fixture overrides `process.version` before it imports the real
+  // entry point, so this run takes the below-floor branch (#245). That
+  // branch writes with no import beyond the floor guard, so it cannot
+  // reuse `createOutput`. It needs its own EPIPE guard instead.
+  const running = startScript(path.join(FIXTURES, 'old-node-version.ts'), {
+    args: [HOOK],
+    env: rig.sandbox.env,
+  })
+
+  running.closeStdout()
+  const ended = await running.ended()
+
   expect(ended.status).toBe(0)
   expectNoCrash(ended.stderr)
 })
