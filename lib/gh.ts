@@ -237,6 +237,11 @@ export interface CheckContext {
   /** `SUCCESS`, `FAILURE`, `SKIPPED` and the rest, or null while the check has
    *  not concluded. */
   readonly conclusion: string | null
+  /** When the check started: a check run's `startedAt`, a commit status's
+   *  `createdAt`, or null when GitHub answers neither. A re-run adds a
+   *  second check under the same name, and this field is how a reader
+   *  tells the new one from the one a `gh stack push` cancelled. */
+  readonly startedAt: string | null
 }
 
 /** One UNRESOLVED review thread's first comment: who opened it, and whether
@@ -1084,8 +1089,8 @@ const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor
             pageInfo { hasNextPage }
             nodes {
               __typename
-              ... on CheckRun { name status conclusion }
-              ... on StatusContext { context state }
+              ... on CheckRun { name status conclusion startedAt }
+              ... on StatusContext { context state createdAt }
             }
           }
         } } } }
@@ -1136,8 +1141,8 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
                 pageInfo { hasNextPage }
                 nodes {
                   __typename
-                  ... on CheckRun { name status conclusion }
-                  ... on StatusContext { context state }
+                  ... on CheckRun { name status conclusion startedAt }
+                  ... on StatusContext { context state createdAt }
                 }
               }
             }
@@ -1347,7 +1352,12 @@ const readCheck = (node: unknown): CheckContext | null => {
   const record = asRecord(node)
   const name = asText(record?.name)
   if (name !== null) {
-    return { name, status: asText(record?.status), conclusion: asText(record?.conclusion) }
+    return {
+      name,
+      status: asText(record?.status),
+      conclusion: asText(record?.conclusion),
+      startedAt: asText(record?.startedAt),
+    }
   }
   // A node that is not a record at all lands here too, and is refused by
   // the same arm. It has neither field, which is what "neither kind of
@@ -1359,6 +1369,7 @@ const readCheck = (node: unknown): CheckContext | null => {
     name: context,
     status: null,
     conclusion: state !== null && Object.hasOwn(UNCONCLUDED, state) ? null : state,
+    startedAt: asText(record?.createdAt),
   }
 }
 

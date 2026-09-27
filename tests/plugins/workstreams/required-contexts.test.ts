@@ -6,10 +6,15 @@ import { describe, expect, it } from 'vitest'
 import type { CheckContext } from '#harness/gh.ts'
 import { namesOrDefault, namesOrHead, reportContexts } from '#workstreams/required-contexts.ts'
 
-const check = (name: string, conclusion: string | null): CheckContext => ({
+const check = (
+  name: string,
+  conclusion: string | null,
+  startedAt: string | null = null,
+): CheckContext => ({
   name,
   status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
   conclusion,
+  startedAt,
 })
 
 describe('reportContexts', () => {
@@ -34,10 +39,77 @@ describe('reportContexts', () => {
     ])
   })
 
-  it('takes the first check under a name, which is the newest', () => {
-    const checks = [check('vitest', 'SUCCESS'), check('vitest', 'FAILURE')]
+  it('reads a cancelled run then a later success as success, a re-run case', () => {
+    const checks = [
+      check('vitest', 'CANCELLED', '2026-09-01T00:00:00Z'),
+      check('vitest', 'SUCCESS', '2026-09-01T00:05:00Z'),
+    ]
 
     expect(reportContexts(checks, ['vitest'])[0]?.conclusion).toBe('SUCCESS')
+  })
+
+  it('reads an old success then a later failure as failure', () => {
+    const checks = [
+      check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'),
+      check('vitest', 'FAILURE', '2026-09-01T00:05:00Z'),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.conclusion).toBe('FAILURE')
+  })
+
+  it('reads an older concluded run and a newer pending run as pending', () => {
+    const checks = [
+      check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'),
+      check('vitest', null, '2026-09-01T00:05:00Z'),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.verdict).toBe('pending')
+  })
+
+  it('reads the same result whichever order the runs arrive in', () => {
+    const newerFirst = [
+      check('vitest', 'SUCCESS', '2026-09-01T00:05:00Z'),
+      check('vitest', 'CANCELLED', '2026-09-01T00:00:00Z'),
+    ]
+    const newerLast = [
+      check('vitest', 'CANCELLED', '2026-09-01T00:00:00Z'),
+      check('vitest', 'SUCCESS', '2026-09-01T00:05:00Z'),
+    ]
+
+    expect(reportContexts(newerFirst, ['vitest'])[0]?.conclusion).toBe('SUCCESS')
+    expect(reportContexts(newerLast, ['vitest'])[0]?.conclusion).toBe('SUCCESS')
+  })
+
+  it('reads a null startedAt as the oldest, so a timed run outranks it', () => {
+    const checks = [
+      check('vitest', 'FAILURE', null),
+      check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.conclusion).toBe('SUCCESS')
+  })
+
+  it('never lets a later null startedAt displace an earlier timed run', () => {
+    const checks = [
+      check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'),
+      check('vitest', 'FAILURE', null),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.conclusion).toBe('SUCCESS')
+  })
+
+  it('reads a pending run as winning a tie in start time, either order', () => {
+    const pendingFirst = [
+      check('vitest', null, '2026-09-01T00:00:00Z'),
+      check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'),
+    ]
+    const pendingLast = [
+      check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'),
+      check('vitest', null, '2026-09-01T00:00:00Z'),
+    ]
+
+    expect(reportContexts(pendingFirst, ['vitest'])[0]?.verdict).toBe('pending')
+    expect(reportContexts(pendingLast, ['vitest'])[0]?.verdict).toBe('pending')
   })
 })
 

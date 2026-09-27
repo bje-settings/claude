@@ -1701,7 +1701,7 @@ describe('the review loop reads', () => {
         head: 'wktr-130-ws-sweep',
         headSha: '9b13a20',
         mergeable: 'MERGEABLE',
-        checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+        checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null }],
         unresolvedThreads: [],
         commentAuthors: [],
       })
@@ -1822,8 +1822,8 @@ describe('the review loop reads', () => {
         // progress is. A reader that matches the conclusion against the set
         // that satisfies a required check would otherwise call a preview
         // still in progress a failure.
-        { name: 'vercel/preview', status: null, conclusion: null },
-        { name: 'types', status: 'IN_PROGRESS', conclusion: null },
+        { name: 'vercel/preview', status: null, conclusion: null, startedAt: null },
+        { name: 'types', status: 'IN_PROGRESS', conclusion: null, startedAt: null },
       ])
     })
 
@@ -1862,7 +1862,7 @@ describe('the review loop reads', () => {
         const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
 
         expect(result.pullRequest?.checks).toEqual([
-          { name: 'vercel/preview', status: null, conclusion },
+          { name: 'vercel/preview', status: null, conclusion, startedAt: null },
         ])
       })
     }

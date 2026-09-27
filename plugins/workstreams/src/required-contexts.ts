@@ -42,15 +42,39 @@ export interface ReportedContext {
   readonly verdict: ContextVerdict
 }
 
+/** `startedAt` as a string that sorts oldest when null. An ISO timestamp
+ *  never begins empty, so the empty string sorts before every real one. */
+const startTime = (startedAt: string | null): string => startedAt ?? ''
+
+/**
+ * Which of two checks under one name is the later run.
+ *
+ * On a tie, the check that has not concluded wins. A `gh stack push` can
+ * cancel a run and start a new one in the same second. The new one must
+ * win even while it is still pending, or a stale success or failure would
+ * answer for a run that has not finished yet.
+ */
+const isLater = (candidate: CheckContext, current: CheckContext): boolean => {
+  const candidateTime = startTime(candidate.startedAt)
+  const currentTime = startTime(current.startedAt)
+  if (candidateTime !== currentTime) return candidateTime > currentTime
+  return candidate.conclusion === null && current.conclusion !== null
+}
+
 /** The most recent conclusion reported under `name`, and whether anything
  *  reported under it at all.
  *
- *  The FIRST match wins, which is GitHub's newest. A re-run adds a second
- *  check with the same name, and the rollup lists the current one first. A
- *  reader that took the last would report a superseded failure as the answer.
+ *  A re-run adds a second check with the same name. A `gh stack push` can
+ *  cancel the first run, so the newest run, not the first one listed, is
+ *  the one that must answer. {@link isLater} picks it, so the input order
+ *  does not matter.
  */
 const reportedAs = (checks: readonly CheckContext[], name: string): ReportedContext => {
-  const check = checks.find((candidate) => candidate.name === name)
+  let check: CheckContext | undefined
+  for (const candidate of checks) {
+    if (candidate.name !== name) continue
+    if (check === undefined || isLater(candidate, check)) check = candidate
+  }
   if (check === undefined) return { name, reported: false, conclusion: null, verdict: 'pending' }
   if (check.conclusion === null) {
     return { name, reported: true, conclusion: null, verdict: 'pending' }

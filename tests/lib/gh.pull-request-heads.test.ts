@@ -68,8 +68,14 @@ const node = (overrides: Record<string, unknown> = {}) => ({
                   name: 'vitest',
                   status: 'COMPLETED',
                   conclusion: 'SUCCESS',
+                  startedAt: '2026-09-26T00:05:00Z',
                 },
-                { __typename: 'StatusContext', context: 'Preview', state: 'PENDING' },
+                {
+                  __typename: 'StatusContext',
+                  context: 'Preview',
+                  state: 'PENDING',
+                  createdAt: '2026-09-26T00:00:00Z',
+                },
               ],
             },
           },
@@ -101,6 +107,10 @@ it('asks for every open pull request with its head commit and the checks on it',
   expect(query).toContain('commits(last: 1) { nodes { commit { statusCheckRollup {')
   // One page of checks per head: a row whose checks run past it is refused.
   expect(query).toContain('contexts(first: 100) {')
+  // `startedAt`/`createdAt` are what tells a re-run from the run it
+  // cancelled apart (#243).
+  expect(query).toContain('... on CheckRun { name status conclusion startedAt }')
+  expect(query).toContain('... on StatusContext { context state createdAt }')
   expect(answer).toEqual({
     rows: [
       {
@@ -112,10 +122,22 @@ it('asks for every open pull request with its head commit and the checks on it',
         draft: true,
         crossRepository: false,
         // A commit status that has not concluded carries no conclusion, the
-        // same rule `viewPullRequestDetail` applies.
+        // same rule `viewPullRequestDetail` applies. Each carries when it
+        // started, read from a check run's `startedAt` or a commit
+        // status's `createdAt`.
         checks: [
-          { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
-          { name: 'Preview', status: null, conclusion: null },
+          {
+            name: 'vitest',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            startedAt: '2026-09-26T00:05:00Z',
+          },
+          {
+            name: 'Preview',
+            status: null,
+            conclusion: null,
+            startedAt: '2026-09-26T00:00:00Z',
+          },
         ],
       },
     ],

@@ -36,10 +36,11 @@ const head = (overrides: Partial<PullRequestHead> = {}): PullRequestHead => ({
   ...overrides,
 })
 
-const done = (name: string, conclusion = 'SUCCESS') => ({
+const done = (name: string, conclusion = 'SUCCESS', startedAt: string | null = null) => ({
   name,
   status: 'COMPLETED',
   conclusion,
+  startedAt,
 })
 
 /** What gh answers on one poll. `required` is by branch; a branch it does
@@ -155,7 +156,7 @@ describe('a watch over the open pull requests', () => {
   })
 
   it('does not conclude while one required context is still running', async () => {
-    const running = { name: 'biome', status: 'IN_PROGRESS', conclusion: null }
+    const running = { name: 'biome', status: 'IN_PROGRESS', conclusion: null, startedAt: null }
     const { context, lines } = watchOver([
       { heads: heads(head({ checks: [done('vitest'), done('types'), running] })) },
     ])
@@ -251,7 +252,12 @@ describe('a watch over the open pull requests', () => {
       { heads: heads(head({ checks: [done('vitest', 'FAILURE'), done('types'), done('biome')] })) },
       {
         heads: heads(
-          head({ checks: [{ name: 'vitest', status: 'QUEUED', conclusion: null }, done('types')] }),
+          head({
+            checks: [
+              { name: 'vitest', status: 'QUEUED', conclusion: null, startedAt: null },
+              done('types'),
+            ],
+          }),
         ),
       },
       { heads: heads(head({ checks: [done('vitest'), done('types'), done('biome')] })) },

@@ -477,6 +477,12 @@ and `CheckContext` promises null for that case. A reader that matched conclusion
 that satisfies a required check would otherwise call a preview deployment that is still in
 progress a failure.
 
+`CheckContext` also carries `startedAt`: a check run's own `startedAt`, or a commit status's
+`createdAt`, or null when GitHub answers neither. A re-run adds a second check under the same
+name, and the rollup lists both. `plugins/workstreams/src/required-contexts.ts` `reportedAs` reads
+`startedAt` to pick the later run, so a `gh stack push` that cancels a run in flight and starts a
+new one never leaves the cancelled run as the answer.
+
 The threads and the comments are separate fields, because they are separate facts: the enterprise
 coverage bot posts a COMMENT on every pull request here. All three connections ask for `pageInfo`,
 unlike the dependency connections in the sweep query. A list at the page ceiling here says so
