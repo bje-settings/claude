@@ -270,7 +270,7 @@ describe('a stack of pull requests', () => {
       expect.stringMatching(/^#2: its own files against #1 are unread: fatal: /),
     )
     expect(report.unavailable).toContain(
-      '#2: its changed files are unread, so no pair with it was compared',
+      '#2: its own files are unread, so no pair with it was compared',
     )
   })
 })
@@ -351,7 +351,7 @@ describe('each head against the default branch', () => {
 
     expect(report.pairs).toEqual([])
     expect(report.unavailable).toContain(
-      '#2: its changed files are unread, so no pair with it was compared',
+      '#2: its own files are unread, so no pair with it was compared',
     )
   })
 })

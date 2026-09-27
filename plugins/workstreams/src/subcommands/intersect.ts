@@ -490,7 +490,7 @@ export const runIntersect = async (
     if (left.ownFiles === null) {
       if (pullRequests.length > 1) {
         unavailable.push(
-          `#${left.number}: its changed files are unread, so no pair with it was compared`,
+          `#${left.number}: its own files are unread, so no pair with it was compared`,
         )
       }
       continue
