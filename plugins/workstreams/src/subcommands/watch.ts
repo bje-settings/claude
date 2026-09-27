@@ -10,13 +10,13 @@
 // stays silent about it.
 //
 // **A head this watch has already seen is not a new head.** For a short
-// time after a push, GitHub answers the old head and the new head of a
-// pull request in turn. The watch keeps every head it has seen for each
-// pull request, not only the current one. A head that returns after a
-// later one writes no line. It does not move the current head, the
-// reported contexts, or CONCLUDED (#264). `--since-head` and `--concluded`
-// seed this memory with their own head. One known limit: a force push back
-// to an earlier head, between two polls, is not reported.
+// time after a push, GitHub answers the old head, then the new head. The
+// watch keeps every head it has seen for each pull request, not only the
+// current one. A head that returns after a later one writes no line. It
+// does not move the current head, the reported contexts, or CONCLUDED
+// (#264). `--since-head` and `--concluded` seed this memory with their own
+// head. One known limit: a force push back to an earlier head, between two
+// polls, is not reported.
 //
 // **A head concludes only when every required context has reported**
 // (ruling P9). The list comes from the base branch's rules, and from the
@@ -88,7 +88,8 @@ has reported. A check that no ruleset requires never concludes a head.
 Each base reads its required contexts on its own. A base whose read fails
 leaves unread only the pull requests that need its list, not every pull
 request. A head this watch has already seen is not a new head, even after a
-later one: the API can answer an old head for a short time after a push.
+later one. For a short time after a push, the API can answer the old head
+and the new head in turn.
 
 --interval is the time between polls, in seconds. --ticks stops the watch
 after that many polls; 0, the default, polls until the watch is stopped.
@@ -177,8 +178,8 @@ interface Tracked {
   seeded: boolean
   /** Every head this watch has seen for this pull request, the current one
    *  included. A head in here that is not the current one is not a new
-   *  head: it is the API answering an old head again, for a short time
-   *  after a push (#264). */
+   *  head. The API answers an old head again, for a short time after a
+   *  push (#264). */
   readonly seenHeads: Set<string>
 }
 
@@ -270,7 +271,7 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
   }
 
   // Each base reads on its own. A base whose read fails leaves only its own
-  // pull requests unread this poll; it does not fail the poll for the rest
+  // pull requests unread this poll. It does not fail the poll for the rest
   // (#265).
   const required = new Map<string, readonly string[]>()
   const baseFailed = new Map<string, string>()
@@ -353,9 +354,9 @@ const pullLines = (
 ): string[] => {
   const seen = memory.get(pull.number)
   // A head this watch has already seen, other than the current one, is not
-  // a new head: it is the API answering an old head again after a push.
-  // Nothing moves: not the current head, the reported contexts, nor
-  // CONCLUDED (#264).
+  // a new head. The API answers an old head again after a push. Nothing
+  // moves: not the current head, the reported contexts, nor CONCLUDED
+  // (#264).
   if (seen !== undefined && seen.sha !== pull.headSha && seen.seenHeads.has(pull.headSha)) {
     return []
   }

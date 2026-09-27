@@ -62,6 +62,6 @@ failed default branch leaves unread every pull request that falls back to it.
 A short list still gives the rows that arrived, and `poll incomplete` names the reason once. A
 pull request absent from a short list is not reported as closed. A seeded head is not reported as
 open, and a head seeded as concluded does not conclude again. A head this watch has already seen
-is not a new head, even after a later one: the API can answer an old head for a short time after a
-push. The watch keeps all of this in memory, and writes no file. One known limit: a force push
-back to an earlier head, between two polls, is not reported.
+is not a new head, even after a later one. For a short time after a push, the API can answer the
+old head and the new head in turn. The watch keeps all of this in memory, and writes no file. One
+known limit: a force push back to an earlier head, between two polls, is not reported.

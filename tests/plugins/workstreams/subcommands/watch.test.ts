@@ -44,8 +44,8 @@ const done = (name: string, conclusion = 'SUCCESS', startedAt: string | null = n
 })
 
 /** What gh answers on one poll. `required` is by branch; a branch it does
- *  not name has no ruleset. A branch's own entry can fail on its own,
- *  distinct from every branch failing at once (#265). */
+ *  not name has no ruleset. A branch's own entry can fail on its own. That
+ *  is distinct from a poll where every branch fails at once (#265). */
 interface Poll {
   readonly heads?: GhReplies['listOpenPullRequestHeads'] | Error
   readonly required?: Readonly<Record<string, readonly string[] | Error>> | Error
@@ -522,8 +522,8 @@ describe('a watch over the open pull requests', () => {
   })
 
   it(
-    "reads each base on its own: one base's failed read does not stop another " +
-      'base from concluding, and the failure and its recovery each write once (#265)',
+    "reads each base on its own: one base's failed read leaves the other base free " +
+      'to conclude, and the failure and its recovery each write once (#265)',
     async () => {
       const release = head({ base: 'release', checks: [done('release-check')] })
       const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
