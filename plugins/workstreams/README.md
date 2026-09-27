@@ -90,9 +90,9 @@ caller runs a rot check at the end.
 | `ci-pending` | A required context has not reported. Wait. |
 | `red` | A required context failed before any round ran, so it belongs to whoever opened it. |
 | `review-1`, `review-2` | Dispatch a round. |
-| `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread is named apart and does not hold this state. |
+| `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
 | `rot-check` | Check the title and body against the final diff. |
-| `done` | Two rounds at most, CI green, nothing unresolved, the body true. |
+| `done` | Two rounds at most, CI green, no unresolved thread from a person, the body true. A bot's own thread can still be open. |
 
 The rules a round runs under are in `skills/review/round-brief.md`, the brief template.
 `round-2.md` adds the round 2 rules. `rot-check.md` covers the caller's last step. Each
@@ -294,9 +294,11 @@ a read that fell short, so it is a field of its own. A caller keys on `unavailab
 decide whether the report is an answer at all, and every layer of a stack is an answer.
 
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
-has answered nothing for a head whose runs existed. An unresolved review THREAD is
-counted, and a comment is not. The enterprise coverage bot posts a comment on every pull
-request, and a loop that counted it would never reach `done`.
+has answered nothing for a head whose runs existed. Only an unresolved thread from a
+PERSON holds the loop. A bot's own thread, review bots included, is counted apart under
+`botThreads` and does not hold it (#219). A plain comment is never counted at all: the
+enterprise coverage bot posts a comment on every pull request, and a loop that counted it
+would never reach `done`.
 
 `--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
 read, so the caller carries them.

@@ -1037,8 +1037,8 @@ const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: Str
  *
  * A review thread's author is the author of its FIRST comment, the comment
  * that opened it. That comment's `__typename` says whether the account is
- * a bot. This is what tells a preview workflow's own thread apart from a
- * person's.
+ * a bot. This is what tells a bot's own thread, a preview workflow or a
+ * review bot, apart from a person's (#219).
  */
 const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {

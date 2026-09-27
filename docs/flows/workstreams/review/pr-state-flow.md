@@ -3,8 +3,8 @@ type: Reference
 description: How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
-  at: 2026-09-26
+  by: claude-sonnet
+  at: 2026-09-27
 ---
 
 # pr-state flow
@@ -54,8 +54,11 @@ flowchart TD
 SUCCESS, SKIPPED and NEUTRAL each satisfy a context, and any other conclusion fails it. A
 contexts list from the head is settled only when every run for the head has completed. A failed
 wait-hint read adds a reason to the list but does not change the verdict. An unresolved thread
-from a person blocks `done`. A bot's own thread is named apart and does not, and neither does a
-plain comment.
+from a person blocks `done`.
+
+A bot's own thread, a review bot such as Copilot included, is named apart. It does not block
+`done`, and neither does a plain comment (#219). A review bot's own finding is named, but the
+loop does not wait on it.
 
 State `awaiting-pr` means GitHub itself named the number NOT_FOUND. Every other reason leaves no
 state at all. A malformed reply is one such reason. A repository gh could not resolve is
