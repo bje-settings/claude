@@ -424,8 +424,9 @@ The watch keeps what it has seen in memory, and writes no file.
 A head this watch has already seen is not a new head, even after a later one. For a
 short time after a push, the API can answer the old head and the new head in turn. The
 watch keeps every head it has seen for each pull request, not the current one alone
-(#264). One known limit: a force push back to an earlier head, between two polls, is not
-reported. `--since-head` and `--concluded` seed this memory with their own head.
+(#264). One known limit: a force push back to an earlier head silences that pull
+request. No later line, not even `CONCLUDED`, is written again for it, until the watch
+restarts. `--since-head` and `--concluded` seed this memory with their own head.
 
 A head is `CONCLUDED` only when every required context has reported. The list comes
 from the rules of the base branch. When no ruleset covers the base, the list comes from
@@ -442,13 +443,13 @@ line for each new reason, and a line when that base reads again.
 
 A poll that read no pull request writes a `poll failed` line and changes nothing. The
 line comes once for each new reason, and not on each poll. The first poll that reads
-again writes `poll read again`. While polls fail, the heartbeat names the failure, and
-does not say "no change". A list that fell short still gives the rows that arrived, and
-the watch keeps them. It writes one `poll incomplete` line for each new reason. One
-reason is a pull request with more checks than one page holds. A pull request that is
-absent from a short list is not reported as closed: only its own state names that. The
-watch then polls again at the next interval. Each event is one line, also when gh gives
-its reason on more than one line.
+again writes `poll read again`. While polls fail, the heartbeat names the failure. While
+a base stays unread, it names that instead. Neither says "no change". A list that fell
+short still gives the rows that arrived, and the watch keeps them. It writes one `poll
+incomplete` line for each new reason. One reason is a pull request with more checks
+than one page holds. A pull request that is absent from a short list is not reported as
+closed: only its own state names that. The watch then polls again at the next interval.
+Each event is one line, also when gh gives its reason on more than one line.
 
 `--since-head` and `--concluded` tell a new watch what the caller already knows. The
 watch then stays silent about it. Each takes a comma-separated list of a number and a
