@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if ! command -v node >/dev/null 2>&1; then printf '{\"systemMessage\":\"\\\\nworkstreams: ⚠️ node not found on PATH\"}\\n'; exit 0; fi; node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ts\"; exit 0",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }
