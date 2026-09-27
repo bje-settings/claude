@@ -59,9 +59,9 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 
 Each call derives where the round stands from the tracker, and writes no file. The plan
 is the comment whose first line reads `<round> plan, approved <date>.`. The pull requests
-are the ones that close the round's issues, in the order `gh stack view` gives. Three
-review facts per pull request are the rounds done, whether round 1 was substantial, and
-whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
+are the ones that close the round's issues, in the order `gh stack view` gives. Each pull
+request has three review facts. They are the rounds done, whether round 1 was substantial,
+and whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question.
 

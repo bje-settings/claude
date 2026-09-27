@@ -31,7 +31,7 @@ flowchart TD
     I --> J[EnterPlanMode: write the plan]
     J --> K{ExitPlanMode: approved?}
     K -->|No| J
-    K -->|Yes| L[Plan comment on every issue in the round,<br/>its first line naming it the plan]
+    K -->|Yes| L[Plan comment on every issue in the round,<br/>its first line names it the plan]
 
     L --> M{/gh:sync in own skill listing?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2

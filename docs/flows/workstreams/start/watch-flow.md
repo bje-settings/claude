@@ -48,7 +48,7 @@ flowchart TD
 The required contexts come from the rules of the base branch. When no ruleset covers the base,
 they come from the rules of the default branch. Each stack layer above the first is such a case.
 
-A short list still gives the rows that arrived: `poll incomplete` names the reason once, and a pull
-request absent from a short list is not reported as closed. A seeded head is not reported as
+A short list still gives the rows that arrived, and `poll incomplete` names the reason once. A
+pull request absent from a short list is not reported as closed. A seeded head is not reported as
 open, and a head seeded as concluded does not conclude again. The watch keeps all of this in
 memory, and writes no file.
