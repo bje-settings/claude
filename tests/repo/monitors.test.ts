@@ -115,4 +115,13 @@ describe('the monitor check, on a synthetic plugin', () => {
     }
     expect(monitorProblems(scratch)).toEqual(['p/monitors/monitors.json: not an array'])
   })
+
+  it('refuses an empty field, and reads an absent when as always', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-monitors-'))
+    mkdirSync(path.join(scratch, 'p', '.claude-plugin'), { recursive: true })
+    mkdirSync(path.join(scratch, 'p', 'monitors'), { recursive: true })
+    const entries = [{ name: 'b', command: 'true', description: '' }]
+    writeFileSync(path.join(scratch, 'p', 'monitors', 'monitors.json'), JSON.stringify(entries))
+    expect(monitorProblems(scratch)).toEqual(['p/monitors/monitors.json: b: no description'])
+  })
 })
