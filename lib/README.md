@@ -418,6 +418,30 @@ error and never by silence.
 2026-09-21: that filter matches nothing, not the unassigned issues. A caller reads that set from an
 unfiltered `listIssues()` call, and a filter on `milestone === null`.
 
+### `listOpenPullRequestHeads`
+
+```ts
+const heads = await gh.listOpenPullRequestHeads()
+// heads.rows[0] -> { number, title, head, headSha, base, draft, crossRepository, checks }
+```
+
+Every open pull request, with the full oid of its head commit and the checks on that commit. One
+paginated GraphQL read answers it all. The `watch` subcommand makes this read once for each poll,
+and `intersect` makes it once for each run. So one poll is one view of every head at one time. It
+is not one read for each pull request.
+
+`crossRepository` says whether the head branch is in a fork. A fork's branch can have the name of
+a branch in this repository. The name alone does not say which branch it is.
+
+It is its own endpoint, not a wider `listOpenPullRequests` (round 10 ruling P8). The sweep's
+acceptance test replays that endpoint by its exact argv, the query text included. A wider query
+would break the replay. It would also change what the sweep gets, for a question the sweep does
+not ask.
+
+A check list longer than the 100 the query asks for makes its row unreadable. `unavailable` counts
+it with the other rows that could not be read. A check list cut short could leave out the one
+required context that failed. A watch would then conclude a head that did not pass.
+
 ### `requiredContexts`, `viewPullRequestDetail` and `listWorkflowRuns`
 
 ```ts
@@ -452,6 +476,12 @@ and `EXPECTED` states are carried as NO conclusion, because both mean the check 
 and `CheckContext` promises null for that case. A reader that matched conclusions against the set
 that satisfies a required check would otherwise call a preview deployment that is still in
 progress a failure.
+
+`CheckContext` also carries `startedAt`: a check run's own `startedAt`, or a commit status's
+`createdAt`, or null when GitHub answers neither. A re-run adds a second check under the same
+name, and the rollup lists both. `plugins/workstreams/src/required-contexts.ts` `reportedAs` reads
+`startedAt` to pick the later run, so a `gh stack push` that cancels a run in flight and starts a
+new one never leaves the cancelled run as the answer.
 
 The threads and the comments are separate fields, because they are separate facts: the enterprise
 coverage bot posts a COMMENT on every pull request here. All three connections ask for `pageInfo`,

@@ -305,6 +305,89 @@ read, so the caller carries them.
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read.
 
+### `intersect`
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" intersect [--json]
+```
+
+Reads the head of every open pull request with local git. That includes each pull request
+that no round opened. The orchestrator runs it on each tick. It finds a real collision between two streams, and the
+facts of the check on each head.
+
+Each head is fetched as `git fetch --no-write-fetch-head origin <sha>`. That fetch writes no
+ref, and the flag stops the `FETCH_HEAD` write. So the command leaves no named ref behind. The
+default branch is fetched first, by name. That fetch moves `origin/<default>`, the ref that a
+clone already keeps. For each head, the command reports these facts:
+
+| Fact | Where it comes from |
+| --- | --- |
+| merge base, and the commits the default branch has gained since | `git merge-base` and `git rev-list --count`: the rebase debt of a branch |
+| changed files | `git diff --no-renames --name-only` against the merge base |
+| stack layer, and own files | the open pull request whose head is the base, never a fork's, and `git diff --no-renames --name-only <lower head>...<head>`, as `gh pr diff` shows it |
+| against the default branch | `git merge-tree --write-tree`: clean, or the paths that conflict |
+| `pull_request` run | `actions/runs?branch=<head ref>` for the exact head sha, never `?head_sha=` |
+| worktree | the local worktree on the head branch, never for a fork's head, and whether `git status` is empty |
+
+`--no-renames` keeps the old path of a renamed file in the list, next to the new path.
+
+Each pair of heads that change a common file gets its own `git merge-tree --write-tree`.
+A pair compares the own files of each head. Against the default branch, a stack layer
+changes every file of the layers below it. So two layers of one stack would always share
+files, and that is no collision. A pull request on the default branch is never a stack
+layer.
+The command also reports whether the root checkout is clean.
+
+A fact that could not be read is null, or `unread`. A merge-tree that failed is never
+`clean`. git exits 1 for a conflict, and also for a commit it cannot read. So the command
+trusts a conflict only when git printed the tree it wrote. Each reason is listed under
+`unavailable`. Exit code 2 means a usage error. Exit code 1 means the command runs
+outside a git checkout, or read no pull request at all.
+
+### `watch`
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch [--interval 60] [--ticks 0] [--since-head <n>=<sha>,...] [--concluded <n>=<sha>,...]
+```
+
+A long poll of every open pull request. It writes one line to stdout for each event
+below, so that a Monitor wakes on each line:
+
+- a new pull request
+- a new head, compared by the full sha
+- each required context as it reports
+- one `CONCLUDED` line for each head
+- a pull request that merged or closed
+- a heartbeat, after ten minutes with no other line
+
+The watch keeps what it has seen in memory, and writes no file.
+
+A head is `CONCLUDED` only when every required context has reported. The list comes
+from the rules of the base branch. When no ruleset covers the base, the list comes from
+the default branch (ruling P9). Each stack layer above the first is such a case. In round
+5, a watch concluded on the checks that had reported on the head. Those were seven
+CodeQL checks, and none of the required ones.
+
+`pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
+
+A poll that read no pull request writes a `poll failed` line and changes nothing. The
+line comes once for each new reason, and not on each poll. The first poll that reads
+again writes `poll read again`. While polls fail, the heartbeat names the failure, and
+does not say "no change". A list that fell short still gives the rows that arrived, and
+the watch keeps them. It writes one `poll incomplete` line for each new reason. One
+reason is a pull request with more checks than one page holds. A pull request that is
+absent from a short list is not reported as closed: only its own state names that. The
+watch then polls again at the next interval. Each event is one line, also when gh gives
+its reason on more than one line.
+
+`--since-head` and `--concluded` tell a new watch what the caller already knows. The
+watch then stays silent about it. Each takes a comma-separated list of a number and a
+full head sha. A short sha is refused.
+
+Outside a git checkout, or with no `gh` to run, the watch writes one line and exits 0.
+A SIGTERM, or a reader that closed the pipe, ends it with exit 0. `--ticks` stops it
+after that many polls. Give it a bound when you run it by hand.
+
 ## SessionStart hook
 
 `hooks/session-start.ts` checks the [Requirements](#requirements) table once, when a

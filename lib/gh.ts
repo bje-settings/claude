@@ -194,6 +194,31 @@ export interface PullRequestSummary {
 }
 
 /**
+ * One open pull request's head commit, and the checks reported on it.
+ *
+ * This is a row of its own, not a wider {@link PullRequestSummary}. The
+ * sweep's acceptance test replays `listOpenPullRequests` by its exact argv,
+ * query text included. A wider query there would change what the sweep
+ * gets. The sweep does not ask this question (round 10 ruling P8).
+ */
+export interface PullRequestHead {
+  readonly number: number
+  readonly title: string
+  readonly head: string
+  /** The head commit's full oid. A caller compares it whole: a short oid
+   *  once made a known head read as new. */
+  readonly headSha: string
+  readonly base: string
+  readonly draft: boolean
+  /** Whether the head branch is in a fork. A fork's branch name says
+   *  nothing about a branch of this repository with the same name. */
+  readonly crossRepository: boolean
+  /** Every check reported on the head commit, in the order GitHub lists
+   *  them. Empty for a head nothing has reported on yet. */
+  readonly checks: readonly CheckContext[]
+}
+
+/**
  * One status check reported on a commit, whichever of the two kinds GitHub
  * reports it as.
  *
@@ -212,6 +237,11 @@ export interface CheckContext {
   /** `SUCCESS`, `FAILURE`, `SKIPPED` and the rest, or null while the check has
    *  not concluded. */
   readonly conclusion: string | null
+  /** When the check started: a check run's `startedAt`, a commit status's
+   *  `createdAt`, or null when GitHub answers neither. A re-run adds a
+   *  second check under the same name, and this field is how a reader
+   *  tells the new one from the one a `gh stack push` cancelled. */
+  readonly startedAt: string | null
 }
 
 /** One UNRESOLVED review thread's first comment: who opened it, and whether
@@ -358,6 +388,8 @@ export interface GhResults {
   listIssues: PagedResult<IssueSummary>
   /** Open pull requests, including ones no round opened. */
   listOpenPullRequests: PagedResult<PullRequestSummary>
+  /** Open pull requests with their head commits and the checks on them. */
+  listOpenPullRequestHeads: PagedResult<PullRequestHead>
   /** The status-check contexts a branch's rulesets require. An empty list is
    *  an answer: it means no ruleset requires anything of that branch. */
   requiredContexts: {
@@ -492,6 +524,19 @@ export interface GhClient {
    * Never throws, for {@link PagedResult}'s reason.
    */
   listOpenPullRequests(): Promise<GhResults['listOpenPullRequests']>
+  /**
+   * Every open pull request, with the full oid of its head commit and the
+   * checks on that commit. One paginated read answers it all.
+   *
+   * A watch asks this once for each poll, not once for each pull request.
+   * So one poll is one view of every head, taken at one time. A row with
+   * more checks than one page holds is left out, and counted in
+   * `unavailable`. A list cut short could leave out the one required
+   * context that failed.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listOpenPullRequestHeads(): Promise<GhResults['listOpenPullRequestHeads']>
   /**
    * The status-check contexts every ruleset that applies to `branch`
    * requires, unioned, and in the order the rules name them.
@@ -1026,6 +1071,35 @@ const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: Str
 }`
 
 /**
+ * Every open pull request's head commit and the checks on it.
+ *
+ * `headRefOid` is the head commit's oid. `commits(last: 1)` reaches the
+ * same commit's rollup, as {@link PULL_REQUEST_DETAIL_QUERY} does. A page of
+ * 100 pull requests with 100 checks each is 10,000 nodes, far below
+ * GitHub's limit of 500,000.
+ */
+const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title isDraft headRefName headRefOid baseRefName isCrossRepository
+        commits(last: 1) { nodes { commit { statusCheckRollup {
+          contexts(first: ${SWEEP_PAGE}) {
+            pageInfo { hasNextPage }
+            nodes {
+              __typename
+              ... on CheckRun { name status conclusion startedAt }
+              ... on StatusContext { context state createdAt }
+            }
+          }
+        } } } }
+      }
+    }
+  }
+}`
+
+/**
  * One pull request's whole state, in one round trip.
  *
  * `commits(last: 1)` is how this query reaches the head commit's rollup. A
@@ -1067,8 +1141,8 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
                 pageInfo { hasNextPage }
                 nodes {
                   __typename
-                  ... on CheckRun { name status conclusion }
-                  ... on StatusContext { context state }
+                  ... on CheckRun { name status conclusion startedAt }
+                  ... on StatusContext { context state createdAt }
                 }
               }
             }
@@ -1200,6 +1274,40 @@ const readPullRequest = (node: unknown): PullRequestSummary | null => {
   return { number, title, head, base, draft }
 }
 
+/**
+ * One commit's rollup as checks. Null when the rollup is not the shape asked
+ * for, or holds more checks than one page. A null rollup is a commit nothing
+ * has reported on yet. That is an empty list and not a failure.
+ */
+const readRollup = (rollup: unknown): CheckContext[] | null => {
+  if (rollup === null) return []
+  const nodes = nodesOf(asRecord(rollup)?.contexts)
+  if (nodes === null) return null
+  if (truncated(asRecord(rollup)?.contexts)) return null
+  const checks: CheckContext[] = []
+  for (const entry of nodes) {
+    const check = readCheck(entry)
+    if (check === null) return null
+    checks.push(check)
+  }
+  return checks
+}
+
+/** One pull request head node, or null when it is not the shape asked for. */
+const readPullRequestHead = (node: unknown): PullRequestHead | null => {
+  const record = asRecord(node)
+  const summary = readPullRequest(node)
+  const headSha = asText(record?.headRefOid)
+  const crossRepository = record?.isCrossRepository
+  if (summary === null || headSha === null) return null
+  if (typeof crossRepository !== 'boolean') return null
+  const commit = asRecord(asRecord(nodesOf(record?.commits)?.[0])?.commit)
+  if (commit === undefined) return null
+  const checks = readRollup(commit.statusCheckRollup)
+  if (checks === null) return null
+  return { ...summary, headSha, crossRepository, checks }
+}
+
 /** Whether a connection said it has a page after the one that was read. */
 const truncated = (value: unknown): boolean =>
   asRecord(asRecord(value)?.pageInfo)?.hasNextPage === true
@@ -1244,7 +1352,12 @@ const readCheck = (node: unknown): CheckContext | null => {
   const record = asRecord(node)
   const name = asText(record?.name)
   if (name !== null) {
-    return { name, status: asText(record?.status), conclusion: asText(record?.conclusion) }
+    return {
+      name,
+      status: asText(record?.status),
+      conclusion: asText(record?.conclusion),
+      startedAt: asText(record?.startedAt),
+    }
   }
   // A node that is not a record at all lands here too, and is refused by
   // the same arm. It has neither field, which is what "neither kind of
@@ -1256,6 +1369,7 @@ const readCheck = (node: unknown): CheckContext | null => {
     name: context,
     status: null,
     conclusion: state !== null && Object.hasOwn(UNCONCLUDED, state) ? null : state,
+    startedAt: asText(record?.createdAt),
   }
 }
 
@@ -2020,6 +2134,9 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
 
     listOpenPullRequests: async () =>
       collect('pullRequests', PULL_REQUESTS_QUERY, [], readPullRequest),
+
+    listOpenPullRequestHeads: async () =>
+      collect('pullRequests', PULL_REQUEST_HEADS_QUERY, [], readPullRequestHead),
 
     // The branch is percent-encoded into the path, because a branch name
     // may carry a `/` (`spike/context-audit`). An unencoded one would name

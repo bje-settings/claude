@@ -28,6 +28,7 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['listMilestones', (client) => client.listMilestones()],
   ['listIssues', (client) => client.listIssues({ milestone: '4' })],
   ['listOpenPullRequests', (client) => client.listOpenPullRequests()],
+  ['listOpenPullRequestHeads', (client) => client.listOpenPullRequestHeads()],
   ['requiredContexts', (client) => client.requiredContexts({ branch: 'main' })],
   ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
@@ -87,6 +88,21 @@ it('answers every endpoint it declares', async () => {
       ],
       unavailable: null,
     },
+    listOpenPullRequestHeads: {
+      rows: [
+        {
+          number: 177,
+          title: 'audit L2',
+          head: 'wktr-171-audit-split',
+          headSha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
+          base: 'main',
+          draft: true,
+          crossRepository: false,
+          checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null }],
+        },
+      ],
+      unavailable: null,
+    },
     requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
     viewPullRequestDetail: {
       pullRequest: {
@@ -98,7 +114,7 @@ it('answers every endpoint it declares', async () => {
         head: 'wktr-130-ws-sweep',
         headSha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
         mergeable: 'MERGEABLE',
-        checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+        checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null }],
         unresolvedThreads: [],
         commentAuthors: ['github-code-quality'],
       },

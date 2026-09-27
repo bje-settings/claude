@@ -30,8 +30,8 @@ const detail = (overrides: Partial<PullRequestDetail> = {}): PullRequestDetail =
   headSha: '9b13a20',
   mergeable: 'MERGEABLE',
   checks: [
-    { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
-    { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+    { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
   ],
   unresolvedThreads: [],
   commentAuthors: ['github-code-quality'],
@@ -305,8 +305,8 @@ describe('the verdict over the required contexts', () => {
         viewPullRequestDetail: {
           pullRequest: detail({
             checks: [
-              { name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE' },
-              { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS' },
+              { name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+              { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
             ],
           }),
           unavailable: null,
@@ -326,7 +326,9 @@ describe('the verdict over the required contexts', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+            checks: [
+              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+            ],
           }),
           unavailable: null,
           missing: false,
@@ -351,8 +353,8 @@ describe('the verdict over the required contexts', () => {
         viewPullRequestDetail: {
           pullRequest: detail({
             checks: [
-              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
-              { name: 'types', status: 'IN_PROGRESS', conclusion: null },
+              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+              { name: 'types', status: 'IN_PROGRESS', conclusion: null, startedAt: null },
             ],
           }),
           unavailable: null,
@@ -381,8 +383,8 @@ describe('the verdict over the required contexts', () => {
           viewPullRequestDetail: {
             pullRequest: detail({
               checks: [
-                { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
-                { name: 'types', status: 'COMPLETED', conclusion },
+                { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+                { name: 'types', status: 'COMPLETED', conclusion, startedAt: null },
               ],
             }),
             unavailable: null,
@@ -398,19 +400,30 @@ describe('the verdict over the required contexts', () => {
     })
   }
 
-  it('reads the FIRST check reported under a name, which is the newest', async () => {
-    // A re-run adds a second check with the same name and the rollup lists
-    // the current one first; a reader that took the last would report a
-    // superseded failure as the answer.
+  it('reads the LATEST check reported under a name, not merely the first', async () => {
+    // A `gh stack push` cancels the run in flight and starts a new one.
+    // The rollup then lists both under the same name. The run that
+    // started later must answer, or a cancelled first run would report
+    // the whole pull request red even though the later run passed (#243).
     const report = await reportOf(
       ['178'],
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
             checks: [
-              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
-              { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS' },
-              { name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE' },
+              {
+                name: 'vitest',
+                status: 'COMPLETED',
+                conclusion: 'CANCELLED',
+                startedAt: '2026-09-26T00:00:00Z',
+              },
+              { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+              {
+                name: 'vitest',
+                status: 'COMPLETED',
+                conclusion: 'SUCCESS',
+                startedAt: '2026-09-26T00:05:00Z',
+              },
             ],
           }),
           unavailable: null,
@@ -420,6 +433,7 @@ describe('the verdict over the required contexts', () => {
     )
 
     expect(report.verdict).toBe('green')
+    expect(report.state).not.toBe('red')
   })
 
   it('names a failure over a pending context, because the failure is what to act on', () => {
@@ -541,7 +555,14 @@ describe('a base branch no ruleset covers', () => {
         viewPullRequestDetail: {
           pullRequest: detail({
             base: 'wktr-130-ws-sweep',
-            checks: [{ name: 'plugin-validate', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+            checks: [
+              {
+                name: 'plugin-validate',
+                status: 'COMPLETED',
+                conclusion: 'SUCCESS',
+                startedAt: null,
+              },
+            ],
           }),
           unavailable: null,
           missing: false,
@@ -589,8 +610,8 @@ describe('a base branch no ruleset covers', () => {
           pullRequest: detail({
             base: 'topic',
             checks: [
-              { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS' },
-              { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS' },
+              { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+              { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
             ],
           }),
           unavailable: null,
@@ -992,8 +1013,8 @@ describe('the report a person reads', () => {
           pullRequest: detail({
             draft: false,
             checks: [
-              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
-              { name: 'types', status: 'IN_PROGRESS', conclusion: null },
+              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+              { name: 'types', status: 'IN_PROGRESS', conclusion: null, startedAt: null },
             ],
           }),
           unavailable: null,
@@ -1012,7 +1033,9 @@ describe('the report a person reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+            checks: [
+              { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+            ],
           }),
           unavailable: null,
           missing: false,

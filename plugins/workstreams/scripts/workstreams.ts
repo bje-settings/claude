@@ -9,8 +9,8 @@
 // `src/subcommands/` is the seam a test reaches without a process. This adapter
 // only turns `process.argv` and this process's streams into that function's
 // arguments, and its answer into an exit code. `tests/plugins/workstreams/bin.test.ts`, through
-// `harness/spawn.ts`, is the one spawned test, on the paths that need no
-// `gh` at all.
+// `harness/spawn.ts`, is the one spawned test. It never reaches GitHub:
+// each run needs no `gh`, or meets a `gh` that always fails.
 //
 // **One dispatcher, not one entry point per command.** RFC 001 "Shape" wrote
 // one adapter per command. `plugins/gh/scripts/gh.ts` and
@@ -21,8 +21,11 @@
 // command nobody asked for is never loaded. A new command changes no other
 // line here.
 //
-// Both arms answer with an envelope. Each one's whole output is one
-// payload a caller either gets or does not (`lib/envelope.ts`). A third
+// Every arm answers with an envelope. For `sweep`, `pr-state` and
+// `intersect`, the whole output is one payload a caller either gets or
+// does not (`lib/envelope.ts`). `watch` writes a line for each event while
+// it runs. Its envelope is only the end. That is empty, or the one line
+// that says there is nothing to watch. A third
 // arm, `preflight`, once answered with a status, and wrote its own
 // report. That arm is gone: a skill has no preflight step
 // (`.claude/rules/_design-principles.md`). The check it ran now runs
@@ -45,6 +48,15 @@ commands:
     [--substantial] [--rot-checked]  request: its required contexts, its
     [--json]                         checks, its unresolved threads and the
                                      state they add up to
+  intersect [--json]                 every open pull request's head against
+                                     the default branch and against each
+                                     other: merge base, changed files and
+                                     merge-tree conflicts, with the runs and
+                                     the checkouts
+  watch [--interval 60] [--ticks 0]  a long poll of every open pull request:
+    [--since-head <n>=<sha>,...]     one line for each new head, required
+    [--concluded <n>=<sha>,...]      context and CONCLUDED head, and a
+                                     heartbeat
 
 workstreams.ts <command> --help prints that command's own usage.`
 
@@ -81,6 +93,49 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     const { runPrState } = await import('../src/subcommands/pr-state.ts')
     return write(
       await runPrState(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
+    )
+  }
+  if (name === 'intersect') {
+    const { runIntersect } = await import('../src/subcommands/intersect.ts')
+    return write(
+      await runIntersect(argv, {
+        gh: createGhClient({ cwd: process.cwd(), env: process.env }),
+        cwd: process.cwd(),
+        env: process.env,
+      }),
+    )
+  }
+  if (name === 'watch') {
+    const { runWatch } = await import('../src/subcommands/watch.ts')
+    // A SIGTERM ends the watch with exit 0. The listener replaces node's
+    // default exit, so the watch stops at its next check. It also ends a
+    // sleep in progress, so that check comes at once and not up to a minute
+    // later. A reader that closed the pipe ends it the same way: the
+    // guarded writer goes quiet on EPIPE (`lib/streams.ts`).
+    let terminated = false
+    let wake = (): void => {}
+    process.once('SIGTERM', () => {
+      terminated = true
+      wake()
+    })
+    const sleep = (ms: number): Promise<void> =>
+      new Promise((resolve) => {
+        const timer = setTimeout(resolve, ms)
+        wake = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+      })
+    return write(
+      await runWatch(argv, {
+        gh: createGhClient({ cwd: process.cwd(), env: process.env }),
+        cwd: process.cwd(),
+        env: process.env,
+        write: (line) => output.out.write(`${line}\n`),
+        now: Date.now,
+        sleep,
+        stopped: () => terminated || output.out.silenced,
+      }),
     )
   }
   return null
