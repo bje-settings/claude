@@ -4,7 +4,7 @@ description: What the /workstreams:review skill does, and every way it declines 
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-09-26
 ---
 
 # /workstreams:review skill flow
@@ -13,9 +13,7 @@ What `/workstreams:review` does to one pull request, and every way it declines t
 
 ```mermaid
 flowchart TD
-    A[preflight] --> B{anything missing?}
-    B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| W{exactly one worktree matches the head<br/>branch, and the plan comment names a model?}
+    W{exactly one worktree matches the head<br/>branch, and the plan comment names a model?}
     W -->|No| W1([Stop: say which is missing; never guess]):::stop
     W -->|Yes| C[read the pull request's state]
 

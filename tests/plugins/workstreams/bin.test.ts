@@ -28,7 +28,6 @@ it('prints the command list with no arguments at all, and exits 0', () => {
   expect(result.stdout).toMatch(/^usage: workstreams\.ts <command>/)
   expect(result.stdout).toContain('sweep [--milestone 4,5] [--json]')
   expect(result.stdout).toContain('pr-state <number> [--round 0|1|2]')
-  expect(result.stdout).toContain('preflight [--json]')
   expect(result.stderr).toBe('')
 })
 
@@ -62,27 +61,8 @@ it('prints sweep’s own usage for its --help, without asking gh anything', () =
   expect(result.stderr).toBe('')
 })
 
-it('prints preflight’s own usage for its --help', () => {
-  const result = runScript(BIN, { args: ['preflight', '--help'], env: env() })
-
-  expect(result.status).toBe(0)
-  expect(result.stdout).toMatch(/^Check what the workstreams skills depend on/)
-  expect(result.stderr).toBe('')
-})
-
 it('refuses an unknown flag on sweep, exit 2, with nothing on stdout', () => {
   const result = runScript(BIN, { args: ['sweep', '--nope'], env: env() })
-
-  expect(result.status).toBe(2)
-  expect(result.stdout).toBe('')
-  expect(result.stderr).toContain('--nope')
-})
-
-it('refuses an unknown flag on preflight, which writes its own refusal', () => {
-  // The other half of the dispatcher: `preflight` answers with a status
-  // rather than an envelope, so this is the arm where the exit code comes
-  // from the command and not from `renderText`.
-  const result = runScript(BIN, { args: ['preflight', '--nope'], env: env() })
 
   expect(result.status).toBe(2)
   expect(result.stdout).toBe('')

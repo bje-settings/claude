@@ -21,12 +21,12 @@
 // command nobody asked for is never loaded. A new command changes no other
 // line here.
 //
-// The arms answer differently on purpose. `sweep` and `pr-state` answer with
-// an envelope, because each one's whole output is one payload a caller
-// either gets or does not. `preflight` answers with a status and writes its
-// own report, because its findings belong on stdout even when the answer is
-// 1, and `lib/envelope.ts` deliberately writes nothing to stdout for a
-// failure.
+// Both arms answer with an envelope. Each one's whole output is one
+// payload a caller either gets or does not (`lib/envelope.ts`). A third
+// arm, `preflight`, once answered with a status, and wrote its own
+// report. That arm is gone: a skill has no preflight step
+// (`.claude/rules/_design-principles.md`). The check it ran now runs
+// once, from the plugin's `SessionStart` hook (`hooks/session-start.ts`).
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
 assertNodeFloor(process.version)
@@ -34,8 +34,6 @@ assertNodeFloor(process.version)
 const { createGhClient } = await import('../src/lib/gh.ts')
 const { ok, refused, renderText } = await import('../src/lib/envelope.ts')
 const { createOutput } = await import('../src/lib/streams.ts')
-// Named for what it is here, because `run` below is the dispatcher.
-const { run: runChild } = await import('../src/lib/process.ts')
 
 const USAGE = `usage: workstreams.ts <command> [options]
 
@@ -47,8 +45,6 @@ commands:
     [--substantial] [--rot-checked]  request: its required contexts, its
     [--json]                         checks, its unresolved threads and the
                                      state they add up to
-  preflight [--json]                 what the workstreams skills depend on,
-                                     and what of it is missing
 
 workstreams.ts <command> --help prints that command's own usage.`
 
@@ -86,10 +82,6 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     return write(
       await runPrState(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
     )
-  }
-  if (name === 'preflight') {
-    const { runPreflight } = await import('../src/subcommands/preflight.ts')
-    return runPreflight(argv, { env: process.env, output, run: runChild })
   }
   return null
 }

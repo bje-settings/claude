@@ -66,7 +66,7 @@ and a verdict of "unavailable" means the sets below it are not an answer.
 Exits 2 on a usage error, and 1 only when nothing at all could be read.`
 
 // `as const` alone, the way `plugins/mermaid/src/subcommands/url.ts` and
-// `preflight.ts` write it, and the way `lib/README.md` asks for. A broken
+// `sweep.ts` write it, and the way `lib/README.md` asks for. A broken
 // spec is refused either way. `parseCommandLine`'s own `ExactSpec` guard
 // answers `never` at the call site. A test verified this: it removed
 // `round`'s default and watched `tsc` refuse it, with and without a
