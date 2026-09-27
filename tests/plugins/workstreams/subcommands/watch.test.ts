@@ -368,6 +368,53 @@ describe('a watch over the open pull requests', () => {
     ])
   })
 
+  it('watches the rows that arrived when the list fell short, and says so once per reason', async () => {
+    const short = (reason: string, ...rows: ReturnType<typeof head>[]) => ({
+      rows,
+      unavailable: reason,
+    })
+    const one = '1 pullRequests row(s) could not be read'
+    const { context, lines } = watchOver([
+      { heads: short(one, head()) },
+      { heads: short(one, head({ checks: [done('vitest')] })) },
+      { heads: heads(head({ checks: [done('vitest')] })) },
+      { heads: short(one, head({ checks: [done('vitest')] })) },
+      {
+        heads: short('2 pullRequests row(s) could not be read', head({ checks: [done('vitest')] })),
+      },
+    ])
+
+    await runWatch(['--ticks', '5'], context)
+
+    expect(lines).toEqual([
+      `poll incomplete: ${one}; the pull requests it read are still watched`,
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      '#259 aaaaaaa vitest: SUCCESS',
+      `poll incomplete: ${one}; the pull requests it read are still watched`,
+      'poll incomplete: 2 pullRequests row(s) could not be read; the pull requests it read are still watched',
+    ])
+  })
+
+  it('does not call a pull request closed when a short list leaves it out', async () => {
+    const other = head({ number: 257, head: 'wktr-244-ws-hook', headSha: SHA_B })
+    const { context, lines } = watchOver([
+      { heads: heads(head(), other) },
+      {
+        heads: {
+          rows: [head()],
+          unavailable: 'pullRequests has more pages than the 10 this reads',
+        },
+        detail: { pullRequest: detailOf(257), unavailable: null, missing: false },
+      },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines.slice(2)).toEqual([
+      'poll incomplete: pullRequests has more pages than the 10 this reads; the pull requests it read are still watched',
+    ])
+  })
+
   it('reports a ruleset read that fell short as a failed poll', async () => {
     const { context, lines } = watchOver([{ heads: heads(head()) }])
     const failing: GhClient = {
@@ -434,6 +481,17 @@ describe('a watch that was told what it already knows', () => {
     const second = watchOver([{ heads: heads(head({ checks: all })) }])
     await runWatch(['--ticks', '1', '--concluded', `259=${SHA_A}`], second.context)
     expect(second.lines).toEqual([])
+  })
+
+  it('takes --concluded over --since-head for a head that both name', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks: all })) }])
+
+    await runWatch(
+      ['--ticks', '1', '--since-head', `259=${SHA_A}`, '--concluded', `259=${SHA_A}`],
+      context,
+    )
+
+    expect(lines).toEqual([])
   })
 
   it('reports a head that moved since, as a new head', async () => {

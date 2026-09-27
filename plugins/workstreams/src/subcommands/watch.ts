@@ -17,8 +17,12 @@
 // and none of the required ones.
 //
 // **A value that could not be read is reported as itself.** A poll that
-// fell short writes one "poll failed" line and changes nothing. So a pull
-// request that is absent from a short list is not reported as closed.
+// read no pull request writes one "poll failed" line and changes nothing. A
+// list that fell short still gives the rows that arrived, and the watch
+// keeps them. It writes a "poll incomplete" line once for each new reason.
+// So one row that cannot be read does not stop the watch for every other
+// pull request. A pull request that is absent from a short list is not
+// reported as closed: only its own state names that.
 //
 // The command function is the seam (ADR 001). Parsed arguments, an injected
 // `GhClient`, a clock, a sleep and a writer go in. An envelope comes out.
@@ -43,7 +47,9 @@ opened, and writes one line for each of these events:
   #<n> <sha> CONCLUDED  every required context has reported, with each failure
   #<n> merged           a pull request that left the open list
   heartbeat: ...        ten minutes with no other line
-  poll failed: ...      a read that fell short; the watch polls again
+  poll failed: ...      a poll that read nothing; the watch polls again
+  poll incomplete: ...  a list that fell short; the rows that arrived are
+                        still watched. Written once for each new reason.
 
 The required contexts come from the rules of the base branch. When no ruleset
 covers the base, as for each stack layer above the first, they come from the
@@ -143,6 +149,8 @@ interface Snapshot {
   readonly pulls: readonly PullRequestHead[]
   /** The required contexts of each branch the poll asked about. */
   readonly required: ReadonlyMap<string, readonly string[]>
+  /** Why the list of pull requests fell short, or null when it did not. */
+  readonly short: string | null
 }
 
 const short = (sha: string): string => sha.slice(0, 7)
@@ -197,7 +205,11 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
     return { kind: 'failed', reason: 'the repository reply named no default branch' }
   }
   const heads = await gh.listOpenPullRequestHeads()
-  if (heads.unavailable !== null) return { kind: 'failed', reason: heads.unavailable }
+  // A short list with rows still gives those rows. One row with too many
+  // checks must not stop the watch for every other pull request.
+  if (heads.unavailable !== null && heads.rows.length === 0) {
+    return { kind: 'failed', reason: heads.unavailable }
+  }
 
   const required = new Map<string, readonly string[]>()
   for (const branch of new Set([defaultBranch, ...heads.rows.map((pull) => pull.base)])) {
@@ -205,7 +217,10 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
     if (answer.unavailable !== null) return { kind: 'failed', reason: answer.unavailable }
     required.set(branch, answer.contexts)
   }
-  return { kind: 'read', snapshot: { defaultBranch, pulls: heads.rows, required } }
+  return {
+    kind: 'read',
+    snapshot: { defaultBranch, pulls: heads.rows, required, short: heads.unavailable },
+  }
 }
 
 /** What became of a pull request that left the open list: a line, and
@@ -339,6 +354,9 @@ export const runWatch = async (
 
   const memory = seededMemory(sinceHead.value, concluded.value)
   let noticed = false
+  /** The reason the last poll's list fell short, so a reason that stays
+   *  the same is written once and not on every poll. */
+  let lastShort: string | null = null
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
     const lines: string[] = []
@@ -347,7 +365,11 @@ export const runWatch = async (
     if (outcome.kind === 'failed') {
       lines.push(`poll failed: ${outcome.reason}`)
     } else {
-      const { defaultBranch, pulls, required } = outcome.snapshot
+      const { defaultBranch, pulls, required, short } = outcome.snapshot
+      if (short !== null && short !== lastShort) {
+        lines.push(`poll incomplete: ${short}; the pull requests it read are still watched`)
+      }
+      lastShort = short
       // `readPoll` asked about the default branch and every base in
       // `pulls`, so each lookup here answers. The cast says so to a
       // compiler that cannot see it.
