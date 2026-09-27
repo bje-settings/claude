@@ -323,6 +323,22 @@ describe('a watch over the open pull requests', () => {
     expect(HEARTBEAT_MS).toBe(600_000)
   })
 
+  it('counts the ten minutes from the last line it wrote, not from the start', async () => {
+    const first = { heads: heads(head()) }
+    // One context reports five minutes in, on the sixth poll.
+    const later = { heads: heads(head({ checks: [done('vitest')] })) }
+    const { context, lines } = watchOver([first, first, first, first, first, later])
+
+    // Fifteen polls reach fourteen minutes: ten minutes after the start,
+    // and only nine after the last line.
+    await runWatch(['--ticks', '15'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      '#259 aaaaaaa vitest: SUCCESS',
+    ])
+  })
+
   it('writes a heartbeat over no pull requests at all', async () => {
     const { context, lines } = watchOver([{ heads: heads() }])
 
