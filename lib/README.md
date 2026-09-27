@@ -422,13 +422,16 @@ unfiltered `listIssues()` call, and a filter on `milestone === null`.
 
 ```ts
 const heads = await gh.listOpenPullRequestHeads()
-// heads.rows[0] -> { number, title, head, headSha, base, draft, checks }
+// heads.rows[0] -> { number, title, head, headSha, base, draft, crossRepository, checks }
 ```
 
 Every open pull request, with the full oid of its head commit and the checks on that commit. One
 paginated GraphQL read answers it all. The `watch` subcommand makes this read once for each poll,
 and `intersect` makes it once for each run. So one poll is one view of every head at one time. It
 is not one read for each pull request.
+
+`crossRepository` says whether the head branch is in a fork. A fork's branch can have the name of
+a branch in this repository. The name alone does not say which branch it is.
 
 It is its own endpoint, not a wider `listOpenPullRequests` (round 10 ruling P8). The sweep's
 acceptance test replays that endpoint by its exact argv, the query text included. A wider query

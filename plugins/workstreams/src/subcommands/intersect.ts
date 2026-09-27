@@ -99,6 +99,9 @@ export interface PullReport {
   readonly headSha: string
   readonly base: string
   readonly draft: boolean
+  /** Whether the head branch is in a fork. A fork's head is never the
+   *  layer below, and never owns a local worktree. */
+  readonly crossRepository: boolean
   /** Whether the head commit is in the local object store. */
   readonly fetched: boolean
   readonly mergeBase: string | null
@@ -417,7 +420,10 @@ export const runIntersect = async (
     if (runs.unavailable !== null) note(`runs: ${runs.unavailable}`)
     const pullRequestRun = found ? true : runs.unavailable === null ? false : null
 
-    const tree = trees.find((candidate) => candidate.branch === pull.head)
+    // A local branch of the same name is not a fork's head branch.
+    const tree = pull.crossRepository
+      ? undefined
+      : trees.find((candidate) => candidate.branch === pull.head)
     const worktree =
       tree === undefined ? null : { path: tree.path, clean: await statusOf(tree.path) }
 
@@ -428,6 +434,7 @@ export const runIntersect = async (
       headSha: pull.headSha,
       base: pull.base,
       draft: pull.draft,
+      crossRepository: pull.crossRepository,
       fetched,
       mergeBase,
       behind,
@@ -442,13 +449,18 @@ export const runIntersect = async (
    * A head with the layer below it, if any, and its own files. A pull
    * request on the default branch is never a stack layer. A fork's head
    * branch is often named `main`, and a pull request on `main` does not sit
-   * on top of it.
+   * on top of it. A fork's head is never the layer below either: the base
+   * is a branch of this repository, and a fork's branch of the same name is
+   * another branch.
    */
   async function placeInStack(pull: HeadFacts): Promise<PullReport> {
     const below =
       pull.base === name
         ? undefined
-        : read.find((other) => other.number !== pull.number && other.head === pull.base)
+        : read.find(
+            (other) =>
+              other.number !== pull.number && !other.crossRepository && other.head === pull.base,
+          )
     if (below === undefined) return { ...pull, stackedOn: null, ownFiles: pull.files }
     const unread = (reason: string): PullReport => {
       unavailable.push(

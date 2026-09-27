@@ -54,6 +54,7 @@ const node = (overrides: Record<string, unknown> = {}) => ({
   headRefName: 'wktr-219-pr-sweep',
   headRefOid: SHA,
   baseRefName: 'wktr-244-ws-hook',
+  isCrossRepository: false,
   commits: {
     nodes: [
       {
@@ -94,7 +95,9 @@ it('asks for every open pull request with its head commit and the checks on it',
   ])
   const query = calls[1]?.[7] ?? ''
   expect(query).toContain('pullRequests(states: OPEN, first: 100, after: $cursor')
-  expect(query).toContain('number title isDraft headRefName headRefOid baseRefName')
+  expect(query).toContain(
+    'number title isDraft headRefName headRefOid baseRefName isCrossRepository\n',
+  )
   expect(query).toContain('commits(last: 1) { nodes { commit { statusCheckRollup {')
   // One page of checks per head: a row whose checks run past it is refused.
   expect(query).toContain('contexts(first: 100) {')
@@ -107,6 +110,7 @@ it('asks for every open pull request with its head commit and the checks on it',
         headSha: SHA,
         base: 'wktr-244-ws-hook',
         draft: true,
+        crossRepository: false,
         // A commit status that has not concluded carries no conclusion, the
         // same rule `viewPullRequestDetail` applies.
         checks: [
@@ -150,6 +154,7 @@ it('refuses a row it cannot trust, and says how many it left out', async () => {
       node({ headRefOid: null }),
       node({ baseRefName: null }),
       node({ isDraft: 'yes' }),
+      node({ isCrossRepository: null }),
       node({ commits: null }),
       node({ commits: { nodes: [] } }),
       node({ commits: { nodes: [{ commit: { statusCheckRollup: { contexts: null } } }] } }),
@@ -176,7 +181,7 @@ it('refuses a row it cannot trust, and says how many it left out', async () => {
   const answer = await gh.listOpenPullRequestHeads()
 
   expect(answer.rows.map((row) => row.number)).toEqual([260])
-  expect(answer.unavailable).toBe('11 pullRequests row(s) could not be read')
+  expect(answer.unavailable).toBe('12 pullRequests row(s) could not be read')
 })
 
 it('reports a reply it could not read at all, and throws nothing', async () => {

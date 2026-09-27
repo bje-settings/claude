@@ -210,6 +210,9 @@ export interface PullRequestHead {
   readonly headSha: string
   readonly base: string
   readonly draft: boolean
+  /** Whether the head branch is in a fork. A fork's branch name says
+   *  nothing about a branch of this repository with the same name. */
+  readonly crossRepository: boolean
   /** Every check reported on the head commit, in the order GitHub lists
    *  them. Empty for a head nothing has reported on yet. */
   readonly checks: readonly CheckContext[]
@@ -1075,7 +1078,7 @@ const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor
     pullRequests(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number title isDraft headRefName headRefOid baseRefName
+        number title isDraft headRefName headRefOid baseRefName isCrossRepository
         commits(last: 1) { nodes { commit { statusCheckRollup {
           contexts(first: ${SWEEP_PAGE}) {
             pageInfo { hasNextPage }
@@ -1290,12 +1293,14 @@ const readPullRequestHead = (node: unknown): PullRequestHead | null => {
   const record = asRecord(node)
   const summary = readPullRequest(node)
   const headSha = asText(record?.headRefOid)
+  const crossRepository = record?.isCrossRepository
   if (summary === null || headSha === null) return null
+  if (typeof crossRepository !== 'boolean') return null
   const commit = asRecord(asRecord(nodesOf(record?.commits)?.[0])?.commit)
   if (commit === undefined) return null
   const checks = readRollup(commit.statusCheckRollup)
   if (checks === null) return null
-  return { ...summary, headSha, checks }
+  return { ...summary, headSha, crossRepository, checks }
 }
 
 /** Whether a connection said it has a page after the one that was read. */

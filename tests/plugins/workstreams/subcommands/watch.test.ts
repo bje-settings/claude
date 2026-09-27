@@ -31,6 +31,7 @@ const head = (overrides: Partial<PullRequestHead> = {}): PullRequestHead => ({
   headSha: SHA_A,
   base: 'main',
   draft: true,
+  crossRepository: false,
   checks: [],
   ...overrides,
 })

@@ -76,6 +76,7 @@ const pull = (number: number, head: string, headSha: string, base = 'main'): Pul
   headSha,
   base,
   draft: true,
+  crossRepository: false,
   checks: [],
 })
 
@@ -238,6 +239,23 @@ describe('a stack of pull requests', () => {
     expect(stackFacts(report)[0]).toMatchObject({ stackedOn: null, ownFiles: ['a.txt'] })
   })
 
+  it('never stacks a layer on a fork whose head branch has the base branch name', async () => {
+    const r = rig()
+    const fork = r.push('fork-topic', { 'fork.txt': 'f\n' })
+    const lower = r.push('topic', { 'lower.txt': 'l\n' })
+    const upper = r.push('upper', { 'upper.txt': 'u\n' }, 'origin/topic')
+
+    // The fork's pull request comes first, as the older one.
+    const report = await intersect(r, [
+      { ...pull(1, 'topic', fork), crossRepository: true },
+      pull(2, 'topic', lower),
+      pull(3, 'upper', upper, 'topic'),
+    ])
+
+    expect(stackFacts(report)[2]).toMatchObject({ stackedOn: 2, ownFiles: ['upper.txt'] })
+    expect(report.unavailable).toEqual([])
+  })
+
   it('reports the own files of a layer as unread when the layer below was not fetched', async () => {
     const r = rig()
     const upper = r.push('upper', { 'upper.txt': 'u\n' })
@@ -381,13 +399,22 @@ describe('the facts beside each head', () => {
     writeFileSync(path.join(betaTree, 'b.txt'), 'changed\n')
     writeFileSync(path.join(r.work, 'stray.txt'), 'left behind\n')
 
-    const report = await intersect(r, [pull(1, 'alpha', a), pull(2, 'beta', b), pull(3, 'x', a)])
+    // A fork's head branch named like a local branch is not that branch.
+    const fork = { ...pull(4, 'alpha', b), crossRepository: true }
+
+    const report = await intersect(r, [
+      pull(1, 'alpha', a),
+      pull(2, 'beta', b),
+      pull(3, 'x', a),
+      fork,
+    ])
 
     const real = (directory: string): string => r.git.git(directory, 'rev-parse', '--show-toplevel')
     expect(report.checkout).toEqual({ path: real(r.work), clean: false })
     expect(report.pullRequests.map((row) => row.worktree)).toEqual([
       { path: real(alphaTree), clean: true },
       { path: real(betaTree), clean: false },
+      null,
       null,
     ])
   })
@@ -547,6 +574,7 @@ describe('renderReport', () => {
     headSha: 'c'.repeat(40),
     base: 'main',
     draft: false,
+    crossRepository: false,
     fetched: false,
     mergeBase: null,
     behind: null,
