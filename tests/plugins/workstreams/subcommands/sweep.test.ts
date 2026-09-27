@@ -96,8 +96,82 @@ const reportOf = async (argv: readonly string[], gh: ReturnType<typeof createGhM
   return JSON.parse(answer.value) as SweepReport
 }
 
+/** One issue's blockedBy edges, read straight from a capture's own GraphQL
+ *  reply, never through `classify()`. This is what lets the acceptance
+ *  case check the command's answer against the tracker itself, rather
+ *  than against another copy of the same rule. */
+interface CapturedIssue {
+  readonly number: number
+  readonly milestone: number | null
+  readonly openBlockers: readonly number[]
+}
+
+/** Every issue node any call in the capture answered with, deduped by
+ *  number. First write wins, the way `runSweep` keeps the unfiltered
+ *  read's row over a later, redundant one. */
+const capturedIssues = (): readonly CapturedIssue[] => {
+  const capture = JSON.parse(readFileSync(CAPTURE, 'utf8')) as Capture
+  const seen = new Map<number, CapturedIssue>()
+  for (const call of capture.calls) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(call.stdout)
+    } catch {
+      continue
+    }
+    const record = parsed as { data?: { repository?: { issues?: { nodes?: unknown[] } } } }
+    const nodes = record.data?.repository?.issues?.nodes
+    if (!Array.isArray(nodes)) continue
+    for (const node of nodes as Array<Record<string, unknown>>) {
+      const number = node.number as number
+      if (seen.has(number)) continue
+      const blockedBy = (node.blockedBy as { nodes: Array<{ number: number; state: string }> })
+        .nodes
+      const milestone = node.milestone as { number: number } | null
+      seen.set(number, {
+        number,
+        milestone: milestone === null ? null : milestone.number,
+        openBlockers: blockedBy.filter((ref) => ref.state === 'OPEN').map((ref) => ref.number),
+      })
+    }
+  }
+  return [...seen.values()]
+}
+
+/** The unblocked set and each member's `unlocks`, for one milestone (or
+ *  `null` for the issues on none), derived straight from the capture's own
+ *  edges rather than from `classify()`. */
+const expectedFromCapture = (
+  milestone: number | null,
+): { unblocked: readonly number[]; blocked: readonly number[]; unlocks: Map<number, number[]> } => {
+  const issues = capturedIssues()
+  const unblockedNumbers = new Set(
+    issues.filter((issue) => issue.openBlockers.length === 0).map((issue) => issue.number),
+  )
+  const unlocks = new Map<number, number[]>()
+  for (const issue of issues) {
+    if (issue.openBlockers.length !== 1) continue
+    const blocker = issue.openBlockers[0] as number
+    if (!unblockedNumbers.has(blocker)) continue
+    const list = unlocks.get(blocker)
+    if (list === undefined) unlocks.set(blocker, [issue.number])
+    else list.push(issue.number)
+  }
+  const mine = issues.filter((issue) => issue.milestone === milestone)
+  const sorted = (numbers: readonly number[]) => [...numbers].sort((left, right) => left - right)
+  return {
+    unblocked: sorted(
+      mine.filter((issue) => unblockedNumbers.has(issue.number)).map((issue) => issue.number),
+    ),
+    blocked: sorted(
+      mine.filter((issue) => !unblockedNumbers.has(issue.number)).map((issue) => issue.number),
+    ),
+    unlocks,
+  }
+}
+
 describe('the round 8 hand sweep, replayed against the captured tracker', () => {
-  it('reproduces the unblocked set, the next tier and the rest for milestone 4', async () => {
+  it('reproduces the unblocked set and the blocked set for milestone 4', async () => {
     const answer = await runSweep(['--milestone', '4', '--json'], { gh: captured() })
 
     expect(answer.outcome).toBe('ok')
@@ -105,48 +179,74 @@ describe('the round 8 hand sweep, replayed against the captured tracker', () => 
     expect(report.unavailable).toEqual([])
 
     const group = report.groups[0]
+    const expected = expectedFromCapture(4)
     expect(group?.milestone).toEqual({
       number: 4,
       title: 'workstreams primitives',
       openIssues: 13,
       closedIssues: 1,
     })
-    // Round 8's hand sweep, issue for issue. #111 is in the unblocked set
-    // with no blockers at all, which is a different fact from #130's and
-    // #133's "every blocker closed", and the report carries both.
-    expect(group?.unblocked.map((entry) => entry.number)).toEqual([111, 130, 133])
-    expect(group?.next.map((entry) => entry.number)).toEqual([18, 96, 100, 101, 131, 132])
-    expect(group?.blocked.map((entry) => entry.number)).toEqual([98, 102, 134, 135])
+    // Derived straight from the capture's own blockedBy edges (#195), not
+    // from a copy of the sets a past hand sweep found.
+    expect(
+      [...(group?.unblocked.map((entry) => entry.number) ?? [])].sort((a, b) => a - b),
+    ).toEqual(expected.unblocked)
+    expect([...(group?.blocked.map((entry) => entry.number) ?? [])].sort((a, b) => a - b)).toEqual(
+      expected.blocked,
+    )
+    // #111 is in the unblocked set with no blockers at all, which is a
+    // different fact from #130's and #133's "every blocker closed", and
+    // the report carries both.
     expect(group?.unblocked.find((entry) => entry.number === 111)?.blockedBy).toEqual([])
     expect(group?.unblocked.find((entry) => entry.number === 130)?.blockedBy).toEqual([
       { number: 127, state: 'CLOSED' },
       { number: 129, state: 'CLOSED' },
     ])
+    // #130 and #133 each unlock the issues whose only open blocker they
+    // are, read from the same capture, never from a hand-picked literal.
+    expect(
+      [...(group?.unblocked.find((entry) => entry.number === 130)?.unlocks ?? [])].sort(
+        (a, b) => a - b,
+      ),
+    ).toEqual([...(expected.unlocks.get(130) ?? [])].sort((a, b) => a - b))
+    expect(
+      [...(group?.unblocked.find((entry) => entry.number === 133)?.unlocks ?? [])].sort(
+        (a, b) => a - b,
+      ),
+    ).toEqual([...(expected.unlocks.get(133) ?? [])].sort((a, b) => a - b))
   })
 
-  it('reads #98 as blocked, not as the next tier, because its one open blocker is not unblocked', async () => {
-    // The case that separates "one open blocker" from "next tier": #98 is
-    // behind #132 alone, and #132 is itself behind #130. A rule that stopped
-    // at the blocker count would have promoted it.
+  it('reads #98 as blocked, not unblocked, because its one open blocker is not itself unblocked', async () => {
+    // The case #195's acceptance line turns on: #98 is behind #132 alone,
+    // and #132 is itself behind #130. Both are blocked, so the report
+    // leaves both out of the swept, unblocked set.
+    const report = await runSweep(['--milestone', '4', '--json'], { gh: captured() })
+    const parsed = JSON.parse(report.outcome === 'ok' ? report.value : '{}') as SweepReport
+
+    expect(parsed.groups[0]?.blocked.map((entry) => entry.number)).toContain(98)
+    expect(parsed.groups[0]?.unblocked.map((entry) => entry.number)).not.toContain(98)
+  })
+
+  it('carries only a number and a title for a blocked issue, never its blockers', async () => {
+    // #195: the report says a blocked issue exists, and nothing about why.
+    // The skill reads, maps, sizes, and comments on the unblocked set alone.
     const report = await runSweep(['--milestone', '4', '--json'], { gh: captured() })
     const parsed = JSON.parse(report.outcome === 'ok' ? report.value : '{}') as SweepReport
     const ninetyEight = parsed.groups[0]?.blocked.find((entry) => entry.number === 98)
 
-    expect(ninetyEight?.openBlockers).toEqual([132])
-    expect(parsed.groups[0]?.next.map((entry) => entry.number)).not.toContain(98)
+    expect(ninetyEight).toEqual({ number: 98, title: expect.any(String) })
   })
 
   it('finds the issues on no milestone, which the milestone filter cannot', async () => {
     const report = await runSweep(['--milestone', '4', '--json'], { gh: captured() })
     const parsed = JSON.parse(report.outcome === 'ok' ? report.value : '{}') as SweepReport
+    const expected = expectedFromCapture(null)
 
     expect(parsed.unassigned.milestone).toBeNull()
-    expect(parsed.unassigned.unblocked.map((entry) => entry.number)).toEqual([1, 5, 15, 22, 106])
-    // #37 is behind #133 and #132 both, so it is not the next tier however
-    // reachable its first blocker happens to be: asserted here as well as in
-    // `blocked`, because the two halves of the rule fail in different ways.
-    expect(parsed.unassigned.next).toEqual([])
-    expect(parsed.unassigned.blocked.map((entry) => entry.number)).toEqual([37])
+    expect(parsed.unassigned.unblocked.map((entry) => entry.number)).toEqual(expected.unblocked)
+    // #37 is behind #133 and #132 both, so neither open blocker's release
+    // puts it in the unblocked set.
+    expect(parsed.unassigned.blocked.map((entry) => entry.number)).toEqual(expected.blocked)
   })
 
   it('reports the open milestones and every open pull request, including one no round opened', async () => {
@@ -173,16 +273,36 @@ describe('the round 8 hand sweep, replayed against the captured tracker', () => 
     expect(text).toContain('  unblocked (3)')
     expect(text).toContain('        every blocker closed: #127, #129')
     expect(text).toContain('        no blockers')
-    expect(text).toContain('        behind #132, #133')
     expect(text).toContain('  #177  wktr-171-audit-split -> main  draft  ')
+    // A blocked issue's line names it and nothing else: no blocker, no
+    // reason. The skill reads none of that (#195).
+    expect(text).toContain('  blocked (10)')
     // Whole lines, not substrings: a set that grew an entry on the end still
     // contains the shorter string, so `toContain` would read an issue promoted
     // into the wrong tier as a pass.
     const lines = text.split('\n')
     expect(lines).toContain('  unblocked: #111, #130, #133, #1, #5, #15, #22, #106')
-    expect(lines).toContain('  next tier: #18, #96, #100, #101, #131, #132')
-    expect(lines).toContain('  blocked: #98, #102, #134, #135, #37')
+    expect(lines).toContain(
+      '  blocked: #18, #96, #98, #100, #101, #102, #131, #132, #134, #135, #37',
+    )
     expect(text).not.toContain('INCOMPLETE')
+    expect(text).not.toContain('next tier')
+  })
+
+  it('names what an unblocked issue unlocks, and says nothing when it unlocks nothing', async () => {
+    const answer = await runSweep(['--milestone', '4'], { gh: captured() })
+    const text = answer.outcome === 'ok' ? answer.value : ''
+    const lines = text.split('\n')
+
+    const at = (marker: string) => lines.findIndex((line) => line.includes(marker))
+    // #130 is the sole open blocker of #18, #96, #131 and #132; the line
+    // sits right after its own reason.
+    expect(lines[at('#130') + 2]).toBe('        unlocks: #18, #96, #131, #132')
+    // #111 unlocks nothing, so its entry is two lines: the title and the
+    // reason, with no third line naming anything it unlocks.
+    const oneEleven = at('#111')
+    expect(lines[oneEleven + 1]).toBe('        no blockers')
+    expect(lines[oneEleven + 2]).not.toContain('unlocks')
   })
 })
 
@@ -425,7 +545,7 @@ describe('classification', () => {
     expect(classified.map((entry) => entry.tier)).toEqual(['unblocked', 'unblocked'])
   })
 
-  it('reads an issue whose only open blocker was never read as blocked, not as the next tier', async () => {
+  it('reads an issue whose only open blocker was never read as blocked, never as unblocked', async () => {
     // The conservative direction: a page that could not be read makes the
     // sweep claim less, never more.
     const classified = classify([issue(1, { blockedBy: [{ number: 999, state: 'OPEN' }] })])
@@ -450,6 +570,40 @@ describe('classification', () => {
       milestone: 4,
     })
   })
+
+  it('carries unlocks: the open issues whose only open blocker is this one', async () => {
+    const classified = classify([
+      issue(130, {}),
+      issue(18, { blockedBy: [{ number: 130, state: 'OPEN' }] }),
+      issue(96, { blockedBy: [{ number: 130, state: 'OPEN' }] }),
+    ])
+
+    expect(classified.find((entry) => entry.number === 130)?.unlocks).toEqual([18, 96])
+  })
+
+  it('carries no unlocks for an issue nothing names as its only open blocker', async () => {
+    const classified = classify([issue(111, {})])
+
+    expect(classified[0]?.unlocks).toEqual([])
+  })
+
+  it('does not unlock an issue behind two open blockers', async () => {
+    // #37's case: behind #133 and #132 both, so releasing either one alone
+    // does not unlock it.
+    const classified = classify([
+      issue(133, {}),
+      issue(132, {}),
+      issue(37, {
+        blockedBy: [
+          { number: 133, state: 'OPEN' },
+          { number: 132, state: 'OPEN' },
+        ],
+      }),
+    ])
+
+    expect(classified.find((entry) => entry.number === 133)?.unlocks).toEqual([])
+    expect(classified.find((entry) => entry.number === 132)?.unlocks).toEqual([])
+  })
 })
 
 describe('the report a person reads', () => {
@@ -473,7 +627,6 @@ describe('the report a person reads', () => {
     const report = await reportOf(['--milestone', '4'], mockWith([issue(130)]))
     const text = renderReport(report)
 
-    expect(text).toContain('  next tier (0)')
     expect(text).toContain('  blocked (0)')
     expect(text).toContain('issues on no milestone')
     expect(text).toContain('  unblocked (0)')

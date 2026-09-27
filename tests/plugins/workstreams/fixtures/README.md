@@ -23,9 +23,12 @@ someone wrote to pass.
 
 It is never edited. Its enclosing whitespace is Biome's: Biome reformatted the wrapper on
 the commit that added it. Every byte GitHub and `gh` produced sits inside the `stdout`
-strings, where a formatter does not reach. The sets it is checked against are round 8's
-hand sweep of milestone 4: unblocked #111 (no blockers at all), #130, and #133; next tier
-#18, #96, #100, #101, #131, and #132; and #98, #102, #134, and #135, behind blockers that
-are not yet reachable. A tracker change that would alter those sets is a reason to take a
-new capture under a new name, not to edit this one. An edited capture proves nothing about
-what the API answers.
+strings, where a formatter does not reach.
+
+The sets it is checked against come from the capture's own `blockedBy` edges (#195). No
+test writes them by hand. Unblocked: #111 (no blockers at all), #130, and #133. Blocked:
+#18, #96, #98, #100, #101, #102, #131, #132, #134, and #135.
+
+Each is behind a blocker not yet reachable, some through another blocked issue. A tracker
+change that would alter those sets is a reason to take a new capture under a new name,
+not to edit this one. An edited capture proves nothing about what the API answers.

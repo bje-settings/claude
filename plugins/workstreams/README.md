@@ -56,20 +56,21 @@ command answers:
 
 | Set | Rule |
 | --- | --- |
-| unblocked | Every `blockedBy` entry is closed or merged, or there are none at all. |
-| next tier | Exactly one open blocker, and that blocker is itself unblocked. |
-| blocked | Everything else, with its open blockers named. |
+| unblocked | Every `blockedBy` entry is closed or merged, or there are none at all. Carries `unlocks`: the open issues it is the only open blocker of. |
+| blocked | At least one open `blockedBy` entry. Reported as a count and numbers only. |
 
 "No blockers at all" and "every blocker closed" both count as unblocked, but the report
 lists them apart. The first case is work nothing blocked. The second case is work a
-round just released.
+round just released. A blocked issue carries no reason, and no blocker list. The round
+does not read, map, size, or comment on it.
 
-The skill does the reading. It reads every issue body and every comment. It reads the
-Decisions lists in `docs/rfc/` and `docs/adr/` against what has merged. It maps the files
-each issue touches. It classifies and sizes each issue. It chooses between parallel
-streams, a stack, and one pull request. It posts the sequencing comment on every affected
-issue. `skills/sweep/` carries the rules. `file-map.md` holds the mapping rules a file map
-must apply.
+The skill does the reading. It reads every issue body and every comment, for the
+unblocked set alone. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
+what has merged. It maps the files each issue touches. It classifies and sizes each
+issue. It chooses between parallel streams, a stack, and one pull request. It posts the
+sequencing comment on every issue in the round, and on every issue its own `unlocks`
+names. `skills/sweep/` carries the rules. `file-map.md` holds the mapping rules a file
+map must apply.
 
 Both the user and the model can invoke it: it starts a round. Its last step continues
 into `/workstreams:question` with the same scope. Nobody has to ask for the question
