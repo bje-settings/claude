@@ -342,21 +342,18 @@ export const runIntersect = async (
     const note = (reason: string): void => {
       unavailable.push(`#${pull.number}: ${reason}`)
     }
-    // A head already in the object store needs no fetch.
-    let fetched = (await git(['cat-file', '-e', `${pull.headSha}^{commit}`])).status === 0
-    if (!fetched) {
-      const fetch = await answer([
-        'fetch',
-        '--quiet',
-        '--no-tags',
-        '--no-write-fetch-head',
-        'origin',
-        pull.headSha,
-      ])
-      fetched = 'out' in fetch
-      if ('reason' in fetch)
-        note(`head ${short(pull.headSha)} could not be fetched: ${fetch.reason}`)
-    }
+    // git answers a fetch of a commit it already has from its own object
+    // store, with no call to the remote, so there is no check before it.
+    const fetch = await answer([
+      'fetch',
+      '--quiet',
+      '--no-tags',
+      '--no-write-fetch-head',
+      'origin',
+      pull.headSha,
+    ])
+    const fetched = 'out' in fetch
+    if ('reason' in fetch) note(`head ${short(pull.headSha)} could not be fetched: ${fetch.reason}`)
 
     let mergeBase: string | null = null
     let behind: number | null = null
@@ -414,7 +411,8 @@ export const runIntersect = async (
 
   // Each pair of heads with a file in common. A head whose file list is
   // unread cannot be paired, and says so once, rather than be left out in
-  // silence.
+  // silence. On the right side of a pair, an unread list is an empty set,
+  // so it shares nothing.
   const pairs: PairReport[] = []
   for (const [index, left] of pullRequests.entries()) {
     if (left.files === null) {
@@ -426,8 +424,7 @@ export const runIntersect = async (
       continue
     }
     for (const right of pullRequests.slice(index + 1)) {
-      if (right.files === null) continue
-      const theirs = new Set(right.files)
+      const theirs = new Set(right.files ?? [])
       const shared = left.files.filter((file) => theirs.has(file))
       if (shared.length === 0) continue
       pairs.push({
