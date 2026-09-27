@@ -229,6 +229,15 @@ describe('a stack of pull requests', () => {
     ])
   })
 
+  it('never stacks a pull request on itself, as a fork whose head and base share a name', async () => {
+    const r = rig()
+    const fork = r.push('fork', { 'a.txt': 'a\n' })
+
+    const report = await intersect(r, [pull(1, 'topic', fork, 'topic')])
+
+    expect(stackFacts(report)[0]).toMatchObject({ stackedOn: null, ownFiles: ['a.txt'] })
+  })
+
   it('reports the own files of a layer as unread when the layer below was not fetched', async () => {
     const r = rig()
     const upper = r.push('upper', { 'upper.txt': 'u\n' })
