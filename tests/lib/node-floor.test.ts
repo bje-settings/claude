@@ -121,7 +121,7 @@ describe('assertNodeFloor', () => {
 
 describe('belowFloorMessage', () => {
   // This is the shape a `SessionStart` hook needs (#245): a line for
-  // `systemMessage`, naming the version running and the floor it must
+  // `systemMessage`. It names the running version and the floor it must
   // meet. Unlike `assertNodeFloor`, this never throws: the hook must not
   // read the below-floor case as an exception to catch.
   it('names the running version and the floor, both quoted the same way', () => {

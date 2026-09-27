@@ -19,11 +19,11 @@
 // writes to stdout, and `hooks.json`'s `; exit 0` absorbs both statuses.
 //
 // **Below the floor, this writes one line and exits 0 (#245).** A
-// `SessionStart` hook runs once, not on every tool call, so it may say so
+// `SessionStart` hook runs once, not on every tool call. So it may say so,
 // where a per-tool-call hook must stay silent. `belowFloorMessage` builds
-// the line; this writes the `systemMessage` JSON itself, with no colour
-// and no further import, so the write cannot depend on a module graph the
-// runtime below the floor might not load.
+// the line. This file writes the `systemMessage` JSON itself, with no
+// colour and no further import. So the write does not depend on a module
+// graph that the runtime below the floor might not load.
 import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {

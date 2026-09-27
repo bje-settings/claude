@@ -1,10 +1,10 @@
 // This file is the gh plugin's SessionStart hook (#230). It writes at most
 // one status line, then one problem line for each kind of failure, or
-// nothing. When git or the GitHub CLI is not on PATH, it checks nothing, and
-// writes one problem line for each missing tool, plus `additionalContext`
-// naming the absent tools so the model does not start work that will fail
-// (#243). {@link statusLine} and {@link problemLines} shape the lines, and
-// `plugins/gh/README.md` shows them.
+// nothing. When git or the GitHub CLI is not on PATH, it checks nothing.
+// It writes one problem line for each missing tool, and `additionalContext`
+// that names the missing tools. So the model does not start work that will
+// fail (#243). {@link statusLine} and {@link problemLines} shape the lines,
+// and `plugins/gh/README.md` shows them.
 //
 // The hook finds the repository that holds the session's directory, or the
 // repositories directly inside it (`discover.ts`). It skips a repository
@@ -224,13 +224,13 @@ export const githubRepository = (url: string): string | null => {
 const PLUGIN_PREFIX = 'gh'
 
 /** The response `session-start` writes: one JSON document on one line. The
- *  line goes in `systemMessage`, which the CLI shows to the user. The CLI
- *  puts a `SessionStart:<source> says:` label before it. So the message
- *  starts with a newline, and `gh:` starts a line of its own.
+ *  line goes in `systemMessage`, which the CLI shows to the user, with a
+ *  `SessionStart:<source> says:` label before it. So the message starts
+ *  with a newline, and `gh:` starts a line of its own.
  *  `additionalContext`, when given, reaches the model as well
  *  (`.claude/rules/path-hooks.md`). `emit` and the colouring moved to
- *  `lib/hook-output.ts` (round 10 plan, ruling P1), so a later hook uses
- *  them with no copy of its own. */
+ *  `lib/hook-output.ts` (round 10 plan, ruling P1). So a later hook uses
+ *  them, with no copy of its own. */
 export const emit = (line: string, additionalContext?: string): string =>
   libEmit(PLUGIN_PREFIX, line, additionalContext)
 

@@ -1,7 +1,7 @@
 // This tests the output a `SessionStart` hook writes back to the CLI
 // (`.claude/rules/path-hooks.md`). `emit` and `colour` moved here from the
-// gh hook (round 10 plan ruling P1), so a later hook uses them with no copy
-// of its own. Every case is pinned byte for byte: the CLI renders
+// gh hook (round 10 plan ruling P1). So a later hook uses them, with no
+// copy of its own. Every case is pinned byte for byte: the CLI renders
 // `systemMessage` directly, so a stray character shows in a real terminal.
 import { describe, expect, it } from 'vitest'
 

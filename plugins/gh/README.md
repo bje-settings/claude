@@ -437,8 +437,9 @@ Everything in this plugin is TypeScript. Node runs it directly, with no build st
 **node 22.18 or newer**: that is the release whose type stripping runs a `.ts` file as it stands.
 The plugin takes no dependency of its own, and carries no `package.json`, so it needs no install
 to use. Every entry point checks the current version before it loads anything else. A command
-states which version it found. The session-start hook writes one line naming the floor instead,
-because it runs once and may say so where a hook on every tool call must stay silent.
+states which version it found. The session-start hook writes one line with the floor version
+instead. It runs once, and it may say so, unlike a hook on every tool call, which must stay
+silent.
 
 ## Tests
 

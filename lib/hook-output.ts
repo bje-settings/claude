@@ -11,7 +11,7 @@
 //
 // `additionalContext` sits inside `hookSpecificOutput` instead. It reaches
 // the model only, on its next turn, and never the terminal. `emit` leaves
-// it out of the payload entirely when the caller gives none, so the gh
+// it out of the payload entirely when the caller gives none. So the gh
 // hook's happy-path bytes do not change (round 10 plan).
 
 /** SGR codes. The CLI keeps them in `systemMessage`. */

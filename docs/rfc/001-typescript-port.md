@@ -568,7 +568,7 @@ and 12 are also carried by [ADR 001](../adr/001-typescript-on-node-22-18.md); de
    `meetsNodeFloor`, for a hook on every tool call. A `SessionStart` hook runs once, so it may
    alert. Below the floor, it writes one line with the floor version. `hooks.json`'s own command
    string writes a line when `command -v node` fails. *Against:* the node check is now shell in a
-   `hooks.json` string as well as a TypeScript guard, so the alert has two places with logic
+   `hooks.json` string, as well as a TypeScript guard. The alert has two places with logic,
    instead of one.
 6. **No version-bump gate, for now.** No check that a plugin's `plugin.json` version moved when its
    files did. *Against:* the failure it catches is silent by construction, an unbumped plugin simply

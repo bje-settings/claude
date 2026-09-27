@@ -3,7 +3,7 @@
 // A `SessionStart` hook asks this file which of them are absent, rather
 // than keep its own copy of the check.
 //
-// This file is pure. It takes the table AND the lookup as arguments, so a
+// This file is pure. It takes the table and the lookup as arguments. So a
 // test proves every answer with no `PATH`, no child process, and no
 // filesystem read.
 

@@ -130,15 +130,15 @@ export const assertNodeFloor = (version: string): void => {
 }
 
 /**
- * One line for a `SessionStart` hook to write, naming the floor, for a
- * `version` below it (#245).
+ * One line for a `SessionStart` hook to write. It names the floor, for
+ * a `version` below it (#245).
  *
- * A `SessionStart` hook runs once, not on every tool call, so it may say
- * this where a per-tool-call hook must stay silent (`meetsNodeFloor`). This
- * never throws: the hook must not read the below-floor case as an
- * exception to catch. `version` is always quoted, the same way whether it
- * reads as a release or not, so this needs no second branch for the case
- * that cannot be read.
+ * A `SessionStart` hook runs once, not on every tool call. So it may say
+ * this, where a per-tool-call hook must stay silent (`meetsNodeFloor`).
+ * This never throws: the hook must not read the below-floor case as an
+ * exception to catch. `version` is always quoted, the same way, whether
+ * it reads as a release or not. So this needs no second branch for the
+ * case that cannot be read.
  */
 export const belowFloorMessage = (version: string): string =>
   `node "${version}" is below the floor: ${NODE_FLOOR} or newer.`
