@@ -17,12 +17,17 @@
 // and none of the required ones.
 //
 // **A value that could not be read is reported as itself.** A poll that
-// read no pull request writes one "poll failed" line and changes nothing. A
-// list that fell short still gives the rows that arrived, and the watch
+// read no pull request writes a "poll failed" line and changes nothing. The
+// line comes once for each new reason, and not on each poll. The first poll
+// that reads again after a failure says so. A that fell short still gives the rows that arrived, and the watch
 // keeps them. It writes a "poll incomplete" line once for each new reason.
 // So one row that cannot be read does not stop the watch for every other
 // pull request. A pull request that is absent from a short list is not
 // reported as closed: only its own state names that.
+//
+// **One event is one line.** gh can say a reason on more than one line. The
+// watch writes each event on one line, because a Monitor makes one wake of
+// each line.
 //
 // The command function is the seam (ADR 001). Parsed arguments, an injected
 // `GhClient`, a clock, a sleep and a writer go in. An envelope comes out.
@@ -47,7 +52,9 @@ opened, and writes one line for each of these events:
   #<n> <sha> CONCLUDED  every required context has reported, with each failure
   #<n> merged           a pull request that left the open list
   heartbeat: ...        ten minutes with no other line
-  poll failed: ...      a poll that read nothing; the watch polls again
+  poll failed: ...      a poll that read nothing; the watch polls again.
+                        Written once for each new reason.
+  poll read again ...   the first poll that read after a failed poll
   poll incomplete: ...  a list that fell short; the rows that arrived are
                         still watched. Written once for each new reason.
 
@@ -154,6 +161,9 @@ interface Snapshot {
 }
 
 const short = (sha: string): string => sha.slice(0, 7)
+
+/** A line with each line break in it made one space. */
+const oneLine = (line: string): string => line.replace(/\s*[\r\n]+\s*/g, ' ').trimEnd()
 
 /** The failures among the contexts, for a person. */
 const failures = (contexts: readonly ReportedContext[]): string[] =>
@@ -357,14 +367,27 @@ export const runWatch = async (
   /** The reason the last poll's list fell short, so a reason that stays
    *  the same is written once and not on every poll. */
   let lastShort: string | null = null
+  /** The reason of the poll that failed last, while polls fail, and how
+   *  many have failed since the last poll that read. */
+  let lastFailed: string | null = null
+  let failedPolls = 0
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
     const lines: string[] = []
     const outcome = await readPoll(context.gh)
     if (outcome.kind === 'end') return ok(`watch: ${outcome.reason}, so there is nothing to watch`)
     if (outcome.kind === 'failed') {
-      lines.push(`poll failed: ${outcome.reason}`)
+      if (outcome.reason !== lastFailed) lines.push(`poll failed: ${outcome.reason}`)
+      lastFailed = outcome.reason
+      failedPolls += 1
     } else {
+      if (lastFailed !== null) {
+        lines.push(
+          `poll read again after ${failedPolls} failed poll${failedPolls === 1 ? '' : 's'}`,
+        )
+      }
+      lastFailed = null
+      failedPolls = 0
       const { defaultBranch, pulls, required, short } = outcome.snapshot
       if (short !== null && short !== lastShort) {
         lines.push(`poll incomplete: ${short}; the pull requests it read are still watched`)
@@ -395,8 +418,15 @@ export const runWatch = async (
       }
     }
 
-    for (const line of lines) context.write(line)
+    for (const line of lines) context.write(oneLine(line))
     if (lines.length > 0) {
+      quietSince = context.now()
+    } else if (context.now() - quietSince >= HEARTBEAT_MS && lastFailed !== null) {
+      // The memory is as old as the last poll that read. "No change" would
+      // claim what no poll could see.
+      context.write(
+        oneLine(`heartbeat: ${failedPolls} failed polls in a row, the last: ${lastFailed}`),
+      )
       quietSince = context.now()
     } else if (context.now() - quietSince >= HEARTBEAT_MS) {
       const open = memory.size

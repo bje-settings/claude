@@ -366,6 +366,54 @@ describe('a watch over the open pull requests', () => {
       'poll failed: rate limited',
       'poll failed: could not resolve host',
       'poll failed: the repository reply named no default branch',
+      'poll read again after 4 failed polls',
+    ])
+  })
+
+  it('writes a reason that stays the same once, and says when a poll reads again', async () => {
+    const down = { heads: { rows: [], unavailable: 'gh: HTTP 502' } }
+    const { context, lines } = watchOver([
+      { heads: heads(head()) },
+      down,
+      down,
+      down,
+      { heads: heads(head()) },
+    ])
+
+    await runWatch(['--ticks', '5'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      'poll failed: gh: HTTP 502',
+      'poll read again after 3 failed polls',
+    ])
+  })
+
+  it('writes a heartbeat that names the failure, not "no change", while polls fail', async () => {
+    const { context, lines } = watchOver([
+      { heads: { rows: [], unavailable: 'gh: HTTP 502\nretry' } },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines).toEqual([
+      'poll failed: gh: HTTP 502 retry',
+      'heartbeat: 11 failed polls in a row, the last: gh: HTTP 502 retry',
+    ])
+  })
+
+  it('writes a reason gh gave on two lines as one line', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads() },
+      { heads: { rows: [], unavailable: 'gh: HTTP 502\n  try again later\n' } },
+      { heads: heads() },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      'poll failed: gh: HTTP 502 try again later',
+      'poll read again after 1 failed poll',
     ])
   })
 

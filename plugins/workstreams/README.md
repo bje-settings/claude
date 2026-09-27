@@ -368,12 +368,15 @@ CodeQL checks, and none of the required ones.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
 
-A poll that read no pull request writes one `poll failed` line and changes nothing. A
-list that fell short still gives the rows that arrived, and the watch keeps them. It writes
-one `poll incomplete` line for each new reason, for example a pull request with more
-checks than one page holds. A pull request that is absent from a short list is not
-reported as closed: only its own state names that. The watch then polls again at the
-next interval.
+A poll that read no pull request writes a `poll failed` line and changes nothing. The
+line comes once for each new reason, and not on each poll. The first poll that reads
+again writes `poll read again`. While polls fail, the heartbeat names the failure, and
+does not say "no change". A list that fell short still gives the rows that arrived, and
+the watch keeps them. It writes one `poll incomplete` line for each new reason. One
+reason is a pull request with more checks than one page holds. A pull request that is
+absent from a short list is not reported as closed: only its own state names that. The
+watch then polls again at the next interval. Each event is one line, also when gh gives
+its reason on more than one line.
 
 `--since-head` and `--concluded` tell a new watch what the caller already knows. The
 watch then stays silent about it. Each takes a comma-separated list of a number and a
