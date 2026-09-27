@@ -401,7 +401,14 @@ export const runIntersect = async (
         const count = await answer(['rev-list', '--count', `${mergeBase}..${base}`])
         if ('out' in count) behind = Number(count.out)
         else note(`the commits since the merge base could not be counted: ${count.reason}`)
-        const changed = await answer(['diff', '--name-only', '-z', mergeBase, pull.headSha])
+        const changed = await answer([
+          'diff',
+          '--no-renames',
+          '--name-only',
+          '-z',
+          mergeBase,
+          pull.headSha,
+        ])
         if ('out' in changed) files = nulList(changed.out)
         else note(`the changed files could not be read: ${changed.reason}`)
       } else {
@@ -470,9 +477,11 @@ export const runIntersect = async (
     }
     // Three dots: the files from the merge base of the two heads to this
     // head. That is the diff `gh pr diff` shows. A head that was not
-    // fetched makes git refuse, and git's reason is reported.
+    // fetched makes git refuse, and git's reason is reported. `--no-renames`
+    // keeps the old path of a renamed file in the list, next to the new one.
     const changed = await answer([
       'diff',
+      '--no-renames',
       '--name-only',
       '-z',
       `${below.headSha}...${pull.headSha}`,

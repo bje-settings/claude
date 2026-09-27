@@ -323,11 +323,13 @@ clone already keeps. For each head, the command reports these facts:
 | Fact | Where it comes from |
 | --- | --- |
 | merge base, and the commits the default branch has gained since | `git merge-base` and `git rev-list --count`: the rebase debt of a branch |
-| changed files | `git diff --name-only` against the merge base |
-| stack layer, and own files | the open pull request whose head is the base, never a fork's, and `git diff --name-only <lower head>...<head>`, as `gh pr diff` shows it |
+| changed files | `git diff --no-renames --name-only` against the merge base |
+| stack layer, and own files | the open pull request whose head is the base, never a fork's, and `git diff --no-renames --name-only <lower head>...<head>`, as `gh pr diff` shows it |
 | against the default branch | `git merge-tree --write-tree`: clean, or the paths that conflict |
 | `pull_request` run | `actions/runs?branch=<head ref>` for the exact head sha, never `?head_sha=` |
 | worktree | the local worktree on the head branch, never for a fork's head, and whether `git status` is empty |
+
+`--no-renames` keeps the old path of a renamed file in the list, next to the new path.
 
 Each pair of heads that change a common file gets its own `git merge-tree --write-tree`.
 A pair compares the own files of each head. Against the default branch, a stack layer

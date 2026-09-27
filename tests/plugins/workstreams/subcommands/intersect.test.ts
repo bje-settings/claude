@@ -31,6 +31,9 @@ interface Rig {
   push(name: string, files: Readonly<Record<string, string>>, start?: string): string
   /** Moves origin's default branch on by one commit with these files. */
   advanceMain(files: Readonly<Record<string, string>>): string
+  /** Pushes a branch from `start` with one file renamed, and answers its
+   *  head sha. `start` must already carry `from`. */
+  renamePush(name: string, from: string, to: string, start?: string): string
 }
 
 const rig = (): Rig => {
@@ -64,6 +67,15 @@ const rig = (): Rig => {
       git.git(other, 'checkout', '-q', '-B', 'main', 'origin/main')
       const sha = commit(files, 'main moves on')
       git.git(other, 'push', '-q', 'origin', 'main')
+      return sha
+    },
+    renamePush(name, from, to, start = 'origin/main') {
+      git.git(other, 'fetch', '-q', 'origin')
+      git.git(other, 'checkout', '-q', '-B', name, start)
+      git.git(other, 'mv', from, to)
+      git.git(other, 'commit', '-qm', `rename ${from} to ${to}`)
+      const sha = git.git(other, 'rev-parse', 'HEAD')
+      git.git(other, 'push', '-q', '-f', 'origin', name)
       return sha
     },
   }
@@ -273,6 +285,16 @@ describe('a stack of pull requests', () => {
       '#2: its own files are unread, so no pair with it was compared',
     )
   })
+
+  it('lists both paths of a file the upper layer renamed, in its own files', async () => {
+    const r = rig()
+    const lower = r.push('lower', { 'old.txt': 'shared\n' })
+    const upper = r.renamePush('upper', 'old.txt', 'new.txt', 'origin/lower')
+
+    const report = await intersect(r, [pull(1, 'lower', lower), pull(2, 'upper', upper, 'lower')])
+
+    expect(stackFacts(report)[1]?.ownFiles).toEqual(expect.arrayContaining(['old.txt', 'new.txt']))
+  })
 })
 
 describe('each head against the default branch', () => {
@@ -353,6 +375,16 @@ describe('each head against the default branch', () => {
     expect(report.unavailable).toContain(
       '#2: its own files are unread, so no pair with it was compared',
     )
+  })
+
+  it('lists both the old and the new path of a file the head renamed', async () => {
+    const r = rig()
+    r.advanceMain({ 'old.txt': 'shared\n' })
+    const a = r.renamePush('alpha', 'old.txt', 'new.txt')
+
+    const report = await intersect(r, [pull(1, 'alpha', a)])
+
+    expect(report.pullRequests[0]?.files).toEqual(expect.arrayContaining(['old.txt', 'new.txt']))
   })
 })
 
