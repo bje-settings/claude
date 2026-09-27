@@ -1080,6 +1080,7 @@ it("defaults to the root lib's own process runner", () => {
     'listIssues',
     'listMergedPullRequests',
     'listMilestones',
+    'listOpenPullRequestHeads',
     'listOpenPullRequests',
     'listPullRequests',
     'listRuns',
