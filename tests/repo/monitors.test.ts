@@ -102,4 +102,17 @@ describe('the monitor check, on a synthetic plugin', () => {
       'p/monitors/monitors.json: a: when sometimes',
     ])
   })
+
+  it('refuses a file that is not an array, and accepts an empty one', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-monitors-'))
+    for (const [name, text] of [
+      ['p', '{}'],
+      ['q', '[]'],
+    ] as const) {
+      mkdirSync(path.join(scratch, name, '.claude-plugin'), { recursive: true })
+      mkdirSync(path.join(scratch, name, 'monitors'), { recursive: true })
+      writeFileSync(path.join(scratch, name, 'monitors', 'monitors.json'), text)
+    }
+    expect(monitorProblems(scratch)).toEqual(['p/monitors/monitors.json: not an array'])
+  })
 })
