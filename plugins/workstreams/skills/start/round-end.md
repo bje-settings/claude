@@ -34,13 +34,12 @@ For each pull request, the lines changed:
 gh pr view <number> --json additions,deletions
 ```
 
-A notification that has left this conversation cannot be read again. Name each row it
-leaves empty. Do not estimate it.
+Name each row with no notification in this conversation. Do not estimate it.
 
 ## 4. Record and report
 
 Post the merge sequence and the cost as one comment on each issue of the round. End it with
 the round's `_Recorded by <effort>, <date>._` line.
 
-Then report to the person: each pull request with its head and state, the merge sequence,
-the cost, and the open items. Stop the watch with `TaskStop`.
+Then report to the person. Give each pull request with its head and state, the merge
+sequence, the cost, and the open items. Stop the watch with `TaskStop`.

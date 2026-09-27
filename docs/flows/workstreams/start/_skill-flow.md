@@ -36,10 +36,10 @@ flowchart TD
     T1 -->|Yes| T2[Name it; act on nothing that needs it]
     T1 -->|No| T3{new head?}
     T2 --> T3
-    T3 -->|Yes| T4{files in the allowed set, lower heads unchanged,<br/>root checkout clean?}
+    T3 -->|Yes| T4{files in the allowed set, lower heads unchanged,<br/>a run for the head, checkouts clean?}
     T4 -->|A lower head moved, or the root is dirty| S1([Stop: name it]):::stop
     T4 -->|An undeclared file| T5[Send it back to the layer] --> K
-    T4 -->|Yes| K
+    T4 -->|Yes, or no run: its state acts| K
     T3 -->|No| K{a conflict between two streams?}
     K -->|Yes| K1([Hold that stream; ask one question<br/>with a recommended redirect]):::pause
     K1 --> K2[Record the ruling on both issues] --> N
@@ -54,7 +54,9 @@ flowchart TD
     N -->|red| N4{its agent returned?}
     N4 -->|Yes| N5[Send it back with SendMessage] --> X
     N4 -->|No agent: a person's pull request| S4([Stop: report red CI]):::stop
-    N -->|review-1, review-2, rot-check| N6[Switch the worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
+    N -->|review-1, review-2, rot-check| N7{a round agent at work on it?}
+    N7 -->|Yes| X
+    N7 -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
     N -->|done| R{every pull request done,<br/>and no layer left?}
     R -->|No| F
     R -->|Yes| Z([Round end: merge sequence and cost<br/>on each issue; nothing merges])

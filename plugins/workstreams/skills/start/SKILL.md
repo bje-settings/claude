@@ -17,11 +17,14 @@ Derive it on each call. Write nothing to disk.
 
 1. **The plan.** The latest comment whose first line reads `<round> plan, approved <date>.`
    It names each layer's issues, branch, model, allowed file set and reviewers. Find the
-   open issues that carry one, with `--milestone <milestone>` when one is given:
+   open issues that carry one:
 
    ```bash
-   gh issue list --state open --search '"plan, approved" in:comments' --json number,title
+   gh issue list --state open --search '"plan, approved" in:comments' [--milestone <milestone>] --json number,title
    ```
+
+   The round is the newest plan. An open issue whose latest plan names an earlier round is
+   not in it.
 2. **The pull requests.** `gh pr list --json number,headRefName,baseRefName,closingIssuesReferences`
    names the ones that close a round issue. `gh stack view --json` gives the layer order,
    and names a layer whose body only refers to an issue. Take each head from `intersect`,
