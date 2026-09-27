@@ -222,6 +222,33 @@ describe('gh', () => {
     expect(ran.asked).toContain('gh auth token')
   })
 
+  it('reports a timed-out login check as itself, never as an absent login', async () => {
+    // A timeout says nothing about whether a login is there. To read it
+    // as "absent" would send an already logged-in person to `gh auth
+    // login` for no reason. This happens every time the check times out.
+    const { env } = healthySandbox()
+
+    const ran = await run(env, {
+      ...HEALTHY,
+      'gh auth token': { status: null, timedOut: true, signal: 'SIGKILL' },
+    })
+
+    expect(ran.stdout).toContain('workstreams: ⚠️ a gh login could not be checked')
+    expect(ran.stdout).not.toContain('a gh login is absent')
+  })
+
+  it('reports a login check that could not start as itself, never as an absent login', async () => {
+    const { env } = healthySandbox()
+
+    const ran = await run(env, {
+      ...HEALTHY,
+      'gh auth token': { status: 126, startFailure: { code: 'EACCES', message: 'gh: EACCES' } },
+    })
+
+    expect(ran.stdout).toContain('workstreams: ⚠️ a gh login could not be checked')
+    expect(ran.stdout).not.toContain('a gh login is absent')
+  })
+
   it('reports the stack extension as absent when the listing has other extensions but not it', async () => {
     const { env } = healthySandbox()
 
@@ -241,12 +268,29 @@ describe('gh', () => {
     expect(ran.stdout).toBe('')
   })
 
-  it('reports an extension listing that failed as the extension being absent', async () => {
+  it('reports a failed extension listing as itself, never as an absent extension', async () => {
+    // A listing that failed says nothing about which extensions exist.
+    // The deleted `preflight.ts` kept this apart from an absent
+    // extension, for the same reason. To tell someone to install an
+    // extension they already have sends them the wrong way.
     const { env } = healthySandbox()
 
     const ran = await run(env, { ...HEALTHY, 'gh extension list': { status: 1 } })
 
-    expect(ran.stdout).toContain('workstreams: ⚠️ the gh stack extension is absent')
+    expect(ran.stdout).toContain('workstreams: ⚠️ the gh stack extension could not be checked')
+    expect(ran.stdout).not.toContain('the gh stack extension is absent')
+  })
+
+  it('reports a timed-out extension listing as itself, never as an absent extension', async () => {
+    const { env } = healthySandbox()
+
+    const ran = await run(env, {
+      ...HEALTHY,
+      'gh extension list': { status: null, timedOut: true, signal: 'SIGKILL' },
+    })
+
+    expect(ran.stdout).toContain('workstreams: ⚠️ the gh stack extension could not be checked')
+    expect(ran.stdout).not.toContain('the gh stack extension is absent')
   })
 })
 

@@ -184,27 +184,49 @@ const which = (tool: string, env: NodeJS.ProcessEnv): boolean => {
   return false
 }
 
-/** Whether `gh auth token` can answer. This reads a stored credential,
- *  and makes no call to GitHub: a `SessionStart` hook must stay local. */
+/** Whether `gh auth token` can answer, or `null` when the check itself
+ *  could not run to a real answer.
+ *
+ *  A timeout, or a child that could not start at all, says nothing about
+ *  whether a login is there. To read either as "absent" would send a
+ *  logged-in person to `gh auth login` for no reason. This follows the
+ *  rule this file states for the registry, above. This reports a check
+ *  that cannot answer as itself. It never reports it as what it was
+ *  checking. A clean non-zero exit, with no timeout and no start
+ *  failure, is a real answer. `gh auth token` failed because there is
+ *  no stored credential.
+ *
+ *  This reads a stored credential, and makes no call to GitHub: a
+ *  `SessionStart` hook must stay local. */
 const ghLoggedIn = async (
   run: Runner,
   env: NodeJS.ProcessEnv,
   deadlineMs: number,
-): Promise<boolean> => {
+): Promise<boolean | null> => {
   const result = await run('gh', ['auth', 'token'], { env, timeoutMs: deadlineMs })
+  if (result.timedOut || result.startFailure !== null) return null
   return result.status === 0
 }
 
-/** Whether the listing names the `gh stack` extension. Matched on the
- *  command, not the repository. A fork installed under the same command
- *  is the same extension to the skill that runs `gh stack submit`. */
+/** Whether the listing names the `gh stack` extension, or `null` when the
+ *  listing itself could not be read.
+ *
+ *  A listing that failed, for any reason, says nothing about which
+ *  extensions exist. The deleted `preflight.ts` kept this as its own
+ *  finding (`gh-extension-list`), apart from "the extension is not
+ *  there". This keeps the same split, rather than fold every failure
+ *  into an absent extension.
+ *
+ *  Matched on the command, not the repository. A fork installed under
+ *  the same command is the same extension to the skill that runs
+ *  `gh stack submit`. */
 const ghStackInstalled = async (
   run: Runner,
   env: NodeJS.ProcessEnv,
   deadlineMs: number,
-): Promise<boolean> => {
+): Promise<boolean | null> => {
   const result = await run('gh', ['extension', 'list'], { env, timeoutMs: deadlineMs })
-  if (result.status !== 0) return false
+  if (result.status !== 0) return null
   return result.stdout.split('\n').some((line) => line.trim().startsWith('gh stack'))
 }
 
@@ -248,17 +270,24 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
     readRegistry(env, run, deadlineMs),
   ])
 
+  // A check that timed out, or a `gh` that could not run, gets a
+  // problem line of its own. It never becomes a row that
+  // `absentDependencies` reads as "absent". The fix for a check that
+  // could not run differs from the fix for a real absence. This code
+  // cannot tell which one is true.
   const rows: Row[] = [{ tool: 'gh', label: 'the GitHub CLI (gh)', present: ghPresent }]
+  const problems: string[] = []
   if (ghPresent) {
-    rows.push({ tool: 'gh-login', label: 'a gh login', present: ghLogin })
-    rows.push({ tool: 'gh-stack', label: 'the gh stack extension', present: ghStack })
+    if (ghLogin === null) problems.push('a gh login could not be checked')
+    else rows.push({ tool: 'gh-login', label: 'a gh login', present: ghLogin })
+    if (ghStack === null) problems.push('the gh stack extension could not be checked')
+    else rows.push({ tool: 'gh-stack', label: 'the gh stack extension', present: ghStack })
   }
 
   // A registry, or its fallback, that could not be read at all is a
   // problem line of its own. It is never five missing plugins. The fix
   // for an unreadable file differs from the fix for an absent plugin.
   // This code cannot tell whether the plugin is there.
-  const problems: string[] = []
   if (plugins === null) {
     problems.push('the installed plugins file could not be read')
   } else {
