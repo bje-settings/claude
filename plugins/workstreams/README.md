@@ -11,24 +11,33 @@ it needs. These are the first four of the five primitives in
 
 ## Requirements
 
-Every skill runs `preflight` first, and stops with a hint per finding. It checks:
+A `SessionStart` hook checks the table below. It runs once: at session start,
+resume, clear or compact. It reports what is missing
+(`.claude/rules/_design-principles.md`, "Dependencies outside a plugin"). No skill
+runs a preflight step of its own.
 
 | Requirement | Why |
 | --- | --- |
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
-| `gh auth status` | Issue dependencies are a GraphQL query, which needs a login. |
+| A `gh` login, from `gh auth token` | Issue dependencies are a GraphQL query, which needs a login. This is a local check: it reads a stored credential, and makes no call to GitHub. |
 | The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`. This makes the stack a stack in the GitHub UI from the first push. A chain of `gh pr create` drafts is not a stack, and a reviewer cannot tell it apart from unrelated work. |
-| The `gh` plugin, from any marketplace, OPTIONAL | Declared here for `/workstreams:question`. When it is present, the skill asks the person to run `/gh:sync` before the first worktree. When it is absent, the skill fast-forwards the default branch itself and continues. `preflight` reports this in its `optional` array. It is never a finding, and it never sets exit code 1. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that finds a reviewer missing halfway through has already spent the others. |
 
-Nothing is vendored. A dependency is declared here and checked before a round starts,
+Nothing is vendored. A dependency is declared here and checked once a session starts,
 never bundled. The plugin registry is at
-`$HOME/.claude/plugins/installed_plugins.json`. A plugin counts as present under any
+`$HOME/.claude/plugins/installed_plugins.json`, with a `claude plugin list --json`
+fallback when that file cannot be read. A plugin counts as present under any
 marketplace: a fork under another name is still that plugin to the skill that
-runs its commands. The command checks the reviewers against the `agents/` directory of
+runs its commands. The hook checks the reviewers against the `agents/` directory of
 every copy the registry records an install path for. A fork can satisfy the plugin row
 while it carries a different set of agents.
+
+`/workstreams:question` also uses the `gh` plugin, from any marketplace, when it is
+there. It asks the person to run `/gh:sync` before the first worktree. It reads
+its own skill listing to find out. When `gh` is not installed, the skill
+fast-forwards the default branch itself and continues. This is never a finding:
+`.claude/rules/_design-principles.md` says not to check an optional plugin.
 
 ## Installing
 
@@ -294,26 +303,27 @@ read, so the caller carries them.
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read.
 
-### `preflight`
+## SessionStart hook
 
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight [--json]
-```
-
-With `--json`, prints `{"ok": ..., "missing": [{"id": ..., "hint": ..., "detail": ...}],
-"optional": [{"id": ..., "present": ...}]}`. Without it, prints the same findings as
-lines. The optional array has no line form, since a missing optional plugin is never a
-finding and never moves the exit status. Each hint is a command to run, except where the
-hint instead says what could not be checked: an unreadable registry names the file, and a
-missing reviewer names the agent. Exit code 0 means everything required is present. Exit
-code 1 means something required is missing. Exit code 2 means a usage error.
+`hooks/session-start.ts` checks the [Requirements](#requirements) table once, when a
+session starts, resumes, clears or compacts. When everything is present, it writes
+nothing. When something is absent, it writes one `workstreams: ⚠️` line per absent item
+to the terminal. It also tells the model which items are absent and that the
+workstreams skills cannot run.
 
 A registry that cannot be read is reported as itself, never as missing plugins: the fix
 is a different one, and telling someone to install what they already have sends them the
-wrong way. A `pr-review-toolkit` the registry names with no reachable install path gets
-the same rule, one level down: the command reports reviewers that could not be checked,
-rather than five that are not there. That covers a path that is recorded and gone, which
-is what a stale entry from an update looks like, and also a path that was never recorded.
+wrong way. It falls back to `claude plugin list --json` first. A `pr-review-toolkit` the
+registry names, with no reachable install path, gets the same rule, one level down.
+The hook then says no copy could be checked. It does not name five reviewers that are
+not there. That covers a path that is recorded and gone, which is what a stale entry from
+an update looks like, and also a path that was never recorded.
+
+To see the lines by hand, run the hook with a payload on stdin:
+
+```bash
+echo '{"session_id":"s1"}' | node "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ts"
+```
 
 ## Tests
 
@@ -333,3 +343,7 @@ It sends the payloads Claude Code would really send, against repositories built 
 `harness/git.ts`. Every case asserts stdout as well as the status. Exit code 0 is what an
 allow and every degraded run answer with, so a status alone cannot tell a decision from a
 crash before one.
+
+`tests/plugins/workstreams/session-start.test.ts` starts `hooks/session-start.ts` the same
+way, against no `gh` and no `claude` binary at all. `tests/plugins/workstreams/subcommands/session-start.test.ts`
+runs the hook's own decisions in process, with the process runner injected.

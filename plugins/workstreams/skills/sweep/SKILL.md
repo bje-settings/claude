@@ -10,15 +10,7 @@ and report per milestone.
 
 ## Process
 
-1. Preflight.
-
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight
-   ```
-
-   Exit 1 means something is missing. Print each hint verbatim and stop.
-
-2. Sweep the tracker.
+1. Sweep the tracker.
 
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep --json
@@ -34,7 +26,7 @@ and report per milestone.
 
    If nothing is unblocked, stop. Say what the next tier is waiting for.
 
-3. Read, do not remember. For every issue in the unblocked set and the next tier, read the
+2. Read, do not remember. For every issue in the unblocked set and the next tier, read the
    full body **and every comment**. A findings comment is often the specification; the body
    is often out of date.
 
@@ -45,12 +37,12 @@ and report per milestone.
    Every factual claim you are about to write down gets cited to a line you have just read.
    Grep for it; do not recall it.
 
-4. Map the files. Apply every rule in [file-map.md](file-map.md) before writing one.
+3. Map the files. Apply every rule in [file-map.md](file-map.md) before writing one.
 
-5. Classify and size each issue, in this shape:
+4. Classify and size each issue, in this shape:
 
    - **Classification**: work now, defer with a reason, or blocked on another issue.
-   - **Touched files and regions**, from step 4. Include files it may touch in comments
+   - **Touched files and regions**, from step 3. Include files it may touch in comments
      only.
    - **Size**: the model per layer, and the session effort the round runs at, with the
      reason. The stream agent inherits the session's effort. Say what the review is
@@ -58,7 +50,7 @@ and report per milestone.
      to size against.
    - **Cross-repository dependencies**, if any.
 
-6. Sequence. Collisions first. Two issues collide when they touch the same file or
+5. Sequence. Collisions first. Two issues collide when they touch the same file or
    region, when both add a job to the same CI workflow (a second job added is a collision
    by itself, whatever else the diffs do), or when one creates something the other reads.
 
@@ -72,7 +64,7 @@ and report per milestone.
       without the other.
    3. **Parallel streams**, when the file sets are disjoint.
 
-7. Post the sequencing comment. Post one comment on **every** issue in the round, and on
+6. Post the sequencing comment. Post one comment on **every** issue in the round, and on
    every issue the round unlocks. It carries the unblocked set, the next tier, the file
    map, the collisions, the recommended shape with its argument, the size, and the hidden
    dependencies, each cited.
@@ -85,12 +77,12 @@ and report per milestone.
    _Recorded by <effort name>, <date>._
    ```
 
-8. Report four things:
+7. Report four things:
 
    1. The unblocked set, with what each issue is.
    2. The stream shape, with the argument for it.
    3. What the round unlocks once it lands.
    4. What nothing can reach yet, and what it waits for.
 
-9. Go on to the question phase: invoke `/workstreams:question` with the same milestones. The
+8. Go on to the question phase: invoke `/workstreams:question` with the same milestones. The
    report above is its input, and nobody has to ask for it.

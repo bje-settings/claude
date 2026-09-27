@@ -4,7 +4,7 @@ description: What the /workstreams:sweep skill does, and every way it declines t
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-09-26
 ---
 
 # /workstreams:sweep skill flow
@@ -13,9 +13,7 @@ What `/workstreams:sweep` does, and every way it declines to act.
 
 ```mermaid
 flowchart TD
-    A[preflight] --> B{anything missing?}
-    B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| C[sweep the tracker]
+    C[sweep the tracker]
 
     C --> D{read complete?}
     D -->|No, unavailable is not empty| D1([Stop: the blocker graph has a hole in it]):::stop

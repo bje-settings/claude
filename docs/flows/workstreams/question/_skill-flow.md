@@ -4,7 +4,7 @@ description: What the /workstreams:question skill does, and every way it decline
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-09-26
 ---
 
 # /workstreams:question skill flow
@@ -13,9 +13,7 @@ What `/workstreams:question` does to one sweep report, and every way it declines
 
 ```mermaid
 flowchart TD
-    A[preflight] --> B{anything missing?}
-    B -->|Yes| B1([Stop: print each hint verbatim]):::stop
-    B -->|No| C{sequencing comment posted?}
+    C{sequencing comment posted?}
     C -->|Yes| C1[Read it: unblocked, next tier,<br/>file map, collisions, shape, size,<br/>hidden dependencies]
     C -->|No| C2[Invoke /workstreams:sweep with the same milestone or issue set]
     C2 --> C3{sweep stopped before it posted one?}
@@ -38,10 +36,7 @@ flowchart TD
     K -->|No| J
     K -->|Yes| L[Plan comment on every issue in the round]
 
-    L --> L1[preflight --json, second time]
-    L1 --> L2{ok?}
-    L2 -->|No| L3([Stop: print each hint verbatim]):::stop
-    L2 -->|Yes| M{gh plugin present?}
+    L --> M{/gh:sync in own skill listing?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2
     M -->|No| M3[Fast-forward the default branch itself] --> M2
     M2[Remove ignored leftovers under plugins/] --> N

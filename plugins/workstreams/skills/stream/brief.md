@@ -102,7 +102,7 @@ return can be checked against them one for one.
     caught.>`
 12. Every command names its directory by absolute path. Never `cd`.
 13. The thing you build assumes nothing about this machine or this repository, beyond
-    what its own preflight checks. No path out of this checkout reaches a shipped file.
+    what its dependency hook checks. No path out of this checkout reaches a shipped file.
 14. `<The prose rules: a skill's diagrams live in docs/flows/<plugin>/<skill>/ only, every script
     call spelled out, SKILL.md well under 500 lines, reference material in supporting files, the
     removal test (if deleting a sentence would get the same result, delete it).>`

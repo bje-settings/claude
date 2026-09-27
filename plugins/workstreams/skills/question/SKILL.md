@@ -12,34 +12,25 @@ sweep report.
 
 Run this in the main conversation. `AskUserQuestion` is removed from every subagent
 ([sub-agents](https://code.claude.com/docs/en/sub-agents#available-tools)), so a subagent
-reaches step 4 and cannot ask.
+reaches step 3 and cannot ask.
 
 ## Process
 
-1. Preflight.
-
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight
-   ```
-
-   Exit 1 means something is missing. Print each hint verbatim and stop.
-
-2. Read the sequencing comment the sweep posted.
+1. Read the sequencing comment the sweep posted.
 
    If there is none yet, invoke `/workstreams:sweep` (the `Skill` tool) with the same
-   milestone or issue set. If it stops before it posts one, for its own preflight, an
-   incomplete read, or nothing unblocked, report what it returned, and stop here too.
-   Otherwise its own last step continues into the question phase itself. Once it
-   returns, the round has already been questioned and planned. Stop here rather than
-   repeat steps 3 onward.
+   milestone or issue set. If it stops before it posts one, for an incomplete read or
+   nothing unblocked, report what it returned, and stop here too. Otherwise its own
+   last step continues into the question phase itself. Once it returns, the round has
+   already been questioned and planned. Stop here rather than repeat steps 2 onward.
 
-3. Explore before you ask. For every open item the sweep names, open the file, the
+2. Explore before you ask. For every open item the sweep names, open the file, the
    record (`docs/rfc`, `docs/adr`, the repository's own rules), or the docs it turns on.
    Say what they say. Grep for the claim. Do not recall it. A question whose answer is
    already in the tree is not a question. It is a ruling with a citation, and it goes in
-   step 5.
+   step 4.
 
-4. Ask one question at a time. Ask only what is genuinely the human's to decide: scope,
+3. Ask one question at a time. Ask only what is genuinely the human's to decide: scope,
    shape (layer count, one pull request or a stack), names that ship, what proves an
    acceptance line true, order against other efforts.
 
@@ -47,39 +38,33 @@ reaches step 4 and cannot ask.
    first and labelled, with the argument against it in its own description. Wait for
    the answer before you ask the next one.
 
-5. Take the rulings that are cheap to reverse, rather than ask: anything the human
+4. Take the rulings that are cheap to reverse, rather than ask: anything the human
    could reverse in one word, if they disagreed. Record each one with what was chosen,
    and the argument for and against it, so the reversal costs nothing.
 
-6. Post the rulings comment: one comment, on every issue in the round and on any issue a
+5. Post the rulings comment: one comment, on every issue in the round and on any issue a
    ruling touches. Number each ruling. End it:
 
    ```
    _Recorded by <effort name>, <date>._
    ```
 
-7. Enter plan mode yourself (`EnterPlanMode`), and write the plan in the shape
+6. Enter plan mode yourself (`EnterPlanMode`), and write the plan in the shape
    [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval. The human
    approves or edits the plan there.
 
-8. After approval, post the plan comment. Trim the approved plan to layers, file sets,
+7. After approval, post the plan comment. Trim the approved plan to layers, file sets,
    size, the done condition, the review shape, and an estimate. Post it as a comment on
    every issue in the round. End it with the same `_Recorded by <effort name>, <date>._`
    line.
 
-9. Housekeeping, before the first worktree.
+8. Housekeeping, before the first worktree.
 
-   ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" preflight --json
-   ```
-
-   Read `ok`. False means something present at step 1 is gone. Print each hint from
-   `missing` verbatim, and stop. True: read `optional` for `gh`. If it is present, ask
-   the person to run `/gh:sync`. If it is absent, fast-forward the default branch
-   yourself: `git -C <repository root> fetch origin <default branch>:<default
-   branch>`. This only ever fast-forwards a named ref, and refuses otherwise; say so if
-   it refuses. Then continue. Remove any ignored leftover under `plugins/` that a
-   deletion left behind.
+   Read your own skill listing. If `/gh:sync` is in it, ask the person to run it.
+   If not, fast-forward the default branch yourself: `git -C <repository root> fetch
+   origin <default branch>:<default branch>`. This only ever fast-forwards a named
+   ref, and refuses otherwise; say so if it refuses. Then continue. Remove any ignored
+   leftover under `plugins/` that a deletion left behind.
 
    Then run the hook preflight, gated on one question: does a local hook run a full
    test suite on every push? Detect it from `core.hooksPath`, `.githooks/`, `.husky/`,
@@ -94,5 +79,5 @@ reaches step 4 and cannot ask.
 
    Note any open pull request of another effort that shares files with the round.
 
-10. Report what was asked and answered, what was ruled instead and why, the rulings comment,
-    the plan comment once approved, and what housekeeping found.
+9. Report what was asked and answered, what was ruled instead and why, the rulings comment,
+   the plan comment once approved, and what housekeeping found.

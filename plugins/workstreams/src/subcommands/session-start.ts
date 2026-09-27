@@ -3,25 +3,30 @@
 // so a test calls it with no process (ADR 001, `.claude/rules/type-ts.md`).
 //
 // This file replaces the `preflight` subcommand (#244). A skill has no
-// preflight step: `.claude/rules/_design-principles.md`, "Dependencies
-// outside a plugin", puts the check in a `SessionStart` hook instead, over
-// the plugin's own table, with `lib/dependencies.ts` `absentDependencies`.
+// preflight step (`.claude/rules/_design-principles.md`, "Dependencies
+// outside a plugin"). It puts the check in a `SessionStart` hook instead,
+// over the plugin's own table, with `lib/dependencies.ts`
+// `absentDependencies`.
 //
 // Every check here is local. `gh auth token` reads a stored credential
-// and makes no call to GitHub, unlike the removed `preflight`
+// and makes no call to GitHub. That is unlike the removed `preflight`
 // subcommand's `gh auth status`. `gh extension list` reads the local
 // extension directory. A hook must stay fast, with no network call.
 //
 // The registry read, and the reviewer check against each copy's
 // `agents/` directory, move here from `preflight.ts`. A registry that
-// cannot be read falls back to `claude plugin list --json`: a hook runs
+// cannot be read falls back to `claude plugin list --json`. A hook runs
 // outside the tool permission system, so neither read needs a new
-// permission. A registry, or a fallback, that cannot be read either way
-// is reported as itself, never as missing plugins: the fix is a
-// different one, and telling someone to install what they already have
-// sends them the wrong way. `preflight.ts`'s `OPTIONAL_PLUGINS` row for
-// `gh` goes with it: `question/SKILL.md` now reads its own skill listing
-// for `/gh:sync`, instead of asking this hook about the `gh` plugin.
+// permission.
+//
+// A registry, or a fallback, that cannot be read either way is reported
+// as itself. It is never reported as missing plugins. An unreadable
+// file needs a different fix. To tell someone to install what they
+// already have sends them the wrong way.
+//
+// `preflight.ts`'s `OPTIONAL_PLUGINS` row for `gh` goes with it.
+// `question/SKILL.md` now reads its own skill listing for `/gh:sync`. It
+// no longer asks this hook about the `gh` plugin.
 import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
@@ -57,8 +62,8 @@ export const REQUIRED_REVIEWERS: readonly string[] = [
 
 /** Where Claude records the plugins that are installed, or `""` when
  *  there is nowhere to look. Moved from `preflight.ts` (#244). The
- *  override lets this command's own suite point it at a file it wrote,
- *  with no `HOME` the rest of the process shares. */
+ *  override lets this command's own suite point it at a file it wrote.
+ *  That file needs no `HOME` the rest of the process shares. */
 export const registryPath = (env: NodeJS.ProcessEnv): string => {
   const override = env.WORKSTREAMS_INSTALLED_PLUGINS
   if (override !== undefined && override !== '') return override
@@ -95,7 +100,7 @@ const hasPlugin = (plugins: Record<string, unknown>, id: string): boolean =>
 type Plugins = Record<string, unknown> | null
 
 /** `claude plugin list --json`'s answer, grouped the way the registry
- *  file's own `plugins` object groups its entries, so `hasPlugin` and
+ *  file's own `plugins` object groups its entries. So `hasPlugin` and
  *  `installPathsFor` read either source the same way. `null` when the
  *  command failed, or said something this cannot parse. */
 const listInstalledPlugins = async (
@@ -127,8 +132,9 @@ const listInstalledPlugins = async (
 
 /** Read the registry file, or fall back to `claude plugin list --json`
  *  when it cannot be read. A file that is not there yet is a session
- *  with nothing installed from this marketplace, not a failure: it
- *  answers as an empty plugins object, with no fallback call. */
+ *  with nothing installed from this marketplace. That is not a
+ *  failure. It answers as an empty plugins object, with no fallback
+ *  call. */
 const readRegistry = async (
   env: NodeJS.ProcessEnv,
   run: Runner,
@@ -190,9 +196,8 @@ const ghLoggedIn = async (
 }
 
 /** Whether the listing names the `gh stack` extension. Matched on the
- *  command, not the repository, because a fork installed under the same
- *  command is the same extension to the skill that runs `gh stack
- *  submit`. */
+ *  command, not the repository. A fork installed under the same command
+ *  is the same extension to the skill that runs `gh stack submit`. */
 const ghStackInstalled = async (
   run: Runner,
   env: NodeJS.ProcessEnv,
@@ -205,7 +210,7 @@ const ghStackInstalled = async (
 
 /** The install paths `plugins` records for `pr-review-toolkit` that a
  *  copy is actually at, right now. The registry keeps an entry per
- *  project that installed it, and a stale one goes on an update or a
+ *  project that installed it. A stale one goes on an update or a
  *  reinstall. */
 const reachableReviewerPaths = (plugins: Record<string, unknown>): string[] =>
   installPathsFor(plugins, REVIEWER_PLUGIN).filter((root) => existsSync(root))
@@ -220,10 +225,11 @@ export interface SessionStartEdges {
 }
 
 /** The dependency table row and whether it holds right now, together. A
- *  row is only ever built for a check this run actually made: `gh-login`
- *  and `gh-stack` are left out when `gh` itself is absent, and the
- *  reviewer rows are left out when the plugin that carries them is
- *  absent or could not be checked at all. */
+ *  row is only ever built for a check this run actually made.
+ *  `gh-login` and `gh-stack` are left out when `gh` itself is absent.
+ *  The reviewer rows are left out too, when the plugin that carries
+ *  them is absent. They are also left out when that plugin could not
+ *  be checked at all. */
 interface Row extends Dependency {
   readonly present: boolean
 }
@@ -248,10 +254,10 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
     rows.push({ tool: 'gh-stack', label: 'the gh stack extension', present: ghStack })
   }
 
-  // A registry (or its fallback) that could not be read at all is a
-  // problem line of its own, never five missing plugins: the fix for an
-  // unreadable file is different from the fix for an absent plugin, and
-  // this cannot tell whether the plugin is there.
+  // A registry, or its fallback, that could not be read at all is a
+  // problem line of its own. It is never five missing plugins. The fix
+  // for an unreadable file differs from the fix for an absent plugin.
+  // This code cannot tell whether the plugin is there.
   const problems: string[] = []
   if (plugins === null) {
     problems.push('the installed plugins file could not be read')
@@ -266,7 +272,7 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
       const reachable = reachableReviewerPaths(plugins)
       if (reachable.length === 0) {
         // Every recorded install path is gone, or none was recorded at
-        // all. Either way this cannot check a single reviewer agent, so
+        // all. Either way this cannot check a single reviewer agent. So
         // it says that, rather than name five agents that may well be
         // there in a copy this cannot find.
         problems.push(
@@ -287,10 +293,10 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   }
 
   // Every tool `absentDependencies` asks about here is a tool this run
-  // itself just put in `rows`, under the same name, so the lookup below
+  // itself just put in `rows`, under the same name. So the lookup below
   // always finds one. The assertion is erased at runtime and adds no
-  // branch a test would have to invent an input for (`lib/node-floor.ts`
-  // makes the same trade on its own match groups).
+  // branch a test would have to invent an input for. `lib/node-floor.ts`
+  // makes the same trade on its own match groups.
   const table: Dependency[] = rows.map(({ tool, label }) => ({ tool, label }))
   const presence = new Map(rows.map((row) => [row.tool, row.present]))
   const absent = absentDependencies(table, (tool) => presence.get(tool) as boolean)
