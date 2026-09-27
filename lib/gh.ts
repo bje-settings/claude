@@ -234,11 +234,12 @@ export interface UnresolvedThread {
  * receives, for a question none of them asked. `listOpenPullRequests`
  * already follows this same rule.
  *
- * The two author lists hold one entry per thread and one entry per comment.
- * From these, a caller reports both a count and who still waits on it. They
- * are separate fields because they are separate facts: the enterprise
- * coverage bot posts a COMMENT on every pull request here, and a loop that
- * counted it as an unresolved review thread would never reach `done`.
+ * The threads and the comments hold one entry per thread and one entry per
+ * comment. From these, a caller reports both a count and who still waits
+ * on it. They are separate fields because they are separate facts: the
+ * enterprise coverage bot posts a COMMENT on every pull request here, and
+ * a loop that counted it as an unresolved review thread would never reach
+ * `done`.
  */
 export interface PullRequestDetail {
   readonly number: number
