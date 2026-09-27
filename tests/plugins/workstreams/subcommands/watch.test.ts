@@ -484,6 +484,33 @@ describe('a watch over the open pull requests', () => {
   )
 
   it(
+    'writes one failure line for each of two bases down at once, and names both, ' +
+      'sorted, on the heartbeat (#265)',
+    async () => {
+      const release = head({ base: 'release2', checks: [done('release-check')] })
+      const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+      const { context, lines } = watchOver([
+        {
+          heads: heads(release, flaky),
+          required: {
+            main: REQUIRED,
+            release2: ghFails('gh: HTTP 500'),
+            flaky: ghFails('gh: HTTP 404'),
+          },
+        },
+      ])
+
+      await runWatch(['--ticks', '12'], context)
+
+      expect(lines).toEqual([
+        'required contexts for release2 could not be read: gh: HTTP 500; its pull requests are unread',
+        'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+        'heartbeat: required contexts for flaky, release2 still unread, the last: gh: HTTP 404',
+      ])
+    },
+  )
+
+  it(
     'reports a pull request that merged while its own base stayed unread, and ' +
       'writes no false recovery for that base (#265)',
     async () => {
