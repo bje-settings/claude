@@ -33,8 +33,7 @@ const detail = (overrides: Partial<PullRequestDetail> = {}): PullRequestDetail =
     { name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' },
     { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS' },
   ],
-  unresolvedThreadAuthors: [],
-  unresolvedThreadBots: [],
+  unresolvedThreads: [],
   commentAuthors: ['github-code-quality'],
   ...overrides,
 })
@@ -170,7 +169,7 @@ describe('the facts it reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['reviewer-a'],
+            unresolvedThreads: [{ author: 'reviewer-a', bot: false }],
             commentAuthors: ['github-code-quality', 'reviewer-a'],
           }),
           unavailable: null,
@@ -193,8 +192,10 @@ describe('the facts it reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['github-actions', 'github-actions'],
-            unresolvedThreadBots: [true, true],
+            unresolvedThreads: [
+              { author: 'github-actions', bot: true },
+              { author: 'github-actions', bot: true },
+            ],
           }),
           unavailable: null,
           missing: false,
@@ -218,8 +219,10 @@ describe('the facts it reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['github-actions', 'reviewer-a'],
-            unresolvedThreadBots: [true, false],
+            unresolvedThreads: [
+              { author: 'github-actions', bot: true },
+              { author: 'reviewer-a', bot: false },
+            ],
           }),
           unavailable: null,
           missing: false,
@@ -240,8 +243,7 @@ describe('the facts it reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['reviewer-a'],
-            unresolvedThreadBots: [false],
+            unresolvedThreads: [{ author: 'reviewer-a', bot: false }],
           }),
           unavailable: null,
           missing: false,
@@ -252,29 +254,6 @@ describe('the facts it reads', () => {
     expect(report.unresolvedThreads).toBe(1)
     expect(report.botThreads).toBe(0)
     expect(report.botThreadAuthors).toEqual([])
-    expect(report.state).toBe('fixing')
-  })
-
-  it('reads a thread with no bot flag of its own as a person, the safe side', async () => {
-    // `unresolvedThreadBots` shorter than `unresolvedThreadAuthors` is a
-    // shape `viewPullRequestDetail` never actually answers, but a missing
-    // entry must still read as "not a bot", never as "unreadable".
-    const report = await reportOf(
-      ['178', '--round', '1'],
-      replies({
-        viewPullRequestDetail: {
-          pullRequest: detail({
-            unresolvedThreadAuthors: ['reviewer-a'],
-            unresolvedThreadBots: [],
-          }),
-          unavailable: null,
-          missing: false,
-        },
-      }),
-    )
-
-    expect(report.unresolvedThreads).toBe(1)
-    expect(report.botThreads).toBe(0)
     expect(report.state).toBe('fixing')
   })
 
@@ -1150,7 +1129,10 @@ describe('the report a person reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['reviewer-a', 'reviewer-a'],
+            unresolvedThreads: [
+              { author: 'reviewer-a', bot: false },
+              { author: 'reviewer-a', bot: false },
+            ],
             commentAuthors: [],
           }),
           unavailable: null,
@@ -1171,8 +1153,10 @@ describe('the report a person reads', () => {
       replies({
         viewPullRequestDetail: {
           pullRequest: detail({
-            unresolvedThreadAuthors: ['github-actions', 'reviewer-a'],
-            unresolvedThreadBots: [true, false],
+            unresolvedThreads: [
+              { author: 'github-actions', bot: true },
+              { author: 'reviewer-a', bot: false },
+            ],
             commentAuthors: [],
           }),
           unavailable: null,

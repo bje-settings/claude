@@ -447,19 +447,14 @@ export interface PrStateContext {
 
 /** The unresolved threads, split into two lists: the ones that hold the
  *  loop, and the ones a bot opened (#219). A thread reads as a person's
- *  when `unresolvedThreadBots` holds no flag for its index, or the flag is
- *  not true. This is the safe side, the same one an unknown author takes
- *  in {@link PullRequestDetail}. */
+ *  when its `bot` flag is not `true`. This is the safe side, the same one
+ *  an unknown author takes in {@link PullRequestDetail}. */
 const threadsOf = (
   detail: PullRequestDetail | null,
 ): { blocking: readonly string[]; bots: readonly string[] } => {
   if (detail === null) return { blocking: [], bots: [] }
-  const blocking: string[] = []
-  const bots: string[] = []
-  detail.unresolvedThreadAuthors.forEach((author, index) => {
-    if (detail.unresolvedThreadBots[index] === true) bots.push(author)
-    else blocking.push(author)
-  })
+  const blocking = detail.unresolvedThreads.filter((thread) => !thread.bot).map((t) => t.author)
+  const bots = detail.unresolvedThreads.filter((thread) => thread.bot).map((t) => t.author)
   return { blocking, bots }
 }
 

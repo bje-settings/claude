@@ -1695,8 +1695,7 @@ describe('the review loop reads', () => {
         headSha: '9b13a20',
         mergeable: 'MERGEABLE',
         checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-        unresolvedThreadAuthors: [],
-        unresolvedThreadBots: [],
+        unresolvedThreads: [],
         commentAuthors: [],
       })
     })
@@ -1731,11 +1730,14 @@ describe('the review loop reads', () => {
 
       const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
 
-      expect(result.pullRequest?.unresolvedThreadAuthors).toEqual(['waiting', 'unknown', 'unknown'])
       // None of these three is a bot: a person, and two threads whose author
       // GitHub no longer names. An unknown author is read as a person, the
       // safe side, never as a bot.
-      expect(result.pullRequest?.unresolvedThreadBots).toEqual([false, false, false])
+      expect(result.pullRequest?.unresolvedThreads).toEqual([
+        { author: 'waiting', bot: false },
+        { author: 'unknown', bot: false },
+        { author: 'unknown', bot: false },
+      ])
       expect(result.pullRequest?.commentAuthors).toEqual(['github-code-quality', 'unknown'])
     })
 
@@ -1771,12 +1773,11 @@ describe('the review loop reads', () => {
 
       const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
 
-      expect(result.pullRequest?.unresolvedThreadAuthors).toEqual([
-        'github-actions',
-        'reviewer-a',
-        'reviewer-b',
+      expect(result.pullRequest?.unresolvedThreads).toEqual([
+        { author: 'github-actions', bot: true },
+        { author: 'reviewer-a', bot: false },
+        { author: 'reviewer-b', bot: false },
       ])
-      expect(result.pullRequest?.unresolvedThreadBots).toEqual([true, false, false])
     })
 
     it('reads a commit status, which has no status of its own, beside a check run', async () => {

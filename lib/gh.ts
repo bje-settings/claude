@@ -214,6 +214,16 @@ export interface CheckContext {
   readonly conclusion: string | null
 }
 
+/** One UNRESOLVED review thread's first comment: who opened it, and whether
+ *  that account is a bot (`author.__typename === "Bot"`). `bot` is false
+ *  for a thread whose author GitHub no longer names. That is the safe
+ *  side: an unknown author still holds the review loop at `fixing`, as a
+ *  person's thread does. */
+export interface UnresolvedThread {
+  readonly author: string
+  readonly bot: boolean
+}
+
 /**
  * One pull request, with the facts a review loop derives its state from.
  *
@@ -248,15 +258,9 @@ export interface PullRequestDetail {
   /** Every check reported on the head commit, in the order GitHub lists them.
    *  Empty for a head no check has reported on yet. */
   readonly checks: readonly CheckContext[]
-  /** One login per UNRESOLVED review thread, from the thread's first comment.
-   *  A thread whose author GitHub no longer names is `unknown`. */
-  readonly unresolvedThreadAuthors: readonly string[]
-  /** Parallel to {@link unresolvedThreadAuthors}: whether that thread's
-   *  first comment came from a bot account (`author.__typename ===
-   *  "Bot"`). False for a thread whose author GitHub no longer names. That
-   *  is the safe side: an unknown author still holds the loop at
-   *  `fixing`, as a person's does. */
-  readonly unresolvedThreadBots: readonly boolean[]
+  /** One row per UNRESOLVED review thread, from the thread's first comment.
+   *  See {@link UnresolvedThread}. */
+  readonly unresolvedThreads: readonly UnresolvedThread[]
   /** One login per issue comment on the pull request. */
   readonly commentAuthors: readonly string[]
 }
@@ -1298,15 +1302,13 @@ const readPullRequestDetail = (
 
   const threads = nodesOf(record?.reviewThreads)
   if (threads === null) return null
-  const unresolvedThreadAuthors: string[] = []
-  const unresolvedThreadBots: boolean[] = []
+  const unresolvedThreads: UnresolvedThread[] = []
   for (const entry of threads) {
     const thread = asRecord(entry)
     if (typeof thread?.isResolved !== 'boolean') return null
     if (thread.isResolved) continue
     const opener = nodesOf(thread.comments)?.[0]
-    unresolvedThreadAuthors.push(loginOf(opener))
-    unresolvedThreadBots.push(isBotAuthor(opener))
+    unresolvedThreads.push({ author: loginOf(opener), bot: isBotAuthor(opener) })
   }
   if (truncated(record?.reviewThreads)) {
     reasons.push(
@@ -1335,8 +1337,7 @@ const readPullRequestDetail = (
       headSha,
       mergeable,
       checks,
-      unresolvedThreadAuthors,
-      unresolvedThreadBots,
+      unresolvedThreads,
       commentAuthors: comments.map(loginOf),
     },
     reasons,
