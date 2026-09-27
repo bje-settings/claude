@@ -135,6 +135,14 @@ it('reads a head nothing has reported on as a head with no checks', async () => 
   expect(answer.unavailable).toBeNull()
 })
 
+it('reads a head branch in a fork as one', async () => {
+  const { gh } = clientAnswering([REPO, page([node({ isCrossRepository: true })])])
+
+  const answer = await gh.listOpenPullRequestHeads()
+
+  expect(answer.rows[0]?.crossRepository).toBe(true)
+})
+
 it('refuses a row it cannot trust, and says how many it left out', async () => {
   const truncated = {
     nodes: [
