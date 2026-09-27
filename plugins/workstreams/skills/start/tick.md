@@ -45,7 +45,7 @@ On a collision:
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `ci-pending` | Nothing. The watch names each check as it reports. |
 | `red` | The agent that pushed the head fixes it. If it returned, send it back with `SendMessage`. A pull request from a person, with no agent: report it, and stop. |
-| `review-1`, `review-2`, `rot-check` | In a stack, switch the worktree to this layer's branch first (`git -C <worktree> switch <branch>`), with no agent at work in it. Then invoke `/workstreams:review` with the number and the review facts. |
+| `review-1`, `review-2`, `rot-check` | In a stack, switch the worktree to this layer's branch first (`git -C <worktree> switch <branch>`), with no agent at work in it. Then invoke `/workstreams:review` with the number and the markers' flags. |
 | `fixing` | Nothing. The round agent's return, or a person who resolves a thread, is the next wake. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
@@ -55,8 +55,8 @@ contexts whose `reported` is `false`.
 ## 5. Read an agent's return
 
 - **A layer agent.** Invoke `/workstreams:stream` to read it.
-- **A round agent.** Raise the rounds done by one. Record `substantial` when the round says
-  so. Read it generously: a round that changed behaviour at all is substantial.
+- **A round agent.** Invoke `/workstreams:review` with the number and the return. It posts
+  the round's marker.
 - **`lower_layer`, from either.** Apply it to its layer only in a gap: no agent writes to
   that layer or to one above it. Resume that layer's agent with `SendMessage`. Tell it to
   commit on its own branch, then run `gh stack rebase --upstack`, a full type check, and

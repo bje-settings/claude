@@ -14,7 +14,9 @@ act. Each call takes one step and returns. The caller waits between calls.
 
 ```mermaid
 flowchart TD
-    W{exactly one worktree matches the head<br/>branch, and a model is named?}
+    R0{called with a round agent's return?}
+    R0 -->|Yes| R1([Post the round's marker, then return])
+    R0 -->|No| W{exactly one worktree matches the head<br/>branch, and a model is named?}
     W -->|No| W1([Stop: say which is absent; never guess]):::stop
     W -->|Yes| C[Read the pull request's state once]
 
@@ -32,7 +34,7 @@ flowchart TD
     I --> J[Reviewers from what the diff changes]
     J --> K([Dispatch one round agent, then return;<br/>its return goes to the caller])
 
-    E -->|rot-check| Q([Title and body against the final diff,<br/>then return])
+    E -->|rot-check| Q([Title and body against the final diff;<br/>post the rot check marker, then return])
     E -->|done| S([Report: state, applied, rejected,<br/>corrections, lower_layer, open bot threads])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

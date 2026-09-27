@@ -22,10 +22,8 @@ flowchart TD
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
-    B -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review facts]
-    E --> E1{review facts in view?}
-    E1 -->|No| E2([Ask the person for them]):::pause --> F
-    E1 -->|Yes| F{a layer to write, and the layer below done?}
+    B -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers]
+    E --> F{a layer to write, and the layer below done?}
     P1 --> W
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No| W
@@ -67,6 +65,6 @@ flowchart TD
     classDef pause fill:#e3f2fd,stroke:#0d47a1,color:#000
 ```
 
-A layer's return goes to `/workstreams:stream` to read. A round agent's return raises the rounds
-done by one. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
+A layer's return goes to `/workstreams:stream` to read. A round agent's return goes to
+`/workstreams:review`, which posts the round's marker. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
 layer or above it. Otherwise the finding waits for the round-end report.

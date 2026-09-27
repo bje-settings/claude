@@ -60,9 +60,10 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 Each call derives where the round stands from the tracker, and writes no file. The plan
 is the comment whose first line reads `<round> plan, approved <date>.`. The pull requests
 are the ones that close the round's issues, in the order `gh stack view` gives. Three
-review facts per pull request live only in the conversation. They are the rounds done,
-whether round 1 was substantial, and whether the rot check is done. In a new
-conversation, the skill asks the person for them.
+review facts per pull request are the rounds done, whether round 1 was substantial, and
+whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
+request for each one, and `start` reads the markers back. So a new conversation needs no
+question.
 
 It runs in the main conversation. The two human gates need it there: the plan approval in
 plan mode, and one `AskUserQuestion` when two streams collide. A subagent has neither.
@@ -156,8 +157,10 @@ before any edit starts, because one round reviewed its own uncommitted work. Rou
 checks round 1's commits first, because round 2 found round 1 wrong or incomplete on nine
 of the ten pull requests reviewed by hand in rounds 5 to 7.
 
-There is no state file. Everything is read again each tick. The caller passes the three
-facts the command cannot read as flags.
+There is no state file. Everything is read again each tick. After each round and after the
+rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`
+The caller reads the markers back, and passes the three facts the command cannot read as
+flags.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it, one step for each call.
 
@@ -356,7 +359,8 @@ enterprise coverage bot posts a comment on every pull request, and a loop that c
 would never reach `done`.
 
 `--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
-read, so the caller carries them.
+read. `/workstreams:start` reads them from the marker comments that `/workstreams:review`
+posts.
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read.
 

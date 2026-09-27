@@ -1,13 +1,13 @@
 ---
 name: review
-description: Take one step of the review loop on one draft pull request, from its state. Dispatch a review round, reopen for a missing run, do the rot check, or report.
-argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--rot-checked]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh issue view *) Bash(git worktree list *) Read Grep Glob Agent
+description: Take one step of the review loop on one draft pull request, from its state. Dispatch a review round, record a finished one, reopen for a missing run, do the rot check, or report.
+argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--rot-checked] [round return]
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(git worktree list *) Read Grep Glob Agent
 user-invocable: false
 ---
 
 Pull request and review facts: $ARGUMENTS. The flags are the three facts `pr-state`
-cannot read. The caller carries them between calls.
+cannot read. The caller reads them from the markers below.
 
 Its worktree comes from `git worktree list`, matched against the pull request's head
 branch. The round's issues are the ones its body closes (`gh pr view <number>`), or
@@ -22,7 +22,24 @@ the pull request.
 
 Do one step for each call, then return. Never wait: the caller waits.
 
+## Markers
+
+After each review round, and after the rot check, post one marker comment on the pull
+request. The effort line is the plan comment's last line, or the caller's, with today's date:
+
+```bash
+gh pr comment <number> --body "<marker>
+
+_Recorded by <effort>, <date>._"
+```
+
+The marker is one of these, exactly: `Review round 1 done: substantial.`,
+`Review round 1 done.`, `Review round 2 done.`, `Rot check done.` Round 1 is substantial
+when it changed behaviour at all.
+
 ## Process
+
+0. Called with a round agent's return: post that round's marker, then return.
 
 1. Read the state once.
 
@@ -77,7 +94,7 @@ Do one step for each call, then return. Never wait: the caller waits.
    this round does not own.
 
 4. Rot check. Read [rot-check.md](rot-check.md) and do what it says with the rot lists the
-   rounds returned.
+   rounds returned. Then post the `Rot check done.` marker.
 
 5. Report five things: the state reached, what each round applied and rejected with its
    reason, the rot check's corrections, anything returned under `lower_layer`, and any
