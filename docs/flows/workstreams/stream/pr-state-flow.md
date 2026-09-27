@@ -4,7 +4,7 @@ description: How `workstreams.ts pr-state` reads one pull request and its checks
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-09-26
 ---
 
 # pr-state flow

@@ -65,10 +65,9 @@ and report per milestone.
       without the other.
    3. **Parallel streams**, when the file sets are disjoint.
 
-6. Post the sequencing comment. Post one comment on **every** issue in the round, and on
-   every issue its `unlocks` names. It carries the unblocked set and the file map. It
-   names the collisions, the recommended shape with its argument, the size, and the
-   hidden dependencies, each cited.
+6. Post the sequencing comment. Post one comment on **every** issue in the round. It
+   carries the unblocked set and the file map. It names the collisions, the recommended
+   shape with its argument, the size, and the hidden dependencies, each cited.
 
    Check every hidden dependency against the code before you post the comment.
 

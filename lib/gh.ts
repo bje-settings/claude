@@ -1035,8 +1035,8 @@ const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: Str
  * unresolved thread needs to know when the list is short.
  *
  * A review thread's author is the author of its FIRST comment, the comment
- * that opened it. That comment's `__typename` says whether the account is a
- * bot, which is what tells a preview workflow's own thread apart from a
+ * that opened it. That comment's `__typename` says whether the account is
+ * a bot. This is what tells a preview workflow's own thread apart from a
  * person's.
  */
 const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {

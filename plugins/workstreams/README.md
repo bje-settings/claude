@@ -57,7 +57,7 @@ command answers:
 | Set | Rule |
 | --- | --- |
 | unblocked | Every `blockedBy` entry is closed or merged, or there are none at all. Carries `unlocks`: the open issues it is the only open blocker of. |
-| blocked | At least one open `blockedBy` entry. Reported as a count and numbers only. |
+| blocked | At least one open `blockedBy` entry. Reported as a count, number and title only. |
 
 "No blockers at all" and "every blocker closed" both count as unblocked, but the report
 lists them apart. The first case is work nothing blocked. The second case is work a
@@ -68,9 +68,8 @@ The skill does the reading. It reads every issue body and every comment, for the
 unblocked set alone. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
 what has merged. It maps the files each issue touches. It classifies and sizes each
 issue. It chooses between parallel streams, a stack, and one pull request. It posts the
-sequencing comment on every issue in the round, and on every issue its own `unlocks`
-names. `skills/sweep/` carries the rules. `file-map.md` holds the mapping rules a file
-map must apply.
+sequencing comment on every issue in the round. `skills/sweep/` carries the rules.
+`file-map.md` holds the mapping rules a file map must apply.
 
 Both the user and the model can invoke it: it starts a round. Its last step continues
 into `/workstreams:question` with the same scope. Nobody has to ask for the question
@@ -261,7 +260,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep [--milestone 4,5] [--j
 
 Reports the open milestones with their issue counts, every open pull request, including
 ones no round opened, and, for each milestone asked for plus the issues on no milestone
-at all, the three sets. `--milestone` takes one number or a comma-separated list. It is
+at all, the two sets. `--milestone` takes one number or a comma-separated list. It is
 refused if given twice, because `parseArgs` would otherwise keep only the last one, and
 say nothing. Left out, the report covers every open milestone, plus any other milestone
 the issues name, so an open issue left on a closed milestone is still reported. `--json`

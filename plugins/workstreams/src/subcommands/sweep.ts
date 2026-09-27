@@ -3,11 +3,11 @@
 //
 // The deterministic half of the sweep is here. The judgement is in
 // `skills/sweep` (CLAUDE.md, "Plugin design"). This command answers which
-// issues are unblocked, which are one issue behind that, and which are
-// further out. It answers nothing about what any of them touches, or how
-// they should be sequenced. Those come from readings of the issue bodies
-// and of the tree. A script that guessed at them would guess where the
-// skill can look instead.
+// issues are unblocked, what each one unlocks, and how many issues are
+// still blocked. It answers nothing about what any of them touches, or
+// how they should be sequenced. Those come from readings of the issue
+// bodies and of the tree. A script that guessed at them would guess
+// where the skill can look instead.
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
@@ -32,8 +32,9 @@ for plus the issues on no milestone at all:
 
   unblocked   every blockedBy entry closed, or none at all. Carries
               unlocks: the open issues it is the only blocker of
-  blocked     at least one open blockedBy entry. Reported as a count and
-              numbers only: never read, mapped, sized, or commented on
+  blocked     at least one open blockedBy entry. Reported as a count,
+              number and title only: never read, mapped, sized, or
+              commented on
 
 --milestone takes one number or a comma-separated list, and scopes the report
 to those milestones and the issues on none. Left out, every open milestone is
