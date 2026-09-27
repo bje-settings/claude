@@ -1682,8 +1682,14 @@ describe('the review loop reads', () => {
       expect(calls[1]?.args[9]).toContain('$number: Int!')
       expect(calls[1]?.args[9]).toContain('commits(last: 1)')
       // The query must ask for `__typename` on a thread's first comment's
-      // author, so a bot-opened thread can be told from a person's.
-      expect(calls[1]?.args[9]).toContain('__typename')
+      // author. This tells a bot-opened thread from a person's thread.
+      // Assert the exact selection, not a bare `__typename` substring. The
+      // same query also asks for `__typename` on a check context, for an
+      // unrelated reason. A bare `toContain` would still pass with the
+      // field gone from the thread's own selection.
+      expect(calls[1]?.args[9]).toContain(
+        'comments(first: 1) { nodes { author { __typename login } } } }',
+      )
       expect(result.unavailable).toBeNull()
       expect(result.pullRequest).toEqual({
         number: 178,
