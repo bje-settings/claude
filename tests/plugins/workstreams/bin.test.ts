@@ -4,13 +4,13 @@
 // `subcommands/*.test.ts`. This is the only place the process boundary
 // itself, and the floor guard in front of it, are real.
 //
-// Only the paths that reach no GitHub: the usage, the refusals, each arm's
-// own `--help`, and the process edges of the watch. A spawned child cannot
+// Only the paths that reach no GitHub are here. These are the usage, the
+// refusals, each arm's own `--help`, and the process edges of the watch. A spawned child cannot
 // be handed the injected `gh` client (ADR 001, and the reason the command
 // function is the seam at all). So a test that drove `sweep` itself here
 // would reach for the real `gh`, and assert against a machine's login. The
-// watch examples run in a sandbox checkout, with a `gh` that always fails
-// first on PATH, as the hook tests do.
+// watch examples run in a sandbox checkout. A `gh` that always fails is
+// first on PATH, as in the hook tests.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
@@ -145,10 +145,10 @@ it('fails intersect outside a git checkout, exit 1, with nothing on stdout', () 
 
 // --- watch -------------------------------------------------------------------
 //
-// The watch is the one long-running arm, so its process boundary has more to
-// it: a SIGTERM and a reader that closed the pipe each end it with exit 0.
-// Neither run reaches GitHub. The `gh` put first on PATH always fails, so
-// each poll writes one "poll failed" line and the watch keeps polling.
+// The watch is the one arm that runs until it is stopped. A SIGTERM ends it
+// with exit 0, and so does a reader that closed the pipe. Neither run
+// reaches GitHub. The `gh` first on PATH always fails. So each poll writes
+// one "poll failed" line, and the watch polls again.
 
 /** A sandbox and a checkout in it, with a `gh` that always fails first on
  *  PATH. */

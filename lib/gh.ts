@@ -198,8 +198,8 @@ export interface PullRequestSummary {
  *
  * This is a row of its own, not a wider {@link PullRequestSummary}. The
  * sweep's acceptance test replays `listOpenPullRequests` by its exact argv,
- * query text included. A wider query there would change what the sweep is
- * handed, for a question the sweep does not ask (round 10 ruling P8).
+ * query text included. A wider query there would change what the sweep
+ * gets. The sweep does not ask this question (round 10 ruling P8).
  */
 export interface PullRequestHead {
   readonly number: number
@@ -517,14 +517,14 @@ export interface GhClient {
    */
   listOpenPullRequests(): Promise<GhResults['listOpenPullRequests']>
   /**
-   * Every open pull request with its head commit's full oid and the checks
-   * reported on that commit, in one paginated read.
+   * Every open pull request, with the full oid of its head commit and the
+   * checks on that commit. One paginated read answers it all.
    *
    * A watch asks this once for each poll, not once for each pull request.
-   * So one poll is one view of every head, taken at one time. A row whose
-   * check list is longer than one page is left out and counted in
-   * `unavailable`, because a list cut short could leave out the one
-   * required context that failed.
+   * So one poll is one view of every head, taken at one time. A row with
+   * more checks than one page holds is left out, and counted in
+   * `unavailable`. A list cut short could leave out the one required
+   * context that failed.
    *
    * Never throws, for {@link PagedResult}'s reason.
    */
@@ -1267,9 +1267,9 @@ const readPullRequest = (node: unknown): PullRequestSummary | null => {
 }
 
 /**
- * One commit's rollup as checks, or null when it is not the shape asked for
- * or holds more checks than one page. A null rollup is a commit nothing has
- * reported on yet, which is an empty list and not a failure.
+ * One commit's rollup as checks. Null when the rollup is not the shape asked
+ * for, or holds more checks than one page. A null rollup is a commit nothing
+ * has reported on yet. That is an empty list and not a failure.
  */
 const readRollup = (rollup: unknown): CheckContext[] | null => {
   if (rollup === null) return []

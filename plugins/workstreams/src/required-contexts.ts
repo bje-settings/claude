@@ -1,15 +1,16 @@
 // The one derivation of the required status-check contexts. `pr-state` and
-// `watch` both use it (round 10 ruling P6), so the two cannot disagree about
-// which names a head must pass, or about what satisfies one.
+// `watch` both use it (round 10 ruling P6). So the two cannot disagree about
+// the names a head must pass. They also cannot disagree about what
+// satisfies one.
 //
-// A ruleset on a topic branch is rare. Every layer of a stack above the
-// first has a base that no ruleset covers, so the list for that base is
-// empty. The two callers want different fallbacks for that case:
+// A ruleset on a topic branch is rare. No ruleset covers the base of a stack
+// layer above the first, so the list for that base is empty. The two callers
+// want different fallbacks for that case:
 //
 //   - `pr-state` falls back to the names that reported on the head. It also
 //     reads the workflow runs, so it can tell when that list is settled.
 //   - `watch` falls back to the DEFAULT branch's list (ruling P9). It reads
-//     no runs. Round 5 found the head-only rule concluded on seven CodeQL
+//     no runs. In round 5, the head-only rule concluded on seven CodeQL
 //     checks and none of the required ones.
 //
 // This file ships. It imports only a type from `lib/`.
@@ -18,12 +19,12 @@ import type { CheckContext } from './lib/gh.ts'
 /**
  * What a required context adds up to.
  *
- * `success` covers the three conclusions that SATISFY a required check:
- * `SUCCESS`, and `SKIPPED` and `NEUTRAL`, which GitHub's own merge gate
- * accepts. If this reported a skipped required job as red, a loop would
- * never finish, on any repository whose workflow skips a job by path
- * filter. The raw conclusion is carried beside the verdict, so a caller
- * can still see which of the three it was.
+ * `success` covers the three conclusions that SATISFY a required check.
+ * These are `SUCCESS`, and also `SKIPPED` and `NEUTRAL`, which GitHub's own
+ * merge gate accepts. A loop that read a skipped required job as red would
+ * never finish. That occurs on any repository whose workflow skips a job
+ * by path filter. The report carries the raw conclusion beside the
+ * verdict. So a caller can still see which of the three it was.
  */
 export type ContextVerdict = 'success' | 'failed' | 'pending'
 
@@ -44,8 +45,8 @@ export interface ReportedContext {
 /** The most recent conclusion reported under `name`, and whether anything
  *  reported under it at all.
  *
- *  The FIRST match wins, which is GitHub's newest: a re-run adds a second
- *  check with the same name and the rollup lists the current one first. A
+ *  The FIRST match wins, which is GitHub's newest. A re-run adds a second
+ *  check with the same name, and the rollup lists the current one first. A
  *  reader that took the last would report a superseded failure as the answer.
  */
 const reportedAs = (checks: readonly CheckContext[], name: string): ReportedContext => {

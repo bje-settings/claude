@@ -1,5 +1,5 @@
-// The watch command. `gh` is the injected double and the clock and the sleep
-// are fakes, so a run of many polls takes no real time. Each example states
+// The watch command. `gh` is the injected double. The clock and the sleep
+// are fakes, so many polls take no real time. Each example states
 // what gh answers on each poll, and asserts the lines the watch wrote. git is
 // real: the watch asks git once whether it stands in a checkout.
 import { describe, expect, it } from 'vitest'
@@ -54,8 +54,8 @@ const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'm
 
 /**
  * A watch over `polls`, one entry per poll; the last entry repeats. The
- * double answers from the entry of the poll in progress, and the fake sleep
- * moves the clock and the entry on.
+ * double answers from the entry of the current poll. The fake sleep moves
+ * the clock and the entry on.
  */
 const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}) => {
   // A sandbox per example: `createSandbox` removes its directory when the
@@ -77,8 +77,8 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
     ...base,
     viewRepository: async () => reply(current().repository ?? REPOSITORY, 'viewRepository'),
     listOpenPullRequestHeads: async () => reply(current().heads, 'listOpenPullRequestHeads'),
-    // The real endpoint never throws: a read that fell short comes back
-    // with its reason, so a registered failure does the same here.
+    // The real endpoint never throws. A read that fell short comes back
+    // with its reason, and a registered failure here does the same.
     requiredContexts: async ({ branch }) => {
       const byBranch = current().required ?? { main: REQUIRED }
       if (byBranch instanceof Error) return { contexts: [], unavailable: byBranch.message }

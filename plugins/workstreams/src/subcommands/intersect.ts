@@ -1,13 +1,14 @@
 // The intersect: every open pull request's head against the default branch
 // and against each other, read with local git. The orchestrator runs it on
 // each tick (round 10 rulings 10, 13 and 14). It finds a real collision
-// between two streams, the rebase debt of a branch that no round opened, and
-// the facts of the per-head check: a `pull_request` run for the head, and
-// clean checkouts.
+// between two streams. It finds the rebase debt of a branch that no round
+// opened. It also gives the facts of the check on each head: a
+// `pull_request` run, and clean checkouts.
 //
-// **git does the work, on objects fetched by sha.** Each head is fetched as
-// `git fetch origin <sha>`, with no refspec to write and no `FETCH_HEAD`.
-// So the command leaves no named ref behind (ruling 10). `git merge-base`,
+// **git does the work, on objects fetched by sha.** The command fetches
+// each head as `git fetch origin <sha>`. That fetch has no refspec to write,
+// and writes no `FETCH_HEAD`. So the command leaves no named ref behind
+// (ruling 10). `git merge-base`,
 // `git diff` and `git merge-tree --write-tree` then use the same objects.
 // `merge-tree` writes tree objects to the object store and no ref.
 //
@@ -19,8 +20,8 @@
 // The judgement is the skill's: which collision is real work, and the order
 // to merge in. This command says what git says.
 //
-// The command function is the seam (ADR 001): parsed arguments, an injected
-// `GhClient` and the directory to run git in, an envelope out.
+// The command function is the seam (ADR 001). Parsed arguments, an injected
+// `GhClient` and a directory for git go in. An envelope comes out.
 import { parseArguments } from '../lib/args.ts'
 import { type Envelope, failed, ok } from '../lib/envelope.ts'
 import type { GhClient, PullRequestHead } from '../lib/gh.ts'
@@ -97,8 +98,8 @@ export interface PullReport {
   /** The files the head changes against the merge base, or null. */
   readonly files: readonly string[] | null
   readonly againstDefault: MergeResult
-  /** Whether a run with event `pull_request` exists for the exact head, or
-   *  null when the run list fell short and did not show one. */
+  /** Whether a run with event `pull_request` exists for the exact head.
+   *  Null when the run list fell short and did not show one. */
   readonly pullRequestRun: boolean | null
   /** The worktree on the head branch, or null when there is none. */
   readonly worktree: Checkout | null
@@ -147,9 +148,9 @@ const nulList = (out: string): string[] => out.split('\0').filter((entry) => ent
 /**
  * The result of `git merge-tree --write-tree` for two commits.
  *
- * Exit 0 is clean. Exit 1 is a conflict, but git also exits 1 for a
- * commit it cannot read ("not something we can merge"). So a conflict is
- * trusted only when stdout starts with the tree oid that `--write-tree`
+ * Exit 0 is clean. Exit 1 is a conflict. But git also exits 1 for a
+ * commit it cannot read: "not something we can merge". So this trusts a
+ * conflict only when stdout starts with the tree oid that `--write-tree`
  * prints first. Anything else is `unread`, never `clean`.
  */
 const mergeTree = async (
@@ -343,7 +344,8 @@ export const runIntersect = async (
       unavailable.push(`#${pull.number}: ${reason}`)
     }
     // git answers a fetch of a commit it already has from its own object
-    // store, with no call to the remote, so there is no check before it.
+    // store. It makes no call to the remote. So no check comes before the
+    // fetch.
     const fetch = await answer([
       'fetch',
       '--quiet',
@@ -410,9 +412,9 @@ export const runIntersect = async (
   }
 
   // Each pair of heads with a file in common. A head whose file list is
-  // unread cannot be paired, and says so once, rather than be left out in
-  // silence. On the right side of a pair, an unread list is an empty set,
-  // so it shares nothing.
+  // unread cannot be paired. The report says so once, and does not leave it
+  // out in silence. On the right side of a pair, an unread list is an empty
+  // set, so it shares nothing.
   const pairs: PairReport[] = []
   for (const [index, left] of pullRequests.entries()) {
     if (left.files === null) {

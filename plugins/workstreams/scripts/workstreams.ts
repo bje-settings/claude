@@ -24,8 +24,8 @@
 // Every arm answers with an envelope. For `sweep`, `pr-state` and
 // `intersect`, the whole output is one payload a caller either gets or
 // does not (`lib/envelope.ts`). `watch` writes a line for each event while
-// it runs, and its envelope is only the end: empty, or the one line that
-// says there is nothing to watch. A third
+// it runs. Its envelope is only the end. That is empty, or the one line
+// that says there is nothing to watch. A third
 // arm, `preflight`, once answered with a status, and wrote its own
 // report. That arm is gone: a skill has no preflight step
 // (`.claude/rules/_design-principles.md`). The check it ran now runs

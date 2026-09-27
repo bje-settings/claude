@@ -1,27 +1,27 @@
 // The watch: a long poll of every open pull request in the repository. It
-// writes one line to stdout for each event. A Monitor, or the plugin
-// monitor that layer 5 adds, turns each line into one wake of the
-// orchestrator (round 10 ruling 9).
+// writes one line to stdout for each event. A Monitor turns each line into
+// one wake of the orchestrator (round 10 ruling 9). The plugin monitor that
+// layer 5 adds does the same.
 //
 // **Memory only.** The watch keeps what it has seen in this process, and
 // writes no file (`.claude/rules/_design-principles.md`, "State"). A watch
 // that starts again learns the heads again. `--since-head` and
-// `--concluded` let a caller that starts it again say what it already
-// knows, so that the new watch stays silent about it.
+// `--concluded` let a caller say what it already knows. The new watch then
+// stays silent about it.
 //
 // **A head concludes only when every required context has reported**
 // (ruling P9). The list comes from the base branch's rules, and from the
 // DEFAULT branch's rules when no ruleset covers the base. That is the case
-// for each stack layer above the first. Round 5 found that a watch which
-// concluded on "whatever reported on the head" concluded on seven CodeQL
-// checks and none of the required ones.
+// for each stack layer above the first. In round 5, a watch concluded on
+// the checks that had reported on the head. Those were seven CodeQL checks,
+// and none of the required ones.
 //
 // **A value that could not be read is reported as itself.** A poll that
 // fell short writes one "poll failed" line and changes nothing. So a pull
 // request that is absent from a short list is not reported as closed.
 //
-// The command function is the seam (ADR 001): parsed arguments, an injected
-// `GhClient`, a clock, a sleep and a writer in, an envelope out.
+// The command function is the seam (ADR 001). Parsed arguments, an injected
+// `GhClient`, a clock, a sleep and a writer go in. An envelope comes out.
 import { parseArguments } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type PullRequestHead } from '../lib/gh.ts'
@@ -43,7 +43,7 @@ opened, and writes one line for each of these events:
   #<n> <sha> CONCLUDED  every required context has reported, with each failure
   #<n> merged           a pull request that left the open list
   heartbeat: ...        ten minutes with no other line
-  poll failed: ...      a read that fell short; the watch keeps polling
+  poll failed: ...      a read that fell short; the watch polls again
 
 The required contexts come from the rules of the base branch. When no ruleset
 covers the base, as for each stack layer above the first, they come from the
@@ -73,8 +73,8 @@ const SPEC = {
 /** The time with no other line before the watch writes a heartbeat. */
 export const HEARTBEAT_MS = 10 * 60_000
 
-/** The status `lib/process.ts` gives a child that could not start because
- *  it is not on PATH, the shell's own "command not found". */
+/** The status that `lib/process.ts` gives a child that is not on PATH. It
+ *  is the shell's own "command not found". */
 const NOT_ON_PATH = 127
 
 /** The edges the watch reads and writes. Each one is an argument, so a test
@@ -116,9 +116,9 @@ export const parseSeeds = (value: string, flag: string): Envelope<Map<number, st
 }
 
 /** Whether the command line names `flag` more than once. `parseArgs`
- *  answers a repeated option with its last value and no complaint, so a
- *  second list would silently replace the first (`sweep.ts` has the same
- *  check for `--milestone`). */
+ *  answers a repeated option with its last value, and no complaint. So a
+ *  second list would replace the first in silence. `sweep.ts` has the same
+ *  check for `--milestone`. */
 const repeated = (argv: readonly string[], flag: string): boolean =>
   argv.filter((word) => word === flag || word.startsWith(`${flag}=`)).length > 1
 
@@ -176,8 +176,8 @@ const defaultBranchOf = (repository: Record<string, unknown>): string | null => 
   return typeof name === 'string' && name !== '' ? name : null
 }
 
-/** What one poll came to: a snapshot, a reason it fell short, or the end of
- *  the watch because gh is not there to run. */
+/** What one poll came to. That is a snapshot, or a reason it fell short. It
+ *  is the end of the watch when gh is not there to run. */
 type PollOutcome =
   | { readonly kind: 'read'; readonly snapshot: Snapshot }
   | { readonly kind: 'failed'; readonly reason: string }
@@ -210,8 +210,8 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
 
 /** What became of a pull request that left the open list: a line, and
  *  whether the watch can forget it. A state that could not be read keeps it
- *  in memory, so the next poll asks again. GitHub can still call a pull
- *  request open for a moment after the list stops, and then there is no
+ *  in memory, so the next poll asks again. For a moment after the list
+ *  drops a pull request, GitHub can still call it open. Then there is no
  *  line at all. */
 const leftOpenList = async (
   gh: GhClient,
@@ -246,9 +246,9 @@ const seededMemory = (
 /**
  * The lines one pull request adds, and the memory brought up to date.
  *
- * A head seen for the first time gets one line with its progress so far,
- * rather than a line for each context that already reported. After that,
- * each required context gets a line when its conclusion changes.
+ * A head seen for the first time gets one line, with its progress so far.
+ * It does not get a line for each context that already reported. After
+ * that, each required context gets a line when its conclusion changes.
  */
 const pullLines = (
   pull: PullRequestHead,
@@ -304,8 +304,8 @@ const pullLines = (
 }
 
 /**
- * Poll every open pull request until the watch is stopped, or for `--ticks`
- * polls, and write a line for each event.
+ * Poll every open pull request, and write a line for each event. Stop at a
+ * SIGTERM, at a closed reader, or after `--ticks` polls.
  */
 export const runWatch = async (
   argv: readonly string[],

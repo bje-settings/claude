@@ -418,6 +418,27 @@ error and never by silence.
 2026-09-21: that filter matches nothing, not the unassigned issues. A caller reads that set from an
 unfiltered `listIssues()` call, and a filter on `milestone === null`.
 
+### `listOpenPullRequestHeads`
+
+```ts
+const heads = await gh.listOpenPullRequestHeads()
+// heads.rows[0] -> { number, title, head, headSha, base, draft, checks }
+```
+
+Every open pull request, with the full oid of its head commit and the checks on that commit. One
+paginated GraphQL read answers it all. The `watch` subcommand makes this read once for each poll,
+and `intersect` makes it once for each run. So one poll is one view of every head at one time. It
+is not one read for each pull request.
+
+It is its own endpoint, not a wider `listOpenPullRequests` (round 10 ruling P8). The sweep's
+acceptance test replays that endpoint by its exact argv, the query text included. A wider query
+would break the replay. It would also change what the sweep gets, for a question the sweep does
+not ask.
+
+A check list longer than the 100 the query asks for makes its row unreadable. `unavailable` counts
+it with the other rows that could not be read. A check list cut short could leave out the one
+required context that failed. A watch would then conclude a head that did not pass.
+
 ### `requiredContexts`, `viewPullRequestDetail` and `listWorkflowRuns`
 
 ```ts

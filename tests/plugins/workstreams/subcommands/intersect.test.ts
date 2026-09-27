@@ -1,8 +1,8 @@
-// The intersect command, against real repositories. git is never mocked:
-// each example builds an origin, the checkout the command runs in, and a
-// second clone that pushes the pull request heads. So the heads exist on
-// origin and not in the checkout, and the command must fetch each one by
-// sha, as it does on a real repository. `gh` is the injected double.
+// The intersect command, against real repositories. git is never mocked.
+// Each example builds an origin and the checkout the command runs in. A
+// second clone pushes the pull request heads. So the heads exist on origin
+// and not in the checkout. The command must fetch each one by sha, as on a
+// real repository. `gh` is the injected double.
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'

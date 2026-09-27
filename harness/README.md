@@ -84,7 +84,8 @@ endpoint is named after its operation, not after gh's own argv. This way, the in
 change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
 `watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `listOpenPullRequests`,
-`requiredContexts`, `viewPullRequestDetail`, `listWorkflowRuns`, `repositoryStatus`.
+`listOpenPullRequestHeads`, `requiredContexts`, `viewPullRequestDetail`, `listWorkflowRuns`,
+`repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
@@ -98,7 +99,8 @@ The three sweep reads never throw, for the same reason, and each answers `{ rows
 The three review-loop reads follow the same pattern. `requiredContexts` answers
 `{ contexts, unavailable }`. `viewPullRequestDetail` answers `{ pullRequest, unavailable, missing }`,
 with a null pull request for one it could not read. `listWorkflowRuns` answers
-`{ rows, unavailable }`.
+`{ rows, unavailable }`. So does `listOpenPullRequestHeads`, the one read the watch and the
+intersect make for every open head.
 
 `repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The
 SessionStart hook reads it (#230).
