@@ -9,11 +9,14 @@
 // handed the injected `gh` client (ADR 001, and the reason the command
 // function is the seam at all). So a test that drove `sweep` itself here
 // would reach for the real `gh`, and assert against a machine's login.
+import { mkdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { expect, it } from 'vitest'
+import { createGitFixtures } from '#harness/git.ts'
 import { pluginFile } from '#harness/paths.ts'
 
 import { createSandbox } from '#harness/sandbox.ts'
-import { runScript } from '#harness/spawn.ts'
+import { runScript, startScript } from '#harness/spawn.ts'
 
 const BIN = pluginFile('workstreams', 'scripts', 'workstreams.ts')
 
@@ -116,4 +119,84 @@ it('refuses a pr-state round outside the three the loop has', () => {
   expect(result.status).toBe(2)
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('--round must be one of 0, 1, 2')
+})
+
+// --- watch -------------------------------------------------------------------
+//
+// The watch is the one long-running arm, so its process boundary has more to
+// it: a SIGTERM and a reader that closed the pipe each end it with exit 0.
+// Neither run reaches GitHub. The `gh` put first on PATH always fails, so
+// each poll writes one "poll failed" line and the watch keeps polling.
+
+/** A sandbox and a checkout in it, with a `gh` that always fails first on
+ *  PATH. */
+const watchRig = (): { env: NodeJS.ProcessEnv; work: string } => {
+  const sandbox = createSandbox()
+  const stubs = sandbox.join('stub-bin')
+  mkdirSync(stubs, { recursive: true })
+  writeFileSync(path.join(stubs, 'gh'), '#!/bin/sh\necho "gh stub: offline" >&2\nexit 1\n', {
+    mode: 0o755,
+  })
+  sandbox.stubPath(stubs)
+  const work = createGitFixtures(sandbox).create(sandbox.join('repo'))
+  return { env: sandbox.env, work }
+}
+
+it('prints watch’s own usage for its --help', () => {
+  const result = runScript(BIN, { args: ['watch', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^Every open pull request's head/)
+  expect(result.stderr).toBe('')
+})
+
+it('refuses a watch --interval that is not a whole number of seconds', () => {
+  const result = runScript(BIN, { args: ['watch', '--interval', 'soon'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe('--interval takes a whole number of seconds, not "soon"\n')
+})
+
+it('writes one line and exits 0 outside a git checkout', () => {
+  const sandbox = createSandbox()
+
+  const result = runScript(BIN, { args: ['watch'], env: sandbox.env, cwd: sandbox.path })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/is not inside a git checkout, so there is nothing to watch\n$/)
+  expect(result.stderr).toBe('')
+})
+
+it('writes one line and exits 0 when gh is not on PATH', () => {
+  const sandbox = createSandbox()
+  const work = createGitFixtures(sandbox).create(sandbox.join('repo'))
+  sandbox.env.PATH = sandbox.pathWithout('gh')
+
+  const result = runScript(BIN, { args: ['watch'], env: sandbox.env, cwd: work })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^watch: cannot run gh: .*, so there is nothing to watch\n$/)
+})
+
+it('keeps polling after a poll that failed, and ends with exit 0 on SIGTERM', async () => {
+  const { env: rigEnv, work } = watchRig()
+  const watch = startScript(BIN, { args: ['watch'], env: rigEnv, cwd: work })
+
+  await expect(watch.firstLine()).resolves.toBe('poll failed: gh stub: offline')
+  // The watch now sleeps for 60 seconds. The signal must end that sleep,
+  // or the suite timeout ends this example first.
+  watch.child.kill('SIGTERM')
+
+  await expect(watch.ended()).resolves.toEqual({ status: 0, signal: null, stderr: '' })
+})
+
+it('ends with exit 0 when the reader closes the pipe', async () => {
+  const { env: rigEnv, work } = watchRig()
+  const watch = startScript(BIN, { args: ['watch', '--interval', '1'], env: rigEnv, cwd: work })
+
+  await expect(watch.firstLine()).resolves.toBe('poll failed: gh stub: offline')
+  watch.closeStdout()
+
+  await expect(watch.ended()).resolves.toEqual({ status: 0, signal: null, stderr: '' })
 })
