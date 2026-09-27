@@ -45,6 +45,8 @@ opened, and leaves no named ref behind. Then reports for each head:
   merge base    where the head leaves the default branch, and how many commits
                 the default branch has gained since: the rebase debt
   files         the files the head changes against its merge base
+  own files     for a stack layer, the files it changes against the head of
+                the layer below, as gh pr diff shows them
   against main  git merge-tree --write-tree of the head and the default
                 branch: clean, or the paths that conflict
   run           whether a workflow run with event pull_request exists for
@@ -52,8 +54,8 @@ opened, and leaves no named ref behind. Then reports for each head:
   worktree      the local worktree on the head branch, if any, and whether
                 it is clean
 
-and each pair of heads that change a common file, with the result of git
-merge-tree --write-tree for the pair. It also reports whether the root
+and each pair of heads whose own files have one in common, with the result of
+git merge-tree --write-tree for the pair. It also reports whether the root
 checkout is clean.
 
 --json prints the report as one JSON object for a skill to read.

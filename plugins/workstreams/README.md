@@ -315,19 +315,25 @@ Reads the head of every open pull request with local git. That includes each pul
 that no round opened. The orchestrator runs it on each tick. It finds a real collision between two streams, and the
 facts of the check on each head.
 
-Each head is fetched as `git fetch origin <sha>`. That fetch writes no ref and no
-`FETCH_HEAD`, so the command leaves no named ref behind. For each head, the command
-reports these facts:
+Each head is fetched as `git fetch --no-write-fetch-head origin <sha>`. That fetch writes no
+ref, and the flag stops the `FETCH_HEAD` write. So the command leaves no named ref behind. The
+default branch is fetched first, by name. That fetch moves `origin/<default>`, the ref that a
+clone already keeps. For each head, the command reports these facts:
 
 | Fact | Where it comes from |
 | --- | --- |
 | merge base, and the commits the default branch has gained since | `git merge-base` and `git rev-list --count`: the rebase debt of a branch |
 | changed files | `git diff --name-only` against the merge base |
+| stack layer, and own files | the open pull request whose head is the base, and `git diff --name-only <lower head>...<head>`, as `gh pr diff` shows it |
 | against the default branch | `git merge-tree --write-tree`: clean, or the paths that conflict |
 | `pull_request` run | `actions/runs?branch=<head ref>` for the exact head sha, never `?head_sha=` |
 | worktree | the local worktree on the head branch, and whether `git status` is empty |
 
 Each pair of heads that change a common file gets its own `git merge-tree --write-tree`.
+A pair compares the own files of each head. Against the default branch, a stack layer
+changes every file of the layers below it. So two layers of one stack would always share
+files, and that is no collision. A pull request on the default branch is never a stack
+layer.
 The command also reports whether the root checkout is clean.
 
 A fact that could not be read is null, or `unread`. A merge-tree that failed is never
@@ -362,9 +368,12 @@ CodeQL checks, and none of the required ones.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
 
-A poll that fell short writes one `poll failed` line and changes nothing. So a pull
-request that is absent from a short list is not reported as closed. The watch then polls
-again at the next interval.
+A poll that read no pull request writes one `poll failed` line and changes nothing. A
+list that fell short still gives the rows that arrived, and the watch keeps them. It writes
+one `poll incomplete` line for each new reason, for example a pull request with more
+checks than one page holds. A pull request that is absent from a short list is not
+reported as closed: only its own state names that. The watch then polls again at the
+next interval.
 
 `--since-head` and `--concluded` tell a new watch what the caller already knows. The
 watch then stays silent about it. Each takes a comma-separated list of a number and a
