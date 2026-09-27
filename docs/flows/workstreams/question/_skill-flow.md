@@ -4,7 +4,7 @@ description: What the /workstreams:question skill does, and every way it decline
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-26
+  at: 2026-09-27
 ---
 
 # /workstreams:question skill flow
@@ -15,10 +15,7 @@ What `/workstreams:question` does to one sweep report, and every way it declines
 flowchart TD
     C{sequencing comment posted?}
     C -->|Yes| C1[Read it: unblocked set, what it unlocks,<br/>file map, collisions, shape, size,<br/>hidden dependencies]
-    C -->|No| C2[Invoke /workstreams:sweep with the same milestone or issue set]
-    C2 --> C3{sweep stopped before it posted one?}
-    C3 -->|Yes| C3a([Stop: report what sweep returned]):::stop
-    C3 -->|No| C3b([Stop: sweep continued into the question<br/>phase itself; stop here on return]):::stop
+    C -->|No| C2([Stop: say there is no sequencing comment]):::stop
     C1 --> D
 
     D[Open the file, the record, or the docs an open item names]
@@ -34,7 +31,7 @@ flowchart TD
     I --> J[EnterPlanMode: write the plan]
     J --> K{ExitPlanMode: approved?}
     K -->|No| J
-    K -->|Yes| L[Plan comment on every issue in the round]
+    K -->|Yes| L[Plan comment on every issue in the round,<br/>its first line naming it the plan]
 
     L --> M{/gh:sync in own skill listing?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2

@@ -49,9 +49,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch
 
 Each line it writes is a wake. The other wake is an agent's completion notification.
 
-- If no `open` line comes after the skill starts, the plugin monitor does not run. Start
-  that command with the Monitor tool yourself. On its expiry, start it again, with
-  `--since-head` and `--concluded` set to the full heads you know.
+- The watch writes an `open` line for each open pull request. A pull request is open, and
+  no `open` line for it came: the plugin monitor does not run. Start that command with
+  the Monitor tool yourself. On its expiry, start it again, with `--since-head` and
+  `--concluded` set to the full heads you know.
 - Between wakes, end the turn. Never poll an agent. Never sleep in the foreground.
 - A return that says the agent still waits has stopped short. Send it back with
   `SendMessage` and a narrower instruction. Do not dispatch a second agent.
