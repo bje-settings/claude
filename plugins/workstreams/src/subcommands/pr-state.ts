@@ -26,7 +26,13 @@
 // injected `GhClient` in, an envelope out, with nothing spawned.
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
-import type { CheckContext, GhClient, PullRequestDetail, WorkflowRun } from '../lib/gh.ts'
+import type { GhClient, PullRequestDetail, WorkflowRun } from '../lib/gh.ts'
+import { namesOrHead, type ReportedContext, reportContexts } from '../required-contexts.ts'
+
+// The derivation moved to `../required-contexts.ts` (round 10 ruling P6).
+// These two types stay exported here too, so a caller of this command
+// imports them from the command it reads.
+export type { ContextVerdict, ReportedContext } from '../required-contexts.ts'
 
 export const HELP = `One pull request's review-loop state, derived from the pull request and its checks.
 
@@ -83,18 +89,6 @@ const SPEC = {
  *  slow run does not move the median, small enough to be one page. */
 const HINT_SAMPLE = 30
 
-/**
- * What a required context adds up to.
- *
- * `success` covers the three conclusions that SATISFY a required check:
- * `SUCCESS`, and `SKIPPED` and `NEUTRAL`, which GitHub's own merge gate
- * accepts. If this reported a skipped required job as red, a loop would
- * never finish, on any repository whose workflow skips a job by path
- * filter. The raw conclusion is carried beside the verdict, so a caller
- * can still see which of the three it was.
- */
-export type ContextVerdict = 'success' | 'failed' | 'pending'
-
 /** The whole pull request's verdict over its required contexts. */
 export type Verdict = 'green' | 'red' | 'pending' | 'no-run' | 'unavailable'
 
@@ -110,20 +104,6 @@ export type LoopState =
   | 'review-2'
   | 'rot-check'
   | 'done'
-
-/** The conclusions that satisfy a required check. */
-const SATISFYING: Record<string, true> = { SUCCESS: true, SKIPPED: true, NEUTRAL: true }
-
-/** One required context and what it has reported. */
-export interface ReportedContext {
-  readonly name: string
-  /** Whether anything has reported under this name on the head at all. */
-  readonly reported: boolean
-  /** GitHub's own conclusion, or null when nothing has reported or the check
-   *  has not concluded. The two are told apart by `reported`. */
-  readonly conclusion: string | null
-  readonly verdict: ContextVerdict
-}
 
 /** A workflow run on the head, as the report carries it. */
 export interface ReportedRun {
@@ -193,27 +173,6 @@ export interface PrStateReport {
   /** Every reason this report is short. Empty is the only value that means
    *  every fact in it was read. */
   readonly unavailable: readonly string[]
-}
-
-/** The most recent conclusion reported under `name`, and whether anything
- *  reported under it at all.
- *
- *  The FIRST match wins, which is GitHub's newest: a re-run adds a second
- *  check with the same name and the rollup lists the current one first. A
- *  reader that took the last would report a superseded failure as the answer.
- */
-const reportedAs = (checks: readonly CheckContext[], name: string): ReportedContext => {
-  const check = checks.find((candidate) => candidate.name === name)
-  if (check === undefined) return { name, reported: false, conclusion: null, verdict: 'pending' }
-  if (check.conclusion === null) {
-    return { name, reported: true, conclusion: null, verdict: 'pending' }
-  }
-  return {
-    name,
-    reported: true,
-    conclusion: check.conclusion,
-    verdict: Object.hasOwn(SATISFYING, check.conclusion) ? 'success' : 'failed',
-  }
 }
 
 /**
@@ -587,9 +546,9 @@ export const runPrState = async (
   // covers requires nothing. That fact is true, and useless on its own:
   // every layer of a stack is based on one, and a verdict over an empty
   // list would be green before a single check had run.
-  const fromRuleset = required.contexts.length > 0
-  const names = fromRuleset ? required.contexts : checks.map((check) => check.name)
-  const contexts = [...new Set(names)].map((name) => reportedAs(checks, name))
+  const list = namesOrHead(required.contexts, checks)
+  const fromRuleset = list.from === 'ruleset'
+  const contexts = reportContexts(checks, list.names)
 
   const runsForHead =
     detail === null
@@ -619,7 +578,7 @@ export const runPrState = async (
     pullRequest: requested.value,
     ...pullRequestFields(detail),
     requiredContexts: required.contexts,
-    contextsFrom: detail === null ? 'unread' : fromRuleset ? 'ruleset' : 'head',
+    contextsFrom: detail === null ? 'unread' : list.from,
     contexts,
     hasPullRequestRun: runsForHead.length > 0,
     runsForHead: runsForHead.map((run) => ({
