@@ -90,7 +90,7 @@ caller runs a rot check at the end.
 | `ci-pending` | A required context has not reported. Wait. |
 | `red` | A required context failed before any round ran, so it belongs to whoever opened it. |
 | `review-1`, `review-2` | Dispatch a round. |
-| `fixing` | The round's own fixes have not landed, or a review thread is unresolved. |
+| `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread is named apart and does not hold this state. |
 | `rot-check` | Check the title and body against the final diff. |
 | `done` | Two rounds at most, CI green, nothing unresolved, the body true. |
 

@@ -175,8 +175,14 @@ export interface PrStateReport {
   readonly hasPullRequestRun: boolean
   readonly runsForHead: readonly ReportedRun[]
   readonly verdict: Verdict
+  /** Unresolved review threads from a PERSON. These hold the loop at
+   *  `fixing`. A bot's own thread is named apart, under `botThreads`. */
   readonly unresolvedThreads: number
   readonly unresolvedThreadAuthors: readonly string[]
+  /** Unresolved review threads whose first comment came from a bot account.
+   *  Informational: the round names them and does not wait on them. */
+  readonly botThreads: number
+  readonly botThreadAuthors: readonly string[]
   readonly comments: number
   readonly commentAuthors: readonly string[]
   readonly waitHint: WaitHint | null
@@ -245,10 +251,13 @@ export const verdictOf = (
  * be read would send a round to review a pull request whose checks
  * nobody has seen.
  *
- * An unresolved review THREAD keeps the loop in `fixing`, however green
- * CI is, because a thread is work someone waits on. A comment does not:
- * the enterprise coverage bot posts one on every pull request here, and a
- * loop that counted it would never reach `done`.
+ * An unresolved review THREAD from a PERSON keeps the loop in `fixing`,
+ * however green CI is. A thread is work someone still waits on. The
+ * caller leaves a bot's own thread out of `facts.unresolvedThreads`
+ * before it calls this (#219). That thread is informational, and a loop
+ * that waited on it would never reach `done`. A plain comment does not
+ * hold the loop either, for the same reason. The enterprise coverage bot
+ * posts one on every pull request here.
  */
 export const deriveState = (facts: {
   /** True only when GitHub itself said this pull request number does not
@@ -412,6 +421,15 @@ export const renderReport = (report: PrStateReport): string => {
       authors(report.unresolvedThreadAuthors),
     `comments: ${report.comments}${authors(report.commentAuthors)}`,
   )
+  // A bot's own thread is informational (#219). The line names it apart
+  // from the count that holds the loop at `fixing`. It says nothing at
+  // all when there is none.
+  if (report.botThreads > 0) {
+    lines.push(
+      `bot threads (informational, not waited on): ${report.botThreads}` +
+        authors(report.botThreadAuthors),
+    )
+  }
   if (report.waitHint !== null) {
     const { workflow, medianMs, samples } = report.waitHint
     lines.push(
@@ -427,6 +445,24 @@ export interface PrStateContext {
   readonly gh: GhClient
 }
 
+/** The unresolved threads, split into two lists: the ones that hold the
+ *  loop, and the ones a bot opened (#219). A thread reads as a person's
+ *  when `unresolvedThreadBots` holds no flag for its index, or the flag is
+ *  not true. This is the safe side, the same one an unknown author takes
+ *  in {@link PullRequestDetail}. */
+const threadsOf = (
+  detail: PullRequestDetail | null,
+): { blocking: readonly string[]; bots: readonly string[] } => {
+  if (detail === null) return { blocking: [], bots: [] }
+  const blocking: string[] = []
+  const bots: string[] = []
+  detail.unresolvedThreadAuthors.forEach((author, index) => {
+    if (detail.unresolvedThreadBots[index] === true) bots.push(author)
+    else blocking.push(author)
+  })
+  return { blocking, bots }
+}
+
 /** The report's pull request half, filled in or left unread. */
 const pullRequestFields = (
   detail: PullRequestDetail | null,
@@ -440,10 +476,13 @@ const pullRequestFields = (
   | 'mergeable'
   | 'unresolvedThreads'
   | 'unresolvedThreadAuthors'
+  | 'botThreads'
+  | 'botThreadAuthors'
   | 'comments'
   | 'commentAuthors'
-> =>
-  detail === null
+> => {
+  const threads = threadsOf(detail)
+  return detail === null
     ? {
         title: null,
         draft: null,
@@ -451,8 +490,10 @@ const pullRequestFields = (
         head: null,
         headSha: null,
         mergeable: null,
-        unresolvedThreads: 0,
-        unresolvedThreadAuthors: [],
+        unresolvedThreads: threads.blocking.length,
+        unresolvedThreadAuthors: threads.blocking,
+        botThreads: threads.bots.length,
+        botThreadAuthors: threads.bots,
         comments: 0,
         commentAuthors: [],
       }
@@ -463,11 +504,14 @@ const pullRequestFields = (
         head: detail.head,
         headSha: detail.headSha,
         mergeable: detail.mergeable,
-        unresolvedThreads: detail.unresolvedThreadAuthors.length,
-        unresolvedThreadAuthors: detail.unresolvedThreadAuthors,
+        unresolvedThreads: threads.blocking.length,
+        unresolvedThreadAuthors: threads.blocking,
+        botThreads: threads.bots.length,
+        botThreadAuthors: threads.bots,
         comments: detail.commentAuthors.length,
         commentAuthors: detail.commentAuthors,
       }
+}
 
 /**
  * Read the pull request and answer with its state.
@@ -599,7 +643,7 @@ export const runPrState = async (
     state: deriveState({
       missing: viewed.missing,
       verdict,
-      unresolvedThreads: detail === null ? 0 : detail.unresolvedThreadAuthors.length,
+      unresolvedThreads: threadsOf(detail).blocking.length,
       round,
       substantial,
       rotChecked,

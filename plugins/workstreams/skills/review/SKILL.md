@@ -51,7 +51,7 @@ the pull request.
    | `ci-pending` | Wait, then step 1 again. |
    | `red` | CI was red before any round ran. That belongs to whoever opened the pull request: report it and stop. |
    | `review-1`, `review-2` | Step 3. |
-   | `fixing` | The round's own fixes have not landed, or a review thread is unresolved. Wait, then step 1 again. |
+   | `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. Wait, then step 1 again. A bot's own thread is named under `botThreadAuthors`. It does not hold this state: say what it is, and move on. |
    | `rot-check` | Step 5. |
    | `done` | Step 6. |
 
