@@ -14,8 +14,10 @@ act. Each call takes one step and returns. The caller waits between calls.
 
 ```mermaid
 flowchart TD
-    R0{called with a round agent's return?}
-    R0 -->|Yes| R1([Post the round's marker, then return])
+    R0{called with a round agent's JSON return?}
+    R0 -->|Yes| R2{post the round's marker: posted?}
+    R2 -->|Yes| R1([Return])
+    R2 -->|No| R3([Stop: say so]):::stop
     R0 -->|No| W{exactly one worktree matches the head<br/>branch, and a model is named?}
     W -->|No| W1([Stop: say which is absent; never guess]):::stop
     W -->|Yes| C[Read the pull request's state once]

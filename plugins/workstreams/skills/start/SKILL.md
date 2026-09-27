@@ -33,12 +33,14 @@ Derive it on each call. Write nothing to disk.
    after the rot check. Read them for each pull request:
 
    ```bash
-   gh pr view <number> --json comments --jq '.comments[].body'
+   gh pr view <number> --json comments --jq '.comments[].body | split("\n")[0]'
    ```
 
+   A marker is a first line that is exactly one of the four `/workstreams:review` posts.
    `Review round <n> done` gives `--round <n>`, the highest one. `Review round 1 done:
    substantial.` gives `--substantial`. `Rot check done.` gives `--rot-checked`. No marker
-   gives `--round 0`.
+   gives `--round 0`. A set that `pr-state` refuses, or a round 2 with no substantial
+   round 1, is a stop. Name the markers.
 
 ## Order
 

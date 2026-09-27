@@ -23,7 +23,9 @@ flowchart TD
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
     B -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers]
-    E --> F{a layer to write, and the layer below done?}
+    E --> E1{markers a set pr-state takes?}
+    E1 -->|No| E2([Stop: name the markers]):::stop
+    E1 -->|Yes| F{a layer to write, and the layer below done?}
     P1 --> W
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No| W
@@ -37,7 +39,7 @@ flowchart TD
     T1 -->|No| T3{new head?}
     T2 --> T3
     T3 -->|Yes| T4{files in the allowed set, lower heads unchanged,<br/>a run for the head, checkouts clean?}
-    T4 -->|A lower head moved, or the root is dirty| S1([Stop: name it]):::stop
+    T4 -->|A lower head moved, or a checkout is dirty| S1([Stop: name it]):::stop
     T4 -->|An undeclared file| T5[Send it back to the layer] --> K
     T4 -->|Yes, or no run: its state acts| K
     T3 -->|No| K{a conflict between two streams?}

@@ -39,7 +39,8 @@ when it changed behaviour at all.
 
 ## Process
 
-0. Called with a round agent's return: post that round's marker, then return.
+0. Called with a round agent's JSON return: post that round's marker, then return. A
+   marker that did not post is a stop. Say so.
 
 1. Read the state once.
 

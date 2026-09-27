@@ -19,7 +19,10 @@ returns. For each new head, check what its agent cannot be the only witness to:
   head moved, and no step of this round moved it: stop.
 - **The run.** `pullRequestRun` is `true`. `pr-state` names the remedy (`no-run`).
 - **The checkouts.** `checkout.clean` is `true`. When no agent writes to a worktree, its
-  `worktree.clean` is `true` too.
+  `worktree.clean` is `true` too. A dirty checkout is a stop. Name it.
+
+An agent works when this conversation dispatched it and its return has not come. A new
+conversation has no agent at work.
 
 ## 3. Look for a collision
 
