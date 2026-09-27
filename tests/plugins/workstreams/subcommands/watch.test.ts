@@ -577,6 +577,29 @@ describe('a watch over the open pull requests', () => {
     },
   )
 
+  it(
+    'concludes a pull request whose own base has a ruleset, even while the default ' +
+      "branch's read fails (#265)",
+    async () => {
+      const release = head({ base: 'release', checks: [done('release-check')] })
+      const { context, lines } = watchOver([
+        {
+          heads: heads(release),
+          required: { main: ghFails('gh: HTTP 500'), release: ['release-check'] },
+        },
+      ])
+
+      await runWatch(['--ticks', '1'], context)
+
+      expect(lines).toEqual([
+        'required contexts for the default branch main could not be read: gh: HTTP 500; ' +
+          'every pull request that falls back to it is unread',
+        `#259 open: wktr-219-pr-sweep -> release, head ${SHA_A}, draft, required 1/1 reported`,
+        '#259 aaaaaaa CONCLUDED: 1/1 required reported, all passed',
+      ])
+    },
+  )
+
   it('reports a failure that is not a gh error in its own words', async () => {
     const { context, lines } = watchOver([{ heads: heads(head()), repository: new Error('boom') }])
 

@@ -421,6 +421,12 @@ below, so that a Monitor wakes on each line:
 
 The watch keeps what it has seen in memory, and writes no file.
 
+A head this watch has already seen is not a new head, even after a later one. For a
+short time after a push, the API can answer the old head and the new head in turn. The
+watch keeps every head it has seen for each pull request, not the current one alone
+(#264). One known limit: a force push back to an earlier head, between two polls, is not
+reported. `--since-head` and `--concluded` seed this memory with their own head.
+
 A head is `CONCLUDED` only when every required context has reported. The list comes
 from the rules of the base branch. When no ruleset covers the base, the list comes from
 the default branch (ruling P9). Each stack layer above the first is such a case. In round
@@ -428,6 +434,11 @@ the default branch (ruling P9). Each stack layer above the first is such a case.
 CodeQL checks, and none of the required ones.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
+
+Each base reads its required contexts on its own. A base whose read fails leaves unread
+only the pull requests that need its list, not the whole poll (#265). A failed default
+branch leaves unread every pull request that falls back to it. Each failure writes one
+line for each new reason, and a line when that base reads again.
 
 A poll that read no pull request writes a `poll failed` line and changes nothing. The
 line comes once for each new reason, and not on each poll. The first poll that reads
