@@ -448,6 +448,101 @@ describe('the deadline', () => {
     expect(asked.length).toBeGreaterThan(0)
     for (const call of asked) expect(call.options.timeoutMs).toBe(1_234)
   })
+
+  it('passes the given deadline to the claude plugin list --json fallback too', async () => {
+    // The test above never triggers the fallback: `healthySandbox` writes
+    // a readable registry, so `readRegistry` never calls `run` at all.
+    // This one makes the registry unreadable first, so the only way to
+    // answer is the fallback call, and its own deadline is what this
+    // checks.
+    const { sandbox, env } = healthySandbox()
+    chmodSync(registryPath(env), 0o000)
+    const output = createOutputPair()
+    const runner = runnerFor({
+      ...HEALTHY,
+      'claude plugin list --json': {
+        stdout: JSON.stringify([
+          { id: 'pr-review-toolkit@bje', installPath: withReviewers(sandbox) },
+        ]),
+      },
+    })
+
+    await runSessionStart({ env, output, run: runner, deadlineMs: 4_321 })
+
+    const fallback = runner.asked.find((call) => call.key === 'claude plugin list --json')
+    expect(fallback).toBeDefined()
+    expect((fallback?.options as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(4_321)
+  })
+})
+
+describe('concurrency', () => {
+  it('starts every check at once, rather than one after another', async () => {
+    // `ghLoggedIn` and `ghStackInstalled` each wait one delay. In
+    // sequence that is two delays; at once it is close to one. A revert
+    // to sequential `await`s inside `Promise.all` would fail the overlap
+    // check below, whatever the machine's own speed.
+    const { env } = healthySandbox()
+    const output = createOutputPair()
+    const DELAY_MS = 150
+    const windows: { key: string; start: number; end: number }[] = []
+    const runner: Runner = async (command, args = []) => {
+      const key = `${command} ${args.join(' ')}`.trim()
+      const start = Date.now()
+      await new Promise((resolve) => setTimeout(resolve, DELAY_MS))
+      windows.push({ key, start, end: Date.now() })
+      return result(HEALTHY[key] ?? {})
+    }
+
+    await runSessionStart({ env, output, run: runner, deadlineMs: DEADLINE_MS })
+
+    expect(windows.length).toBe(2)
+    const [first, second] = windows
+    const overlap = first !== undefined && second !== undefined
+    expect(overlap).toBe(true)
+    if (first !== undefined && second !== undefined) {
+      expect(first.start).toBeLessThan(second.end)
+      expect(second.start).toBeLessThan(first.end)
+    }
+  })
+})
+
+describe('a claude plugin list --json entry with an id and no installPath', () => {
+  it('treats it as a plugin no copy could be checked for, never as absent or a crash', async () => {
+    const { env } = healthySandbox()
+    chmodSync(registryPath(env), 0o000)
+
+    const ran = await run(env, {
+      ...HEALTHY,
+      'claude plugin list --json': {
+        stdout: JSON.stringify([{ id: 'pr-review-toolkit@bje' }]),
+      },
+    })
+
+    expect(ran.stdout).toContain(
+      'workstreams: ⚠️ no installed copy of pr-review-toolkit could be checked for its reviewer agents',
+    )
+    expect(ran.stdout).not.toContain('pr-review-toolkit plugin is absent')
+  })
+})
+
+describe('the order of reasons', () => {
+  it('lists an absent dependency before a problem that could not be checked', async () => {
+    // `pathWithout` walks the sandbox's own PATH to find every essential
+    // tool it must keep. It has to run before anything narrows that PATH
+    // to a stub directory, so this builds the sandbox by hand rather than
+    // through `healthySandbox`, the same way the `gh` tests above do.
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    env.PATH = sandbox.pathWithout('gh')
+    chmodSync(registryPath(env), 0o000)
+
+    const ran = await run(env, { ...HEALTHY, 'claude plugin list --json': { status: 1 } })
+
+    const gh = ran.stdout.indexOf('the GitHub CLI (gh) is absent')
+    const registry = ran.stdout.indexOf('the installed plugins file could not be read')
+    expect(gh).toBeGreaterThanOrEqual(0)
+    expect(registry).toBeGreaterThan(gh)
+  })
 })
 
 describe('registryPath', () => {
