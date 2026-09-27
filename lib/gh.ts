@@ -251,6 +251,12 @@ export interface PullRequestDetail {
   /** One login per UNRESOLVED review thread, from the thread's first comment.
    *  A thread whose author GitHub no longer names is `unknown`. */
   readonly unresolvedThreadAuthors: readonly string[]
+  /** Parallel to {@link unresolvedThreadAuthors}: whether that thread's
+   *  first comment came from a bot account (`author.__typename ===
+   *  "Bot"`). False for a thread whose author GitHub no longer names. That
+   *  is the safe side: an unknown author still holds the loop at
+   *  `fixing`, as a person's does. */
+  readonly unresolvedThreadBots: readonly boolean[]
   /** One login per issue comment on the pull request. */
   readonly commentAuthors: readonly string[]
 }
@@ -1025,7 +1031,9 @@ const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: Str
  * unresolved thread needs to know when the list is short.
  *
  * A review thread's author is the author of its FIRST comment, the comment
- * that opened it.
+ * that opened it. That comment's `__typename` says whether the account is a
+ * bot, which is what tells a preview workflow's own thread apart from a
+ * person's.
  */
 const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -1039,7 +1047,7 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
       headRefName
       reviewThreads(first: ${SWEEP_PAGE}) {
         pageInfo { hasNextPage }
-        nodes { isResolved comments(first: 1) { nodes { author { login } } } }
+        nodes { isResolved comments(first: 1) { nodes { author { __typename login } } } }
       }
       comments(first: ${SWEEP_PAGE}) {
         pageInfo { hasNextPage }
@@ -1198,6 +1206,12 @@ const loginOf = (value: unknown): string => {
   return login === null ? 'unknown' : login
 }
 
+/** Whether a node's author is a bot account (`__typename === "Bot"`). False
+ *  for any other value, and for an author GitHub no longer names. An
+ *  unknown author is read as a person, never promoted to a bot. */
+const isBotAuthor = (value: unknown): boolean =>
+  asText(asRecord(asRecord(value)?.author)?.__typename) === 'Bot'
+
 /** The two `StatusState` values that mean a commit status has not concluded. */
 const UNCONCLUDED: Record<string, true> = { PENDING: true, EXPECTED: true }
 
@@ -1285,11 +1299,14 @@ const readPullRequestDetail = (
   const threads = nodesOf(record?.reviewThreads)
   if (threads === null) return null
   const unresolvedThreadAuthors: string[] = []
+  const unresolvedThreadBots: boolean[] = []
   for (const entry of threads) {
     const thread = asRecord(entry)
     if (typeof thread?.isResolved !== 'boolean') return null
     if (thread.isResolved) continue
-    unresolvedThreadAuthors.push(loginOf(nodesOf(thread.comments)?.[0]))
+    const opener = nodesOf(thread.comments)?.[0]
+    unresolvedThreadAuthors.push(loginOf(opener))
+    unresolvedThreadBots.push(isBotAuthor(opener))
   }
   if (truncated(record?.reviewThreads)) {
     reasons.push(
@@ -1319,6 +1336,7 @@ const readPullRequestDetail = (
       mergeable,
       checks,
       unresolvedThreadAuthors,
+      unresolvedThreadBots,
       commentAuthors: comments.map(loginOf),
     },
     reasons,

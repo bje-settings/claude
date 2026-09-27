@@ -34,6 +34,7 @@ const detail = (overrides: Partial<PullRequestDetail> = {}): PullRequestDetail =
     { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS' },
   ],
   unresolvedThreadAuthors: [],
+  unresolvedThreadBots: [],
   commentAuthors: ['github-code-quality'],
   ...overrides,
 })

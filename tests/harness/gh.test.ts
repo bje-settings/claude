@@ -100,6 +100,7 @@ it('answers every endpoint it declares', async () => {
         mergeable: 'MERGEABLE',
         checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS' }],
         unresolvedThreadAuthors: [],
+        unresolvedThreadBots: [],
         commentAuthors: ['github-code-quality'],
       },
       unavailable: null,
