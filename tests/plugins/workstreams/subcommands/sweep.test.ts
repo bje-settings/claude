@@ -606,6 +606,21 @@ describe('classification', () => {
     expect(classified.find((entry) => entry.number === 133)?.unlocks).toEqual([])
     expect(classified.find((entry) => entry.number === 132)?.unlocks).toEqual([])
   })
+
+  it('does not let a blocked issue unlock anything, even one it is the sole open blocker of', async () => {
+    // The chain #130 (unblocked) <- #132 (blocked, behind #130 alone) <-
+    // #98 (blocked, behind #132 alone). #132 has not been released yet, so
+    // it must not carry #98 in its own `unlocks`: only an UNBLOCKED issue
+    // unlocks anything.
+    const classified = classify([
+      issue(130, {}),
+      issue(132, { blockedBy: [{ number: 130, state: 'OPEN' }] }),
+      issue(98, { blockedBy: [{ number: 132, state: 'OPEN' }] }),
+    ])
+
+    expect(classified.find((entry) => entry.number === 130)?.unlocks).toEqual([132])
+    expect(classified.find((entry) => entry.number === 132)?.unlocks).toEqual([])
+  })
 })
 
 describe('the report a person reads', () => {
