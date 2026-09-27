@@ -315,7 +315,7 @@ A registry that cannot be read is reported as itself, never as missing plugins: 
 is a different one, and telling someone to install what they already have sends them the
 wrong way. It falls back to `claude plugin list --json` first. A `pr-review-toolkit` the
 registry names, with no reachable install path, gets the same rule, one level down.
-The hook then says no copy could be checked. It does not name five reviewers that are
+The hook then says it could not check any copy. It does not name five reviewers that are
 not there. That covers a path that is recorded and gone, which is what a stale entry from
 an update looks like, and also a path that was never recorded.
 

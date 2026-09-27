@@ -32,7 +32,7 @@ if (meetsNodeFloor(process.version)) {
   const { run } = await import('../src/lib/process.ts')
   const { DEADLINE_MS, runSessionStart } = await import('../src/subcommands/session-start.ts')
 
-  // Both streams are guarded here, not at each write. A reader that closes
+  // This file guards both streams here, not at each write. A reader that closes
   // the pipe makes a later write fail as an `error` event, and with no
   // listener node crashes with a stack trace. The writer ignores a broken
   // pipe, and nothing else (`lib/streams.ts`).
@@ -55,7 +55,7 @@ if (meetsNodeFloor(process.version)) {
   // other write in this plugin. This branch cannot import
   // `createOutput`: it must stay inside the one-static-import contract
   // above. So the guard is inline instead, with no import, and it keeps
-  // the same rule: only EPIPE is swallowed, and anything else still
+  // the same rule: it only swallows EPIPE, and anything else still
   // surfaces.
   process.stdout.on('error', (error) => {
     if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error

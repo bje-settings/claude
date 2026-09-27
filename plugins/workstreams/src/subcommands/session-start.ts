@@ -19,8 +19,8 @@
 // outside the tool permission system, so neither read needs a new
 // permission.
 //
-// A registry, or a fallback, that cannot be read either way is reported
-// as itself. It is never reported as missing plugins. An unreadable
+// This code reports a registry, or a fallback, that cannot be read either
+// way, as itself. It never reports it as missing plugins. An unreadable
 // file needs a different fix. To tell someone to install what they
 // already have sends them the wrong way.
 //
@@ -96,7 +96,7 @@ const hasPlugin = (plugins: Record<string, unknown>, id: string): boolean =>
   Object.keys(plugins).some((key) => key.startsWith(`${id}@`))
 
 /** The plugins object a readable registry, or its fallback, named, or
- *  `null` when neither could be read. */
+ *  `null` when this code could not read either one. */
 type Plugins = Record<string, unknown> | null
 
 /** `claude plugin list --json`'s answer, grouped the way the registry
@@ -208,8 +208,8 @@ const ghLoggedIn = async (
   return result.status === 0
 }
 
-/** Whether the listing names the `gh stack` extension, or `null` when the
- *  listing itself could not be read.
+/** Whether the listing names the `gh stack` extension, or `null` when
+ *  this code could not read the listing itself.
  *
  *  A listing that failed, for any reason, says nothing about which
  *  extensions exist. The deleted `preflight.ts` kept this as its own
@@ -246,12 +246,12 @@ export interface SessionStartEdges {
   readonly deadlineMs: number
 }
 
-/** The dependency table row and whether it holds right now, together. A
- *  row is only ever built for a check this run actually made.
- *  `gh-login` and `gh-stack` are left out when `gh` itself is absent.
- *  The reviewer rows are left out too, when the plugin that carries
- *  them is absent. They are also left out when that plugin could not
- *  be checked at all. */
+/** The dependency table row and whether it holds right now, together.
+ *  This run only builds a row for a check it actually made. When `gh`
+ *  itself is absent, this run leaves out `gh-login` and `gh-stack`.
+ *  When the plugin that carries the reviewer rows is absent, this run
+ *  leaves them out too. This run also leaves them out when it cannot
+ *  check that plugin at all. */
 interface Row extends Dependency {
   readonly present: boolean
 }
@@ -284,8 +284,8 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
     else rows.push({ tool: 'gh-stack', label: 'the gh stack extension', present: ghStack })
   }
 
-  // A registry, or its fallback, that could not be read at all is a
-  // problem line of its own. It is never five missing plugins. The fix
+  // A registry, or its fallback, that this code could not read at all is
+  // a problem line of its own. It is never five missing plugins. The fix
   // for an unreadable file differs from the fix for an absent plugin.
   // This code cannot tell whether the plugin is there.
   if (plugins === null) {
