@@ -22,6 +22,7 @@ import {
 
 const SHA_A = 'a'.repeat(40)
 const SHA_B = 'b'.repeat(40)
+const SHA_C = 'c'.repeat(40)
 const REQUIRED = ['vitest', 'types', 'biome']
 
 const head = (overrides: Partial<PullRequestHead> = {}): PullRequestHead => ({
@@ -271,6 +272,23 @@ describe('a watch over the open pull requests', () => {
     ])
   })
 
+  it('writes nothing when a head first seen as a new head, not the original, returns (#264)', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head()) },
+      { heads: heads(head({ headSha: SHA_B })) },
+      { heads: heads(head({ headSha: SHA_C })) },
+      { heads: heads(head({ headSha: SHA_B })) },
+    ])
+
+    await runWatch(['--ticks', '4'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      `#259 new head ${SHA_B}, required 0/3 reported`,
+      `#259 new head ${SHA_C}, required 0/3 reported`,
+    ])
+  })
+
   it('reports a context that a re-run concluded differently, and concludes once', async () => {
     const { context, lines } = watchOver([
       { heads: heads(head({ checks: [done('vitest', 'FAILURE'), done('types'), done('biome')] })) },
@@ -447,6 +465,24 @@ describe('a watch over the open pull requests', () => {
     ])
   })
 
+  it(
+    'writes a heartbeat that names a base still unread, not "no change", while the ' +
+      'rest of the poll keeps reading (#265)',
+    async () => {
+      const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+      const { context, lines } = watchOver([
+        { heads: heads(flaky), required: { main: REQUIRED, flaky: ghFails('gh: HTTP 404') } },
+      ])
+
+      await runWatch(['--ticks', '12'], context)
+
+      expect(lines).toEqual([
+        'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+        'heartbeat: required contexts for flaky still unread, the last: gh: HTTP 404',
+      ])
+    },
+  )
+
   it('writes a reason gh gave on two lines as one line', async () => {
     const { context, lines } = watchOver([
       { heads: heads() },
@@ -600,6 +636,86 @@ describe('a watch over the open pull requests', () => {
     },
   )
 
+  it('writes a new failure line for a still-down base whose reason changes (#265)', async () => {
+    const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+    const { context, lines } = watchOver([
+      { heads: heads(flaky), required: { main: REQUIRED, flaky: ghFails('gh: HTTP 404') } },
+      { heads: heads(flaky), required: { main: REQUIRED, flaky: ghFails('gh: HTTP 404') } },
+      { heads: heads(flaky), required: { main: REQUIRED, flaky: ghFails('gh: HTTP 500') } },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+      'required contexts for flaky could not be read: gh: HTTP 500; its pull requests are unread',
+    ])
+  })
+
+  it('writes the recovery line once, not on every later poll that still reads (#265)', async () => {
+    const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+    const down = ghFails('gh: HTTP 404')
+    const { context, lines } = watchOver([
+      { heads: heads(flaky), required: { main: REQUIRED, flaky: down } },
+      { heads: heads(flaky), required: { main: REQUIRED, flaky: [] } },
+      { heads: heads(flaky), required: { main: REQUIRED, flaky: [] } },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+      'required contexts for flaky read again',
+      `#260 open: wktr-260-flaky -> flaky, head ${SHA_A}, draft, required 0/3 reported`,
+    ])
+  })
+
+  it(
+    'joins every reason when every base fails in the same poll, and attributes a ' +
+      'base that stays down once the rest of the poll reads again, one poll late (#265)',
+    async () => {
+      const release = head({ base: 'release' })
+      const { context, lines } = watchOver([
+        {
+          heads: heads(release),
+          required: { main: ghFails('gh: HTTP 500'), release: ghFails('gh: HTTP 404') },
+        },
+        { heads: heads(release), required: { main: REQUIRED, release: ghFails('gh: HTTP 404') } },
+      ])
+
+      await runWatch(['--ticks', '2'], context)
+
+      expect(lines).toEqual([
+        'poll failed: gh: HTTP 500; gh: HTTP 404',
+        'poll read again after 1 failed poll',
+        'required contexts for release could not be read: gh: HTTP 404; its pull requests are unread',
+      ])
+    },
+  )
+
+  it(
+    'reports a head that moved while its base was unread, once the base reads ' +
+      'again (#264 and #265 together)',
+    async () => {
+      const flaky = head({ number: 260, head: 'wktr-260-flaky', base: 'flaky' })
+      const down = ghFails('gh: HTTP 404')
+      const { context, lines } = watchOver([
+        { heads: heads(flaky), required: { main: REQUIRED, flaky: [] } },
+        { heads: heads({ ...flaky, headSha: SHA_B }), required: { main: REQUIRED, flaky: down } },
+        { heads: heads({ ...flaky, headSha: SHA_B }), required: { main: REQUIRED, flaky: [] } },
+      ])
+
+      await runWatch(['--ticks', '3'], context)
+
+      expect(lines).toEqual([
+        `#260 open: wktr-260-flaky -> flaky, head ${SHA_A}, draft, required 0/3 reported`,
+        'required contexts for flaky could not be read: gh: HTTP 404; its pull requests are unread',
+        'required contexts for flaky read again',
+        `#260 new head ${SHA_B}, required 0/3 reported`,
+      ])
+    },
+  )
+
   it('reports a failure that is not a gh error in its own words', async () => {
     const { context, lines } = watchOver([{ heads: heads(head()), repository: new Error('boom') }])
 
@@ -682,6 +798,17 @@ describe('a watch that was told what it already knows', () => {
     ])
 
     await runWatch(['--ticks', '2', '--since-head', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([`#259 new head ${SHA_B}, required 0/3 reported`])
+  })
+
+  it('writes nothing when a head concluded by --concluded comes back after a later one (#264)', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ headSha: SHA_B })) },
+      { heads: heads(head()) },
+    ])
+
+    await runWatch(['--ticks', '2', '--concluded', `259=${SHA_A}`], context)
 
     expect(lines).toEqual([`#259 new head ${SHA_B}, required 0/3 reported`])
   })
