@@ -2,7 +2,7 @@
 name: stream
 description: Take one step of a stream. Write the next layer's brief and dispatch its agent, or read a layer's return.
 argument-hint: [issue-or-stack]
-allowed-tools: Bash(gh issue view *) Read Grep Glob Write Agent
+allowed-tools: Bash(gh issue view *) Bash(git worktree add *) Read Grep Glob Write Agent
 user-invocable: false
 ---
 
