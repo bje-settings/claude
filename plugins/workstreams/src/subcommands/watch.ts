@@ -19,8 +19,8 @@
 // **A value that could not be read is reported as itself.** A poll that
 // read no pull request writes a "poll failed" line and changes nothing. The
 // line comes once for each new reason, and not on each poll. The first poll
-// that reads again after a failure says so. A that fell short still gives the rows that arrived, and the watch
-// keeps them. It writes a "poll incomplete" line once for each new reason.
+// that reads again after a failure says so. A list that fell short still
+// gives the rows that arrived, and the watch keeps them. It writes a "poll incomplete" line once for each new reason.
 // So one row that cannot be read does not stop the watch for every other
 // pull request. A pull request that is absent from a short list is not
 // reported as closed: only its own state names that.
