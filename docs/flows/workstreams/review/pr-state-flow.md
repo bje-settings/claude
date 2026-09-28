@@ -3,7 +3,7 @@ type: Reference
 description: How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-sonnet-5
+  by: claude-sonnet
   at: 2026-09-27
 ---
 

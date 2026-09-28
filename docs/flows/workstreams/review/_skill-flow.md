@@ -3,7 +3,7 @@ type: Reference
 description: What the /workstreams:review skill does in one step, and every way it declines to act.
 stale_after: 2027-03-27
 generated:
-  by: claude-sonnet-5
+  by: claude-sonnet
   at: 2026-09-27
 ---
 
