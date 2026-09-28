@@ -147,4 +147,15 @@ describe('namesOrDefault', () => {
   it('answers an empty list when neither branch requires anything', () => {
     expect(namesOrDefault([], [])).toEqual({ names: [], from: 'default' })
   })
+
+  it('answers unread, not empty, when the default branch could not be read (ruling 6, #298)', () => {
+    expect(namesOrDefault([], null)).toEqual({ names: [], from: 'unread' })
+  })
+
+  it('uses the base branch list even when the default branch could not be read', () => {
+    expect(namesOrDefault(['release-check'], null)).toEqual({
+      names: ['release-check'],
+      from: 'ruleset',
+    })
+  })
 })

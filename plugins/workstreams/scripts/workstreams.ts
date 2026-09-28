@@ -128,7 +128,9 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
       })
     return write(
       await runWatch(argv, {
-        gh: createGhClient({ cwd: process.cwd(), env: process.env }),
+        // `--interval` is not known until `runWatch` parses it. So this
+        // hands over a factory, not a built client (ruling 4, #295).
+        createGh: (boundMs) => createGhClient({ cwd: process.cwd(), env: process.env, boundMs }),
         cwd: process.cwd(),
         env: process.env,
         write: (line) => output.out.write(`${line}\n`),
