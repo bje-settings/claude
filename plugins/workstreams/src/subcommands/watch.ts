@@ -389,6 +389,10 @@ const pullLines = (
   // (ruling 5, #296). Any other answer clears the count. A head not yet
   // seen ends the silence at once. A head unchanged from the current one
   // also leaves nothing pending.
+  // A fall-through here means `seen.pending` already equals `pull.headSha`
+  // (the confirmed case), so it needs no reset: the "new head" branch
+  // below is about to make `pull.headSha` the current `sha`, and a
+  // `pending` equal to the current `sha` can never match again.
   if (seen !== undefined && seen.sha !== pull.headSha && seen.seenHeads.has(pull.headSha)) {
     if (seen.pending !== pull.headSha) {
       seen.pending = pull.headSha
@@ -424,7 +428,6 @@ const pullLines = (
     tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
     tracked.concluded = false
-    tracked.pending = null
     quiet = true
   } else if (tracked.seeded) {
     quiet = true
