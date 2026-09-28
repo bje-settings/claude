@@ -5,31 +5,17 @@ It covers `.json`, which `typescript7-lsp` does not claim
 ([`plugins/typescript7-lsp/.lsp.json`](../typescript7-lsp/.lsp.json)) but Biome lints here
 (`biome.json:9`).
 
-This plugin does not claim `.ts`, `.tsx`, `.js` or `.jsx`, even though Biome lints those files
-too. A probe with the real `claude` binary showed why: only one server can handle a given
-extension. The probe loaded `typescript7-lsp` and a build of this plugin that did claim `.ts`,
-with `claude -p --plugin-dir`, one load order at a time, and asked the session to call the `LSP`
-tool's `hover` operation on a `.ts` file. With `typescript7-lsp` loaded first, `hover` returned
-real TypeScript type information. With the Biome build loaded first, the same call failed with
-`LSP request 'textDocument/hover' failed for server 'plugin:biome-lsp:biome': Method not found`,
-because Biome's server does not implement `hover`. Reversing the load order reversed which server
-answered. Neither run showed both servers active on the same file. This result did not test
-`enabledPlugins` order in `.claude/settings.json` directly, only `--plugin-dir` order; the two
-are assumed, not proven, to work the same way.
+Claude Code starts one server for each extension. When two enabled servers claim an extension,
+the first registered server handles it
+([plugins components](https://code.claude.com/docs/en/plugins/components#lsp-servers)). So this
+plugin does not claim `.ts`, `.tsx`, `.js` or `.jsx`, which `typescript7-lsp` covers. A probe
+with `claude -p --plugin-dir` confirmed this, in both load orders, on a build that claimed `.ts`.
+With Biome first, the `LSP` tool's `hover` on a `.ts` file failed with `Method not found`.
 
-`typescript7-lsp` already covers `.ts`, `.tsx`, `.js` and `.jsx`
-([`plugins/typescript7-lsp/README.md`](../typescript7-lsp/README.md)), so claiming those
-extensions here would only start a server that never runs, or that silences `typescript7-lsp`
-depending on load order. `.json` has no such contention: no other plugin in this marketplace
-claims it.
-
-The probe could not confirm the `Found N new diagnostic issues` line the
-[code intelligence docs](https://code.claude.com/docs/en/plugins/code-intelligence) describe.
-Six headless runs, with `Write` and `Edit`, on `typescript7-lsp` alone, `biome-lsp` alone, and
-both together, never showed that line or any diagnostic text in the raw event stream. The
-underlying server did work: the `LSP` tool's `hover` and `documentSymbol` operations returned
-real answers. Whether the auto diagnostic line ever fires in a headless (`-p`) session is
-unsettled; this README does not guess.
+Diagnostics reach the session in headless mode too. With Claude Code 2.1.283, a `Write` of
+`{"a": 1, "a": 2}` to a `.json` file gave Claude this Biome diagnostic:
+`The key a was already declared. [lint/suspicious/noDuplicateObjectKeys]`. Format problems did
+not show as diagnostics.
 
 ## Requirements
 
