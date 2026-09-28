@@ -70,9 +70,9 @@ Hold its task id in the conversation. Do not arm a second watch while this one r
 Each line the watch writes is a wake. The other wake is an agent's completion
 notification.
 
-- On expiry, arm the watch again. Give it `--since-head` and `--concluded`, built from
-  the full heads you know. A concluded head goes in `--concluded`; every other head goes
-  in `--since-head`. The new watch then stays silent about what it already said.
+- On expiry, arm the watch again. Give it `--since-head` and `--concluded`, and build both
+  from the full heads you know. A concluded head goes in `--concluded`; every other head
+  goes in `--since-head`. The new watch then stays silent about what it already said.
 - Between wakes, end the turn. Never poll an agent. Never sleep in the foreground.
 - A return that says the agent still waits has stopped short. Send it back with
   `SendMessage` and a narrower instruction. Do not dispatch a second agent.

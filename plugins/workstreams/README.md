@@ -85,8 +85,9 @@ wait loop starts, at the longest timeout the tool allows: 30 minutes at most. Ea
 watch writes wakes the session. The other wake is an agent's completion notification.
 Nothing polls an agent, and nothing sleeps in the foreground.
 
-On expiry, the skill arms the watch again. It gives `--since-head` and `--concluded`, set
-to the full heads it knows. The new watch then stays silent about what it already said.
+On expiry, the skill arms the watch again. It gives `--since-head` and `--concluded`, and
+builds both from the full heads it knows. The new watch then stays silent about what it
+already said.
 
 Where the watch cannot run, an agent's completion notification is the only wake. With no
 agent at work, the skill reports and stops.
