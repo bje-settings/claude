@@ -939,13 +939,39 @@ describe('issue and pull request states', () => {
     expect(result).toEqual({ states: {}, unavailable: 'cannot run gh: spawn gh ENOENT' })
   })
 
-  it('reports the measured time when a client with no bound times out', async () => {
-    // `issueStates` never passes its own `boundMs` to `accountOf`; it
-    // relies on the client's own bound, through `invoke`'s default
-    // (`lib/gh.ts` `accountOf`, `const invoke`). A client made with no
-    // `boundMs` at all, such as the `gh` plugin's, has none to fall back
-    // on. `accountOf` then reports `result.elapsedMs`, not a bound that was
-    // never asked for.
+  // The bound outranks the body, even a whole, valid one (ruling 4, #295),
+  // the same way `viewPullRequestDetail` guards its own read. A mutation
+  // that drops this check would read the node as a genuine reply instead
+  // of a timeout.
+  it('reports an issue-state read that timed out as itself, before it tries to parse the body', async () => {
+    const { gh } = clientAnsweringEach(
+      [
+        { stdout: '{"nameWithOwner":"acme/widgets"}' },
+        {
+          timedOut: true,
+          status: null,
+          signal: 'SIGKILL',
+          stdout: '{"data":{"repository":{"i0":{"state":"OPEN"}}}}',
+        },
+      ],
+      { boundMs: 5_000 },
+    )
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gh did not answer in 5000 ms' })
+  })
+
+  it('reports the measured time when a client with no bound of its own times out', async () => {
+    // `accountOf`'s `boundMs` argument is the bound the caller that reads
+    // the result was configured with (`options.boundMs` here, through the
+    // guard just above). A client built with none, such as the `audit`
+    // plugin's, has none to report, so `accountOf` falls back to
+    // `result.elapsedMs`, the time it actually measured (`lib/gh.ts`
+    // `accountOf`). `invoke`'s own bound is `options.boundMs` too
+    // (`const invoke`), so a client with none never truly starts a timer;
+    // this reply's `timedOut: true` stands in for that fallback path,
+    // which every other endpoint here also reaches only by a stand-in.
     const { gh } = clientAnsweringEach([
       { stdout: '{"nameWithOwner":"acme/widgets"}' },
       { status: null, signal: 'SIGKILL', timedOut: true, elapsedMs: 9000 },
