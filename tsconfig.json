@@ -58,7 +58,6 @@
     "plugins/*/src",
     "plugins/*/scripts",
     "plugins/*/hooks",
-    "vitest.config.ts",
-    "eslint.config.ts"
+    "vitest.config.ts"
   ]
 }
