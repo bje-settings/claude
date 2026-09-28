@@ -35,11 +35,11 @@ flowchart TD
     K1 --> J
     K -->|Yes| L[Classify, size, and estimate the review]
 
-    L --> M{touch the same file, region, or CI workflow?}
+    L --> M{touch the same file, region, or CI workflow,<br/>apart from a version line or separate README sections?}
     M -->|No| N[Parallel streams]
-    M -->|Yes| O{would one layer reference what the next introduces?}
+    M -->|Yes| O{would one layer reference what the next introduces,<br/>or do both rewrite one section?}
     O -->|Yes| P[One pull request that closes both issues]
-    O -->|No| Q{each layer has independent review or merge value?}
+    O -->|No| Q{a person would review or merge each layer alone?}
     Q -->|Yes| R[A stack, bottom to top]
     Q -->|No| P
 

@@ -2,7 +2,7 @@
 name: review
 description: Take one step of the review loop on one draft pull request, from its state. Dispatch a review round, record a finished one, reopen for a missing run, do the rot check, or report.
 argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--rot-checked] [round return]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(git worktree list *) Read Grep Glob Agent
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(git worktree list *) Bash(git -C * diff *) Read Grep Glob Agent
 user-invocable: false
 ---
 
@@ -34,12 +34,17 @@ _Recorded by <effort>, <date>._"
 ```
 
 The marker is one of these, exactly: `Review round 1 done: substantial.`,
-`Review round 1 done.`, `Review round 2 done.`, `Rot check done.` Round 1 is substantial
-when it changed behaviour at all.
+`Review round 1 done.`, `Review round 2 done.`, `Rot check done.`
+
+Round 1 is substantial only when its own commits changed the logic of a file under `src/`,
+`lib/`, `scripts/` or `hooks/`: a new or changed branch, state, output line or contract. A
+rename, comment, type, message text or one-line guard is minor. Prose, tests and metadata
+are never substantial.
 
 ## Process
 
-0. Called with a round agent's JSON return: post that round's marker, then return. A
+0. Called with a round agent's JSON return: check its `substantial` against
+   `git -C <worktree> diff <from> <head>`, post that round's marker, then return. A
    marker that did not post is a stop. Say so.
 
 1. Read the state once.

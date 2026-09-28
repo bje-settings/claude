@@ -55,15 +55,16 @@ and report per milestone.
 5. Sequence. Collisions first. Two issues collide when they touch the same file or
    region, when both add a job to the same CI workflow (a second job added is a collision
    by itself, whatever else the diffs do), or when one creates something the other reads.
+   A shared version line, or separate sections of one README, is not a collision. One
+   stream of the round owns each version line. Name it.
 
    Then choose the shape, in this order:
 
    1. **One pull request that closes both issues**, when the changes cannot be reviewed or
-      merged apart. The tell is explicit and easy to check: if layer N's diff would
-      contain a reference to something layer N+1 introduces, the two are not separable.
-   2. **A stack**, when the changes are genuinely separable but ordered, and each layer
-      has independent review or merge value: someone would plausibly approve or ship one
-      without the other.
+      merged apart, or when both rewrite the same section of one file. The tell for the
+      first: layer N's diff would contain a reference to something layer N+1 introduces.
+   2. **A stack**, when changes are ordered and in different regions, and a person would
+      review or merge each layer alone.
    3. **Parallel streams**, when the file sets are disjoint.
 
 6. Post the sequencing comment. Post one comment on **every** issue in the round. It

@@ -54,8 +54,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    It was the one fact the pull request had really lost.
 7. Verification rules that have each found what reading alone could not:
    - **Mutation before you accept "tested".** Disable the thing a test claims to
-     prove. Run the suite. Watch it go red. A suite that stays green is the finding.
-     A suite already red before the mutation is a rejection. A mutation script must
+     prove. Run its tests. Watch them go red. Tests that stay green are the finding.
+     Tests already red before the mutation are a rejection. A mutation script must
      assert that it changed something: a substitution that silently fails to apply
      reports green, and reads like a hole in the tests.
    - **A redundancy claim is a mutation target, not a verdict.** Check "X is
@@ -65,8 +65,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
      `gh pr checks --watch --json`. Run one read-only call per new or changed
      endpoint against the real binary. Check the parser against what came back.
    - **For a port, the guard sweep.** Re-derive the guard list from the old code.
-     Revert every guard in the new code at once. Run the suite. Treat every guard
-     that stays green as a finding. Then revert the guards one at a time. 100%
+     Revert every guard in the new code at once. Run the related tests. Treat every
+     guard that stays green as a finding. Then revert the guards one at a time. 100%
      branch coverage cannot see this class of defect at all: `||` against `??`, a
      truthiness test against `=== null`, an `Array.isArray(x) ? x : []` tested only
      with null. This method found 7 of 9 unproven guards in one layer, and 10 in
@@ -95,7 +95,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
     minutes, run `gh pr close <number> && gh pr reopen <number>`.
 13. Watch CI in the foreground: run `gh pr checks <number> --watch --interval 30`,
     with a timeout of 590000 ms. Re-run it on timeout. Done means every required
-    context REPORTED success. Red CI is yours to fix.
+    context REPORTED success. Red CI is yours to fix. Red on a file you did not
+    touch is not: return, and name the failed run.
 14. Run `git status --porcelain` in BOTH checkouts again.
 
 ## What you never do
@@ -110,7 +111,9 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
   timeout of at most 590000 ms, any command the harness moves to the background. Your
   last command before you return is the CI watch. Never return saying you are still
   waiting.
-- Never run more than one suite at a time. Never generate machine load.
+- Never run the full suite. Run only the tests that reach the files you change:
+  `vitest related --run <files>`, or the named test files. Also run the type check, the
+  linter and the validators, one at a time. CI's full suite is the coverage gate.
 - Never use `--no-verify`. No attribution lines, no emoji, no em-dashes, and no
   double hyphen as punctuation, in anything you write. A CLI flag and the `--`
   separator are not punctuation.
@@ -132,7 +135,7 @@ Prose, then on the LAST LINE one JSON object:
 {"pr": <number>, "round": <round>,
  "applied": [{"finding": "...", "source": "<reviewer>", "verified": "<file:line>", "change": "..."}],
  "rejected": [{"finding": "...", "source": "<reviewer>", "why": "<file:line>"}],
- "substantial": true|false, "pushed": true|false, "head": "<sha>",
+ "substantial": true|false, "pushed": true|false, "from": "<sha>", "head": "<sha>",
  "ci": {"<context>": "<state>"}, "reruns": <n>,
  "lower_layer": [{"finding": "...", "evidence": "..."}],
  "rot_list": ["..."], "findings_file": "<path>",
@@ -141,4 +144,6 @@ Prose, then on the LAST LINE one JSON object:
 ```
 
 `applied` carries the verified file and line for each fix, so the next round does not
-rediscover the context this one already read.
+rediscover the context this one already read. `from` is the head named above.
+`substantial` classifies your own commits: `<the substantial rule from SKILL.md,
+verbatim>`
