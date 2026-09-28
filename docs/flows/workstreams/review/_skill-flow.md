@@ -15,7 +15,7 @@ act. Each call takes one step and returns. The caller waits between calls.
 ```mermaid
 flowchart TD
     R0{called with a round agent's JSON return?}
-    R0 -->|Yes| RS[Check substantial against the round's own diff:<br/>only changed logic under src, lib, scripts or hooks counts]
+    R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in the pull request's worktree: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
     RS --> R2{post the round's marker: posted?}
     R2 -->|Yes| R1([Return])
     R2 -->|No| R3([Stop: say so]):::stop

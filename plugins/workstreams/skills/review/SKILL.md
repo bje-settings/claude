@@ -36,16 +36,17 @@ _Recorded by <effort>, <date>._"
 The marker is one of these, exactly: `Review round 1 done: substantial.`,
 `Review round 1 done.`, `Review round 2 done.`, `Rot check done.`
 
-Round 1 is substantial only when its own commits changed the logic of a file under `src/`,
-`lib/`, `scripts/` or `hooks/`: a new or changed branch, state, output line or contract. A
-rename, comment, type, message text or one-line guard is minor. Prose, tests and metadata
-are never substantial.
+Round 1 is substantial only when its own commits changed logic under `src/`, `lib/`,
+`scripts/` or `hooks/`. Logic is a new or changed branch, state, output line or contract.
+A rename, comment, type, message text or one-line guard is minor. Prose, tests and
+metadata are never substantial.
 
 ## Process
 
 0. Called with a round agent's JSON return: check its `substantial` against
-   `git -C <worktree> diff <from> <head>`, post that round's marker, then return. A
-   marker that did not post is a stop. Say so.
+   `git -C <worktree> diff <from> <head>`. The diff decides the marker. Post that
+   round's marker, name any disagreement, then return. A marker that did not post is a
+   stop. Say so.
 
 1. Read the state once.
 
