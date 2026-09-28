@@ -310,9 +310,10 @@ it('runs the hook entry with node, behind the silent guard, on both shell tools'
   // The description is what a user reads in the plugin listing, and it is
   // still true of what the hook does.
   expect(config.description).toBe(
-    'Refuses two things to subagents only: a background command, and a git command that would ' +
+    'Refuses three things to subagents only: a background command, a git command that would ' +
       'overwrite uncommitted work in a tracked file (git restore, git checkout with a pathspec ' +
       'written with or without a --, and git checkout or git switch carrying a force, patch or ' +
-      '--pathspec-from-file option). The main conversation is never denied.',
+      '--pathspec-from-file option), and a vitest or pnpm test run while one already runs in ' +
+      'the same worktree. The main conversation is never denied.',
   )
 })
