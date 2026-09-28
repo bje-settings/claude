@@ -269,9 +269,12 @@ commit and never costs work.
 
 The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spelling is
 `pnpm test` or `pnpm run test`. `package.json`'s only script, `test`, maps to `vitest run
---coverage`. The guard lists the `vitest` processes on the machine, through `pgrep`, and
-reads each one's cwd, through `/proc` or `lsof`. A match on the command's own cwd is a
-denial. It names the pid, and asks the subagent to wait rather than start a second suite.
+--coverage`. `pnpm`'s own `-C <dir>`, `--dir <dir>`, and `--dir=<dir>` name the directory
+the check compares, rather than the tool call's own `cwd`: the worktree workflow's rule is
+"never `cd`; name the absolute path in every command", and this is the spelling that follows
+from it. The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
+each one's cwd, through `/proc` or `lsof`. A match on that directory is a denial. It names
+the pid, and asks the subagent to wait rather than start a second suite.
 
 **The main conversation is never denied.** The test is `agent_id`. The input carries this
 field "only when the hook fires inside a subagent"

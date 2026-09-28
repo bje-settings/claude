@@ -26,6 +26,7 @@ import {
   runGuard,
   runsVitest,
   type ToolCall,
+  vitestTarget,
 } from '#workstreams/subcommands/guard.ts'
 
 const collector = (): Writer & { text: () => string } => {
@@ -328,6 +329,16 @@ describe('finding a vitest run', () => {
     'cd /w && pnpm exec vitest run',
     'FOO=bar pnpm exec vitest run',
     '( pnpm test )',
+    '/usr/local/bin/vitest run',
+    'VITEST run',
+    'vitest.cmd run',
+    '/usr/local/bin/pnpm test',
+    'PNPM test',
+    'pnpm.cmd test',
+    'pnpm -C /w test',
+    'pnpm --dir /w test',
+    'pnpm --dir=/w test',
+    'pnpm -C /w exec vitest',
   ]) {
     it(`finds it in ${JSON.stringify(command)}`, () => {
       expect(runsVitest(command)).toBe(true)
@@ -341,10 +352,33 @@ describe('finding a vitest run', () => {
     'pnpm exec biome check',
     'cat vitest.config.ts',
     'git commit -m "add vitest"',
+    'pnpm -C',
     '',
   ]) {
     it(`leaves ${JSON.stringify(command)} alone`, () => {
       expect(runsVitest(command)).toBe(false)
+    })
+  }
+})
+
+describe('the directory a vitest run names', () => {
+  it('names no directory for a bare vitest call', () => {
+    expect(vitestTarget('vitest run')).toEqual({ directory: null })
+  })
+
+  it('names no directory for pnpm with no -C or --dir of its own', () => {
+    expect(vitestTarget('pnpm test')).toEqual({ directory: null })
+  })
+
+  for (const [command, directory] of [
+    ['pnpm -C /w test', '/w'],
+    ['pnpm --dir /w test', '/w'],
+    ['pnpm --dir=/w test', '/w'],
+    ['pnpm -C /w exec vitest', '/w'],
+    ['pnpm -C /w run test', '/w'],
+  ] as const) {
+    it(`names ${directory} for ${JSON.stringify(command)}`, () => {
+      expect(vitestTarget(command)).toEqual({ directory })
     })
   }
 })
@@ -573,6 +607,61 @@ describe('a second vitest suite', () => {
 
     expect(verdict).toEqual({ decision: 'allow' })
     expect(output.stderr()).toBe('')
+  })
+
+  it('matches the second entry of several, when only it names the same worktree', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running([
+        { pid: 1, cwd: '/elsewhere' },
+        { pid: 4242, cwd: '/w' },
+      ]),
+      output,
+    })
+
+    expect(verdict.decision).toBe('deny')
+    expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+  })
+
+  it('refuses a pnpm -C <dir> run against the directory it names, not the call’s own cwd', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm -C /w test', cwd: '/root' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running([{ pid: 4242, cwd: '/w' }]),
+      output,
+    })
+
+    expect(verdict.decision).toBe('deny')
+    expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+    expect(verdict).toMatchObject({ reason: expect.stringContaining('/w') })
+  })
+
+  it('allows a pnpm -C <dir> run when only a different directory has one running', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm -C /w test', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running([{ pid: 4242, cwd: '/root' }]),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+  })
+
+  it('matches a directory that differs from the process cwd only by a trailing slash', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test', cwd: '/w/' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running([{ pid: 4242, cwd: '/w' }]),
+      output,
+    })
+
+    expect(verdict.decision).toBe('deny')
+    expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
   })
 })
 

@@ -361,33 +361,83 @@ const readSegment = (tokens: readonly string[]): Destructive | undefined => {
   return named.length === 0 ? undefined : { directory, pathspec: named }
 }
 
-/** Whether one segment's tokens start a `vitest` run. Three spellings
+/** `git`'s own `pnpm`, matched the same way {@link readSegment} matches
+ *  `git`: a path may sit in front, and a `.cmd` suffix names the Windows
+ *  shim. Case-insensitive, for the same reason. */
+const PNPM_VERB = /(^|[\\/])pnpm(\.cmd)?$/i
+
+/** `vitest` itself, matched the same way. */
+const VITEST_VERB = /(^|[\\/])vitest(\.cmd)?$/i
+
+/** What a `vitest` run in one segment would act on: the directory a
+ *  `pnpm -C`/`--dir` option names, or `null` for "wherever the tool call
+ *  runs", the same meaning {@link Destructive.directory} carries for a
+ *  git command's own `-C`. */
+export interface VitestTarget {
+  readonly directory: string | null
+}
+
+/** One segment's tokens, read for a `vitest` run. Three verb spellings
  *  qualify. The first is a direct `vitest` call. The second is `pnpm
  *  exec vitest`, this round's own convention (`lefthook.yml`,
  *  `.github/workflows/ci.yml`). The third is `pnpm test` or `pnpm run
  *  test`: `package.json`'s only script, `test`, runs `vitest run
  *  --coverage`.
  *
+ *  `pnpm`'s own `-C <dir>`, `--dir <dir>`, and `--dir=<dir>` name the
+ *  directory `pnpm` runs the script in, the same fact git's `-C` names
+ *  for {@link readSegment}. The worktree workflow's own rule is "never
+ *  `cd`; name the absolute path in every command"
+ *  (`skills/stream/brief.md`), which makes this the ordinary spelling a
+ *  subagent uses to test one worktree, not an edge case.
+ *
  *  `npm` and `yarn` are left out. This repository has one lockfile,
  *  `pnpm-lock.yaml`, and no other manager runs here. */
-const readVitestVerb = (tokens: readonly string[]): boolean => {
+const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined => {
   let start = 0
   while (OPENERS.includes(at(tokens, start)) || ASSIGNMENT.test(at(tokens, start))) start += 1
 
   const verb = at(tokens, start)
-  if (/(^|[\\/])vitest(\.cmd)?$/i.test(verb)) return true
-  if (verb !== 'pnpm') return false
+  if (VITEST_VERB.test(verb)) return { directory: null }
+  if (!PNPM_VERB.test(verb)) return undefined
 
-  const second = at(tokens, start + 1)
-  if (second === 'exec') return /(^|[\\/])vitest(\.cmd)?$/i.test(at(tokens, start + 2))
-  if (second === 'test') return true
-  return second === 'run' && at(tokens, start + 2) === 'test'
+  let directory: string | null = null
+  let cursor = start + 1
+  while (true) {
+    const token = at(tokens, cursor)
+    if (token === '-C' || token === '--dir') {
+      const named = at(tokens, cursor + 1)
+      directory = named === '' ? null : named
+      cursor += 2
+      continue
+    }
+    if (token.startsWith('--dir=')) {
+      directory = token.slice('--dir='.length)
+      cursor += 1
+      continue
+    }
+    break
+  }
+
+  const sub = at(tokens, cursor)
+  if (sub === 'exec') return VITEST_VERB.test(at(tokens, cursor + 1)) ? { directory } : undefined
+  if (sub === 'test') return { directory }
+  return sub === 'run' && at(tokens, cursor + 1) === 'test' ? { directory } : undefined
 }
 
-/** Whether `command` starts a `vitest` run in any segment, cut at the same
- *  shell operators {@link destructiveGit} cuts at. */
-export const runsVitest = (command: string): boolean =>
-  command.split(SEGMENTS).some((segment) => readVitestVerb(segment.trim().split(/\s+/)))
+/** What a `vitest` run in `command` would act on, or `undefined` when no
+ *  segment starts one, cut at the same shell operators {@link
+ *  destructiveGit} cuts at. */
+export const vitestTarget = (command: string): VitestTarget | undefined => {
+  for (const segment of command.split(SEGMENTS)) {
+    const target = readVitestTarget(segment.trim().split(/\s+/))
+    if (target !== undefined) return target
+  }
+  return undefined
+}
+
+/** Whether `command` starts a `vitest` run in any segment. */
+export const runsVitest = (command: string): boolean => vitestTarget(command) !== undefined
 
 /** The subagent as a denial names it. */
 const who = (call: ToolCall): string =>
@@ -410,17 +460,33 @@ const trackedChanges = (porcelain: string): readonly string[] =>
     .split('\n')
     .filter((line) => line !== '' && !line.startsWith('??') && !line.startsWith('!!'))
 
+/** `directory`, with one trailing slash or more removed. A payload's own
+ *  `cwd`, and a process's own cwd read through `/proc` or `lsof`, can
+ *  name the same directory with or without one; this keeps that
+ *  difference from reading as two different worktrees. It does not
+ *  resolve a symlink, so a path under a symlinked root, such as macOS's
+ *  `/tmp` or `/var`, can still compare unequal to its own resolved self.
+ *  A worktree under this repository's own convention, `.claude/worktrees/`
+ *  off the repository root, never sits under either. */
+const stripTrailingSlash = (directory: string): string => directory.replace(/\/+$/, '')
+
 /** The verdict on a `vitest` command alone: whether another `vitest`
  *  process already runs in the same worktree. `decide` asks this before
  *  it asks git. `undefined` means move on to the git check. Either this
- *  command does not run `vitest`, or nothing stands in its way. */
+ *  command does not run `vitest`, or nothing stands in its way.
+ *
+ *  `command` is a `string`, not the whole {@link ToolCall}, because
+ *  `decide` already narrows out the null case before it calls this. A
+ *  second check here would be a branch no test could ever reach. */
 const secondSuite = async (
+  command: string,
   call: ToolCall,
   context: { readonly processes: ProcessReader; readonly output: Output },
 ): Promise<Verdict | undefined> => {
-  if (call.command === null || !runsVitest(call.command)) return undefined
+  const target = vitestTarget(command)
+  if (target === undefined) return undefined
 
-  const directory = call.cwd
+  const directory = target.directory ?? call.cwd
   if (directory === null) {
     context.output.err.write(
       'workstreams guard: the payload carries no cwd, so a second vitest run could not be ' +
@@ -438,7 +504,10 @@ const secondSuite = async (
     return undefined
   }
 
-  const other = running.find((entry) => entry.cwd !== null && entry.cwd === directory)
+  const other = running.find(
+    (entry) =>
+      entry.cwd !== null && stripTrailingSlash(entry.cwd) === stripTrailingSlash(directory),
+  )
   if (other === undefined) return undefined
 
   return {
@@ -493,7 +562,7 @@ export const decide = async (
 
   if (call.command === null) return { decision: 'allow' }
 
-  const suiteVerdict = await secondSuite(call, context)
+  const suiteVerdict = await secondSuite(call.command, call, context)
   if (suiteVerdict !== undefined) return suiteVerdict
 
   const target = destructiveGit(call.command)
