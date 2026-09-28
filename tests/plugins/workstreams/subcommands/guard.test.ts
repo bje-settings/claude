@@ -20,8 +20,11 @@ import {
   denial,
   destructiveGit,
   type GitReader,
+  type ProcessReader,
+  type RunningProcess,
   readToolCall,
   runGuard,
+  runsVitest,
   type ToolCall,
 } from '#workstreams/subcommands/guard.ts'
 
@@ -311,13 +314,52 @@ describe('finding the destructive command', () => {
   })
 })
 
+describe('finding a vitest run', () => {
+  for (const command of [
+    'vitest',
+    'vitest run',
+    'vitest related --run src/index.ts',
+    'pnpm exec vitest',
+    'pnpm exec vitest related --run src/index.ts',
+    'pnpm test',
+    'pnpm test --watch',
+    'pnpm run test',
+    'pnpm build && pnpm test',
+    'cd /w && pnpm exec vitest run',
+    'FOO=bar pnpm exec vitest run',
+    '( pnpm test )',
+  ]) {
+    it(`finds it in ${JSON.stringify(command)}`, () => {
+      expect(runsVitest(command)).toBe(true)
+    })
+  }
+
+  for (const command of [
+    'pnpm build',
+    'pnpm test:unit',
+    'pnpm run build',
+    'pnpm exec biome check',
+    'cat vitest.config.ts',
+    'git commit -m "add vitest"',
+    '',
+  ]) {
+    it(`leaves ${JSON.stringify(command)} alone`, () => {
+      expect(runsVitest(command)).toBe(false)
+    })
+  }
+})
+
 describe('the main thread and the tools this never reads', () => {
   it('allows a main-thread call in silence, whatever it asks for', async () => {
     const output = createOutputPair()
 
     const verdict = await decide(
       call({ agentId: null, agentType: null, background: true, command: 'git restore .' }),
-      { git: () => Promise.reject(new Error('git must not be asked')), output },
+      {
+        git: () => Promise.reject(new Error('git must not be asked')),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
+        output,
+      },
     )
 
     expect(verdict).toEqual({ decision: 'allow' })
@@ -330,6 +372,7 @@ describe('the main thread and the tools this never reads', () => {
 
     const verdict = await decide(call({ toolName: 'PowerShell', background: true }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -342,6 +385,7 @@ describe('the main thread and the tools this never reads', () => {
 
       const verdict = await decide(call({ toolName, background: true }), {
         git: () => Promise.reject(new Error('git must not be asked')),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
         output,
       })
 
@@ -354,6 +398,7 @@ describe('the main thread and the tools this never reads', () => {
 
     const verdict = await decide(call({ command: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -367,6 +412,7 @@ describe('run_in_background', () => {
 
     const verdict = await decide(call({ background: true, command: 'pnpm test' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -385,6 +431,7 @@ describe('run_in_background', () => {
 
     const verdict = await decide(call({ agentType: null, background: true }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -396,6 +443,7 @@ describe('run_in_background', () => {
 
     const verdict = await decide(call({ background: true, command: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -407,10 +455,124 @@ describe('run_in_background', () => {
 
     const verdict = await decide(call({ command: 'pnpm exec vitest run' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
     expect(verdict).toEqual({ decision: 'allow' })
+  })
+})
+
+// A running() list stands in for `pgrep` and its cwd reader, so no test
+// here needs a process (round 12 ruling 9, #299).
+const running =
+  (entries: readonly RunningProcess[]): ProcessReader =>
+  () =>
+    Promise.resolve(entries)
+
+describe('a second vitest suite', () => {
+  for (const command of [
+    'vitest run',
+    'vitest related --run src/index.ts',
+    'pnpm exec vitest related --run src/index.ts',
+    'pnpm test',
+    'pnpm run test',
+  ]) {
+    it(`refuses ${JSON.stringify(command)} while one already runs in the same worktree`, async () => {
+      const output = createOutputPair()
+
+      const verdict = await decide(call({ command, cwd: '/w' }), {
+        git: () => Promise.reject(new Error('git must not be asked')),
+        processes: running([{ pid: 4242, cwd: '/w' }]),
+        output,
+      })
+
+      expect(verdict.decision).toBe('deny')
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('/w') })
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('wait for it to finish') })
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('never re-issue') })
+      expect(output.stderr()).toBe('')
+    })
+  }
+
+  it('allows the main thread, whatever else runs, and never asks for the process list', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(
+      call({ agentId: null, agentType: null, command: 'pnpm test', cwd: '/w' }),
+      {
+        git: () => Promise.reject(new Error('git must not be asked')),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
+        output,
+      },
+    )
+
+    expect(verdict).toEqual({ decision: 'allow' })
+  })
+
+  it('allows it when the other vitest runs in a different worktree', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running([{ pid: 4242, cwd: '/elsewhere' }]),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toBe('')
+  })
+
+  it('allows an ordinary command, and never asks for the process list at all', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm build', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+  })
+
+  it('allows, with a line on stderr, when the payload names no cwd at all', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test', cwd: null }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toContain('the payload carries no cwd')
+  })
+
+  it('allows, with a line on stderr, when the process list could not be read', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.resolve(null),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toContain('the running processes could not be listed')
+  })
+
+  it('allows it past a process whose own cwd the guard could not read', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running([{ pid: 4242, cwd: null }]),
+      output,
+    })
+
+    expect(verdict).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toBe('')
   })
 })
 
@@ -424,6 +586,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git checkout -- .', cwd: work }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -446,6 +609,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git restore .', cwd: work }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -469,6 +633,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
       const verdict = await decide(call({ command, cwd: work }), {
         git: readerFor(sandbox),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
         output,
       })
 
@@ -515,6 +680,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
       const verdict = await decide(call({ command, cwd: work }), {
         git: readerFor(sandbox),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
         output,
       })
 
@@ -544,6 +710,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
       const verdict = await decide(call({ command, cwd: work }), {
         git: readerFor(sandbox),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
         output,
       })
 
@@ -568,6 +735,7 @@ describe('git checkout and git restore, against real repositories', () => {
       call({ command: `git -C ${dirty} checkout file.txt`, cwd: clean }),
       {
         git: readerFor(sandbox),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
         output,
       },
     )
@@ -575,6 +743,7 @@ describe('git checkout and git restore, against real repositories', () => {
       call({ command: `git -C ${clean} checkout file.txt`, cwd: dirty }),
       {
         git: readerFor(sandbox),
+        processes: () => Promise.reject(new Error('processes must not be asked')),
         output,
       },
     )
@@ -592,6 +761,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git restore .', cwd: work }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -608,6 +778,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git checkout -- .', cwd: work }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -623,6 +794,7 @@ describe('git checkout and git restore, against real repositories', () => {
     // pinned if that flag is ever added.
     const verdict = await decide(call({ command: 'git restore .', cwd: '/w' }), {
       git: () => Promise.resolve('!! build/out.js\n?? notes.md'),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -639,10 +811,12 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const denied = await decide(call({ command: `git -C ${dirty} restore .`, cwd: clean }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
     const allowed = await decide(call({ command: `git -C ${clean} restore .`, cwd: dirty }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -658,6 +832,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git restore .', cwd: outside }), {
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -673,6 +848,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
     const verdict = await decide(call({ command: 'git restore .', cwd: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -706,6 +882,7 @@ describe('what the hook writes', () => {
           }),
         ),
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -724,6 +901,7 @@ describe('what the hook writes', () => {
     const status = await runGuard({
       stdin: () => Promise.resolve(JSON.stringify({ tool_name: 'Bash', tool_input: {} })),
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -738,6 +916,7 @@ describe('what the hook writes', () => {
     const status = await runGuard({
       stdin: () => Promise.resolve(''),
       git: () => Promise.reject(new Error('git must not be asked')),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 
@@ -765,6 +944,7 @@ describe('what the hook writes', () => {
           }),
         ),
       git: readerFor(sandbox),
+      processes: () => Promise.reject(new Error('processes must not be asked')),
       output,
     })
 

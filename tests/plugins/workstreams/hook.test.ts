@@ -246,6 +246,28 @@ it('allows in silence with no git on PATH at all', () => {
   expect(result.stderr).toContain('git could not report the state of')
 })
 
+it('allows, and says so on stderr, when pgrep is not on PATH at all', () => {
+  const sandbox = createSandbox()
+  // `pathWithout` only ever links `COMMON_TOOLS` in, and `pgrep` is not
+  // one of them, so any PATH it builds already lacks it. No git fixture
+  // is needed either: this command never reaches the git check at all.
+  const env = { ...sandbox.env, PATH: sandbox.pathWithout() }
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: sandbox.path,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toContain('the running processes could not be listed')
+})
+
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
   const sandbox = createSandbox()
 

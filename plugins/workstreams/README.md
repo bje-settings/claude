@@ -239,13 +239,14 @@ in it.
 
 ### The guard hook
 
-`hooks/hooks.json` registers one `PreToolUse` hook on `Bash|PowerShell`. It refuses two
+`hooks/hooks.json` registers one `PreToolUse` hook on `Bash|PowerShell`. It refuses three
 things, and only for a subagent:
 
 | Refused | Why |
 | --- | --- |
 | `run_in_background` | A turn that ends on a background command reads to a caller as a worker that stopped short. It happened in three rounds with the rule written in the brief. |
 | A git command that would overwrite uncommitted changes to tracked files | Two agents lost uncommitted work to exactly this, one of them with the rule in its brief. The remedy is one commit. |
+| A `vitest` or `pnpm test` run while one already runs in the same worktree | Round 12 ruling 9 (#299). Two suites at once cost a loaded machine even more. The remedy is to wait for the process already there. |
 
 The second row covers `git restore` in any form, `git checkout` with a pathspec, and
 `git checkout` or `git switch` carrying `-f`, `--force`, `--discard-changes`, `-p`,
@@ -266,6 +267,12 @@ a dirty tracked path is read as the path, where git would have switched and carr
 change over. Telling the two apart needs a second question to git. The refusal costs a
 commit and never costs work.
 
+The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spelling is
+`pnpm test` or `pnpm run test`. `package.json`'s only script, `test`, maps to `vitest run
+--coverage`. The guard lists the `vitest` processes on the machine, through `pgrep`, and
+reads each one's cwd, through `/proc` or `lsof`. A match on the command's own cwd is a
+denial. It names the pid, and asks the subagent to wait rather than start a second suite.
+
 **The main conversation is never denied.** The test is `agent_id`. The input carries this
 field "only when the hook fires inside a subagent"
 ([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). The refusal names
@@ -279,12 +286,16 @@ form
 ([hooks](https://code.claude.com/docs/en/hooks#pretooluse-decision-control)), and the
 form that survives the `; exit 0` in `hooks.json`.
 
-Two things it cannot do. It cannot see a command the harness MOVES to the background when
+Three things it cannot do. It cannot see a command the harness MOVES to the background when
 that command reaches its timeout: that is a different mechanism, with no hook in front of
 it. The remedy for that half is the brief's: pass a timeout long enough to finish in. It
 is also a guardrail rather than a security boundary. It reads the command as text, so a
 `git restore` inside a quoted argument is refused as if it were real. That costs a person
 one commit, and never costs anyone their work.
+
+A third thing it cannot see is whether a reviewer agent still runs. So the rule that a
+subagent must not edit while one reads stays a brief line here. #263 gives each reviewer
+its own worktree, and that is what can enforce it.
 
 Anything it cannot read is one line on stderr, and an allow. It never fails a session.
 

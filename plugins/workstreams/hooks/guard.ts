@@ -21,20 +21,36 @@
 // document on stdout, and nothing else writes there. So any failure leaves
 // stdout empty, and the tool call proceeds. Anything unforeseen inside the
 // `try` leaves its account on stderr, where Claude Code's debug log keeps
-// it, and the status is 0 all the same. The only statements outside the try
-// are the three `await import`s and `createOutput`. A failure there is an
-// unhandled top-level rejection and a non-zero status from node itself.
-// `hooks.json`'s `; exit 0` absorbs that, and stdout stays empty.
+// it, and the status is 0 all the same.
+//
+// The statements outside the try are the `await import`s and
+// `createOutput`. Two reader functions are outside it too; `runGuard`
+// calls them only once it is inside the try. A failure among the
+// imports or `createOutput` is an unhandled top-level rejection and a
+// non-zero status from node itself. `hooks.json`'s `; exit 0` absorbs
+// that, and stdout stays empty.
 //
 // **It reads stdin inside the guard.** A `PreToolUse` payload arrives on
 // stdin (hooks.md, "Hook input and output"). Reading it is a promise that
 // can reject like any other, so the code calls it from inside the try,
 // rather than await it on the way in.
+//
+// **Two tools find a process's own directory.** `pgrep -f vitest` names
+// the processes. Pid N's own cwd needs `/proc/N/cwd`. Linux has that;
+// macOS does not. The fallback, `lsof -a -d cwd -p N`, is on both, and
+// it is the slower call.
+//
+// So this tries `/proc` first for each pid, and asks `lsof` only when
+// that read fails. When a tool is absent, this reads that the same way
+// as an absent git. That is one line on stderr, and an allow from
+// `decide` (`src/subcommands/guard.ts`).
 import { meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
+  const { readlink } = await import('node:fs/promises')
   const { createOutput, readStdinText } = await import('../src/lib/streams.ts')
   const { gitOut } = await import('../src/lib/git.ts')
+  const { run } = await import('../src/lib/process.ts')
   const { runGuard } = await import('../src/subcommands/guard.ts')
 
   // Both streams are guarded here, rather than at each write. A reader that
@@ -43,10 +59,45 @@ if (meetsNodeFloor(process.version)) {
   // crashes with an internals stack trace (`lib/streams.ts`).
   const output = createOutput(process.stdout, process.stderr)
 
+  /** pid's own cwd, or `null` when neither tool answered. */
+  const readCwd = async (pid: number): Promise<string | null> => {
+    try {
+      return await readlink(`/proc/${pid}/cwd`)
+    } catch {
+      // No /proc at all (macOS), or no permission to read another
+      // user's link. Either way, lsof is the fallback the header names.
+    }
+    const listed = await run('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], {
+      timeoutMs: 3_000,
+    })
+    if (listed.status !== 0) return null
+    const named = listed.stdout.split('\n').find((line) => line.startsWith('n'))
+    return named === undefined ? null : named.slice(1)
+  }
+
+  /** Every `vitest` process on the machine, or `null` when `pgrep` could
+   *  not be asked at all. Status 1 from `pgrep` means "no match", which
+   *  answers an empty list, not `null`. No type import names this a
+   *  `ProcessReader` (`src/subcommands/guard.ts`); its shape alone does. */
+  const readRunningVitest = async () => {
+    const listed = await run('pgrep', ['-f', 'vitest'], { timeoutMs: 3_000 })
+    if (listed.startFailure !== null || listed.timedOut) return null
+    if (listed.status === 1) return []
+    if (listed.status !== 0) return null
+
+    const pids = listed.stdout
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => Number(line.trim()))
+      .filter((pid) => Number.isInteger(pid) && pid > 0)
+    return Promise.all(pids.map(async (pid) => ({ pid, cwd: await readCwd(pid) })))
+  }
+
   try {
     process.exitCode = await runGuard({
       stdin: () => readStdinText(process.stdin),
       git: gitOut,
+      processes: readRunningVitest,
       output,
     })
   } catch (error) {
