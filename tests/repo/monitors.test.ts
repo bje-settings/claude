@@ -101,6 +101,28 @@ describe('the monitor check, on a synthetic plugin', () => {
     ])
   })
 
+  it('accepts a monitor whose skill and script both exist', () => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'bje-monitors-'))
+    const plugin = path.join(scratch, 'p')
+    mkdirSync(path.join(plugin, '.claude-plugin'), { recursive: true })
+    mkdirSync(path.join(plugin, 'monitors'), { recursive: true })
+    mkdirSync(path.join(plugin, 'skills', 'start'), { recursive: true })
+    writeFileSync(path.join(plugin, 'skills', 'start', 'SKILL.md'), '')
+    mkdirSync(path.join(plugin, 'scripts'), { recursive: true })
+    writeFileSync(path.join(plugin, 'scripts', 'p.ts'), '')
+    const root = '$' + '{CLAUDE_PLUGIN_ROOT}'
+    const entries = [
+      {
+        name: 'a',
+        command: `node "${root}/scripts/p.ts" watch`,
+        description: 'd',
+        when: 'on-skill-invoke:start',
+      },
+    ]
+    writeFileSync(path.join(plugin, 'monitors', 'monitors.json'), JSON.stringify(entries))
+    expect(monitorProblems(scratch)).toEqual([])
+  })
+
   it('refuses a file that is not an array, and accepts an empty one', () => {
     scratch = mkdtempSync(path.join(tmpdir(), 'bje-monitors-'))
     for (const [name, text] of [
