@@ -43,7 +43,27 @@
 // So this tries `/proc` first for each pid, and asks `lsof` only when
 // that read fails. When a tool is absent, this reads that the same way
 // as an absent git. That is one line on stderr, and an allow from
-// `decide` (`src/subcommands/guard.ts`).
+// `decide` (`src/subcommands/guard.ts`). A pid whose cwd neither tool
+// answers gets its own line too, so it never disappears from the check
+// without a trace, the way every other degraded read here explains
+// itself.
+//
+// **`pgrep`'s own pattern is narrower than a plain `vitest`.** A plain
+// substring match answers a process whose command line merely contains
+// the word: measured against a real background process, `cat
+// vitest.config.ts` matched `pgrep -f vitest`, and would have been read
+// as a running suite. The pattern here, `(^|/)vitest([ /]|$)`, answers
+// `vitest` only as a whole path segment, ended by a space, another `/`,
+// or the end of the line, so `vitest.config.ts` still fails to match: a
+// dot follows, and a dot is none of the three.
+//
+// The end must allow another `/`, not only a space. This repository's
+// own `node_modules/.bin/vitest` shim execs `node .../vitest/vitest.mjs`,
+// so the real running process this hook has to find names `vitest`
+// twice, both times followed by a `/` or a `.`, never by a space.
+// Measured against that real process, a pattern ending only in a space
+// or the line's end answered nothing at all, and a false negative here
+// is the whole feature silently doing nothing.
 import { meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
@@ -59,7 +79,16 @@ if (meetsNodeFloor(process.version)) {
   // crashes with an internals stack trace (`lib/streams.ts`).
   const output = createOutput(process.stdout, process.stderr)
 
-  /** pid's own cwd, or `null` when neither tool answered. */
+  /** `pgrep -f`'s own pattern. `vitest` as a whole path segment, ended by
+   *  a space, another `/`, or the end of the command line: see the
+   *  header for the measurement that picked this over a plain
+   *  substring, and for the real invocation shape that ruled out ending
+   *  the pattern in a space alone. */
+  const VITEST_PROCESS_PATTERN = '(^|/)vitest([ /]|$)'
+
+  /** pid's own cwd, or `null` when neither tool answered. Writes one
+   *  stderr line only on that failure, so a pid this cannot place never
+   *  drops out of the check in silence. */
   const readCwd = async (pid: number): Promise<string | null> => {
     try {
       return await readlink(`/proc/${pid}/cwd`)
@@ -70,9 +99,17 @@ if (meetsNodeFloor(process.version)) {
     const listed = await run('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], {
       timeoutMs: 3_000,
     })
-    if (listed.status !== 0) return null
-    const named = listed.stdout.split('\n').find((line) => line.startsWith('n'))
-    return named === undefined ? null : named.slice(1)
+    const named =
+      listed.status === 0
+        ? listed.stdout.split('\n').find((line) => line.startsWith('n'))
+        : undefined
+    if (named !== undefined) return named.slice(1)
+
+    output.err.write(
+      `workstreams guard: pid ${pid}'s cwd could not be read (neither /proc nor lsof ` +
+        'answered); it will not be checked for a second vitest run.\n',
+    )
+    return null
   }
 
   /** Every `vitest` process on the machine, or `null` when `pgrep` could
@@ -80,7 +117,7 @@ if (meetsNodeFloor(process.version)) {
    *  answers an empty list, not `null`. No type import names this a
    *  `ProcessReader` (`src/subcommands/guard.ts`); its shape alone does. */
   const readRunningVitest = async () => {
-    const listed = await run('pgrep', ['-f', 'vitest'], { timeoutMs: 3_000 })
+    const listed = await run('pgrep', ['-f', VITEST_PROCESS_PATTERN], { timeoutMs: 3_000 })
     if (listed.startFailure !== null || listed.timedOut) return null
     if (listed.status === 1) return []
     if (listed.status !== 0) return null
