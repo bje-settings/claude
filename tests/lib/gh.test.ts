@@ -103,9 +103,9 @@ const answeringEach =
     return asResult(reply ?? {})
   }
 
-const clientAnsweringEach = (replies: Reply[]): Harness => {
+const clientAnsweringEach = (replies: Reply[], options: { boundMs?: number } = {}): Harness => {
   const calls: Call[] = []
-  return { gh: createGhClient({ run: answeringEach(replies, calls) }), calls }
+  return { gh: createGhClient({ ...options, run: answeringEach(replies, calls) }), calls }
 }
 
 describe('argv', () => {
@@ -458,7 +458,16 @@ describe('the client bound (ruling 4, #295)', () => {
 
   it("reports a call that timed out as itself, never as gh's own words", async () => {
     const { gh } = clientAnswering(
-      { timedOut: true, status: null, signal: 'SIGKILL', elapsedMs: 5_000 },
+      // stderr is populated, and elapsedMs differs from boundMs, so a
+      // mutation that read either instead of the timeout would turn this
+      // red.
+      {
+        timedOut: true,
+        status: null,
+        signal: 'SIGKILL',
+        elapsedMs: 5_014,
+        stderr: 'gh: API rate limit exceeded\n',
+      },
       { boundMs: 5_000 },
     )
     await expect(gh.viewRepository()).rejects.toMatchObject({
@@ -1489,6 +1498,24 @@ describe('milestones, issues and pull requests', () => {
     })
   })
 
+  // The bound outranks a page's own body, even a whole, valid one (ruling
+  // 4, #295). `lib/process.ts`'s `close` event fires only once a killed
+  // child's stdio has closed, so a page written just before a late kill can
+  // still parse. A mutation that drops this check would answer with the
+  // parsed page instead, so the `unavailable` field below would read
+  // `undefined` or the page's own reason, never the timeout.
+  it('reports a page that timed out as itself, before it tries to parse the page', async () => {
+    const { gh } = clientAnsweringEach(
+      [REPO, { timedOut: true, status: null, signal: 'SIGKILL', ...page('milestones', []) }],
+      { boundMs: 5_000 },
+    )
+
+    await expect(gh.listMilestones()).resolves.toEqual({
+      rows: [],
+      unavailable: 'gh did not answer in 5000 ms',
+    })
+  })
+
   it('reports a reply with no connection where the query put one', async () => {
     const { gh } = clientAnsweringEach([
       REPO,
@@ -1702,6 +1729,22 @@ describe('the review loop reads', () => {
         unavailable: 'gh: could not resolve to a Repository',
       })
       expect(calls).toHaveLength(1)
+    })
+
+    // The bound outranks the body, even a whole, valid one (ruling 4,
+    // #295), the same way the paginated reads guard their own pages. A
+    // mutation that drops this check would parse `[]` as a genuine "no
+    // rules" answer instead of a timeout.
+    it('reports a REST read that timed out as itself, before it tries to parse the body', async () => {
+      const { gh } = clientAnsweringEach(
+        [REPO, { timedOut: true, status: null, signal: 'SIGKILL', stdout: '[]' }],
+        { boundMs: 5_000 },
+      )
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'gh did not answer in 5000 ms',
+      })
     })
   })
 
@@ -2034,6 +2077,22 @@ describe('the review loop reads', () => {
       await expect(gh.viewPullRequestDetail({ pullRequest: 999 })).resolves.toEqual({
         pullRequest: null,
         unavailable: 'pull request 999 could not be read: Could not resolve to a PullRequest',
+        missing: false,
+      })
+    })
+
+    // The bound outranks the body, even a whole, valid one (ruling 4,
+    // #295). A mutation that drops this check would read the node as a
+    // genuine reply instead of a timeout.
+    it('reports a detail read that timed out as itself, before it tries to parse the body', async () => {
+      const { gh } = clientAnsweringEach(
+        [REPO, { timedOut: true, status: null, signal: 'SIGKILL', ...prReply(prNode()) }],
+        { boundMs: 5_000 },
+      )
+
+      await expect(gh.viewPullRequestDetail({ pullRequest: 178 })).resolves.toEqual({
+        pullRequest: null,
+        unavailable: 'gh did not answer in 5000 ms',
         missing: false,
       })
     })
