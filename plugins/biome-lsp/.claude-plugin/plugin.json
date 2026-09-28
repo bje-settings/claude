@@ -1,0 +1,11 @@
+{
+  "name": "biome-lsp",
+  "description": "Biome's language server (biome lsp-proxy) from the project's own Biome. Runs Biome's lint and format diagnostics for .ts, .tsx, .js, .jsx and .json.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Brian Espinosa",
+    "email": "b@bje.co"
+  },
+  "keywords": ["biome", "lsp", "language-server", "lint", "format"]
+}
