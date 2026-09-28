@@ -66,6 +66,7 @@ when it changed behaviour at all.
    | State | What to do |
    | --- | --- |
    | `awaiting-pr` | Nothing. GitHub said this pull request number does not exist. A read gh refused for another reason gives `state: null` instead. |
+   | `merged`, `closed` | Nothing. The pull request already finished. Report the state, then return. |
    | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`. |
    | `ci-pending` | Nothing. |
    | `red` | Nothing. Name the contexts that failed. |

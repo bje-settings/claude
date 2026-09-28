@@ -3,7 +3,7 @@ type: Reference
 description: What the /workstreams:start skill does on each call and each wake, and every way it stops.
 stale_after: 2027-03-27
 generated:
-  by: claude-opus
+  by: claude-sonnet-5
   at: 2026-09-27
 ---
 
@@ -14,6 +14,9 @@ What `/workstreams:start` does to a round or to one pull request, and every way 
 ```mermaid
 flowchart TD
     A{argument?} -->|a pull request number| P1[That pull request is the whole round]
+    P1 --> P0{its state: merged or closed?}
+    P0 -->|Yes| P0a([Stop: report the state]):::stop
+    P0 -->|No| W
     A -->|milestone, or none| B{plan comment on the round's issues?}
     B -->|No| C[Invoke /workstreams:sweep]
     C --> C1{sweep stopped?}
@@ -26,7 +29,6 @@ flowchart TD
     E --> E1{markers a set pr-state takes?}
     E1 -->|No| E2([Stop: name the markers]):::stop
     E1 -->|Yes| F{a layer to write, and the layer below done?}
-    P1 --> W
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No| W
     G --> W{a wake can come?<br/>an agent at work, or a monitor}

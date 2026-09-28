@@ -44,6 +44,7 @@ On a collision:
 | State | Next action |
 | --- | --- |
 | `awaiting-pr` | Stop. GitHub said this number does not exist. |
+| `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `ci-pending` | Nothing. The watch names each check as it reports. |
 | `red` | The agent that pushed the head fixes it. If it returned, send it back with `SendMessage`. A pull request from a person, with no agent: report it, and stop. |

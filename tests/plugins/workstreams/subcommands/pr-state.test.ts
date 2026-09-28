@@ -297,6 +297,128 @@ describe('the facts it reads', () => {
   })
 })
 
+describe('a pull request that finished', () => {
+  // #277: `pr-state` once gave a merged pull request a review-loop state as
+  // if it were still open. `deriveState` checks the pull request's own
+  // state right after `awaiting-pr`, before every other rule.
+  it('reports merged at round 0, before any round has run', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ state: 'MERGED' }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.state).toBe('merged')
+  })
+
+  it('reports closed at round 0, before any round has run', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ state: 'CLOSED' }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.state).toBe('closed')
+  })
+
+  it('reports merged at round 2 with --rot-checked, never done', async () => {
+    const report = await reportOf(
+      ['178', '--round', '2', '--rot-checked'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ state: 'MERGED' }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.state).toBe('merged')
+  })
+
+  it('reports closed at round 2 with --rot-checked, never done', async () => {
+    const report = await reportOf(
+      ['178', '--round', '2', '--rot-checked'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ state: 'CLOSED' }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.state).toBe('closed')
+  })
+
+  it('reports merged even when a required context is red', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            state: 'MERGED',
+            checks: [
+              { name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+            ],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+        requiredContexts: { contexts: ['vitest'], unavailable: null },
+      }),
+    )
+
+    expect(report.verdict).toBe('red')
+    expect(report.state).toBe('merged')
+  })
+
+  it('reports closed even with an unresolved review thread from a person', async () => {
+    const report = await reportOf(
+      ['178', '--round', '1'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            state: 'CLOSED',
+            unresolvedThreads: [{ author: 'reviewer-a', bot: false }],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.state).toBe('closed')
+  })
+
+  it('leaves an open pull request unchanged', async () => {
+    const report = await reportOf(['178'])
+
+    expect(report.state).toBe('review-1')
+  })
+
+  it('stays null, never a guess, when the pull request state could not be read', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: { pullRequest: null, unavailable: 'gh: HTTP 500', missing: false },
+      }),
+    )
+
+    expect(report.state).toBeNull()
+  })
+})
+
 describe('the verdict over the required contexts', () => {
   it('is red when a required context concluded a failure', async () => {
     const report = await reportOf(
@@ -823,6 +945,7 @@ describe('the state the facts add up to', () => {
   const facts = (overrides: Parameters<typeof deriveState>[0]) => deriveState(overrides)
   const green = {
     missing: false,
+    pullRequestState: 'OPEN',
     verdict: 'green',
     unresolvedThreads: 0,
     round: 0,
@@ -842,6 +965,8 @@ describe('the state the facts add up to', () => {
     ['done', { round: 1, rotChecked: true }],
     ['done', { round: 2, substantial: true, rotChecked: true }],
     ['fixing', { round: 2, rotChecked: true, unresolvedThreads: 1 }],
+    ['merged', { pullRequestState: 'MERGED' }],
+    ['closed', { pullRequestState: 'CLOSED' }],
   ] as const) {
     it(`is ${expected} for ${JSON.stringify(overrides)}`, () => {
       expect(facts({ ...green, ...overrides })).toBe(expected as LoopState)
@@ -864,6 +989,39 @@ describe('the state the facts add up to', () => {
 
   it('keeps an unresolved review thread out of done however green CI is', () => {
     expect(facts({ ...green, round: 1, unresolvedThreads: 1, rotChecked: true })).toBe('fixing')
+  })
+
+  it('names merged before the CI rule, whatever the verdict is', () => {
+    expect(facts({ ...green, pullRequestState: 'MERGED', verdict: 'red' })).toBe('merged')
+  })
+
+  it('names closed before the review-thread rule, whatever markers say', () => {
+    expect(
+      facts({
+        ...green,
+        pullRequestState: 'CLOSED',
+        round: 2,
+        unresolvedThreads: 1,
+        substantial: true,
+        rotChecked: true,
+      }),
+    ).toBe('closed')
+  })
+
+  it('names awaiting-pr over merged or closed: a missing number never carries a state', () => {
+    expect(facts({ ...green, missing: true, pullRequestState: 'MERGED' })).toBe('awaiting-pr')
+  })
+
+  it('names merged before the unavailable rule, when the checks themselves could not be read', () => {
+    // #277, round 11 review: a mutation that moved the merged and closed
+    // checks below this rule left every other test green. This test pins
+    // the order the code claims: merged wins even when nothing about CI
+    // could be read.
+    expect(facts({ ...green, pullRequestState: 'MERGED', verdict: 'unavailable' })).toBe('merged')
+  })
+
+  it('names closed before the unavailable rule, when the checks themselves could not be read', () => {
+    expect(facts({ ...green, pullRequestState: 'CLOSED', verdict: 'unavailable' })).toBe('closed')
   })
 
   it('carries the caller’s three inputs into the report', async () => {

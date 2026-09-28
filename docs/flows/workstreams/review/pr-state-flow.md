@@ -3,7 +3,7 @@ type: Reference
 description: How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-opus
+  by: claude-sonnet
   at: 2026-09-27
 ---
 
@@ -26,10 +26,13 @@ flowchart TD
     F --> G{Pull request unread, not<br/>NOT_FOUND, and recent runs<br/>also unread?}
     G -->|Yes| Z2([failed: read nothing, exit 1]):::stop
     G -->|No| I{Pull request read?}
-    I -->|Yes| J{Every pull request field, rule<br/>and head run read?}
     I -->|No| N{GitHub named this<br/>number NOT_FOUND?}
     N -->|Yes| S0([state awaiting-pr,<br/>verdict unavailable, exit 0])
     N -->|No| S0b([no state,<br/>verdict unavailable, exit 0]):::stop
+    I -->|Yes| P{Pull request's own state?}
+    P -->|MERGED| Sm([state merged, exit 0])
+    P -->|CLOSED| Sc([state closed, exit 0])
+    P -->|OPEN| J{Every pull request field, rule<br/>and head run read?}
     J -->|No| S1([verdict unavailable, no state,<br/>reasons listed, exit 0]):::stop
     J -->|Yes| K{A pull_request run<br/>for the head commit?}
     K -->|No| S2([state no-run, exit 0])
@@ -64,3 +67,6 @@ State `awaiting-pr` means GitHub itself named the number NOT_FOUND. Every other 
 state at all. A malformed reply is one such reason. A repository gh could not resolve is
 another. A read gh refused outright is a third. A NOT_FOUND for a field nested under the pull
 request, rather than the pull request itself, is a fourth: that field is gone, not the number.
+
+A merged or closed pull request gives state `merged` or `closed`. This check runs right after
+`awaiting-pr`, before every other rule. CI, threads and markers do not change it.

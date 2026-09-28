@@ -26,7 +26,7 @@
 // injected `GhClient` in, an envelope out, with nothing spawned.
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
-import type { GhClient, PullRequestDetail, WorkflowRun } from '../lib/gh.ts'
+import type { GhClient, IssueState, PullRequestDetail, WorkflowRun } from '../lib/gh.ts'
 import { namesOrHead, type ReportedContext, reportContexts } from '../required-contexts.ts'
 
 // The derivation moved to `../required-contexts.ts` (round 10 ruling P6).
@@ -67,6 +67,10 @@ State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
 reason then appears under "unavailable".
 
+State merged or closed means the pull request itself finished. This check
+runs right after awaiting-pr, before every other rule. No CI result,
+thread, or marker changes it.
+
 Nothing here throws. Every read that fell short is listed under "unavailable",
 and a verdict of "unavailable" means the sets below it are not an answer.
 Exits 2 on a usage error, and 1 only when nothing at all could be read.`
@@ -96,6 +100,8 @@ export type Verdict = 'green' | 'red' | 'pending' | 'no-run' | 'unavailable'
  *  not name one, from facts it could not read. */
 export type LoopState =
   | 'awaiting-pr'
+  | 'merged'
+  | 'closed'
   | 'ci-pending'
   | 'no-run'
   | 'red'
@@ -210,6 +216,11 @@ export const verdictOf = (
  * be read would send a round to review a pull request whose checks
  * nobody has seen.
  *
+ * A merged or closed pull request gives `merged` or `closed` (#277). This
+ * check runs right after `awaiting-pr`, before every other rule. CI,
+ * threads and markers do not change it. A pull request that finished
+ * stays final.
+ *
  * An unresolved review THREAD from a PERSON keeps the loop in `fixing`,
  * however green CI is. A thread is work someone still waits on. The
  * caller leaves a bot's own thread out of `facts.unresolvedThreads`
@@ -223,6 +234,10 @@ export const deriveState = (facts: {
    *  exist. A read that failed for any other reason gives `null`, not
    *  `awaiting-pr`. */
   readonly missing: boolean
+  /** The pull request's own state, or `null` when this check could not
+   *  read it. `null` here never means `OPEN`. It means this check answers
+   *  nothing. Every rule below still applies. */
+  readonly pullRequestState: IssueState | null
   readonly verdict: Verdict
   readonly unresolvedThreads: number
   readonly round: number
@@ -230,6 +245,8 @@ export const deriveState = (facts: {
   readonly rotChecked: boolean
 }): LoopState | null => {
   if (facts.missing) return 'awaiting-pr'
+  if (facts.pullRequestState === 'MERGED') return 'merged'
+  if (facts.pullRequestState === 'CLOSED') return 'closed'
   if (facts.verdict === 'unavailable') return null
   if (facts.verdict === 'no-run') return 'no-run'
   if (facts.round === 0) {
@@ -596,6 +613,7 @@ export const runPrState = async (
     rotChecked,
     state: deriveState({
       missing: viewed.missing,
+      pullRequestState: detail === null ? null : detail.state,
       verdict,
       unresolvedThreads: threadsOf(detail).blocking.length,
       round,
