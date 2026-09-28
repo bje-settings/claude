@@ -38,7 +38,7 @@
     {
       "name": "biome-lsp",
       "source": "./plugins/biome-lsp",
-      "description": "Biome's language server (biome lsp-proxy) from the project's own Biome. Runs Biome's lint and format diagnostics for .ts, .tsx, .js, .jsx and .json.",
+      "description": "Biome's language server (biome lsp-proxy) from the project's own Biome. Runs Biome's lint and format diagnostics for .json.",
       "category": "development"
     },
     {

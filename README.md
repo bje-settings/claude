@@ -133,7 +133,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">LSP servers</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/biome-lsp"><code>biome</code></a>: Biome's language server from the project's <code>node_modules/@biomejs/biome</code>. It covers <code>.ts</code>, <code>.tsx</code>, <code>.js</code>, <code>.jsx</code> and <code>.json</code>.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/biome-lsp"><code>biome</code></a>: Biome's language server from the project's <code>node_modules/@biomejs/biome</code>. It covers <code>.json</code>.</li>
       </ul>
     </td>
   </tr>

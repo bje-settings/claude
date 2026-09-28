@@ -1,34 +1,27 @@
 # biome-lsp
 
 Runs Biome's language server (`biome lsp-proxy`) from the project's `node_modules/@biomejs/biome`.
-It covers `.ts`, `.tsx`, `.js`, `.jsx`, and `.json`.
+It covers `.json`, which `typescript7-lsp` does not claim
+([`plugins/typescript7-lsp/.lsp.json`](../typescript7-lsp/.lsp.json)) but Biome lints here
+(`biome.json:9`).
 
-`typescript7-lsp` covers `.ts`, `.tsx`, `.js` and `.jsx` too, and Biome lints `.json` here
-(`biome.json:9`) but no other plugin in this marketplace does. Only one server can handle a given
-file. A probe with the real `claude` binary confirmed
-`plugins/typescript7-lsp/README.md`'s claim: the first server that registers for an extension
-handles every file of that extension, and the other server for that extension never starts.
+This plugin does not claim `.ts`, `.tsx`, `.js` or `.jsx`, even though Biome lints those files
+too. A probe with the real `claude` binary showed why: only one server can handle a given
+extension. The probe loaded `typescript7-lsp` and a build of this plugin that did claim `.ts`,
+with `claude -p --plugin-dir`, one load order at a time, and asked the session to call the `LSP`
+tool's `hover` operation on a `.ts` file. With `typescript7-lsp` loaded first, `hover` returned
+real TypeScript type information. With the Biome build loaded first, the same call failed with
+`LSP request 'textDocument/hover' failed for server 'plugin:biome-lsp:biome': Method not found`,
+because Biome's server does not implement `hover`. Reversing the load order reversed which server
+answered. Neither run showed both servers active on the same file. This result did not test
+`enabledPlugins` order in `.claude/settings.json` directly, only `--plugin-dir` order; the two
+are assumed, not proven, to work the same way.
 
-The probe loaded both plugins with `claude -p --plugin-dir`, one order at a time, and asked the
-session to call the `LSP` tool's `hover` operation on a `.ts` file. With `typescript7-lsp` loaded
-first, `hover` returned real TypeScript type information. With `biome-lsp` loaded first, the same
-call failed with `LSP request 'textDocument/hover' failed for server 'plugin:biome-lsp:biome':
-Method not found`, because Biome's server does not implement `hover`. Reversing the load order
-reversed which server answered. Neither run showed both servers active on the same file. This
-result did not test `enabledPlugins` order in `.claude/settings.json` directly, only
-`--plugin-dir` order; the two are assumed, not proven, to work the same way.
-
-Order this plugin after `typescript7-lsp` to keep TypeScript diagnostics on `.ts`, `.tsx`, `.js`
-and `.jsx`. Biome then handles only `.json`, which no other server here claims:
-
-```json
-{
-  "enabledPlugins": {
-    "typescript7-lsp@bje": true,
-    "biome-lsp@bje": true
-  }
-}
-```
+`typescript7-lsp` already covers `.ts`, `.tsx`, `.js` and `.jsx`
+([`plugins/typescript7-lsp/README.md`](../typescript7-lsp/README.md)), so claiming those
+extensions here would only start a server that never runs, or that silences `typescript7-lsp`
+depending on load order. `.json` has no such contention: no other plugin in this marketplace
+claims it.
 
 The probe could not confirm the `Found N new diagnostic issues` line the
 [code intelligence docs](https://code.claude.com/docs/en/plugins/code-intelligence) describe.

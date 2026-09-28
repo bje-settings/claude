@@ -8,9 +8,10 @@ project's own `eslint` and `eslint.config.ts`.
 
 `plugins/typescript7-lsp/.lsp.json` claims neither extension, so there is no contention with
 `typescript7-lsp`. `biome-lsp` claims `.json` too. `plugins/biome-lsp/README.md` shows that only
-one server can handle a given extension, decided by which server registers first. That probe
-tested `typescript7-lsp` against `biome-lsp` on `.ts`, not `eslint-lsp` against `biome-lsp` on
-`.json`; the same one-server-per-extension behavior is assumed to apply, not separately proven.
+one server can handle a given extension, decided by which server registers first: the probe used
+a build of `biome-lsp` that claimed `.ts`, against `typescript7-lsp`, not `eslint-lsp` against
+`biome-lsp` on `.json`. The same one-server-per-extension behavior is assumed to apply here, not
+separately proven.
 
 Order this plugin after `biome-lsp` in `.claude/settings.json`, so `.json` diagnostics stay with
 Biome, the JSON linter of record here (`biome.json:9`). This plugin's practical value in this

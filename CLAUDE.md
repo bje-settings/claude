@@ -145,10 +145,9 @@ would otherwise cover.
 
 `.claude/settings.json` enables this marketplace's `typescript7-lsp`, `biome-lsp` and
 `eslint-lsp`, and turns off `typescript-lsp@claude-plugins-official` (#193). Then `tsc`, `biome`,
-`eslint` and their language servers all run the same pinned `node_modules`. `typescript7-lsp` and
-`biome-lsp` both cover `.ts`, `.tsx`, `.js` and `.jsx`; `biome-lsp` and `eslint-lsp` both cover
-`.json`. Enabled plugin order decides which server handles a shared extension
-(`plugins/biome-lsp/README.md`).
+`eslint` and their language servers all run the same pinned `node_modules`. `biome-lsp` and
+`eslint-lsp` both cover `.json`. Enabled plugin order decides which server handles a shared
+extension (`plugins/biome-lsp/README.md`).
 
 Otherwise `.claude/settings.json` matches SurveyMonkey/skills' settings: it turns off auto memory
 (`autoMemoryEnabled`) and strips the attribution trailer (`attribution`).
