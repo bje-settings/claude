@@ -835,6 +835,32 @@ describe('a watch over the open pull requests', () => {
       `#259 new head ${SHA_B}, required 0/3 reported`,
     ])
   })
+
+  it(
+    'needs a fresh pair of consecutive answers, not a stale one, after the current head ' +
+      'repeats in between (ruling 5, #296)',
+    async () => {
+      // A: open. B: new, current. A: seen, pending. B: repeats as current,
+      // clears the pending mark. A: seen again - this is only the FIRST of
+      // a fresh pair, so it must stay silent too. A mutation that reuses
+      // the stale mark from the third poll would confirm here instead, one
+      // poll early.
+      const { context, lines } = watchOver([
+        { heads: heads(head()) },
+        { heads: heads(head({ headSha: SHA_B })) },
+        { heads: heads(head()) },
+        { heads: heads(head({ headSha: SHA_B })) },
+        { heads: heads(head()) },
+      ])
+
+      await runWatch(['--ticks', '5'], context)
+
+      expect(lines).toEqual([
+        `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+        `#259 new head ${SHA_B}, required 0/3 reported`,
+      ])
+    },
+  )
 })
 
 describe('a watch bounds every gh call to its poll interval (ruling 4, #295)', () => {
