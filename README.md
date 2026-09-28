@@ -124,6 +124,36 @@ The plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+### [`biome-lsp`](plugins/biome-lsp)
+
+> The Biome language server.
+
+<table>
+  <tr>
+    <th scope="row">LSP servers</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/biome-lsp"><code>biome</code></a>: Biome's language server from the project's <code>node_modules/@biomejs/biome</code>. It covers <code>.ts</code>, <code>.tsx</code>, <code>.js</code>, <code>.jsx</code> and <code>.json</code>.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+### [`eslint-lsp`](plugins/eslint-lsp)
+
+> The ESLint language server.
+
+<table>
+  <tr>
+    <th scope="row">LSP servers</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/eslint-lsp"><code>eslint</code></a>: the VS Code ESLint language server from the project's own ESLint and config. It covers <code>.md</code> and <code>.json</code>.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
 ## Contributing
 
 Run `pnpm test` for the test suite. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for
