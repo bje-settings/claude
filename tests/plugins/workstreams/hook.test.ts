@@ -371,7 +371,14 @@ it('denies a subagent when a real vitest process already runs in the same cwd', 
   const reason = denialIn(result.stdout)
   expect(reason).toContain(`pid ${decoy.pid}`)
   expect(reason).toContain('wait for it to finish')
-  expect(result.stderr).toBe('')
+  // Not `toBe('')`: a real machine can carry other short-lived
+  // vitest-shaped processes, this suite's own worker forks included, that
+  // `pgrep` lists and that exit before `readCwd` reaches them, each
+  // writing its own stderr line unrelated to this decoy (measured: this
+  // happened live, running this file alongside coverage instrumentation).
+  // This checks that the decoy ITSELF was read without complaint, which
+  // is what this test is actually about.
+  expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
 })
 
 it('denies a subagent when the running process ends its command line in vitest/, not vitest', async () => {
@@ -399,7 +406,8 @@ it('denies a subagent when the running process ends its command line in vitest/,
   expect(result.status).toBe(0)
   const reason = denialIn(result.stdout)
   expect(reason).toContain(`pid ${decoy.pid}`)
-  expect(result.stderr).toBe('')
+  // Not `toBe('')`: see the same note on the decoy test above this one.
+  expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
 })
 
 it('allows a subagent when only a file merely named after vitest sits in its cwd', async () => {
