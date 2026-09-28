@@ -1,11 +1,11 @@
-// The workstreams guard: the `PreToolUse` hook that holds two rules a
+// The workstreams guard: the `PreToolUse` hook that holds three rules a
 // brief line failed to hold on its own.
 //
 // CLAUDE.md, "Plugin design": "Hook when the action must happen the same
 // way every time and needs no reasoning. Guardrails belong in
 // `PreToolUse` hooks; an instruction in CLAUDE.md or a skill is a
-// request, not enforcement." Both rules below were requests first, in
-// three different briefs, and were ignored anyway:
+// request, not enforcement." Each rule below was a request first, in one
+// or more briefs, and was ignored anyway:
 //
 //   - **`run_in_background`.** In round 2, two of three streams ended
 //     their turn on a backgrounded test run, and returned "waiting",
@@ -22,6 +22,12 @@
 //     a pathspec written with or without a `--`, and `git checkout` or
 //     `git switch` carrying a force, patch, or `--pathspec-from-file`
 //     option. Each of these throws the tree away while naming nothing.
+//   - **A second `vitest` suite in the same worktree.** Round 12 ruling 9
+//     (#299) adds this rule. A subagent once started a second suite while
+//     one already ran, on a loaded machine. The spellings are a direct
+//     `vitest` run, and `pnpm exec vitest`, this round's own convention.
+//     A third spelling is `pnpm test` or `pnpm run test`. `package.json`
+//     maps that script to `vitest run --coverage`.
 //
 // **Who it binds.** Round 8 ruling 5: a subagent, never the main thread.
 // The input carries `agent_id` "only when the hook fires inside a
@@ -45,6 +51,11 @@
 // it is the same remedy: pass an explicit timeout long enough to finish
 // in, and re-run in the foreground whatever was moved.
 //
+// A hook also cannot see whether a reviewer agent still runs. So the rule
+// that a subagent must not edit while a reviewer still reads stays a
+// brief line here. #263, which gives each reviewer its own worktree, is
+// what can enforce it.
+//
 // **Never the reason a session stops.** This decides a tool call on
 // every Bash command of every session the plugin is installed in.
 // Anything it cannot read is one line on stderr, and an allow.
@@ -63,8 +74,8 @@
 // to act, and the subagent's own transcript already carries the reason.
 //
 // The command function is the seam (ADR 001, RFC 001 decision 3): the
-// payload text, the output pair, and a reader for git come in. A status
-// goes out. No test here needs a process.
+// payload text, the output pair, a reader for git, and a reader for the
+// process list come in. A status goes out. No test here needs a process.
 import type { Envelope } from '../lib/envelope.ts'
 import { failed, ok } from '../lib/envelope.ts'
 import type { Output } from '../lib/streams.ts'
@@ -79,6 +90,21 @@ export type GitReader = (
   args: readonly string[],
   options: { readonly cwd: string },
 ) => Promise<string | null>
+
+/** One process the guard found, and what it needs of it: the pid, named
+ *  in a denial, and the cwd. The cwd is `null` when the guard could not
+ *  read it. */
+export interface RunningProcess {
+  readonly pid: number
+  readonly cwd: string | null
+}
+
+/** Every `vitest` process now on this machine, or `null` when the guard
+ *  could not list any of them. `hooks/guard.ts` passes the production
+ *  reader, built on `pgrep`, and on `lsof` too: neither macOS nor every
+ *  sandbox has `/proc`. A test passes a fixed list instead, so no test
+ *  here needs a process, the same trade {@link GitReader} makes. */
+export type ProcessReader = () => Promise<readonly RunningProcess[] | null>
 
 /** The fields of a `PreToolUse` payload this hook reads, and no others
  *  (hooks.md, "Common input fields" and "PreToolUse input"). Every field
@@ -335,6 +361,108 @@ const readSegment = (tokens: readonly string[]): Destructive | undefined => {
   return named.length === 0 ? undefined : { directory, pathspec: named }
 }
 
+/** `pnpm` itself, matched the same way {@link readSegment} matches
+ *  `git`: a path may sit in front, and a `.cmd` suffix names the Windows
+ *  shim. Case-insensitive, for the same reason. */
+const PNPM_VERB = /(^|[\\/])pnpm(\.cmd)?$/i
+
+/** `vitest` itself, matched the same way. */
+const VITEST_VERB = /(^|[\\/])vitest(\.cmd)?$/i
+
+/** What a `vitest` run in one segment would act on: the directory a
+ *  `pnpm -C`/`--dir` option names, or `null` for "wherever the tool call
+ *  runs", the same meaning {@link Destructive.directory} carries for a
+ *  git command's own `-C`. */
+export interface VitestTarget {
+  readonly directory: string | null
+}
+
+/** A `-C`/`--dir` value, with one matching pair of surrounding `'` or `"`
+ *  removed, and an empty result read as `null`. A quoted value that never
+ *  loses its quote marks cannot equal a real process cwd, read through
+ *  `/proc` or `lsof`, which never carries one. */
+const readDirectoryValue = (value: string): string | null => {
+  const quoted =
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  const unquoted = quoted ? value.slice(1, -1) : value
+  return unquoted === '' ? null : unquoted
+}
+
+/** One segment's tokens, read for a `vitest` run. Four verb spellings
+ *  qualify. The first is a direct `vitest` call. The second is `pnpm
+ *  exec vitest`, this round's own convention (`lefthook.yml`,
+ *  `.github/workflows/ci.yml`). The third is a bare `pnpm vitest`, which
+ *  runs the same binary with no `exec` keyword needed (measured against
+ *  pnpm 10.34.5: `pnpm vitest --version` runs this repository's own
+ *  vitest). The fourth is `pnpm test` or `pnpm run test`: `package.json`'s
+ *  only script, `test`, runs `vitest run --coverage`.
+ *
+ *  `pnpm`'s own `-C <dir>`, `-C=<dir>`, `--dir <dir>`, and `--dir=<dir>`
+ *  name the directory `pnpm` runs the script in, the same fact git's `-C`
+ *  names for {@link readSegment} (measured against pnpm 10.34.5: `pnpm
+ *  -C=<dir> test` runs the script in `<dir>`, the same as `pnpm -C <dir>
+ *  test`; the attached form with no `=`, `-C<dir>`, is not a pnpm spelling
+ *  at all). The worktree workflow's own rule is "every command names its
+ *  directory by absolute path. Never `cd`."
+ *  (`plugins/workstreams/skills/stream/brief.md`), which makes this the
+ *  ordinary spelling a subagent uses to test one worktree, not an edge
+ *  case. A directory value wrapped in one matching pair of quote marks has
+ *  them stripped, since a subagent may quote an absolute path on habit
+ *  even where it holds no space; an empty value, from either form, reads
+ *  as no directory named, the meaning {@link Destructive.directory} also
+ *  gives an absent `-C`.
+ *
+ *  `npm` and `yarn` are left out. This repository has one lockfile,
+ *  `pnpm-lock.yaml`, and no other manager runs here. */
+const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined => {
+  let start = 0
+  while (OPENERS.includes(at(tokens, start)) || ASSIGNMENT.test(at(tokens, start))) start += 1
+
+  const verb = at(tokens, start)
+  if (VITEST_VERB.test(verb)) return { directory: null }
+  if (!PNPM_VERB.test(verb)) return undefined
+
+  let directory: string | null = null
+  let cursor = start + 1
+  while (true) {
+    const token = at(tokens, cursor)
+    if (token === '-C' || token === '--dir') {
+      directory = readDirectoryValue(at(tokens, cursor + 1))
+      cursor += 2
+      continue
+    }
+    if (token.startsWith('-C=') || token.startsWith('--dir=')) {
+      const prefixLength = token.startsWith('-C=') ? '-C='.length : '--dir='.length
+      directory = readDirectoryValue(token.slice(prefixLength))
+      cursor += 1
+      continue
+    }
+    break
+  }
+
+  const sub = at(tokens, cursor)
+  if (VITEST_VERB.test(sub)) return { directory }
+  if (sub === 'exec') return VITEST_VERB.test(at(tokens, cursor + 1)) ? { directory } : undefined
+  if (sub === 'test') return { directory }
+  return sub === 'run' && at(tokens, cursor + 1) === 'test' ? { directory } : undefined
+}
+
+/** What a `vitest` run in `command` would act on, or `undefined` when no
+ *  segment starts one, cut at the same shell operators {@link
+ *  destructiveGit} cuts at. */
+export const vitestTarget = (command: string): VitestTarget | undefined => {
+  for (const segment of command.split(SEGMENTS)) {
+    const target = readVitestTarget(segment.trim().split(/\s+/))
+    if (target !== undefined) return target
+  }
+  return undefined
+}
+
+/** Whether `command` starts a `vitest` run in any segment. */
+export const runsVitest = (command: string): boolean => vitestTarget(command) !== undefined
+
 /** The subagent as a denial names it. */
 const who = (call: ToolCall): string =>
   call.agentType === null ? 'this subagent' : `subagent ${call.agentType}`
@@ -356,24 +484,91 @@ const trackedChanges = (porcelain: string): readonly string[] =>
     .split('\n')
     .filter((line) => line !== '' && !line.startsWith('??') && !line.startsWith('!!'))
 
+/** `directory`, with one trailing slash or more removed. A payload's own
+ *  `cwd`, and a process's own cwd read through `/proc` or `lsof`, can
+ *  name the same directory with or without one; this keeps that
+ *  difference from reading as two different worktrees. It does not
+ *  resolve a symlink, so a path under a symlinked root, such as macOS's
+ *  `/tmp` or `/var`, can still compare unequal to its own resolved self.
+ *  A worktree under this repository's own convention, `.claude/worktrees/`
+ *  off the repository root, never sits under either. */
+const stripTrailingSlash = (directory: string): string => directory.replace(/\/+$/, '')
+
+/** The verdict on a `vitest` command alone: whether another `vitest`
+ *  process already runs in the same worktree. `decide` asks this before
+ *  it asks git. `undefined` means move on to the git check. Either this
+ *  command does not run `vitest`, or nothing stands in its way.
+ *
+ *  `command` is a `string`, not the whole {@link ToolCall}, because
+ *  `decide` already narrows out the null case before it calls this. A
+ *  second check here would be a branch no test could ever reach. */
+const secondSuite = async (
+  command: string,
+  call: ToolCall,
+  context: { readonly processes: ProcessReader; readonly output: Output },
+): Promise<Verdict | undefined> => {
+  const target = vitestTarget(command)
+  if (target === undefined) return undefined
+
+  const directory = target.directory ?? call.cwd
+  if (directory === null) {
+    context.output.err.write(
+      'workstreams guard: the payload carries no cwd, so a second vitest run could not be ' +
+        'checked; allowing it.\n',
+    )
+    return undefined
+  }
+
+  const running = await context.processes()
+  if (running === null) {
+    context.output.err.write(
+      'workstreams guard: the running processes could not be listed, so a second vitest run ' +
+        'could not be checked; allowing it.\n',
+    )
+    return undefined
+  }
+
+  const other = running.find(
+    (entry) =>
+      entry.cwd !== null && stripTrailingSlash(entry.cwd) === stripTrailingSlash(directory),
+  )
+  if (other === undefined) return undefined
+
+  return {
+    decision: 'deny',
+    reason:
+      `The workstreams guard refuses this command for ${who(call)}: pid ${other.pid} is ` +
+      `already running vitest in ${directory}; wait for it to finish, and never re-issue the ` +
+      'one that is already running.',
+  }
+}
+
 /**
- * The verdict on one tool call, with git asked only when it has to be.
+ * The verdict on one tool call. git and the process list are asked only
+ * when they must be.
  *
- * The order is the cost order. A main thread call, or a call of any tool
- * but a shell, is answered with no read of the command at all. A shell
- * command that asks for nothing destructive is answered with no call to
- * git. The one probe this runs is `git status --porcelain`, on the
- * command's own target tree, scoped with `-- <pathspec>` when a
- * separatorless `checkout` named operands, and over the whole tree
- * otherwise.
+ * The order is the cost order. A main thread call is answered at once,
+ * with no read of the command. So is a call of any tool but a shell. A
+ * shell command that neither runs `vitest` nor asks for anything
+ * destructive gets no further read either.
  *
- * A git that cannot answer allows, and says why on stderr: an unreadable
- * tree is not evidence of a dirty one, and a guard that denied on a
- * failed probe would deny every command run outside a repository.
+ * The one probe for git is `git status --porcelain`, on the command's
+ * own target tree. It is scoped with `-- <pathspec>` when a
+ * separatorless `checkout` named operands, and it covers the whole tree
+ * otherwise. The one probe for a second suite lists the `vitest`
+ * processes on the machine, and each one's cwd.
+ *
+ * A read that fails allows, and says why on stderr. An unreadable tree is
+ * not evidence of a dirty one. A guard that denied on a failed probe
+ * would deny every command it could not check.
  */
 export const decide = async (
   call: ToolCall,
-  context: { readonly git: GitReader; readonly output: Output },
+  context: {
+    readonly git: GitReader
+    readonly processes: ProcessReader
+    readonly output: Output
+  },
 ): Promise<Verdict> => {
   if (call.agentId === null) return { decision: 'allow' }
   if (call.toolName === null || !SHELL_TOOLS.includes(call.toolName)) return { decision: 'allow' }
@@ -390,6 +585,10 @@ export const decide = async (
   }
 
   if (call.command === null) return { decision: 'allow' }
+
+  const suiteVerdict = await secondSuite(call.command, call, context)
+  if (suiteVerdict !== undefined) return suiteVerdict
+
   const target = destructiveGit(call.command)
   if (target === undefined) return { decision: 'allow' }
 
@@ -461,6 +660,7 @@ export const denial = (reason: string): string =>
 export const runGuard = async (context: {
   readonly stdin: () => Promise<string>
   readonly git: GitReader
+  readonly processes: ProcessReader
   readonly output: Output
 }): Promise<number> => {
   const read = readToolCall(await context.stdin())
