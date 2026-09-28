@@ -80,23 +80,40 @@ notification, so the report gives agent minutes instead.
 
 ### The monitor
 
-`monitors/monitors.json` declares one monitor. It runs `watch` in the session's working
-directory, from the first time `/workstreams:start` runs in a session
-(`"when": "on-skill-invoke:start"`). Each line it writes wakes the session. The other
-wake is an agent's completion notification. Nothing polls an agent, and nothing sleeps in
-the foreground.
+`/workstreams:start` arms `watch` with the Monitor tool itself. It does this each time its
+wait loop starts, at the longest timeout the tool allows: 30 minutes at most. Each line the
+watch writes wakes the session. The other wake is an agent's completion notification.
+Nothing polls an agent, and nothing sleeps in the foreground.
+
+On expiry, the skill arms the watch again. It gives `--since-head` and `--concluded`, and
+builds both from the full heads it knows. The new watch then stays silent about what it
+already said.
+
+Where the watch cannot run, an agent's completion notification is the only wake. With no
+agent at work, the skill reports and stops.
+
+This plugin has no `monitors/monitors.json`. A plugin monitor with
+`"when": "on-skill-invoke:start"` would start `watch` the first time the skill runs in a
+session. The #274 spike found that this trigger never fires on Claude Code 2.1.283.
+
+To restore it, wait for a later Claude Code version that fires `on-skill-invoke`. Add a
+`monitors/` directory with this entry. Then remove the step where the skill arms the watch
+itself, in the Wakes section of `skills/start/SKILL.md`. Two watches must never run at once.
+
+```json
+[
+  {
+    "name": "watch",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts\" watch",
+    "description": "Pull request heads, required checks and merges for /workstreams:start",
+    "when": "on-skill-invoke:start"
+  }
+]
+```
 
 Plugin monitors are experimental. They run only in interactive sessions, and not on
 Amazon Bedrock, Google Cloud's Agent Platform, or Microsoft Foundry
 ([plugins reference](https://code.claude.com/docs/en/plugins/manifest-reference#monitors)).
-
-The watch writes an `open` line for each open pull request. If a pull request is open and
-no such line came, the monitor does not run. The skill then starts `watch` with the
-Monitor tool itself.
-
-That watch expires after 30 minutes at most. The skill starts it again with `--since-head` and
-`--concluded`, so the new watch stays silent about what it already said. Where neither can
-run, agent returns are the only wake. With no agent at work, the skill reports and stops.
 
 `claude plugin validate --strict` does not read the entries of `monitors.json`, at
 2.1.263 or at 2.1.283. A key it does not know passes both. Claude Code refuses it at load

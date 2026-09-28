@@ -3,7 +3,7 @@ type: Reference
 description: What the /workstreams:start skill does on each call and each wake, and every way it stops.
 stale_after: 2027-03-27
 generated:
-  by: claude-sonnet-5
+  by: claude-sonnet
   at: 2026-09-27
 ---
 
@@ -31,11 +31,14 @@ flowchart TD
     E1 -->|Yes| F{a layer to write, and the layer below done?}
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No| W
-    G --> W{a wake can come?<br/>an agent at work, or a monitor}
+    G --> W{a wake can come?<br/>an agent at work, or the watch can run}
     W -->|No| W1([Stop: report where the round stands]):::stop
-    W -->|Yes| X[End the turn and wait for a wake:<br/>a watch line, or an agent's return]
+    W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool]
+    W2 --> X[End the turn and wait for a wake:<br/>a watch line, an agent's return, or expiry]
+    W -->|Yes, a watch already runs| X
 
-    X --> T[Tick: read each pull request's state, and intersect]
+    X -->|expiry| X1[Arm the watch again, with --since-head<br/>and --concluded for every known head] --> X
+    X -->|a watch line or an agent's return| T[Tick: read each pull request's state, and intersect]
     T --> T1{a fact unread?}
     T1 -->|Yes| T2[Name it; act on nothing that needs it]
     T1 -->|No| T3{new head?}

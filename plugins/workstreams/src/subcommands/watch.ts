@@ -1,7 +1,8 @@
 // The watch: a long poll of every open pull request in the repository. It
-// writes one line to stdout for each event. A Monitor turns each line into
-// one wake of the orchestrator (round 10 ruling 9). The plugin monitor that
-// layer 5 adds does the same.
+// writes one line to stdout for each event. The /workstreams:start skill
+// arms this command with the Monitor tool itself (round 10 ruling 9,
+// round 11 #279). Each line the watch writes is one wake of the
+// orchestrator.
 //
 // **Memory only.** The watch keeps what it has seen in this process, and
 // writes no file (`.claude/rules/_design-principles.md`, "State"). A watch
