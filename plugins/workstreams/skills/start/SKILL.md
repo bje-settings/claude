@@ -74,7 +74,8 @@ notification.
   from the full heads you know. A concluded head goes in `--concluded`; every other head
   goes in `--since-head`. The new watch then stays silent about what it already said.
 - On an exit that is not an expiry, read the watch's last line. If the cause can clear,
-  such as a usage error, arm the watch again, once. Otherwise the watch cannot run.
+  such as a usage error in your arguments, correct it and arm the watch again, once.
+  Otherwise the watch cannot run.
 - Between wakes, end the turn. Never poll an agent. Never sleep in the foreground.
 - A return that says the agent still waits has stopped short. Send it back with
   `SendMessage` and a narrower instruction. Do not dispatch a second agent.

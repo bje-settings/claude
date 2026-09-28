@@ -94,9 +94,10 @@ On expiry, the skill arms the watch again. It gives `--since-head` and `--conclu
 builds both from the full heads it knows. The new watch then stays silent about what it
 already said.
 
-A watch that exits before expiry is armed again once, if its last line names a cause that
-can clear. Where the watch cannot run, an agent's completion notification is the only
-wake. With no agent at work, the skill reports and stops.
+When a watch exits before expiry, the skill reads its last line. If the cause can clear,
+the skill corrects it and arms the watch again, once. Where the watch cannot run, an
+agent's completion notification is the only wake. With no agent at work, the skill reports
+and stops.
 
 This plugin has no `monitors/monitors.json`. A plugin monitor with
 `"when": "on-skill-invoke:start"` would start `watch` the first time the skill runs in a
@@ -148,9 +149,8 @@ what has merged. It maps the files each issue touches. It classifies and sizes e
 issue. It chooses between parallel streams, a stack, and one pull request. A shared
 version line, or separate sections of one README, is not a collision. Small issues of one
 plugin and one kind fold into one stream, because each pull request costs a review loop.
-It posts the
-sequencing comment on every issue in the round. `skills/sweep/` carries the rules.
-`file-map.md` holds the mapping rules a file map must apply.
+It posts the sequencing comment on every issue in the round. `skills/sweep/` carries the
+rules. `file-map.md` holds the mapping rules a file map must apply.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
 yet. It ends at its report.
