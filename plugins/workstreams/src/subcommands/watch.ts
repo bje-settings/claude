@@ -10,18 +10,19 @@
 // `--concluded` let a caller say what it already knows. The new watch then
 // stays silent about it.
 //
-// **A head this watch has already seen is not a new head.** For a short
-// time after a push, the API answers the old head, then the new head. The
-// watch keeps every head it has seen for each pull request, not only the
-// current one. A head that returns after a later one writes no line. It
-// does not move the current head, the reported contexts, or CONCLUDED
-// (#264). `--since-head` and `--concluded` seed this memory with their own
-// head.
+// **A head this watch has seen is not new by itself.** For a short time
+// after a push, the API answers the old head, then the new one. The watch
+// keeps every head it has seen for each pull request, not only the current
+// head (#264). `--since-head` and `--concluded` seed this memory with their
+// own head.
 //
-// One known limit: a force push back to an earlier head silences that
-// pull request. No later line, not even CONCLUDED, is written for it. The
-// silence lasts while the head returns only to heads already seen. A head
-// not yet seen ends it.
+// **A seen head becomes current only on its second answer in a row.** A
+// push back to an earlier, already-seen head writes no line on its first
+// poll. The same head must answer again on the very next poll. Only then
+// does the watch move the current head, and write that line (ruling 5,
+// #296). Any other answer ends the wait at once. A head not yet seen
+// becomes current right away, and a poll that repeats the current head
+// leaves nothing pending.
 //
 // **A head concludes only when every required context has reported**
 // (ruling P9). The list comes from the base branch's rules, and from the
@@ -46,12 +47,23 @@
 // again. A failed default branch leaves unread every pull request that
 // falls back to it (#265).
 //
+// **An empty list is not the same fact as a list nobody could read**
+// (ruling 6, #298). A base with no ruleset of its own is unread too, when
+// its fallback, the default branch, cannot be read. Nothing here reads
+// that base's pull requests as ones that need no check.
+//
 // **One event is one line.** gh can say a reason on more than one line. The
 // watch writes each event on one line, because a Monitor makes one wake of
 // each line.
 //
-// The command function is the seam (ADR 001). Parsed arguments, an injected
-// `GhClient`, a clock, a sleep and a writer go in. An envelope comes out.
+// **Every gh call this watch makes carries a bound.** The bound is the
+// poll interval, in milliseconds, so a hung call cannot outlast one whole
+// poll cycle. A call that times out is a failed read, reported the same
+// way as any other (ruling 4, #295). `lib/gh.ts` keeps no such bound by
+// default. Only this command sets one.
+//
+// The command function is the seam (ADR 001). Parsed arguments, a client
+// factory, a clock, a sleep and a writer go in. An envelope comes out.
 import { parseArguments } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type PullRequestHead } from '../lib/gh.ts'
@@ -126,7 +138,12 @@ const NOT_ON_PATH = 127
 /** The edges the watch reads and writes. Each one is an argument, so a test
  *  runs a hundred polls with no real wait and no real `gh`. */
 export interface WatchContext {
-  readonly gh: GhClient
+  /** Builds the client this run polls with, bound to `boundMs`. `runWatch`
+   *  calls this once, with a bound fit to `--interval`. So a hung call
+   *  cannot outlast one whole poll cycle (ruling 4, #295). This is a
+   *  factory, not a built client, because `--interval` is not known until
+   *  `runWatch` parses it. */
+  readonly createGh: (boundMs: number) => GhClient
   /** The directory the watch stands in, and the environment for git. */
   readonly cwd: string
   readonly env: NodeJS.ProcessEnv
@@ -186,6 +203,11 @@ interface Tracked {
    *  head. The API answers an old head again, for a short time after a
    *  push (#264). */
   readonly seenHeads: Set<string>
+  /** A seen head this poll answered, while a different head is current, or
+   *  null. It becomes current only when the same head answers again on
+   *  the very next poll (ruling 5, #296). A different answer on the next
+   *  poll drops it with no line, and starts the count over. */
+  pending: string | null
 }
 
 /** What one poll read. */
@@ -331,6 +353,7 @@ const seededMemory = (
       concluded: false,
       seeded: true,
       seenHeads: new Set([sha]),
+      pending: null,
     })
   }
   for (const [number, sha] of concluded) {
@@ -340,6 +363,7 @@ const seededMemory = (
       concluded: true,
       seeded: true,
       seenHeads: new Set([sha]),
+      pending: null,
     })
   }
   return memory
@@ -359,11 +383,18 @@ const pullLines = (
 ): string[] => {
   const seen = memory.get(pull.number)
   // A head this watch has already seen, other than the current one, is not
-  // a new head. The API answers an old head again after a push. Nothing
-  // moves: not the current head, the reported contexts, nor CONCLUDED
-  // (#264).
+  // new by itself. The API answers an old head again after a push (#264).
+  // It becomes current only once it answers again on the very next poll
+  // (ruling 5, #296). Any other answer clears the count. A head not yet
+  // seen ends the silence at once. A head unchanged from the current one
+  // also leaves nothing pending.
   if (seen !== undefined && seen.sha !== pull.headSha && seen.seenHeads.has(pull.headSha)) {
-    return []
+    if (seen.pending !== pull.headSha) {
+      seen.pending = pull.headSha
+      return []
+    }
+  } else if (seen !== undefined) {
+    seen.pending = null
   }
 
   const lines: string[] = []
@@ -382,6 +413,7 @@ const pullLines = (
       concluded: false,
       seeded: false,
       seenHeads: new Set([pull.headSha]),
+      pending: null,
     }
     memory.set(pull.number, tracked)
     quiet = true
@@ -391,6 +423,7 @@ const pullLines = (
     tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
     tracked.concluded = false
+    tracked.pending = null
     quiet = true
   } else if (tracked.seeded) {
     quiet = true
@@ -440,6 +473,9 @@ export const runWatch = async (
   if (ticks === null) {
     return refused(`--ticks takes a whole number of polls, not "${parsed.value.ticks}"`)
   }
+  // The bound is the poll interval itself. A call that has not answered by
+  // the next poll is already a failed read (ruling 4, #295).
+  const gh = context.createGh(interval * 1000)
   for (const flag of ['--since-head', '--concluded']) {
     if (repeated(argv, flag)) {
       return refused(`${flag} is not repeatable; pass one comma-separated list`)
@@ -476,7 +512,7 @@ export const runWatch = async (
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
     const lines: string[] = []
-    const outcome = await readPoll(context.gh)
+    const outcome = await readPoll(gh)
     if (outcome.kind === 'end') return ok(`watch: ${outcome.reason}, so there is nothing to watch`)
     if (outcome.kind === 'failed') {
       if (outcome.reason !== lastFailed) lines.push(`poll failed: ${outcome.reason}`)
@@ -525,7 +561,7 @@ export const runWatch = async (
       const open = new Set(pulls.map((pull) => pull.number))
       for (const number of [...knownOpen]) {
         if (open.has(number)) continue
-        const left = await leftOpenList(context.gh, number)
+        const left = await leftOpenList(gh, number)
         if (left.line !== null) lines.push(left.line)
         if (left.settled) {
           memory.delete(number)
@@ -541,9 +577,13 @@ export const runWatch = async (
         knownOpen.add(pull.number)
         const own = listFor(pull.base)
         if (own === undefined) continue
-        if (own.length === 0 && !required.has(defaultBranch)) continue
-        const names = namesOrDefault(own, listFor(defaultBranch) ?? []).names
-        lines.push(...pullLines(pull, names, memory))
+        // `listFor` answers `undefined` exactly when the default branch's
+        // own read did not succeed this poll. `namesOrDefault` reads that
+        // as `null`, "could not be read", never as "nothing required"
+        // (ruling 6, #298).
+        const list = namesOrDefault(own, listFor(defaultBranch) ?? null)
+        if (list.from === 'unread') continue
+        lines.push(...pullLines(pull, list.names, memory))
       }
     }
 

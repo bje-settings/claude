@@ -720,6 +720,22 @@ export interface GhClientOptions {
    *  (`tests/lib/process.test.ts`); a copy of that test here would only prove node
    *  twice. */
   readonly run?: Runner
+  /**
+   * The time limit, in milliseconds, for every call this client makes.
+   * A call that already carries its own bound keeps it instead
+   * (`watchChecks.boundMs`, `repositoryStatus`'s second argument).
+   *
+   * Left out, a call waits for `gh` as long as it takes. That was the
+   * mode of every endpoint before this option existed. It is still the
+   * mode the `gh` plugin uses (ruling 4, #295).
+   *
+   * `watch` sets this, fit to its own poll interval. So a hung `gh` child
+   * cannot outlast one whole poll cycle. `lib/process.ts`'s `timeoutMs`
+   * kills a bounded child's whole process group when the bound fires. The
+   * failure this produces is a failed read, reported as itself, never a
+   * silent wait.
+   */
+  readonly boundMs?: number
 }
 
 /**
@@ -1585,6 +1601,12 @@ const flag = (name: string, value: boolean | undefined): string[] =>
  */
 const accountOf = (result: RunResult): string => {
   if (result.startFailure !== null) return `cannot run gh: ${result.startFailure.message}`
+  // The bound outranks a pipe failure and gh's own words. A child this
+  // process killed for running too long is not a child that failed on its
+  // own account, and a stray line it printed before the kill is not why
+  // the call has no answer. `readStatusBatch` checks the same field first,
+  // for the same reason (ruling 4, #295).
+  if (result.timedOut) return `gh did not answer in ${result.elapsedMs} ms`
   // A pipe that failed outranks whatever gh managed to say through it. The
   // words in hand may be half the words gh wrote, and a reader given only
   // those would be told a truncated answer with false confidence.
@@ -1654,8 +1676,19 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   /** Run gh, and answer with everything the child did. Nothing here decides
    *  whether that is a failure. The watch reports through its own status,
    *  and the other endpoints do not, so each endpoint decides that for
-   *  itself. */
-  const invoke = (args: readonly string[], boundMs?: number): Promise<RunResult> =>
+   *  itself.
+   *
+   *  `boundMs` defaults to `options.boundMs`, the client's own bound. Every
+   *  endpoint that reads through this function gets it that way.
+   *  `succeeded` is one, and so `text`, `rows` and `record` beside it, the
+   *  three that read through `succeeded`. `restJson`, `queryOnce` and
+   *  `collect` call this function directly, and get the same default. A
+   *  call that already carries its own bound keeps it: `watchChecks` and
+   *  `repositoryStatus` both pass one (ruling 4, #295). */
+  const invoke = (
+    args: readonly string[],
+    boundMs: number | undefined = options.boundMs,
+  ): Promise<RunResult> =>
     spawn('gh', args, { cwd: options.cwd, env: options.env, timeoutMs: boundMs })
 
   /** What gh did, once this function has established that gh succeeded. A

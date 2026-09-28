@@ -73,7 +73,12 @@ interface Harness {
 
 const clientAnswering = (
   reply: Reply,
-  options: { cwd?: string; repository?: string; env?: NodeJS.ProcessEnv } = {},
+  options: {
+    cwd?: string
+    repository?: string
+    env?: NodeJS.ProcessEnv
+    boundMs?: number
+  } = {},
 ): Harness => {
   const calls: Call[] = []
   return { gh: createGhClient({ ...options, run: answering(reply, calls) }), calls }
@@ -421,6 +426,44 @@ describe('argv', () => {
     const anywhere = clientAnswering({ stdout: '{}' })
     await anywhere.gh.viewRepository()
     expect(anywhere.calls[0]?.cwd).toBeUndefined()
+  })
+})
+
+describe('the client bound (ruling 4, #295)', () => {
+  // `succeeded` calls `invoke(args)` with no bound of its own. So do
+  // `restJson`, `queryOnce` and `collect`: the functions behind
+  // `requiredContexts`, `viewPullRequestDetail` and `listOpenPullRequestHeads`.
+  // `invoke` defaults the bound to the client's own `options.boundMs`. One
+  // test on one such endpoint, `viewRepository`, covers all of them. The
+  // default is read at the one place every one of them calls through.
+  it('binds every call through invoke, when the client was built with a bound', async () => {
+    const { gh, calls } = clientAnswering({ stdout: '{}' }, { boundMs: 5_000 })
+    await gh.viewRepository()
+    expect(calls[0]?.timeoutMs).toBe(5_000)
+  })
+
+  // A mutation that drops `invoke`'s default parameter turns this test red:
+  // `calls[0].timeoutMs` would read `undefined` instead of `5_000`.
+  it("leaves every call unbound when the client was built with none, the `gh` plugin's mode", async () => {
+    const { gh, calls } = clientAnswering({ stdout: '{}' })
+    await gh.viewRepository()
+    expect(calls[0]?.timeoutMs).toBeUndefined()
+  })
+
+  it('does not override a call that already carries its own bound', async () => {
+    const { gh, calls } = clientAnswering({ stdout: '' }, { boundMs: 5_000 })
+    await gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })
+    expect(calls[0]?.timeoutMs).toBe(90_000)
+  })
+
+  it("reports a call that timed out as itself, never as gh's own words", async () => {
+    const { gh } = clientAnswering(
+      { timedOut: true, status: null, signal: 'SIGKILL', elapsedMs: 5_000 },
+      { boundMs: 5_000 },
+    )
+    await expect(gh.viewRepository()).rejects.toMatchObject({
+      detail: 'gh did not answer in 5000 ms',
+    })
   })
 })
 

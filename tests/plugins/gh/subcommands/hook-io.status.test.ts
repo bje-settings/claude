@@ -257,7 +257,10 @@ it('warns, and still counts behind, when the branch listing fails', async () => 
 
 it('warns, and asks nothing more, when discovery does not finish in time', async () => {
   const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // Resolved once, up front (#289). Discovery's own failure names the
+  // argument it was given, not a path it resolved, and that argument is
+  // `/private/var/...` on macOS only once this test already is.
+  const work = realpathSync(githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets'))
 
   // Discovery runs git, which takes longer than 1 ms.
   const ran = await statusOf(rig, work, createGhMock(), { deadlineMs: 1 })
@@ -372,7 +375,9 @@ it('gives one line for a repository GitHub could not resolve, not two', async ()
 
 it('warns, and keeps the GitHub counts, when a fetch is still open at the deadline', async () => {
   const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // Resolved once, up front (#289): see the note on the discovery deadline
+  // test above.
+  const work = realpathSync(githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets'))
   hangingFetch(rig, work)
 
   const ran = await statusOf(rig, work, answering({ 'acme/widgets': side(0, 2) }), {
@@ -380,12 +385,18 @@ it('warns, and keeps the GitHub counts, when a fetch is still open at the deadli
   })
 
   expect(ran.stdout).toBe('gh: [🤖 2]\ngh: ⚠️ timed out\n')
-  expect(ran.stderr).toBe(`${realpathSync(work)}: did not finish in 3000 ms\n`)
+  expect(ran.stderr).toBe(`${work}: did not finish in 3000 ms\n`)
 })
 
 it('warns when GitHub is still open at the deadline', async () => {
   const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  // Resolved once, up front (#289). Under load, either discovery or the
+  // per-repository read can be the one still open at the deadline, and
+  // each names the target a different way: discovery names the argument
+  // it was given, the per-repository read names git's own resolved root.
+  // A `work` that is already resolved makes the two spellings the same
+  // one, so the line below matches whichever local read is late.
+  const work = realpathSync(githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets'))
   const never: GhClient = { ...createGhMock(), repositoryStatus: () => new Promise(() => {}) }
 
   const ran = await statusOf(rig, work, never, { deadlineMs: 3_000 })
@@ -393,7 +404,7 @@ it('warns when GitHub is still open at the deadline', async () => {
   // Under the load of a whole suite, the local reads can also run past 3 s.
   // That gives a line of its own kind, before the GitHub line.
   expect(ran.stdout).toMatch(/^(?:gh: ⚠️ timed out\n)?gh: ⚠️ GitHub request timed out\n$/)
-  const late = `${realpathSync(work)}: did not finish in 3000 ms`
+  const late = `${work}: did not finish in 3000 ms`
   const lines = ran.stderr.split('\n').slice(0, -1)
   expect(lines).toContain('GitHub: did not finish in 3000 ms')
   expect(lines.filter((line) => !line.startsWith('GitHub: '))).toEqual(
@@ -482,7 +493,9 @@ it('warns when git cannot say whether a local main exists', async () => {
 
 it('warns, and does not wait, when an origin read is still open at the deadline', async () => {
   const rig = createRig()
-  const local = rig.git.create(rig.sandbox.join('r'))
+  // Resolved once, up front (#289): see the note on the discovery deadline
+  // test above.
+  const local = realpathSync(rig.git.create(rig.sandbox.join('r')))
   const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
   // The origin is not on github.com, so the hook asks for the rewritten
   // URL, and that call does not answer.
@@ -494,7 +507,7 @@ it('warns, and does not wait, when an origin read is still open at the deadline'
   })
 
   expect(ran.stdout).toBe('gh: ⚠️ timed out\n')
-  expect(ran.stderr).toBe(`${realpathSync(local)}: did not finish in 1000 ms\n`)
+  expect(ran.stderr).toBe(`${local}: did not finish in 1000 ms\n`)
 })
 
 it('warns when the local default branch cannot be compared with origin', async () => {

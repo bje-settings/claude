@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createGhMock,
   type GhClient,
+  GhError,
   type GhReplies,
   ghFails,
   type PullRequestHead,
@@ -93,7 +94,7 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
     viewPullRequestDetail: async () => reply(current().detail, 'viewPullRequestDetail'),
   }
   const context: WatchContext = {
-    gh,
+    createGh: () => gh,
     cwd: repo,
     env: sandbox.env,
     write: (line) => {
@@ -107,7 +108,7 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
     stopped: () => false,
     ...overrides,
   }
-  return { context, lines, elapsed: () => clock - 1_000_000 }
+  return { context, lines, gh, elapsed: () => clock - 1_000_000 }
 }
 
 const heads = (...rows: PullRequestHead[]) => ({ rows, unavailable: null })
@@ -597,13 +598,13 @@ describe('a watch over the open pull requests', () => {
   })
 
   it('reports a ruleset read that fell short as a failed poll', async () => {
-    const { context, lines } = watchOver([{ heads: heads(head()) }])
+    const { context, lines, gh } = watchOver([{ heads: heads(head()) }])
     const failing: GhClient = {
-      ...context.gh,
+      ...gh,
       requiredContexts: async () => ({ contexts: [], unavailable: 'gh: HTTP 404' }),
     }
 
-    await runWatch(['--ticks', '1'], { ...context, gh: failing })
+    await runWatch(['--ticks', '1'], { ...context, createGh: () => failing })
 
     expect(lines).toEqual(['poll failed: gh: HTTP 404'])
   })
@@ -797,6 +798,93 @@ describe('a watch over the open pull requests', () => {
     await expect(runWatch([], counting)).resolves.toEqual({ outcome: 'ok', value: '' })
     expect(polls).toBe(2)
   })
+
+  it(
+    'moves a seen head to current once it answers twice in a row, with its own line ' +
+      '(ruling 5, #296)',
+    async () => {
+      const { context, lines } = watchOver([
+        { heads: heads(head()) },
+        { heads: heads(head({ headSha: SHA_B })) },
+        { heads: heads(head()) },
+        { heads: heads(head()) },
+      ])
+
+      await runWatch(['--ticks', '4'], context)
+
+      expect(lines).toEqual([
+        `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+        `#259 new head ${SHA_B}, required 0/3 reported`,
+        `#259 new head ${SHA_A}, required 0/3 reported`,
+      ])
+    },
+  )
+
+  it('leaves a seen head silent when it does not answer again on the very next poll (ruling 5, #296)', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head()) },
+      { heads: heads(head({ headSha: SHA_B })) },
+      { heads: heads(head()) },
+      { heads: heads(head({ headSha: SHA_B })) },
+    ])
+
+    await runWatch(['--ticks', '4'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      `#259 new head ${SHA_B}, required 0/3 reported`,
+    ])
+  })
+})
+
+describe('a watch bounds every gh call to its poll interval (ruling 4, #295)', () => {
+  it('gives the client a bound equal to the poll interval in milliseconds', async () => {
+    const seenBoundMs: number[] = []
+    const { context } = watchOver([{ heads: heads() }], {
+      createGh: (boundMs) => {
+        seenBoundMs.push(boundMs)
+        return createGhMock({
+          viewRepository: REPOSITORY,
+          listOpenPullRequestHeads: heads(),
+          requiredContexts: { contexts: REQUIRED, unavailable: null },
+        })
+      },
+    })
+
+    await runWatch(['--ticks', '1', '--interval', '5'], context)
+
+    expect(seenBoundMs).toEqual([5_000])
+  })
+
+  it('reports a call that never answers as a failed poll, and reads again next poll', async () => {
+    let calls = 0
+    const { context, lines } = watchOver([{ heads: heads(head()) }], {
+      createGh: (boundMs) => {
+        const base = createGhMock()
+        return {
+          ...base,
+          viewRepository: async () => {
+            calls += 1
+            if (calls === 1) {
+              const said = `gh did not answer in ${boundMs} ms`
+              throw new GhError(said, null, { cause: null, detail: said })
+            }
+            return REPOSITORY
+          },
+          listOpenPullRequestHeads: async () => heads(head()),
+          requiredContexts: async () => ({ contexts: REQUIRED, unavailable: null }),
+        }
+      },
+    })
+
+    await runWatch(['--interval', '5', '--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      'poll failed: gh did not answer in 5000 ms',
+      'poll read again after 1 failed poll',
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+    ])
+  })
 })
 
 describe('a watch that was told what it already knows', () => {
@@ -887,7 +975,11 @@ describe('a watch with nothing to watch', () => {
     const outside = createSandbox()
     const { context } = watchOver([{}])
 
-    const answer = await runWatch([], { ...context, gh: createGhMock(), cwd: outside.path })
+    const answer = await runWatch([], {
+      ...context,
+      createGh: () => createGhMock(),
+      cwd: outside.path,
+    })
 
     expect(answer).toEqual({
       outcome: 'ok',
