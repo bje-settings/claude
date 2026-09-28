@@ -939,6 +939,23 @@ describe('issue and pull request states', () => {
     expect(result).toEqual({ states: {}, unavailable: 'cannot run gh: spawn gh ENOENT' })
   })
 
+  it('reports the measured time when a client with no bound times out', async () => {
+    // `issueStates` never passes its own `boundMs` to `accountOf`; it
+    // relies on the client's own bound, through `invoke`'s default
+    // (`lib/gh.ts` `accountOf`, `const invoke`). A client made with no
+    // `boundMs` at all, such as the `gh` plugin's, has none to fall back
+    // on. `accountOf` then reports `result.elapsedMs`, not a bound that was
+    // never asked for.
+    const { gh } = clientAnsweringEach([
+      { stdout: '{"nameWithOwner":"acme/widgets"}' },
+      { status: null, signal: 'SIGKILL', timedOut: true, elapsedMs: 9000 },
+    ])
+
+    const result = await gh.issueStates({ numbers: [1] })
+
+    expect(result).toEqual({ states: {}, unavailable: 'gh did not answer in 9000 ms' })
+  })
+
   it('chunks 101 numbers into two calls of 100 and 1, each aliased from i0', async () => {
     const numbers = Array.from({ length: 101 }, (_, i) => i + 1)
     const { gh, calls } = clientAnsweringEach([
