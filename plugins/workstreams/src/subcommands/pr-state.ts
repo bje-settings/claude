@@ -260,8 +260,9 @@ export const deriveState = (facts: {
   if (facts.unresolvedThreads > 0) return 'fixing'
   // The two-round ceiling. Round 2 never schedules a third. On nine of the
   // ten pull requests reviewed by hand in rounds 5 to 7 (#133's findings),
-  // round 2 found round 1 wrong or incomplete. So the code reads
-  // "substantial" generously. But two rounds is the limit.
+  // round 2 found round 1 wrong or incomplete. Round 12 ruling 3 (#295)
+  // now reads "substantial" narrowly: a logic change under src/, lib/,
+  // scripts/ or hooks/. Two rounds is still the limit.
   if (facts.round === 1 && facts.substantial) return 'review-2'
   return facts.rotChecked ? 'done' : 'rot-check'
 }

@@ -720,6 +720,22 @@ export interface GhClientOptions {
    *  (`tests/lib/process.test.ts`); a copy of that test here would only prove node
    *  twice. */
   readonly run?: Runner
+  /**
+   * The time limit, in milliseconds, for every call this client makes.
+   * A call that already carries its own bound keeps it instead
+   * (`watchChecks.boundMs`, `repositoryStatus`'s second argument).
+   *
+   * Left out, a call waits for `gh` as long as it takes. That was the
+   * mode of every endpoint before this option existed. It is still the
+   * mode the `gh` plugin uses (ruling 4, #295).
+   *
+   * `watch` sets this, fit to its own poll interval. So a hung `gh` child
+   * cannot outlast one whole poll cycle. `lib/process.ts`'s `timeoutMs`
+   * kills a bounded child's whole process group when the bound fires. The
+   * failure this produces is a failed read, reported as itself, never a
+   * silent wait.
+   */
+  readonly boundMs?: number
 }
 
 /**
@@ -1582,9 +1598,20 @@ const flag = (name: string, value: boolean | undefined): string[] =>
  * that does not exist without it. With stderr empty, the status is all
  * there is: it at least separates a refusal from a crash. A child a signal
  * ended has no status at all to name.
+ *
+ * `boundMs` names the bound the caller asked for. A timed-out message
+ * reports it, not {@link RunResult.elapsedMs}. The measured time differs by
+ * a few milliseconds on every call. A caller that dedupes a repeated
+ * failure by its exact wording (`watch.ts`) needs the same words each time.
  */
-const accountOf = (result: RunResult): string => {
+const accountOf = (result: RunResult, boundMs?: number): string => {
   if (result.startFailure !== null) return `cannot run gh: ${result.startFailure.message}`
+  // The bound outranks a pipe failure and gh's own words. A child this
+  // process killed for running too long did not fail on its own account.
+  // A stray line it printed before the kill is not why the call has no
+  // answer. `readStatusBatch` checks the same field first, for the same
+  // reason (ruling 4, #295).
+  if (result.timedOut) return `gh did not answer in ${boundMs ?? result.elapsedMs} ms`
   // A pipe that failed outranks whatever gh managed to say through it. The
   // words in hand may be half the words gh wrote, and a reader given only
   // those would be told a truncated answer with false confidence.
@@ -1654,8 +1681,20 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   /** Run gh, and answer with everything the child did. Nothing here decides
    *  whether that is a failure. The watch reports through its own status,
    *  and the other endpoints do not, so each endpoint decides that for
-   *  itself. */
-  const invoke = (args: readonly string[], boundMs?: number): Promise<RunResult> =>
+   *  itself.
+   *
+   *  `boundMs` defaults to `options.boundMs`, the client's own bound. Every
+   *  endpoint that reads through this function gets it that way.
+   *  `succeeded` is one, and so are `text`, `rows` and `record` beside it,
+   *  the three that read through `succeeded`. `restJson`, `queryOnce`,
+   *  `collect` and `issueStates` call this function directly, and get the
+   *  same default. A
+   *  call that already carries its own bound keeps it: `watchChecks` and
+   *  `repositoryStatus` both pass one (ruling 4, #295). */
+  const invoke = (
+    args: readonly string[],
+    boundMs: number | undefined = options.boundMs,
+  ): Promise<RunResult> =>
     spawn('gh', args, { cwd: options.cwd, env: options.env, timeoutMs: boundMs })
 
   /** What gh did, once this function has established that gh succeeded. A
@@ -1673,7 +1712,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       // caller that prints a one-line reason wants gh's words alone, and a
       // tail of the message would hand it this argv instead
       // (`GhError.detail`).
-      const detail = accountOf(result)
+      const detail = accountOf(result, options.boundMs)
       throw new GhError(`gh ${args.join(' ')} failed: ${detail}`, result.status, {
         cause: result,
         detail,
@@ -1759,9 +1798,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         `query=${query}`,
       ]
       const result = await invoke(args)
+      // A bound that fired outranks whatever this page's body looks like. A
+      // child this process killed can still have written a whole, valid
+      // page before the kill. That page must not read as a real answer
+      // (ruling 4, #295; `readStatusBatch` guards the same way).
+      if (result.timedOut) {
+        reasons.push(accountOf(result, options.boundMs))
+        break
+      }
       const answer = parseConnection(result.stdout, field)
       if (answer === undefined) {
-        reasons.push(accountOf(result))
+        reasons.push(accountOf(result, options.boundMs))
         break
       }
       // A non-null `endCursor` equal to the cursor this page was just asked
@@ -1856,15 +1903,20 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       '-f',
       `query=${query}`,
     ])
+    // A bound that fired outranks the body, the same way `collect` guards
+    // its own pages (ruling 4, #295).
+    if (result.timedOut) {
+      return { data: null, unavailable: accountOf(result, options.boundMs), notFound: false }
+    }
     let reply: Record<string, unknown> | undefined
     try {
       reply = asRecord(JSON.parse(result.stdout))
     } catch {
-      return { data: null, unavailable: accountOf(result), notFound: false }
+      return { data: null, unavailable: accountOf(result, options.boundMs), notFound: false }
     }
     const repository = asRecord(asRecord(reply?.data)?.repository)
     if (repository === undefined) {
-      return { data: null, unavailable: accountOf(result), notFound: false }
+      return { data: null, unavailable: accountOf(result, options.boundMs), notFound: false }
     }
     const errorsField = reply?.errors
     const entries = Array.isArray(errorsField) ? errorsField : []
@@ -1895,10 +1947,13 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     const parts = await repositoryParts()
     if (parts.unavailable !== null) return { value: null, unavailable: parts.unavailable }
     const result = await invoke(['api', `repos/${parts.owner}/${parts.name}/${path}`])
+    // A bound that fired outranks the body, the same way `collect` guards
+    // its own pages (ruling 4, #295).
+    if (result.timedOut) return { value: null, unavailable: accountOf(result, options.boundMs) }
     try {
       return { value: JSON.parse(result.stdout), unavailable: null }
     } catch {
-      return { value: null, unavailable: accountOf(result) }
+      return { value: null, unavailable: accountOf(result, options.boundMs) }
     }
   }
 
@@ -2058,11 +2113,10 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         // out, and stayed silent in the one field whose contract is to be
         // "the only place a watcher that could not reach GitHub says so".
         //
-        // The case where the bound fires is exempt, because it already says
-        // so in `timedOut`, which is what the caller at
-        // `gh-shepherd-pr.py:644` reads. It is also exempt because
-        // `accountOf` would otherwise put
-        // this process's own SIGKILL where gh's words belong.
+        // The case where the bound fires alone is exempt, because it
+        // already says so in `timedOut`, which is what the caller at
+        // `gh-shepherd-pr.py:644` reads. `problem` stays empty there
+        // instead of repeating `accountOf`'s own timeout wording.
         //
         // `result.stderr` appears WHOLE in the first arm, never
         // `accountOf`'s trimmed copy. The field's own contract, stated
@@ -2079,7 +2133,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           result.streamErrors.length === 0 &&
           (result.signal === null || result.timedOut || result.stderr !== '')
             ? result.stderr
-            : accountOf(result),
+            : accountOf(result, pull.boundMs),
       }
     },
 
@@ -2107,9 +2161,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         // body through `invoke`, not `succeeded`, whatever the status.
         const args = ['api', 'graphql', '-f', `query=${buildIssueQuery(owner, name, chunk)}`]
         const result = await invoke(args)
+        // A bound that fired outranks the body, the same way `collect`
+        // guards its own pages (ruling 4, #295). A child this process
+        // killed can still have written a whole, valid body before the
+        // kill, and that body must not read as a real answer.
+        if (result.timedOut) {
+          reasons.push(accountOf(result, options.boundMs))
+          continue
+        }
         const answer = parseIssueChunk(result.stdout, chunk)
         if (answer === undefined) {
-          reasons.push(accountOf(result))
+          reasons.push(accountOf(result, options.boundMs))
           continue
         }
         Object.assign(states, answer.states)

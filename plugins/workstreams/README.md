@@ -245,13 +245,14 @@ in it.
 
 ### The guard hook
 
-`hooks/hooks.json` registers one `PreToolUse` hook on `Bash|PowerShell`. It refuses two
+`hooks/hooks.json` registers one `PreToolUse` hook on `Bash|PowerShell`. It refuses three
 things, and only for a subagent:
 
 | Refused | Why |
 | --- | --- |
 | `run_in_background` | A turn that ends on a background command reads to a caller as a worker that stopped short. It happened in three rounds with the rule written in the brief. |
 | A git command that would overwrite uncommitted changes to tracked files | Two agents lost uncommitted work to exactly this, one of them with the rule in its brief. The remedy is one commit. |
+| A `vitest` or `pnpm test` run while one already runs in the same worktree | Round 12 ruling 9 (#299). Two suites at once cost a loaded machine even more. The remedy is to wait for the process already there. |
 
 The second row covers `git restore` in any form, `git checkout` with a pathspec, and
 `git checkout` or `git switch` carrying `-f`, `--force`, `--discard-changes`, `-p`,
@@ -272,6 +273,15 @@ a dirty tracked path is read as the path, where git would have switched and carr
 change over. Telling the two apart needs a second question to git. The refusal costs a
 commit and never costs work.
 
+The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spelling is
+`pnpm test` or `pnpm run test`. `package.json`'s only script, `test`, maps to `vitest run
+--coverage`. `pnpm`'s own `-C <dir>`, `--dir <dir>`, and `--dir=<dir>` name the directory
+the check compares, rather than the tool call's own `cwd`: the worktree workflow's rule is
+"never `cd`; name the absolute path in every command", and this is the spelling that follows
+from it. The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
+each one's cwd, through `/proc` or `lsof`. A match on that directory is a denial. It names
+the pid, and asks the subagent to wait rather than start a second suite.
+
 **The main conversation is never denied.** The test is `agent_id`. The input carries this
 field "only when the hook fires inside a subagent"
 ([hooks](https://code.claude.com/docs/en/hooks#common-input-fields)). The refusal names
@@ -285,12 +295,16 @@ form
 ([hooks](https://code.claude.com/docs/en/hooks#pretooluse-decision-control)), and the
 form that survives the `; exit 0` in `hooks.json`.
 
-Two things it cannot do. It cannot see a command the harness MOVES to the background when
+Three things it cannot do. It cannot see a command the harness MOVES to the background when
 that command reaches its timeout: that is a different mechanism, with no hook in front of
 it. The remedy for that half is the brief's: pass a timeout long enough to finish in. It
 is also a guardrail rather than a security boundary. It reads the command as text, so a
 `git restore` inside a quoted argument is refused as if it were real. That costs a person
 one commit, and never costs anyone their work.
+
+A third thing it cannot see is whether a reviewer agent still runs. So the rule that a
+subagent must not edit while one reads stays a brief line here. #263 gives each reviewer
+its own worktree, and that is what can enforce it.
 
 Anything it cannot read is one line on stderr, and an allow. It never fails a session.
 
@@ -454,14 +468,15 @@ below, so that a Monitor wakes on each line:
 
 The watch keeps what it has seen in memory, and writes no file.
 
-A head this watch has already seen is not a new head, even after a later one. For a
-short time after a push, the API can answer the old head and the new head in turn. The
-watch keeps every head it has seen for each pull request, not the current one alone
-(#264). `--since-head` and `--concluded` seed this memory with their own head.
+A head this watch has seen is not new by itself. For a short time after a push, the API
+answers the old head, then the new one. The watch keeps every head it has seen for each
+pull request, not the current one alone (#264). `--since-head` and `--concluded` seed
+this memory with their own head.
 
-One known limit: a force push back to an earlier head silences that pull request. No
-later line, not even `CONCLUDED`, is written for it. The silence lasts while the head
-returns only to heads already seen. A head not yet seen ends it.
+A seen head becomes current only on its second answer in a row (ruling 5, #296). A push
+back to an earlier, already-seen head writes no line on its first poll. The same head
+must answer again on the very next poll, or the watch drops it with no line. Only a
+second answer in a row moves the current head, and writes that line.
 
 A head is `CONCLUDED` only when every required context has reported. The list comes
 from the rules of the base branch. When no ruleset covers the base, the list comes from
@@ -475,6 +490,15 @@ Each base reads its required contexts on its own. A base whose read fails leaves
 only the pull requests that need its list, not the whole poll (#265). A failed default
 branch leaves unread every pull request that falls back to it. Each failure writes one
 line for each new reason, and a line when that base reads again.
+
+A base with no ruleset of its own is unread too, when its fallback, the default branch,
+cannot be read. An empty list is not the same fact as a list nobody could read
+(ruling 6, #298).
+
+Every gh call this watch makes carries a bound: the poll interval, in milliseconds
+(ruling 4, #295). A hung call cannot outlast one whole poll cycle. It is reported as a
+failed read, the same way as any other. `lib/gh.ts` keeps no such bound by default; only
+this command sets one.
 
 A poll that read no pull request writes a `poll failed` line and changes nothing. The
 line comes once for each new reason, and not on each poll. The first poll that reads

@@ -232,6 +232,11 @@ started. `cwd` is for commands that have already changed into the checkout. `env
 with an environment to pin, because `GH_REPO` displaces `cwd` the way `GIT_DIR` does. Left out, the
 child inherits this process's own environment, which is what every ported call site gets today.
 
+`boundMs` bounds every call the client makes that carries no bound of its own. Left out, a call
+waits for gh as long as it takes. That was every endpoint's mode before this option existed, and
+the `gh` plugin still uses it. `watch` is the one caller that sets it, fit to its own poll
+interval (ruling 4, #295).
+
 `createGhClient` reaches gh as `--repo` everywhere except `gh repo view`. That command has no
 `--repo` flag, and takes the repository as its positional argument instead. That is why the two
 `repo view` calls in the Python code are the only two of the ten that pass no `--repo`.
