@@ -2,7 +2,7 @@
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. With `#<pr>`, take one pull request through review to done. The one entry to the workstreams primitives.
 argument-hint: [milestone | #pr]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh stack view *) Bash(git -C * switch *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
 ---
 
 Round: $ARGUMENTS. A milestone, or nothing, starts or continues a round. `#<pr>` reviews
@@ -73,6 +73,9 @@ notification.
 - On expiry, arm the watch again. Give it `--since-head` and `--concluded`, and build both
   from the full heads you know. A concluded head goes in `--concluded`; every other head
   goes in `--since-head`. The new watch then stays silent about what it already said.
+- On an exit that is not an expiry, read the watch's last line. If the cause can clear,
+  such as a usage error in your arguments, correct it and arm the watch again, once.
+  Otherwise the watch cannot run.
 - Between wakes, end the turn. Never poll an agent. Never sleep in the foreground.
 - A return that says the agent still waits has stopped short. Send it back with
   `SendMessage` and a narrower instruction. Do not dispatch a second agent.

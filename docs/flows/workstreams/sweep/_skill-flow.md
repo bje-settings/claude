@@ -35,17 +35,19 @@ flowchart TD
     K1 --> J
     K -->|Yes| L[Classify, size, and estimate the review]
 
-    L --> M{touch the same file, region, or CI workflow?}
+    L --> M{touch the same file, region, or CI workflow,<br/>apart from a version line or separate README sections?}
     M -->|No| N[Parallel streams]
-    M -->|Yes| O{would one layer reference what the next introduces?}
+    M -->|Yes| O{would one layer reference what the next introduces,<br/>or do both rewrite one section?}
     O -->|Yes| P[One pull request that closes both issues]
-    O -->|No| Q{each layer has independent review or merge value?}
+    O -->|No| Q{a person would review or merge each layer alone?}
     Q -->|Yes| R[A stack, bottom to top]
     Q -->|No| P
 
-    N --> S[Sequencing comment on every affected issue]
+    N --> FO{small issues of one plugin and one kind,<br/>one diff a reviewer reads in one pass?}
     P --> S
     R --> S
+    FO -->|Yes| FO1[Fold them into one stream] --> S
+    FO -->|No| S[Sequencing comment on every affected issue]
     S --> T{hidden dependencies checked against the code?}
     T -->|No| T1[Check them; the last one stated from bodies alone was wrong]
     T1 --> S

@@ -51,6 +51,8 @@ map keeps the shape of the plan it was written for.
   status first, and discarded the output.
 - **A job added to a CI workflow is a collision by itself.** Two issues that each add one
   collide, whatever else their diffs do.
+- **Map a README or a skill by section.** Step 5 of `SKILL.md` must know if two issues
+  rewrite one section or two.
 
 ## What the records say
 

@@ -35,9 +35,12 @@ flowchart TD
     W -->|No| W1([Stop: report where the round stands]):::stop
     W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool]
     W2 --> X[End the turn and wait for a wake:<br/>a watch line, an agent's return, or expiry]
-    W -->|Yes, a watch already runs| X
+    W -->|Yes, a watch already runs,<br/>or it cannot run and an agent works| X
 
     X -->|expiry| X1[Arm the watch again, with --since-head<br/>and --concluded for every known head] --> X
+    X -->|the watch exits| XE{its last line names a cause that can clear,<br/>and no re-arm yet for it?}
+    XE -->|Yes: correct the cause| X1
+    XE -->|No: the watch cannot run| W
     X -->|a watch line or an agent's return| T[Tick: read each pull request's state, and intersect]
     T --> T1{a fact unread?}
     T1 -->|Yes| T2[Name it; act on nothing that needs it]
@@ -62,8 +65,10 @@ flowchart TD
     N -->|ci-pending or fixing| N3{ten wakes on this state,<br/>no agent at work?}
     N3 -->|No| X
     N3 -->|Yes| S3([Stop: name the contexts not reported]):::stop
-    N -->|red| N4{its agent returned?}
-    N4 -->|Yes| N5[Send it back with SendMessage] --> X
+    N -->|red, or fixing after a round agent<br/>returned red| N4{its agent returned?}
+    N4 -->|Yes| NR{red on a file the agent did not touch,<br/>and no re-run yet?}
+    NR -->|Yes| NR1[Re-run the failed jobs once] --> X
+    NR -->|No| N5[Send it back with SendMessage] --> X
     N4 -->|No agent: a person's pull request| S4([Stop: report red CI]):::stop
     N -->|review-1, review-2, rot-check| N7{a round agent at work on it?}
     N7 -->|Yes| X

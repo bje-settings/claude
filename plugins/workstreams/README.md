@@ -94,8 +94,10 @@ On expiry, the skill arms the watch again. It gives `--since-head` and `--conclu
 builds both from the full heads it knows. The new watch then stays silent about what it
 already said.
 
-Where the watch cannot run, an agent's completion notification is the only wake. With no
-agent at work, the skill reports and stops.
+When a watch exits before expiry, the skill reads its last line. If the cause can clear,
+the skill corrects it and arms the watch again, once. Where the watch cannot run, an
+agent's completion notification is the only wake. With no agent at work, the skill reports
+and stops.
 
 This plugin has no `monitors/monitors.json`. A plugin monitor with
 `"when": "on-skill-invoke:start"` would start `watch` the first time the skill runs in a
@@ -144,9 +146,11 @@ does not read, map, size, or comment on it.
 The skill does the reading. It reads every issue body and every comment, for the
 unblocked set alone. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
 what has merged. It maps the files each issue touches. It classifies and sizes each
-issue. It chooses between parallel streams, a stack, and one pull request. It posts the
-sequencing comment on every issue in the round. `skills/sweep/` carries the rules.
-`file-map.md` holds the mapping rules a file map must apply.
+issue. It chooses between parallel streams, a stack, and one pull request. A shared
+version line, or separate sections of one README, is not a collision. Small issues of one
+plugin and one kind fold into one stream, because each pull request costs a review loop.
+It posts the sequencing comment on every issue in the round. `skills/sweep/` carries the
+rules. `file-map.md` holds the mapping rules a file map must apply.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
 yet. It ends at its report.
@@ -158,7 +162,8 @@ Takes one draft pull request from green CI to `done`, whoever opened it.
 The command answers where the loop is. The skill takes the one step that the state calls
 for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
 reports. It never waits. The loop runs at most two review rounds, one subagent
-each, in the pull request's own worktree.
+each, in the pull request's own worktree. Round 2 runs only when round 1's own commits
+changed code logic.
 
 | State | What it means |
 | --- | --- |
@@ -208,6 +213,7 @@ The brief is a file, not a prompt. `skills/stream/brief.md` is the template. It 
 - the return contract
 
 The dispatch prompt points at the file. It repeats only the lines most often got wrong.
+A layer runs only the tests related to its changes. CI's full suite is the coverage gate.
 The lessons section grows layer by layer from what each review finds. That growth is the
 most valuable part of an upper layer's brief.
 

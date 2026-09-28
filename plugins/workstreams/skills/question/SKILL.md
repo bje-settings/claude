@@ -26,7 +26,8 @@ reaches step 3 and cannot ask.
 
 3. Ask one question at a time. Ask only what is genuinely the human's to decide: scope,
    shape (layer count, one pull request or a stack), names that ship, what proves an
-   acceptance line true, order against other efforts.
+   acceptance line true, order against other efforts. The shape question states the review
+   cost of each extra layer or pull request, from the sweep's size estimate.
 
    Use `AskUserQuestion`: one question, two to four options, the recommended option
    first and labelled, with the argument against it in its own description. Wait for
@@ -49,8 +50,9 @@ reaches step 3 and cannot ask.
 
 7. After approval, post the plan comment. Its first line names it the plan:
    `<round> plan, approved <date>.` Trim the approved plan to its layers, with each
-   layer's issues, branch, model and file set. Add the done condition, the review shape,
-   and an estimate. Post it on every issue in the round, and end it with the same
+   layer's issues, branch, model and file set, and the one layer that changes each version
+   line. Add the done condition, the review shape, and an estimate. Post it on every issue
+   in the round, and end it with the same
    `_Recorded by <effort name>, <date>._` line.
 
 8. Housekeeping, before the first worktree.
