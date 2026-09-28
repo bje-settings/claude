@@ -39,7 +39,7 @@ flowchart TD
 
     X -->|expiry| X1[Arm the watch again, with --since-head<br/>and --concluded for every known head] --> X
     X -->|the watch exits| XE{its last line names a cause that can clear,<br/>and no re-arm yet for it?}
-    XE -->|Yes| X1
+    XE -->|Yes: correct the cause| X1
     XE -->|No: the watch cannot run| W
     X -->|a watch line or an agent's return| T[Tick: read each pull request's state, and intersect]
     T --> T1{a fact unread?}
@@ -65,7 +65,7 @@ flowchart TD
     N -->|ci-pending or fixing| N3{ten wakes on this state,<br/>no agent at work?}
     N3 -->|No| X
     N3 -->|Yes| S3([Stop: name the contexts not reported]):::stop
-    N -->|red| N4{its agent returned?}
+    N -->|red, or fixing after a round agent<br/>returned red| N4{its agent returned?}
     N4 -->|Yes| NR{red on a file the agent did not touch,<br/>and no re-run yet?}
     NR -->|Yes| NR1[Re-run the failed jobs once] --> X
     NR -->|No| N5[Send it back with SendMessage] --> X

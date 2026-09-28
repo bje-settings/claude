@@ -47,9 +47,9 @@ On a collision:
 | `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `ci-pending` | Nothing. The watch names each check as it reports. |
-| `red` | The agent that pushed the head fixes it. If it returned, send it back with `SendMessage`. Red on a file that agent did not touch: first run `gh run rerun <run id> --failed`, once. A pull request from a person, with no agent: report it, and stop. |
+| `red` | The agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise send it back with `SendMessage`. A pull request from a person, with no agent: report it, and stop. |
 | `review-1`, `review-2`, `rot-check` | Nothing while a round agent works on this pull request. Otherwise, in a stack, switch the worktree to this layer's branch first: `git -C <worktree> switch <branch>`. `intersect` names the worktree under the layer of the stack that has it checked out. Switch only when no agent works in it and its `clean` is `true`. A switch carries uncommitted work to the other branch. Then invoke `/workstreams:review` with the number and the markers' flags. |
-| `fixing` | Nothing. The round agent's return, or a person who resolves a thread, is the next wake. |
+| `fixing` | Nothing. The round agent's return, or a person who resolves a thread, is the next wake. A round agent that returned red is as in `red`. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
 Ten wakes on one state, with no agent at work on that pull request, is a stop. Name the

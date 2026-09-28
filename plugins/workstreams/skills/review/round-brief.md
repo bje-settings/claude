@@ -96,7 +96,7 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 13. Watch CI in the foreground: run `gh pr checks <number> --watch --interval 30`,
     with a timeout of 590000 ms. Re-run it on timeout. Done means every required
     context REPORTED success. Red CI is yours to fix. Red on a file you did not
-    touch is not: return, and name the failed run.
+    touch is not: return, and give the failed run's id.
 14. Run `git status --porcelain` in BOTH checkouts again.
 
 ## What you never do
@@ -112,8 +112,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
   last command before you return is the CI watch. Never return saying you are still
   waiting.
 - Never run the full suite. Run only the tests that reach the files you change:
-  `vitest related --run <files>`, or the named test files. Also run the type check, the
-  linter and the validators, one at a time. CI's full suite is the coverage gate.
+  `<the repository's related-tests command>`, or the named test files. Also run the type
+  check, the linter and the validators, one at a time. CI's full suite is the coverage gate.
 - Never use `--no-verify`. No attribution lines, no emoji, no em-dashes, and no
   double hyphen as punctuation, in anything you write. A CLI flag and the `--`
   separator are not punctuation.
