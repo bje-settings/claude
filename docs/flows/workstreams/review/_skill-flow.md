@@ -3,7 +3,7 @@ type: Reference
 description: What the /workstreams:review skill does in one step, and every way it declines to act.
 stale_after: 2027-03-27
 generated:
-  by: claude-opus
+  by: claude-sonnet-5
   at: 2026-09-27
 ---
 
@@ -27,6 +27,7 @@ flowchart TD
     D -->|Yes| E{which state?}
 
     E -->|awaiting-pr| E1([Return: GitHub said this number does not exist]):::stop
+    E -->|merged or closed| E1b([Return: the pull request already finished]):::stop
     E -->|no-run| F([Close and reopen the pull request, then return])
     E -->|ci-pending| G([Return the state])
     E -->|red| G1([Return: name the contexts that failed]):::stop

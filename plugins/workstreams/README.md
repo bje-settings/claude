@@ -141,6 +141,7 @@ each, in the pull request's own worktree.
 | State | What it means |
 | --- | --- |
 | `awaiting-pr` | GitHub said this pull request number does not exist. A failed read gives `state: null` instead. |
+| `merged`, `closed` | The pull request already finished. Report it, and dispatch no round. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
 | `ci-pending` | A required context has not reported. The caller waits. |
 | `red` | A required context failed before any round ran, so it belongs to whoever opened it. |
@@ -361,6 +362,10 @@ would never reach `done`.
 `--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
 read. `/workstreams:start` reads them from the marker comments that `/workstreams:review`
 posts.
+
+A merged or closed pull request gives state `merged` or `closed`. This check runs right
+after `awaiting-pr`, before every other rule. No CI result, thread, or marker changes it
+(#277).
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read.
 

@@ -68,7 +68,7 @@ A read that failed for any other reason leaves state null instead. The
 reason then appears under "unavailable".
 
 State merged or closed means the pull request itself finished. This check
-runs right after awaiting-pr, before every other rule, so no CI result,
+runs right after awaiting-pr, before every other rule. No CI result,
 thread, or marker changes it.
 
 Nothing here throws. Every read that fell short is listed under "unavailable",
@@ -218,8 +218,8 @@ export const verdictOf = (
  *
  * A merged or closed pull request gives `merged` or `closed` (#277). This
  * check runs right after `awaiting-pr`, before every other rule. CI,
- * threads and markers do not change it: a pull request that finished is
- * final, whatever its checks or its markers say.
+ * threads and markers do not change it. A pull request that finished
+ * stays final.
  *
  * An unresolved review THREAD from a PERSON keeps the loop in `fixing`,
  * however green CI is. A thread is work someone still waits on. The
@@ -235,8 +235,8 @@ export const deriveState = (facts: {
    *  `awaiting-pr`. */
   readonly missing: boolean
   /** The pull request's own state, or `null` when it could not be read.
-   *  `null` here never means `OPEN`: it means this check answers nothing,
-   *  and every rule below still applies. */
+   *  `null` here never means `OPEN`. It means this check answers nothing.
+   *  Every rule below still applies. */
   readonly pullRequestState: IssueState | null
   readonly verdict: Verdict
   readonly unresolvedThreads: number
