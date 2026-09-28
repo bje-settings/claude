@@ -448,14 +448,15 @@ below, so that a Monitor wakes on each line:
 
 The watch keeps what it has seen in memory, and writes no file.
 
-A head this watch has already seen is not a new head, even after a later one. For a
-short time after a push, the API can answer the old head and the new head in turn. The
-watch keeps every head it has seen for each pull request, not the current one alone
-(#264). `--since-head` and `--concluded` seed this memory with their own head.
+A head this watch has seen is not new by itself. For a short time after a push, the API
+answers the old head, then the new one. The watch keeps every head it has seen for each
+pull request, not the current one alone (#264). `--since-head` and `--concluded` seed
+this memory with their own head.
 
-One known limit: a force push back to an earlier head silences that pull request. No
-later line, not even `CONCLUDED`, is written for it. The silence lasts while the head
-returns only to heads already seen. A head not yet seen ends it.
+A seen head becomes current only on its second answer in a row (ruling 5, #296). A push
+back to an earlier, already-seen head writes no line on its first poll. The same head
+must answer again on the very next poll, or the watch drops it with no line. Only a
+second answer in a row moves the current head, and writes that line.
 
 A head is `CONCLUDED` only when every required context has reported. The list comes
 from the rules of the base branch. When no ruleset covers the base, the list comes from
@@ -469,6 +470,15 @@ Each base reads its required contexts on its own. A base whose read fails leaves
 only the pull requests that need its list, not the whole poll (#265). A failed default
 branch leaves unread every pull request that falls back to it. Each failure writes one
 line for each new reason, and a line when that base reads again.
+
+A base with no ruleset of its own is unread too, when its fallback, the default branch,
+cannot be read. An empty list is not the same fact as a list nobody could read
+(ruling 6, #298).
+
+Every gh call this watch makes carries a bound: the poll interval, in milliseconds
+(ruling 4, #295). A hung call cannot outlast one whole poll cycle. It is reported as a
+failed read, the same way as any other. `lib/gh.ts` keeps no such bound by default; only
+this command sets one.
 
 A poll that read no pull request writes a `poll failed` line and changes nothing. The
 line comes once for each new reason, and not on each poll. The first poll that reads

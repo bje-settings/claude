@@ -5,7 +5,7 @@
 // real repository. `gh` is the injected double.
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   createGhMock,
@@ -20,6 +20,14 @@ import {
   renderReport,
   runIntersect,
 } from '#workstreams/subcommands/intersect.ts'
+
+// Every example here builds one or two real repositories, so it is slow by
+// nature (#290). Alone, at load 14, the slowest case took 2.4 s. Round 11
+// saw this file time out at the default 30 s. That happened in two agents'
+// full-suite runs, at load 13 to 30. This raises the file's own bound well
+// past that, so a slower run under load still passes. A case that has
+// genuinely hung still fails, once this larger bound is reached.
+vi.setConfig({ testTimeout: 120_000 })
 
 interface Rig {
   readonly sandbox: Sandbox

@@ -119,13 +119,22 @@ export const namesOrHead = (
  * The base branch's list, or the default branch's list when the base has
  * none. This is `watch`'s rule (P9).
  *
- * An empty answer means that no ruleset requires anything of either branch.
- * A caller must not read that as "every required context passed".
+ * An empty list means that no ruleset requires anything of that branch.
+ * `null` means the opposite fact: the list could not be read at all. The
+ * two answer different questions, and a caller must not read the second as
+ * the first (ruling 6, #298). `defaultRequired` is `null` exactly when the
+ * default branch's own read failed this poll. The caller passes its list
+ * only once that read has succeeded.
+ *
+ * A caller reads `from: 'unread'` the way it reads a failed read of the
+ * base branch itself. This pull request is left as it was. It is read
+ * again once the default branch reads.
  */
 export const namesOrDefault = (
   required: readonly string[],
-  defaultRequired: readonly string[],
-): ContextNames<'ruleset' | 'default'> =>
-  required.length > 0
-    ? { names: required, from: 'ruleset' }
-    : { names: defaultRequired, from: 'default' }
+  defaultRequired: readonly string[] | null,
+): ContextNames<'ruleset' | 'default' | 'unread'> => {
+  if (required.length > 0) return { names: required, from: 'ruleset' }
+  if (defaultRequired === null) return { names: [], from: 'unread' }
+  return { names: defaultRequired, from: 'default' }
+}

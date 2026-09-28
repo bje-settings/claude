@@ -39,8 +39,10 @@ flowchart TD
     I1 -->|Yes| I2{No ruleset on this base,<br/>and the default branch failed<br/>to read this poll?}
     I2 -->|Yes| L
     I2 -->|No| J{Head already seen,<br/>and not the current one?}
-    J -->|Yes, API flipped back| L
     J -->|No| K[open, or new head,<br/>then each required context as it reports]
+    J -->|Yes, API may have flipped back| J2{Same head answered<br/>on the poll just before?}
+    J2 -->|No, first time| L
+    J2 -->|Yes, twice in a row| K
     K --> K2{Every required context reported?<br/>An empty list never is}
     K2 -->|Yes, once per head| K1[CONCLUDED, with each failure]
     K2 -->|No| L
@@ -64,14 +66,24 @@ Each base reads its required contexts on its own. A base whose read fails leaves
 pull requests that need its list. The other pull requests still read, and can still conclude. A
 failed default branch leaves unread every pull request that falls back to it.
 
+A base with no ruleset of its own is unread too, when its fallback, the default branch, cannot be
+read. An empty list is not the same fact as a list nobody could read (ruling 6, #298).
+
 A short list still gives the rows that arrived, and `poll incomplete` names the reason once. A
 pull request absent from a short list is not reported as closed. A seeded head is not reported as
 open, and a head seeded as concluded does not conclude again. The watch keeps all of this in
 memory, and writes no file.
 
-A head this watch has already seen is not a new head, even after a later one. For a short time
-after a push, the API can answer the old head and the new head in turn.
+A head this watch has seen is not new by itself. For a short time after a push, the API answers
+the old head, then the new one. The watch keeps every head it has seen for each pull request, not
+only the current head.
 
-One known limit: a force push back to an earlier head silences that pull request. No later line,
-not even CONCLUDED, is written for it. The silence lasts while the head returns only to heads
-already seen. A head not yet seen ends it.
+A seen head becomes current only on its second answer in a row (ruling 5, #296). A push back to
+an earlier, already-seen head writes no line on its first poll. The same head must answer again
+on the very next poll. Only then does the watch move the current head, and write that line. Any
+other answer ends the wait at once. A head not yet seen becomes current right away, and a poll
+that repeats the current head leaves nothing pending.
+
+Every gh call this watch makes carries a bound: the poll interval, in milliseconds (ruling 4,
+#295). A hung call cannot outlast one whole poll cycle. It is reported as a failed read, the same
+way as any other. `lib/gh.ts` keeps no such bound by default. Only this command sets one.
