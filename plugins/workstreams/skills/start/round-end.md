@@ -19,7 +19,7 @@ Recommend it from `intersect` and `gh stack view --json`:
 - **Expected rebase conflicts.** Each conflict path under `againstDefault`, each pair with
   a `conflict` result, and each head with `behind` above 0.
 - **Open items.** Each `lower_layer` finding not applied, and each open bot thread
-  (`botThreadAuthors` from `pr-state`).
+  (`botThreadAuthors` from `pr-state`). Each defect that a mid-round ruling kept for later.
 
 ## 3. The cost
 
@@ -42,4 +42,5 @@ Post the merge sequence and the cost as one comment on each issue of the round. 
 the round's `_Recorded by <effort>, <date>._` line.
 
 Then report to the person. Give each pull request with its head and state, the merge
-sequence, the cost, and the open items. Stop the watch with `TaskStop`.
+sequence, the cost, and the open items. Name each `Mid-round ruling` comment of the round.
+Stop the watch with `TaskStop`.

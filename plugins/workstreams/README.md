@@ -65,8 +65,13 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question.
 
-It runs in the main conversation. The two human gates need it there: the plan approval in
-plan mode, and one `AskUserQuestion` when two streams collide. A subagent has neither.
+It runs in the main conversation. The two human gates need it there. They are the plan
+approval in plan mode, and one `AskUserQuestion` for a hard decision, such as a collision.
+A subagent has neither.
+
+A mid-round decision with a recommended option that is cheap to reverse can be a ruling
+instead. The rubric is in `skills/start/tick.md`. `start` applies a ruling, records it on
+each issue it touches, names it in its next report, and goes on.
 
 On each wake it runs a tick, in `skills/start/tick.md`. The tick reads each pull
 request's state and runs one `intersect`. It checks each new head, and looks for a
