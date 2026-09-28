@@ -9,6 +9,19 @@
 // `--concluded` let a caller say what it already knows. The new watch then
 // stays silent about it.
 //
+// **A head this watch has already seen is not a new head.** For a short
+// time after a push, the API answers the old head, then the new head. The
+// watch keeps every head it has seen for each pull request, not only the
+// current one. A head that returns after a later one writes no line. It
+// does not move the current head, the reported contexts, or CONCLUDED
+// (#264). `--since-head` and `--concluded` seed this memory with their own
+// head.
+//
+// One known limit: a force push back to an earlier head silences that
+// pull request. No later line, not even CONCLUDED, is written for it. The
+// silence lasts while the head returns only to heads already seen. A head
+// not yet seen ends it.
+//
 // **A head concludes only when every required context has reported**
 // (ruling P9). The list comes from the base branch's rules, and from the
 // DEFAULT branch's rules when no ruleset covers the base. That is the case
@@ -24,6 +37,13 @@
 // So one row that cannot be read does not stop the watch for every other
 // pull request. A pull request that is absent from a short list is not
 // reported as closed: only its own state names that.
+//
+// **Each base reads its required contexts on its own.** A base whose read
+// fails leaves unread only the pull requests that need its list. Every
+// other pull request still reads, and can still conclude. The failure
+// writes one line for each new reason, and a line when that base reads
+// again. A failed default branch leaves unread every pull request that
+// falls back to it (#265).
 //
 // **One event is one line.** gh can say a reason on more than one line. The
 // watch writes each event on one line, because a Monitor makes one wake of
@@ -57,11 +77,23 @@ opened, and writes one line for each of these events:
   poll read again ...   the first poll that read after a failed poll
   poll incomplete: ...  a list that fell short; the rows that arrived are
                         still watched. Written once for each new reason.
+  required contexts     a base's required contexts could not be read. Only
+    for <branch> ...    its own pull requests go unread this poll. Written
+                        once for each new reason.
+  required contexts     the first poll that read a base's required
+    for <branch> read   contexts again, after a failure.
+    again
 
 The required contexts come from the rules of the base branch. When no ruleset
 covers the base, as for each stack layer above the first, they come from the
 rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
+
+Each base reads its required contexts on its own. A base whose read fails
+leaves unread only the pull requests that need its list, not every pull
+request. A head this watch has already seen is not a new head, even after a
+later one. For a short time after a push, the API can answer the old head
+and the new head in turn.
 
 --interval is the time between polls, in seconds. --ticks stops the watch
 after that many polls; 0, the default, polls until the watch is stopped.
@@ -148,14 +180,22 @@ interface Tracked {
   /** True for a head the caller seeded and this watch has not polled yet.
    *  Its first poll writes nothing about what has already reported. */
   seeded: boolean
+  /** Every head this watch has seen for this pull request, the current one
+   *  included. A head in here that is not the current one is not a new
+   *  head. The API answers an old head again, for a short time after a
+   *  push (#264). */
+  readonly seenHeads: Set<string>
 }
 
 /** What one poll read. */
 interface Snapshot {
   readonly defaultBranch: string
   readonly pulls: readonly PullRequestHead[]
-  /** The required contexts of each branch the poll asked about. */
+  /** The required contexts of each branch whose read succeeded this poll. */
   readonly required: ReadonlyMap<string, readonly string[]>
+  /** Why a branch's required contexts could not be read this poll, by
+   *  branch. A branch in here is not in {@link Snapshot.required} (#265). */
+  readonly baseFailed: ReadonlyMap<string, string>
   /** Why the list of pull requests fell short, or null when it did not. */
   readonly short: string | null
 }
@@ -178,6 +218,19 @@ const progress = (contexts: readonly ReportedContext[]): string => {
   const tail = failed.length === 0 ? '' : `, failed: ${failed.join(', ')}`
   return `required ${reported}/${contexts.length} reported${tail}`
 }
+
+/** The line for a base whose required contexts could not be read this
+ *  poll. The default branch's own line names what that leaves unread
+ *  (#265). */
+const baseFailureLine = (branch: string, defaultBranch: string, reason: string): string =>
+  branch === defaultBranch
+    ? `required contexts for the default branch ${branch} could not be read: ${reason}; ` +
+      'every pull request that falls back to it is unread'
+    : `required contexts for ${branch} could not be read: ${reason}; its pull requests are unread`
+
+/** The line for a base whose required contexts read again, after a poll
+ *  where they could not be read. */
+const baseRecoveryLine = (branch: string): string => `required contexts for ${branch} read again`
 
 /** The error a gh call threw, as its status and one line. `viewRepository`
  *  throws `GhError`; a test double may throw something else, which is then
@@ -221,15 +274,26 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
     return { kind: 'failed', reason: heads.unavailable }
   }
 
+  // Each base reads on its own. A base whose read fails leaves only its own
+  // pull requests unread this poll. It does not fail the poll for the rest
+  // (#265).
   const required = new Map<string, readonly string[]>()
+  const baseFailed = new Map<string, string>()
   for (const branch of new Set([defaultBranch, ...heads.rows.map((pull) => pull.base)])) {
     const answer = await gh.requiredContexts({ branch })
-    if (answer.unavailable !== null) return { kind: 'failed', reason: answer.unavailable }
+    if (answer.unavailable !== null) {
+      baseFailed.set(branch, answer.unavailable)
+      continue
+    }
     required.set(branch, answer.contexts)
+  }
+  // Nothing at all could be read: every base asked about failed.
+  if (required.size === 0) {
+    return { kind: 'failed', reason: [...baseFailed.values()].join('; ') }
   }
   return {
     kind: 'read',
-    snapshot: { defaultBranch, pulls: heads.rows, required, short: heads.unavailable },
+    snapshot: { defaultBranch, pulls: heads.rows, required, baseFailed, short: heads.unavailable },
   }
 }
 
@@ -260,10 +324,22 @@ const seededMemory = (
 ): Map<number, Tracked> => {
   const memory = new Map<number, Tracked>()
   for (const [number, sha] of sinceHead) {
-    memory.set(number, { sha, reported: new Map(), concluded: false, seeded: true })
+    memory.set(number, {
+      sha,
+      reported: new Map(),
+      concluded: false,
+      seeded: true,
+      seenHeads: new Set([sha]),
+    })
   }
   for (const [number, sha] of concluded) {
-    memory.set(number, { sha, reported: new Map(), concluded: true, seeded: true })
+    memory.set(number, {
+      sha,
+      reported: new Map(),
+      concluded: true,
+      seeded: true,
+      seenHeads: new Set([sha]),
+    })
   }
   return memory
 }
@@ -280,9 +356,18 @@ const pullLines = (
   names: readonly string[],
   memory: Map<number, Tracked>,
 ): string[] => {
+  const seen = memory.get(pull.number)
+  // A head this watch has already seen, other than the current one, is not
+  // a new head. The API answers an old head again after a push. Nothing
+  // moves: not the current head, the reported contexts, nor CONCLUDED
+  // (#264).
+  if (seen !== undefined && seen.sha !== pull.headSha && seen.seenHeads.has(pull.headSha)) {
+    return []
+  }
+
   const lines: string[] = []
   const contexts = reportContexts(pull.checks, names)
-  let tracked = memory.get(pull.number)
+  let tracked = seen
   let quiet = false
   if (tracked === undefined) {
     const draft = pull.draft ? 'draft' : 'ready'
@@ -290,12 +375,19 @@ const pullLines = (
       `#${pull.number} open: ${pull.head} -> ${pull.base}, head ${pull.headSha}, ${draft}, ` +
         progress(contexts),
     )
-    tracked = { sha: pull.headSha, reported: new Map(), concluded: false, seeded: false }
+    tracked = {
+      sha: pull.headSha,
+      reported: new Map(),
+      concluded: false,
+      seeded: false,
+      seenHeads: new Set([pull.headSha]),
+    }
     memory.set(pull.number, tracked)
     quiet = true
   } else if (tracked.sha !== pull.headSha) {
     lines.push(`#${pull.number} new head ${pull.headSha}, ${progress(contexts)}`)
     tracked.sha = pull.headSha
+    tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
     tracked.concluded = false
     quiet = true
@@ -363,6 +455,11 @@ export const runWatch = async (
   }
 
   const memory = seededMemory(sinceHead.value, concluded.value)
+  /** Every pull request number this watch has seen open, whether or not its
+   *  base's required contexts have ever been read. A pull request whose
+   *  base stays down never enters {@link memory}, but it can still leave
+   *  the open list. This set is how the watch notices that (#265). */
+  const knownOpen = new Set<number>(memory.keys())
   let noticed = false
   /** The reason the last poll's list fell short, so a reason that stays
    *  the same is written once and not on every poll. */
@@ -371,6 +468,10 @@ export const runWatch = async (
    *  many have failed since the last poll that read. */
   let lastFailed: string | null = null
   let failedPolls = 0
+  /** The last reason each base's required contexts could not be read, by
+   *  branch, while that base stays unread. A reason that stays the same is
+   *  written once, and a base's return is written once too (#265). */
+  const baseFailures = new Map<string, string>()
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
     const lines: string[] = []
@@ -388,17 +489,32 @@ export const runWatch = async (
       }
       lastFailed = null
       failedPolls = 0
-      const { defaultBranch, pulls, required, short } = outcome.snapshot
+      const { defaultBranch, pulls, required, baseFailed, short } = outcome.snapshot
       if (short !== null && short !== lastShort) {
         lines.push(`poll incomplete: ${short}; the pull requests it read are still watched`)
       }
       lastShort = short
-      // `readPoll` asked about the default branch and every base in
-      // `pulls`, so each lookup here answers. The cast says so to a
-      // compiler that cannot see it.
-      const listFor = (branch: string): readonly string[] =>
-        required.get(branch) as readonly string[]
-      if (listFor(defaultBranch).length === 0 && !noticed) {
+      for (const [branch, reason] of baseFailed) {
+        if (baseFailures.get(branch) !== reason) {
+          lines.push(baseFailureLine(branch, defaultBranch, reason))
+        }
+        baseFailures.set(branch, reason)
+      }
+      for (const branch of [...baseFailures.keys()]) {
+        if (required.has(branch)) {
+          lines.push(baseRecoveryLine(branch))
+          baseFailures.delete(branch)
+        } else if (!baseFailed.has(branch)) {
+          // No open pull request needs this branch's list any more, so
+          // `readPoll` never asked about it this poll. Drop it with no
+          // line: this watch cannot say it read again what it did not
+          // read (#265).
+          baseFailures.delete(branch)
+        }
+      }
+      // A branch's list answers only when its own read succeeded this poll.
+      const listFor = (branch: string): readonly string[] | undefined => required.get(branch)
+      if (required.has(defaultBranch) && listFor(defaultBranch)?.length === 0 && !noticed) {
         noticed = true
         lines.push(
           `no ruleset requires a status check of ${defaultBranch}, ` +
@@ -406,14 +522,26 @@ export const runWatch = async (
         )
       }
       const open = new Set(pulls.map((pull) => pull.number))
-      for (const number of [...memory.keys()]) {
+      for (const number of [...knownOpen]) {
         if (open.has(number)) continue
         const left = await leftOpenList(context.gh, number)
         if (left.line !== null) lines.push(left.line)
-        if (left.settled) memory.delete(number)
+        if (left.settled) {
+          memory.delete(number)
+          knownOpen.delete(number)
+        }
       }
+      // A pull request is unread this poll when its own base's read failed.
+      // It is also unread when its base falls back to a default branch
+      // whose read failed (#265). It is left as this watch last knew it,
+      // and read again once the base it needs reads. It still counts as
+      // open, so a merge or a close is not lost while its base stays down.
       for (const pull of pulls) {
-        const names = namesOrDefault(listFor(pull.base), listFor(defaultBranch)).names
+        knownOpen.add(pull.number)
+        const own = listFor(pull.base)
+        if (own === undefined) continue
+        if (own.length === 0 && !required.has(defaultBranch)) continue
+        const names = namesOrDefault(own, listFor(defaultBranch) ?? []).names
         lines.push(...pullLines(pull, names, memory))
       }
     }
@@ -426,6 +554,15 @@ export const runWatch = async (
       // claim what no poll could see.
       context.write(
         oneLine(`heartbeat: ${failedPolls} failed polls in a row, the last: ${lastFailed}`),
+      )
+      quietSince = context.now()
+    } else if (context.now() - quietSince >= HEARTBEAT_MS && baseFailures.size > 0) {
+      // The memory for a branch still unread is as old as its last good
+      // read. "No change" would claim what no poll could see for it (#265).
+      const branches = [...baseFailures.keys()].sort().join(', ')
+      const reason = [...baseFailures.values()].at(-1)
+      context.write(
+        oneLine(`heartbeat: required contexts for ${branches} still unread, the last: ${reason}`),
       )
       quietSince = context.now()
     } else if (context.now() - quietSince >= HEARTBEAT_MS) {
