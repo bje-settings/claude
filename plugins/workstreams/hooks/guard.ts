@@ -35,10 +35,10 @@
 // can reject like any other, so the code calls it from inside the try,
 // rather than await it on the way in.
 //
-// **Two tools find a process's own directory.** `pgrep -f vitest` names
-// the processes. Pid N's own cwd needs `/proc/N/cwd`. Linux has that;
-// macOS does not. The fallback, `lsof -a -d cwd -p N`, is on both, and
-// it is the slower call.
+// **Two tools find a process's own directory.** `pgrep -f` names the
+// processes; the pattern is below. Pid N's own cwd needs `/proc/N/cwd`.
+// Linux has that; macOS does not. The fallback, `lsof -a -d cwd -p N`,
+// is on both, and it is the slower call.
 //
 // So this tries `/proc` first for each pid, and asks `lsof` only when
 // that read fails. When a tool is absent, this reads that the same way

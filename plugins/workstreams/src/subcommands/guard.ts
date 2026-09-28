@@ -361,7 +361,7 @@ const readSegment = (tokens: readonly string[]): Destructive | undefined => {
   return named.length === 0 ? undefined : { directory, pathspec: named }
 }
 
-/** `git`'s own `pnpm`, matched the same way {@link readSegment} matches
+/** `pnpm` itself, matched the same way {@link readSegment} matches
  *  `git`: a path may sit in front, and a `.cmd` suffix names the Windows
  *  shim. Case-insensitive, for the same reason. */
 const PNPM_VERB = /(^|[\\/])pnpm(\.cmd)?$/i
