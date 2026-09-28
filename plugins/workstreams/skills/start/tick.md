@@ -61,11 +61,11 @@ contexts whose `reported` is `false`.
   `brief_vs_code` entry that the plan does not answer is a [decision](#a-decision-mid-round).
 - **A round agent.** Invoke `/workstreams:review` with the number and the return. It posts
   the round's marker.
-- **`lower_layer`, from either.** Apply it to its layer only in a gap: no agent writes to
-  that layer or to one above it. Resume that layer's agent with `SendMessage`. Tell it to
-  commit on its own branch, then to run `gh stack rebase --upstack`, a full type check,
-  and `gh stack push`. Then check each head of the stack again. Outside a gap, keep the
-  finding for the round-end report. To apply it is a [decision](#a-decision-mid-round).
+- **`lower_layer`, from either.** To apply it is a [decision](#a-decision-mid-round).
+  Apply it to its layer only in a gap: no agent writes to that layer or to one above it.
+  Resume that layer's agent with `SendMessage`. Tell it to commit on its own branch, then
+  to run `gh stack rebase --upstack`, a full type check, and `gh stack push`. Then check
+  each head of the stack again. Outside a gap, keep the finding for the round-end report.
 
 ## 6. End the turn
 
@@ -78,7 +78,8 @@ A decision that the plan does not answer is a ruling when all three are true:
 
 - It has a recommended option.
 - A reversal costs about one commit or one comment.
-- It adds or drops no issue, layer or acceptance line, and adds no new behaviour.
+- It adds or drops no issue, layer or acceptance line. It changes only behaviour that an
+  issue of the round names.
 
 For a ruling, apply the recommended option, and go on. Post one comment on each issue it
 touches. Its first line is `Mid-round ruling <n> (<round>, cheap to reverse):`, with `<n>`
@@ -87,15 +88,17 @@ against, and how to reverse it. End it with the round's `_Recorded by <effort>, 
 line.
 
 Any other decision is a question: one `AskUserQuestion`, with a recommended option first if
-there is one. Record the answer in the same form. A collision is a question, in step 3. A
-runner with no `AskUserQuestion` does not ask. It stops only the actions that the decision
-holds. It puts the question in its return: the options, the recommended one first, and the
-argument against each.
+there is one. Record the answer in the same form, with `answered by the person` in place
+of `cheap to reverse`. A collision is a question, in step 3. A runner with no
+`AskUserQuestion` does not ask. It stops only the actions that the decision holds. It puts
+the question in its return: the options, the recommended one first, and the argument
+against each.
 
 Examples from real rounds:
 
 - A one-clause fix to a false claim, in a file the layer already edits: a ruling.
 - A `lower_layer` finding that corrects a field, applied in a gap: a ruling.
 - A code defect that no issue of the round names: keep it for the round-end open items, a
-  ruling. To fix it in this round adds new behaviour, so that is a question.
+  ruling. To fix it in this round changes behaviour that no issue names, so that is a
+  question.
 - To drop an issue from the round: a question.
