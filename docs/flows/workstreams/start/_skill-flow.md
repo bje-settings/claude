@@ -3,7 +3,7 @@ type: Reference
 description: What the /workstreams:start skill does on each call and each wake, and every way it stops.
 stale_after: 2027-03-27
 generated:
-  by: claude-sonnet
+  by: claude-opus
   at: 2026-09-27
 ---
 
@@ -50,7 +50,10 @@ flowchart TD
     T3 -->|No| K{a conflict between two streams?}
     K -->|Yes| K1([Hold that stream; ask one question<br/>with a recommended redirect]):::pause
     K1 --> K2[Record the ruling on both issues] --> N
-    K -->|No| N{state of each pull request}
+    K -->|No| Q{a decision the plan does not answer?}
+    Q -->|No| N{state of each pull request}
+    Q -->|a recommended option, cheap to reverse,<br/>no issue, layer or behaviour added or dropped| Q1[Ruling: apply it; record it on each issue;<br/>name it in this tick's report] --> N
+    Q -->|any other| Q2([Ask one question]):::pause --> N
 
     N -->|no-run| N1{second no-run on this head?}
     N1 -->|No| N2[review: close and reopen] --> X
