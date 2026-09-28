@@ -233,8 +233,8 @@ with an environment to pin, because `GH_REPO` displaces `cwd` the way `GIT_DIR` 
 child inherits this process's own environment, which is what every ported call site gets today.
 
 `boundMs` bounds every call the client makes that carries no bound of its own. Left out, a call
-waits for gh as long as it takes, the mode every endpoint used before this option existed, and the
-mode the `gh` plugin still uses. `watch` is the one caller that sets it, fit to its own poll
+waits for gh as long as it takes. That was every endpoint's mode before this option existed, and
+the `gh` plugin still uses it. `watch` is the one caller that sets it, fit to its own poll
 interval (ruling 4, #295).
 
 `createGhClient` reaches gh as `--repo` everywhere except `gh repo view`. That command has no

@@ -1601,7 +1601,7 @@ const flag = (name: string, value: boolean | undefined): string[] =>
  *
  * `boundMs` names the bound the caller asked for. A timed-out message
  * reports it, not {@link RunResult.elapsedMs}. The measured time differs by
- * a few milliseconds on every call, and a caller that dedupes a repeated
+ * a few milliseconds on every call. A caller that dedupes a repeated
  * failure by its exact wording (`watch.ts`) needs the same words each time.
  */
 const accountOf = (result: RunResult, boundMs?: number): string => {
@@ -1799,7 +1799,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const result = await invoke(args)
       // A bound that fired outranks whatever this page's body looks like. A
       // child this process killed can still have written a whole, valid
-      // page before the kill, and that page must not read as a real answer
+      // page before the kill. That page must not read as a real answer
       // (ruling 4, #295; `readStatusBatch` guards the same way).
       if (result.timedOut) {
         reasons.push(accountOf(result, options.boundMs))
@@ -1902,8 +1902,8 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       '-f',
       `query=${query}`,
     ])
-    // A bound that fired outranks whatever this body looks like, the same
-    // way `collect` guards its own pages (ruling 4, #295).
+    // A bound that fired outranks the body, the same way `collect` guards
+    // its own pages (ruling 4, #295).
     if (result.timedOut) {
       return { data: null, unavailable: accountOf(result, options.boundMs), notFound: false }
     }
@@ -1946,8 +1946,8 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     const parts = await repositoryParts()
     if (parts.unavailable !== null) return { value: null, unavailable: parts.unavailable }
     const result = await invoke(['api', `repos/${parts.owner}/${parts.name}/${path}`])
-    // A bound that fired outranks whatever this body looks like, the same
-    // way `collect` guards its own pages (ruling 4, #295).
+    // A bound that fired outranks the body, the same way `collect` guards
+    // its own pages (ruling 4, #295).
     if (result.timedOut) return { value: null, unavailable: accountOf(result, options.boundMs) }
     try {
       return { value: JSON.parse(result.stdout), unavailable: null }
