@@ -4,6 +4,11 @@
 // when it loads the plugin, and a monitor loads only in an interactive
 // session. So this file makes the checks the validator leaves out
 // (plugins/manifest-reference, "monitors").
+//
+// No plugin here ships a `monitors/monitors.json` (#279): the
+// `on-skill-invoke` trigger did not fire on 2.1.283, so `workstreams`
+// removed its own entry. `monitorProblems` and the synthetic-plugin tests
+// stay, so a restored monitor is still checked.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -57,13 +62,6 @@ function monitorProblems(root?: string): string[] {
   }
   return problems.sort()
 }
-
-it('finds a monitor to check', () => {
-  // Without one, the check below passes on nothing.
-  expect(
-    pluginDirs().some((plugin) => existsSync(path.join(plugin, 'monitors', 'monitors.json'))),
-  ).toBe(true)
-})
 
 it('gives every monitor only known keys, the required ones, a skill and a script that exist', () => {
   expect(monitorProblems()).toEqual([])

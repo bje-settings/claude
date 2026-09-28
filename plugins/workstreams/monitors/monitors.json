@@ -1,8 +1,0 @@
-[
-  {
-    "name": "watch",
-    "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts\" watch",
-    "description": "Pull request heads, required checks and merges for /workstreams:start",
-    "when": "on-skill-invoke:start"
-  }
-]
