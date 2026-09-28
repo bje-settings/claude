@@ -87,7 +87,9 @@ Nothing polls an agent, and nothing sleeps in the foreground.
 
 On expiry, the skill arms the watch again. It gives `--since-head` and `--concluded`, set
 to the full heads it knows. The new watch then stays silent about what it already said.
-With no agent at work, and the watch cannot run, the skill reports and stops.
+
+Where the watch cannot run, an agent's completion notification is the only wake. With no
+agent at work, the skill reports and stops.
 
 This plugin has no `monitors/monitors.json`. A plugin monitor with
 `"when": "on-skill-invoke:start"` would start `watch` the first time the skill runs in a

@@ -5,7 +5,7 @@
 // session. So this file makes the checks the validator leaves out
 // (plugins/manifest-reference, "monitors").
 //
-// No plugin here ships a `monitors/monitors.json` (#279): the
+// No plugin here ships a `monitors/monitors.json` (#279). The
 // `on-skill-invoke` trigger did not fire on 2.1.283, so `workstreams`
 // removed its own entry. `monitorProblems` and the synthetic-plugin tests
 // stay, so a restored monitor is still checked.
