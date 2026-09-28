@@ -377,19 +377,42 @@ export interface VitestTarget {
   readonly directory: string | null
 }
 
-/** One segment's tokens, read for a `vitest` run. Three verb spellings
+/** A `-C`/`--dir` value, with one matching pair of surrounding `'` or `"`
+ *  removed, and an empty result read as `null`. A quoted value that never
+ *  loses its quote marks cannot equal a real process cwd, read through
+ *  `/proc` or `lsof`, which never carries one. */
+const readDirectoryValue = (value: string): string | null => {
+  const quoted =
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  const unquoted = quoted ? value.slice(1, -1) : value
+  return unquoted === '' ? null : unquoted
+}
+
+/** One segment's tokens, read for a `vitest` run. Four verb spellings
  *  qualify. The first is a direct `vitest` call. The second is `pnpm
  *  exec vitest`, this round's own convention (`lefthook.yml`,
- *  `.github/workflows/ci.yml`). The third is `pnpm test` or `pnpm run
- *  test`: `package.json`'s only script, `test`, runs `vitest run
- *  --coverage`.
+ *  `.github/workflows/ci.yml`). The third is a bare `pnpm vitest`, which
+ *  runs the same binary with no `exec` keyword needed (measured against
+ *  pnpm 10.34.5: `pnpm vitest --version` runs this repository's own
+ *  vitest). The fourth is `pnpm test` or `pnpm run test`: `package.json`'s
+ *  only script, `test`, runs `vitest run --coverage`.
  *
- *  `pnpm`'s own `-C <dir>`, `--dir <dir>`, and `--dir=<dir>` name the
- *  directory `pnpm` runs the script in, the same fact git's `-C` names
- *  for {@link readSegment}. The worktree workflow's own rule is "never
- *  `cd`; name the absolute path in every command"
- *  (`skills/stream/brief.md`), which makes this the ordinary spelling a
- *  subagent uses to test one worktree, not an edge case.
+ *  `pnpm`'s own `-C <dir>`, `-C=<dir>`, `--dir <dir>`, and `--dir=<dir>`
+ *  name the directory `pnpm` runs the script in, the same fact git's `-C`
+ *  names for {@link readSegment} (measured against pnpm 10.34.5: `pnpm
+ *  -C=<dir> test` runs the script in `<dir>`, the same as `pnpm -C <dir>
+ *  test`; the attached form with no `=`, `-C<dir>`, is not a pnpm spelling
+ *  at all). The worktree workflow's own rule is "every command names its
+ *  directory by absolute path. Never `cd`."
+ *  (`plugins/workstreams/skills/stream/brief.md`), which makes this the
+ *  ordinary spelling a subagent uses to test one worktree, not an edge
+ *  case. A directory value wrapped in one matching pair of quote marks has
+ *  them stripped, since a subagent may quote an absolute path on habit
+ *  even where it holds no space; an empty value, from either form, reads
+ *  as no directory named, the meaning {@link Destructive.directory} also
+ *  gives an absent `-C`.
  *
  *  `npm` and `yarn` are left out. This repository has one lockfile,
  *  `pnpm-lock.yaml`, and no other manager runs here. */
@@ -406,13 +429,13 @@ const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined =
   while (true) {
     const token = at(tokens, cursor)
     if (token === '-C' || token === '--dir') {
-      const named = at(tokens, cursor + 1)
-      directory = named === '' ? null : named
+      directory = readDirectoryValue(at(tokens, cursor + 1))
       cursor += 2
       continue
     }
-    if (token.startsWith('--dir=')) {
-      directory = token.slice('--dir='.length)
+    if (token.startsWith('-C=') || token.startsWith('--dir=')) {
+      const prefixLength = token.startsWith('-C=') ? '-C='.length : '--dir='.length
+      directory = readDirectoryValue(token.slice(prefixLength))
       cursor += 1
       continue
     }
@@ -420,6 +443,7 @@ const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined =
   }
 
   const sub = at(tokens, cursor)
+  if (VITEST_VERB.test(sub)) return { directory }
   if (sub === 'exec') return VITEST_VERB.test(at(tokens, cursor + 1)) ? { directory } : undefined
   if (sub === 'test') return { directory }
   return sub === 'run' && at(tokens, cursor + 1) === 'test' ? { directory } : undefined

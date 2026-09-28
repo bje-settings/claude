@@ -10,8 +10,8 @@
 // every degraded run answer with, so a status on its own cannot tell a
 // decision from a crash before one; stdout is the decision (hooks.md,
 // "PreToolUse decision control").
-import { type ChildProcess, spawn } from 'node:child_process'
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
@@ -71,6 +71,18 @@ const startDecoy = (directory: string, name: string): ChildProcess => {
  *  `node_modules/.bin/vitest` shim's child carries (`vitest/vitest.mjs`,
  *  never `vitest` as a bare word). */
 const startVitestDecoy = (directory: string): ChildProcess => startDecoy(directory, 'vitest')
+
+/** A real, long-lived process whose own cwd is `directory` (what the guard
+ *  compares against), with `vitest` as a whole path segment followed by
+ *  ANOTHER `/`, not the end of the command line: `.../vitest/vitest.mjs`,
+ *  the exact shape `node_modules/.bin/vitest`'s own shim execs to
+ *  (`hooks/guard.ts`'s header). `startVitestDecoy` above always ends its
+ *  own command line in a bare `vitest`, which proves only the pattern's
+ *  end-of-line alternative, never this one. */
+const startVitestDirDecoy = (directory: string): ChildProcess => {
+  mkdirSync(path.join(directory, 'vitest'), { recursive: true })
+  return startDecoy(directory, path.join('vitest', 'vitest.mjs'))
+}
 
 const waitForSpawn = (child: ChildProcess): Promise<void> =>
   new Promise<void>((resolve, reject) => {
@@ -295,6 +307,39 @@ it('allows, and says so on stderr, when pgrep is not on PATH at all', () => {
   expect(result.stderr).toContain('the running processes could not be listed')
 })
 
+it('allows, and writes one stderr line, when a listed pid has already exited', () => {
+  const sandbox = createSandbox()
+  // A pid that once existed and has already exited by the time this test
+  // stubs `pgrep` to report it. This machine has no `/proc` at all
+  // (macOS), and a real `lsof` answers nothing for a pid that no longer
+  // runs (measured: `lsof -a -d cwd -p <exited pid> -Fn` exits 1 with no
+  // output), so neither reader `readCwd` tries can place it, and this
+  // drives the one stderr branch neither reader's happy path reaches.
+  const dead = spawnSync('node', ['-e', 'process.exit(0)']).pid
+  if (dead === undefined) throw new Error('the throwaway process never started')
+  const stubs = sandbox.join('stub-bin')
+  mkdirSync(stubs, { recursive: true })
+  writeFileSync(path.join(stubs, 'pgrep'), `#!/bin/sh\necho ${dead}\nexit 0\n`, { mode: 0o755 })
+  sandbox.stubPath(stubs)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: sandbox.path,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(
+    `workstreams guard: pid ${dead}'s cwd could not be read (neither /proc nor lsof ` +
+      'answered); it will not be checked for a second vitest run.\n',
+  )
+})
+
 it('denies a subagent when a real vitest process already runs in the same cwd', async () => {
   const sandbox = createSandbox()
   // The kernel resolves a spawned child's own cwd, so `lsof`/`readlink`
@@ -303,11 +348,11 @@ it('denies a subagent when a real vitest process already runs in the same cwd', 
   // `/private/var`, so the two differ for this sandbox specifically
   // (measured: a real decoy spawned with `cwd: sandbox.path` reported
   // `/private/var/...` back through `lsof`). `decide` does not resolve
-  // either side of its own comparison (a real, open gap this round found
-  // but did not fix; see the findings file). This test uses the
-  // resolved spelling on both sides, the same fact a real subagent's own
-  // shell would report through `process.cwd()`, so it proves the
-  // pgrep-and-lsof round trip on its own, apart from that gap.
+  // either side of its own comparison, a real, open gap left for a
+  // follow-up issue. This test uses the resolved spelling on both sides,
+  // the same fact a real subagent's own shell would report through
+  // `process.cwd()`, so it proves the pgrep-and-lsof round trip on its
+  // own, apart from that gap.
   const resolved = realpathSync(sandbox.path)
   const decoy = startVitestDecoy(resolved)
   await waitForSpawn(decoy)
@@ -326,6 +371,34 @@ it('denies a subagent when a real vitest process already runs in the same cwd', 
   const reason = denialIn(result.stdout)
   expect(reason).toContain(`pid ${decoy.pid}`)
   expect(reason).toContain('wait for it to finish')
+  expect(result.stderr).toBe('')
+})
+
+it('denies a subagent when the running process ends its command line in vitest/, not vitest', async () => {
+  const sandbox = createSandbox()
+  // The shape `node_modules/.bin/vitest`'s own shim really execs to:
+  // `vitest` as a whole path segment, followed by ANOTHER `/`, never the
+  // end of the command line. The decoy above always ends its own command
+  // line in a bare `vitest`, so it proves only the pattern's
+  // end-of-line alternative; this one proves the `/`-terminated
+  // alternative the header comment says motivated the pattern at all.
+  const resolved = realpathSync(sandbox.path)
+  const decoy = startVitestDirDecoy(resolved)
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: resolved,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  const reason = denialIn(result.stdout)
+  expect(reason).toContain(`pid ${decoy.pid}`)
   expect(result.stderr).toBe('')
 })
 

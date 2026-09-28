@@ -339,6 +339,18 @@ describe('finding a vitest run', () => {
     'pnpm --dir /w test',
     'pnpm --dir=/w test',
     'pnpm -C /w exec vitest',
+    // `-C` and `--dir` both take an `=`-attached value too, the same as
+    // git's own `-C`; measured against pnpm 10.34.5.
+    'pnpm -C=/w test',
+    // A quoted directory, with no space inside it: a subagent may quote an
+    // absolute path defensively even where it holds no space.
+    'pnpm -C "/w" test',
+    "pnpm -C '/w' test",
+    // pnpm's own bare-binary spelling: no `exec` needed, measured against
+    // pnpm 10.34.5 (`pnpm vitest --version` runs this repository's own
+    // vitest).
+    'pnpm vitest run',
+    'pnpm -C /w vitest run',
   ]) {
     it(`finds it in ${JSON.stringify(command)}`, () => {
       expect(runsVitest(command)).toBe(true)
@@ -354,6 +366,10 @@ describe('finding a vitest run', () => {
     'git commit -m "add vitest"',
     'pnpm -C',
     '',
+    // The attached form with no `=`, unlike git's own `-C<dir>`. Measured
+    // against pnpm 10.34.5: this spelling does not behave like `-C <dir>`
+    // or `-C=<dir>`, so it is left unrecognized rather than guessed at.
+    'pnpm -Csub test',
   ]) {
     it(`leaves ${JSON.stringify(command)} alone`, () => {
       expect(runsVitest(command)).toBe(false)
@@ -370,12 +386,24 @@ describe('the directory a vitest run names', () => {
     expect(vitestTarget('pnpm test')).toEqual({ directory: null })
   })
 
+  it('names no directory for an empty --dir=, the same as none at all', () => {
+    expect(vitestTarget('pnpm --dir= test')).toEqual({ directory: null })
+  })
+
+  it('names no directory for a bare pnpm vitest call, this round’s new spelling', () => {
+    expect(vitestTarget('pnpm vitest run')).toEqual({ directory: null })
+  })
+
   for (const [command, directory] of [
     ['pnpm -C /w test', '/w'],
     ['pnpm --dir /w test', '/w'],
     ['pnpm --dir=/w test', '/w'],
     ['pnpm -C /w exec vitest', '/w'],
     ['pnpm -C /w run test', '/w'],
+    ['pnpm -C=/w test', '/w'],
+    ['pnpm -C "/w" test', '/w'],
+    ["pnpm -C '/w' test", '/w'],
+    ['pnpm -C /w vitest run', '/w'],
   ] as const) {
     it(`names ${directory} for ${JSON.stringify(command)}`, () => {
       expect(vitestTarget(command)).toEqual({ directory })
@@ -662,6 +690,24 @@ describe('a second vitest suite', () => {
 
     expect(verdict.decision).toBe('deny')
     expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+  })
+
+  // A command that is both a running vitest suite's own second run AND a
+  // destructive git command, at the same cwd. `decide`'s own doc comment
+  // says the second-suite check runs first; the `git` reader here throws
+  // if it is ever asked, so this fails unless that ordering holds.
+  it('denies a compound vitest-and-destructive-git command on the vitest rule first', async () => {
+    const output = createOutputPair()
+
+    const verdict = await decide(call({ command: 'pnpm test && git restore .', cwd: '/w' }), {
+      git: () => Promise.reject(new Error('git must not be asked: the vitest check decides first')),
+      processes: running([{ pid: 4242, cwd: '/w' }]),
+      output,
+    })
+
+    expect(verdict.decision).toBe('deny')
+    expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+    expect(verdict).toMatchObject({ reason: expect.stringContaining('wait for it to finish') })
   })
 })
 
