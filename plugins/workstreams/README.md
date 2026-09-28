@@ -146,7 +146,9 @@ The skill does the reading. It reads every issue body and every comment, for the
 unblocked set alone. It reads the Decisions lists in `docs/rfc/` and `docs/adr/` against
 what has merged. It maps the files each issue touches. It classifies and sizes each
 issue. It chooses between parallel streams, a stack, and one pull request. A shared
-version line, or separate sections of one README, is not a collision. It posts the
+version line, or separate sections of one README, is not a collision. Small issues of one
+plugin and one kind fold into one stream, because each pull request costs a review loop.
+It posts the
 sequencing comment on every issue in the round. `skills/sweep/` carries the rules.
 `file-map.md` holds the mapping rules a file map must apply.
 

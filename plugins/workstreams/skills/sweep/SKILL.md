@@ -67,6 +67,10 @@ and report per milestone.
       review or merge each layer alone.
    3. **Parallel streams**, when the file sets are disjoint.
 
+   Then fold small issues of one plugin, with disjoint files, into one stream: code with
+   code, prose with prose. A reviewer must read the whole diff in one pass. Each extra
+   pull request costs a review loop.
+
 6. Post the sequencing comment. Post one comment on **every** issue in the round. It
    carries the unblocked set and the file map. It names the collisions, the recommended
    shape with its argument, the size, and the hidden dependencies, each cited.
