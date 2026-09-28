@@ -60,9 +60,9 @@ and report per milestone.
 
    Then choose the shape, in this order:
 
-   1. **One pull request that closes both issues**, when the changes cannot be reviewed or
-      merged apart, or when both rewrite the same section of one file. The tell for the
-      first: layer N's diff would contain a reference to something layer N+1 introduces.
+   1. **One pull request that closes both issues**, when nobody can review or merge the
+      changes apart. The tell: layer N's diff would contain a reference to something layer
+      N+1 introduces. Also when both rewrite the same section of one file.
    2. **A stack**, when changes are ordered and in different regions, and a person would
       review or merge each layer alone.
    3. **Parallel streams**, when the file sets are disjoint.

@@ -3,7 +3,8 @@
 One section per primitive:
 
 1. What is left of the question phase.
-2. The stream, with its layers, file sets, and size.
+2. The stream, with its layers, file sets, and size, and the one layer that changes each
+   version line.
 3. The review loop per layer.
 4. An estimate.
 5. Verification.

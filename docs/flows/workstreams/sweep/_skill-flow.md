@@ -44,8 +44,8 @@ flowchart TD
     Q -->|No| P
 
     N --> FO{small issues of one plugin and one kind,<br/>one diff a reviewer reads in one pass?}
-    P --> FO
-    R --> FO
+    P --> S
+    R --> S
     FO -->|Yes| FO1[Fold them into one stream] --> S
     FO -->|No| S[Sequencing comment on every affected issue]
     S --> T{hidden dependencies checked against the code?}
