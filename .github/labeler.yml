@@ -13,10 +13,6 @@
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/biome-lsp/**"
 
-"plugin:eslint-lsp":
-  - changed-files:
-      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/eslint-lsp/**"
-
 "plugin:field-test":
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/field-test/**"

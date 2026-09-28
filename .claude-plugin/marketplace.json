@@ -40,12 +40,6 @@
       "source": "./plugins/biome-lsp",
       "description": "Biome's language server (biome lsp-proxy) from the project's own Biome. Runs Biome's lint and format diagnostics for .json.",
       "category": "development"
-    },
-    {
-      "name": "eslint-lsp",
-      "source": "./plugins/eslint-lsp",
-      "description": "The VS Code ESLint language server (vscode-eslint-language-server) from vscode-langservers-extracted. Runs the project's own ESLint and config for .md and .json.",
-      "category": "development"
     }
   ]
 }

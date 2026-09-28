@@ -25,10 +25,9 @@ statements.
 
 ## Language server
 
-This marketplace's `typescript7-lsp`, `biome-lsp` and `eslint-lsp` run their language servers from
-this repository's own `node_modules`. Add the marketplace and run `pnpm install` before you start
-a session. `biome-lsp` and `eslint-lsp` both cover `.json`; only the first one registered handles
-a given file (`plugins/biome-lsp/README.md`).
+This marketplace's `typescript7-lsp` and `biome-lsp` run their language servers from this
+repository's own `node_modules`. Add the marketplace and run `pnpm install` before you start a
+session.
 
 ## Git hooks
 
