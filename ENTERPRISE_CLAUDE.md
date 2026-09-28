@@ -23,18 +23,17 @@ A `bje-bots` org is planned, but does not exist yet. `REPO-MIGRATION.md` maps wh
 `@brianespinosa` repos move to which org. When a repo transfers, move the local checkout to
 `@bje/@<org>/`.
 
-## Configuration as code
+## GitHub settings
 
-`@bje-settings/terraform` manages enterprise and org GitHub settings (org settings, Actions
-policy, custom properties, org rulesets). Change them there, not in the GitHub UI. Terraform does
-not yet cover `bje-co`.
+Change enterprise and org GitHub settings in the GitHub UI. `@bje-settings/terraform` manages no
+setting. Do not add modules to it.
 
-`bje-sync` will likely replace `terraform` and the personal `brianespinosa/settings` probot
-config (providers in `bje-sync-providers`). Check this before you invest in new terraform modules.
+`bje-sync` will likely replace the personal `brianespinosa/settings` probot config (providers in
+`bje-sync-providers`).
 
 ## Enterprise rulesets
 
-Three enterprise-level rulesets apply to every repo in every org. Terraform does not manage them.
+Three enterprise-level rulesets apply to every repo in every org.
 
 | Ruleset (id)              | Effect                                                                                                |
 | ------------------------- | ----------------------------------------------------------------------------------------------------- |
