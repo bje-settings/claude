@@ -104,9 +104,10 @@ has reported. A check that no ruleset requires never concludes a head.
 
 Each base reads its required contexts on its own. A base whose read fails
 leaves unread only the pull requests that need its list, not every pull
-request. A head this watch has already seen is not a new head, even after a
-later one. For a short time after a push, the API can answer the old head
-and the new head in turn.
+request. A head this watch has seen is not new by itself. For a short time
+after a push, the API answers the old head, then the new one. A seen head
+becomes current only on its second answer in a row; a one-poll flip stays
+silent.
 
 --interval is the time between polls, in seconds. --ticks stops the watch
 after that many polls; 0, the default, polls until the watch is stopped.
