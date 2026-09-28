@@ -1,0 +1,11 @@
+{
+  "name": "eslint-lsp",
+  "description": "The VS Code ESLint language server (vscode-eslint-language-server) from vscode-langservers-extracted. Runs the project's own ESLint and config for .md and .json.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Brian Espinosa",
+    "email": "b@bje.co"
+  },
+  "keywords": ["eslint", "lsp", "language-server", "lint"]
+}
