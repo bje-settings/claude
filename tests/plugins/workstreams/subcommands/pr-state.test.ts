@@ -1012,6 +1012,18 @@ describe('the state the facts add up to', () => {
     expect(facts({ ...green, missing: true, pullRequestState: 'MERGED' })).toBe('awaiting-pr')
   })
 
+  it('names merged before the unavailable rule, when the checks themselves could not be read', () => {
+    // #277, round 11 review: a mutation that moved the merged and closed
+    // checks below this rule left every other test green. This test pins
+    // the order the code claims: merged wins even when nothing about CI
+    // could be read.
+    expect(facts({ ...green, pullRequestState: 'MERGED', verdict: 'unavailable' })).toBe('merged')
+  })
+
+  it('names closed before the unavailable rule, when the checks themselves could not be read', () => {
+    expect(facts({ ...green, pullRequestState: 'CLOSED', verdict: 'unavailable' })).toBe('closed')
+  })
+
   it('carries the caller’s three inputs into the report', async () => {
     const report = await reportOf(['178', '--round', '1', '--substantial', '--rot-checked'])
 

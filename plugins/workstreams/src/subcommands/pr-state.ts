@@ -234,9 +234,9 @@ export const deriveState = (facts: {
    *  exist. A read that failed for any other reason gives `null`, not
    *  `awaiting-pr`. */
   readonly missing: boolean
-  /** The pull request's own state, or `null` when it could not be read.
-   *  `null` here never means `OPEN`. It means this check answers nothing.
-   *  Every rule below still applies. */
+  /** The pull request's own state, or `null` when this check could not
+   *  read it. `null` here never means `OPEN`. It means this check answers
+   *  nothing. Every rule below still applies. */
   readonly pullRequestState: IssueState | null
   readonly verdict: Verdict
   readonly unresolvedThreads: number
