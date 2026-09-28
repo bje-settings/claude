@@ -3,15 +3,15 @@ type: Reference
 description: How `workstreams.ts watch` polls each open pull request and writes one line for each event, and each way it stops or goes quiet.
 stale_after: 2027-03-27
 generated:
-  by: claude-opus
+  by: claude-sonnet
   at: 2026-09-27
 ---
 
 # watch flow
 
 `node scripts/workstreams.ts watch` polls each open pull request, and writes one line for each
-event. The plugin monitor runs it when `/workstreams:start` first runs in a session. The skill
-runs it under the Monitor tool when the plugin monitor does not run.
+event. The `/workstreams:start` skill runs it under the Monitor tool each time its wait loop
+starts, and again on each expiry.
 
 ```mermaid
 flowchart TD

@@ -58,23 +58,26 @@ Derive it on each call. Write nothing to disk.
 
 ## Wakes
 
-The plugin monitor starts the first time this skill runs in a session:
+Each time the wait loop starts, arm the watch with the Monitor tool, at the longest
+timeout it allows:
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch
 ```
 
-Each line it writes is a wake. The other wake is an agent's completion notification.
+Hold its task id in the conversation. Do not arm a second watch while this one runs.
 
-- The watch writes an `open` line for each open pull request. A pull request is open, and
-  no `open` line for it came: the plugin monitor does not run. Start that command with
-  the Monitor tool yourself. On its expiry, start it again, with `--since-head` and
-  `--concluded` set to the full heads you know.
+Each line the watch writes is a wake. The other wake is an agent's completion
+notification.
+
+- On expiry, arm the watch again. Give it `--since-head` and `--concluded`, built from
+  the full heads you know: a concluded head goes in `--concluded`, every other head in
+  `--since-head`. The new watch then writes no line for a head you already gave it.
 - Between wakes, end the turn. Never poll an agent. Never sleep in the foreground.
 - A return that says the agent still waits has stopped short. Send it back with
   `SendMessage` and a narrower instruction. Do not dispatch a second agent.
-- No agent works, and no monitor can run: report where the round stands, and stop. The
-  person runs `/workstreams:start` again.
+- No agent works, and the watch cannot run: report where the round stands, and stop.
+  The person runs `/workstreams:start` again.
 
 ## The reads of each tick
 
