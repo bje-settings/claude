@@ -25,9 +25,9 @@ statements.
 
 ## Language server
 
-This marketplace's `typescript7-lsp` and `biome-lsp` run their language servers from this
-repository's own `node_modules`. Add the marketplace and run `pnpm install` before you start a
-session.
+This marketplace's `lsp-merge` runs the TypeScript 7 and Biome language servers from this
+repository's own `node_modules` (`.claude/lsp-merge.json`). Add the marketplace, install
+`lsp-merge@bje`, and run `pnpm install` before you start a session.
 
 ## Git hooks
 

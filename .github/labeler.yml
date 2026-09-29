@@ -21,6 +21,10 @@
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/gh/**"
 
+"plugin:lsp-merge":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/lsp-merge/**"
+
 "plugin:mermaid":
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/mermaid/**"

@@ -1,0 +1,17 @@
+{
+  "description": "Checks at session start that lsp-merge can work: the claude CLI is on PATH, .claude/lsp-merge.json is present and valid, and no other enabled plugin runs a language server that could take extensions from lsp-merge. Writes nothing when all is well.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if ! command -v node >/dev/null 2>&1; then printf '{\"systemMessage\":\"\\\\nlsp-merge: ⚠️ node not found on PATH\"}\\n'; exit 0; fi; node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ts\"; exit 0",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
