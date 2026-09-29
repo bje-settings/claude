@@ -12,6 +12,8 @@
 // plugin cache. That layout is not documented.
 import path from 'node:path'
 
+import { isRecord } from './lib/typesafe.ts'
+
 /** One child server, after validation and substitution. */
 export interface ChildConfig {
   readonly name: string
@@ -25,7 +27,12 @@ export interface ChildConfig {
 
 export type ConfigResult =
   | { readonly outcome: 'ok'; readonly children: readonly ChildConfig[] }
-  | { readonly outcome: 'invalid'; readonly errors: readonly string[] }
+  | {
+      readonly outcome: 'invalid'
+      readonly errors: readonly string[]
+      /** The file is not there, as opposed to there but not valid. */
+      readonly missing?: boolean
+    }
 
 /** Where the config lives in a project. */
 export const configPath = (projectDir: string): string =>
@@ -57,55 +64,64 @@ const KNOWN_KEYS = new Set([...USED_KEYS, ...IGNORED_KEYS])
 // Spelled in two pieces because biome refuses `${` inside a plain string.
 const PROJECT_DIR_TOKEN = `$${'{'}CLAUDE_PROJECT_DIR}`
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
 const isStringRecord = (value: unknown): value is Record<string, string> =>
   isRecord(value) && Object.values(value).every((item) => typeof item === 'string')
 
-/** Validate one entry, and push each problem onto `errors`. */
-const checkEntry = (
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+/** Put the project directory in place of each `${CLAUDE_PROJECT_DIR}`. */
+const substitute = (value: string, projectDir: string): string =>
+  value.replaceAll(PROJECT_DIR_TOKEN, projectDir)
+
+/** One child from one entry, or `null` when the entry has a problem. Each
+ *  problem goes onto `errors`. */
+const parseEntry = (
   name: string,
   entry: unknown,
+  projectDir: string,
   errors: string[],
-): entry is Record<string, unknown> => {
+): ChildConfig | null => {
   if (!isRecord(entry)) {
     errors.push(`${name}: must be an object`)
-    return false
+    return null
   }
   const before = errors.length
   for (const key of Object.keys(entry)) {
     if (!KNOWN_KEYS.has(key)) errors.push(`${name}: unknown key "${key}"`)
   }
-  if (typeof entry.command !== 'string' || entry.command === '') {
+  const { command, args = [], env = {}, extensionToLanguage } = entry
+  if (typeof command !== 'string' || command === '') {
     errors.push(`${name}: "command" must be a non-empty string`)
   }
-  if (
-    entry.args !== undefined &&
-    !(Array.isArray(entry.args) && entry.args.every((arg) => typeof arg === 'string'))
-  ) {
-    errors.push(`${name}: "args" must be an array of strings`)
-  }
-  if (entry.env !== undefined && !isStringRecord(entry.env)) {
-    errors.push(`${name}: "env" must be an object of strings`)
-  }
-  const map = entry.extensionToLanguage
-  if (!isStringRecord(map) || Object.keys(map).length === 0) {
+  if (!isStringArray(args)) errors.push(`${name}: "args" must be an array of strings`)
+  if (!isStringRecord(env)) errors.push(`${name}: "env" must be an object of strings`)
+  if (!isStringRecord(extensionToLanguage) || Object.keys(extensionToLanguage).length === 0) {
     errors.push(`${name}: "extensionToLanguage" must be a non-empty object of strings`)
   } else {
     // The same rule Claude Code applies to its own `.lsp.json` at run time.
-    for (const extension of Object.keys(map)) {
+    for (const extension of Object.keys(extensionToLanguage)) {
       if (!extension.startsWith('.') || extension.length < 2) {
         errors.push(`${name}: extension "${extension}" must start with "." (for example ".ts")`)
       }
     }
   }
-  return errors.length === before
+  if (errors.length > before) return null
+  return {
+    name,
+    command: substitute(command as string, projectDir),
+    args: (args as string[]).map((arg) => substitute(arg, projectDir)),
+    env: Object.fromEntries(
+      Object.entries(env as Record<string, string>).map(([key, value]) => [
+        key,
+        substitute(value, projectDir),
+      ]),
+    ),
+    extensionToLanguage: extensionToLanguage as Record<string, string>,
+    initializationOptions: entry.initializationOptions,
+    settings: entry.settings,
+  }
 }
-
-/** Put the project directory in place of each `${CLAUDE_PROJECT_DIR}`. */
-const substitute = (value: string, projectDir: string): string =>
-  value.replaceAll(PROJECT_DIR_TOKEN, projectDir)
 
 /** Parse and validate the text of `lsp-merge.json`. */
 export const parseConfig = (text: string, projectDir: string): ConfigResult => {
@@ -119,28 +135,16 @@ export const parseConfig = (text: string, projectDir: string): ConfigResult => {
     return { outcome: 'invalid', errors: ['must be an object with one entry for each server'] }
   }
   const errors: string[] = []
-  const children: ChildConfig[] = []
-  for (const [name, entry] of Object.entries(document)) {
-    if (!checkEntry(name, entry, errors)) continue
-    children.push({
-      name,
-      command: substitute(entry.command as string, projectDir),
-      args: ((entry.args as string[] | undefined) ?? []).map((arg) => substitute(arg, projectDir)),
-      env: Object.fromEntries(
-        Object.entries((entry.env as Record<string, string> | undefined) ?? {}).map(
-          ([key, value]) => [key, substitute(value, projectDir)],
-        ),
-      ),
-      extensionToLanguage: entry.extensionToLanguage as Record<string, string>,
-      initializationOptions: entry.initializationOptions,
-      settings: entry.settings,
-    })
-  }
+  const children = Object.entries(document).flatMap(([name, entry]) => {
+    const child = parseEntry(name, entry, projectDir, errors)
+    return child === null ? [] : [child]
+  })
   return errors.length === 0 ? { outcome: 'ok', children } : { outcome: 'invalid', errors }
 }
 
 /** Read and parse the config of `projectDir`. `readFile` is the edge a
- *  test replaces. A file that is not there is one error, not a throw. */
+ *  test replaces. A file that is not there is one error, not a throw, and
+ *  the result says `missing`. */
 export const loadConfig = (
   projectDir: string,
   readFile: (file: string) => string,
@@ -151,8 +155,9 @@ export const loadConfig = (
     text = readFile(file)
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
-    const reason = code === 'ENOENT' ? 'is missing' : `cannot be read (${code ?? 'unknown error'})`
-    return { outcome: 'invalid', errors: [`${file} ${reason}`] }
+    if (code === 'ENOENT')
+      return { outcome: 'invalid', errors: [`${file} is missing`], missing: true }
+    return { outcome: 'invalid', errors: [`${file} cannot be read (${code ?? 'unknown error'})`] }
   }
   const result = parseConfig(text, projectDir)
   if (result.outcome === 'ok') return result

@@ -10,6 +10,8 @@
 // that child lacks the capability, it answers with an error or `null`, and
 // the proxy sends that answer on.
 
+import { recordOf } from './jsonrpc.ts'
+
 /** Full sync, open and close, and save without text. */
 export const TEXT_DOCUMENT_SYNC = {
   openClose: true,
@@ -17,17 +19,14 @@ export const TEXT_DOCUMENT_SYNC = {
   save: { includeText: false },
 } as const
 
-/** Pull diagnostics are not in v1 (ADR 006). Claude Code does not pull, so
- *  the proxy does not claim that it answers pulls. */
+/** Claude Code never pulls diagnostics. The proxy pulls from its children
+ *  itself, and pushes the result, so it does not claim that it answers
+ *  pulls (ADR 006). */
 const DROPPED = new Set(['textDocumentSync', 'diagnosticProvider'])
 
-const capabilitiesOf = (result: unknown): Record<string, unknown> => {
-  if (typeof result !== 'object' || result === null) return {}
-  const capabilities = (result as Record<string, unknown>).capabilities
-  return typeof capabilities === 'object' && capabilities !== null
-    ? (capabilities as Record<string, unknown>)
-    : {}
-}
+/** The capabilities in one `initialize` result, or none. */
+export const capabilitiesOf = (result: unknown): Record<string, unknown> =>
+  recordOf(recordOf(result).capabilities)
 
 /** Merge the `initialize` results of the children, in config order. */
 export const mergeInitializeResults = (results: readonly unknown[]): Record<string, unknown> => {

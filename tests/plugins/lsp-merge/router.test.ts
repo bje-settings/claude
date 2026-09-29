@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { claimants, extensionOf, languageIdFor } from '#lsp-merge/router.ts'
 
-const TYPESCRIPT = { name: 'typescript7', extensionToLanguage: { '.ts': 'typescript' } }
-const BIOME = { name: 'biome', extensionToLanguage: { '.ts': 'ts-biome', '.json': 'json' } }
+const TYPESCRIPT = { extensionToLanguage: { '.ts': 'typescript' } }
+const BIOME = { extensionToLanguage: { '.ts': 'ts-biome', '.json': 'json' } }
 
 describe('extensionOf', () => {
   it.each([

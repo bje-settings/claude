@@ -21,6 +21,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import path from 'node:path'
 
 import { configPath, loadConfig } from '../config.ts'
+import { recordOf } from '../jsonrpc.ts'
 import { absentDependencies, type Dependency } from '../lib/dependencies.ts'
 import { emit } from '../lib/hook-output.ts'
 import type { Runner } from '../lib/process.ts'
@@ -81,11 +82,12 @@ export const enabledPlugins = (listing: string): string[] | null => {
     return null
   }
   if (!Array.isArray(document)) return null
-  return document
-    .map((entry) => entry as { id?: unknown; enabled?: unknown } | null)
-    .filter((entry) => entry?.enabled === true && typeof entry.id === 'string')
-    .map((entry) => entry?.id as string)
-    .filter((id) => !id.startsWith(`${PLUGIN_PREFIX}@`))
+  return document.flatMap((entry) => {
+    const { id, enabled } = recordOf(entry)
+    return enabled === true && typeof id === 'string' && !id.startsWith(`${PLUGIN_PREFIX}@`)
+      ? [id]
+      : []
+  })
 }
 
 /** The enabled plugins, other than lsp-merge, that run a language server,
@@ -123,8 +125,7 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
     const relative = path.relative(projectDir, configPath(projectDir))
     const config = loadConfig(projectDir, edges.readFile)
     if (config.outcome === 'invalid') {
-      const missing = config.errors.length === 1 && config.errors[0]?.endsWith(' is missing')
-      problems.push(`${relative} ${missing ? 'is missing' : 'is not valid'}`)
+      problems.push(`${relative} ${config.missing ? 'is missing' : 'is not valid'}`)
       details.push(...config.errors)
     }
     const conflicts = await conflictingPlugins(edges, projectDir)

@@ -28,9 +28,9 @@ import { readFileSync } from 'node:fs'
 
 import { type ChildConfig, loadConfig } from '../config.ts'
 import { createDiagnosticStore, type PublishParams } from '../diagnostics.ts'
-import { mergeInitializeResults } from '../initialize.ts'
-import { createDecoder, encode, type Message } from '../jsonrpc.ts'
-import { claimants, languageIdFor } from '../router.ts'
+import { capabilitiesOf, mergeInitializeResults } from '../initialize.ts'
+import { createDecoder, encode, type Message, recordOf } from '../jsonrpc.ts'
+import { claims, languageIdFor } from '../router.ts'
 
 export const USAGE = 'usage: lsp-merge serve <project-dir>\n'
 
@@ -58,17 +58,14 @@ interface Child {
   pulls: boolean
 }
 
-/** A request that went to every child, and the answers so far. */
-interface Broadcast {
+/** A request that went to one or more children, and the answers so far.
+ *  `done` runs when the last child answers. */
+interface Outstanding {
   readonly waiting: Set<Child>
   readonly answers: Map<Child, Message>
   readonly done: (answers: ReadonlyMap<Child, Message>) => void
-}
-
-/** A diagnostic pull that the proxy sent, and the file it asked about. */
-interface Pull {
-  readonly child: Child
-  readonly uri: string
+  /** Whether a `$/cancelRequest` from Claude Code may reach the children. */
+  readonly cancellable: boolean
 }
 
 /** The prefix of the ids of the proxy's own requests. Claude Code's ids are
@@ -78,9 +75,6 @@ const PULL_ID_PREFIX = 'lsp-merge:'
 /** A key for a JSON-RPC id. The id may be a number or a string, and `1`
  *  and `"1"` are different ids. */
 const idKey = (id: unknown): string => JSON.stringify(id)
-
-const recordOf = (value: unknown): Record<string, unknown> =>
-  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 
 /** The file a message is about, or `''`. */
 const uriOf = (message: Message): string => {
@@ -116,13 +110,11 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
 
   return new Promise((resolve) => {
     const store = createDiagnosticStore()
-    const pending = new Map<string, Child>()
+    const outstanding = new Map<string, Outstanding>()
     const fromChildren = new Map<string, Child>()
-    const broadcasts = new Map<string, Broadcast>()
-    const pulls = new Map<string, Pull>()
-    let pullCount = 0
     let finished = false
     let exiting = false
+    let pullCount = 0
     let graceTimer: NodeJS.Timeout | undefined
 
     const finish = (status: number): void => {
@@ -136,47 +128,70 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
     const toClient = (message: Message): void => {
       edges.output.write(encode(message))
     }
-    const toChild = (child: Child, message: Message): void => {
-      child.process.stdin.write(encode(message))
+    /** Send one message to each of `targets`. It is encoded once, because a
+     *  full-sync `didChange` carries the whole file. */
+    const toChildren = (targets: readonly Child[], message: Message): void => {
+      const bytes = encode(message)
+      for (const child of targets) child.process.stdin.write(bytes)
     }
 
     /** The children that claim `uri`, in config order. The first is the
      *  primary for the file. */
-    const claiming = (uri: string): Child[] => {
-      const configs = claimants(
-        children.map((child) => child.config),
-        uri,
-      )
-      return children.filter((child) => configs.includes(child.config))
+    const claiming = (uri: string): Child[] => children.filter((child) => claims(child.config, uri))
+
+    /** Send `message` to each of `targets`, and run `done` with their
+     *  answers when the last one answers. */
+    const ask = (
+      targets: readonly Child[],
+      message: Message,
+      done: Outstanding['done'],
+      cancellable = false,
+    ): void => {
+      outstanding.set(idKey(message.id), {
+        waiting: new Set(targets),
+        answers: new Map(),
+        done,
+        cancellable,
+      })
+      toChildren(targets, message)
     }
 
-    const broadcast = (
-      message: Message,
-      paramsFor: (child: Child) => unknown,
-      done: Broadcast['done'],
-    ): void => {
-      broadcasts.set(idKey(message.id), { waiting: new Set(children), answers: new Map(), done })
-      for (const child of children) toChild(child, { ...message, params: paramsFor(child) })
+    /** Ask `child` for its diagnostics on `uri`, and push the answer into
+     *  the union. `unchanged`, or an error, leaves the child's last list. */
+    const pull = (child: Child, uri: string): void => {
+      pullCount += 1
+      const message = {
+        jsonrpc: '2.0',
+        id: `${PULL_ID_PREFIX}${pullCount}`,
+        method: 'textDocument/diagnostic',
+        params: { textDocument: { uri } },
+      }
+      ask([child], message, (answers) => {
+        const report = recordOf(answers.get(child)?.result)
+        if (report.kind !== 'full' || !Array.isArray(report.items)) return
+        toClient({
+          jsonrpc: '2.0',
+          method: 'textDocument/publishDiagnostics',
+          params: store.update(child.config.name, { uri, diagnostics: report.items }),
+        })
+      })
     }
 
     const onClientRequest = (method: string, message: Message): void => {
       if (method === 'initialize') {
-        broadcast(
-          message,
-          (child) =>
-            child.config.initializationOptions === undefined
-              ? message.params
-              : {
-                  ...recordOf(message.params),
-                  initializationOptions: child.config.initializationOptions,
-                },
-          (answers) => {
+        // Each child gets its own `initializationOptions`, so this sends one
+        // message per child, under one id.
+        outstanding.set(idKey(message.id), {
+          waiting: new Set(children),
+          answers: new Map(),
+          cancellable: false,
+          done: (answers) => {
             // In config order, whatever order the answers came in.
-            const ordered = children.map((child) => answers.get(child) as Message)
-            for (const child of children) {
-              const capabilities = recordOf(recordOf(answers.get(child)?.result).capabilities)
-              child.pulls = Boolean(capabilities.diagnosticProvider)
-            }
+            const ordered = children.map((child) => {
+              const answer = answers.get(child) as Message
+              child.pulls = Boolean(capabilitiesOf(answer.result).diagnosticProvider)
+              return answer
+            })
             const error = ordered.find((answer) => answer.error !== undefined)
             toClient(
               error === undefined
@@ -188,16 +203,20 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
                 : { jsonrpc: '2.0', id: message.id, error: error.error },
             )
           },
-        )
+        })
+        for (const child of children) {
+          const options = child.config.initializationOptions
+          const params =
+            options === undefined
+              ? message.params
+              : { ...recordOf(message.params), initializationOptions: options }
+          toChildren([child], { ...message, params })
+        }
         return
       }
       if (method === 'shutdown') {
         exiting = true
-        broadcast(
-          message,
-          () => message.params,
-          () => toClient({ jsonrpc: '2.0', id: message.id, result: null }),
-        )
+        ask(children, message, () => toClient({ jsonrpc: '2.0', id: message.id, result: null }))
         return
       }
       const uri = uriOf(message)
@@ -206,36 +225,16 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
         toClient({ jsonrpc: '2.0', id: message.id, result: null })
         return
       }
-      pending.set(idKey(message.id), child)
-      toChild(child, message)
-    }
-
-    /** Ask `child` for its diagnostics on `uri`. The answer arrives in
-     *  `onChild`, which pushes it into the union. */
-    const pull = (child: Child, uri: string): void => {
-      pullCount += 1
-      const id = `${PULL_ID_PREFIX}${pullCount}`
-      pulls.set(idKey(id), { child, uri })
-      toChild(child, {
-        jsonrpc: '2.0',
-        id,
-        method: 'textDocument/diagnostic',
-        params: { textDocument: { uri } },
-      })
+      ask([child], message, (answers) => toClient(answers.get(child) as Message), true)
     }
 
     const onClientNotification = (method: string, message: Message): void => {
       const uri = uriOf(message)
-      onDocumentEvent(method, message, uri)
-      if (PULL_AFTER.has(method))
-        for (const child of claiming(uri)) if (child.pulls) pull(child, uri)
-    }
-
-    const onDocumentEvent = (method: string, message: Message, uri: string): void => {
+      const claimed = claiming(uri)
       if (method === 'textDocument/didOpen') {
-        for (const child of claiming(uri)) {
-          const params = recordOf(message.params)
-          toChild(child, {
+        const params = recordOf(message.params)
+        for (const child of claimed) {
+          toChildren([child], {
             ...message,
             params: {
               ...params,
@@ -246,22 +245,19 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
             },
           })
         }
-        return
+      } else if (DOCUMENT_SYNC.has(method)) {
+        toChildren(claimed, message)
+      } else if (method === '$/cancelRequest') {
+        const entry = outstanding.get(idKey(recordOf(message.params).id))
+        if (entry?.cancellable) toChildren([...entry.waiting], message)
+      } else {
+        toChildren(children, message)
       }
-      if (DOCUMENT_SYNC.has(method)) {
-        for (const child of claiming(uri)) toChild(child, message)
-        return
-      }
-      if (method === '$/cancelRequest') {
-        const child = pending.get(idKey(recordOf(message.params).id))
-        if (child !== undefined) toChild(child, message)
-        return
-      }
-      for (const child of children) toChild(child, message)
+      if (PULL_AFTER.has(method)) for (const child of claimed) if (child.pulls) pull(child, uri)
       if (method === 'initialized') {
         for (const child of children) {
           if (child.config.settings === undefined) continue
-          toChild(child, {
+          toChildren([child], {
             jsonrpc: '2.0',
             method: 'workspace/didChangeConfiguration',
             params: { settings: child.config.settings },
@@ -283,7 +279,7 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
         const child = fromChildren.get(key)
         if (child === undefined) return
         fromChildren.delete(key)
-        toChild(child, message)
+        toChildren([child], message)
         return
       }
       if (message.id === undefined) onClientNotification(message.method, message)
@@ -293,30 +289,13 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
     const onChild = (child: Child, message: Message): void => {
       const key = idKey(message.id)
       if (typeof message.method !== 'string') {
-        const asked = pulls.get(key)
-        if (asked?.child === child) {
-          pulls.delete(key)
-          // `unchanged`, or an error, leaves the child's last list as it is.
-          const report = recordOf(message.result)
-          if (report.kind !== 'full' || !Array.isArray(report.items)) return
-          toClient({
-            jsonrpc: '2.0',
-            method: 'textDocument/publishDiagnostics',
-            params: store.update(child.config.name, { uri: asked.uri, diagnostics: report.items }),
-          })
-          return
-        }
-        const waiting = broadcasts.get(key)
-        if (waiting?.waiting.delete(child)) {
-          waiting.answers.set(child, message)
-          if (waiting.waiting.size > 0) return
-          broadcasts.delete(key)
-          waiting.done(waiting.answers)
-          return
-        }
-        if (pending.get(key) !== child) return
-        pending.delete(key)
-        toClient(message)
+        // A response. Only the child that was asked may answer.
+        const entry = outstanding.get(key)
+        if (!entry?.waiting.delete(child)) return
+        entry.answers.set(child, message)
+        if (entry.waiting.size > 0) return
+        outstanding.delete(key)
+        entry.done(entry.answers)
         return
       }
       if (message.id !== undefined) {
@@ -337,6 +316,8 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
 
     const onChildGone = (child: Child, reason: string): void => {
       child.exited = true
+      // After `finish`, each exit is one that `finish` itself caused.
+      if (finished) return
       if (exiting) {
         if (children.every((one) => one.exited)) finish(0)
         return
@@ -388,9 +369,6 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
     })
 
     edges.input.on('data', reader('Claude Code', onClient))
-    edges.input.on('end', () => {
-      exiting = true
-      finish(0)
-    })
+    edges.input.on('end', () => finish(0))
   })
 }

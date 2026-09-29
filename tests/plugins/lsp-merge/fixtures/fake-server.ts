@@ -38,6 +38,9 @@ export interface FakeOptions {
   readonly stderr?: string
 }
 
+/** The range of each diagnostic the fake server gives. */
+const RANGE = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }
+
 const options = JSON.parse(process.argv[2] ?? '{}') as FakeOptions
 const send = (message: Message): void => {
   process.stdout.write(encode({ jsonrpc: '2.0', ...message }))
@@ -77,7 +80,7 @@ const handle = (message: Message): void => {
             kind: 'full',
             items: [
               {
-                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+                range: RANGE,
                 message: `${options.name} pulled`,
               },
             ],
@@ -111,7 +114,7 @@ const handle = (message: Message): void => {
     case 'textDocument/didChange':
       if (options.diagnose) {
         const diagnostic: Record<string, unknown> = {
-          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+          range: RANGE,
           severity: 1,
           message: `${options.name} found a problem`,
         }

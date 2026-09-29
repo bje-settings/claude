@@ -6,15 +6,13 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { pluginFile } from '#harness/paths.ts'
 import { createSandbox } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
-import { createDecoder, encode, type Message } from '#lsp-merge/jsonrpc.ts'
+import { createClient, fakeEntry, unionOf } from './lsp-client.test-support.ts'
 
 const BIN = pluginFile('lsp-merge', 'scripts', 'lsp-merge.ts')
-const FAKE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-server.ts')
 
 const project = (config?: Record<string, unknown>): string => {
   const dir = createSandbox().join('project')
@@ -25,16 +23,16 @@ const project = (config?: Record<string, unknown>): string => {
   return dir
 }
 
-const fake = (name: string, extensionToLanguage: Record<string, string>) => ({
-  command: process.execPath,
-  args: [FAKE, JSON.stringify({ name, diagnose: true })],
-  extensionToLanguage,
-})
-
 it('runs a session end to end: merged diagnostics on stdout, exit 0 after shutdown and exit', async () => {
   const dir = project({
-    ts: fake('ts', { '.ts': 'typescript' }),
-    biome: fake('biome', { '.ts': 'typescript', '.json': 'json' }),
+    ts: fakeEntry({
+      fake: { name: 'ts', diagnose: true },
+      extensionToLanguage: { '.ts': 'typescript' },
+    }),
+    biome: fakeEntry({
+      fake: { name: 'biome', diagnose: true },
+      extensionToLanguage: { '.ts': 'typescript', '.json': 'json' },
+    }),
   })
   // Spawned here, not with `startScript`: that helper closes stdin at once,
   // and the proxy reads a closed input as the end of the session.
@@ -46,36 +44,21 @@ it('runs a session end to end: merged diagnostics on stdout, exit 0 after shutdo
   const ended = new Promise((resolve) =>
     proxy.on('close', (status, signal) => resolve({ status, signal })),
   )
-  const received: Message[] = []
-  const decoder = createDecoder()
-  proxy.stdout.on('data', (chunk: Buffer) => received.push(...decoder.push(chunk)))
-  const send = (message: Message) => proxy.stdin.write(encode({ jsonrpc: '2.0', ...message }))
-  const waitFor = async (match: (message: Message) => boolean): Promise<Message> => {
-    for (let tries = 0; tries < 500; tries += 1) {
-      const found = received.find(match)
-      if (found !== undefined) return found
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
-    throw new Error(`no matching message; received ${JSON.stringify(received)}`)
-  }
+  const client = createClient(proxy.stdin, proxy.stdout)
 
-  send({ id: 0, method: 'initialize', params: { capabilities: {} } })
-  await waitFor((message) => message.id === 0)
-  send({ method: 'initialized', params: {} })
-  send({
+  client.send({ id: 0, method: 'initialize', params: { capabilities: {} } })
+  await client.waitFor((message) => message.id === 0)
+  client.send({ method: 'initialized', params: {} })
+  client.send({
     method: 'textDocument/didOpen',
     params: {
       textDocument: { uri: `file://${dir}/a.ts`, languageId: 'typescript', version: 1, text: '' },
     },
   })
-  const union = await waitFor(
-    (message) =>
-      message.method === 'textDocument/publishDiagnostics' &&
-      (message.params as { diagnostics: unknown[] }).diagnostics.length === 2,
-  )
-  send({ id: 1, method: 'shutdown' })
-  await waitFor((message) => message.id === 1)
-  send({ method: 'exit' })
+  const union = await client.waitFor(unionOf(2))
+  client.send({ id: 1, method: 'shutdown' })
+  await client.waitFor((message) => message.id === 1)
+  client.send({ method: 'exit' })
 
   expect(
     (union.params as { diagnostics: { source: string }[] }).diagnostics

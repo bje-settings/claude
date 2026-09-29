@@ -6,7 +6,6 @@
 
 /** The part of a child's config that routing reads. */
 export interface Routable {
-  readonly name: string
   readonly extensionToLanguage: Readonly<Record<string, string>>
 }
 
@@ -23,14 +22,15 @@ export const extensionOf = (uri: string): string => {
   return dot <= 0 ? '' : base.slice(dot)
 }
 
+/** Whether `child` claims the file `uri` names. */
+export const claims = (child: Routable, uri: string): boolean =>
+  Object.hasOwn(child.extensionToLanguage, extensionOf(uri))
+
 /** The children that claim the file `uri` names, in config order. The
  *  first one is the primary: it answers requests about the file. The
  *  others get document sync only, and add their diagnostics. */
-export const claimants = <T extends Routable>(children: readonly T[], uri: string): T[] => {
-  const extension = extensionOf(uri)
-  if (extension === '') return []
-  return children.filter((child) => Object.hasOwn(child.extensionToLanguage, extension))
-}
+export const claimants = <T extends Routable>(children: readonly T[], uri: string): T[] =>
+  children.filter((child) => claims(child, uri))
 
 /** The language id that `child` expects for `uri`. Claude Code sends the id
  *  from lsp-merge's own manifest, but a child reads the id from its own

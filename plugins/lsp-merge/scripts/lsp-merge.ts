@@ -18,10 +18,12 @@ assertNodeFloor(process.version)
 // Claude Code closes the pipe when it stops the server. A later write then
 // fails with EPIPE, and with no listener node crashes with a stack trace.
 // There is nothing left to say to a reader that has gone, so this exits
-// quietly. Every other error code still surfaces.
+// quietly. `streamFailures` holds the rule: every other error code still
+// surfaces.
+const { streamFailures } = await import('../src/lib/streams.ts')
 for (const stream of [process.stdout, process.stderr]) {
   stream.on('error', (error: NodeJS.ErrnoException) => {
-    if (error.code === 'EPIPE') process.exit(0)
+    if (streamFailures(error).length === 0) process.exit(0)
     throw error
   })
 }

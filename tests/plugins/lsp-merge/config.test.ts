@@ -112,6 +112,7 @@ describe('loadConfig', () => {
     expect(result).toEqual({
       outcome: 'invalid',
       errors: ['/repo/.claude/lsp-merge.json is missing'],
+      missing: true,
     })
   })
 

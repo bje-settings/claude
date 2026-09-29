@@ -3,6 +3,7 @@
 // stdio. This file only frames and unframes. It makes no routing decision.
 //
 // Spec: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#baseProtocol
+import { isRecord } from './lib/typesafe.ts'
 
 /** One JSON-RPC message: a request, a response, or a notification. */
 export type Message = Record<string, unknown>
@@ -37,6 +38,10 @@ const contentLength = (header: string): number => {
   return Number(match[1])
 }
 
+/** `value` when it is a JSON object, or an empty object. Each field of a
+ *  message then reads as `undefined` when the sender left it out. */
+export const recordOf = (value: unknown): Record<string, unknown> => (isRecord(value) ? value : {})
+
 /** The message that `body` holds. Anything that is not a JSON object is
  *  not a JSON-RPC message. */
 const parseBody = (body: string): Message => {
@@ -46,26 +51,45 @@ const parseBody = (body: string): Message => {
   } catch {
     throw new FramingError(`body is not JSON: ${JSON.stringify(body.slice(0, 80))}`)
   }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new FramingError(`body is not a JSON object: ${JSON.stringify(body.slice(0, 80))}`)
   }
-  return value as Message
+  return value
 }
 
+/** The chunks join only once a whole message is there, and the header is
+ *  read once. A large body in many chunks then costs one copy, not one
+ *  copy per chunk. */
 export const createDecoder = (): Decoder => {
-  let buffer = Buffer.alloc(0)
+  let chunks: Buffer[] = []
+  let size = 0
+  /** Where the body starts and ends, once the header is read. */
+  let body: { readonly start: number; readonly end: number } | null = null
+  const joined = (): Buffer => {
+    const all = chunks.length === 1 ? (chunks[0] as Buffer) : Buffer.concat(chunks, size)
+    chunks = [all]
+    return all
+  }
   return {
     push: (chunk) => {
-      buffer = Buffer.concat([buffer, chunk])
+      chunks.push(chunk)
+      size += chunk.length
       const messages: Message[] = []
       for (;;) {
-        const end = buffer.indexOf(SEPARATOR)
-        if (end < 0) return messages
-        const length = contentLength(buffer.subarray(0, end).toString('ascii'))
-        const start = end + SEPARATOR.length
-        if (buffer.length < start + length) return messages
-        messages.push(parseBody(buffer.subarray(start, start + length).toString('utf8')))
-        buffer = buffer.subarray(start + length)
+        if (body === null) {
+          const all = joined()
+          const end = all.indexOf(SEPARATOR)
+          if (end < 0) return messages
+          const start = end + SEPARATOR.length
+          body = { start, end: start + contentLength(all.subarray(0, end).toString('ascii')) }
+        }
+        if (size < body.end) return messages
+        const all = joined()
+        messages.push(parseBody(all.subarray(body.start, body.end).toString('utf8')))
+        const rest = all.subarray(body.end)
+        chunks = [rest]
+        size = rest.length
+        body = null
       }
     },
   }

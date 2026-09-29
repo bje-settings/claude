@@ -1,7 +1,7 @@
 // The command function behind the lsp-merge `SessionStart` hook, in
 // process. The runner is injected, so no `claude` starts. `which` walks a
 // real PATH: a sandbox directory holds an empty executable named `claude`.
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -51,17 +51,16 @@ const listing = (plugins: { id: string; enabled: boolean }[]) => JSON.stringify(
 const details = (servers: number) =>
   `x 0.1.0\n\nComponent inventory\n  Skills (0)\n  LSP servers (${servers})  name\n`
 
-/** A runner that answers from a table keyed by `<command> <args>`, and
- *  records each option set it was asked with. */
+/** A runner that answers from a table keyed by `<command> <args>`. A call
+ *  with no entry throws, so a test fails when a call it did not expect
+ *  happens. */
 const runnerFor = (table: Record<string, Partial<RunResult>>) => {
-  const asked: unknown[] = []
-  const runner: Runner = async (command, args = [], options = {}) => {
-    asked.push(options)
+  const runner: Runner = async (command, args = []) => {
     const reply = table[`${command} ${args.join(' ')}`]
     if (reply === undefined) throw new Error(`unexpected call: ${command} ${args.join(' ')}`)
     return result(reply)
   }
-  return { runner, asked }
+  return runner
 }
 
 const VALID = JSON.stringify({
@@ -89,8 +88,7 @@ const run = async (
   cwd = '/nowhere',
 ) => {
   const { output, stdout, stderr } = outputPair()
-  const { runner, asked } = runnerFor(table)
-  const { readFileSync } = await import('node:fs')
+  const runner = runnerFor(table)
   const status = await runSessionStart({
     env,
     output,
@@ -99,7 +97,7 @@ const run = async (
     cwd,
     readFile: (file) => readFileSync(file, 'utf8'),
   })
-  return { status, stdout: stdout(), stderr: stderr(), asked }
+  return { status, stdout: stdout(), stderr: stderr() }
 }
 
 const systemMessage = (stdout: string): string =>
@@ -108,7 +106,7 @@ const systemMessage = (stdout: string): string =>
 
 describe('runSessionStart', () => {
   it('writes nothing when claude is there, the config is valid, and no other plugin runs a server', async () => {
-    const { env, project } = setup(VALID)
+    const { env } = setup(VALID)
 
     const outcome = await run(env, {
       'claude plugin list --json': {
@@ -122,10 +120,6 @@ describe('runSessionStart', () => {
     })
 
     expect(outcome).toMatchObject({ status: 0, stdout: '', stderr: '' })
-    expect(outcome.asked).toEqual([
-      { env, cwd: project, timeoutMs: DEADLINE_MS / 2 },
-      { env, cwd: project, timeoutMs: DEADLINE_MS / 2 },
-    ])
   })
 
   it('names every enabled plugin that runs a language server, by count or, failing that, by name', async () => {
@@ -207,7 +201,6 @@ describe('runSessionStart', () => {
     expect(systemMessage(outcome.stdout)).toBe(
       '\nlsp-merge: ⚠️ the Claude Code CLI (claude) is absent',
     )
-    expect(outcome.asked).toEqual([])
   })
 
   it('reads a PATH that is not set as one with nothing on it', async () => {

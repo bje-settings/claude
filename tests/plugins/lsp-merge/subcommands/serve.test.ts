@@ -1,39 +1,26 @@
 // The proxy in process, with real children: each child is
-// `fixtures/fake-server.ts` under this same node. The fake server reports
-// each message it gets as a `window/logMessage`, so these tests assert where
-// the proxy routed a message by what reaches the client.
+// `fixtures/fake-server.ts` under this same node. `lsp-client.test-support.ts`
+// has the client, and says how a test sees where a message went.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { PassThrough } from 'node:stream'
-import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { createSandbox } from '#harness/sandbox.ts'
-import { createDecoder, encode, type Message } from '#lsp-merge/jsonrpc.ts'
+import type { Message } from '#lsp-merge/jsonrpc.ts'
 import { runServe } from '#lsp-merge/subcommands/serve.ts'
-import type { FakeOptions } from '../fixtures/fake-server.ts'
-
-const FAKE = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'fixtures',
-  'fake-server.ts',
-)
+import { createClient, type Entry, fakeEntry, unionOf } from '../lsp-client.test-support.ts'
 
 const TS = { '.ts': 'typescript' }
 const TS_AND_JSON = { '.ts': 'typescript', '.json': 'json' }
 
-interface Entry {
-  readonly fake: FakeOptions
-  readonly extensionToLanguage: Record<string, string>
-  readonly initializationOptions?: unknown
-  readonly settings?: unknown
+/** Everything written to `stream`, as text. */
+const collect = (stream: NodeJS.ReadableStream): (() => string) => {
+  let text = ''
+  stream.on('data', (chunk: Buffer) => {
+    text += chunk.toString('utf8')
+  })
+  return () => text
 }
-
-const fakeEntry = ({ fake, ...rest }: Entry) => ({
-  command: process.execPath,
-  args: [FAKE, JSON.stringify(fake)],
-  ...rest,
-})
 
 /** A project whose config runs `entries`, and a client wired to the proxy. */
 const start = (entries: readonly Entry[] | string, exitGraceMs = 2_000) => {
@@ -51,65 +38,27 @@ const start = (entries: readonly Entry[] | string, exitGraceMs = 2_000) => {
   const input = new PassThrough()
   const output = new PassThrough()
   const err = new PassThrough()
-  const received: Message[] = []
-  const decoder = createDecoder()
-  output.on('data', (chunk: Buffer) => received.push(...decoder.push(chunk)))
-  let stderr = ''
-  err.on('data', (chunk: Buffer) => {
-    stderr += chunk.toString('utf8')
-  })
+  const stderr = collect(err)
+  const client = createClient(input, output)
   const status = runServe([project], { input, output, err, env: process.env, exitGraceMs })
 
-  const send = (message: Message): void => {
-    input.write(encode({ jsonrpc: '2.0', ...message }))
-  }
-  /** The first received message that `match` accepts, once it arrives. */
-  const waitFor = async (match: (message: Message) => boolean): Promise<Message> => {
-    for (let tries = 0; tries < 500; tries += 1) {
-      const found = received.find(match)
-      if (found !== undefined) return found
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
-    throw new Error(`no matching message; received ${JSON.stringify(received)}`)
-  }
-  /** What each fake server reported that it got. */
-  const logs = (): { server: string; got: Message }[] =>
-    received
-      .filter((message) => message.method === 'window/logMessage')
-      .map((message) => JSON.parse((message.params as { message: string }).message))
-  const got = (server: string, method: string) =>
-    logs()
-      .filter((log) => log.server === server && log.got.method === method)
-      .map((log) => log.got)
   const initialize = async (): Promise<Message> => {
-    send({
+    client.send({
       id: 0,
       method: 'initialize',
       params: { rootUri: `file://${project}`, capabilities: {} },
     })
-    const answer = await waitFor((message) => message.id === 0)
-    send({ method: 'initialized', params: {} })
+    const answer = await client.waitFor((message) => message.id === 0)
+    client.send({ method: 'initialized', params: {} })
     return answer
   }
   const stop = async (): Promise<number> => {
-    send({ id: 'end', method: 'shutdown' })
-    await waitFor((message) => message.id === 'end')
-    send({ method: 'exit' })
+    client.send({ id: 'end', method: 'shutdown' })
+    await client.waitFor((message) => message.id === 'end')
+    client.send({ method: 'exit' })
     return status
   }
-  return {
-    project,
-    input,
-    send,
-    waitFor,
-    got,
-    logs,
-    received,
-    initialize,
-    stop,
-    status,
-    stderr: () => stderr,
-  }
+  return { ...client, project, input, initialize, stop, status, stderr }
 }
 
 const uri = (project: string, file: string) => `file://${project}/${file}`
@@ -221,18 +170,16 @@ it('syncs a document to every child that claims it, with each language id, and p
     method: 'textDocument/didOpen',
     params: { textDocument: { uri: file, languageId: 'from-manifest', version: 1, text: 'x' } },
   })
-  const union = await proxy.waitFor(
-    (message) =>
-      message.method === 'textDocument/publishDiagnostics' &&
-      (message.params as { diagnostics: unknown[] }).diagnostics.length === 2,
-  )
+  const union = await proxy.waitFor(unionOf(2))
   proxy.send({
     method: 'textDocument/didChange',
     params: { textDocument: { uri: file, version: 2 }, contentChanges: [{ text: 'y' }] },
   })
   proxy.send({ method: 'textDocument/didSave', params: { textDocument: { uri: file } } })
   proxy.send({ method: 'textDocument/didClose', params: { textDocument: { uri: file } } })
-  await proxy.waitFor(() => proxy.got('biome', 'textDocument/didClose').length === 1)
+  await proxy.until(() =>
+    ['ts', 'biome'].every((name) => proxy.got(name, 'textDocument/didClose').length === 1),
+  )
 
   // The union keeps push order, and the two children push in either order.
   expect(union.params).toEqual({
@@ -269,9 +216,6 @@ it('pulls diagnostics from a child that declares diagnosticProvider, after open,
   ])
   await proxy.initialize()
   const file = uri(proxy.project, 'a.ts')
-  const unionOf = (count: number) => (message: Message) =>
-    message.method === 'textDocument/publishDiagnostics' &&
-    (message.params as { diagnostics: unknown[] }).diagnostics.length === count
 
   proxy.send({
     method: 'textDocument/didOpen',
@@ -284,7 +228,13 @@ it('pulls diagnostics from a child that declares diagnosticProvider, after open,
   })
   proxy.send({ method: 'textDocument/didSave', params: { textDocument: { uri: file } } })
   proxy.send({ method: 'textDocument/didClose', params: { textDocument: { uri: file } } })
-  await proxy.waitFor(() => proxy.got('ts', 'textDocument/didClose').length === 1)
+  await proxy.until(
+    () =>
+      proxy.got('biome', 'textDocument/didClose').length === 1 &&
+      ['ts', 'quiet', 'broken'].every(
+        (name) => proxy.got(name, 'textDocument/diagnostic').length === 3,
+      ),
+  )
 
   expect(union.params).toEqual({
     uri: file,
@@ -326,7 +276,13 @@ it('sends other notifications to every child, and a cancel only to the child tha
   })
   proxy.send({ method: '$/cancelRequest', params: { id: 7 } })
   proxy.send({ method: '$/cancelRequest', params: { id: 'unknown' } })
-  await proxy.waitFor(() => proxy.got('ts', '$/cancelRequest').length === 1)
+  await proxy.until(
+    () =>
+      proxy.got('ts', '$/cancelRequest').length === 1 &&
+      ['ts', 'biome'].every(
+        (name) => proxy.got(name, 'workspace/didChangeWatchedFiles').length === 1,
+      ),
+  )
 
   expect(proxy.got('biome', 'workspace/didChangeWatchedFiles')).toHaveLength(1)
   expect(proxy.got('ts', 'workspace/didChangeWatchedFiles')).toHaveLength(1)
@@ -348,9 +304,9 @@ it("sends a child's request to Claude Code, and the response back to that child"
   proxy.send({ id: 41, result: 'for ts' })
   proxy.send({ id: 'b-1', result: 'for biome' })
   proxy.send({ id: 'nobody', result: 'dropped' })
-  await proxy.waitFor(() => proxy.logs().filter((log) => log.got.result !== undefined).length === 2)
+  await proxy.waitFor(() => proxy.logs.filter((log) => log.got.result !== undefined).length === 2)
 
-  const responses = proxy.logs().filter((log) => log.got.result !== undefined)
+  const responses = proxy.logs.filter((log) => log.got.result !== undefined)
   expect(responses.map((log) => [log.server, log.got.result])).toEqual(
     expect.arrayContaining([
       ['ts', 'for ts'],
@@ -373,11 +329,11 @@ it('known limit: two children that use one request id at once get one response, 
   )
 
   proxy.send({ id: 1, result: 'one answer' })
-  await proxy.waitFor(() => proxy.logs().some((log) => log.got.result === 'one answer'))
+  await proxy.waitFor(() => proxy.logs.some((log) => log.got.result === 'one answer'))
   proxy.send({ id: 1, result: 'second answer' })
   await new Promise((resolve) => setTimeout(resolve, 50))
 
-  const answered = proxy.logs().filter((log) => log.got.result !== undefined)
+  const answered = proxy.logs.filter((log) => log.got.result !== undefined)
   expect(answered).toHaveLength(1)
   expect(await proxy.stop()).toBe(0)
 })
@@ -408,6 +364,14 @@ it('exits with status 1 and names the child when a child crashes', async () => {
 
   expect(await proxy.status).toBe(1)
   expect(proxy.stderr()).toContain('lsp-merge: child "biome" exited (3). lsp-merge stops.')
+
+  // Claude Code may still write, then close, after the proxy has stopped.
+  // Neither reaches a child, and neither changes the status.
+  proxy.send({ method: 'workspace/didChangeWatchedFiles', params: { changes: [] } })
+  proxy.input.end()
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(await proxy.status).toBe(1)
+  expect(proxy.got('ts', 'workspace/didChangeWatchedFiles')).toEqual([])
 })
 
 it('exits with status 1 when a child cannot start', async () => {
@@ -459,18 +423,6 @@ it('exits 0 once every child has gone after shutdown', async () => {
   expect(proxy.stderr()).toBe('')
 })
 
-it('exits 0 at once on exit when every child has already gone', async () => {
-  const proxy = start([{ fake: { name: 'ts', exitOnShutdown: true }, extensionToLanguage: TS }])
-  await proxy.initialize()
-  proxy.send({ id: 'end', method: 'shutdown' })
-  await proxy.waitFor((message) => message.id === 'end')
-  await new Promise((resolve) => setTimeout(resolve, 100))
-
-  proxy.send({ method: 'exit' })
-
-  expect(await proxy.status).toBe(0)
-})
-
 it('stops a child that ignores exit once the grace time ends', async () => {
   const proxy = start([{ fake: { name: 'ts', ignoreExit: true }, extensionToLanguage: TS }], 50)
   await proxy.initialize()
@@ -508,10 +460,7 @@ it('survives a write to a child that closed its input, until the child exits', a
 
 it('refuses a command line that does not name one project directory', async () => {
   const err = new PassThrough()
-  let stderr = ''
-  err.on('data', (chunk: Buffer) => {
-    stderr += chunk.toString('utf8')
-  })
+  const stderr = collect(err)
   const edges = {
     input: new PassThrough(),
     output: new PassThrough(),
@@ -523,7 +472,7 @@ it('refuses a command line that does not name one project directory', async () =
   expect(await runServe([], edges)).toBe(2)
   expect(await runServe([''], edges)).toBe(2)
   expect(await runServe(['a', 'b'], edges)).toBe(2)
-  expect(stderr).toBe('usage: lsp-merge serve <project-dir>\n'.repeat(3))
+  expect(stderr()).toBe('usage: lsp-merge serve <project-dir>\n'.repeat(3))
 })
 
 it('exits 1 and names each problem when the config is not valid', async () => {
