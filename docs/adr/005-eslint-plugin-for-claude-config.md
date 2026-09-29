@@ -87,8 +87,9 @@ on npm on 2026-09-27.
    and `@eslint/json`. None of them has an install script.
 7. **The gate venues follow ADR 002.**
    - lefthook runs `eslint` on the staged files that match the plugin's globs.
-   - A new CI job, `eslint`, runs it over the repository. The job becomes a required check only
-     after it reports on `main` once.
+   - A new CI job, `eslint`, runs it over the repository, without `--cache`. Some rules read a
+     second file, and the ESLint cache does not see a change to that file. The job becomes a
+     required check only after it reports on `main` once.
    - The plugin source joins the named coverage set at 100 on all four buckets.
 8. **ESLint lints only the Claude Code configuration files.** Biome keeps TypeScript, JSON format
    and its current rules. The two tools do not lint the same file for the same concern.

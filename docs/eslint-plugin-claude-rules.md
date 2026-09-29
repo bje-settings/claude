@@ -261,16 +261,18 @@ Decisions on the open questions, made in review of this document:
 4. **A `strict` config turns on every rule.** It holds `recommended`, `bje` and each `off` rule at
    `warn`. It is little work and gives an easy way to test. ADR 005 Decision 2 now names three
    configs. Other plugins call such a config `all`, so the name can change.
+5. **CI lints without `--cache`.** 82 rules read a second file. The ESLint cache stores one
+   result per file, so it does not see a change to that second file. CI lints every file on each
+   run, so it catches the defect. The editor and the lefthook step can miss it until CI runs.
+   ADR 005 Decision 7 records this. The logic stays simple: each rule reads what it needs, and
+   no rule reports on two files.
 
 ## Open questions
 
 1. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
    docs say the JSON schema can lag behind releases. The rule needs a data file that we refresh
    from `settings-reference` on each Claude Code upgrade.
-2. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
-   results per file, so a change to the second file does not invalidate the cache. CI must run
-   without `--cache`, or these rules need a separate pass.
-3. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
+2. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
    time (for example the skill listing budget: 2% in 2.1.32, 1% now). `stale_after` is set for
    six months.
 
