@@ -23,7 +23,7 @@ with fixtures that show it reports and stays silent when it must.
 ## Summary
 
 - **534 candidate rules** in 9 groups. 397 rules go in `recommended`: 242 at
-  `error` and 155 at `warn`. 3 rules go in `bje`. 134 rules ship `off`, and `strict` turns them on.
+  `error` and 155 at `warn`. 4 rules go in `bje`. 133 rules ship `off`, and `strict` turns them on.
 - **Silent failure is the largest category.** 157 rules have the category `no-op`. The file loads,
   but Claude Code ignores a key, a hook or a whole file with no error. 97 more rules catch a
   file that fails to load. A lint rule is the only feedback for most of these.
@@ -127,11 +127,15 @@ below covers one kind of configuration file, and each rule name starts with its 
 ADR 005 Decision 2 names three configs:
 
 - `recommended` holds the rules that follow from the Claude Code docs, for any team.
-- `strict` turns on every rule: `recommended` and `bje` at their own severity, and each `off`
-  rule at `warn`. It is all 534 rules. Use it to test the full set, not as a CI gate.
+- `strict` extends `bje`, then turns on at `warn` each rule that is still off. So every one of
+  the 534 rules is on. A rule keeps its `bje` or `recommended` severity where one is set.
+  Use `strict` to test the full set, not as a CI gate.
 - `bje` extends `recommended` with the conventions of this enterprise.
 
 A rule outside `recommended` and `bje` ships `off`, and only `strict` turns it on.
+
+The Preset column in each rule table names the first config that turns the rule on. The
+Proposed `bje` preset section lists the changes that `bje` makes to `recommended` rules.
 
 The boundary between `recommended` and `bje` is firm. A rule goes in `recommended` only when Anthropic
 documentation is its source. A preference of this enterprise never goes in `recommended`, even
@@ -164,13 +168,13 @@ A few rules differ from the table on purpose. Each one says why in its group's n
 | Skills and commands | 17 | 17 | 0 | 21 | 55 |
 | Subagents and output styles | 18 | 14 | 0 | 12 | 44 |
 | Hooks | 20 | 17 | 3 | 20 | 60 |
-| Plugin manifest and layout | 45 | 24 | 0 | 11 | 80 |
+| Plugin manifest and layout | 45 | 24 | 1 | 10 | 80 |
 | Marketplace manifest | 33 | 18 | 0 | 4 | 55 |
 | CLAUDE.md, rules and memory | 12 | 9 | 0 | 16 | 37 |
 | Settings | 23 | 24 | 0 | 16 | 63 |
 | Permissions and sandbox | 38 | 20 | 0 | 23 | 81 |
 | MCP and LSP servers | 36 | 12 | 0 | 11 | 59 |
-| **Total** | **242** | **155** | **3** | **134** | **534** |
+| **Total** | **242** | **155** | **4** | **133** | **534** |
 
 The `Validate` column in each table says whether `claude plugin validate` already reports the
 check for plugins: `covered`, `partial` or `–`. A `covered` rule stays in the list, because
@@ -189,7 +193,7 @@ are not in the group tables yet.
 | `hooks-command-path-variable` | `off` to `warn`: a hook command path goes through `${CLAUDE_PLUGIN_ROOT}` | `_design-principles.md`, State |
 | `command-legacy-format` | `warn` to `error` | `_design-principles.md`, Mechanisms: new plugins use `skills/` |
 | `plugin-symlink-escapes-plugin` | `warn` to `off` | `CLAUDE.md`: this repo installs through the marketplace or `--plugin-dir`, and both keep the `src/lib` link. Every `src/lib` link would report. |
-| `plugin-manifest-version-present` | `off` to `error` | `plugin-validate.yml` runs `--strict` |
+| `plugin-manifest-version-present` | on, `error` (not in `recommended`) | `plugin-validate.yml` runs `--strict` |
 | `skill-name-matches-dir` (new) | `error`: frontmatter `name`, when set, equals the skill directory name | Decision on #223: one name for each skill in the tree and the `/` menu |
 | `skill-no-hidden-callee` (new) | `error` | #191: `disable-model-invocation: true` on a skill that another skill calls |
 | `skill-no-bare-bash` (new) | `error` | #190 |
@@ -254,12 +258,12 @@ Decisions on the open questions, made in review of this document:
    directory name, so the rule is an enterprise convention.
 2. **`--plugin-dir` keeps the `src/lib` symlink.** The retest in the Method section shows this.
    `CLAUDE.md` and the workstreams README now match.
-3. **`plugin-manifest-version-present` is `off` in `recommended` and `error` in `bje`.** The hosting
+3. **`plugin-manifest-version-present` is not in `recommended`, and is `error` in `bje`.** The hosting
    docs recommend no `version`, so that users track commits. `--strict` is a validator mode, not a
    recommendation. This repository runs `--strict` in CI, so `bje` enforces it.
    `marketplace-version-duplicate` stays in `recommended`: a `version` in both files is a defect.
-4. **A `strict` config turns on every rule.** It holds `recommended`, `bje` and each `off` rule at
-   `warn`. It is little work and gives an easy way to test. ADR 005 Decision 2 now names three
+4. **A `strict` config turns on every rule.** It extends `bje`, then turns on at `warn` each rule
+   that is still off. It is little work and gives an easy way to test. ADR 005 Decision 2 now names three
    configs. Other plugins call such a config `all`, so the name can change.
 5. **CI lints without `--cache`.** 82 rules read a second file. The ESLint cache stores one
    result per file, so it does not see a change to that second file. CI lints every file on each
@@ -355,7 +359,7 @@ Target shorthand: SKILL = `**/.claude/skills/*/SKILL.md`, `<plugin>/skills/*/SKI
 - **Validate coverage.** A changelog entry says validate checks skill and command frontmatter for "YAML parse errors and schema violations", but no page lists the schema checks. Unknown keys are ignored at load. Only parse failure and a missing frontmatter block are marked `covered`. validate does not run on a repo's `.claude/commands/`. [^changelog-claude-code-changelog] [^skills-skill-not-triggering]
 - **Footnote headings.** "Choose where skills load" and "Names reserved for synced skills" are HTML headings with ids that differ from their slugs (`where-skills-live`, `names-reserved-for-synced-skills`). Footnotes use the nearest Markdown heading above them. The changelog has one heading; each Checks cell names the version instead.
 - **Owned by other groups (not repeated here):** `skillOverrides`, `skillListing*`, `disableSkillShellExecution` and the `SLASH_COMMAND_TOOL_CHAR_BUDGET` env name (settings); `Skill(...)` rule syntax (permissions); hooks in skill frontmatter and `once` (hooks); an agent's `skills:` list naming a `disable-model-invocation` skill (agents); plugin-root `CLAUDE.md`, the `skills` and `commands` manifest keys, symlinked component entries, and `${user_config.KEY}` of a sensitive option in skill content (plugin); an MCP server named `anthropic-skills` (mcp-lsp); CLAUDE.md length (memory).
-- **bje candidates (not rules yet).** This repo's CLAUDE.md requires `docs/flows/<plugin>/<skill>/_skill-flow.md` for every skill, and `_design-principles.md` forbids `disable-model-invocation: true` on a skill that another skill invokes and says new plugins use `skills/`. A `bje` preset could raise `command-legacy-format` to error and add a flow-docs rule.
+- **bje candidates (not rules yet).** This repo's CLAUDE.md requires `docs/flows/<plugin>/<skill>/_skill-flow.md` for every skill, and `_design-principles.md` forbids `disable-model-invocation: true` on a skill that another skill invokes and says new plugins use `skills/`. The Proposed `bje` preset section raises `command-legacy-format` to `error`. The flow-docs check stays in `tests/repo/` (ADR 005 Decision 2).
 
 ### Subagents and output styles
 
@@ -536,7 +540,7 @@ Covers `.claude-plugin/plugin.json` (every field except inline `mcpServers`, `ls
 | `plugin-manifest-name-stable` | `name` equals its value at the previous commit, unless the marketplace `renames` map has an entry for the old name (cross-file, reads git history). | recommended | error | consistency | – | [^plugins-publish-rename-or-remove-a-plugin] |
 | `plugin-manifest-unknown-field` | Top-level keys within: `$schema`, `name`, `displayName`, `version`, `description`, `author`, `homepage`, `repository`, `license`, `keywords`, `metadata`, `defaultEnabled`, `dependencies`, `settings`, `userConfig`, `channels`, `skills`, `commands`, `agents`, `hooks`, `mcpServers`, `lspServers`, `outputStyles`, `workflows`, `experimental`, `privacyPolicyUrl`, `supportUrl`. Unknown keys are stripped. | recommended | error | no-op | covered | [^plugins-manifest-reference-unrecognized-fields] [^plugins-manifest-reference-fields] [^changelog-claude-code-changelog] |
 | `plugin-manifest-description-author` | `description` and `author` present. validate warns; `--strict` fails. | recommended | warn | practice | covered | [^plugins-manifest-reference-validate-the-manifest] |
-| `plugin-manifest-version-present` | `version` present. validate warns; `--strict` fails. `off` in `recommended`: the hosting docs recommend no `version`, so that users track commits. `bje` sets `error` to match `--strict` in CI. | off | warn | practice | covered | [^plugins-manifest-reference-validate-the-manifest] [^plugins-publish-prepare-your-plugin-for-release] [^plugins-host-marketplace-release-a-new-version] |
+| `plugin-manifest-version-present` | `version` present. validate warns; `--strict` fails. Not in `recommended`: the hosting docs recommend no `version`, so that users track commits. `bje` sets `error` to match `--strict` in CI. | bje | error | practice | covered | [^plugins-manifest-reference-validate-the-manifest] [^plugins-publish-prepare-your-plugin-for-release] [^plugins-host-marketplace-release-a-new-version] |
 | `plugin-manifest-version-semver` | When set, `version` is valid semver. Claude Code does not check it, but dependency ranges and `<name>--v<version>` tags need it. | recommended | warn | practice | – | [^plugins-manifest-reference-version] [^plugins-dependencies-create-a-release-tag] |
 | `plugin-manifest-version-bump` | (heuristic) When `version` is set and files under the plugin changed since the last commit that changed `version`, flag a missing bump. Users stay on the cached copy until the string changes. | off | warn | no-op | – | [^plugins-loading-how-claude-code-computes-the-version] [^plugins-host-marketplace-release-a-new-version] |
 | `plugin-release-tag-matches-version` | Release tags for the plugin read `<plugin-name>--v<version>`, and `<version>` equals `plugin.json` `version` at the tagged commit (cross-file, reads git tags). | recommended | warn | consistency | – | [^plugins-dependencies-create-a-release-tag] |
@@ -619,7 +623,7 @@ These rules lint `claude plugin eval` suites (`evals/` or the `experimental.eval
 
 - **`version` conflict.** `--strict` fails on a missing `version`, and the publish page says "Drop `--strict` if you chose to omit `version`" [^plugins-publish-prepare-your-plugin-for-release]. The hosting and loading pages recommend omitting `version` so users track commits [^plugins-host-marketplace-release-a-new-version] [^plugins-loading-how-claude-code-computes-the-version]. Decision 3 (see Decisions): the rule is `off` in `recommended` and `error` in `bje`. This repository sets `version` in all five `plugin.json` files and runs `claude plugin validate --strict` in `plugin-validate.yml`. `version` is not read for `command` sources, claude.ai-hosted marketplaces, or in-place local-directory loads [^plugins-manifest-reference-version].
 - **Symlinks by install method** [^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks]. A marketplace install into the cache keeps in-plugin links as relative links. It dereferences links to elsewhere in the same marketplace (copies the target). It skips links outside the marketplace. A local-path install and a `command` source in `copy` mode keep only links that resolve inside the plugin directory, and skip all others. The docs say `--plugin-dir` loads the directory in place and never copies it [^plugins-loading-in-place-and-copied-plugins]. A retest on 2.1.284 confirms that `--plugin-dir` keeps a link that resolves outside the plugin (see Retest in the Method section). For component paths, the loading page allows "links between plugins within one marketplace" [^plugins-loading-paths-that-escape-the-plugin-directory]. validate does not follow links [^plugins-cli-reference-validate-a-directory].
-- **bje preset.** Each `plugins/<p>/src/lib -> ../../../lib` link resolves inside the marketplace but outside the plugin. So `plugin-symlink-escapes-plugin` warns on every plugin here. The `bje` preset should turn it `off`, because this repo installs through the marketplace or `--plugin-dir`, and both keep the link. Candidate `bje` rules from CLAUDE.md, not added here because they have no docs source: no `package.json` in a plugin, no bash files under `plugins/`, and `plugin-manifest-version-present` at `error`.
+- **bje preset.** Each `plugins/<p>/src/lib -> ../../../lib` link resolves inside the marketplace but outside the plugin. So `plugin-symlink-escapes-plugin` warns on every plugin here. The `bje` preset should turn it `off`, because this repo installs through the marketplace or `--plugin-dir`, and both keep the link. Candidate `bje` rules from CLAUDE.md, not added here because they have no docs source: no `package.json` in a plugin, and no bash files under `plugins/`. The Proposed `bje` preset section lists them.
 - `plugin-settings-agent-exists`: the agents findings rated it "breaks" and the plugins findings "best-practice". The docs only say "Set `agent` to run one of the plugin's own agents" [^plugins-components-default-settings]. I used `warn` because they document no failure.
 - `plugin-monitors-command-quote`: the hooks findings treat unquoted placeholders as "breaks". Failure needs an install path with spaces, so by policy this is a conditional `warn`. The hooks group should align `hooks-shell-form-quote-placeholder`. Both `"${CLAUDE_PLUGIN_ROOT}/x"` and `"${CLAUDE_PLUGIN_ROOT}"/x` pass [^plugins-manifest-reference-quoting-and-path-separators].
 - Changelog 2.1.136 says the `skills` key no longer hides the default `skills/`. 2.1.140 warns about default folders that a key replaces [^changelog-claude-code-changelog]. The manifest reference says `skills` adds to the default and does not replace it [^plugins-manifest-reference-how-each-key-combines-with-its-default-location]. So `plugin-default-dir-shadowed` excludes `skills`.

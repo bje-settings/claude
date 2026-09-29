@@ -67,8 +67,8 @@ on npm on 2026-09-27.
 2. **The plugin ships three configs.**
    - `recommended` holds the rules that follow from the Claude Code docs and the skill authoring
      guide. Any team can use it. A rule goes here only when Anthropic documentation is its source.
-   - `strict` turns on every rule: `recommended` and `bje` at their own severity, and every other
-     rule, the heuristics included, at `warn`. It gives an easy way to test the full rule set.
+   - `strict` extends `bje`, then turns on at `warn` each rule that is still off, the heuristics
+     included. It gives an easy way to test the full rule set.
    - `bje` extends `recommended` with the conventions of this enterprise, for example the
      `SessionStart` matcher in `.claude/rules/_design-principles.md`. A preference of this
      enterprise never goes in `recommended`.
