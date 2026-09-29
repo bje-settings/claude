@@ -89,4 +89,5 @@ errors.
   still follows the dispatcher pattern (`scripts/lsp-merge.ts`, `src/subcommands/serve.ts`),
   and its tests drive real fake child servers.
 - **Local install:** the hook reaches the root `lib/` through `src/lib`. So test the plugin
-  through `/plugin marketplace add`, not `--plugin-dir`.
+  through `/plugin marketplace add` or `claude --plugin-dir`, which keep that link. A local path
+  install or a `command` source in copy mode drops it.

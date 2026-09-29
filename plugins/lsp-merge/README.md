@@ -71,8 +71,9 @@ a file closes, lsp-merge drops its lists.
 
 - `node` 22.18 or newer on `PATH`, and the `claude` CLI on `PATH` (for the session start check).
 - Each server's own requirements, for example `node_modules` installed.
-- Install through a marketplace (`/plugin marketplace add`). `claude --plugin-dir` drops the
-  plugin's `src/lib` link, and the hook then fails at import.
+- Install through a marketplace (`/plugin marketplace add`), or load it in place with
+  `claude --plugin-dir`. A local path install and a `command` source in copy mode drop the
+  plugin's `src/lib` link, and the hook then fails at import (`CLAUDE.md`, Plugin marketplace).
 
 ## Failure modes
 
