@@ -22,8 +22,8 @@ with fixtures that show it reports and stays silent when it must.
 
 ## Summary
 
-- **534 candidate rules** in 9 groups. 398 rules go in `recommended`: 242 at
-  `error` and 156 at `warn`. 3 rules go in `bje`. 133 rules ship `off`.
+- **534 candidate rules** in 9 groups. 397 rules go in `recommended`: 242 at
+  `error` and 155 at `warn`. 3 rules go in `bje`. 134 rules ship `off`.
 - **Silent failure is the largest category.** 157 rules have the category `no-op`. The file loads,
   but Claude Code ignores a key, a hook or a whole file with no error. 97 more rules catch a
   file that fails to load. A lint rule is the only feedback for most of these.
@@ -159,13 +159,13 @@ A few rules differ from the table on purpose. Each one says why in its group's n
 | Skills and commands | 17 | 17 | 0 | 21 | 55 |
 | Subagents and output styles | 18 | 14 | 0 | 12 | 44 |
 | Hooks | 20 | 17 | 3 | 20 | 60 |
-| Plugin manifest and layout | 45 | 25 | 0 | 10 | 80 |
+| Plugin manifest and layout | 45 | 24 | 0 | 11 | 80 |
 | Marketplace manifest | 33 | 18 | 0 | 4 | 55 |
 | CLAUDE.md, rules and memory | 12 | 9 | 0 | 16 | 37 |
 | Settings | 23 | 24 | 0 | 16 | 63 |
 | Permissions and sandbox | 38 | 20 | 0 | 23 | 81 |
 | MCP and LSP servers | 36 | 12 | 0 | 11 | 59 |
-| **Total** | **242** | **156** | **3** | **133** | **534** |
+| **Total** | **242** | **155** | **3** | **134** | **534** |
 
 The `Validate` column in each table says whether `claude plugin validate` already reports the
 check for plugins: `covered`, `partial` or `–`. A `covered` rule stays in the list, because
@@ -184,7 +184,7 @@ are not in the group tables yet.
 | `hooks-command-path-variable` | `off` to `warn`: a hook command path goes through `${CLAUDE_PLUGIN_ROOT}` | `_design-principles.md`, State |
 | `command-legacy-format` | `warn` to `error` | `_design-principles.md`, Mechanisms: new plugins use `skills/` |
 | `plugin-symlink-escapes-plugin` | `warn` to `off` | `CLAUDE.md`: this repo installs through the marketplace or `--plugin-dir`, and both keep the `src/lib` link. Every `src/lib` link would report. |
-| `plugin-manifest-version-present` | `warn` to `error` | `plugin-validate.yml` runs `--strict` |
+| `plugin-manifest-version-present` | `off` to `error` | `plugin-validate.yml` runs `--strict` |
 | `skill-name-matches-dir` (new) | `error`: frontmatter `name`, when set, equals the skill directory name | Decision on #223: one name for each skill in the tree and the `/` menu |
 | `skill-no-hidden-callee` (new) | `error` | #191: `disable-model-invocation: true` on a skill that another skill calls |
 | `skill-no-bare-bash` (new) | `error` | #190 |
@@ -241,21 +241,31 @@ The groups were written apart, so some checks came out twice. Each one now lives
 | `settings-teammate-default-model` | Subagents and output styles | `settings-key-scope` |
 | `plugin-commands-dir-legacy` | Plugin manifest and layout | `command-legacy-format` |
 
+## Decisions
+
+Decisions on the open questions, made in review of this document:
+
+1. **`skill-name-matches-dir` goes in `bje`.** The docs allow a `name` that differs from the
+   directory name, so the rule is an enterprise convention.
+2. **`--plugin-dir` keeps the `src/lib` symlink.** The retest in the Method section shows this.
+   `CLAUDE.md` and the workstreams README now match.
+3. **`plugin-manifest-version-present` is `off` in `recommended` and `error` in `bje`.** The hosting
+   docs recommend no `version`, so that users track commits. `--strict` is a validator mode, not a
+   recommendation. This repository runs `--strict` in CI, so `bje` enforces it.
+   `marketplace-version-duplicate` stays in `recommended`: a `version` in both files is a defect.
+
 ## Open questions
 
 1. **A third config.** `typescript-eslint` and `eslint-plugin-unicorn` ship an `all` or `strict`
-   config. One here would turn the 133 `off` rules on. ADR 005 names two configs, so this is an
+   config. One here would turn the 134 `off` rules on. ADR 005 names two configs, so this is an
    ADR change.
-2. **The `version` conflict.** `--strict` fails when `version` is missing. The plugin hosting docs
-   recommend leaving it out, so that users track commits. `plugin-manifest-version-present` warns
-   and has an `allowOmit` option. This repository sets `version` in every `plugin.json`.
-3. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
+2. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
    docs say the JSON schema can lag behind releases. The rule needs a data file that we refresh
    from `settings-reference` on each Claude Code upgrade.
-4. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
+3. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
    results per file, so a change to the second file does not invalidate the cache. CI must run
    without `--cache`, or these rules need a separate pass.
-5. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
+4. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
    time (for example the skill listing budget: 2% in 2.1.32, 1% now). `stale_after` is set for
    six months.
 
@@ -519,7 +529,7 @@ Covers `.claude-plugin/plugin.json` (every field except inline `mcpServers`, `ls
 | `plugin-manifest-name-stable` | `name` equals its value at the previous commit, unless the marketplace `renames` map has an entry for the old name (cross-file, reads git history). | recommended | error | consistency | – | [^plugins-publish-rename-or-remove-a-plugin] |
 | `plugin-manifest-unknown-field` | Top-level keys within: `$schema`, `name`, `displayName`, `version`, `description`, `author`, `homepage`, `repository`, `license`, `keywords`, `metadata`, `defaultEnabled`, `dependencies`, `settings`, `userConfig`, `channels`, `skills`, `commands`, `agents`, `hooks`, `mcpServers`, `lspServers`, `outputStyles`, `workflows`, `experimental`, `privacyPolicyUrl`, `supportUrl`. Unknown keys are stripped. | recommended | error | no-op | covered | [^plugins-manifest-reference-unrecognized-fields] [^plugins-manifest-reference-fields] [^changelog-claude-code-changelog] |
 | `plugin-manifest-description-author` | `description` and `author` present. validate warns; `--strict` fails. | recommended | warn | practice | covered | [^plugins-manifest-reference-validate-the-manifest] |
-| `plugin-manifest-version-present` | `version` present. validate warns; `--strict` fails. Option `allowOmit` (default `false`) for plugins that track commits instead. See Notes. | recommended | warn | practice | covered | [^plugins-manifest-reference-validate-the-manifest] [^plugins-publish-prepare-your-plugin-for-release] [^plugins-host-marketplace-release-a-new-version] |
+| `plugin-manifest-version-present` | `version` present. validate warns; `--strict` fails. `off` in `recommended`: the hosting docs recommend no `version`, so that users track commits. `bje` sets `error` to match `--strict` in CI. | off | warn | practice | covered | [^plugins-manifest-reference-validate-the-manifest] [^plugins-publish-prepare-your-plugin-for-release] [^plugins-host-marketplace-release-a-new-version] |
 | `plugin-manifest-version-semver` | When set, `version` is valid semver. Claude Code does not check it, but dependency ranges and `<name>--v<version>` tags need it. | recommended | warn | practice | – | [^plugins-manifest-reference-version] [^plugins-dependencies-create-a-release-tag] |
 | `plugin-manifest-version-bump` | (heuristic) When `version` is set and files under the plugin changed since the last commit that changed `version`, flag a missing bump. Users stay on the cached copy until the string changes. | off | warn | no-op | – | [^plugins-loading-how-claude-code-computes-the-version] [^plugins-host-marketplace-release-a-new-version] |
 | `plugin-release-tag-matches-version` | Release tags for the plugin read `<plugin-name>--v<version>`, and `<version>` equals `plugin.json` `version` at the tagged commit (cross-file, reads git tags). | recommended | warn | consistency | – | [^plugins-dependencies-create-a-release-tag] |
@@ -600,7 +610,7 @@ These rules lint `claude plugin eval` suites (`evals/` or the `experimental.eval
 
 #### Plugin manifest and layout: notes
 
-- **`version` conflict.** `--strict` fails on a missing `version`, and the publish page says "Drop `--strict` if you chose to omit `version`" [^plugins-publish-prepare-your-plugin-for-release]. The hosting and loading pages recommend omitting `version` so users track commits [^plugins-host-marketplace-release-a-new-version] [^plugins-loading-how-claude-code-computes-the-version]. I picked the stricter value: `plugin-manifest-version-present` warns by default, with `allowOmit` for commit-tracking plugins. This repository sets `version` in all five `plugin.json` files and runs `claude plugin validate --strict` in `plugin-validate.yml`. The phase-1 note that "this repo does not pin" is wrong. `version` is not read for `command` sources, claude.ai-hosted marketplaces, or in-place local-directory loads [^plugins-manifest-reference-version].
+- **`version` conflict.** `--strict` fails on a missing `version`, and the publish page says "Drop `--strict` if you chose to omit `version`" [^plugins-publish-prepare-your-plugin-for-release]. The hosting and loading pages recommend omitting `version` so users track commits [^plugins-host-marketplace-release-a-new-version] [^plugins-loading-how-claude-code-computes-the-version]. Decision 3 (see Decisions): the rule is `off` in `recommended` and `error` in `bje`.json` files and runs `claude plugin validate --strict` in `plugin-validate.yml`. The phase-1 note that "this repo does not pin" is wrong. `version` is not read for `command` sources, claude.ai-hosted marketplaces, or in-place local-directory loads [^plugins-manifest-reference-version].
 - **Symlinks by install method** [^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks]. A marketplace install into the cache keeps in-plugin links as relative links. It dereferences links to elsewhere in the same marketplace (copies the target). It skips links outside the marketplace. A local-path install and a `command` source in `copy` mode keep only links that resolve inside the plugin directory, and skip all others. The docs say `--plugin-dir` loads the directory in place and never copies it [^plugins-loading-in-place-and-copied-plugins]. A retest on 2.1.284 confirms that `--plugin-dir` keeps a link that resolves outside the plugin (see Retest in the Method section). For component paths, the loading page allows "links between plugins within one marketplace" [^plugins-loading-paths-that-escape-the-plugin-directory]. validate does not follow links [^plugins-cli-reference-validate-a-directory].
 - **bje preset.** Each `plugins/<p>/src/lib -> ../../../lib` link resolves inside the marketplace but outside the plugin. So `plugin-symlink-escapes-plugin` warns on every plugin here. The `bje` preset should turn it `off`, because this repo installs through the marketplace or `--plugin-dir`, and both keep the link. Candidate `bje` rules from CLAUDE.md, not added here because they have no docs source: no `package.json` in a plugin, no bash files under `plugins/`, and `plugin-manifest-version-present` at `error`.
 - `plugin-settings-agent-exists`: the agents findings rated it "breaks" and the plugins findings "best-practice". The docs only say "Set `agent` to run one of the plugin's own agents" [^plugins-components-default-settings]. I used `warn` because they document no failure.
