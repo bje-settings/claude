@@ -64,11 +64,14 @@ on npm on 2026-09-27.
 
    A rule that needs a second file reads it from `context.filename`. No third-party ESLint plugin
    is a dependency. The two plugins in the table above are prior art to read, not code to import.
-2. **The plugin ships two configs.**
+2. **The plugin ships three configs.**
    - `recommended` holds the rules that follow from the Claude Code docs and the skill authoring
-     guide. Any team can use it.
-   - `bje` adds the conventions of this enterprise, for example the `SessionStart` matcher in
-     `.claude/rules/_design-principles.md`.
+     guide. Any team can use it. A rule goes here only when Anthropic documentation is its source.
+   - `strict` turns on every rule: `recommended` and `bje` at their own severity, and every other
+     rule, the heuristics included, at `warn`. It gives an easy way to test the full rule set.
+   - `bje` extends `recommended` with the conventions of this enterprise, for example the
+     `SessionStart` matcher in `.claude/rules/_design-principles.md`. A preference of this
+     enterprise never goes in `recommended`.
 
    A check that only this repository needs, such as the flow directories, stays in
    `tests/repo/`. A check that needs a model judgment is not a lint rule.

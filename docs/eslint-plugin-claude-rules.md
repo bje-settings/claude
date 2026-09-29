@@ -23,7 +23,7 @@ with fixtures that show it reports and stays silent when it must.
 ## Summary
 
 - **534 candidate rules** in 9 groups. 397 rules go in `recommended`: 242 at
-  `error` and 155 at `warn`. 3 rules go in `bje`. 134 rules ship `off`.
+  `error` and 155 at `warn`. 3 rules go in `bje`. 134 rules ship `off`, and `strict` turns them on.
 - **Silent failure is the largest category.** 157 rules have the category `no-op`. The file loads,
   but Claude Code ignores a key, a hook or a whole file with no error. 97 more rules catch a
   file that fails to load. A lint rule is the only feedback for most of these.
@@ -124,11 +124,16 @@ below covers one kind of configuration file, and each rule name starts with its 
 
 ## Presets and severity
 
-ADR 005 Decision 2 names two configs. `recommended` holds the rules that follow from the Claude
-Code docs, for any team. `bje` extends `recommended` with the conventions of this enterprise. A
-rule in neither config ships `off`, and a team turns it on by name.
+ADR 005 Decision 2 names three configs:
 
-The boundary between the two is strict. A rule goes in `recommended` only when Anthropic
+- `recommended` holds the rules that follow from the Claude Code docs, for any team.
+- `strict` turns on every rule: `recommended` and `bje` at their own severity, and each `off`
+  rule at `warn`. It is all 534 rules. Use it to test the full set, not as a CI gate.
+- `bje` extends `recommended` with the conventions of this enterprise.
+
+A rule outside `recommended` and `bje` ships `off`, and only `strict` turns it on.
+
+The boundary between `recommended` and `bje` is firm. A rule goes in `recommended` only when Anthropic
 documentation is its source. A preference of this enterprise never goes in `recommended`, even
 when it is a good practice. It goes in `bje`.
 
@@ -144,7 +149,7 @@ Severity follows the documented impact:
 | A size limit, a truncation or a context cost. | `recommended` | `warn` |
 | A documented best practice. | `recommended` | `warn` |
 | It fails only on one OS, one version range or with one other setting. | `recommended` | `warn` |
-| A heuristic proxy. It can report a false positive. | `off` | `warn` when on |
+| A heuristic proxy. It can report a false positive. | `strict` only | `warn` |
 
 A `no-op` is `error` because the author wrote config that does nothing, and nothing else tells
 them. Legacy `commands/` is `warn`: those files still load. A dropped symlink or a missing hook
@@ -253,19 +258,19 @@ Decisions on the open questions, made in review of this document:
    docs recommend no `version`, so that users track commits. `--strict` is a validator mode, not a
    recommendation. This repository runs `--strict` in CI, so `bje` enforces it.
    `marketplace-version-duplicate` stays in `recommended`: a `version` in both files is a defect.
+4. **A `strict` config turns on every rule.** It holds `recommended`, `bje` and each `off` rule at
+   `warn`. It is little work and gives an easy way to test. ADR 005 Decision 2 now names three
+   configs. Other plugins call such a config `all`, so the name can change.
 
 ## Open questions
 
-1. **A third config.** `typescript-eslint` and `eslint-plugin-unicorn` ship an `all` or `strict`
-   config. One here would turn the 134 `off` rules on. ADR 005 names two configs, so this is an
-   ADR change.
-2. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
+1. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
    docs say the JSON schema can lag behind releases. The rule needs a data file that we refresh
    from `settings-reference` on each Claude Code upgrade.
-3. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
+2. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
    results per file, so a change to the second file does not invalidate the cache. CI must run
    without `--cache`, or these rules need a separate pass.
-4. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
+3. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
    time (for example the skill listing budget: 2% in 2.1.32, 1% now). `stale_after` is set for
    six months.
 
