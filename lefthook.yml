@@ -75,6 +75,22 @@ pre-commit:
           printf '!! CI enforces it on the pull request. Install locally with:\n!!   pnpm install\n\n' >&2
         fi
 
+    # ESLint over the staged Markdown and JSON (ADR 005). `pnpm lint` passes
+    # the flag that loads `eslint.config.ts` and `--max-warnings 0`.
+    # `--no-warn-ignored` turns "no config matches this file" into silence,
+    # since most staged Markdown and JSON is not Claude Code configuration.
+    # A rule that reads a second file sees the working tree, not the index.
+    # CI lints the whole tree.
+    eslint:
+      glob: '*.{md,json}'
+      run: |
+        if [ -d node_modules ]; then
+          pnpm lint --no-warn-ignored {staged_files}
+        else
+          printf '\n!! pre-commit: node_modules is absent, so the eslint gate did not run here.\n' >&2
+          printf '!! CI enforces it on the pull request. Install locally with:\n!!   pnpm install\n\n' >&2
+        fi
+
     # The one step that is NOT staged-only (ADR 002): `tsc -p tsconfig.json`
     # checks the whole project. A type error that a staged file causes is
     # usually in a file that was not staged. `*.ts` here matches a nested

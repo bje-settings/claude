@@ -9,7 +9,8 @@
     "#gh/*": "./plugins/gh/src/*",
     "#lsp-merge/*": "./plugins/lsp-merge/src/*",
     "#mermaid/*": "./plugins/mermaid/src/*",
-    "#workstreams/*": "./plugins/workstreams/src/*"
+    "#workstreams/*": "./plugins/workstreams/src/*",
+    "#eslint-plugin-claude/*": "./packages/eslint-plugin-claude/src/*"
   },
   "description": "Dev and CI toolchain for the marketplace. Not a shipped package and not a dependency of any plugin: plugins never carry a package.json (RFC 001 decision 13, docs/rfc/001-typescript-port.md).",
   "packageManager": "pnpm@10.34.5",
@@ -17,15 +18,20 @@
     "node": ">=22.18.0 <23"
   },
   "scripts": {
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config --max-warnings 0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
+    "@eslint/json": "2.1.0",
+    "@eslint/markdown": "8.0.3",
     "@types/node": "22.20.2",
     "@vitest/coverage-v8": "4.1.11",
+    "eslint": "10.11.0",
     "lefthook": "2.1.12",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "yaml": "2.9.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
