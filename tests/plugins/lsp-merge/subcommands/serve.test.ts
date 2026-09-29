@@ -132,6 +132,11 @@ it('sends a request about a file to its primary child only, and a request with n
   })
   proxy.send({ id: 2, method: 'workspace/symbol', params: { query: 'x' } })
   proxy.send({
+    id: 4,
+    method: 'callHierarchy/incomingCalls',
+    params: { item: { uri: uri(proxy.project, 'a.ts'), name: 'f' } },
+  })
+  proxy.send({
     id: 3,
     method: 'textDocument/hover',
     params: { textDocument: { uri: uri(proxy.project, 'a.py') } },
@@ -144,6 +149,10 @@ it('sends a request about a file to its primary child only, and a request with n
   expect((await proxy.waitFor((message) => message.id === 2)).result).toEqual({
     server: 'biome',
     method: 'workspace/symbol',
+  })
+  expect((await proxy.waitFor((message) => message.id === 4)).result).toEqual({
+    server: 'ts',
+    method: 'callHierarchy/incomingCalls',
   })
   expect(await proxy.waitFor((message) => message.id === 3)).toEqual({
     jsonrpc: '2.0',
@@ -290,51 +299,58 @@ it('sends other notifications to every child, and a cancel only to the child tha
   expect(await proxy.stop()).toBe(0)
 })
 
-it("sends a child's request to Claude Code, and the response back to that child", async () => {
+/** Answer each `window/workDoneProgress/create` the proxy sent on, with
+ *  the token of the child that asked. */
+const answerProgressRequests = async (proxy: ReturnType<typeof start>, count: number) => {
+  const isCreate = (message: Message) => message.method === 'window/workDoneProgress/create'
+  await proxy.until(() => proxy.received.filter(isCreate).length === count)
+  for (const request of proxy.received.filter(isCreate)) {
+    proxy.send({ id: request.id, result: `for ${(request.params as { token: string }).token}` })
+  }
+}
+
+it("sends a child's request to Claude Code under a proxy id, and the response back under the child's id", async () => {
   const proxy = start([
     { fake: { name: 'ts', requestId: 41 }, extensionToLanguage: TS },
     { fake: { name: 'biome', requestId: 'b-1' }, extensionToLanguage: TS },
   ])
   await proxy.initialize()
 
-  await proxy.waitFor(
-    (message) => message.id === 41 && message.method === 'window/workDoneProgress/create',
-  )
-  await proxy.waitFor((message) => message.id === 'b-1')
-  proxy.send({ id: 41, result: 'for ts' })
-  proxy.send({ id: 'b-1', result: 'for biome' })
+  await answerProgressRequests(proxy, 2)
   proxy.send({ id: 'nobody', result: 'dropped' })
-  await proxy.waitFor(() => proxy.logs.filter((log) => log.got.result !== undefined).length === 2)
+  await proxy.until(() => proxy.logs.filter((log) => log.got.result !== undefined).length === 2)
 
+  const ids = proxy.received
+    .filter((message) => message.method === 'window/workDoneProgress/create')
+    .map((message) => message.id)
+  expect(ids.every((id) => typeof id === 'string' && id.startsWith('lsp-merge:'))).toBe(true)
   const responses = proxy.logs.filter((log) => log.got.result !== undefined)
-  expect(responses.map((log) => [log.server, log.got.result])).toEqual(
+  expect(responses.map((log) => [log.server, log.got.id, log.got.result])).toEqual(
     expect.arrayContaining([
-      ['ts', 'for ts'],
-      ['biome', 'for biome'],
+      ['ts', 41, 'for ts'],
+      ['biome', 'b-1', 'for biome'],
     ]),
   )
   expect(await proxy.stop()).toBe(0)
 })
 
-it('known limit: two children that use one request id at once get one response, to the last sender', async () => {
+it('gives each child its own response when two children use one request id at once', async () => {
   const proxy = start([
     { fake: { name: 'ts', requestId: 1 }, extensionToLanguage: TS },
     { fake: { name: 'biome', requestId: 1 }, extensionToLanguage: TS },
   ])
   await proxy.initialize()
-  await proxy.waitFor(
-    () =>
-      proxy.received.filter((message) => message.method === 'window/workDoneProgress/create')
-        .length === 2,
+
+  await answerProgressRequests(proxy, 2)
+  await proxy.until(() => proxy.logs.filter((log) => log.got.result !== undefined).length === 2)
+
+  const responses = proxy.logs.filter((log) => log.got.result !== undefined)
+  expect(responses.map((log) => [log.server, log.got.id, log.got.result])).toEqual(
+    expect.arrayContaining([
+      ['ts', 1, 'for ts'],
+      ['biome', 1, 'for biome'],
+    ]),
   )
-
-  proxy.send({ id: 1, result: 'one answer' })
-  await proxy.waitFor(() => proxy.logs.some((log) => log.got.result === 'one answer'))
-  proxy.send({ id: 1, result: 'second answer' })
-  await new Promise((resolve) => setTimeout(resolve, 50))
-
-  const answered = proxy.logs.filter((log) => log.got.result !== undefined)
-  expect(answered).toHaveLength(1)
   expect(await proxy.stop()).toBe(0)
 })
 
@@ -456,6 +472,122 @@ it('survives a write to a child that closed its input, until the child exits', a
   proxy.input.end()
 
   expect(await proxy.status).toBe(0)
+})
+
+it('answers a workspace/diagnostic/refresh itself, and pulls each open file of that child again', async () => {
+  const proxy = start([
+    {
+      fake: { name: 'ts', pull: 'full', refreshOn: 'workspace/didChangeWatchedFiles' },
+      extensionToLanguage: TS,
+    },
+  ])
+  await proxy.initialize()
+  const a = uri(proxy.project, 'a.ts')
+  const b = uri(proxy.project, 'b.ts')
+  const closed = uri(proxy.project, 'closed.ts')
+  // No child claims `.json`, so neither the open nor the refresh pulls it.
+  const other = uri(proxy.project, 'data.json')
+  for (const file of [a, b, closed, other]) {
+    proxy.send({
+      method: 'textDocument/didOpen',
+      params: { textDocument: { uri: file, languageId: 'x', version: 1, text: '' } },
+    })
+  }
+  proxy.send({ method: 'textDocument/didClose', params: { textDocument: { uri: closed } } })
+  await proxy.until(() => proxy.got('ts', 'textDocument/diagnostic').length === 3)
+
+  proxy.send({ method: 'workspace/didChangeWatchedFiles', params: { changes: [] } })
+  await proxy.until(() => proxy.got('ts', 'textDocument/diagnostic').length === 5)
+
+  const pulled = proxy
+    .got('ts', 'textDocument/diagnostic')
+    .map((one) => (one.params as { textDocument: { uri: string } }).textDocument.uri)
+  expect(pulled.slice(3).sort()).toEqual([a, b].sort())
+  expect(proxy.logs.some((log) => log.got.id === 'refresh-1' && log.got.result === null)).toBe(true)
+  expect(proxy.received.some((message) => message.method === 'workspace/diagnostic/refresh')).toBe(
+    false,
+  )
+  expect(await proxy.stop()).toBe(0)
+})
+
+it('sends a pull again when the child cancels it with retriggerRequest', async () => {
+  const proxy = start([{ fake: { name: 'ts', pull: 'retrigger-once' }, extensionToLanguage: TS }])
+  await proxy.initialize()
+
+  proxy.send({
+    method: 'textDocument/didOpen',
+    params: {
+      textDocument: { uri: uri(proxy.project, 'a.ts'), languageId: 'x', version: 1, text: '' },
+    },
+  })
+  const union = await proxy.waitFor(unionOf(1))
+
+  expect(proxy.got('ts', 'textDocument/diagnostic')).toHaveLength(2)
+  expect(union.params).toMatchObject({ diagnostics: [{ message: 'ts pulled' }] })
+  expect(await proxy.stop()).toBe(0)
+})
+
+it("forgets a closed file's lists, so a pull-only child's old list does not come back", async () => {
+  const proxy = start([
+    { fake: { name: 'ts', pull: 'full-once' }, extensionToLanguage: TS },
+    { fake: { name: 'biome', diagnose: true }, extensionToLanguage: TS },
+  ])
+  await proxy.initialize()
+  const file = uri(proxy.project, 'a.ts')
+  proxy.send({
+    method: 'textDocument/didOpen',
+    params: { textDocument: { uri: file, languageId: 'x', version: 1, text: '' } },
+  })
+  await proxy.waitFor(unionOf(2))
+
+  proxy.send({ method: 'textDocument/didClose', params: { textDocument: { uri: file } } })
+  proxy.send({
+    method: 'textDocument/didOpen',
+    params: { textDocument: { uri: file, languageId: 'x', version: 2, text: '' } },
+  })
+  // Two pushes for the first open. After the reopen, biome pushes, and the
+  // ts pull answers `unchanged`, which pushes nothing.
+  await proxy.until(() => proxy.got('ts', 'textDocument/diagnostic').length === 2)
+  await proxy.until(
+    () =>
+      proxy.received.filter((message) => message.method === 'textDocument/publishDiagnostics')
+        .length === 3,
+  )
+
+  const pushes = proxy.received.filter(
+    (message) => message.method === 'textDocument/publishDiagnostics',
+  )
+  expect(pushes.at(-1)?.params).toMatchObject({ diagnostics: [{ source: 'biome' }] })
+  expect(await proxy.stop()).toBe(0)
+})
+
+it('sends SIGKILL to a child that ignores SIGTERM once the grace time ends', async () => {
+  const proxy = start(
+    [
+      {
+        fake: { name: 'stubborn', ignoreExit: true, ignoreSigterm: true, logPid: true },
+        extensionToLanguage: TS,
+      },
+      { fake: { name: 'ts' }, extensionToLanguage: TS },
+    ],
+    50,
+  )
+  await proxy.initialize()
+  const pid = Number(/pid (\d+)/.exec(proxy.stderr())?.[1])
+  const alive = () => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  expect(await proxy.stop()).toBe(0)
+  for (let tries = 0; tries < 100 && alive(); tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  expect(alive()).toBe(false)
 })
 
 it('refuses a command line that does not name one project directory', async () => {

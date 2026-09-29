@@ -33,7 +33,13 @@ export interface FakeOptions {
   readonly closeStdin?: boolean
   /** Declare `diagnosticProvider`, and answer each pull this way: one
    *  diagnostic (`full`), `unchanged`, or an error. */
-  readonly pull?: 'full' | 'unchanged' | 'error'
+  readonly pull?: 'full' | 'unchanged' | 'error' | 'retrigger-once' | 'full-once'
+  /** Send `workspace/diagnostic/refresh` when this method arrives. */
+  readonly refreshOn?: string
+  /** Ignore SIGTERM, so only SIGKILL stops it. */
+  readonly ignoreSigterm?: boolean
+  /** Write `pid <n>` to stderr at start. */
+  readonly logPid?: boolean
   /** Write this line to stderr at start. */
   readonly stderr?: string
 }
@@ -46,6 +52,8 @@ const send = (message: Message): void => {
   process.stdout.write(encode({ jsonrpc: '2.0', ...message }))
 }
 
+let pulls = 0
+
 const handle = (message: Message): void => {
   const method = typeof message.method === 'string' ? message.method : undefined
   send({
@@ -53,6 +61,9 @@ const handle = (message: Message): void => {
     params: { type: 4, message: JSON.stringify({ server: options.name, got: message }) },
   })
   if (method !== undefined && method === options.crashOn) process.exit(3)
+  if (method !== undefined && method === options.refreshOn) {
+    send({ id: 'refresh-1', method: 'workspace/diagnostic/refresh' })
+  }
   if (method !== undefined && method === options.garbageOn) {
     process.stdout.write('Content-Length: 5\r\n\r\nnope!')
     return
@@ -70,7 +81,16 @@ const handle = (message: Message): void => {
       return
     }
     case 'textDocument/diagnostic':
-      if (options.pull === 'error') send({ id: message.id, error: { code: -32603, message: 'no' } })
+      pulls += 1
+      if (options.pull === 'retrigger-once' && pulls === 1) {
+        send({
+          id: message.id,
+          error: { code: -32802, message: 'busy', data: { retriggerRequest: true } },
+        })
+      } else if (options.pull === 'full-once' && pulls > 1) {
+        send({ id: message.id, result: { kind: 'unchanged', resultId: '1' } })
+      } else if (options.pull === 'error')
+        send({ id: message.id, error: { code: -32603, message: 'no' } })
       else if (options.pull === 'unchanged')
         send({ id: message.id, result: { kind: 'unchanged', resultId: '1' } })
       else {
@@ -133,6 +153,8 @@ const handle = (message: Message): void => {
 }
 
 if (options.stderr !== undefined) process.stderr.write(`${options.stderr}\n`)
+if (options.logPid) process.stderr.write(`pid ${process.pid}\n`)
+if (options.ignoreSigterm) process.on('SIGTERM', () => {})
 
 const decoder = createDecoder()
 process.stdin.on('data', (chunk: Buffer) => {

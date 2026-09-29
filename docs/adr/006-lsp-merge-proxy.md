@@ -56,13 +56,17 @@ errors.
    all children, and the proxy answers once.
 4. **Full sync.** The proxy declares `TextDocumentSyncKind.Full`. Each `didChange` carries the
    whole text, which any child accepts, so the proxy keeps no copy of a document.
-5. **Merged diagnostics.** The proxy keeps the last list of each child for each file, and pushes
-   the union when one list changes. A child that declares `diagnosticProvider` is pulled after
-   each `didOpen`, `didChange` and `didSave`. A child's name fills a missing `source`.
+5. **Merged diagnostics.** The proxy keeps the last list of each child for each file, keyed by
+   file path, and pushes the union when one list changes. A child that declares
+   `diagnosticProvider` is pulled after each `didOpen`, `didChange` and `didSave`. The proxy
+   answers a child's `workspace/diagnostic/refresh` itself, and pulls each open file of that
+   child again. It sends a pull again when the child cancels it with `retriggerRequest`. A closed
+   file's lists are dropped. A child's name fills a missing `source`.
 6. **Crashes.** When any child exits before `shutdown`, the proxy exits with status 1. Claude
-   Code's `restartOnCrash` then restarts all of them.
-7. **Requests from children** go to Claude Code with their ids unchanged. The response goes back
-   to the child that last sent that id.
+   Code's `restartOnCrash` then restarts all of them. When the proxy stops, a child that is still
+   there after the grace time gets SIGKILL.
+7. **Requests from children** go to Claude Code under an id from the proxy. The response goes
+   back to that child, under its own id.
 8. **A `SessionStart` hook** checks that the `claude` CLI is present, that the config is valid,
    and that no other enabled plugin runs a language server. It uses `claude plugin list --json`,
    then `claude plugin details` for each enabled plugin in parallel. When `details` cannot
@@ -79,9 +83,6 @@ errors.
   goes into `lsp-merge.json`, and the other plugins stay disabled. The hook says so at session
   start.
 - **Pulls can bring back ESLint** (#313), with an entry for `vscode-eslint-language-server`.
-- **Known limit:** two children that send one request id at the same time get one response, and
-  it goes to the last sender. A test pins this. Rewrite the ids if a real pair of servers hits
-  it.
 - **A crash in one child restarts all of them.** A linter that crashes in a loop also stops
   type checking, until Claude Code's `maxRestarts` ends the loop.
 - **A long-lived process in a plugin.** Every other plugin here runs short commands. The proxy

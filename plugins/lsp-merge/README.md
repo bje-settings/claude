@@ -63,6 +63,10 @@ only takes pushed diagnostics. So for a server that declares `diagnosticProvider
 pulls (`textDocument/diagnostic`) after each open, change and save. TypeScript 7's server only
 answers pulls: without lsp-merge, its type errors never reach Claude.
 
+When a server asks for a refresh (`workspace/diagnostic/refresh`), lsp-merge pulls each open file
+of that server again. When a server cancels a pull while it is busy, lsp-merge pulls again. When
+a file closes, lsp-merge drops its lists.
+
 ## Requirements
 
 - `node` 22.18 or newer on `PATH`, and the `claude` CLI on `PATH` (for the session start check).
@@ -85,9 +89,7 @@ The `SessionStart` hook reports these at session start, as a `lsp-merge: ⚠️`
 Other limits:
 
 - **When any server exits, lsp-merge exits too**, and Claude Code restarts all of them, up to
-  `maxRestarts` (3).
-- **Two servers that send one request id at the same time** get one response, sent to the last
-  sender.
+  `maxRestarts` (3). When lsp-merge stops, a server that ignores SIGTERM gets SIGKILL.
 - **Claude Code on the web** does not start language servers in its sessions.
 - **Diagnostics arrive after the edit.** Claude sees them on its next turn. A pulled server can
   answer a few hundred milliseconds after a pushed one.

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { createDiagnosticStore } from '#lsp-merge/diagnostics.ts'
+import { createDiagnosticStore, fileKey } from '#lsp-merge/diagnostics.ts'
 
 const A = 'file:///repo/a.ts'
 const B = 'file:///repo/b.ts'
@@ -52,4 +52,37 @@ it('uses the child name as the source when the child gives none', () => {
     uri: A,
     diagnostics: [diagnostic('no source', 'biome'), diagnostic('empty', 'biome')],
   })
+})
+
+it('keys one file by its path, however a server spells the URI', () => {
+  expect(fileKey('file:///repo/%40bje/a.ts')).toBe(fileKey('file:///repo/@bje/a.ts'))
+  expect(fileKey('file:///C:/repo/a.ts')).toBe(fileKey('file:///c%3A/repo/a.ts'))
+  expect(fileKey('untitled:1')).toBe('untitled:1')
+})
+
+it("joins two spellings of one file, and publishes under Claude Code's URI", () => {
+  const store = createDiagnosticStore()
+  store.open('file:///repo/%40bje/a.ts')
+  store.update('typescript7', {
+    uri: 'file:///repo/%40bje/a.ts',
+    diagnostics: [diagnostic('type', 'ts')],
+  })
+
+  expect(
+    store.update('biome', {
+      uri: 'file:///repo/@bje/a.ts',
+      diagnostics: [diagnostic('lint', 'biome')],
+    }),
+  ).toEqual({
+    uri: 'file:///repo/%40bje/a.ts',
+    diagnostics: [diagnostic('type', 'ts'), diagnostic('lint', 'biome')],
+  })
+})
+
+it('forgets every list for a file', () => {
+  const store = createDiagnosticStore()
+  store.update('typescript7', { uri: A, diagnostics: [diagnostic('old', 'ts')] })
+  store.forget(A)
+
+  expect(store.update('biome', { uri: A, diagnostics: [] })).toEqual({ uri: A, diagnostics: [] })
 })

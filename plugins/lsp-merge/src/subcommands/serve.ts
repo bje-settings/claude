@@ -14,12 +14,16 @@
 //   list with `publishDiagnostics`. A child that declares
 //   `diagnosticProvider` is pulled with `textDocument/diagnostic` after each
 //   `didOpen`, `didChange` and `didSave`, because Claude Code never pulls.
-//   TypeScript 7's server only answers pulls (ADR 006).
-// - A request from a child goes to Claude Code with its id unchanged. The
-//   response goes back to the child that last sent that id. Two children
-//   that use the same id at the same time is a known limit (ADR 006).
+//   TypeScript 7's server only answers pulls (ADR 006). The proxy answers a
+//   child's `workspace/diagnostic/refresh` itself, and pulls each open file
+//   of that child again. A pull that the child cancels with
+//   `retriggerRequest` is sent again.
+// - A request from a child goes to Claude Code under an id from the proxy,
+//   so two children can use the same id. The response goes back to that
+//   child, under its own id.
 // - If a child exits before shutdown, the proxy exits with status 1, and
-//   Claude Code restarts all of them.
+//   Claude Code restarts all of them. When the proxy stops, a child that
+//   has not exited after the grace time gets SIGKILL.
 //
 // stdout is the LSP channel. Nothing else ever goes to it. Each problem goes
 // to stderr, which Claude Code keeps in its debug log.
@@ -27,7 +31,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { type ChildConfig, loadConfig } from '../config.ts'
-import { createDiagnosticStore, type PublishParams } from '../diagnostics.ts'
+import { createDiagnosticStore, fileKey, type PublishParams } from '../diagnostics.ts'
 import { capabilitiesOf, mergeInitializeResults } from '../initialize.ts'
 import { createDecoder, encode, type Message, recordOf } from '../jsonrpc.ts'
 import { claims, languageIdFor } from '../router.ts'
@@ -68,17 +72,30 @@ interface Outstanding {
   readonly cancellable: boolean
 }
 
+/** A request that a child sent to Claude Code, under a proxy id. */
+interface FromChild {
+  readonly child: Child
+  readonly id: unknown
+}
+
 /** The prefix of the ids of the proxy's own requests. Claude Code's ids are
  *  numbers, so these cannot be the same as one of them. */
-const PULL_ID_PREFIX = 'lsp-merge:'
+const PROXY_ID_PREFIX = 'lsp-merge:'
+
+/** How long to wait before a pull that a child cancelled with
+ *  `retriggerRequest` goes again, in milliseconds. The child cancels while
+ *  it is busy, for example while it loads the project. */
+export const RETRIGGER_MS = 100
 
 /** A key for a JSON-RPC id. The id may be a number or a string, and `1`
  *  and `"1"` are different ids. */
 const idKey = (id: unknown): string => JSON.stringify(id)
 
-/** The file a message is about, or `''`. */
+/** The file a message is about, or `''`. Most requests name it in
+ *  `textDocument`. A call or type hierarchy request names it in `item`. */
 const uriOf = (message: Message): string => {
-  const uri = recordOf(recordOf(message.params).textDocument).uri
+  const params = recordOf(message.params)
+  const uri = recordOf(params.textDocument).uri ?? recordOf(params.item).uri
   return typeof uri === 'string' ? uri : ''
 }
 
@@ -111,10 +128,16 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
   return new Promise((resolve) => {
     const store = createDiagnosticStore()
     const outstanding = new Map<string, Outstanding>()
-    const fromChildren = new Map<string, Child>()
+    const fromChildren = new Map<string, FromChild>()
+    /** Claude Code's URI for each open file, by `fileKey`. */
+    const openFiles = new Map<string, string>()
     let finished = false
     let exiting = false
-    let pullCount = 0
+    let idCount = 0
+    const nextId = (): string => {
+      idCount += 1
+      return `${PROXY_ID_PREFIX}${idCount}`
+    }
     let graceTimer: NodeJS.Timeout | undefined
 
     const finish = (status: number): void => {
@@ -122,6 +145,10 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
       finished = true
       clearTimeout(graceTimer)
       for (const child of children) if (!child.exited) child.process.kill()
+      // A child that ignores SIGTERM would keep the proxy's process alive.
+      setTimeout(() => {
+        for (const child of children) if (!child.exited) child.process.kill('SIGKILL')
+      }, edges.exitGraceMs).unref()
       resolve(status)
     }
 
@@ -157,17 +184,22 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
     }
 
     /** Ask `child` for its diagnostics on `uri`, and push the answer into
-     *  the union. `unchanged`, or an error, leaves the child's last list. */
+     *  the union. `unchanged`, or an error, leaves the child's last list. An
+     *  error that asks for a retrigger sends the pull again. */
     const pull = (child: Child, uri: string): void => {
-      pullCount += 1
       const message = {
         jsonrpc: '2.0',
-        id: `${PULL_ID_PREFIX}${pullCount}`,
+        id: nextId(),
         method: 'textDocument/diagnostic',
         params: { textDocument: { uri } },
       }
       ask([child], message, (answers) => {
-        const report = recordOf(answers.get(child)?.result)
+        const answer = answers.get(child) as Message
+        if (recordOf(recordOf(answer.error).data).retriggerRequest === true) {
+          setTimeout(() => pull(child, uri), RETRIGGER_MS)
+          return
+        }
+        const report = recordOf(answer.result)
         if (report.kind !== 'full' || !Array.isArray(report.items)) return
         toClient({
           jsonrpc: '2.0',
@@ -232,6 +264,8 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
       const uri = uriOf(message)
       const claimed = claiming(uri)
       if (method === 'textDocument/didOpen') {
+        openFiles.set(fileKey(uri), uri)
+        store.open(uri)
         const params = recordOf(message.params)
         for (const child of claimed) {
           toChildren([child], {
@@ -247,6 +281,12 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
         }
       } else if (DOCUMENT_SYNC.has(method)) {
         toChildren(claimed, message)
+        if (method === 'textDocument/didClose') {
+          // A child that only answers pulls never clears its list, so the
+          // union for a closed file would keep it.
+          openFiles.delete(fileKey(uri))
+          store.forget(uri)
+        }
       } else if (method === '$/cancelRequest') {
         const entry = outstanding.get(idKey(recordOf(message.params).id))
         if (entry?.cancellable) toChildren([...entry.waiting], message)
@@ -276,10 +316,10 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
       if (typeof message.method !== 'string') {
         // A response to a request that a child sent.
         const key = idKey(message.id)
-        const child = fromChildren.get(key)
-        if (child === undefined) return
+        const asked = fromChildren.get(key)
+        if (asked === undefined) return
         fromChildren.delete(key)
-        toChildren([child], message)
+        toChildren([asked.child], { ...message, id: asked.id })
         return
       }
       if (message.id === undefined) onClientNotification(message.method, message)
@@ -298,9 +338,16 @@ export const runServe = (argv: readonly string[], edges: ServeEdges): Promise<nu
         entry.done(entry.answers)
         return
       }
+      if (message.method === 'workspace/diagnostic/refresh' && message.id !== undefined) {
+        // Claude Code never pulls, so the proxy answers and pulls itself.
+        toChildren([child], { jsonrpc: '2.0', id: message.id, result: null })
+        for (const uri of openFiles.values()) if (claims(child.config, uri)) pull(child, uri)
+        return
+      }
       if (message.id !== undefined) {
-        fromChildren.set(key, child)
-        toClient(message)
+        const id = nextId()
+        fromChildren.set(idKey(id), { child, id: message.id })
+        toClient({ ...message, id })
         return
       }
       if (message.method === 'textDocument/publishDiagnostics') {
