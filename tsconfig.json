@@ -50,6 +50,9 @@
   //
   // `plugins/*/hooks` is named the same preemptive way `harness`, `lib`,
   // and `plugins/*/src` were above, since no plugin carries a hook yet.
+  //
+  // `packages/*/src` holds the ESLint plugin (ADR 005). `eslint.config.ts`
+  // loads it.
   "include": [
     "tests",
     "harness",
@@ -58,6 +61,8 @@
     "plugins/*/src",
     "plugins/*/scripts",
     "plugins/*/hooks",
+    "packages/*/src",
+    "eslint.config.ts",
     "vitest.config.ts"
   ]
 }
