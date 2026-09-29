@@ -25,8 +25,9 @@ statements.
 
 ## Language server
 
-This marketplace's `typescript7-lsp` runs the language server from `node_modules/typescript`. Add
-the marketplace and run `pnpm install` before you start a session.
+This marketplace's `typescript7-lsp` and `biome-lsp` run their language servers from this
+repository's own `node_modules`. Add the marketplace and run `pnpm install` before you start a
+session.
 
 ## Git hooks
 

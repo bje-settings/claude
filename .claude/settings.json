@@ -2,7 +2,8 @@
   "autoMemoryEnabled": false,
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": false,
-    "typescript7-lsp@bje": true
+    "typescript7-lsp@bje": true,
+    "biome-lsp@bje": true
   },
   "attribution": {
     "commit": "",

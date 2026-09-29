@@ -34,6 +34,12 @@
       "source": "./plugins/typescript7-lsp",
       "description": "TypeScript 7's native language server (tsc --lsp --stdio) from the project's own TypeScript. Replaces typescript-lsp, which needs the tsserver TypeScript 7 no longer ships.",
       "category": "development"
+    },
+    {
+      "name": "biome-lsp",
+      "source": "./plugins/biome-lsp",
+      "description": "Biome's language server (biome lsp-proxy) from the project's own Biome. Gives Biome's lint diagnostics for .json.",
+      "category": "development"
     }
   ]
 }
