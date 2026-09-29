@@ -139,6 +139,29 @@ The plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
+### [`lsp-merge`](plugins/lsp-merge)
+
+> One language server that runs several, so a type checker and a linter both report on a file.
+
+<table>
+  <tr>
+    <th scope="row">Hooks</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/lsp-merge#failure-modes">Session start</a>: says when <code>.claude/lsp-merge.json</code> is missing or not valid, or when another enabled plugin runs a language server. Writes nothing when all is well.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">LSP servers</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/lsp-merge"><code>lsp-merge</code></a>: runs the servers in <code>.claude/lsp-merge.json</code>. Requests go to the first server that claims the file. Diagnostics from all of them are merged, with pulls for servers that only answer pulls, such as TypeScript 7.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
 ## Contributing
 
 Run `pnpm test` for the test suite. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for

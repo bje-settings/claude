@@ -7,6 +7,7 @@
     "#lib/*": "./lib/*",
     "#audit/*": "./plugins/audit/src/*",
     "#gh/*": "./plugins/gh/src/*",
+    "#lsp-merge/*": "./plugins/lsp-merge/src/*",
     "#mermaid/*": "./plugins/mermaid/src/*",
     "#workstreams/*": "./plugins/workstreams/src/*"
   },

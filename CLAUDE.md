@@ -144,9 +144,11 @@ would otherwise cover.
 
 ## Language server
 
-`.claude/settings.json` turns off `typescript-lsp@claude-plugins-official` (#193). It enables this
-marketplace's `typescript7-lsp` and `biome-lsp`. Then `tsc`, `biome` and their language servers
-run the same pinned `node_modules`.
+`.claude/settings.json` enables this marketplace's `lsp-merge` (#316, ADR 006). It turns off
+`typescript-lsp@claude-plugins-official` (#193), `typescript7-lsp` and `biome-lsp`.
+`.claude/lsp-merge.json` runs `typescript7` and `biome` as children of `lsp-merge`. So both report
+on `.ts`, and `tsc`, `biome` and their language servers run the same pinned `node_modules`. When
+you change a child server, change `.claude/lsp-merge.json`, not `enabledPlugins`.
 
 Otherwise `.claude/settings.json` matches SurveyMonkey/skills' settings: it turns off auto memory
 (`autoMemoryEnabled`) and strips the attribution trailer (`attribution`).
