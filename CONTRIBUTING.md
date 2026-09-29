@@ -6,6 +6,7 @@
 pnpm install   # the toolchain (and the git hooks, below)
 pnpm test      # the suite, with coverage
 pnpm exec biome ci . --error-on-warnings && pnpm exec tsc -p tsconfig.json
+pnpm lint .    # ESLint over the Claude Code configuration files
 ```
 
 The prerequisite is Node with corepack enabled. `package.json` pins the pnpm version, and
@@ -22,6 +23,22 @@ root. See `harness/README.md`.
 
 `pnpm test` enforces vitest's coverage thresholds: 100 on lines, branches, functions and
 statements.
+
+## ESLint
+
+`packages/eslint-plugin-claude/` holds the ESLint plugin for Claude Code configuration files
+(ADR 005). Its tests are in `tests/packages/eslint-plugin-claude/`. `eslint.config.ts` loads it
+with the `bje` config. ESLint lints only these files. Biome keeps TypeScript and JSON format.
+
+`pnpm lint` passes `--flag unstable_native_nodejs_ts_config`, which ESLint needs to read
+`eslint.config.ts`, and `--max-warnings 0`. The ESLint editor extension needs the flag too. In
+VS Code, set it in your user settings:
+
+```json
+{ "eslint.options": { "flags": ["unstable_native_nodejs_ts_config"] } }
+```
+
+Or set `ESLINT_FLAGS=unstable_native_nodejs_ts_config` in the environment of your editor.
 
 ## Language server
 
@@ -55,7 +72,7 @@ way.
 
 Either way, the worktree gains real hooks the moment it runs its own `pnpm install`.
 
-`pre-commit` runs Biome, `tsc`, `vitest related`, and `claude plugin validate --strict`. Each one
+`pre-commit` runs Biome, ESLint, `tsc`, `vitest related`, and `claude plugin validate --strict`. Each one
 scopes to what is staged, except `tsc`, which checks the whole project. None of them runs a suite
 (ADR 002). `lefthook.yml` holds the exact steps.
 
@@ -71,8 +88,8 @@ Run these without a commit:
 pnpm exec lefthook run pre-commit --all-files
 ```
 
-`--all-files` only widens the steps that lefthook itself scopes with `{staged_files}`: `vitest
-related` and `plugin-validate`. `biome` still checks the index only, because `--staged` is
+`--all-files` only widens the steps that lefthook itself scopes with `{staged_files}`: `eslint`,
+`vitest related` and `plugin-validate`. `biome` still checks the index only, because `--staged` is
 Biome's own selection, not a lefthook file list. So `biome` reports success on a clean tree, even
 though it checked nothing.
 

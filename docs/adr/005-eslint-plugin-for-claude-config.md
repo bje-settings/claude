@@ -1,7 +1,7 @@
 ---
 type: ADR
-description: The checks for Claude Code configuration files (SKILL.md, agents, plugin and marketplace manifests, hooks.json, settings) live in an ESLint plugin that this repository writes and owns. It runs on @eslint/markdown and @eslint/json. The plugin proves itself in this repository first. A later decision covers how other organizations install it.
-status: draft
+description: The checks for Claude Code configuration files (SKILL.md, agents, plugin and marketplace manifests, hooks.json, settings) live in an ESLint plugin that this repository writes and owns. It runs on @eslint/markdown and @eslint/json, with `yaml` for frontmatter. The plugin proves itself in this repository first. A later decision covers how other organizations install it.
+status: stable
 created: 2026-09-27
 owner: brianespinosa
 related_issues: [223]
@@ -82,11 +82,18 @@ on npm on 2026-09-27.
    `package.json` `imports` map reaches it.
 5. **It follows ADR 001 while it is in this repository.** It is erasable TypeScript that node
    runs directly, with no build step. The root `eslint.config.ts` loads it by relative path. It
-   has no `package.json` of its own yet.
-6. **The dependencies are root devDependencies at exact versions:** `eslint`, `@eslint/markdown`
-   and `@eslint/json`. None of them has an install script.
+   has no `package.json` of its own yet. ESLint reads `eslint.config.ts` only with
+   `--flag unstable_native_nodejs_ts_config`. The `lint` script in `package.json` passes the
+   flag, so CI and the hook use one command. An editor extension needs the flag too, through
+   `eslint.options.flags` or `ESLINT_FLAGS` (`CONTRIBUTING.md`).
+6. **The dependencies are root devDependencies at exact versions:** `eslint`, `@eslint/markdown`,
+   `@eslint/json` and `yaml`. None of them has an install script. `@eslint/markdown` gives the
+   frontmatter as raw text. `yaml` parses it, once for each file, in one helper that each rule
+   calls. A hand-written parser would fail on folded, block and quoted scalars.
 7. **The gate venues follow ADR 002.**
    - lefthook runs `eslint` on the staged files that match the plugin's globs.
+   - `--max-warnings 0` applies in both venues, as `--error-on-warnings` does for Biome. A `warn`
+     rule is a gate in this repository. For another team, `warn` still means "does not break".
    - A new CI job, `eslint`, runs it over the repository, without `--cache`. Some rules read a
      second file, and the ESLint cache does not see a change to that file. The job becomes a
      required check only after it reports on `main` once.
