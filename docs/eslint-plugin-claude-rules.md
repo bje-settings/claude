@@ -54,6 +54,37 @@ What is out of scope:
 - A check that only this repository needs, such as the flow directories. Those stay in
   `tests/repo/` (ADR 005, Decision 2).
 
+### Retest: `--plugin-dir` keeps the `src/lib` symlink
+
+This repository's `CLAUDE.md` said that `claude --plugin-dir` drops the `src/lib` symlink. ADR 001
+records that the plugins reference once said so. The current docs say that `--plugin-dir` loads the
+plugin in place and does not copy it[^plugins-loading-in-place-and-copied-plugins]. They name only
+a local path install and a `command` source in copy mode as methods that skip links out of the
+plugin[^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks].
+
+A retest on 2026-09-29 confirms the current docs:
+
+- **Environment:** Claude Code 2.1.284 on Linux, node 22.22.2, in a cloud container. The run started
+  in an empty git repository outside this repository, so that no project settings applied.
+- **Command:** `claude -p "reply with the word ok" --max-turns 1 --plugin-dir
+  /home/user/claude/plugins/gh --debug-file debug.log`.
+- **Result:** the debug log shows "Loaded inline plugin from path: gh" at the source path, with no
+  copy. The `gh` `SessionStart` hook ran `hooks/hook-io.ts`. That file has a static import of
+  `../src/lib/node-floor.ts` and dynamic imports of `src/lib/streams.ts` and `src/lib/gh.ts`. The
+  hook returned its normal JSON. A missing link would stop node with a module error before any
+  output.
+
+Limits of the retest:
+
+- It covers 2.1.284 only. An older version can behave as the old docs said.
+- It covers `--plugin-dir` only. The docs and `CLAUDE.md` agree on the other two methods, so they
+  were not retested.
+- It covers Linux only. A symlink in a Windows clone needs `core.symlinks`, which is a separate
+  constraint.
+
+This pull request corrects `CLAUDE.md` and `plugins/workstreams/README.md` to match. ADR 001 and
+RFC 001 are point-in-time records and stay as written.
+
 ## How the rules are organized
 
 ### Groups follow the file type
@@ -96,6 +127,10 @@ below covers one kind of configuration file, and each rule name starts with its 
 ADR 005 Decision 2 names two configs. `recommended` holds the rules that follow from the Claude
 Code docs, for any team. `bje` extends `recommended` with the conventions of this enterprise. A
 rule in neither config ships `off`, and a team turns it on by name.
+
+The boundary between the two is strict. A rule goes in `recommended` only when Anthropic
+documentation is its source. A preference of this enterprise never goes in `recommended`, even
+when it is a good practice. It goes in `bje`.
 
 Severity follows the documented impact:
 
@@ -148,8 +183,9 @@ are not in the group tables yet.
 | `hooks-bje-node-guard` | on, `error`: the `hooks.json` command checks `command -v node` | `_design-principles.md`, Dependencies |
 | `hooks-command-path-variable` | `off` to `warn`: a hook command path goes through `${CLAUDE_PLUGIN_ROOT}` | `_design-principles.md`, State |
 | `command-legacy-format` | `warn` to `error` | `_design-principles.md`, Mechanisms: new plugins use `skills/` |
-| `plugin-symlink-escapes-plugin` | `warn` to `off` | `CLAUDE.md`: marketplace install is the only supported path, and every `src/lib` link would report |
+| `plugin-symlink-escapes-plugin` | `warn` to `off` | `CLAUDE.md`: this repo installs through the marketplace or `--plugin-dir`, and both keep the `src/lib` link. Every `src/lib` link would report. |
 | `plugin-manifest-version-present` | `warn` to `error` | `plugin-validate.yml` runs `--strict` |
+| `skill-name-matches-dir` (new) | `error`: frontmatter `name`, when set, equals the skill directory name | Decision on #223: one name for each skill in the tree and the `/` menu |
 | `skill-no-hidden-callee` (new) | `error` | #191: `disable-model-invocation: true` on a skill that another skill calls |
 | `skill-no-bare-bash` (new) | `error` | #190 |
 | `skill-flow-docs` (new) | stays in `tests/repo/` | ADR 005 Decision 2 |
@@ -160,7 +196,7 @@ are not in the group tables yet.
 | #223 candidate | Rule in this document | Change |
 |----------------|-----------------------|--------|
 | `skill-frontmatter` | `skill-frontmatter-schema`, `skill-frontmatter-valid-yaml`, `skill-frontmatter-position` | Split by severity. |
-| `skill-name-matches-dir` | none | Not a docs rule. Claude Code accepts a `name` that differs from the directory name[^skills-how-a-skill-gets-its-command-name]. `skill-name-unique` covers collisions. Keep it as a `bje` rule if we want it. |
+| `skill-name-matches-dir` | `skill-name-matches-dir` | `bje`, new. Not a docs rule: Claude Code accepts a `name` that differs from the directory name[^skills-how-a-skill-gets-its-command-name]. |
 | `skill-description-length` | `skill-description-max-length` | Default `max` 1,024 (Agent Skills spec). Option for 1,536 (Claude Code listing). |
 | `skill-description-person` | `skill-description-third-person` | `off`, heuristic. |
 | `skill-description-trigger` | `skill-description-trigger-clause` | `off`, heuristic. |
@@ -213,17 +249,13 @@ The groups were written apart, so some checks came out twice. Each one now lives
 2. **The `version` conflict.** `--strict` fails when `version` is missing. The plugin hosting docs
    recommend leaving it out, so that users track commits. `plugin-manifest-version-present` warns
    and has an `allowOmit` option. This repository sets `version` in every `plugin.json`.
-3. **The `--plugin-dir` symlink loss.** This repository's `CLAUDE.md` says `--plugin-dir` drops
-   the `src/lib` symlink. The docs say `--plugin-dir` loads the directory in place and does not
-   copy it[^plugins-loading-in-place-and-copied-plugins]. Retest, then correct `CLAUDE.md` or
-   the docs issue.
-4. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
+3. **Settings key scope drifts.** `settings-key-scope` needs a list of the scope of each key. The
    docs say the JSON schema can lag behind releases. The rule needs a data file that we refresh
    from `settings-reference` on each Claude Code upgrade.
-5. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
+4. **Cross-file rules and the ESLint cache.** About 82 rules read a second file. ESLint caches
    results per file, so a change to the second file does not invalidate the cache. CI must run
    without `--cache`, or these rules need a separate pass.
-6. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
+5. **Snapshot drift.** These rules come from 2.1.284. The changelog changed several limits over
    time (for example the skill listing budget: 2% in 2.1.32, 1% now). `stale_after` is set for
    six months.
 
@@ -569,8 +601,8 @@ These rules lint `claude plugin eval` suites (`evals/` or the `experimental.eval
 #### Plugin manifest and layout: notes
 
 - **`version` conflict.** `--strict` fails on a missing `version`, and the publish page says "Drop `--strict` if you chose to omit `version`" [^plugins-publish-prepare-your-plugin-for-release]. The hosting and loading pages recommend omitting `version` so users track commits [^plugins-host-marketplace-release-a-new-version] [^plugins-loading-how-claude-code-computes-the-version]. I picked the stricter value: `plugin-manifest-version-present` warns by default, with `allowOmit` for commit-tracking plugins. This repository sets `version` in all five `plugin.json` files and runs `claude plugin validate --strict` in `plugin-validate.yml`. The phase-1 note that "this repo does not pin" is wrong. `version` is not read for `command` sources, claude.ai-hosted marketplaces, or in-place local-directory loads [^plugins-manifest-reference-version].
-- **Symlinks by install method** [^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks]. A marketplace install into the cache keeps in-plugin links as relative links. It dereferences links to elsewhere in the same marketplace (copies the target). It skips links outside the marketplace. A local-path install and a `command` source in `copy` mode keep only links that resolve inside the plugin directory, and skip all others. The docs say `--plugin-dir` loads the directory in place and never copies it [^plugins-loading-in-place-and-copied-plugins]. They do not document the `--plugin-dir` symlink loss that this repo's CLAUDE.md reports for `src/lib`. Treat that as a field observation, not a docs rule. For component paths, the loading page allows "links between plugins within one marketplace" [^plugins-loading-paths-that-escape-the-plugin-directory]. validate does not follow links [^plugins-cli-reference-validate-a-directory].
-- **bje preset.** Each `plugins/<p>/src/lib -> ../../../lib` link resolves inside the marketplace but outside the plugin. So `plugin-symlink-escapes-plugin` warns on every plugin here. The `bje` preset should turn it `off`, because CLAUDE.md makes marketplace install the only supported path. Candidate `bje` rules from CLAUDE.md, not added here because they have no docs source: no `package.json` in a plugin, no bash files under `plugins/`, and `plugin-manifest-version-present` at `error`.
+- **Symlinks by install method** [^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks]. A marketplace install into the cache keeps in-plugin links as relative links. It dereferences links to elsewhere in the same marketplace (copies the target). It skips links outside the marketplace. A local-path install and a `command` source in `copy` mode keep only links that resolve inside the plugin directory, and skip all others. The docs say `--plugin-dir` loads the directory in place and never copies it [^plugins-loading-in-place-and-copied-plugins]. A retest on 2.1.284 confirms that `--plugin-dir` keeps a link that resolves outside the plugin (see Retest in the Method section). For component paths, the loading page allows "links between plugins within one marketplace" [^plugins-loading-paths-that-escape-the-plugin-directory]. validate does not follow links [^plugins-cli-reference-validate-a-directory].
+- **bje preset.** Each `plugins/<p>/src/lib -> ../../../lib` link resolves inside the marketplace but outside the plugin. So `plugin-symlink-escapes-plugin` warns on every plugin here. The `bje` preset should turn it `off`, because this repo installs through the marketplace or `--plugin-dir`, and both keep the link. Candidate `bje` rules from CLAUDE.md, not added here because they have no docs source: no `package.json` in a plugin, no bash files under `plugins/`, and `plugin-manifest-version-present` at `error`.
 - `plugin-settings-agent-exists`: the agents findings rated it "breaks" and the plugins findings "best-practice". The docs only say "Set `agent` to run one of the plugin's own agents" [^plugins-components-default-settings]. I used `warn` because they document no failure.
 - `plugin-monitors-command-quote`: the hooks findings treat unquoted placeholders as "breaks". Failure needs an install path with spaces, so by policy this is a conditional `warn`. The hooks group should align `hooks-shell-form-quote-placeholder`. Both `"${CLAUDE_PLUGIN_ROOT}/x"` and `"${CLAUDE_PLUGIN_ROOT}"/x` pass [^plugins-manifest-reference-quoting-and-path-separators].
 - Changelog 2.1.136 says the `skills` key no longer hides the default `skills/`. 2.1.140 warns about default folders that a key replaces [^changelog-claude-code-changelog]. The manifest reference says `skills` adds to the default and does not replace it [^plugins-manifest-reference-how-each-key-combines-with-its-default-location]. So `plugin-default-dir-shadowed` excludes `skills`.
@@ -1106,8 +1138,9 @@ Other names a rule may contain:
 - The advisor tool has no name for rules or matchers [^tools-reference-check-which-tools-are-available].
 - MCP forms: `mcp__<server>`, `mcp__<server>__<tool>`, `mcp__<server>__*` (allow globs only after a literal `mcp__<server>__`), `mcp__plugin_<plugin>_<server>__<tool>`, `mcp__claude_ai_<server>__<tool>`; Cowork adds `mcp__workspace__bash` and `mcp__workspace__web_fetch` [^permissions-mcp] [^permissions-tool-name-wildcards] [^mcp-plugin-provided-mcp-servers].
 
-[^skills-how-a-skill-gets-its-command-name]: [Extend Claude with skills: How a skill gets its command name](https://code.claude.com/docs/en/skills#how-a-skill-gets-its-command-name)
 [^plugins-loading-in-place-and-copied-plugins]: [Plugin loading reference: In-place and copied plugins](https://code.claude.com/docs/en/plugins/loading#in-place-and-copied-plugins)
+[^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks]: [Host and maintain a marketplace: Share files within a marketplace with symlinks](https://code.claude.com/docs/en/plugins/host-marketplace#share-files-within-a-marketplace-with-symlinks)
+[^skills-how-a-skill-gets-its-command-name]: [Extend Claude with skills: How a skill gets its command name](https://code.claude.com/docs/en/skills#how-a-skill-gets-its-command-name)
 [^skills-frontmatter-reference]: [Extend Claude with skills: Frontmatter reference](https://code.claude.com/docs/en/skills#frontmatter-reference)
 [^glossary-frontmatter]: [Glossary: Frontmatter](https://code.claude.com/docs/en/glossary#frontmatter)
 [^skills-skill-not-triggering]: [Extend Claude with skills: Skill not triggering](https://code.claude.com/docs/en/skills#skill-not-triggering)
@@ -1325,7 +1358,6 @@ Other names a rule may contain:
 [^plugins-components-monitors]: [Add components to a plugin: Monitors](https://code.claude.com/docs/en/plugins/components#monitors)
 [^plugins-components-executables]: [Add components to a plugin: Executables](https://code.claude.com/docs/en/plugins/components#executables)
 [^plugins-troubleshooting-files-the-plugin-references-outside-its-directory-arent-found]: [Troubleshoot plugins: Files the plugin references outside its directory aren't found](https://code.claude.com/docs/en/plugins/troubleshooting#files-the-plugin-references-outside-its-directory-arent-found)
-[^plugins-host-marketplace-share-files-within-a-marketplace-with-symlinks]: [Host and maintain a marketplace: Share files within a marketplace with symlinks](https://code.claude.com/docs/en/plugins/host-marketplace#share-files-within-a-marketplace-with-symlinks)
 [^plugins-host-marketplace-keep-plugin-files-out-of-git-lfs]: [Host and maintain a marketplace: Keep plugin files out of Git LFS](https://code.claude.com/docs/en/plugins/host-marketplace#keep-plugin-files-out-of-git-lfs)
 [^plugins-loading-when-the-dependency-install-runs]: [Plugin loading reference: When the dependency install runs](https://code.claude.com/docs/en/plugins/loading#when-the-dependency-install-runs)
 [^plugins-loading-when-the-dependency-install-fails-or-is-skipped]: [Plugin loading reference: When the dependency install fails or is skipped](https://code.claude.com/docs/en/plugins/loading#when-the-dependency-install-fails-or-is-skipped)

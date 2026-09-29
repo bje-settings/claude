@@ -12,10 +12,11 @@ marketplace manifest lists each plugin as an entry in its `plugins` array. See
 [plugins-reference docs](https://code.claude.com/docs/en/plugins-reference.md).
 
 Test locally with `/plugin marketplace add ./path/to/this/repo`, then
-`/plugin install <plugin-name>@bje`. This is the only local install path that works here. Three
-other install methods keep only the symlinks that resolve inside a plugin's own directory. These
-methods are `claude --plugin-dir`, a local path install, and a `command` source in copy mode.
-Each method drops the plugin's `src/lib` symlink, so its commands fail at import.
+`/plugin install <plugin-name>@bje`. `claude --plugin-dir plugins/<plugin-name>` also works. It
+loads the plugin in place, so the `src/lib` symlink resolves (retest on Claude Code 2.1.284,
+`docs/eslint-plugin-claude-rules.md`). Two other install methods keep only the symlinks that
+resolve inside a plugin's own directory: a local path install, and a `command` source in copy
+mode. Each one drops the plugin's `src/lib` symlink, so its commands fail at import.
 
 ### Plugins
 
