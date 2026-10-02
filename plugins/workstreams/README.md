@@ -66,9 +66,10 @@ request for each one, and `start` reads the markers back. So a new conversation 
 question. A merged pull request is final for its layer, with no markers.
 
 GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
-`done` for the layer below. A person's message in chat never marks a layer done. When the
-person explicitly asks to skip a layer's review, `start` posts a ruling comment that quotes
-the request, and the round 1 and rot check markers, each with a link to that comment.
+`done` or `merged` for the layer below. A person's message in chat never marks a layer
+done. The person can explicitly ask to skip the review of a layer in `review-1`. Then
+`start` posts a ruling comment that quotes the request. It also posts the round 1 and rot
+check markers, each with a link to that comment.
 
 It runs in the main conversation. The two human gates need it there. They are the plan
 approval in plan mode, and one `AskUserQuestion` for a hard decision, such as a collision.
@@ -200,9 +201,9 @@ optional, because a write outside an isolated worktree can be refused. The calle
 round 1's return to round 2.
 
 The plan names a review model for each layer. When it names none, the skill chooses one,
-and says which and why. It never asks. `opus` reviews round 2, logic under `src/`, `lib/`,
-`scripts/` or `hooks/`, new behaviour at the top of a stream, and a diff over 500 lines.
-`sonnet` reviews any other round 1.
+and says which and why. It never asks. `opus` reviews round 2. In round 1, `opus` reviews
+logic under `src/`, `lib/`, `scripts/` or `hooks/`, and new behaviour at the top of a
+stream. `sonnet` reviews any other round 1.
 
 There is no state file. Everything is read again each tick. After each round and after the
 rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`

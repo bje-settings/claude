@@ -36,7 +36,7 @@ flowchart TD
 
     E -->|review-1 or review-2| M{the plan or the caller names a review model?}
     M -->|Yes| I
-    M -->|No, never a question| M1[Choose one: opus for round 2, logic,<br/>new behaviour at the top of a stream, or over 500 lines;<br/>sonnet for any other round 1] --> I
+    M -->|No, never a question| M1[Choose one: opus for round 2, logic,<br/>or new behaviour at the top of a stream;<br/>sonnet for any other round 1] --> I
     I[Brief from the round template;<br/>round 2 adds its own rules and round 1's findings,<br/>from the return the caller passes]
     I --> J[Reviewers from what the diff changes]
     J --> K([Dispatch one round agent, then return with the model and the reason;<br/>its return goes to the caller])

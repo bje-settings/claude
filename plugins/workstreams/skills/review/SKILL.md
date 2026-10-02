@@ -17,9 +17,10 @@ absent. A round dispatched into a guessed worktree will guess again inside it.
 The model for the round agent comes from the plan comment on those issues, or from the
 caller. When neither names one, choose it by this rule. Do not ask, and do not stop:
 
-- `opus` for round 2. Also for round 1 when the diff changes logic under `src/`, `lib/`,
-  `scripts/` or `hooks/` (as in [Markers](#markers)), when the layer is new behaviour at
-  the top of a stream, or when the diff changes more than 500 lines.
+- `opus` for round 2.
+- `opus` for round 1 when the diff changes logic under `src/`, `lib/`, `scripts/` or
+  `hooks/`, as in [Markers](#markers).
+- `opus` for round 1 when the layer is new behaviour at the top of a stream.
 - `sonnet` for any other round 1: prose, tests, metadata or renames.
 
 Give the model and the reason in the return of the call that dispatches the round.
@@ -34,7 +35,7 @@ Do one step for each call, then return. Never wait: the caller waits.
 
 After each review round, and after the rot check, post one marker comment on the pull
 request. The effort is the name in the plan comment's last line, or the caller's. That
-line may sit in a `<sub>` tag or not; take the name either way. The date is today's:
+line can have a `<sub>` tag or not. Take the name in both cases. The date is today's:
 
 ```bash
 gh pr comment <number> --body "<marker>
