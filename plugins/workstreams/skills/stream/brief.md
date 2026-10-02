@@ -17,18 +17,26 @@ watching you.
 
 - Repository root, never edited: `<absolute path>`
 - Worktree, named by absolute path in every command, never `cd`: `<absolute path>`
-  It has `<lower branch>` checked out at `<sha>`. Your first command is
-  `git -C <worktree> switch -c <your branch>`.
+  It has `<lower branch>` checked out at `<sha>`.
 - The install is done: `<the package manager's install, and uv sync --locked if there is a
   uv.lock>`. `<Say so when the repository installs git hooks: an install can write into the
   clone's shared .git/hooks and leave a file behind when a later revision stops configuring
   it.>`
-- Scratchpad for your notes: `<absolute path>` (a heredoc through Bash if the Write tool
-  refuses a path there).
+- Keep your notes in your return. A file is optional, never required.
+
+`gh stack` has no `-C` flag, and acts on the current directory. Run it only as
+`(cd <worktree> && gh stack ...)`. Your first commands, in this order:
+
+1. `git -C <root> rev-parse --abbrev-ref HEAD`. Note the root checkout's branch.
+2. `(cd <worktree> && gh stack <init, for the bottom layer, or add, for an upper layer>
+   <your branch>)`. It makes your branch, and puts it in the stack.
+3. `git -C <root> rev-parse --abbrev-ref HEAD` again. If the root's branch moved, stop
+   and return. Do not move it back. Name both branches in your return.
+4. `git -C <worktree> rev-parse --abbrev-ref HEAD` prints `<your branch>`.
 
 ## Your pull request
 
-From the worktree, run `gh stack submit --auto`. Never run `gh pr create`. A layer's
+Run `(cd <worktree> && gh stack submit --auto)`. Never run `gh pr create`. A layer's
 pull request is created as part of the stack, so the GitHub UI shows it as one from the
 first push. `--auto` skips the editor, and creates new pull requests as drafts. It takes
 no title, and names the pull request after the branch. So `gh pr edit <n> --title
@@ -102,7 +110,8 @@ return can be checked against them one for one.
 11. `<The idiom rules this repository's reviews keep finding: for a port out of Python, `||`
     and a truthiness test rather than `??` or `=== null`; whatever else the last review
     caught.>`
-12. Every command names its directory by absolute path. Never `cd`.
+12. Every command names its directory by absolute path. Never `cd`. The one exception is
+    `gh stack`, in the form `(cd <worktree> && gh stack ...)` and no other.
 13. The thing you build assumes nothing about this machine or this repository, beyond
     what its dependency hook checks. No path out of this checkout reaches a shipped file.
 14. `<The prose rules: a skill's diagrams live in docs/flows/<plugin>/<skill>/ only, every script

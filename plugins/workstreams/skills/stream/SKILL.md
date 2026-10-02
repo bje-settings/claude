@@ -52,4 +52,5 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    field carries.
 
    Report the pull request, its head and CI state, and what the layer returned under the
-   five fields.
+   five fields. The caller's next action is step 2 of its tick, in
+   `skills/start/tick.md`, never the next layer.
