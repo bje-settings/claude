@@ -43,7 +43,8 @@ and report per milestone.
 
 4. Classify and size each issue, in this shape:
 
-   - **Classification**: work now, defer with a reason, or blocked on another issue.
+   - **Classification**: work now, defer with a reason, blocked on another issue, or
+     already fixed, with the commit ([file-map.md](file-map.md)).
    - **Touched files and regions**, from step 3. Include files it may touch in comments
      only.
    - **Size**: the build model and the review model per layer, and the session effort the

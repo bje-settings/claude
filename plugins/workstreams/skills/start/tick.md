@@ -64,8 +64,10 @@ contexts whose `reported` is `false`.
 - **`lower_layer`, from either.** To apply it is a [decision](#a-decision-mid-round).
   Apply it to its layer only in a gap: no agent writes to that layer or to one above it.
   Resume that layer's agent with `SendMessage`. Tell it to commit on its own branch, then
-  to run `gh stack rebase --upstack`, a full type check, and `gh stack push`. Then check
-  each head of the stack again. Outside a gap, keep the finding for the round-end report.
+  to run `(cd <worktree> && gh stack rebase --upstack)`, a full type check, and
+  `(cd <worktree> && gh stack push)`. `gh stack` acts on the current directory, so the
+  subshell is the only safe form (the stream brief, rule 12). Then check each
+  head of the stack again. Outside a gap, keep the finding for the round-end report.
 
 ## 6. End the turn
 
