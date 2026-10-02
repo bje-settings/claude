@@ -69,7 +69,8 @@ Derive it on each call. Write nothing to disk.
 4. Wait for a wake. If no watch runs, arm it first ([Wakes](#wakes)). Then run the tick in
    [tick.md](tick.md), and wait again.
 5. When every layer is `done` or merged, and the plan has no layer left, do
-   [round-end.md](round-end.md). Do not ask first. Nothing merges.
+   [round-end.md](round-end.md). Check this on each call, before the first wait. Do not
+   ask first. Nothing merges.
 
 ## Wakes
 
