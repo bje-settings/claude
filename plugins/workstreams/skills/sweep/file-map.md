@@ -16,9 +16,10 @@ map keeps the shape of the plan it was written for.
 ## What a fix issue hides
 
 - **For a `fix` issue, find the code path or the test that shows the defect today. Cite
-  it in the sequencing comment.** If the defect no longer happens, classify the issue as
-  already fixed, name the commit, and do not schedule it. Round 12 scheduled #298 for a
-  defect that `watch` had handled since #284, and the stream built a refactor instead.
+  it in the sequencing comment.** If the defect no longer happens, the issue is already
+  fixed. Do not schedule it. Comment the commit on the issue, and name the issue in the
+  report. Round 12 scheduled #298 for a defect that `watch` had handled since #284, and
+  the stream built a type rework instead.
 
 ## What a deletion touches
 
@@ -64,13 +65,14 @@ map keeps the shape of the plan it was written for.
 ## What a changed behaviour touches
 
 - **When an issue adds or removes a behaviour, grep for text that describes or counts
-  it.** Search the manifests (`hooks.json`, `plugin.json`, agent frontmatter), the READMEs
-  and the tests. #303 added a third guard rule. `hooks.json` and `agents/stream.md` still
-  said "two things", and `hook.test.ts` pins the description by exact string. Ruling 14 on
-  #299 had to add all three mid-round.
-- **When an issue changes the context of a command function, map the dispatcher that
-  builds it.** #304 changed the `watch` client, and `scripts/workstreams.ts` builds that
-  client.
+  it.** Search the manifests (`hooks.json`, `plugin.json`, agent files), the READMEs
+  and the tests. #303 added a third guard rule. `hooks.json` said "two things", and
+  `agents/stream.md` said "two of the brief's rules". `hook.test.ts` pins the `hooks.json`
+  description by exact string. Ruling 14 on #299 had to add `hooks.json` and its test
+  mid-round.
+- **When an issue changes what a command function receives, such as its injected client
+  or options, map the dispatcher that builds it.** #304 changed the `watch` client, and
+  `plugins/workstreams/scripts/workstreams.ts` builds that client.
 
 ## What the records say
 

@@ -39,7 +39,8 @@ and report per milestone.
    Every factual claim you are about to write down gets cited to a line you have just read.
    Grep for it; do not recall it.
 
-   For a `fix` issue, check that the defect still happens. [file-map.md](file-map.md) says how.
+   For a `fix` issue, check that the defect still happens. [file-map.md](file-map.md) says how,
+   and what to do when it does not.
 
 3. Map the files. Apply every rule in [file-map.md](file-map.md) before writing one.
 
