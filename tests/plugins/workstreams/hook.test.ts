@@ -11,7 +11,7 @@
 // decision from a crash before one; stdout is the decision (hooks.md,
 // "PreToolUse decision control").
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
@@ -342,17 +342,10 @@ it('allows, and writes one stderr line, when a listed pid has already exited', (
 
 it('denies a subagent when a real vitest process already runs in the same cwd', async () => {
   const sandbox = createSandbox()
-  // The kernel resolves a spawned child's own cwd, so `lsof`/`readlink`
-  // answer the resolved path, never the sandbox's own spelling. On
-  // macOS, `os.tmpdir()` sits under `/var`, itself a symlink to
-  // `/private/var`, so the two differ for this sandbox specifically
-  // (measured: a real decoy spawned with `cwd: sandbox.path` reported
-  // `/private/var/...` back through `lsof`). `decide` does not resolve
-  // either side of its own comparison, a real, open gap left for a
-  // follow-up issue. This test uses the resolved spelling on both sides,
-  // the same fact a real subagent's own shell would report through
-  // `process.cwd()`, so it proves the pgrep-and-lsof round trip on its
-  // own, apart from that gap.
+  // The kernel resolves a spawned child's own cwd, so `lsof` and `readlink`
+  // answer the resolved path. This test uses the resolved spelling on both
+  // sides, so it proves the pgrep-and-lsof round trip on its own. The next
+  // tests cover the unresolved spelling.
   const resolved = realpathSync(sandbox.path)
   const decoy = startVitestDecoy(resolved)
   await waitForSpawn(decoy)
@@ -379,6 +372,91 @@ it('denies a subagent when a real vitest process already runs in the same cwd', 
   // This checks that the decoy ITSELF was read without complaint, which
   // is what this test is actually about.
   expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
+})
+
+it('denies a subagent whose cwd is the unresolved form of a running vitest cwd', async () => {
+  // On macOS the sandbox sits under `/var`, a link to `/private/var`, and
+  // the decoy's own cwd is the resolved form. On Linux the two forms are
+  // equal, and the test still holds.
+  const sandbox = createSandbox()
+  const decoy = startVitestDecoy(realpathSync(sandbox.path))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: sandbox.path,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
+})
+
+it('denies a subagent whose cwd is a link to the directory a vitest runs in', async () => {
+  const sandbox = createSandbox()
+  const real = sandbox.join('real')
+  mkdirSync(real)
+  const link = sandbox.join('link')
+  symlinkSync(real, link)
+  const decoy = startVitestDecoy(realpathSync(real))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: link,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
+})
+
+it('allows a subagent in a different real directory than the one a vitest runs in', async () => {
+  const sandbox = createSandbox()
+  const busy = sandbox.join('busy')
+  const idle = sandbox.join('idle')
+  mkdirSync(busy)
+  mkdirSync(idle)
+  const decoy = startVitestDecoy(realpathSync(busy))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: idle,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+})
+
+it('allows, and still compares by string, a cwd that realpath cannot resolve', () => {
+  const sandbox = createSandbox()
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: sandbox.join('never-made'),
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
 })
 
 it('denies a subagent when the running process ends its command line in vitest/, not vitest', async () => {

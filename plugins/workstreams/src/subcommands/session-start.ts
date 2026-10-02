@@ -244,6 +244,9 @@ export interface SessionStartEdges {
   readonly output: Output
   readonly run: Runner
   readonly deadlineMs: number
+  /** Whether this machine has `/proc`. The guard reads a process cwd
+   *  there first, and asks `lsof` only when `/proc` is absent. */
+  readonly procPresent: boolean
 }
 
 /** The dependency table row and whether it holds right now, together.
@@ -261,7 +264,7 @@ interface Row extends Dependency {
  *  (`.claude/rules/_design-principles.md`). When everything is present,
  *  this writes nothing at all. */
 export const runSessionStart = async (edges: SessionStartEdges): Promise<number> => {
-  const { env, run, output, deadlineMs } = edges
+  const { env, run, output, deadlineMs, procPresent } = edges
   const ghPresent = which('gh', env)
 
   const [ghLogin, ghStack, plugins] = await Promise.all([
@@ -283,6 +286,13 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
     if (ghStack === null) problems.push('the gh stack extension could not be checked')
     else rows.push({ tool: 'gh-stack', label: 'the gh stack extension', present: ghStack })
   }
+
+  // The guard (`hooks/guard.ts`) lists vitest processes with `pgrep`. It
+  // reads each cwd from `/proc`, or from `lsof` when `/proc` is absent.
+  // `lib/dependencies.ts` has no "one of" row, so this builds the rows
+  // for this machine.
+  rows.push({ tool: 'pgrep', label: 'pgrep', present: which('pgrep', env) })
+  if (!procPresent) rows.push({ tool: 'lsof', label: 'lsof', present: which('lsof', env) })
 
   // A registry, or its fallback, that this code could not read at all is
   // a problem line of its own. It is never five missing plugins. The fix

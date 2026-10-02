@@ -7,7 +7,8 @@
 //
 // The process boundary, the floor guard, and the wiring `hooks.json`
 // carries, are in `tests/plugins/workstreams/hook.test.ts`.
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -23,6 +24,8 @@ import {
   type ProcessReader,
   type RunningProcess,
   readToolCall,
+  resolvedOrSame,
+  resolvePayloadCwd,
   runGuard,
   runsVitest,
   type ToolCall,
@@ -1085,5 +1088,52 @@ describe('what the hook writes', () => {
 
     expect(status).toBe(0)
     expect(output.stdout()).toContain('"permissionDecision":"deny"')
+  })
+})
+
+describe('resolvedOrSame', () => {
+  it('answers the real path of a directory reached through a link', async () => {
+    const sandbox = createSandbox()
+    const real = sandbox.join('real')
+    mkdirSync(real)
+    const link = sandbox.join('link')
+    symlinkSync(real, link)
+
+    expect(await resolvedOrSame(link, realpath)).toBe(realpathSync(real))
+  })
+
+  it('keeps the path as given when the resolver cannot answer', async () => {
+    const gone = createSandbox().join('never-made')
+
+    expect(await resolvedOrSame(gone, realpath)).toBe(gone)
+  })
+})
+
+describe('resolvePayloadCwd', () => {
+  const upper = (path: string): Promise<string> => Promise.resolve(path.toUpperCase())
+
+  it('rewrites the cwd and keeps every other field', async () => {
+    const text = JSON.stringify({ agent_id: 'a', cwd: '/w', tool_input: { command: 'x' } })
+
+    const resolved = JSON.parse(await resolvePayloadCwd(text, upper)) as Record<string, unknown>
+
+    expect(resolved).toEqual({ agent_id: 'a', cwd: '/W', tool_input: { command: 'x' } })
+  })
+
+  it('keeps a cwd the resolver cannot answer', async () => {
+    const text = JSON.stringify({ cwd: '/gone' })
+
+    const resolved = await resolvePayloadCwd(text, () => Promise.reject(new Error('ENOENT')))
+
+    expect(JSON.parse(resolved)).toEqual({ cwd: '/gone' })
+  })
+
+  it.each([
+    ['text that is not JSON', 'not json at all'],
+    ['JSON that is not an object', '[1]'],
+    ['an object with no cwd', '{"a":1}'],
+    ['an object with a cwd that is not a string', '{"cwd":3}'],
+  ])('returns %s as it came', async (_name, text) => {
+    expect(await resolvePayloadCwd(text, upper)).toBe(text)
   })
 })

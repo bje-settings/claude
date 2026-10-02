@@ -21,6 +21,8 @@ runs a preflight step of its own.
 | [`gh`](https://cli.github.com) on `PATH` | Every read the sweep makes goes through it. |
 | A `gh` login, from `gh auth token` | Issue dependencies are a GraphQL query, which needs a login. This is a local check: it reads a stored credential, and makes no call to GitHub. |
 | The [`gh stack`](https://github.com/github/gh-stack) extension | `/workstreams:stream` opens every layer's pull request with `gh stack submit`. This makes the stack a stack in the GitHub UI from the first push. A chain of `gh pr create` drafts is not a stack, and a reviewer cannot tell it apart from unrelated work. |
+| `pgrep` on `PATH` | The guard lists the running `vitest` processes with it. |
+| `lsof` on `PATH`, only when the machine has no `/proc` | The guard reads each process cwd from `/proc`. Without `/proc` (macOS), it asks `lsof`. |
 | The `pr-review-toolkit` plugin, from any marketplace | `/workstreams:review` dispatches its reviewers. |
 | `code-reviewer`, `comment-analyzer`, `silent-failure-hunter`, `pr-test-analyzer` and `type-design-analyzer` in it | A round that finds a reviewer missing halfway through has already spent the others. |
 
@@ -279,7 +281,9 @@ The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spel
 the check compares, rather than the tool call's own `cwd`: the worktree workflow's rule is
 "never `cd`; name the absolute path in every command", and this is the spelling that follows
 from it. The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
-each one's cwd, through `/proc` or `lsof`. A match on that directory is a denial. It names
+each one's cwd, through `/proc` or `lsof`. The guard resolves symbolic links in the payload `cwd` and in each process cwd first. On
+macOS, `/tmp` and `/var` are links, so both forms of one directory still match. A `-C`
+directory is compared as typed. A match on that directory is a denial. It names
 the pid, and asks the subagent to wait rather than start a second suite.
 
 **The main conversation is never denied.** The test is `agent_id`. The input carries this

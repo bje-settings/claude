@@ -33,6 +33,10 @@ it('writes nothing at all, in silence, when everything is present', () => {
       mode: 0o755,
     },
   )
+  // `pgrep` always, and `lsof` for a machine with no `/proc`.
+  for (const tool of ['pgrep', 'lsof']) {
+    writeFileSync(path.join(bin, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  }
   const env = { ...sandbox.env, PATH: sandbox.stubPath(bin) }
   const registryDir = sandbox.join('home', '.claude', 'plugins')
   mkdirSync(registryDir, { recursive: true })

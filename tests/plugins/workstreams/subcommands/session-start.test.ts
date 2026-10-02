@@ -4,7 +4,7 @@
 // registry is a real file in a sandbox whose `HOME` is inside it, so the
 // read itself, the permission failure, and the absent file, are all
 // real, rather than mocked.
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -141,10 +141,17 @@ const systemMessageOf = (raw: string): string =>
 const run = async (
   env: NodeJS.ProcessEnv,
   table: Record<string, Partial<RunResult>> = HEALTHY,
+  procPresent = true,
 ): Promise<{ status: number; stdout: string; raw: string; stderr: string; asked: string[] }> => {
   const output = createOutputPair()
   const runner = runnerFor(table)
-  const status = await runSessionStart({ env, output, run: runner, deadlineMs: DEADLINE_MS })
+  const status = await runSessionStart({
+    env,
+    output,
+    run: runner,
+    deadlineMs: DEADLINE_MS,
+    procPresent,
+  })
   const raw = output.stdout()
   return {
     status,
@@ -161,7 +168,9 @@ const run = async (
 const withGhOnPath = (sandbox: Sandbox, env: NodeJS.ProcessEnv): void => {
   const bin = sandbox.join('bin')
   env.PATH = sandbox.stubPath(bin)
-  writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  for (const tool of ['gh', 'pgrep', 'lsof']) {
+    writeFileSync(path.join(bin, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  }
 }
 
 /** A sandbox with `gh` on PATH, and a registry that carries the reviewer
@@ -443,7 +452,7 @@ describe('the deadline', () => {
       return result(HEALTHY[`${command} ${args.join(' ')}`.trim()] ?? {})
     }
 
-    await runSessionStart({ env, output, run: runner, deadlineMs: 1_234 })
+    await runSessionStart({ env, output, run: runner, deadlineMs: 1_234, procPresent: true })
 
     expect(asked.length).toBeGreaterThan(0)
     for (const call of asked) expect(call.options.timeoutMs).toBe(1_234)
@@ -467,7 +476,7 @@ describe('the deadline', () => {
       },
     })
 
-    await runSessionStart({ env, output, run: runner, deadlineMs: 4_321 })
+    await runSessionStart({ env, output, run: runner, deadlineMs: 4_321, procPresent: true })
 
     const fallback = runner.asked.find((call) => call.key === 'claude plugin list --json')
     expect(fallback).toBeDefined()
@@ -493,7 +502,7 @@ describe('concurrency', () => {
       return result(HEALTHY[key] ?? {})
     }
 
-    await runSessionStart({ env, output, run: runner, deadlineMs: DEADLINE_MS })
+    await runSessionStart({ env, output, run: runner, deadlineMs: DEADLINE_MS, procPresent: true })
 
     expect(windows.length).toBe(2)
     const [first, second] = windows
@@ -583,6 +592,47 @@ describe('installPathsFor', () => {
     )
 
     expect(paths).toEqual(['/a'])
+  })
+})
+
+describe('pgrep and lsof', () => {
+  /** A healthy sandbox whose PATH lacks the tools in `tools`. */
+  const without = (...tools: string[]): NodeJS.ProcessEnv => {
+    const { sandbox, env } = healthySandbox()
+    for (const tool of tools) rmSync(path.join(sandbox.join('bin'), tool))
+    return env
+  }
+
+  it('reports an absent pgrep in one line that names it', async () => {
+    const ran = await run(without('pgrep'))
+
+    expect(ran.stdout).toBe('\nworkstreams: ⚠️ pgrep is absent')
+    expect(ran.stderr).toBe('pgrep is absent\n')
+  })
+
+  it('reports an absent pgrep even when /proc is there', async () => {
+    const ran = await run(without('pgrep', 'lsof'), HEALTHY, true)
+
+    expect(ran.stdout).toBe('\nworkstreams: ⚠️ pgrep is absent')
+  })
+
+  it('asks for no lsof row when /proc is there', async () => {
+    const ran = await run(without('lsof'), HEALTHY, true)
+
+    expect(ran.stdout).toBe('')
+    expect(ran.stderr).toBe('')
+  })
+
+  it('reports an absent lsof in one line that names it when /proc is not there', async () => {
+    const ran = await run(without('lsof'), HEALTHY, false)
+
+    expect(ran.stdout).toBe('\nworkstreams: ⚠️ lsof is absent')
+  })
+
+  it('accepts lsof on PATH when /proc is not there', async () => {
+    const ran = await run(without(), HEALTHY, false)
+
+    expect(ran.stdout).toBe('')
   })
 })
 
