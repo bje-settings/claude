@@ -510,6 +510,18 @@ it('does not read a last lsof line that was cut, and reports its pid', () => {
   )
 })
 
+it('resolves a link in an lsof cwd before it compares', () => {
+  const sandbox = createSandbox()
+  const real = realpathSync(sandbox.join('.'))
+  const link = sandbox.join('link')
+  symlinkSync(real, link)
+  stubPgrepAndLsof(sandbox, `p4999991\nfcwd\nn${link}\np4999992\nfcwd\nn/elsewhere\n`)
+
+  const result = deniedFrom(sandbox, real)
+
+  expect(denialIn(result.stdout)).toContain('pid 4999991')
+})
+
 it('compares by string a cwd that realpath cannot resolve', () => {
   const sandbox = createSandbox()
   stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/never-made/a\np4999992\nfcwd\nn/never-made/b\n')
