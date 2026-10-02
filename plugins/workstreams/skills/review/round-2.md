@@ -23,8 +23,13 @@ by hand in rounds 5 to 7, round 2 found round 1 wrong or incomplete:
 - seven of nine guard fixes with no test at all, because a test that names a guard is a
   claim and not a proof.
 
-Round 1's rejected list is in the findings file named in your brief. Do not raise
-anything on it again without NEW evidence. Hand every reviewer that list by name.
+Round 1's findings and its rejected list, from its return:
+
+`<round 1's findings and rejected list, from the return the caller passes, or "no round 1
+return reached the caller">`
+
+Do not raise anything on the rejected list again without NEW evidence. Hand every
+reviewer that list by name.
 
 ## Then the pull request, once more
 

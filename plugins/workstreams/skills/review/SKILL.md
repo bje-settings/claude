@@ -11,10 +11,18 @@ cannot read. The caller reads them from the markers below.
 
 Its worktree comes from `git worktree list`, matched against the pull request's head
 branch. The round's issues are the ones its body closes (`gh pr view <number>`), or
-the ones the caller names. The model for the round agent comes from the plan comment on
-those issues, or from the caller. No match, more than one match, or no model is a stop.
-Name what is absent. A round dispatched into a guessed worktree, or with a guessed model,
-will guess again inside it.
+the ones the caller names. No worktree match, or more than one, is a stop. Name what is
+absent. A round dispatched into a guessed worktree will guess again inside it.
+
+The model for the round agent comes from the plan comment on those issues, or from the
+caller. When neither names one, choose it by this rule. Do not ask, and do not stop:
+
+- `opus` for round 2. Also for round 1 when the diff changes logic under `src/`, `lib/`,
+  `scripts/` or `hooks/` (as in [Markers](#markers)), when the layer is new behaviour at
+  the top of a stream, or when the diff changes more than 500 lines.
+- `sonnet` for any other round 1: prose, tests, metadata or renames.
+
+Give the model and the reason in the return of the call that dispatches the round.
 
 Both commands below run in that worktree. They take no repository argument, and read it
 from the working directory. So, outside a checkout, they report on git rather than on
@@ -25,12 +33,13 @@ Do one step for each call, then return. Never wait: the caller waits.
 ## Markers
 
 After each review round, and after the rot check, post one marker comment on the pull
-request. The effort line is the plan comment's last line, or the caller's, with today's date:
+request. The effort is the name in the plan comment's last line, or the caller's. That
+line may sit in a `<sub>` tag or not; take the name either way. The date is today's:
 
 ```bash
 gh pr comment <number> --body "<marker>
 
-_Recorded by <effort>, <date>._"
+<sub>_Recorded by <effort>, <date>._</sub>"
 ```
 
 The marker is one of these, exactly: `Review round 1 done: substantial.`,
@@ -82,10 +91,12 @@ metadata are never substantial.
    | `done` | Step 5. |
 
 3. Dispatch one round agent: one subagent, `general-purpose`, in the pull request's
-   worktree, with the model the caller sized it at. Build its brief from
+   worktree, with the model from the rule above. Build its brief from
    [round-brief.md](round-brief.md), the round agent's whole instruction, and add
-   [round-2.md](round-2.md) verbatim for round 2. Fill in every placeholder the template
-   names; a brief with a placeholder left in it is a round that will guess.
+   [round-2.md](round-2.md) verbatim for round 2. Round 2's brief carries round 1's
+   findings and rejected list, from the round 1 return that the caller passes. Fill in
+   every placeholder the template names; a brief with a placeholder left in it is a round
+   that will guess.
 
    Reviewers by what the diff changes, from `gh pr diff <n> --name-only`:
 
