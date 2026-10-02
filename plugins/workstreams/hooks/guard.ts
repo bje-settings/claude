@@ -24,7 +24,7 @@
 // it, and the status is 0 all the same.
 //
 // The statements outside the try are the `await import`s and
-// `createOutput`. Two reader functions are outside it too; `runGuard`
+// `createOutput`. The reader functions are outside it too; `runGuard`
 // calls them only once it is inside the try. A failure among the
 // imports or `createOutput` is an unhandled top-level rejection and a
 // non-zero status from node itself. `hooks.json`'s `; exit 0` absorbs
@@ -37,13 +37,16 @@
 //
 // **Two tools find a process's own directory.** `pgrep -f` names the
 // processes; the pattern is below. Pid N's own cwd needs `/proc/N/cwd`.
-// Linux has that; macOS does not. The fallback, `lsof -a -d cwd -p N`,
+// Linux has that; macOS does not. The fallback, `lsof -a -d cwd -p N,M`,
 // is on both, and it is the slower call.
 //
 // So this tries `/proc` first for each pid, and asks `lsof` only when
 // that read fails. It asks once, for all those pids together: parallel
-// `lsof` calls slow each other past the deadline. When a tool is absent, this reads that the same way
-// as an absent git. That is one line on stderr, and an allow from
+// `lsof` calls slow each other, and one of them can pass the 3 second
+// deadline.
+//
+// When a tool is absent, this reads that the same way as an absent git.
+// That is one line on stderr, and an allow from
 // `decide` (`src/subcommands/guard.ts`). A pid whose cwd neither tool
 // answers gets its own line too, so it never disappears from the check
 // without a trace, the way every other degraded read here explains
@@ -113,11 +116,12 @@ if (meetsNodeFloor(process.version)) {
   }
 
   /** Each pid's cwd from ONE `lsof` call, resolved. Parallel `lsof` calls
-   *  slow each other. On macOS, four parallel calls each took 3.7 seconds,
-   *  past the 3 second deadline. One call for all pids takes the time of
-   *  one. `lsof` exits 1 when a pid is gone, and still lists the others.
-   *  So this reads the output whatever the status. A pid that the output
-   *  does not name is left out of the map. */
+   *  slow each other: on a loaded macOS machine, each took about 3.75
+   *  seconds, past the 3 second deadline (#305, ruling 15). `lsof` exits 1
+   *  when a pid is gone, and still lists the others. So this reads the
+   *  output for any exit status. It reads only complete lines: a call that
+   *  the deadline killed can leave a cut last line, and that must not read
+   *  as a cwd. A pid that the output does not name is left out of the map. */
   const readLsofCwds = async (pids: readonly number[]): Promise<Map<number, string>> => {
     const found = new Map<number, string>()
     if (pids.length === 0) return found
@@ -125,7 +129,9 @@ if (meetsNodeFloor(process.version)) {
       timeoutMs: 3_000,
     })
     let pid: number | null = null
-    for (const line of listed.stdout.split('\n')) {
+    const lines = listed.stdout.split('\n')
+    lines.pop()
+    for (const line of lines) {
       if (line.startsWith('p')) pid = Number(line.slice(1))
       else if (line.startsWith('n') && pid !== null && !found.has(pid)) {
         found.set(pid, await resolvedOrSame(line.slice(1), realpath))

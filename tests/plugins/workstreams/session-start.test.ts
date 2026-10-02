@@ -33,7 +33,7 @@ it('writes nothing at all, in silence, when everything is present', () => {
       mode: 0o755,
     },
   )
-  // `pgrep` always, and `lsof` for a machine with no `/proc`.
+  // Stubs both, so the test passes on a machine with `/proc` and on one without.
   for (const tool of ['pgrep', 'lsof']) {
     writeFileSync(path.join(bin, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
   }
@@ -67,6 +67,22 @@ it('writes nothing at all, in silence, when everything is present', () => {
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
   expect(result.stderr).toBe('')
+})
+
+it('asks for lsof only on a machine with no /proc, by the real /proc of this one', () => {
+  const sandbox = createSandbox()
+  const bin = sandbox.join('bin')
+  mkdirSync(bin, { recursive: true })
+  for (const tool of ['gh', 'pgrep']) {
+    writeFileSync(path.join(bin, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  }
+  const env = { ...sandbox.env, PATH: sandbox.stubPath(bin) }
+
+  const result = runScript(HOOK, { stdin: JSON.stringify({ session_id: 's1' }), env })
+
+  expect(result.status).toBe(0)
+  if (process.platform === 'linux') expect(result.stdout).not.toContain('lsof')
+  else expect(result.stdout).toContain('lsof is absent')
 })
 
 it('writes one line naming the floor when node is below it, and exits 0', () => {
