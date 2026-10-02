@@ -45,18 +45,19 @@
 // `lsof` calls slow each other, and one of them can pass the 3 second
 // deadline.
 //
-// When a tool is absent, this reads that the same way as an absent git.
-// That is one line on stderr, and an allow from
-// `decide` (`src/subcommands/guard.ts`). A pid whose cwd neither tool
-// answers gets its own line too, so it never disappears from the check
-// without a trace, the way every other degraded read here explains
-// itself.
+// An absent `pgrep` reads the same way as an absent git. That is one
+// line on stderr, and an allow from `decide` (`src/subcommands/guard.ts`).
+// An absent `lsof` gives one line for each pid that `/proc` did not
+// answer. A pid whose cwd neither tool answers gets that line too, so it
+// never disappears from the check without a trace, the way every other
+// degraded read here explains itself.
 //
 // **Both cwd paths are resolved with `realpath` before the compare.** On
 // macOS `/tmp` and `/var` are links, and a process cwd is the resolved
 // form. So this resolves the payload `cwd` (`resolvePayloadCwd`) and each
-// process cwd (`readCwds`), and `decide` still compares plain strings. A
-// path that `realpath` cannot resolve keeps its own string.
+// process cwd (`readProcCwds`, `readLsofCwds`). `decide` still compares
+// plain strings. A path that `realpath` cannot resolve keeps its own
+// string.
 //
 // **`pgrep`'s own pattern is narrower than a plain `vitest`.** A plain
 // substring match answers a process whose command line merely contains
@@ -116,12 +117,12 @@ if (meetsNodeFloor(process.version)) {
   }
 
   /** Each pid's cwd from ONE `lsof` call, resolved. Parallel `lsof` calls
-   *  slow each other: on a loaded macOS machine, each took about 3.75
-   *  seconds, past the 3 second deadline (#305, ruling 15). `lsof` exits 1
-   *  when a pid is gone, and still lists the others. So this reads the
-   *  output for any exit status. It reads only complete lines: a call that
-   *  the deadline killed can leave a cut last line, and that must not read
-   *  as a cwd. A pid that the output does not name is left out of the map. */
+   *  slow each other. On a loaded macOS machine, each took about 3.75
+   *  seconds, past the 3 second deadline (#305). `lsof` exits 1 when a pid
+   *  is gone, and still lists the others. So this reads the output for any
+   *  exit status. It reads only complete lines. A call that the deadline
+   *  killed can leave a cut last line. That line must not read as a cwd.
+   *  A pid that the output does not name is left out of the map. */
   const readLsofCwds = async (pids: readonly number[]): Promise<Map<number, string>> => {
     const found = new Map<number, string>()
     if (pids.length === 0) return found

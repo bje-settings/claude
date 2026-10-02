@@ -442,19 +442,20 @@ it('allows a subagent in a different real directory than the one a vitest runs i
   expect(result.stdout).toBe('')
 })
 
-/** `pgrep` and `lsof` stubs on PATH. `pgrep` lists two pids that no `/proc`
- *  entry answers. `lsof` prints `lsofOut` and exits 1, as a real one does when
- *  a pid is gone. It prints nothing unless `-p` carries both pids joined by a
- *  comma, so a wrong join reads as two unread pids. */
+/** `pgrep` and `lsof` stubs on PATH. `pgrep` lists two pids above any
+ *  `pid_max`, so no `/proc` entry answers. `lsof` prints `lsofOut` and exits
+ *  1, as a real one does when a pid is gone. It prints nothing unless `-p`
+ *  carries both pids joined by a comma, so a wrong join reads as two unread
+ *  pids. */
 const stubPgrepAndLsof = (sandbox: Sandbox, lsofOut: string): void => {
   const stubs = sandbox.join('stub-bin')
   mkdirSync(stubs, { recursive: true })
-  writeFileSync(path.join(stubs, 'pgrep'), '#!/bin/sh\necho 999991\necho 999992\nexit 0\n', {
+  writeFileSync(path.join(stubs, 'pgrep'), '#!/bin/sh\necho 4999991\necho 4999992\nexit 0\n', {
     mode: 0o755,
   })
   writeFileSync(
     path.join(stubs, 'lsof'),
-    `#!/bin/sh\ncase "$*" in\n  *"-p 999991,999992 -Fpn"*) printf '%s' '${lsofOut}' ;;\nesac\nexit 1\n`,
+    `#!/bin/sh\ncase "$*" in\n  *"-p 4999991,4999992 -Fpn"*) printf '%s' '${lsofOut}' ;;\nesac\nexit 1\n`,
     { mode: 0o755 },
   )
   sandbox.stubPath(stubs)
@@ -473,46 +474,49 @@ const deniedFrom = (sandbox: Sandbox, cwd: string): ReturnType<typeof runScript>
 
 it('reads two pids from one lsof listing, pairing each cwd with its own pid', () => {
   const sandbox = createSandbox()
-  stubPgrepAndLsof(sandbox, 'p999991\nfcwd\nn/dir-a\np999992\nfcwd\nn/dir-b\n')
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/dir-a\np4999992\nfcwd\nn/dir-b\n')
 
   const first = deniedFrom(sandbox, '/dir-a')
   const second = deniedFrom(sandbox, '/dir-b')
 
-  expect(denialIn(first.stdout)).toContain('pid 999991')
-  expect(denialIn(second.stdout)).toContain('pid 999992')
+  expect(denialIn(first.stdout)).toContain('pid 4999991')
+  expect(denialIn(second.stdout)).toContain('pid 4999992')
   expect(first.stderr).toBe('')
 })
 
 it('reads the lsof listing of a call that exited 1, and reports the pid it left out', () => {
   const sandbox = createSandbox()
-  stubPgrepAndLsof(sandbox, 'p999991\nfcwd\nn/dir-a\n')
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/dir-a\n')
 
   const result = deniedFrom(sandbox, '/dir-a')
 
-  expect(denialIn(result.stdout)).toContain('pid 999991')
+  expect(denialIn(result.stdout)).toContain('pid 4999991')
   expect(result.stderr).toBe(
-    "workstreams guard: pid 999992's cwd could not be read (neither /proc nor lsof " +
+    "workstreams guard: pid 4999992's cwd could not be read (neither /proc nor lsof " +
       'answered); it will not be checked for a second vitest run.\n',
   )
 })
 
 it('does not read a last lsof line that was cut, and reports its pid', () => {
   const sandbox = createSandbox()
-  stubPgrepAndLsof(sandbox, 'p999991\nfcwd\nn/dir-a\np999992\nfcwd\nn/dir-b-cut')
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/dir-a\np4999992\nfcwd\nn/dir-b-cut')
 
   const result = deniedFrom(sandbox, '/dir-b-cut')
 
   expect(result.stdout).toBe('')
-  expect(result.stderr).toContain("pid 999992's cwd could not be read")
+  expect(result.stderr).toBe(
+    "workstreams guard: pid 4999992's cwd could not be read (neither /proc nor lsof " +
+      'answered); it will not be checked for a second vitest run.\n',
+  )
 })
 
 it('compares by string a cwd that realpath cannot resolve', () => {
   const sandbox = createSandbox()
-  stubPgrepAndLsof(sandbox, 'p999991\nfcwd\nn/never-made/a\np999992\nfcwd\nn/never-made/b\n')
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/never-made/a\np4999992\nfcwd\nn/never-made/b\n')
 
   const result = deniedFrom(sandbox, '/never-made/b')
 
-  expect(denialIn(result.stdout)).toContain('pid 999992')
+  expect(denialIn(result.stdout)).toContain('pid 4999992')
 })
 
 it('denies a subagent when the running process ends its command line in vitest/, not vitest', async () => {
