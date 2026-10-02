@@ -25,8 +25,10 @@ Derive it on each call. Write nothing to disk.
 
    The round is the newest plan. An open issue whose latest plan names an earlier round is
    not in it.
-2. **The pull requests.** `gh pr list --state all --json number,state,headRefName,baseRefName,closingIssuesReferences`
+2. **The pull requests.** `gh pr list --state all --limit 1000 --json number,state,headRefName,baseRefName,closingIssuesReferences`
    names the ones that close a round issue, or whose head is a branch the plan names.
+   Without `--limit`, gh gives only 30. When one branch has more than one pull request,
+   the newest is its layer's.
    `gh stack view --json` gives the layer order, and names a layer whose body only refers
    to an issue. Take each head from `intersect`, not from `gh stack view`: its local heads
    can be old.
@@ -56,16 +58,18 @@ Derive it on each call. Write nothing to disk.
    `closed` is a stop. Report it, and dispatch no round. Otherwise go to step 4.
    `/workstreams:review` chooses the review model when no plan names one.
 3. Invoke `/workstreams:stream` with the next layer's issues only when there is no layer
-   below, or `pr-state` for the layer below gives `done`. Any other state runs its row in
-   [tick.md](tick.md) step 4.
+   below, or `pr-state` for the layer below gives `done` or `merged`. Any other state runs
+   its row in [tick.md](tick.md) step 4.
 
    GitHub is the state of review: only `pr-state` marks a layer done. A person's message
    in chat never changes the state, and never takes the place of a review round. The one
-   exception is an explicit request from the person to skip a layer's review. Post one
-   ruling comment on the pull request that quotes the request, in the form of
-   [tick.md](tick.md) "A decision mid-round". Then post the `Review round 1 done.` and
-   `Rot check done.` markers, as `/workstreams:review` posts them. Put a link to the
-   ruling comment on the line below each marker.
+   exception is an explicit request from the person to skip the review of a layer in
+   `review-1`. Post one ruling comment on the pull request that quotes the request, in the
+   form of [tick.md](tick.md) "A decision mid-round". Then post the `Review round 1 done.`
+   and `Rot check done.` markers, as `/workstreams:review` posts them. Put a link to the
+   ruling comment on the line after the marker, above the footer. In any other state, a
+   request to skip is a question. There, the two markers may not give `done`: CI that is
+   not green gives `fixing`, and a substantial round 1 gives `review-2`.
 4. Wait for a wake. If no watch runs, arm it first ([Wakes](#wakes)). Then run the tick in
    [tick.md](tick.md), and wait again.
 5. When every layer is `done` or merged, and the plan has no layer left, do

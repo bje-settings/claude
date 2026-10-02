@@ -44,7 +44,7 @@ On a collision:
 | State | Next action |
 | --- | --- |
 | `awaiting-pr` | Stop. GitHub said this number does not exist. |
-| `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. |
+| `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. A merged layer is finished: step 3 of `SKILL.md` writes the next layer. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `ci-pending` | Nothing. The watch names each check as it reports. |
 | `red` | The agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise send it back with `SendMessage`. A pull request from a person, with no agent: report it, and stop. |

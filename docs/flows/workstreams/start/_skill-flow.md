@@ -29,7 +29,7 @@ flowchart TD
     E --> E1{markers a set pr-state takes?}
     E1 -->|No| E2([Stop: name the markers]):::stop
     E1 -->|Yes| R
-    F{a layer to write, and no layer below,<br/>or pr-state gives done for it?}
+    F{a layer to write, and no layer below,<br/>or pr-state gives done or merged for it?}
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No: the tick row for its state acts| W
     G --> W{a wake can come?<br/>an agent at work, or the watch can run}
@@ -80,7 +80,7 @@ flowchart TD
     R -->|Yes, with no question| Z([Round end: merge sequence for what is not merged,<br/>open items and cost on each issue; nothing merges])
 
     X -->|a return that says it still waits| SS[Stopped short: SendMessage it back] --> X
-    X -->|the person explicitly asks to skip a layer's review| SK[Ruling comment on the pull request that quotes it;<br/>round 1 and rot check markers that cite it] --> X
+    X -->|the person explicitly asks to skip<br/>the review of a layer in review-1| SK[Ruling comment on the pull request that quotes it;<br/>round 1 and rot check markers that cite it] --> X
     X -->|any other message from the person in chat| X
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
@@ -92,4 +92,5 @@ A layer's return goes to `/workstreams:stream` to read. A round agent's return g
 layer or above it. Otherwise the finding waits for the round-end report.
 
 Only `pr-state` marks a layer done. A message from the person in chat changes no state. An
-explicit request to skip a layer's review becomes a ruling comment and two markers on GitHub.
+explicit request to skip the review of a layer in `review-1` becomes a ruling comment and
+two markers on GitHub. In another state, a request to skip is a question.
