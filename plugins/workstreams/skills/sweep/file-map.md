@@ -13,6 +13,13 @@ map from scratch. Do not just amend it. A port that became a deletion touches re
 such as an RFC or an ADR amendment, that the port never would have touched. An amended
 map keeps the shape of the plan it was written for.
 
+## What a fix issue hides
+
+- **For a `fix` issue, find the code path or the test that shows the defect today. Cite
+  it in the sequencing comment.** If the defect no longer happens, classify the issue as
+  already fixed, name the commit, and do not schedule it. Round 12 scheduled #298 for a
+  defect that `watch` had handled since #284, and the stream built a refactor instead.
+
 ## What a deletion touches
 
 - **Map references by basename, not by the plugin or feature name**, and include
@@ -53,6 +60,17 @@ map keeps the shape of the plan it was written for.
   collide, whatever else their diffs do.
 - **Map a README or a skill by section.** Step 5 of `SKILL.md` must know if two issues
   rewrite one section or two.
+
+## What a changed behaviour touches
+
+- **When an issue adds or removes a behaviour, grep for text that describes or counts
+  it.** Search the manifests (`hooks.json`, `plugin.json`, agent frontmatter), the READMEs
+  and the tests. #303 added a third guard rule. `hooks.json` and `agents/stream.md` still
+  said "two things", and `hook.test.ts` pins the description by exact string. Ruling 14 on
+  #299 had to add all three mid-round.
+- **When an issue changes the context of a command function, map the dispatcher that
+  builds it.** #304 changed the `watch` client, and `scripts/workstreams.ts` builds that
+  client.
 
 ## What the records say
 
