@@ -47,9 +47,9 @@ and report per milestone.
    - **Touched files and regions**, from step 3. Include files it may touch in comments
      only.
    - **Size**: the build model and the review model per layer, and the session effort the
-     round runs at, each with the reason. The stream agent inherits the session's effort. Say what the review is
-     likely to cost as well as the stream. [file-map.md](file-map.md) carries the figures
-     to size against.
+     round runs at, each with the reason. The stream agent inherits the session's effort.
+     Say what the review is likely to cost as well as the stream.
+     [file-map.md](file-map.md) carries the figures to size against.
    - **Cross-repository dependencies**, if any.
 
 5. Sequence. Collisions first. Two issues collide when they touch the same file or

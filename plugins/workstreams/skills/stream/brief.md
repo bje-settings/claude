@@ -16,7 +16,8 @@ watching you.
 ## Where you work
 
 - Repository root, never edited: `<absolute path>`
-- Worktree, named by absolute path in every command, never `cd`: `<absolute path>`
+- Worktree, named by absolute path in every command, never `cd` (`gh stack` below is the
+  one exception): `<absolute path>`
   It has `<lower branch>` checked out at `<sha>`.
 - The install is done: `<the package manager's install, and uv sync --locked if there is a
   uv.lock>`. `<Say so when the repository installs git hooks: an install can write into the
