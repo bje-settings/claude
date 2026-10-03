@@ -12,11 +12,9 @@ once. Whoever dispatched you is another session. That session is not watching yo
 Worktree, named by absolute path in every command, never `cd`:
 `<worktree>`
 Root checkout, never written to: `<root>`
-Scratchpad, where the findings file goes: `<scratchpad>`
 Pull request `<number>`, branch `<branch>`, base `<base>`, head `<sha>`.
 `<the specification this pull request is judged against: the issue body, the stream
 brief, the rulings comment, whichever exist. Name the file or the comment id.>`
-`<for round 2: the previous round's findings file and its rejected list, by path.>`
 
 ## Order of work, no step skipped
 
@@ -34,18 +32,17 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 
    > You are READ-ONLY. Do not edit, create, or delete any file, anywhere. Do not start
    > agents or background work. Run NO test suite and no build. Work only by reading
-   > `<worktree>`. Read no earlier round's findings file: what a previous round decided
-   > reaches you through this message, or not at all. If you want to try a mutation,
-   > describe it, and I will run it. Report only to me, and to nobody else.
+   > `<worktree>`. What a previous round decided reaches you through this message, or
+   > not at all. If you want to try a mutation, describe it, and I will run it. Report
+   > only to me, and to nobody else.
 
    Five rounds have paid for each of those sentences. In one of them, three concurrent
    suites in one worktree took the load average to 33, and caused a test to flake.
 4. Wait for EVERY reviewer to finish before you edit anything. A reviewer that saw a
    round's own uncommitted edits has reviewed a diff nobody will ever merge.
-5. Write the findings file `<scratchpad>/findings-<number>-r<round>.md` BEFORE any
-   edit. Record every finding, the reviewer it came from, your verdict (APPLY or
-   REJECT), and the evidence. If the Write tool refuses the path as a report file, use
-   a heredoc.
+5. List the findings in your own text BEFORE any edit: every finding, the reviewer it
+   came from, your verdict (APPLY or REJECT), and the evidence. The same list goes in
+   your return, in the prose before the JSON line. A file is optional, never required.
 6. Verify every finding against the files before you act, and verify every REJECT the
    same way. Cite a file and a line. A correction to prose cites the RFC, the ADR, or
    the code line that contradicts it. A finding with no citation is a REJECT. A
@@ -129,7 +126,7 @@ that does not catch the revert, a retirement reason, a sentence a fix made untru
 
 ## Return
 
-Prose, then on the LAST LINE one JSON object:
+Prose first, with the findings list of step 5. Then, on the LAST LINE, one JSON object:
 
 ```
 {"pr": <number>, "round": <round>,
@@ -144,6 +141,7 @@ Prose, then on the LAST LINE one JSON object:
 ```
 
 `applied` carries the verified file and line for each fix, so the next round does not
-rediscover the context this one already read. `from` is the head named above.
+rediscover the context this one already read. `findings_file` is `null` when you wrote no
+file. `from` is the head named above.
 `substantial` classifies your own commits: `<the substantial rule from SKILL.md,
 verbatim>`

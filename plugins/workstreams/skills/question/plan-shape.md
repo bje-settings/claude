@@ -5,7 +5,8 @@ One section per primitive:
 1. What is left of the question phase.
 2. The stream, with its layers, file sets, and size, and the one layer that changes each
    version line.
-3. The review loop per layer.
+3. The review loop per layer, with its review model and reviewers. A plan with no review
+   model for a layer is not ready for approval.
 4. An estimate.
 5. Verification.
 

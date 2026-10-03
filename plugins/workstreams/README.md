@@ -63,7 +63,13 @@ are the ones that close the round's issues, in the order `gh stack view` gives. 
 request has three review facts. They are the rounds done, whether round 1 was substantial,
 and whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
 request for each one, and `start` reads the markers back. So a new conversation needs no
-question.
+question. A merged pull request is final for its layer, with no markers.
+
+GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
+`done` or `merged` for the layer below. A person's message in chat never marks a layer
+done. The person can explicitly ask to skip the review of a layer in `review-1`. Then
+`start` posts a ruling comment that quotes the request. It also posts the round 1 and rot
+check markers, each with a link to that comment.
 
 It runs in the main conversation. The two human gates need it there. They are the plan
 approval in plan mode, and one `AskUserQuestion` for a hard decision, such as a collision.
@@ -78,10 +84,14 @@ request's state and runs one `intersect`. It checks each new head, and looks for
 collision. Then it takes the next action for each state. `review` and `stream` each take
 one step for each call and never wait. Only `start` waits.
 
-At the round end, in `skills/start/round-end.md`, it posts the merge sequence and the
-cost on each issue of the round. The cost comes from each agent's completion
-notification and from `gh pr view --json additions,deletions`. Idle time is in no
-notification, so the report gives agent minutes instead.
+The round ends, with no question, when every layer is `done` or merged and no layer is
+left. At the round end, in `skills/start/round-end.md`, it posts the merge sequence for
+what is not merged, the open items and the cost on each issue of the round. A plan issue
+still open after its pull request merged is an open item. The cost comes from each
+agent's completion notification and from `gh pr view --json additions,deletions`. Idle
+time is in no notification, so the report gives agent minutes instead. An agent with no
+notification in the conversation gets the lines changed, and `not recorded` in each other
+cell.
 
 ### The monitor
 
@@ -91,7 +101,8 @@ watch writes wakes the session. The other wake is an agent's completion notifica
 Nothing polls an agent, and nothing sleeps in the foreground.
 
 On expiry, the skill arms the watch again. It gives `--since-head` and `--concluded`, and
-builds both from the full heads it knows. The new watch then stays silent about what it
+builds both from the full heads it knows, as `<number>=<full sha>` pairs in one
+comma-separated list per flag. The new watch then stays silent about what it
 already said.
 
 When a watch exits before expiry, the skill reads its last line. If the cause can clear,
@@ -185,8 +196,18 @@ before any edit starts, because one round reviewed its own uncommitted work. Rou
 checks round 1's commits first, because round 2 found round 1 wrong or incomplete on nine
 of the ten pull requests reviewed by hand in rounds 5 to 7.
 
+A round puts its findings in its return, in the prose before the JSON line. A file is
+optional, because a write outside an isolated worktree can be refused. The caller passes
+round 1's return to round 2.
+
+The plan names a review model for each layer. When it names none, the skill chooses one,
+and says which and why. It never asks. `opus` reviews round 2. In round 1, `opus` reviews
+logic under `src/`, `lib/`, `scripts/` or `hooks/`, and new behaviour at the top of a
+stream. `sonnet` reviews any other round 1.
+
 There is no state file. Everything is read again each tick. After each round and after the
 rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`
+Its `_Recorded by_` line goes in a `<sub>` tag.
 The caller reads the markers back, and passes the three facts the command cannot read as
 flags.
 
@@ -213,6 +234,10 @@ The brief is a file, not a prompt. `skills/stream/brief.md` is the template. It 
 - the return contract
 
 The dispatch prompt points at the file. It repeats only the lines most often got wrong.
+`gh stack` has no `-C` flag, so the brief allows it in one form only,
+`(cd <worktree> && gh stack ...)`. The layer's first `gh stack` command is `init` for the
+bottom layer, or `add` for an upper one. The layer reads the root checkout's branch before
+and after it, and stops if the root moved.
 A layer runs only the tests related to its changes. CI's full suite is the coverage gate.
 The lessons section grows layer by layer from what each review finds. That growth is the
 most valuable part of an upper layer's brief.

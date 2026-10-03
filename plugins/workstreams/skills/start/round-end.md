@@ -1,16 +1,17 @@
 # The round end
 
-Do this once, when every pull request of the round is `done`. Nothing merges: the person
-merges.
+Do this once, when every pull request of the round is `done` or merged. Nothing merges:
+the person merges.
 
 ## 1. Read once more
 
 Run `intersect`. The root checkout and each worktree of the round are clean. Each head is
-the head that its review reached `done` on.
+the head that its review reached `done` on. Skip this read for a merged pull request.
 
 ## 2. The merge sequence
 
-Recommend it from `intersect` and `gh stack view --json`:
+Recommend it from `intersect` and `gh stack view --json`, for the pull requests that are
+not merged. When every pull request merged, skip to the open items.
 
 - **Order.** A stack merges bottom to top, as one: `gh stack merge`. Parallel streams merge
   in the order of the fewest conflicts against the default branch.
@@ -20,6 +21,7 @@ Recommend it from `intersect` and `gh stack view --json`:
   a `conflict` result, and each head with `behind` above 0.
 - **Open items.** Each `lower_layer` finding not applied, and each open bot thread
   (`botThreadAuthors` from `pr-state`). Each defect that a mid-round ruling kept for later.
+  Each plan issue still open after its pull request merged.
 
 ## 3. The cost
 
@@ -34,12 +36,13 @@ For each pull request, the lines changed:
 gh pr view <number> --json additions,deletions
 ```
 
-Name each row with no notification in this conversation. Do not estimate it.
+Name each agent with no notification in this conversation, such as after a clear. Its row
+gets the lines changed, and `not recorded` in each other cell. Estimate nothing.
 
 ## 4. Record and report
 
-Post the merge sequence and the cost as one comment on each issue of the round. End it with
-the round's `_Recorded by <effort>, <date>._` line.
+Post the merge sequence, the open items and the cost as one comment on each issue of the
+round. End it with the round's `_Recorded by <effort>, <date>._` line.
 
 Then report to the person. Give each pull request with its head and state, the merge
 sequence, the cost, and the open items. Name each `Mid-round ruling` comment of the round.
