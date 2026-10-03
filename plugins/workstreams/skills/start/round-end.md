@@ -86,6 +86,9 @@ Act on the answer:
   person to name the items to reverse, in free text, and reverse only those.
 - Parts 3 to 5: do each accepted action that Claude owns. For each accepted action that
   the person owns, give the exact steps.
+- Before you open an issue, find an open issue with the same title, and reuse it when the
+  title is an exact match:
+  `gh issue list --state open --search '"<title>" in:title' --json number,title`.
 - Follow an exception in the "Other" field, such as `all of part 3 except the timings
   issue`.
 
