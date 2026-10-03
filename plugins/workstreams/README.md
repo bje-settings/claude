@@ -175,8 +175,8 @@ Takes one draft pull request from green CI to `done`, whoever opened it.
 The command answers where the loop is. The skill takes the one step that the state calls
 for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
 reports. It never waits. The loop runs at most two review rounds, one subagent
-each, in the pull request's own worktree. Round 2 runs only when round 1's own commits
-changed code logic, or when logic landed after the head that round 1 reviewed (#356).
+each, in the pull request's own worktree. Round 2 runs in two cases only: round 1's own
+commits changed code logic, or logic landed after the head that round 1 reviewed (#356).
 
 | State | What it means |
 | --- | --- |
@@ -444,11 +444,14 @@ command cannot read. `/workstreams:start` reads them from the marker comments th
 
 `--round-1-head` holds only with `--round 1`. Without `--substantial`, the command reads the
 compare of that head to the current head (#356). It compares commits, not times, because a
-rebase moves commit dates. The state is `review-2` when the round 1 head is not an ancestor
-of the head, when the file list is at GitHub's limit of 300, or when a changed file is
-logic. A logic file is under `src/`, `lib/`, `scripts/` or `hooks/` at any depth, and is
-not a test file, a file under a test directory, or a Markdown file. `sinceRound1` gives
-the reason. A compare that could not be read gives no state at that step.
+rebase moves commit dates. These give `review-2`:
+
+- The round 1 head is not an ancestor of the head.
+- The file list is at GitHub's limit of 300.
+- A changed file is logic: a file under `src/`, `lib/`, `scripts/` or `hooks/` at any
+  depth. A test file, a file under a test directory and a Markdown file are not logic.
+
+`sinceRound1` gives the reason. A compare that could not be read gives no state at that step.
 
 A merged or closed pull request gives state `merged` or `closed`. This check runs right
 after `awaiting-pr`, before every other rule. No CI result, thread, or marker changes it

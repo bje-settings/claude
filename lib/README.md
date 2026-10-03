@@ -545,7 +545,7 @@ It answers `{ comparison, unavailable }` and never throws. `comparison` holds Gi
 (`ahead`, `behind`, `diverged` or `identical`), the changed file names, and `filesAtLimit`.
 `ahead` and `identical` mean the base is an ancestor of the head.
 
-The file list comes on the first page only, so `per_page=1` reads one commit and every file.
+The file list comes on the first page only, so `per_page=1` reads one commit and the file list.
 Verified live on 2026-10-03. GitHub lists 300 files at most. A list of that length sets
 `filesAtLimit`, because it can be short. A renamed file gives its old name too, so a move out of
 a directory is seen.

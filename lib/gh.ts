@@ -2435,7 +2435,8 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     },
 
     // `per_page=1` keeps the commit list to one entry. The file list comes
-    // on the first page whatever its size (verified live on 2026-10-03).
+    // on the first page only, with 300 files at most (verified live on
+    // 2026-10-03).
     compareCommits: async (query) => {
       const range = `${query.base}...${query.head}`
       const path = `${encodeURIComponent(query.base)}...${encodeURIComponent(query.head)}`
