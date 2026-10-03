@@ -24,7 +24,7 @@
 // it, and the status is 0 all the same.
 //
 // The statements outside the try are the `await import`s and
-// `createOutput`. Two reader functions are outside it too; `runGuard`
+// `createOutput`. The reader functions are outside it too; `runGuard`
 // calls them only once it is inside the try. A failure among the
 // imports or `createOutput` is an unhandled top-level rejection and a
 // non-zero status from node itself. `hooks.json`'s `; exit 0` absorbs
@@ -37,16 +37,27 @@
 //
 // **Two tools find a process's own directory.** `pgrep -f` names the
 // processes; the pattern is below. Pid N's own cwd needs `/proc/N/cwd`.
-// Linux has that; macOS does not. The fallback, `lsof -a -d cwd -p N`,
+// Linux has that; macOS does not. The fallback, `lsof -a -d cwd -p N,M`,
 // is on both, and it is the slower call.
 //
 // So this tries `/proc` first for each pid, and asks `lsof` only when
-// that read fails. When a tool is absent, this reads that the same way
-// as an absent git. That is one line on stderr, and an allow from
-// `decide` (`src/subcommands/guard.ts`). A pid whose cwd neither tool
-// answers gets its own line too, so it never disappears from the check
-// without a trace, the way every other degraded read here explains
-// itself.
+// that read fails. It asks once, for all those pids together: parallel
+// `lsof` calls slow each other, and one of them can pass the 3 second
+// deadline.
+//
+// An absent `pgrep` reads the same way as an absent git. That is one
+// line on stderr, and an allow from `decide` (`src/subcommands/guard.ts`).
+// An absent `lsof` gives one line for each pid that `/proc` did not
+// answer. A pid whose cwd neither tool answers gets that line too, so it
+// never disappears from the check without a trace, the way every other
+// degraded read here explains itself.
+//
+// **Both cwd paths are resolved with `realpath` before the compare.** On
+// macOS `/tmp` and `/var` are links, and a process cwd is the resolved
+// form. So this resolves the payload `cwd` (`resolvePayloadCwd`) and each
+// process cwd (`readProcCwds`, `readLsofCwds`). `decide` still compares
+// plain strings. A path that `realpath` cannot resolve keeps its own
+// string.
 //
 // **`pgrep`'s own pattern is narrower than a plain `vitest`.** A plain
 // substring match answers a process whose command line merely contains
@@ -67,11 +78,13 @@
 import { meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
-  const { readlink } = await import('node:fs/promises')
+  const { readlink, realpath } = await import('node:fs/promises')
   const { createOutput, readStdinText } = await import('../src/lib/streams.ts')
   const { gitOut } = await import('../src/lib/git.ts')
   const { run } = await import('../src/lib/process.ts')
-  const { runGuard } = await import('../src/subcommands/guard.ts')
+  const { resolvedOrSame, resolvePayloadCwd, runGuard } = await import(
+    '../src/subcommands/guard.ts'
+  )
 
   // Both streams are guarded here, rather than at each write. A reader that
   // closed the pipe makes the write fail asynchronously, as an `error`
@@ -86,30 +99,66 @@ if (meetsNodeFloor(process.version)) {
    *  the pattern in a space alone. */
   const VITEST_PROCESS_PATTERN = '(^|/)vitest([ /]|$)'
 
-  /** pid's own cwd, or `null` when neither tool answered. Writes one
-   *  stderr line only on that failure, so a pid this cannot place never
-   *  drops out of the check in silence. */
-  const readCwd = async (pid: number): Promise<string | null> => {
-    try {
-      return await readlink(`/proc/${pid}/cwd`)
-    } catch {
-      // No /proc at all (macOS), or no permission to read another
-      // user's link. Either way, lsof is the fallback the header names.
-    }
-    const listed = await run('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], {
+  /** Each pid's cwd from `/proc`, resolved. A pid that `/proc` cannot
+   *  answer is left out of the map. */
+  const readProcCwds = async (pids: readonly number[]): Promise<Map<number, string>> => {
+    const found = new Map<number, string>()
+    await Promise.all(
+      pids.map(async (pid) => {
+        try {
+          found.set(pid, await resolvedOrSame(await readlink(`/proc/${pid}/cwd`), realpath))
+        } catch {
+          // No /proc at all (macOS), or no permission to read another
+          // user's link. `lsof` is the fallback the header names.
+        }
+      }),
+    )
+    return found
+  }
+
+  /** Each pid's cwd from ONE `lsof` call, resolved. Parallel `lsof` calls
+   *  slow each other. On a loaded macOS machine, each took about 3.75
+   *  seconds, past the 3 second deadline (#305). `lsof` exits 1 when a pid
+   *  is gone, and still lists the others. So this reads the output for any
+   *  exit status. It reads only complete lines. A call that the deadline
+   *  killed can leave a cut last line. That line must not read as a cwd.
+   *  A pid that the output does not name is left out of the map. */
+  const readLsofCwds = async (pids: readonly number[]): Promise<Map<number, string>> => {
+    const found = new Map<number, string>()
+    if (pids.length === 0) return found
+    const listed = await run('lsof', ['-a', '-d', 'cwd', '-p', pids.join(','), '-Fpn'], {
       timeoutMs: 3_000,
     })
-    const named =
-      listed.status === 0
-        ? listed.stdout.split('\n').find((line) => line.startsWith('n'))
-        : undefined
-    if (named !== undefined) return named.slice(1)
+    let pid: number | null = null
+    const lines = listed.stdout.split('\n')
+    lines.pop()
+    for (const line of lines) {
+      if (line.startsWith('p')) pid = Number(line.slice(1))
+      else if (line.startsWith('n') && pid !== null && !found.has(pid)) {
+        found.set(pid, await resolvedOrSame(line.slice(1), realpath))
+      }
+    }
+    return found
+  }
 
-    output.err.write(
-      `workstreams guard: pid ${pid}'s cwd could not be read (neither /proc nor lsof ` +
-        'answered); it will not be checked for a second vitest run.\n',
-    )
-    return null
+  /** Each pid's own cwd, or `null` for a pid that neither tool answered.
+   *  Writes one stderr line for each such pid, so a pid this cannot place
+   *  never drops out of the check in silence. */
+  const readCwds = async (pids: readonly number[]): Promise<Map<number, string | null>> => {
+    const cwds = new Map<number, string | null>(await readProcCwds(pids))
+    const unread = pids.filter((pid) => !cwds.has(pid))
+    const fromLsof = await readLsofCwds(unread)
+    for (const pid of unread) {
+      const named = fromLsof.get(pid)
+      if (named === undefined) {
+        output.err.write(
+          `workstreams guard: pid ${pid}'s cwd could not be read (neither /proc nor lsof ` +
+            'answered); it will not be checked for a second vitest run.\n',
+        )
+      }
+      cwds.set(pid, named ?? null)
+    }
+    return cwds
   }
 
   /** Every `vitest` process on the machine, or `null` when `pgrep` could
@@ -127,12 +176,13 @@ if (meetsNodeFloor(process.version)) {
       .filter((line) => line.trim() !== '')
       .map((line) => Number(line.trim()))
       .filter((pid) => Number.isInteger(pid) && pid > 0)
-    return Promise.all(pids.map(async (pid) => ({ pid, cwd: await readCwd(pid) })))
+    const cwds = await readCwds(pids)
+    return pids.map((pid) => ({ pid, cwd: cwds.get(pid) ?? null }))
   }
 
   try {
     process.exitCode = await runGuard({
-      stdin: () => readStdinText(process.stdin),
+      stdin: async () => resolvePayloadCwd(await readStdinText(process.stdin), realpath),
       git: gitOut,
       processes: readRunningVitest,
       output,

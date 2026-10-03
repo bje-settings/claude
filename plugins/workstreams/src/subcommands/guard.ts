@@ -194,6 +194,40 @@ export const readToolCall = (payload: string): Envelope<ToolCall> => {
   })
 }
 
+/** Reads the real path of a directory: `fs.realpath` in production. */
+export type PathResolver = (path: string) => Promise<string>
+
+/** `path` with every symbolic link resolved, or `path` as given when the
+ *  resolver cannot answer. A path that is gone still gets compared, by its
+ *  own string, so it never drops out of the check. */
+export const resolvedOrSame = async (path: string, resolve: PathResolver): Promise<string> => {
+  try {
+    return await resolve(path)
+  } catch {
+    return path
+  }
+}
+
+/** The payload text with its `cwd` resolved, so {@link decide} still compares
+ *  plain strings. On macOS `/var` and `/tmp` are links, and a process cwd
+ *  comes back in the resolved form. Text that is not a JSON object, or that
+ *  has no string `cwd`, returns as it came: {@link readToolCall} reports it. */
+export const resolvePayloadCwd = async (
+  payload: string,
+  resolve: PathResolver,
+): Promise<string> => {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(payload) as unknown
+  } catch {
+    return payload
+  }
+  const document = asRecord(parsed)
+  const cwd = document === null ? null : text(document, 'cwd')
+  if (document === null || cwd === null) return payload
+  return JSON.stringify({ ...document, cwd: await resolvedOrSame(cwd, resolve) })
+}
+
 /** The shell operators a command line is cut at, before any segment is
  *  read. A segment is what a shell would run as one command, near
  *  enough. The guard is a guardrail, not a security boundary, so a `git
@@ -488,10 +522,9 @@ const trackedChanges = (porcelain: string): readonly string[] =>
  *  `cwd`, and a process's own cwd read through `/proc` or `lsof`, can
  *  name the same directory with or without one; this keeps that
  *  difference from reading as two different worktrees. It does not
- *  resolve a symlink, so a path under a symlinked root, such as macOS's
- *  `/tmp` or `/var`, can still compare unequal to its own resolved self.
- *  A worktree under this repository's own convention, `.claude/worktrees/`
- *  off the repository root, never sits under either. */
+ *  resolve a symlink. `hooks/guard.ts` resolves the payload cwd and each
+ *  process cwd before this runs ({@link resolvePayloadCwd}). A `-C`
+ *  directory in the command stays as typed. */
 const stripTrailingSlash = (directory: string): string => directory.replace(/\/+$/, '')
 
 /** The verdict on a `vitest` command alone: whether another `vitest`

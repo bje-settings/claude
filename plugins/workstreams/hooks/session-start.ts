@@ -30,6 +30,7 @@ import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 if (meetsNodeFloor(process.version)) {
   const { createOutput } = await import('../src/lib/streams.ts')
   const { run } = await import('../src/lib/process.ts')
+  const { existsSync } = await import('node:fs')
   const { DEADLINE_MS, runSessionStart } = await import('../src/subcommands/session-start.ts')
 
   // This file guards both streams here, not at each write. A reader that closes
@@ -44,6 +45,7 @@ if (meetsNodeFloor(process.version)) {
       output,
       run,
       deadlineMs: DEADLINE_MS,
+      procPresent: existsSync('/proc'),
     })
   } catch (error) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)

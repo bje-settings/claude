@@ -11,13 +11,13 @@
 // decision from a crash before one; stdout is the decision (hooks.md,
 // "PreToolUse decision control").
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
 import { createGitFixtures } from '#harness/git.ts'
 import { pluginFile } from '#harness/paths.ts'
-import { createSandbox } from '#harness/sandbox.ts'
+import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -312,8 +312,8 @@ it('allows, and writes one stderr line, when a listed pid has already exited', (
   // A pid that once existed and has already exited by the time this test
   // stubs `pgrep` to report it. This machine has no `/proc` at all
   // (macOS), and a real `lsof` answers nothing for a pid that no longer
-  // runs (measured: `lsof -a -d cwd -p <exited pid> -Fn` exits 1 with no
-  // output), so neither reader `readCwd` tries can place it, and this
+  // runs (measured: `lsof -a -d cwd -p <exited pid> -Fpn` exits 1 with no
+  // output), so neither reader `readCwds` tries can place it, and this
   // drives the one stderr branch neither reader's happy path reaches.
   const dead = spawnSync('node', ['-e', 'process.exit(0)']).pid
   if (dead === undefined) throw new Error('the throwaway process never started')
@@ -342,17 +342,10 @@ it('allows, and writes one stderr line, when a listed pid has already exited', (
 
 it('denies a subagent when a real vitest process already runs in the same cwd', async () => {
   const sandbox = createSandbox()
-  // The kernel resolves a spawned child's own cwd, so `lsof`/`readlink`
-  // answer the resolved path, never the sandbox's own spelling. On
-  // macOS, `os.tmpdir()` sits under `/var`, itself a symlink to
-  // `/private/var`, so the two differ for this sandbox specifically
-  // (measured: a real decoy spawned with `cwd: sandbox.path` reported
-  // `/private/var/...` back through `lsof`). `decide` does not resolve
-  // either side of its own comparison, a real, open gap left for a
-  // follow-up issue. This test uses the resolved spelling on both sides,
-  // the same fact a real subagent's own shell would report through
-  // `process.cwd()`, so it proves the pgrep-and-lsof round trip on its
-  // own, apart from that gap.
+  // The kernel resolves a spawned child's own cwd, so `lsof` and `readlink`
+  // answer the resolved path. This test uses the resolved spelling on both
+  // sides, so it proves the pgrep-and-lsof round trip on its own. The next
+  // tests cover the unresolved spelling.
   const resolved = realpathSync(sandbox.path)
   const decoy = startVitestDecoy(resolved)
   await waitForSpawn(decoy)
@@ -373,12 +366,169 @@ it('denies a subagent when a real vitest process already runs in the same cwd', 
   expect(reason).toContain('wait for it to finish')
   // Not `toBe('')`: a real machine can carry other short-lived
   // vitest-shaped processes, this suite's own worker forks included, that
-  // `pgrep` lists and that exit before `readCwd` reaches them, each
+  // `pgrep` lists and that exit before `readCwds` reaches them, each
   // writing its own stderr line unrelated to this decoy (measured: this
   // happened live, running this file alongside coverage instrumentation).
   // This checks that the decoy ITSELF was read without complaint, which
   // is what this test is actually about.
   expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
+})
+
+it('denies a subagent whose cwd is the unresolved form of a running vitest cwd', async () => {
+  // On macOS the sandbox sits under `/var`, a link to `/private/var`, and
+  // the decoy's own cwd is the resolved form. On Linux the two forms are
+  // equal, and the test still holds.
+  const sandbox = createSandbox()
+  const decoy = startVitestDecoy(realpathSync(sandbox.path))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: sandbox.path,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
+})
+
+it('denies a subagent whose cwd is a link to the directory a vitest runs in', async () => {
+  const sandbox = createSandbox()
+  const real = sandbox.join('real')
+  mkdirSync(real)
+  const link = sandbox.join('link')
+  symlinkSync(real, link)
+  const decoy = startVitestDecoy(realpathSync(real))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: link,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
+})
+
+it('allows a subagent in a different real directory than the one a vitest runs in', async () => {
+  const sandbox = createSandbox()
+  const busy = sandbox.join('busy')
+  const idle = sandbox.join('idle')
+  mkdirSync(busy)
+  mkdirSync(idle)
+  const decoy = startVitestDecoy(realpathSync(busy))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: idle,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+})
+
+/** `pgrep` and `lsof` stubs on PATH. `pgrep` lists two pids above any
+ *  `pid_max`, so no `/proc` entry answers. `lsof` prints `lsofOut` and exits
+ *  1, as a real one does when a pid is gone. It prints nothing unless `-p`
+ *  carries both pids joined by a comma, so a wrong join reads as two unread
+ *  pids. */
+const stubPgrepAndLsof = (sandbox: Sandbox, lsofOut: string): void => {
+  const stubs = sandbox.join('stub-bin')
+  mkdirSync(stubs, { recursive: true })
+  writeFileSync(path.join(stubs, 'pgrep'), '#!/bin/sh\necho 4999991\necho 4999992\nexit 0\n', {
+    mode: 0o755,
+  })
+  writeFileSync(
+    path.join(stubs, 'lsof'),
+    `#!/bin/sh\ncase "$*" in\n  *"-p 4999991,4999992 -Fpn"*) printf '%s' '${lsofOut}' ;;\nesac\nexit 1\n`,
+    { mode: 0o755 },
+  )
+  sandbox.stubPath(stubs)
+}
+
+const deniedFrom = (sandbox: Sandbox, cwd: string): ReturnType<typeof runScript> =>
+  runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd,
+      tool_input: { command: 'pnpm test' },
+    }),
+    env: sandbox.env,
+  })
+
+it('reads two pids from one lsof listing, pairing each cwd with its own pid', () => {
+  const sandbox = createSandbox()
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/dir-a\np4999992\nfcwd\nn/dir-b\n')
+
+  const first = deniedFrom(sandbox, '/dir-a')
+  const second = deniedFrom(sandbox, '/dir-b')
+
+  expect(denialIn(first.stdout)).toContain('pid 4999991')
+  expect(denialIn(second.stdout)).toContain('pid 4999992')
+  expect(first.stderr).toBe('')
+})
+
+it('reads the lsof listing of a call that exited 1, and reports the pid it left out', () => {
+  const sandbox = createSandbox()
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/dir-a\n')
+
+  const result = deniedFrom(sandbox, '/dir-a')
+
+  expect(denialIn(result.stdout)).toContain('pid 4999991')
+  expect(result.stderr).toBe(
+    "workstreams guard: pid 4999992's cwd could not be read (neither /proc nor lsof " +
+      'answered); it will not be checked for a second vitest run.\n',
+  )
+})
+
+it('does not read a last lsof line that was cut, and reports its pid', () => {
+  const sandbox = createSandbox()
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/dir-a\np4999992\nfcwd\nn/dir-b-cut')
+
+  const result = deniedFrom(sandbox, '/dir-b-cut')
+
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(
+    "workstreams guard: pid 4999992's cwd could not be read (neither /proc nor lsof " +
+      'answered); it will not be checked for a second vitest run.\n',
+  )
+})
+
+it('resolves a link in an lsof cwd before it compares', () => {
+  const sandbox = createSandbox()
+  const real = realpathSync(sandbox.join('.'))
+  const link = sandbox.join('link')
+  symlinkSync(real, link)
+  stubPgrepAndLsof(sandbox, `p4999991\nfcwd\nn${link}\np4999992\nfcwd\nn/elsewhere\n`)
+
+  const result = deniedFrom(sandbox, real)
+
+  expect(denialIn(result.stdout)).toContain('pid 4999991')
+})
+
+it('compares by string a cwd that realpath cannot resolve', () => {
+  const sandbox = createSandbox()
+  stubPgrepAndLsof(sandbox, 'p4999991\nfcwd\nn/never-made/a\np4999992\nfcwd\nn/never-made/b\n')
+
+  const result = deniedFrom(sandbox, '/never-made/b')
+
+  expect(denialIn(result.stdout)).toContain('pid 4999992')
 })
 
 it('denies a subagent when the running process ends its command line in vitest/, not vitest', async () => {
