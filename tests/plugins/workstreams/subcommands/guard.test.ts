@@ -779,6 +779,18 @@ describe('a second vitest suite', () => {
       expect(output.stderr()).toContain('the payload carries no cwd')
     })
 
+    it('allows, with a line on stderr, a relative -C when the payload cwd is empty', async () => {
+      const output = createOutputPair()
+      const verdict = await decide(call({ command: 'pnpm -C sub test', cwd: '' }), {
+        git: () => Promise.reject(new Error('git must not be asked')),
+        output,
+        processes: running([{ pid: 4242, cwd: '/sub' }]),
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toContain('the payload carries no cwd')
+    })
+
     it('still compares an absolute -C when the payload has no cwd', async () => {
       const verdict = await decide(call({ command: 'pnpm -C /real test', cwd: null }), {
         ...idle(),

@@ -527,18 +527,19 @@ const trackedChanges = (porcelain: string): readonly string[] =>
  *  resolves a `pnpm -C` directory itself, with the context's `resolve`. */
 const stripTrailingSlash = (directory: string): string => directory.replace(/\/+$/, '')
 
-/** The directory a `pnpm -C` names, as the process cwds are written: a
- *  relative one is joined to the call's cwd first, and then every link in it
- *  is resolved with `context.resolve`. With no `resolve`, the joined path
- *  stands. A relative one with no cwd to join to returns `null`, as a
- *  missing cwd does: no process cwd is relative, so it could never match. */
+/** The directory that a `pnpm -C` or `--dir` option names, written as a
+ *  process cwd is. A relative directory joins to the call cwd. Then
+ *  `context.resolve` follows each link. With no `resolve`, an absolute
+ *  directory stays as typed. A relative directory has no base when the cwd
+ *  is `null` or empty. It returns `null`, as an absent cwd does. */
 const namedDirectory = async (
   directory: string,
   cwd: string | null,
   context: { readonly resolve?: PathResolver },
 ): Promise<string | null> => {
-  if (!directory.startsWith('/') && cwd === null) return null
-  const joined = directory.startsWith('/') ? directory : `${cwd}/${directory}`
+  const rooted = directory.startsWith('/')
+  if (!rooted && (cwd === null || cwd === '')) return null
+  const joined = rooted ? directory : `${cwd}/${directory}`
   return context.resolve === undefined ? joined : resolvedOrSame(joined, context.resolve)
 }
 
@@ -621,8 +622,8 @@ export const decide = async (
     readonly git: GitReader
     readonly processes: ProcessReader
     readonly output: Output
-    /** Resolves the links in a `pnpm -C` directory. Without it, the directory is
-     *  only joined to the cwd. */
+    /** Resolves the links in a `pnpm -C` directory. Without it, a relative
+     *  directory only joins to the cwd, and an absolute one stays as typed. */
     readonly resolve?: PathResolver
   },
 ): Promise<Verdict> => {
