@@ -178,7 +178,7 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
   const work = git.create(sandbox.join('r'))
   git.dirty(work)
   // No other session's vitest can change this test's result (#358).
-  stubPgrepNoMatch(sandbox)
+  const pgrepLog = stubPgrepNoMatch(sandbox)
 
   for (const command of [
     'pnpm test',
@@ -206,6 +206,10 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
       stderr: result.stderr,
     }).toEqual({ command, status: 0, stdout: '', stderr: '' })
   }
+
+  // Only `pnpm test` runs vitest, so the stub answers once. Without this
+  // line, a stub that never ran would leave the test open to the race.
+  expect(readFileSync(pgrepLog, 'utf8')).toBe('called\n')
 })
 
 it('allows a tool that is not a shell, whatever the matcher lets through', () => {
@@ -513,12 +517,17 @@ const stubPgrepAndLsof = (sandbox: Sandbox, lsofOut: string): void => {
 
 /** A `pgrep` stub that finds no process, as a real one does with status 1.
  *  A test that needs no real process uses it, so a vitest worker of another
- *  session cannot change its result. */
-const stubPgrepNoMatch = (sandbox: Sandbox): void => {
+ *  session cannot change its result. It returns the path of a log that the
+ *  stub appends one line to for each call, so a test can prove the stub ran. */
+const stubPgrepNoMatch = (sandbox: Sandbox): string => {
   const stubs = sandbox.join('stub-bin-none')
+  const log = path.join(stubs, 'pgrep.log')
   mkdirSync(stubs, { recursive: true })
-  writeFileSync(path.join(stubs, 'pgrep'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+  writeFileSync(path.join(stubs, 'pgrep'), `#!/bin/sh\necho called >> '${log}'\nexit 1\n`, {
+    mode: 0o755,
+  })
   sandbox.stubPath(stubs)
+  return log
 }
 
 /** `stderr` without the line that the hook writes for a pid whose cwd it
@@ -658,7 +667,7 @@ it('allows a subagent when only a file merely named after vitest sits in its cwd
   expect(otherSessionsLinesRemoved(result.stderr)).toBe('')
 })
 
-it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
+it('allows when pgrep runs and finds nothing at this cwd', () => {
   const sandbox = createSandbox()
 
   const result = runScript(HOOK, {
@@ -675,7 +684,9 @@ it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
   // otherwise. This proves pgrep's exit status 1 ("no match") reached
   // `decide` as an empty list, not as the "could not be listed" failure
   // the case above writes: that message would appear here too if `[]`
-  // and `null` were ever confused.
+  // and `null` were ever confused. On a busy machine pgrep answers with
+  // status 0, so the ordinary-commands test, which stubs it, is the proof
+  // that holds on every machine.
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
   // Not `toBe('')`: real `pgrep` runs, and another session's vitest may add a
