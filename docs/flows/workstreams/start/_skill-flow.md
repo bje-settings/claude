@@ -18,23 +18,25 @@ flowchart TD
     P0 -->|Yes| P0a([Stop: report the state]):::stop
     P0 -->|No| W
     A -->|milestone, or none| B{plan comment on an open issue?}
-    B -->|No| B1{newest plan on a closed issue,<br/>and no round-end record after it?}
-    B1 -->|Yes: its issues closed before the round end| Z
-    B1 -->|No plan, or the round already ended| C[Invoke /workstreams:sweep]
+    B -->|No| B1{newest plan on a closed issue?}
+    B1 -->|No| C[Invoke /workstreams:sweep]
+    B1 -->|Yes| B2{a round-end record after the plan?}
+    B2 -->|Yes: the round ended| C
     C --> C1{sweep stopped?}
     C1 -->|Yes| C2([Stop: report what sweep returned]):::stop
     C1 -->|No| D[Invoke /workstreams:question]
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
-    B -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers;<br/>a merged pull request is final, with no markers]
+    B -->|Yes| B2
+    B2 -->|No: the round is in flight| E[Derive the round: plan, pull requests,<br/>stack order, review markers;<br/>a merged pull request is final, with no markers]
     E --> E1{markers a set pr-state takes?}
     E1 -->|No| E2([Stop: name the markers]):::stop
     E1 -->|Yes| R
     F{a layer to write, and no layer below,<br/>or pr-state gives done or merged for it?}
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No, the layer below closed with no merge| NC
-    F -->|No: the tick row for its state acts| W
+    F -->|No, another state: its tick row acts| W
     G --> W{a wake can come?<br/>an agent at work, or the watch can run}
     W -->|No| W1([Stop: report where the round stands]):::stop
     W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool]
@@ -78,7 +80,7 @@ flowchart TD
     N7 -->|Yes| X
     N7 -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
     N -->|merged| NM[Report it; never a review] --> R
-    N -->|closed| NC{an answer recorded on the layer's issues?}
+    N -->|closed| NC{a Mid-round ruling on the layer's issues<br/>that answers for it?}
     NC -->|No| NC1([Report it; ask once: drop the layer and those above,<br/>reopen it, or replan]):::pause
     NC1 --> NC2[Record the answer on each issue] --> NC
     NC -->|drop| R
@@ -86,12 +88,12 @@ flowchart TD
     NC -->|replan| S5([Stop: the plan changes first]):::stop
     N -->|done| R{every layer done, merged or dropped,<br/>and no layer left?}
     R -->|No| F
-    R -->|Yes, with no question first| Z[Round end: stop the watch; report state and merge sequence,<br/>decisions, old defects, scope changes, other items, cost]
+    R -->|Yes: report before any question| Z[Round end: stop the watch if one runs; report state and merge sequence,<br/>decisions, old defects, scope changes, other items, cost]
     Z --> Z1{items with an action?}
     Z1 -->|No| Z3
     Z1 -->|Yes| Z2([Ask one question: which parts' actions to accept]):::pause
     Z2 --> Z4[Do each accepted action Claude owns;<br/>give the steps for each the person owns]
-    Z4 --> Z3([Post the Round n end record on each issue,<br/>with what was done; nothing merges])
+    Z4 --> Z3([Post the round-end record on each issue,<br/>with what was done; nothing merges])
 
     X -->|a return that says it still waits| SS[Stopped short: SendMessage it back] --> X
     X -->|the person explicitly asks to skip<br/>the review of a layer in review-1| SK[Ruling comment on the pull request that quotes it;<br/>round 1 and rot check markers that cite it] --> X
@@ -111,6 +113,7 @@ two markers on GitHub. In another state, a request to skip is a question.
 
 A layer that closed with no merge is one question, asked once and recorded on its issues.
 A dropped layer lets the round end, as an open item. The round end reports first, then
-asks one multi-select question, one option for each part of the report that has an action.
-Its record on each issue starts with `<round> end`. A later call that finds that record
-starts a new sweep.
+asks one question, one option for each part of the report that has an action. Its record
+on each issue starts with `<round> end`. A later call that finds that record after the
+plan starts a new sweep. Without it, the round is in flight, with its issues open or
+closed.

@@ -67,9 +67,9 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question. A merged pull request is final for its layer, with no markers.
 
-When no open issue carries a plan, `start` reads the closed issue with a plan that changed
-last. Its latest plan names the round. With no `<round> end` record after it, the round
-gets its round end. With the record, a new sweep starts.
+`start` takes the newest plan on an open issue, or else on a closed issue. Then it looks
+for a `<round> end` record after the plan. With the record, a new sweep starts. Without
+it, the round is in flight, with its issues open or closed.
 
 GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
 `done` or `merged` for the layer below. A person's message in chat never marks a layer
@@ -94,15 +94,14 @@ request's state and runs one `intersect`. It checks each new head, and looks for
 collision. Then it takes the next action for each state. `review` and `stream` each take
 one step for each call and never wait. Only `start` waits.
 
-The round end starts with no question first, when every layer is `done`, merged or
-dropped, and no layer is left. It is in `skills/start/round-end.md`. The report has six
-parts, in this order: the state and the merge sequence, the decisions the model made, the
-defects from before the round, the scope changes for other issues, the other items, and
-the cost. Each item in parts 2 to 5 has one recommended action and its owner. A plan issue
-still open after its pull request merged is an open item.
+The round end starts when every layer is `done`, merged or dropped, and no layer is left.
+It is in `skills/start/round-end.md`. The report comes before any question. It has six
+parts, from the state and the merge sequence to the cost. Each item in parts 2 to 5 has
+one recommended action and its owner. A plan issue still open after its pull request
+merged is an open item.
 
-After the report, `start` asks one multi-select question, with one option for each part
-that has items. It does the accepted actions that Claude owns. Then it posts the same parts,
+After the report, `start` asks one question, with one option for each part that has
+items. It does the accepted actions that Claude owns. Then it posts the same parts,
 and what it did, on each issue of the round. The first line is `<round> end, <date>.`
 
 The cost comes from each agent's completion notification and from `gh pr view --json

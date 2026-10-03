@@ -26,21 +26,22 @@ Derive it on each call. Write nothing to disk.
    The round is the newest plan. An open issue whose latest plan names an earlier round is
    not in it.
 
-   When no open issue carries one, find the closed issue that carries one and changed last:
+   When no open issue carries one, find the newest plan on a closed issue:
 
    ```bash
-   gh issue list --state closed --search '"plan, approved" in:comments sort:updated-desc' [--milestone <milestone>] --limit 1 --json number,title
+   gh issue list --state closed --search '"plan, approved" in:comments sort:updated-desc' [--milestone <milestone>] --limit 20 --json number,comments --jq '[.[] | .number as $n | .comments[] | select(.body | test("^[^\n]* plan, approved ")) | {at: .createdAt, issue: $n, line: (.body | split("\n")[0])}] | max_by(.at)'
    ```
 
-   Read the first line of each of its comments:
+   No output: no plan. Then, for an open or a closed plan, read the first lines of the
+   comments on one issue of the round:
 
    ```bash
    gh issue view <number> --json comments --jq '.comments[].body | split("\n")[0]'
    ```
 
-   Its latest plan names the round. A later first line that starts with `<round> end` is
-   the round-end record ([round-end.md](round-end.md) step 4). With the record, that round
-   is finished. Without it, the round still needs its round end.
+   A first line after the plan that starts with `<round> end` is the round-end record
+   ([round-end.md](round-end.md) step 4). With the record, the round is finished. Without
+   it, the round is in flight, with its issues open or closed.
 2. **The pull requests.** `gh pr list --state all --limit 1000 --json number,state,headRefName,baseRefName,closingIssuesReferences`
    names the ones that close a round issue, or whose head is a branch the plan names.
    Without `--limit`, gh gives only 30. When one branch has more than one pull request,
@@ -67,9 +68,8 @@ Derive it on each call. Write nothing to disk.
 
 ## Order
 
-1. A round whose plan issues all closed, with no round-end record: go to step 5.
-   No plan comment, or a finished round: invoke `/workstreams:sweep` with the milestone.
-   If it stops, stop.
+1. A round in flight: go on at step 3. No plan comment, or a finished round: invoke
+   `/workstreams:sweep` with the milestone. If it stops, stop.
    Then invoke `/workstreams:question` with the same milestone. Its plan mode is the
    approval. With no approved plan, stop.
 2. `#<pr>`: that pull request is the whole round. Read its state first. `merged` or
@@ -94,8 +94,8 @@ Derive it on each call. Write nothing to disk.
 5. When every layer is `done`, merged, or dropped, and the plan has no layer left, do
    [round-end.md](round-end.md). A dropped layer is one that the `closed` question in
    [tick.md](tick.md) step 4 removed from the round. Check this on each call, before the
-   first wait. Do not ask first. Nothing merges. After the report, the round end asks one
-   `AskUserQuestion`: which parts of the recommended actions to accept.
+   first wait. Do not ask before the report. Nothing merges. After the report, the round
+   end asks one `AskUserQuestion`: which parts of the recommended actions to accept.
 
 ## Wakes
 
