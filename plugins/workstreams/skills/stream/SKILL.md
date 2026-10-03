@@ -6,7 +6,7 @@ allowed-tools: Bash(gh issue view *) Bash(git worktree add *) Read Grep Glob Wri
 user-invocable: false
 ---
 
-Issues to build: $ARGUMENTS. The issue order and the model per layer come from the plan
+Issues to build: $ARGUMENTS. The issue order and the build model per layer come from the plan
 comment on the round's issues. The briefs go in the session's scratchpad. If the plan
 comment does not name the order and model for every issue in `$ARGUMENTS`, stop. Say
 which is missing rather than guess: a placeholder left in a brief is a layer that will
@@ -52,4 +52,5 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    field carries.
 
    Report the pull request, its head and CI state, and what the layer returned under the
-   five fields.
+   five fields. The caller's next action is step 2 of its tick, in
+   `skills/start/tick.md`, never the next layer.

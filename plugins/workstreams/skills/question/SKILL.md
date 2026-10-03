@@ -50,8 +50,8 @@ reaches step 3 and cannot ask.
 
 7. After approval, post the plan comment. Its first line names it the plan:
    `<round> plan, approved <date>.` Trim the approved plan to its layers, with each
-   layer's issues, branch, model and file set, and the one layer that changes each version
-   line. Add the done condition, the review shape, and an estimate. Post it on every issue
+   layer's issues, branch, build model, review model and file set, and the one layer that
+   changes each version line. Add the done condition, the review shape, and an estimate. Post it on every issue
    in the round, and end it with the same
    `_Recorded by <effort name>, <date>._` line.
 

@@ -4,7 +4,7 @@ description: What the /workstreams:review skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-09-27
+  at: 2026-10-01
 ---
 
 # /workstreams:review skill flow
@@ -19,7 +19,7 @@ flowchart TD
     RS --> R2{post the round's marker: posted?}
     R2 -->|Yes| R1([Return])
     R2 -->|No| R3([Stop: say so]):::stop
-    R0 -->|No| W{exactly one worktree matches the head<br/>branch, and a model is named?}
+    R0 -->|No| W{exactly one worktree matches the head branch?}
     W -->|No| W1([Stop: say which is absent; never guess]):::stop
     W -->|Yes| C[Read the pull request's state once]
 
@@ -34,9 +34,12 @@ flowchart TD
     E -->|red| G1([Return: name the contexts that failed]):::stop
     E -->|fixing| G2([Return: name each open bot thread apart])
 
-    E -->|review-1 or review-2| I[Brief from the round template;<br/>round 2 adds its own rules]
+    E -->|review-1 or review-2| M{the plan or the caller names a review model?}
+    M -->|Yes| I
+    M -->|No, never a question| M1[Choose one: opus for round 2, logic,<br/>or new behaviour at the top of a stream;<br/>sonnet for any other round 1] --> I
+    I[Brief from the round template;<br/>round 2 adds its own rules and round 1's findings,<br/>from the return the caller passes]
     I --> J[Reviewers from what the diff changes]
-    J --> K([Dispatch one round agent, then return;<br/>its return goes to the caller])
+    J --> K([Dispatch one round agent, then return with the model and the reason;<br/>its return goes to the caller])
 
     E -->|rot-check| Q([Title and body against the final diff;<br/>post the rot check marker, then return])
     E -->|done| S([Report: state, applied, rejected,<br/>corrections, lower_layer, open bot threads])
@@ -45,6 +48,6 @@ flowchart TD
 ```
 
 The round brief holds the rules inside the round agent. Reviewers are read-only, and finish
-before any edit. The findings file comes before any edit. Each finding and each rejection is
-cited. A claim that something is tested is mutated first. Round 2 checks round 1's commits
-before anything else.
+before any edit. The findings list comes before any edit, and goes in the return. Each
+finding and each rejection is cited. A claim that something is tested is mutated first.
+Round 2 checks round 1's commits before anything else.

@@ -44,11 +44,11 @@ On a collision:
 | State | Next action |
 | --- | --- |
 | `awaiting-pr` | Stop. GitHub said this number does not exist. |
-| `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. |
+| `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. A merged layer is finished: step 3 of `SKILL.md` writes the next layer. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `ci-pending` | Nothing. The watch names each check as it reports. |
 | `red` | The agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise send it back with `SendMessage`. A pull request from a person, with no agent: report it, and stop. |
-| `review-1`, `review-2`, `rot-check` | Nothing while a round agent works on this pull request. Otherwise, in a stack, switch the worktree to this layer's branch first: `git -C <worktree> switch <branch>`. `intersect` names the worktree under the layer of the stack that has it checked out. Switch only when no agent works in it and its `clean` is `true`. A switch carries uncommitted work to the other branch. Then invoke `/workstreams:review` with the number and the markers' flags. |
+| `review-1`, `review-2`, `rot-check` | Nothing while a round agent works on this pull request. Otherwise, in a stack, switch the worktree to this layer's branch first: `git -C <worktree> switch <branch>`. `intersect` names the worktree under the layer of the stack that has it checked out. Switch only when no agent works in it and its `clean` is `true`. A switch carries uncommitted work to the other branch. Then invoke `/workstreams:review` with the number and the markers' flags. For `review-2`, also give it round 1's return. |
 | `fixing` | Nothing. The round agent's return, or a person who resolves a thread, is the next wake. A round agent that returned red is as in `red`. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
@@ -64,8 +64,10 @@ contexts whose `reported` is `false`.
 - **`lower_layer`, from either.** To apply it is a [decision](#a-decision-mid-round).
   Apply it to its layer only in a gap: no agent writes to that layer or to one above it.
   Resume that layer's agent with `SendMessage`. Tell it to commit on its own branch, then
-  to run `gh stack rebase --upstack`, a full type check, and `gh stack push`. Then check
-  each head of the stack again. Outside a gap, keep the finding for the round-end report.
+  to run `(cd <worktree> && gh stack rebase --upstack)`, a full type check, and
+  `(cd <worktree> && gh stack push)`. `gh stack` acts on the current directory, so the
+  subshell is the only safe form (the stream brief, rule 12). Then check each
+  head of the stack again. Outside a gap, keep the finding for the round-end report.
 
 ## 6. End the turn
 
