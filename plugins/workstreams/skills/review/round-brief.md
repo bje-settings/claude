@@ -111,8 +111,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
   timeout of at most 590000 ms, any command the harness moves to the background. Your
   last command before you return is the CI watch. Never return saying you are still
   waiting.
-- Never end your turn or return before step 14, and never while a reviewer you
-  dispatched still runs (step 4).
+- Never end your turn or return before step 14, except as step 13 says. Never do either
+  while a reviewer you dispatched still runs (step 4).
 - Never run the full suite. Run only the tests that reach the files you change:
   `<the repository's related-tests command>`, or the named test files. Also run the type
   check, the linter and the validators, one at a time. CI's full suite is the coverage gate.
