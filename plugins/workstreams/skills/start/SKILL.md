@@ -2,7 +2,7 @@
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. With `#<pr>`, take one pull request through review to done. The one entry to the workstreams primitives.
 argument-hint: [milestone | #pr]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
 ---
 
 Round: $ARGUMENTS. A milestone, or nothing, starts or continues a round. `#<pr>` reviews
@@ -25,6 +25,22 @@ Derive it on each call. Write nothing to disk.
 
    The round is the newest plan. An open issue whose latest plan names an earlier round is
    not in it.
+
+   When no open issue carries one, find the closed issue that carries one and changed last:
+
+   ```bash
+   gh issue list --state closed --search '"plan, approved" in:comments sort:updated-desc' [--milestone <milestone>] --limit 1 --json number,title
+   ```
+
+   Read the first line of each of its comments:
+
+   ```bash
+   gh issue view <number> --json comments --jq '.comments[].body | split("\n")[0]'
+   ```
+
+   Its latest plan names the round. A later first line that starts with `<round> end` is
+   the round-end record ([round-end.md](round-end.md) step 4). With the record, that round
+   is finished. Without it, the round still needs its round end.
 2. **The pull requests.** `gh pr list --state all --limit 1000 --json number,state,headRefName,baseRefName,closingIssuesReferences`
    names the ones that close a round issue, or whose head is a branch the plan names.
    Without `--limit`, gh gives only 30. When one branch has more than one pull request,
@@ -51,7 +67,9 @@ Derive it on each call. Write nothing to disk.
 
 ## Order
 
-1. No plan comment: invoke `/workstreams:sweep` with the milestone. If it stops, stop.
+1. A round whose plan issues all closed, with no round-end record: go to step 5.
+   No plan comment, or a finished round: invoke `/workstreams:sweep` with the milestone.
+   If it stops, stop.
    Then invoke `/workstreams:question` with the same milestone. Its plan mode is the
    approval. With no approved plan, stop.
 2. `#<pr>`: that pull request is the whole round. Read its state first. `merged` or
@@ -59,7 +77,8 @@ Derive it on each call. Write nothing to disk.
    `/workstreams:review` chooses the review model when no plan names one.
 3. Invoke `/workstreams:stream` with the next layer's issues only when there is no layer
    below, or `pr-state` for the layer below gives `done` or `merged`. Any other state runs
-   its row in [tick.md](tick.md) step 4.
+   its row in [tick.md](tick.md) step 4. For a layer below that is `closed`, that row asks
+   one question.
 
    GitHub is the state of review: only `pr-state` marks a layer done. A person's message
    in chat never changes the state, and never takes the place of a review round. The one
@@ -72,9 +91,11 @@ Derive it on each call. Write nothing to disk.
    not green gives `fixing`, and a substantial round 1 gives `review-2`.
 4. Wait for a wake. If no watch runs, arm it first ([Wakes](#wakes)). Then run the tick in
    [tick.md](tick.md), and wait again.
-5. When every layer is `done` or merged, and the plan has no layer left, do
-   [round-end.md](round-end.md). Check this on each call, before the first wait. Do not
-   ask first. Nothing merges.
+5. When every layer is `done`, merged, or dropped, and the plan has no layer left, do
+   [round-end.md](round-end.md). A dropped layer is one that the `closed` question in
+   [tick.md](tick.md) step 4 removed from the round. Check this on each call, before the
+   first wait. Do not ask first. Nothing merges. After the report, the round end asks one
+   `AskUserQuestion`: which parts of the recommended actions to accept.
 
 ## Wakes
 

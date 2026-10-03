@@ -67,15 +67,23 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question. A merged pull request is final for its layer, with no markers.
 
+When no open issue carries a plan, `start` reads the closed issue with a plan that changed
+last. Its latest plan names the round. With no `<round> end` record after it, the round
+gets its round end. With the record, a new sweep starts.
+
 GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
 `done` or `merged` for the layer below. A person's message in chat never marks a layer
 done. The person can explicitly ask to skip the review of a layer in `review-1`. Then
 `start` posts a ruling comment that quotes the request. It also posts the round 1 and rot
 check markers, each with a link to that comment.
 
-It runs in the main conversation. The two human gates need it there. They are the plan
-approval in plan mode, and one `AskUserQuestion` for a hard decision, such as a collision.
-A subagent has neither.
+A layer that closed with no merge is a question, asked once: drop it and the layers above
+it, reopen it, or replan. `start` records the answer on the layer's issues. A dropped layer
+lets the round end, and the round end lists it as an open item.
+
+It runs in the main conversation. The human gates need it there. They are the plan
+approval in plan mode, one `AskUserQuestion` for a hard decision, such as a collision, and
+the question at the round end. A subagent has neither tool.
 
 A mid-round decision with a recommended option that is cheap to reverse can be a ruling
 instead. The rubric is in `skills/start/tick.md`. `start` applies a ruling, records it on
@@ -86,14 +94,21 @@ request's state and runs one `intersect`. It checks each new head, and looks for
 collision. Then it takes the next action for each state. `review` and `stream` each take
 one step for each call and never wait. Only `start` waits.
 
-The round ends, with no question, when every layer is `done` or merged and no layer is
-left. At the round end, in `skills/start/round-end.md`, it posts the merge sequence for
-what is not merged, the open items and the cost on each issue of the round. A plan issue
-still open after its pull request merged is an open item. The cost comes from each
-agent's completion notification and from `gh pr view --json additions,deletions`. Idle
-time is in no notification, so the report gives agent minutes instead. An agent with no
-notification in the conversation gets the lines changed, and `not recorded` in each other
-cell.
+The round end starts with no question first, when every layer is `done`, merged or
+dropped, and no layer is left. It is in `skills/start/round-end.md`. The report has six
+parts, in this order: the state and the merge sequence, the decisions the model made, the
+defects from before the round, the scope changes for other issues, the other items, and
+the cost. Each item in parts 2 to 5 has one recommended action and its owner. A plan issue
+still open after its pull request merged is an open item.
+
+After the report, `start` asks one multi-select question, with one option for each part
+that has items. It does the accepted actions that Claude owns. Then it posts the same parts,
+and what it did, on each issue of the round. The first line is `<round> end, <date>.`
+
+The cost comes from each agent's completion notification and from `gh pr view --json
+additions,deletions`. Idle time is in no notification, so the report gives agent minutes
+instead. An agent with no notification in the conversation gets the lines changed, and
+`not recorded` in each other cell.
 
 ### The monitor
 
@@ -194,7 +209,8 @@ The rules a round runs under are in `skills/review/round-brief.md`, the brief te
 `round-2.md` adds the round 2 rules. `rot-check.md` covers the caller's last step. Each
 rule fixes something a past round lost. Reviewers are read-only and run no test suites,
 because three concurrent suites in one worktree once made a test flake. Reviewers finish
-before any edit starts, because one round reviewed its own uncommitted work. Round 2
+before any edit starts, because one round reviewed its own uncommitted work. The round
+agent does not return while a reviewer runs, because one that did cost a resume. Round 2
 checks round 1's commits first, because round 2 found round 1 wrong or incomplete on nine
 of the ten pull requests reviewed by hand in rounds 5 to 7.
 
