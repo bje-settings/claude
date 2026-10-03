@@ -309,8 +309,10 @@ from it. The guard lists the `vitest` processes on the machine, through `pgrep`,
 each one's cwd, through `/proc` or `lsof`. The guard resolves symbolic links in the payload
 `cwd` and in each process cwd first. On macOS, `/tmp` and `/var` are links, so both forms of
 one directory still match. A match on that directory is a denial. It names the pid, and asks
-the subagent to wait rather than start a second suite. The guard joins a relative `-C` directory to the payload `cwd`,
-and resolves its links the same way. A directory that cannot be resolved is compared as joined.
+the subagent to wait rather than start a second suite. The guard joins a relative `-C` or
+`--dir` directory to the payload `cwd`, and resolves its links the same way. It compares a
+directory that it cannot resolve as joined. It does not expand `~` or `$VAR`. With no payload
+`cwd`, a relative directory cannot be checked, and the guard allows it with a line on stderr.
 
 **The main conversation is never denied.** The test is `agent_id`. The input carries this
 field "only when the hook fires inside a subagent"

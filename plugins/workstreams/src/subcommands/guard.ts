@@ -530,13 +530,15 @@ const stripTrailingSlash = (directory: string): string => directory.replace(/\/+
 /** The directory a `pnpm -C` names, as the process cwds are written: a
  *  relative one is joined to the call's cwd first, and then every link in it
  *  is resolved with `context.resolve`. With no `resolve`, the joined path
- *  stands. A relative one with no cwd to join to stays relative. */
+ *  stands. A relative one with no cwd to join to returns `null`, as a
+ *  missing cwd does: no process cwd is relative, so it could never match. */
 const namedDirectory = async (
   directory: string,
   cwd: string | null,
   context: { readonly resolve?: PathResolver },
-): Promise<string> => {
-  const joined = directory.startsWith('/') || cwd === null ? directory : `${cwd}/${directory}`
+): Promise<string | null> => {
+  if (!directory.startsWith('/') && cwd === null) return null
+  const joined = directory.startsWith('/') ? directory : `${cwd}/${directory}`
   return context.resolve === undefined ? joined : resolvedOrSame(joined, context.resolve)
 }
 
@@ -619,7 +621,8 @@ export const decide = async (
     readonly git: GitReader
     readonly processes: ProcessReader
     readonly output: Output
-    /** Resolves the links in a `pnpm -C` directory. Identity when absent. */
+    /** Resolves the links in a `pnpm -C` directory. Without it, the directory is
+     *  only joined to the cwd. */
     readonly resolve?: PathResolver
   },
 ): Promise<Verdict> => {

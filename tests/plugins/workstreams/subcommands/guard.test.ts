@@ -766,11 +766,23 @@ describe('a second vitest suite', () => {
       expect(joined.decision).toBe('deny')
     })
 
-    it('keeps a relative -C relative when the payload has no cwd', async () => {
+    it('allows, with a line on stderr, a relative -C when the payload has no cwd', async () => {
+      const output = createOutputPair()
       const verdict = await decide(call({ command: 'pnpm -C sub test', cwd: null }), {
-        ...idle(),
-        processes: running([{ pid: 4242, cwd: 'sub' }]),
+        git: () => Promise.reject(new Error('git must not be asked')),
+        output,
+        processes: running([{ pid: 4242, cwd: '/sub' }]),
         resolve: (path) => Promise.resolve(path),
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toContain('the payload carries no cwd')
+    })
+
+    it('still compares an absolute -C when the payload has no cwd', async () => {
+      const verdict = await decide(call({ command: 'pnpm -C /real test', cwd: null }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/real' }]),
       })
 
       expect(verdict.decision).toBe('deny')
