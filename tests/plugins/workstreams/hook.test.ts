@@ -521,6 +521,15 @@ const stubPgrepNoMatch = (sandbox: Sandbox): void => {
   sandbox.stubPath(stubs)
 }
 
+/** `stderr` without the line that the hook writes for a pid whose cwd it
+ *  could not read. A test that runs the real `pgrep` allows that line, as the
+ *  pid can belong to another session. Any other line stays. */
+const otherSessionsLinesRemoved = (stderr: string): string =>
+  stderr
+    .split('\n')
+    .filter((line) => !/^workstreams guard: pid \d+'s cwd could not be read/.test(line))
+    .join('\n')
+
 const deniedFrom = (sandbox: Sandbox, cwd: string): ReturnType<typeof runScript> =>
   runScript(HOOK, {
     stdin: payload({
@@ -644,8 +653,9 @@ it('allows a subagent when only a file merely named after vitest sits in its cwd
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
   // Real `pgrep` runs here. Another session's vitest may add its own line, so
-  // only a line for this decoy is forbidden (#358).
+  // only a line for this decoy, or any other kind of line, is forbidden (#358).
   expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
+  expect(otherSessionsLinesRemoved(result.stderr)).toBe('')
 })
 
 it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
@@ -669,8 +679,8 @@ it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
   // Not `toBe('')`: real `pgrep` runs, and another session's vitest may add a
-  // line for its own pid (#358). Only the list failure is forbidden.
-  expect(result.stderr).not.toContain('could not be listed')
+  // line for its own pid (#358). Any other line is forbidden, a crash included.
+  expect(otherSessionsLinesRemoved(result.stderr)).toBe('')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
