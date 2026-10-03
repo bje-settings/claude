@@ -102,6 +102,10 @@ covers the base, as for each stack layer above the first, they come from the
 rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
 
+A check from a cancelled workflow run does not count when a newer run of the
+same workflow has a check on the head. So it writes no failure line, and the
+head is not CONCLUDED until the newer run reports each required context.
+
 Each base reads its required contexts on its own. A base whose read fails
 leaves unread only the pull requests that need its list, not every pull
 request. A head this watch has seen is not new by itself. For a short time

@@ -63,6 +63,11 @@ The verdict over the required contexts:
   no-run      no workflow run with event pull_request exists for the head
   unavailable something needed to answer could not be read
 
+A check from a cancelled workflow run does not count when a newer run of the
+same workflow has a check on the head. Until the newer run reports a name,
+that context is pending, not failed. When no ruleset covers the base, the
+head list also leaves out a name that contains \${{, an unexpanded matrix job.
+
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
 reason then appears under "unavailable".

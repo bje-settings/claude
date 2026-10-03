@@ -424,6 +424,11 @@ actually reported on the head, and `contextsFrom` says `head`. That is a design 
 a read that fell short, so it is a field of its own. A caller keys on `unavailable` to
 decide whether the report is an answer at all, and every layer of a stack is an answer.
 
+A check from a cancelled workflow run does not count when a newer run of the same workflow has a
+check on the head (#364). Workflow concurrency cancels a run that way. Until the newer run
+reports a name, that context is pending, not failed. The list from the head also leaves out a
+name that contains `${{`, a matrix job that did not expand.
+
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
 has answered nothing for a head whose runs existed. Only an unresolved thread from a
 PERSON holds the loop. A bot's own thread, review bots included, is counted apart under
@@ -515,6 +520,9 @@ the default branch (ruling P9). Each stack layer above the first is such a case.
 CodeQL checks, and none of the required ones.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
+So a cancelled run's check does not count in `watch` either, once a newer run of the same
+workflow has a check on the head. The watch writes no failure line for it, and no `CONCLUDED`
+until the newer run reports each required context.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread
 only the pull requests that need its list, not the whole poll (#265). A failed default

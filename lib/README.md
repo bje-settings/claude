@@ -488,6 +488,14 @@ name, and the rollup lists both. `plugins/workstreams/src/required-contexts.ts` 
 `startedAt` to pick the later run, so a `gh stack push` that cancels a run in flight and starts a
 new one never leaves the cancelled run as the answer.
 
+A check run can also carry an optional `run`: the workflow run behind it, read through the check
+suite in both the detail and the heads queries. It holds the run's `id` (`databaseId`), its
+`workflow` name, its `createdAt`, and the suite's `conclusion`. GraphQL's `WorkflowRun` has no
+conclusion field of its own. A commit status has no `run`, and neither does a check run that no
+workflow made, whose suite answers a null `workflowRun`. `required-contexts.ts` `currentChecks`
+reads `run` to drop a cancelled run's checks once a newer run of the same workflow has a check on
+the head (#364).
+
 The threads and the comments are separate fields, because they are separate facts: the enterprise
 coverage bot posts a COMMENT on every pull request here. All three connections ask for `pageInfo`,
 unlike the dependency connections in the sweep query. A list at the page ceiling here says so
