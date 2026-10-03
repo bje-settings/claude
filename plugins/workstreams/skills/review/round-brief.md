@@ -39,7 +39,10 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    Five rounds have paid for each of those sentences. In one of them, three concurrent
    suites in one worktree took the load average to 33, and caused a test to flake.
 4. Wait for EVERY reviewer to finish before you edit anything. A reviewer that saw a
-   round's own uncommitted edits has reviewed a diff nobody will ever merge.
+   round's own uncommitted edits has reviewed a diff nobody will ever merge. Do not end
+   your turn, and do not return, while a reviewer you dispatched still runs. Each
+   reviewer's completion notification comes to you. One round agent returned with five
+   reviewers still at work, and cost a resume.
 5. List the findings in your own text BEFORE any edit: every finding, the reviewer it
    came from, your verdict (APPLY or REJECT), and the evidence. The same list goes in
    your return, in the prose before the JSON line. A file is optional, never required.
@@ -108,6 +111,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
   timeout of at most 590000 ms, any command the harness moves to the background. Your
   last command before you return is the CI watch. Never return saying you are still
   waiting.
+- Never end your turn or return before step 14, and never while a reviewer you
+  dispatched still runs (step 4).
 - Never run the full suite. Run only the tests that reach the files you change:
   `<the repository's related-tests command>`, or the named test files. Also run the type
   check, the linter and the validators, one at a time. CI's full suite is the coverage gate.

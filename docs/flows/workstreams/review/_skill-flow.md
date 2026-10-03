@@ -4,7 +4,7 @@ description: What the /workstreams:review skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-01
+  at: 2026-10-02
 ---
 
 # /workstreams:review skill flow
@@ -50,4 +50,5 @@ flowchart TD
 The round brief holds the rules inside the round agent. Reviewers are read-only, and finish
 before any edit. The findings list comes before any edit, and goes in the return. Each
 finding and each rejection is cited. A claim that something is tested is mutated first.
-Round 2 checks round 1's commits before anything else.
+Round 2 checks round 1's commits before anything else. The round agent does not end its
+turn, or return, while a reviewer it dispatched still runs.
