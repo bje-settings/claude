@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   type CheckContext,
+  type CommitComparison,
   createGhMock,
   type GhReplies,
   ghFails,
@@ -14,6 +15,7 @@ import {
 } from '#harness/gh.ts'
 import {
   deriveState,
+  isLogicPath,
   type LoopState,
   type PrStateReport,
   runPrState,
@@ -1052,6 +1054,7 @@ describe('the state the facts add up to', () => {
     unresolvedThreads: 0,
     round: 0,
     substantial: false,
+    logicSinceRound1: false,
     rotChecked: false,
   } as const
 
@@ -1133,6 +1136,260 @@ describe('the state the facts add up to', () => {
     expect(report.substantial).toBe(true)
     expect(report.rotChecked).toBe(true)
     expect(report.state).toBe('review-2')
+  })
+})
+
+describe('logic after the round 1 head (#356)', () => {
+  const ROUND_1_HEAD = 'dda20bc0d4ffa930f6b84b5128a2273260e26377'
+  const compared = (overrides: Partial<CommitComparison> = {}): GhReplies =>
+    replies({
+      compareCommits: {
+        comparison: { status: 'ahead', files: [], filesAtLimit: false, ...overrides },
+        unavailable: null,
+      },
+    })
+  const round1 = ['178', '--round', '1', '--round-1-head', ROUND_1_HEAD]
+
+  it('is review-2 when a commit after the round 1 head changed logic', async () => {
+    const report = await reportOf(
+      round1,
+      compared({ files: ['plugins/workstreams/src/subcommands/pr-state.ts', 'README.md'] }),
+    )
+
+    expect(report.state).toBe('review-2')
+    expect(report.round1Head).toBe(ROUND_1_HEAD)
+    expect(report.sinceRound1).toEqual({
+      logic: true,
+      reason: 'logic changed: plugins/workstreams/src/subcommands/pr-state.ts',
+    })
+    expect(report.unavailable).toEqual([])
+  })
+
+  it('is review-2 for logic after the round 1 head even once the rot check is done', async () => {
+    const report = await reportOf([...round1, '--rot-checked'], compared({ files: ['lib/gh.ts'] }))
+
+    expect(report.state).toBe('review-2')
+  })
+
+  it('is rot-check when only prose and tests changed after the round 1 head', async () => {
+    const report = await reportOf(
+      round1,
+      compared({
+        files: [
+          'plugins/workstreams/README.md',
+          'docs/flows/workstreams/review/pr-state-flow.md',
+          'tests/lib/gh.test.ts',
+          'tests/plugins/workstreams/subcommands/pr-state.test.ts',
+        ],
+      }),
+    )
+
+    expect(report.state).toBe('rot-check')
+    expect(report.sinceRound1).toEqual({
+      logic: false,
+      reason: 'no logic changed under src/, lib/, scripts/ or hooks/',
+    })
+  })
+
+  it('is done when nothing changed after the round 1 head and the rot check is done', async () => {
+    const report = await reportOf([...round1, '--rot-checked'], compared({ status: 'identical' }))
+
+    expect(report.state).toBe('done')
+  })
+
+  for (const status of ['diverged', 'behind'] as const) {
+    it(`is review-2 when the round 1 head is not an ancestor (${status}), whatever changed`, async () => {
+      // A rebase moves the head off the round 1 head. Its files list then
+      // compares two lines of history, and proves nothing.
+      const report = await reportOf(round1, compared({ status, files: ['README.md'] }))
+
+      expect(report.state).toBe('review-2')
+      expect(report.sinceRound1).toEqual({
+        logic: true,
+        reason: `the round 1 head is not an ancestor of the head (${status})`,
+      })
+    })
+  }
+
+  it('is review-2 when the files list is at GitHub’s limit, even with no logic in it', async () => {
+    const report = await reportOf(round1, compared({ files: ['README.md'], filesAtLimit: true }))
+
+    expect(report.state).toBe('review-2')
+    expect(report.sinceRound1?.reason).toBe("the compare lists GitHub's limit of changed files")
+  })
+
+  it('names no state when the compare could not be read, and says why', async () => {
+    const report = await reportOf(
+      round1,
+      replies({
+        compareCommits: { comparison: null, unavailable: 'gh: API rate limit exceeded' },
+      }),
+    )
+
+    expect(report.state).toBeNull()
+    expect(report.sinceRound1).toBeNull()
+    expect(report.unavailable).toEqual(['gh: API rate limit exceeded'])
+  })
+
+  it('keeps a state that does not depend on the compare when the compare fails', async () => {
+    const report = await reportOf(
+      round1,
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ unresolvedThreads: [{ author: 'brianespinosa', bot: false }] }),
+          unavailable: null,
+          missing: false,
+        },
+        compareCommits: { comparison: null, unavailable: 'gh: API rate limit exceeded' },
+      }),
+    )
+
+    expect(report.state).toBe('fixing')
+  })
+
+  it('still gives review-2 for --substantial, and reads no compare', async () => {
+    // Nothing is registered for compareCommits: a read would throw.
+    const report = await reportOf([...round1, '--substantial'])
+
+    expect(report.state).toBe('review-2')
+    expect(report.sinceRound1).toBeNull()
+  })
+
+  it('reads no compare without --round-1-head, and is rot-check as before', async () => {
+    const report = await reportOf(['178', '--round', '1'])
+
+    expect(report.state).toBe('rot-check')
+    expect(report.round1Head).toBeNull()
+    expect(report.sinceRound1).toBeNull()
+  })
+
+  it('reads no compare for a pull request it could not read', async () => {
+    const report = await reportOf(
+      round1,
+      replies({
+        viewPullRequestDetail: { pullRequest: null, unavailable: 'gh: HTTP 502', missing: false },
+      }),
+    )
+
+    expect(report.state).toBeNull()
+    expect(report.unavailable).toEqual(['gh: HTTP 502'])
+  })
+
+  for (const round of ['0', '2'] as const) {
+    it(`refuses --round-1-head with --round ${round}`, async () => {
+      const answer = await ran(['178', '--round', round, '--round-1-head', ROUND_1_HEAD], {})
+
+      expect(answer).toEqual({
+        outcome: 'refused',
+        error: '--round-1-head names the head round 1 reviewed, so it holds only with --round 1',
+      })
+    })
+  }
+
+  it('refuses --round-1-head with no --round, which is round 0', async () => {
+    const answer = await ran(['178', '--round-1-head', ROUND_1_HEAD], {})
+
+    expect(answer.outcome).toBe('refused')
+  })
+
+  for (const value of ['Head', 'dda20bc.', 'dda20b', 'DDA20BC', `${ROUND_1_HEAD}0`] as const) {
+    it(`refuses --round-1-head "${value}", which is not a commit sha`, async () => {
+      const answer = await ran(['178', '--round', '1', '--round-1-head', value], {})
+
+      expect(answer).toEqual({
+        outcome: 'refused',
+        error: `--round-1-head takes a commit sha, not "${value}"`,
+      })
+    })
+  }
+
+  it('accepts a short sha of seven characters', async () => {
+    const report = await reportOf(['178', '--round', '1', '--round-1-head', 'dda20bc'], compared())
+
+    expect(report.state).toBe('rot-check')
+  })
+
+  it('names the reason in the report a person reads', async () => {
+    const answer = await ran(round1, compared({ files: ['lib/gh.ts'] }))
+
+    expect(answer.outcome === 'ok' && answer.value).toContain(
+      'since round 1: logic changed: lib/gh.ts',
+    )
+  })
+
+  it('says nothing about round 1 in the report a person reads when no compare was read', async () => {
+    const answer = await ran(['178', '--round', '1'])
+
+    expect(answer.outcome === 'ok' && answer.value).not.toContain('since round 1')
+  })
+
+  it('never schedules a third round from the compare', () => {
+    expect(
+      deriveState({
+        missing: false,
+        pullRequestState: 'OPEN',
+        verdict: 'green',
+        unresolvedThreads: 0,
+        round: 2,
+        substantial: false,
+        logicSinceRound1: true,
+        rotChecked: false,
+      }),
+    ).toBe('rot-check')
+  })
+
+  it('names a state at round 2 even with an unread compare fact', () => {
+    expect(
+      deriveState({
+        missing: false,
+        pullRequestState: 'OPEN',
+        verdict: 'green',
+        unresolvedThreads: 0,
+        round: 2,
+        substantial: false,
+        logicSinceRound1: null,
+        rotChecked: true,
+      }),
+    ).toBe('done')
+  })
+
+  describe('which paths are logic', () => {
+    for (const path of [
+      'src/a.ts',
+      'lib/gh.ts',
+      'scripts/workstreams.ts',
+      'hooks/guard.ts',
+      'plugins/workstreams/src/subcommands/pr-state.ts',
+      'plugins/workstreams/scripts/workstreams.ts',
+      'plugins/workstreams/hooks/guard.ts',
+      'packages/eslint-plugin-claude/src/rules/a.ts',
+      'plugins/workstreams/hooks/hooks.json',
+    ]) {
+      it(`counts ${path}`, () => {
+        expect(isLogicPath(path)).toBe(true)
+      })
+    }
+
+    for (const path of [
+      'README.md',
+      'lib/README.md',
+      'plugins/workstreams/skills/start/SKILL.md',
+      'tests/lib/gh.test.ts',
+      'test/lib/gh.ts',
+      'src/__tests__/a.ts',
+      'src/a.test.ts',
+      'src/a.spec.ts',
+      'harness/gh.ts',
+      'docs/flows/workstreams/review/pr-state-flow.md',
+      'source/a.ts',
+      'mylib/a.ts',
+      'lib',
+      'package.json',
+    ]) {
+      it(`does not count ${path}`, () => {
+        expect(isLogicPath(path)).toBe(false)
+      })
+    }
   })
 })
 
