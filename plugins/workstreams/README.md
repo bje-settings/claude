@@ -176,7 +176,7 @@ The command answers where the loop is. The skill takes the one step that the sta
 for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
 reports. It never waits. The loop runs at most two review rounds, one subagent
 each, in the pull request's own worktree. Round 2 runs only when round 1's own commits
-changed code logic.
+changed code logic, or when logic landed after the head that round 1 reviewed (#356).
 
 | State | What it means |
 | --- | --- |
@@ -209,9 +209,10 @@ stream. `sonnet` reviews any other round 1.
 
 There is no state file. Everything is read again each tick. After each round and after the
 rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`
-Its `_Recorded by_` line goes in a `<sub>` tag.
-The caller reads the markers back, and passes the three facts the command cannot read as
-flags.
+Its `_Recorded by_` line goes in a `<sub>` tag. A round 1 marker has a second line,
+`Head <sha>.`, the head that round 1 reviewed. The first line stays exact, so every past
+marker still matches. The caller reads the markers back, and passes the four facts the
+command cannot read as flags.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it, one step for each call.
 
@@ -407,7 +408,7 @@ The repository is whatever `gh` resolves from the working directory.
 ### `pr-state`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0|1|2] [--substantial] [--rot-checked] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0|1|2] [--substantial] [--round-1-head <sha>] [--rot-checked] [--json]
 ```
 
 Reports one pull request's head, draft flag, base, and mergeability. It also reports the
@@ -437,9 +438,17 @@ PERSON holds the loop. A bot's own thread, review bots included, is counted apar
 enterprise coverage bot posts a comment on every pull request, and a loop that counted it
 would never reach `done`.
 
-`--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
-read. `/workstreams:start` reads them from the marker comments that `/workstreams:review`
-posts.
+`--round`, `--substantial`, `--round-1-head` and `--rot-checked` are the four facts the
+command cannot read. `/workstreams:start` reads them from the marker comments that
+`/workstreams:review` posts.
+
+`--round-1-head` holds only with `--round 1`. Without `--substantial`, the command reads the
+compare of that head to the current head (#356). It compares commits, not times, because a
+rebase moves commit dates. The state is `review-2` when the round 1 head is not an ancestor
+of the head, when the file list is at GitHub's limit of 300, or when a changed file is
+logic. A logic file is under `src/`, `lib/`, `scripts/` or `hooks/` at any depth, and is
+not a test file, a file under a test directory, or a Markdown file. `sinceRound1` gives
+the reason. A compare that could not be read gives no state at that step.
 
 A merged or closed pull request gives state `merged` or `closed`. This check runs right
 after `awaiting-pr`, before every other rule. No CI result, thread, or marker changes it

@@ -1,12 +1,12 @@
 ---
 name: review
 description: Take one step of the review loop on one draft pull request, from its state. Dispatch a review round, record a finished one, reopen for a missing run, do the rot check, or report.
-argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--rot-checked] [round return]
+argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--round-1-head <sha>] [--rot-checked] [round return]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(git worktree list *) Bash(git -C * diff *) Read Grep Glob Agent
 user-invocable: false
 ---
 
-Pull request and review facts: $ARGUMENTS. The flags are the three facts `pr-state`
+Pull request and review facts: $ARGUMENTS. The flags are the four facts `pr-state`
 cannot read. The caller reads them from the markers below.
 
 Its worktree comes from `git worktree list`, matched against the pull request's head
@@ -46,16 +46,20 @@ gh pr comment <number> --body "<marker>
 The marker is one of these, exactly: `Review round 1 done: substantial.`,
 `Review round 1 done.`, `Review round 2 done.`, `Rot check done.`
 
+A round 1 marker has a second line, `Head <sha>.`, with the full `head` of the round
+agent's return. Line 1 stays exact.
+
 Round 1 is substantial only when its own commits changed logic under `src/`, `lib/`,
 `scripts/` or `hooks/`. Logic is a new or changed branch, state, output line or contract.
 A rename, comment, type, message text or one-line guard is minor. Prose, tests and
-metadata are never substantial.
+metadata are never substantial. `pr-state` applies this rule to the commits after the
+`Head` line, and gives `review-2` for logic in them.
 
 ## Process
 
 0. Called with a round agent's JSON return: check its `substantial` against
    `git -C <worktree> diff <from> <head>`. The diff decides the marker. Post that
-   round's marker, name any disagreement, then return. A marker that did not post is a
+   round's marker, with its `Head` line for round 1, name any disagreement, then return. A marker that did not post is a
    stop. Say so.
 
 1. Read the state once.
@@ -64,7 +68,9 @@ metadata are never substantial.
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0|1|2> --json
    ```
 
-   Add `--substantial` and `--rot-checked` when the caller passes them.
+   Add `--substantial`, `--round-1-head <sha>` and `--rot-checked` when the caller passes
+   them. `sinceRound1` says why the state is `review-2` after a round 1 that was not
+   substantial.
 
    A non-empty `unavailable` means a fact could not be read. Say which fact. Do not act
    on a `state` of `null`: no state at all means the command declines to name one from
