@@ -59,8 +59,8 @@ metadata are never substantial. `pr-state` applies this rule to the commits afte
 
 0. Called with a round agent's JSON return: check its `substantial` against
    `git -C <worktree> diff <from> <head>`. The diff decides the marker. Post that
-   round's marker, with its `Head` line for round 1, name any disagreement, then return. A marker that did not post is a
-   stop. Say so.
+   round's marker, with its `Head` line for round 1, name any disagreement, then
+   return. A marker that did not post is a stop. Say so.
 
 1. Read the state once.
 
