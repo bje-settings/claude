@@ -1247,6 +1247,27 @@ describe('logic after the round 1 head (#356)', () => {
     expect(report.state).toBe('fixing')
   })
 
+  it('compares the round 1 head as the base and the current head as the head', async () => {
+    // A double that answers by its arguments: the other order is a
+    // different compare (`behind` for `ahead`), and gets no answer here.
+    const gh = {
+      ...createGhMock(replies()),
+      compareCommits: async (query: { readonly base: string; readonly head: string }) =>
+        query.base === ROUND_1_HEAD && query.head === '9b13a20'
+          ? {
+              comparison: { status: 'ahead', files: [], filesAtLimit: false } as const,
+              unavailable: null,
+            }
+          : { comparison: null, unavailable: `asked for ${query.base}...${query.head}` },
+    }
+
+    const answer = await runPrState(['--json', ...round1], { gh })
+
+    expect(answer.outcome === 'ok' && (JSON.parse(answer.value) as PrStateReport).state).toBe(
+      'rot-check',
+    )
+  })
+
   it('still gives review-2 for --substantial, and reads no compare', async () => {
     // Nothing is registered for compareCommits: a read would throw.
     const report = await reportOf([...round1, '--substantial'])
@@ -1375,6 +1396,7 @@ describe('logic after the round 1 head (#356)', () => {
       'lib/README.md',
       'plugins/workstreams/skills/start/SKILL.md',
       'tests/lib/gh.test.ts',
+      'tests/lib/helpers.ts',
       'test/lib/gh.ts',
       'src/__tests__/a.ts',
       'src/a.test.ts',
