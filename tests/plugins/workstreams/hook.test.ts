@@ -177,6 +177,8 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
   git.dirty(work)
+  // No other session's vitest can change this test's result (#358).
+  stubPgrepNoMatch(sandbox)
 
   for (const command of [
     'pnpm test',
@@ -419,6 +421,54 @@ it('denies a subagent whose cwd is a link to the directory a vitest runs in', as
   expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
 })
 
+it('denies pnpm -C <link> while a vitest runs in the resolved directory', async () => {
+  const sandbox = createSandbox()
+  const real = sandbox.join('real')
+  mkdirSync(real)
+  const link = sandbox.join('link')
+  symlinkSync(real, link)
+  const decoy = startVitestDecoy(realpathSync(real))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: realpathSync(sandbox.path),
+      tool_input: { command: `pnpm -C ${link} test` },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
+})
+
+it('allows pnpm -C <link> when the resolved directory runs no vitest', async () => {
+  const sandbox = createSandbox()
+  const busy = sandbox.join('busy')
+  const idle = sandbox.join('idle')
+  mkdirSync(busy)
+  mkdirSync(idle)
+  const link = sandbox.join('link')
+  symlinkSync(idle, link)
+  const decoy = startVitestDecoy(realpathSync(busy))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: realpathSync(busy),
+      tool_input: { command: `pnpm -C ${link} test` },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+})
+
 it('allows a subagent in a different real directory than the one a vitest runs in', async () => {
   const sandbox = createSandbox()
   const busy = sandbox.join('busy')
@@ -458,6 +508,16 @@ const stubPgrepAndLsof = (sandbox: Sandbox, lsofOut: string): void => {
     `#!/bin/sh\ncase "$*" in\n  *"-p 4999991,4999992 -Fpn"*) printf '%s' '${lsofOut}' ;;\nesac\nexit 1\n`,
     { mode: 0o755 },
   )
+  sandbox.stubPath(stubs)
+}
+
+/** A `pgrep` stub that finds no process, as a real one does with status 1.
+ *  A test that needs no real process uses it, so a vitest worker of another
+ *  session cannot change its result. */
+const stubPgrepNoMatch = (sandbox: Sandbox): void => {
+  const stubs = sandbox.join('stub-bin-none')
+  mkdirSync(stubs, { recursive: true })
+  writeFileSync(path.join(stubs, 'pgrep'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
   sandbox.stubPath(stubs)
 }
 
@@ -583,7 +643,9 @@ it('allows a subagent when only a file merely named after vitest sits in its cwd
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
-  expect(result.stderr).toBe('')
+  // Real `pgrep` runs here. Another session's vitest may add its own line, so
+  // only a line for this decoy is forbidden (#358).
+  expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
 })
 
 it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
@@ -606,7 +668,9 @@ it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
   // and `null` were ever confused.
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
-  expect(result.stderr).toBe('')
+  // Not `toBe('')`: real `pgrep` runs, and another session's vitest may add a
+  // line for its own pid (#358). Only the list failure is forbidden.
+  expect(result.stderr).not.toContain('could not be listed')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {

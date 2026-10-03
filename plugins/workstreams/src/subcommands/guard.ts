@@ -523,9 +523,22 @@ const trackedChanges = (porcelain: string): readonly string[] =>
  *  name the same directory with or without one; this keeps that
  *  difference from reading as two different worktrees. It does not
  *  resolve a symlink. `hooks/guard.ts` resolves the payload cwd and each
- *  process cwd before this runs ({@link resolvePayloadCwd}). A `-C`
- *  directory in the command stays as typed. */
+ *  process cwd before this runs ({@link resolvePayloadCwd}). `secondSuite`
+ *  resolves a `pnpm -C` directory itself, with the context's `resolve`. */
 const stripTrailingSlash = (directory: string): string => directory.replace(/\/+$/, '')
+
+/** The directory a `pnpm -C` names, as the process cwds are written: a
+ *  relative one is joined to the call's cwd first, and then every link in it
+ *  is resolved with `context.resolve`. With no `resolve`, the joined path
+ *  stands. A relative one with no cwd to join to stays relative. */
+const namedDirectory = async (
+  directory: string,
+  cwd: string | null,
+  context: { readonly resolve?: PathResolver },
+): Promise<string> => {
+  const joined = directory.startsWith('/') || cwd === null ? directory : `${cwd}/${directory}`
+  return context.resolve === undefined ? joined : resolvedOrSame(joined, context.resolve)
+}
 
 /** The verdict on a `vitest` command alone: whether another `vitest`
  *  process already runs in the same worktree. `decide` asks this before
@@ -538,12 +551,17 @@ const stripTrailingSlash = (directory: string): string => directory.replace(/\/+
 const secondSuite = async (
   command: string,
   call: ToolCall,
-  context: { readonly processes: ProcessReader; readonly output: Output },
+  context: {
+    readonly processes: ProcessReader
+    readonly output: Output
+    readonly resolve?: PathResolver
+  },
 ): Promise<Verdict | undefined> => {
   const target = vitestTarget(command)
   if (target === undefined) return undefined
 
-  const directory = target.directory ?? call.cwd
+  const directory =
+    target.directory === null ? call.cwd : await namedDirectory(target.directory, call.cwd, context)
   if (directory === null) {
     context.output.err.write(
       'workstreams guard: the payload carries no cwd, so a second vitest run could not be ' +
@@ -601,6 +619,8 @@ export const decide = async (
     readonly git: GitReader
     readonly processes: ProcessReader
     readonly output: Output
+    /** Resolves the links in a `pnpm -C` directory. Identity when absent. */
+    readonly resolve?: PathResolver
   },
 ): Promise<Verdict> => {
   if (call.agentId === null) return { decision: 'allow' }
@@ -695,6 +715,7 @@ export const runGuard = async (context: {
   readonly git: GitReader
   readonly processes: ProcessReader
   readonly output: Output
+  readonly resolve?: PathResolver
 }): Promise<number> => {
   const read = readToolCall(await context.stdin())
   // The discriminant rather than `isOk`, so that the failure arm narrows

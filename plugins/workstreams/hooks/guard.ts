@@ -55,7 +55,9 @@
 // **Both cwd paths are resolved with `realpath` before the compare.** On
 // macOS `/tmp` and `/var` are links, and a process cwd is the resolved
 // form. So this resolves the payload `cwd` (`resolvePayloadCwd`) and each
-// process cwd (`readProcCwds`, `readLsofCwds`). `decide` still compares
+// process cwd (`readProcCwds`, `readLsofCwds`). It passes `realpath` to
+// `runGuard` too, which resolves a `pnpm -C` directory the same way, after
+// it joins a relative one to the payload `cwd`. `decide` still compares
 // plain strings. A path that `realpath` cannot resolve keeps its own
 // string.
 //
@@ -186,6 +188,7 @@ if (meetsNodeFloor(process.version)) {
       git: gitOut,
       processes: readRunningVitest,
       output,
+      resolve: realpath,
     })
   } catch (error) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)

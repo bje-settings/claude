@@ -695,6 +695,108 @@ describe('a second vitest suite', () => {
     expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
   })
 
+  describe('a pnpm -C directory, resolved before it is compared', () => {
+    const idle = (): Pick<Parameters<typeof decide>[1], 'git' | 'output'> => ({
+      git: () => Promise.reject(new Error('git must not be asked')),
+      output: createOutputPair(),
+    })
+    const toReal = (path: string): Promise<string> =>
+      Promise.resolve(path.replace('/link', '/real'))
+
+    it('refuses a -C link while a vitest runs in the resolved directory', async () => {
+      const verdict = await decide(call({ command: 'pnpm -C /link test', cwd: '/root' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/real' }]),
+        resolve: toReal,
+      })
+
+      expect(verdict.decision).toBe('deny')
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+    })
+
+    it('allows a -C link that resolves to a directory with no vitest', async () => {
+      const verdict = await decide(call({ command: 'pnpm --dir /link test', cwd: '/link' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/link' }]),
+        resolve: toReal,
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+    })
+
+    it('joins a relative -C to the call cwd, then resolves it', async () => {
+      const verdict = await decide(call({ command: 'pnpm -C sub test', cwd: '/root/link' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/root/real/sub' }]),
+        resolve: toReal,
+      })
+
+      expect(verdict.decision).toBe('deny')
+    })
+
+    it('compares the joined path of a -C that cannot be resolved', async () => {
+      const unresolvable = (): Promise<string> => Promise.reject(new Error('ENOENT'))
+
+      const same = await decide(call({ command: 'pnpm -C sub test', cwd: '/root' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/root/sub' }]),
+        resolve: unresolvable,
+      })
+      const other = await decide(call({ command: 'pnpm -C sub test', cwd: '/root' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/elsewhere' }]),
+        resolve: unresolvable,
+      })
+
+      expect(same.decision).toBe('deny')
+      expect(other).toEqual({ decision: 'allow' })
+    })
+
+    it('compares a -C as typed or joined when the context has no resolve', async () => {
+      const typed = await decide(call({ command: 'pnpm -C /link test', cwd: '/root' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/real' }]),
+      })
+      const joined = await decide(call({ command: 'pnpm -C sub test', cwd: '/root' }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: '/root/sub' }]),
+      })
+
+      expect(typed).toEqual({ decision: 'allow' })
+      expect(joined.decision).toBe('deny')
+    })
+
+    it('keeps a relative -C relative when the payload has no cwd', async () => {
+      const verdict = await decide(call({ command: 'pnpm -C sub test', cwd: null }), {
+        ...idle(),
+        processes: running([{ pid: 4242, cwd: 'sub' }]),
+        resolve: (path) => Promise.resolve(path),
+      })
+
+      expect(verdict.decision).toBe('deny')
+    })
+
+    it('passes resolve through runGuard', async () => {
+      const output = createOutputPair()
+      const stdin = JSON.stringify({
+        agent_id: 'a',
+        tool_name: 'Bash',
+        cwd: '/root',
+        tool_input: { command: 'pnpm -C /link test' },
+      })
+
+      await runGuard({
+        stdin: () => Promise.resolve(stdin),
+        git: () => Promise.reject(new Error('git must not be asked')),
+        processes: running([{ pid: 4242, cwd: '/real' }]),
+        output,
+        resolve: toReal,
+      })
+
+      expect(output.stdout()).toContain('pid 4242')
+    })
+  })
+
   // A command that is both a running vitest suite's own second run AND a
   // destructive git command, at the same cwd. `decide`'s own doc comment
   // says the second-suite check runs first; the `git` reader here throws
