@@ -4,7 +4,7 @@ description: What the /workstreams:sweep skill does, and every way it declines t
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-27
+  at: 2026-10-01
 ---
 
 # /workstreams:sweep skill flow
@@ -27,8 +27,10 @@ flowchart TD
     G --> H[Read the Decisions lists in docs/rfc and docs/adr]
     H --> I{a decision no issue body carries?}
     I -->|Yes| I1[Add it to the round, or record it as a blocker]
-    I -->|No| J
-    I1 --> J[Map the files each issue touches]
+    I -->|No| FX
+    I1 --> FX{a fix issue whose defect no longer happens?}
+    FX -->|Yes| FX1[Already fixed: do not schedule, comment the commit] --> S
+    FX -->|No| J[Map the files each issue touches]
 
     J --> K{claim cited to a line just read?}
     K -->|No| K1[Grep for it; a remembered claim is not a claim]
