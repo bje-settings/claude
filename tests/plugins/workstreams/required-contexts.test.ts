@@ -17,6 +17,23 @@ const check = (
   startedAt,
 })
 
+/** A check that run `id` of `workflow` made. The run's conclusion is its
+ *  check suite's, which can differ from the check's own: a fan-in job of a
+ *  cancelled run fails. */
+const fromRun = (
+  base: CheckContext,
+  id: number,
+  createdAt: string,
+  runConclusion: string | null,
+  workflow = 'CI',
+): CheckContext => ({ ...base, run: { id, workflow, createdAt, conclusion: runConclusion } })
+
+/** An unexpanded matrix job's name, as GitHub reports it. */
+const PLACEHOLDER = `ab-style (\${{ matrix.style }})`
+
+const OLD = '2026-10-01T00:00:00Z'
+const NEW = '2026-10-01T00:01:00Z'
+
 describe('reportContexts', () => {
   it('reports each name once, with what reported under it', () => {
     const checks = [check('vitest', 'SUCCESS'), check('types', 'FAILURE'), check('biome', null)]
@@ -113,6 +130,99 @@ describe('reportContexts', () => {
   })
 })
 
+describe('reportContexts over superseded cancelled runs (#364)', () => {
+  it('ignores a cancelled run once a newer run of the workflow has its check', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('lint', 'SUCCESS', NEW), 2, NEW, null),
+      fromRun(check('vitest', 'SUCCESS', '2026-09-01T00:00:00Z'), 2, NEW, null),
+    ]
+
+    // The newer run's check started earlier than the cancelled one's, so
+    // only the run filter, not `startedAt`, can make it the answer.
+    expect(reportContexts(checks, ['vitest'])).toEqual([
+      { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
+    ])
+  })
+
+  it('reads a name the newer run has not made yet as pending, not failed', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('lint', null, NEW), 2, NEW, null),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])).toEqual([
+      { name: 'vitest', reported: false, conclusion: null, verdict: 'pending' },
+    ])
+  })
+
+  it('keeps a cancelled run with no newer run as its own answer, red', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('types', 'CANCELLED', OLD), 1, OLD, 'CANCELLED'),
+    ]
+
+    expect(reportContexts(checks, ['vitest', 'types']).map((c) => c.verdict)).toEqual([
+      'failed',
+      'failed',
+    ])
+  })
+
+  it('keeps a cancelled run when only a newer run of another workflow exists', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('Analyze', 'SUCCESS', NEW), 2, NEW, 'SUCCESS', 'CodeQL'),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.verdict).toBe('failed')
+  })
+
+  it('keeps a cancelled run when the other run of its workflow is older', () => {
+    const checks = [
+      fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS'),
+      fromRun(check('vitest', 'FAILURE', NEW), 2, NEW, 'CANCELLED'),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.conclusion).toBe('FAILURE')
+  })
+
+  it('keeps an older run that was not cancelled; the start time decides', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'FAILURE'),
+      fromRun(check('lint', null, NEW), 2, NEW, null),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.verdict).toBe('failed')
+  })
+
+  it('on a tie in creation time, lets the run that has not concluded win', () => {
+    const tied = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('lint', null, OLD), 2, OLD, null),
+    ]
+    const bothConcluded = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('lint', 'SUCCESS', OLD), 2, OLD, 'SUCCESS'),
+    ]
+
+    expect(reportContexts(tied, ['vitest'])[0]?.verdict).toBe('pending')
+    expect(reportContexts(bothConcluded, ['vitest'])[0]?.verdict).toBe('failed')
+  })
+
+  it('leaves a commit status, which has no run, as it reported', () => {
+    const checks = [
+      check('vercel/preview', 'FAILURE', OLD),
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('vitest', 'SUCCESS', NEW), 2, NEW, 'SUCCESS'),
+    ]
+
+    expect(reportContexts(checks, ['vercel/preview', 'vitest'])).toEqual([
+      { name: 'vercel/preview', reported: true, conclusion: 'FAILURE', verdict: 'failed' },
+      { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
+    ])
+  })
+})
+
 describe('namesOrHead', () => {
   it('uses the ruleset list when the base branch has one', () => {
     expect(namesOrHead(['vitest', 'types'], [check('CodeQL', 'SUCCESS')])).toEqual({
@@ -126,6 +236,25 @@ describe('namesOrHead', () => {
       names: ['CodeQL', 'vitest'],
       from: 'head',
     })
+  })
+
+  it('drops a matrix placeholder name from the head list (ruling 5)', () => {
+    const checks = [check(PLACEHOLDER, 'CANCELLED'), check('vitest', null)]
+
+    expect(namesOrHead([], checks)).toEqual({ names: ['vitest'], from: 'head' })
+  })
+
+  it('drops a name only a superseded cancelled run reported', () => {
+    const checks = [
+      fromRun(check('ab', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('lint', null, NEW), 2, NEW, null),
+    ]
+
+    expect(namesOrHead([], checks)).toEqual({ names: ['lint'], from: 'head' })
+  })
+
+  it('keeps a placeholder-shaped name that a ruleset requires', () => {
+    expect(namesOrHead([PLACEHOLDER], [])).toEqual({ names: [PLACEHOLDER], from: 'ruleset' })
   })
 })
 

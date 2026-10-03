@@ -69,6 +69,22 @@ const node = (overrides: Record<string, unknown> = {}) => ({
                   status: 'COMPLETED',
                   conclusion: 'SUCCESS',
                   startedAt: '2026-09-26T00:05:00Z',
+                  checkSuite: {
+                    conclusion: 'SUCCESS',
+                    workflowRun: {
+                      databaseId: 37098610809,
+                      createdAt: '2026-09-26T00:04:58Z',
+                      workflow: { name: 'CI' },
+                    },
+                  },
+                },
+                {
+                  __typename: 'CheckRun',
+                  name: 'CodeQL',
+                  status: 'COMPLETED',
+                  conclusion: 'SUCCESS',
+                  startedAt: '2026-09-26T00:06:00Z',
+                  checkSuite: { conclusion: 'SUCCESS', workflowRun: null },
                 },
                 {
                   __typename: 'StatusContext',
@@ -108,8 +124,14 @@ it('asks for every open pull request with its head commit and the checks on it',
   // One page of checks per head: a row whose checks run past it is refused.
   expect(query).toContain('contexts(first: 100) {')
   // `startedAt`/`createdAt` are what tells a re-run from the run it
-  // cancelled apart (#243).
-  expect(query).toContain('... on CheckRun { name status conclusion startedAt }')
+  // cancelled apart (#243). The check suite names the run behind a check,
+  // so a newer run can supersede a cancelled one (#364).
+  expect(query).toContain(
+    '... on CheckRun {\n' +
+      '                name status conclusion startedAt\n' +
+      '                checkSuite { conclusion workflowRun { databaseId createdAt workflow { name } } }\n' +
+      '              }',
+  )
   expect(query).toContain('... on StatusContext { context state createdAt }')
   expect(answer).toEqual({
     rows: [
@@ -131,6 +153,19 @@ it('asks for every open pull request with its head commit and the checks on it',
             status: 'COMPLETED',
             conclusion: 'SUCCESS',
             startedAt: '2026-09-26T00:05:00Z',
+            run: {
+              id: 37098610809,
+              workflow: 'CI',
+              createdAt: '2026-09-26T00:04:58Z',
+              conclusion: 'SUCCESS',
+            },
+          },
+          // A check run that no workflow made has no run.
+          {
+            name: 'CodeQL',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            startedAt: '2026-09-26T00:06:00Z',
           },
           {
             name: 'Preview',

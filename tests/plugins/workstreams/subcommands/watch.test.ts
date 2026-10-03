@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  type CheckContext,
   createGhMock,
   type GhClient,
   GhError,
@@ -861,6 +862,77 @@ describe('a watch over the open pull requests', () => {
       ])
     },
   )
+})
+
+describe('a watch over a cancelled run that a newer run supersedes (#364)', () => {
+  const OLD = '2026-10-01T00:00:00Z'
+  const NEW = '2026-10-01T00:01:00Z'
+  /** A check that run `id` of CI made. Run 1 is the older run. */
+  const fromRun = (
+    name: string,
+    conclusion: string | null,
+    id: number,
+    runConclusion: string | null,
+  ): CheckContext => ({
+    name,
+    status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
+    conclusion,
+    startedAt: id === 1 ? OLD : NEW,
+    run: { id, workflow: 'CI', createdAt: id === 1 ? OLD : NEW, conclusion: runConclusion },
+  })
+  /** The cancelled run's checks: its fan-in jobs fail, its legs cancel. */
+  const CANCELLED_RUN = [
+    fromRun('vitest', 'FAILURE', 1, 'CANCELLED'),
+    fromRun('types', 'CANCELLED', 1, 'CANCELLED'),
+    fromRun('biome', 'CANCELLED', 1, 'CANCELLED'),
+  ]
+
+  it('writes no failure and no CONCLUDED until the newer run reports, then concludes on it', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head()) },
+      { heads: heads(head({ checks: [...CANCELLED_RUN, fromRun('lint', null, 2, null)] })) },
+      {
+        heads: heads(
+          head({
+            checks: [
+              ...CANCELLED_RUN,
+              fromRun('vitest', 'SUCCESS', 2, null),
+              fromRun('types', 'SUCCESS', 2, null),
+              fromRun('biome', 'SUCCESS', 2, null),
+            ],
+          }),
+        ),
+      },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      '#259 aaaaaaa vitest: SUCCESS',
+      '#259 aaaaaaa types: SUCCESS',
+      '#259 aaaaaaa biome: SUCCESS',
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed',
+    ])
+  })
+
+  it('still reports a cancelled run that no newer run follows, and concludes on it', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head()) },
+      { heads: heads(head({ checks: CANCELLED_RUN })) },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`,
+      '#259 aaaaaaa vitest: FAILURE',
+      '#259 aaaaaaa types: CANCELLED',
+      '#259 aaaaaaa biome: CANCELLED',
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, ' +
+        'failed: vitest (FAILURE), types (CANCELLED), biome (CANCELLED)',
+    ])
+  })
 })
 
 describe('a watch bounds every gh call to its poll interval (ruling 4, #295)', () => {
