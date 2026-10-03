@@ -70,7 +70,7 @@ const isLater = (candidate: CheckContext, current: CheckContext): boolean => {
 /**
  * Which of two workflow runs is the newer one: the later `createdAt`, and
  * on a tie the larger run id. Two runs can start in the same second. The
- * newer one must win also after it concluded, or the cancelled run stays
+ * newer run must also win after it concludes, or the cancelled run stays
  * the answer.
  */
 const isNewerRun = (candidate: CheckWorkflowRun, current: CheckWorkflowRun): boolean =>
@@ -91,6 +91,10 @@ const isNewerRun = (candidate: CheckWorkflowRun, current: CheckWorkflowRun): boo
  * its first check, the cancelled run's checks still count. After that, a
  * name it has not made yet has no check that counts. That name reads as
  * not reported, so it is pending, not failed.
+ *
+ * A run is cancelled only when its check suite says so. While its
+ * `always()` jobs still run, the suite has no conclusion, so its checks
+ * still count, also those that already failed.
  */
 export const currentChecks = (checks: readonly CheckContext[]): CheckContext[] => {
   const runs = checks.flatMap((check) => (check.run === undefined ? [] : [check.run]))

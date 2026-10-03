@@ -1378,9 +1378,9 @@ const UNCONCLUDED: Record<string, true> = { PENDING: true, EXPECTED: true }
 /**
  * The workflow run behind a check run's suite, or null when there is none.
  *
- * A check run that no workflow made, such as a code scanning result, has a
- * suite whose `workflowRun` is null. A run that lacks a field is read as no
- * run too. That is the safe side: a check with no run is never superseded,
+ * A check run that no workflow made, such as an uploaded code scanning
+ * result, has a suite whose `workflowRun` is null. A run that lacks a field
+ * is read as no run too. That is the safe side: a check with no run is never superseded,
  * so it keeps its own conclusion.
  */
 const readCheckWorkflowRun = (value: unknown): CheckWorkflowRun | null => {
