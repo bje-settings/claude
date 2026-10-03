@@ -66,8 +66,9 @@ not rot-check or done, when one of these is true:
 
   the round 1 head is not an ancestor of the head, as after a rebase
   the compare lists GitHub's limit of changed files, so the list can be short
-  a changed file is under src/, lib/, scripts/ or hooks/ at any depth, and
-  is not a test file, a file under a test directory, or a Markdown file
+  a changed file is under src/, lib/, scripts/ or hooks/ at any depth
+    (a test file, a file under a test directory and a Markdown file are
+    not logic)
 
 "sinceRound1" gives the reason. A compare that could not be read gives no
 state at that step.
@@ -157,7 +158,8 @@ export interface WaitHint {
   readonly samples: number
 }
 
-/** Whether logic changed after the head that round 1 reviewed, and why. */
+/** Whether logic changed after the head that round 1 reviewed, and why.
+ *  `logic` is also true when the compare cannot prove that no logic changed. */
 export interface SinceRound1 {
   readonly logic: boolean
   readonly reason: string
@@ -309,8 +311,9 @@ export const deriveState = (facts: {
   // scripts/ or hooks/. Two rounds is still the limit.
   if (facts.round === 1 && facts.substantial) return 'review-2'
   // #356: a commit after the round 1 marker had no review. Logic in it
-  // earns round 2 by the same rule. A compare nobody could read names no
-  // state, because a guess here can skip a review.
+  // earns round 2, by the path part of the substantial rule. A compare
+  // nobody could read names no state, because a guess here can skip a
+  // review.
   if (facts.round === 1 && facts.logicSinceRound1 === null) return null
   if (facts.round === 1 && facts.logicSinceRound1) return 'review-2'
   return facts.rotChecked ? 'done' : 'rot-check'
@@ -343,7 +346,7 @@ export const isLogicPath = (path: string): boolean => {
  * does a file list at GitHub's limit. Neither can prove that no logic
  * changed, and the error to avoid is a skipped review.
  */
-export const logicSinceRound1 = (comparison: CommitComparison): SinceRound1 => {
+export const sinceRound1Of = (comparison: CommitComparison): SinceRound1 => {
   if (comparison.status !== 'ahead' && comparison.status !== 'identical') {
     return {
       logic: true,
@@ -656,7 +659,7 @@ export const runPrState = async (
       : await context.gh.compareCommits({ base: round1Head, head: detail.headSha })
   note(compared === null ? null : compared.unavailable)
   const sinceRound1 =
-    compared === null || compared.comparison === null ? null : logicSinceRound1(compared.comparison)
+    compared === null || compared.comparison === null ? null : sinceRound1Of(compared.comparison)
 
   const sample = await context.gh.listWorkflowRuns({ perPage: HINT_SAMPLE })
   note(sample.unavailable)
@@ -735,7 +738,8 @@ export const runPrState = async (
       unresolvedThreads: threadsOf(detail).blocking.length,
       round,
       substantial,
-      // No compare asked is false: the state is as before #356.
+      // When the command reads no compare, the fact is false and the state
+      // ignores it.
       logicSinceRound1: compared === null ? false : (sinceRound1?.logic ?? null),
       rotChecked,
     }),

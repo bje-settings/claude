@@ -39,6 +39,7 @@ line can have a `<sub>` tag or not. Take the name in both cases. The date is tod
 
 ```bash
 gh pr comment <number> --body "<marker>
+Head <sha>.
 
 <sub>_Recorded by <effort>, <date>._</sub>"
 ```
@@ -47,13 +48,14 @@ The marker is one of these, exactly: `Review round 1 done: substantial.`,
 `Review round 1 done.`, `Review round 2 done.`, `Rot check done.`
 
 A round 1 marker has a second line, `Head <sha>.`, with the full `head` of the round
-agent's return. Line 1 stays exact.
+agent's return. Line 1 stays exact. Other markers have no `Head` line.
 
 Round 1 is substantial only when its own commits changed logic under `src/`, `lib/`,
 `scripts/` or `hooks/`. Logic is a new or changed branch, state, output line or contract.
 A rename, comment, type, message text or one-line guard is minor. Prose, tests and
-metadata are never substantial. `pr-state` applies this rule to the commits after the
-`Head` line, and gives `review-2` for logic in them.
+metadata are never substantial. For the commits after the `Head` line, `pr-state` applies
+the path part of this rule. Each changed file under those directories counts, except a
+test file, a file under a test directory, or a Markdown file. Then the state is `review-2`.
 
 ## Process
 
