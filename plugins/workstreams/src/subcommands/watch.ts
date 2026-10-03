@@ -103,8 +103,10 @@ rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
 
 A check from a cancelled workflow run does not count when a newer run of the
-same workflow has a check on the head. So it writes no failure line, and the
-head is not CONCLUDED until the newer run reports each required context.
+same workflow has a check on the head. Then the watch writes no failure line
+for it, and the head is not CONCLUDED until the newer run reports each
+required context. Before the newer run makes its first check, the cancelled
+run's checks still count.
 
 Each base reads its required contexts on its own. A base whose read fails
 leaves unread only the pull requests that need its list, not every pull

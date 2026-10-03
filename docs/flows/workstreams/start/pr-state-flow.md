@@ -61,8 +61,9 @@ wait-hint read adds a reason to the list but does not change the verdict. An unr
 from a person blocks `done`.
 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
-check on the head (#364). Until the newer run reports a name, that context is pending, not
-failed. A cancelled run that no newer run follows still counts. A commit status has no run, so it
+check on the head (#364). After the newer run makes its first check, a name it has not reported
+yet is pending, not failed. Before that check, the cancelled run's checks still count, because the
+check list shows no newer run. A cancelled run that no newer run follows still counts. A commit status has no run, so it
 always counts. The list from the head leaves out a name that contains `${{`, a matrix job that
 did not expand.
 

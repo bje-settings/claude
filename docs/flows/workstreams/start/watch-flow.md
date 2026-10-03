@@ -63,9 +63,11 @@ The required contexts come from the rules of the base branch. When no ruleset co
 they come from the rules of the default branch. Each stack layer above the first is such a case.
 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
-check on the head (#364). The watch writes no failure line for it. The head is not `CONCLUDED`
-until the newer run reports each required context. A cancelled run that no newer run follows
-still counts, and its failures are written.
+check on the head (#364). The watch then writes no failure line for it, and the head is not
+`CONCLUDED` until the newer run reports each required context. Before the newer run makes its
+first check, the cancelled run's checks still count. The check list shows no newer run until then,
+and the watch makes no other call. A cancelled run that no newer run follows still counts, and its
+failures are written.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread only the
 pull requests that need its list. The other pull requests still read, and can still conclude. A
