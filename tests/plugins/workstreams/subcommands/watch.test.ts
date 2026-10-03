@@ -878,7 +878,13 @@ describe('a watch over a cancelled run that a newer run supersedes (#364)', () =
     status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
     conclusion,
     startedAt: id === 1 ? OLD : NEW,
-    run: { id, workflow: 'CI', createdAt: id === 1 ? OLD : NEW, conclusion: runConclusion },
+    run: {
+      id,
+      workflowId: 1,
+      workflow: 'CI',
+      createdAt: id === 1 ? OLD : NEW,
+      conclusion: runConclusion,
+    },
   })
   /** The cancelled run's checks: its fan-in jobs fail, its legs cancel. */
   const CANCELLED_RUN = [

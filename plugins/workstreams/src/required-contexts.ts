@@ -16,8 +16,8 @@
 // Both callers read the checks through the same filter (#364). A check
 // from a cancelled workflow run does not count when a newer run of the
 // same workflow has a check on the head. Workflow concurrency cancels a
-// run that way. The cancelled run's fan-in jobs then fail, and a reader
-// that kept them would report red while the newer run is still at work.
+// run that way. The cancelled run's fan-in jobs then fail. A reader that
+// kept them would report red while the newer run still works.
 //
 // This file ships. It imports only a type from `lib/`.
 import type { CheckContext, CheckWorkflowRun } from './lib/gh.ts'
@@ -52,38 +52,31 @@ export interface ReportedContext {
  *  never begins empty, so the empty string sorts before every real one. */
 const startTime = (startedAt: string | null): string => startedAt ?? ''
 
-/** A time and a conclusion: what {@link later} compares. */
-interface Timed {
-  readonly time: string
-  readonly conclusion: string | null
-}
-
 /**
- * Whether `candidate` is later than `current`.
+ * Which of two checks under one name is the later run.
  *
- * On a tie, the one that has not concluded wins. A `gh stack push` can
+ * On a tie, the check that has not concluded wins. A `gh stack push` can
  * cancel a run and start a new one in the same second. The new one must
  * win even while it is still pending, or a stale success or failure would
  * answer for a run that has not finished yet.
  */
-const later = (candidate: Timed, current: Timed): boolean => {
-  if (candidate.time !== current.time) return candidate.time > current.time
+const isLater = (candidate: CheckContext, current: CheckContext): boolean => {
+  const candidateTime = startTime(candidate.startedAt)
+  const currentTime = startTime(current.startedAt)
+  if (candidateTime !== currentTime) return candidateTime > currentTime
   return candidate.conclusion === null && current.conclusion !== null
 }
 
-/** Which of two checks under one name is the later run. */
-const isLater = (candidate: CheckContext, current: CheckContext): boolean =>
-  later(
-    { time: startTime(candidate.startedAt), conclusion: candidate.conclusion },
-    { time: startTime(current.startedAt), conclusion: current.conclusion },
-  )
-
-/** Which of two workflow runs is the newer one, by the same rule. */
+/**
+ * Which of two workflow runs is the newer one: the later `createdAt`, and
+ * on a tie the larger run id. Two runs can start in the same second. The
+ * newer one must win also after it concluded, or the cancelled run stays
+ * the answer.
+ */
 const isNewerRun = (candidate: CheckWorkflowRun, current: CheckWorkflowRun): boolean =>
-  later(
-    { time: candidate.createdAt, conclusion: candidate.conclusion },
-    { time: current.createdAt, conclusion: current.conclusion },
-  )
+  candidate.createdAt === current.createdAt
+    ? candidate.id > current.id
+    : candidate.createdAt > current.createdAt
 
 /**
  * The checks that still count: every check, less those from a superseded
@@ -91,20 +84,19 @@ const isNewerRun = (candidate: CheckWorkflowRun, current: CheckWorkflowRun): boo
  *
  * A run is superseded when it was cancelled, and a newer run of the same
  * workflow has a check on the same head. A check with no run, such as a
- * commit status, always counts. So does a check from a cancelled run that
- * no newer run follows: that run is still the answer, and it is red.
+ * commit status, always counts. A check from a cancelled run that no newer
+ * run follows also counts. That run is still the answer, and it is red.
  *
- * The newer run is visible only through its own checks. Until it has made
- * the check of some name, that name has no check that counts, so it reads
- * as not reported and pending, not failed.
+ * The newer run is visible only through its own checks. Before it makes
+ * its first check, the cancelled run's checks still count. After that, a
+ * name it has not made yet has no check that counts. That name reads as
+ * not reported, so it is pending, not failed.
  */
 export const currentChecks = (checks: readonly CheckContext[]): CheckContext[] => {
   const runs = checks.flatMap((check) => (check.run === undefined ? [] : [check.run]))
   const superseded = (run: CheckWorkflowRun): boolean =>
     run.conclusion === 'CANCELLED' &&
-    runs.some(
-      (other) => other.workflow === run.workflow && other.id !== run.id && isNewerRun(other, run),
-    )
+    runs.some((other) => other.workflowId === run.workflowId && isNewerRun(other, run))
   return checks.filter((check) => check.run === undefined || !superseded(check.run))
 }
 
@@ -165,7 +157,7 @@ export interface ContextNames<From extends string> {
  * The head list leaves out two kinds of name (#364). One is a name that
  * only a superseded cancelled run reported ({@link currentChecks}). The
  * other is a name that contains `${{`. That is a matrix job whose run
- * stopped before the matrix expanded, so no run reports it again (ruling 5).
+ * stopped before the matrix expanded, so no run reports it again.
  */
 export const namesOrHead = (
   required: readonly string[],

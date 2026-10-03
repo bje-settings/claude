@@ -17,16 +17,20 @@ const check = (
   startedAt,
 })
 
-/** A check that run `id` of `workflow` made. The run's conclusion is its
- *  check suite's, which can differ from the check's own: a fan-in job of a
- *  cancelled run fails. */
+/** A check that run `id` of workflow `workflowId` made. The run's
+ *  conclusion is its check suite's, which can differ from the check's own:
+ *  a fan-in job of a cancelled run fails. */
 const fromRun = (
   base: CheckContext,
   id: number,
   createdAt: string,
   runConclusion: string | null,
+  workflowId = 1,
   workflow = 'CI',
-): CheckContext => ({ ...base, run: { id, workflow, createdAt, conclusion: runConclusion } })
+): CheckContext => ({
+  ...base,
+  run: { id, workflowId, workflow, createdAt, conclusion: runConclusion },
+})
 
 /** An unexpanded matrix job's name, as GitHub reports it. */
 const PLACEHOLDER = `ab-style (\${{ matrix.style }})`
@@ -171,7 +175,16 @@ describe('reportContexts over superseded cancelled runs (#364)', () => {
   it('keeps a cancelled run when only a newer run of another workflow exists', () => {
     const checks = [
       fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
-      fromRun(check('Analyze', 'SUCCESS', NEW), 2, NEW, 'SUCCESS', 'CodeQL'),
+      fromRun(check('Analyze', 'SUCCESS', NEW), 2, NEW, 'SUCCESS', 2, 'CodeQL'),
+    ]
+
+    expect(reportContexts(checks, ['vitest'])[0]?.verdict).toBe('failed')
+  })
+
+  it('keeps a cancelled run when a newer run is of another workflow with the same name', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED', 1, 'CI'),
+      fromRun(check('lint', 'SUCCESS', NEW), 2, NEW, 'SUCCESS', 2, 'CI'),
     ]
 
     expect(reportContexts(checks, ['vitest'])[0]?.verdict).toBe('failed')
@@ -195,18 +208,18 @@ describe('reportContexts over superseded cancelled runs (#364)', () => {
     expect(reportContexts(checks, ['vitest'])[0]?.verdict).toBe('failed')
   })
 
-  it('on a tie in creation time, lets the run that has not concluded win', () => {
-    const tied = [
-      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
-      fromRun(check('lint', null, OLD), 2, OLD, null),
-    ]
-    const bothConcluded = [
+  it('on a tie in creation time, lets the larger run id be the newer run', () => {
+    const newerConcluded = [
       fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
       fromRun(check('lint', 'SUCCESS', OLD), 2, OLD, 'SUCCESS'),
     ]
+    const olderId = [
+      fromRun(check('vitest', 'FAILURE', OLD), 2, OLD, 'CANCELLED'),
+      fromRun(check('lint', null, OLD), 1, OLD, null),
+    ]
 
-    expect(reportContexts(tied, ['vitest'])[0]?.verdict).toBe('pending')
-    expect(reportContexts(bothConcluded, ['vitest'])[0]?.verdict).toBe('failed')
+    expect(reportContexts(newerConcluded, ['vitest'])[0]?.verdict).toBe('pending')
+    expect(reportContexts(olderId, ['vitest'])[0]?.verdict).toBe('failed')
   })
 
   it('leaves a commit status, which has no run, as it reported', () => {

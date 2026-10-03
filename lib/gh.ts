@@ -242,24 +242,29 @@ export interface CheckContext {
    *  second check under the same name, and this field is how a reader
    *  tells the new one from the one a `gh stack push` cancelled. */
   readonly startedAt: string | null
-  /** The workflow run that made this check. Absent for a commit status, and
-   *  for a check run that no workflow made, which is what GitHub answers
-   *  with a null `workflowRun`. A newer run of the same workflow on the
-   *  same head can supersede a cancelled run (#364). */
+  /** The workflow run that made this check. Absent for a commit status,
+   *  and for a check run that no workflow made: GitHub answers a null
+   *  `workflowRun` for it. Also absent when the run lacks a field. A newer
+   *  run of the same workflow on the same head can supersede a cancelled
+   *  run (#364). */
   readonly run?: CheckWorkflowRun
 }
 
 /** The workflow run behind one check run, read through its check suite. */
 export interface CheckWorkflowRun {
-  /** The run's `databaseId`, the same id `actions/runs` names. */
+  /** The run's `databaseId`, the same id `actions/runs` names. Of two
+   *  runs created in the same second, the newer one has the larger id. */
   readonly id: number
-  /** The workflow's own name, which is the same for every run of it. */
+  /** The workflow's `databaseId`. Two workflow files can have the same
+   *  name, so this id, not the name, tells one workflow from another. */
+  readonly workflowId: number
+  /** The workflow's own name, for a reader. */
   readonly workflow: string
   /** When the run was created. Of two runs of one workflow on one head,
    *  the later one is the newer run. */
   readonly createdAt: string
-  /** The check suite's conclusion, `CANCELLED` for a cancelled run, or null
-   *  while the run has not concluded. GraphQL's `WorkflowRun` has no
+  /** The check suite's conclusion, such as `SUCCESS` or `CANCELLED`, or
+   *  null while the run has not concluded. GraphQL's `WorkflowRun` has no
    *  conclusion field of its own. */
   readonly conclusion: string | null
 }
@@ -1127,7 +1132,7 @@ const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor
               __typename
               ... on CheckRun {
                 name status conclusion startedAt
-                checkSuite { conclusion workflowRun { databaseId createdAt workflow { name } } }
+                checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }
               }
               ... on StatusContext { context state createdAt }
             }
@@ -1182,7 +1187,7 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
                   __typename
                   ... on CheckRun {
                     name status conclusion startedAt
-                    checkSuite { conclusion workflowRun { databaseId createdAt workflow { name } } }
+                    checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }
                   }
                   ... on StatusContext { context state createdAt }
                 }
@@ -1383,9 +1388,10 @@ const readCheckWorkflowRun = (value: unknown): CheckWorkflowRun | null => {
   const run = asRecord(suite?.workflowRun)
   const id = asInteger(run?.databaseId)
   const createdAt = asText(run?.createdAt)
+  const workflowId = asInteger(asRecord(run?.workflow)?.databaseId)
   const workflow = asText(asRecord(run?.workflow)?.name)
-  if (id === null || createdAt === null || workflow === null) return null
-  return { id, workflow, createdAt, conclusion: asText(suite?.conclusion) }
+  if (id === null || createdAt === null || workflowId === null || workflow === null) return null
+  return { id, workflowId, workflow, createdAt, conclusion: asText(suite?.conclusion) }
 }
 
 /**

@@ -2018,7 +2018,7 @@ describe('the review loop reads', () => {
                             checkSuite: suite({
                               databaseId: 36975271473,
                               createdAt: '2026-10-01T00:00:00Z',
-                              workflow: { name: 'CI' },
+                              workflow: { databaseId: 350526662, name: 'CI' },
                             }),
                           },
                           // A check run that no workflow made: GitHub
@@ -2036,6 +2036,34 @@ describe('the review loop reads', () => {
                             conclusion: 'FAILURE',
                             checkSuite: suite({ databaseId: 1, createdAt: '2026-10-01T00:00:00Z' }),
                           },
+                          {
+                            name: 'biome',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'lint',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'ab',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { name: 'CI' },
+                            }),
+                          },
                           { context: 'vercel/preview', state: 'SUCCESS' },
                         ],
                       },
@@ -2051,7 +2079,7 @@ describe('the review loop reads', () => {
       const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
 
       expect(calls[1]?.args.join(' ')).toContain(
-        'checkSuite { conclusion workflowRun { databaseId createdAt workflow { name } } }',
+        'checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }',
       )
       expect(result.pullRequest?.checks).toStrictEqual([
         {
@@ -2061,6 +2089,7 @@ describe('the review loop reads', () => {
           startedAt: null,
           run: {
             id: 36975271473,
+            workflowId: 350526662,
             workflow: 'CI',
             createdAt: '2026-10-01T00:00:00Z',
             conclusion: 'CANCELLED',
@@ -2068,6 +2097,9 @@ describe('the review loop reads', () => {
         },
         { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
         { name: 'types', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'biome', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'ab', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
         { name: 'vercel/preview', status: null, conclusion: 'SUCCESS', startedAt: null },
       ])
     })

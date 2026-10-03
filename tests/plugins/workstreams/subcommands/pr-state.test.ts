@@ -763,7 +763,13 @@ describe('a cancelled run that a newer run supersedes (#364)', () => {
     status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
     conclusion,
     startedAt: id === 1 ? OLD : NEW,
-    run: { id, workflow: 'CI', createdAt: id === 1 ? OLD : NEW, conclusion: runConclusion },
+    run: {
+      id,
+      workflowId: 1,
+      workflow: 'CI',
+      createdAt: id === 1 ? OLD : NEW,
+      conclusion: runConclusion,
+    },
   })
   /** The shadcn#33 shape on a stack layer's base: a matrix placeholder and
    *  a fan-in failure from the cancelled run, then the newer run's own. */

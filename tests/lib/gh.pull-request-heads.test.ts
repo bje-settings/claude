@@ -74,7 +74,7 @@ const node = (overrides: Record<string, unknown> = {}) => ({
                     workflowRun: {
                       databaseId: 37098610809,
                       createdAt: '2026-09-26T00:04:58Z',
-                      workflow: { name: 'CI' },
+                      workflow: { databaseId: 350526662, name: 'CI' },
                     },
                   },
                 },
@@ -129,7 +129,7 @@ it('asks for every open pull request with its head commit and the checks on it',
   expect(query).toContain(
     '... on CheckRun {\n' +
       '                name status conclusion startedAt\n' +
-      '                checkSuite { conclusion workflowRun { databaseId createdAt workflow { name } } }\n' +
+      '                checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }\n' +
       '              }',
   )
   expect(query).toContain('... on StatusContext { context state createdAt }')
@@ -155,6 +155,7 @@ it('asks for every open pull request with its head commit and the checks on it',
             startedAt: '2026-09-26T00:05:00Z',
             run: {
               id: 37098610809,
+              workflowId: 350526662,
               workflow: 'CI',
               createdAt: '2026-09-26T00:04:58Z',
               conclusion: 'SUCCESS',
