@@ -172,6 +172,21 @@ describe('reportContexts over superseded cancelled runs (#364)', () => {
     ])
   })
 
+  it('ignores a cancelled run when the newer run of its workflow was cancelled too', () => {
+    const checks = [
+      fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('types', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
+      fromRun(check('vitest', 'FAILURE', '2026-09-01T00:00:00Z'), 2, NEW, 'CANCELLED'),
+    ]
+
+    // Run 2 is the newest, so it is the answer and it is red. Run 1's
+    // `types` does not count, so that name has no answer yet.
+    expect(reportContexts(checks, ['vitest', 'types']).map((c) => c.verdict)).toEqual([
+      'failed',
+      'pending',
+    ])
+  })
+
   it('keeps a cancelled run when only a newer run of another workflow exists', () => {
     const checks = [
       fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED'),
@@ -255,6 +270,13 @@ describe('namesOrHead', () => {
     const checks = [check(PLACEHOLDER, 'CANCELLED'), check('vitest', null)]
 
     expect(namesOrHead([], checks)).toEqual({ names: ['vitest'], from: 'head' })
+  })
+
+  it('keeps a head name with a `$` or `{{` that is not `${{`', () => {
+    const names = ['cost ($)', 'docs {{ draft }}', 'env $HOME {x}']
+    const checks = names.map((name) => check(name, 'SUCCESS'))
+
+    expect(namesOrHead([], checks)).toEqual({ names, from: 'head' })
   })
 
   it('drops a name only a superseded cancelled run reported', () => {

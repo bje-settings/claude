@@ -2064,6 +2064,16 @@ describe('the review loop reads', () => {
                               workflow: { name: 'CI' },
                             }),
                           },
+                          {
+                            name: 'fan-in',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662 },
+                            }),
+                          },
                           { context: 'vercel/preview', state: 'SUCCESS' },
                         ],
                       },
@@ -2100,6 +2110,7 @@ describe('the review loop reads', () => {
         { name: 'biome', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
         { name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
         { name: 'ab', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'fan-in', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
         { name: 'vercel/preview', status: null, conclusion: 'SUCCESS', startedAt: null },
       ])
     })
