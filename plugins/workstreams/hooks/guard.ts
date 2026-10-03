@@ -52,11 +52,11 @@
 // never disappears from the check without a trace, the way every other
 // degraded read here explains itself.
 //
-// **Each directory is resolved with `realpath` before the compare.** On
+// **Each compared directory is resolved with `realpath` before the compare.** On
 // macOS `/tmp` and `/var` are links, and a process cwd is the resolved
 // form. So this resolves the payload `cwd` (`resolvePayloadCwd`) and each
-// process cwd (`readProcCwds`, `readLsofCwds`). `runGuard` gets `realpath`
-// too. It resolves a `pnpm -C` directory the same way, after it joins a
+// process cwd (`readProcCwds`, `readLsofCwds`). `runGuard` passes `realpath`
+// on. `secondSuite` uses it for a `pnpm -C` directory, after it joins a
 // relative one to the payload `cwd`. The compare itself still uses plain
 // strings. A path that `realpath` cannot resolve keeps its own string.
 //
