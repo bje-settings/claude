@@ -1344,6 +1344,25 @@ describe('logic after the round 1 head (#356)', () => {
     expect(answer.outcome === 'ok' && answer.value).not.toContain('since round 1')
   })
 
+  for (const [what, facts] of [
+    ['red CI', { verdict: 'red', unresolvedThreads: 0 }],
+    ['an unresolved thread', { verdict: 'green', unresolvedThreads: 1 }],
+  ] as const) {
+    it(`is fixing with ${what}, even with logic after the round 1 head`, () => {
+      expect(
+        deriveState({
+          missing: false,
+          pullRequestState: 'OPEN',
+          round: 1,
+          substantial: false,
+          logicSinceRound1: true,
+          rotChecked: false,
+          ...facts,
+        }),
+      ).toBe('fixing')
+    })
+  }
+
   it('never schedules a third round from the compare', () => {
     expect(
       deriveState({
@@ -1385,6 +1404,13 @@ describe('logic after the round 1 head (#356)', () => {
       'plugins/workstreams/hooks/guard.ts',
       'packages/eslint-plugin-claude/src/rules/a.ts',
       'plugins/workstreams/hooks/hooks.json',
+      // A name that holds "test" or "spec" with no dot on each side is not
+      // a test file.
+      'src/latest.ts',
+      'lib/contest.ts',
+      'scripts/inspector.ts',
+      'src/spec.ts',
+      'src/test.ts',
     ]) {
       it(`counts ${path}`, () => {
         expect(isLogicPath(path)).toBe(true)
