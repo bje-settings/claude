@@ -427,8 +427,8 @@ decide whether the report is an answer at all, and every layer of a stack is an 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). Workflow concurrency cancels a run that way. After the newer run makes
 its first check, a name it has not reported yet is pending, not failed. Before that check, the
-cancelled run's checks still count. The list from the head also leaves out a
-name that contains `${{`, a matrix job that did not expand.
+cancelled run's checks still count. The list from the head also leaves out a name that contains
+`${{`, a matrix job that did not expand.
 
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
 has answered nothing for a head whose runs existed. Only an unresolved thread from a

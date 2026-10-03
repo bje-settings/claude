@@ -66,8 +66,9 @@ The verdict over the required contexts:
 A check from a cancelled workflow run does not count when a newer run of the
 same workflow has a check on the head. After the newer run makes its first
 check, a name it has not reported yet is pending, not failed. Before that
-check, the cancelled run's checks still count. When no ruleset covers the base, the
-head list also leaves out a name that contains \${{, an unexpanded matrix job.
+check, the cancelled run's checks still count. When no ruleset covers the
+base, the head list also leaves out a name that contains \${{, an unexpanded
+matrix job.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
