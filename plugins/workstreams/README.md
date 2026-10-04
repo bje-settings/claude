@@ -175,8 +175,8 @@ Takes one draft pull request from green CI to `done`, whoever opened it.
 The command answers where the loop is. The skill takes the one step that the state calls
 for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
 reports. It never waits. The loop runs at most two review rounds, one subagent
-each, in the pull request's own worktree. Round 2 runs only when round 1's own commits
-changed code logic.
+each, in the pull request's own worktree. Round 2 runs in two cases only: round 1's own
+commits changed code logic, or logic landed after the head that round 1 reviewed (#356).
 
 | State | What it means |
 | --- | --- |
@@ -209,9 +209,10 @@ stream. `sonnet` reviews any other round 1.
 
 There is no state file. Everything is read again each tick. After each round and after the
 rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`
-Its `_Recorded by_` line goes in a `<sub>` tag.
-The caller reads the markers back, and passes the three facts the command cannot read as
-flags.
+Its `_Recorded by_` line goes in a `<sub>` tag. A round 1 marker has a second line,
+`Head <sha>.`, the head that round 1 reviewed. The first line stays exact, so every past
+marker still matches. The caller reads the markers back, and passes the four facts the
+command cannot read as flags.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it, one step for each call.
 
@@ -413,7 +414,7 @@ The repository is whatever `gh` resolves from the working directory.
 ### `pr-state`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0|1|2] [--substantial] [--rot-checked] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0|1|2] [--substantial] [--round-1-head <sha>] [--rot-checked] [--json]
 ```
 
 Reports one pull request's head, draft flag, base, and mergeability. It also reports the
@@ -430,6 +431,12 @@ actually reported on the head, and `contextsFrom` says `head`. That is a design 
 a read that fell short, so it is a field of its own. A caller keys on `unavailable` to
 decide whether the report is an answer at all, and every layer of a stack is an answer.
 
+A check from a cancelled workflow run does not count when a newer run of the same workflow has a
+check on the head (#364). Workflow concurrency cancels a run that way. After the newer run makes
+its first check, a name it has not reported yet is pending, not failed. Before that check, the
+cancelled run's checks still count. The list from the head also leaves out a name that contains
+`${{`, a matrix job that did not expand.
+
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
 has answered nothing for a head whose runs existed. Only an unresolved thread from a
 PERSON holds the loop. A bot's own thread, review bots included, is counted apart under
@@ -437,9 +444,20 @@ PERSON holds the loop. A bot's own thread, review bots included, is counted apar
 enterprise coverage bot posts a comment on every pull request, and a loop that counted it
 would never reach `done`.
 
-`--round`, `--substantial`, and `--rot-checked` are the three facts the command cannot
-read. `/workstreams:start` reads them from the marker comments that `/workstreams:review`
-posts.
+`--round`, `--substantial`, `--round-1-head` and `--rot-checked` are the four facts the
+command cannot read. `/workstreams:start` reads them from the marker comments that
+`/workstreams:review` posts.
+
+`--round-1-head` holds only with `--round 1`. Without `--substantial`, the command reads the
+compare of that head to the current head (#356). It compares commits, not times, because a
+rebase moves commit dates. These give `review-2`:
+
+- The round 1 head is not an ancestor of the head.
+- The file list is at GitHub's limit of 300.
+- A changed file is logic: a file under `src/`, `lib/`, `scripts/` or `hooks/` at any
+  depth. A test file, a file under a test directory and a Markdown file are not logic.
+
+`sinceRound1` gives the reason. A compare that could not be read gives no state at that step.
 
 A merged or closed pull request gives state `merged` or `closed`. This check runs right
 after `awaiting-pr`, before every other rule. No CI result, thread, or marker changes it
@@ -521,6 +539,10 @@ the default branch (ruling P9). Each stack layer above the first is such a case.
 CodeQL checks, and none of the required ones.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
+So a cancelled run's check does not count in `watch` either, once a newer run of the same
+workflow has a check on the head. The watch then writes no failure line for it, and no
+`CONCLUDED` until the newer run reports each required context. Before the newer run makes its
+first check, the cancelled run's checks still count.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread
 only the pull requests that need its list, not the whole poll (#265). A failed default

@@ -1171,6 +1171,7 @@ it("defaults to the root lib's own process runner", () => {
   const endpoints = Object.keys(gh).sort()
   expect(endpoints).toEqual([
     'addComment',
+    'compareCommits',
     'issueStates',
     'listIssues',
     'listMergedPullRequests',
@@ -1996,6 +1997,125 @@ describe('the review loop reads', () => {
       })
     }
 
+    it('reads the workflow run behind a check run through its check suite (#364)', async () => {
+      const suite = (workflowRun: unknown) => ({ conclusion: 'CANCELLED', workflowRun })
+      const { gh, calls } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({
+            commits: {
+              nodes: [
+                {
+                  commit: {
+                    oid: '9b13a20',
+                    statusCheckRollup: {
+                      contexts: {
+                        pageInfo: { hasNextPage: false },
+                        nodes: [
+                          {
+                            name: 'vitest',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 36975271473,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          // A check run that no workflow made: GitHub
+                          // answers a suite with a null `workflowRun`.
+                          {
+                            name: 'CodeQL',
+                            status: 'COMPLETED',
+                            conclusion: 'SUCCESS',
+                            checkSuite: { conclusion: 'SUCCESS', workflowRun: null },
+                          },
+                          // A run that lacks a field is read as no run.
+                          {
+                            name: 'types',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({ databaseId: 1, createdAt: '2026-10-01T00:00:00Z' }),
+                          },
+                          {
+                            name: 'biome',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'lint',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'ab',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'fan-in',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662 },
+                            }),
+                          },
+                          { context: 'vercel/preview', state: 'SUCCESS' },
+                        ],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(calls[1]?.args.join(' ')).toContain(
+        'checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }',
+      )
+      expect(result.pullRequest?.checks).toStrictEqual([
+        {
+          name: 'vitest',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          startedAt: null,
+          run: {
+            id: 36975271473,
+            workflowId: 350526662,
+            workflow: 'CI',
+            createdAt: '2026-10-01T00:00:00Z',
+            conclusion: 'CANCELLED',
+          },
+        },
+        { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+        { name: 'types', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'biome', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'ab', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'fan-in', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'vercel/preview', status: null, conclusion: 'SUCCESS', startedAt: null },
+      ])
+    })
+
     it('reads a head nothing has reported on as no checks, not as a failed read', async () => {
       const { gh } = clientAnsweringEach([
         REPO,
@@ -2438,6 +2558,179 @@ describe('the review loop reads', () => {
         unavailable: 'gh: could not resolve to a Repository',
       })
       expect(calls).toHaveLength(1)
+    })
+  })
+
+  describe('compareCommits', () => {
+    const file = (filename: string, extra: Record<string, unknown> = {}) => ({
+      filename,
+      status: 'modified',
+      ...extra,
+    })
+    const compareReply = (fields: Record<string, unknown>): Reply => ({
+      stdout: JSON.stringify({ status: 'ahead', ahead_by: 1, files: [], ...fields }),
+    })
+
+    it('asks for base...head with one commit per page, and reads status and file names', async () => {
+      const { gh, calls } = clientAnsweringEach([
+        REPO,
+        compareReply({ files: [file('lib/gh.ts'), file('README.md')] }),
+      ])
+
+      const result = await gh.compareCommits({ base: 'dda20bc', head: 'a51ef71' })
+
+      expect(calls[1]?.args).toEqual([
+        'api',
+        'repos/acme/widgets/compare/dda20bc...a51ef71?per_page=1',
+      ])
+      expect(result).toEqual({
+        comparison: { status: 'ahead', files: ['lib/gh.ts', 'README.md'], filesAtLimit: false },
+        unavailable: null,
+      })
+    })
+
+    it('percent-encodes each side of the range', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, compareReply({})])
+
+      await gh.compareCommits({ base: 'spike/a', head: 'b' })
+
+      expect(calls[1]?.args[1]).toBe('repos/acme/widgets/compare/spike%2Fa...b?per_page=1')
+    })
+
+    for (const status of ['ahead', 'behind', 'diverged', 'identical'] as const) {
+      it(`reads the documented status ${status}`, async () => {
+        const { gh } = clientAnsweringEach([REPO, compareReply({ status })])
+
+        const result = await gh.compareCommits({ base: 'a', head: 'b' })
+
+        expect(result.comparison?.status).toBe(status)
+      })
+    }
+
+    it('gives the old path of a renamed file too, so a move out of a directory is seen', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        compareReply({
+          files: [file('docs/gh.md', { status: 'renamed', previous_filename: 'lib/gh.ts' })],
+        }),
+      ])
+
+      const result = await gh.compareCommits({ base: 'a', head: 'b' })
+
+      expect(result.comparison?.files).toEqual(['docs/gh.md', 'lib/gh.ts'])
+    })
+
+    it('sets filesAtLimit at 300 entries, and not at 299', async () => {
+      const entries = (count: number) =>
+        Array.from({ length: count }, (_, i) => file(`docs/${i}.md`))
+      const at = clientAnsweringEach([REPO, compareReply({ files: entries(300) })])
+      const below = clientAnsweringEach([REPO, compareReply({ files: entries(299) })])
+
+      expect((await at.gh.compareCommits({ base: 'a', head: 'b' })).comparison?.filesAtLimit).toBe(
+        true,
+      )
+      expect(
+        (await below.gh.compareCommits({ base: 'a', head: 'b' })).comparison?.filesAtLimit,
+      ).toBe(false)
+    })
+
+    it('counts entries for the limit, not names: renames do not reach it', async () => {
+      const renamed = Array.from({ length: 150 }, (_, i) =>
+        file(`docs/${i}.md`, { previous_filename: `old/${i}.md` }),
+      )
+      const { gh } = clientAnsweringEach([REPO, compareReply({ files: renamed })])
+
+      const result = await gh.compareCommits({ base: 'a', head: 'b' })
+
+      expect(result.comparison?.files).toHaveLength(300)
+      expect(result.comparison?.filesAtLimit).toBe(false)
+    })
+
+    for (const [what, fields, reason] of [
+      ['no status', { status: undefined }, 'the compare of a...b carried no status'],
+      [
+        'a status GitHub does not document',
+        { status: 'unrelated' },
+        'the compare of a...b carried no status',
+      ],
+      ['no files list', { files: undefined }, 'the compare of a...b carried no files list'],
+      [
+        'a files value that is not a list',
+        { files: {} },
+        'the compare of a...b carried no files list',
+      ],
+      [
+        'a file with no filename',
+        { files: [file('lib/gh.ts'), { status: 'modified' }] },
+        'a changed file in the compare of a...b carried no filename',
+      ],
+      [
+        'a file that is not an object',
+        { files: ['lib/gh.ts'] },
+        'a changed file in the compare of a...b carried no filename',
+      ],
+    ] as const) {
+      it(`reports a reply with ${what}, never a short answer`, async () => {
+        const { gh } = clientAnsweringEach([REPO, compareReply(fields)])
+
+        await expect(gh.compareCommits({ base: 'a', head: 'b' })).resolves.toEqual({
+          comparison: null,
+          unavailable: reason,
+        })
+      })
+    }
+
+    it('reports a reply that is not an object', async () => {
+      const { gh } = clientAnsweringEach([REPO, { stdout: '[]' }])
+
+      await expect(gh.compareCommits({ base: 'a', head: 'b' })).resolves.toEqual({
+        comparison: null,
+        unavailable: 'the compare of a...b carried no status',
+      })
+    })
+
+    it('quotes GitHub’s message for a compare it refused, such as an unknown commit', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '{"message":"No commit found for SHA: a","status":"404"}' },
+      ])
+
+      await expect(gh.compareCommits({ base: 'a', head: 'b' })).resolves.toEqual({
+        comparison: null,
+        unavailable: 'the compare of a...b carried no status: No commit found for SHA: a',
+      })
+    })
+
+    it('reports gh’s own words when the compare could not be read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '', stderr: 'gh: API rate limit exceeded\n' },
+      ])
+
+      await expect(gh.compareCommits({ base: 'a', head: 'b' })).resolves.toEqual({
+        comparison: null,
+        unavailable: 'gh: API rate limit exceeded',
+      })
+    })
+
+    it('reports a compare that timed out as itself, before it reads the body', async () => {
+      const { gh } = clientAnsweringEach(
+        [
+          REPO,
+          {
+            timedOut: true,
+            status: null,
+            signal: 'SIGKILL',
+            stdout: '{"status":"ahead","files":[]}',
+          },
+        ],
+        { boundMs: 5_000 },
+      )
+
+      await expect(gh.compareCommits({ base: 'a', head: 'b' })).resolves.toEqual({
+        comparison: null,
+        unavailable: 'gh did not answer in 5000 ms',
+      })
     })
   })
 })

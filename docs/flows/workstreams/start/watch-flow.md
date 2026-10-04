@@ -39,7 +39,7 @@ flowchart TD
     I1 -->|Yes| I2{No ruleset on this base,<br/>and the default branch failed<br/>to read this poll?}
     I2 -->|Yes| L
     I2 -->|No| J{Head already seen,<br/>and not the current one?}
-    J -->|No| K[open, or new head,<br/>then each required context as it reports]
+    J -->|No| K[open, or new head, then each required context<br/>as it reports; a cancelled run's check does<br/>not count once a newer run of its workflow has a check]
     J -->|Yes, API may have flipped back| J2{Same head answered<br/>on the poll just before?}
     J2 -->|No, first time| L
     J2 -->|Yes, twice in a row| K
@@ -61,6 +61,13 @@ flowchart TD
 
 The required contexts come from the rules of the base branch. When no ruleset covers the base,
 they come from the rules of the default branch. Each stack layer above the first is such a case.
+
+A check from a cancelled workflow run does not count when a newer run of the same workflow has a
+check on the head (#364). The watch then writes no failure line for it, and the head is not
+`CONCLUDED` until the newer run reports each required context. Before the newer run makes its
+first check, the cancelled run's checks still count. The check list shows no newer run until then,
+and the watch makes no other call. A cancelled run that no newer run follows still counts, and its
+failures are written.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread only the
 pull requests that need its list. The other pull requests still read, and can still conclude. A

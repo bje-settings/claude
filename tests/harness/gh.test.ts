@@ -32,6 +32,7 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['requiredContexts', (client) => client.requiredContexts({ branch: 'main' })],
   ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
+  ['compareCommits', (client) => client.compareCommits({ base: 'dda20bc', head: 'a51ef71' })],
   ['repositoryStatus', (client) => client.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })],
 ]
 
@@ -133,6 +134,10 @@ it('answers every endpoint it declares', async () => {
           updatedAt: '2026-09-22T06:33:14Z',
         },
       ],
+      unavailable: null,
+    },
+    compareCommits: {
+      comparison: { status: 'ahead', files: ['lib/gh.ts'], filesAtLimit: false },
       unavailable: null,
     },
     repositoryStatus: {

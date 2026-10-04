@@ -4,8 +4,9 @@
 // **Nothing is remembered.** Round 8 ruling 8, and CLAUDE.md's "derive what
 // a plugin needs each time it runs": there is no state file. Every fact
 // here is read again each tick. The only facts the caller carries are the
-// three it alone knows: how many review rounds it has completed, whether
-// the first one was substantial, and whether the rot check is done. A file
+// four it alone knows: how many review rounds it has completed, whether
+// the first one was substantial, the head the first one reviewed, and
+// whether the rot check is done. A file
 // would be the copy that goes stale, and a loop resumed from one would
 // review a head that had already moved.
 //
@@ -26,7 +27,13 @@
 // injected `GhClient` in, an envelope out, with nothing spawned.
 import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
-import type { GhClient, IssueState, PullRequestDetail, WorkflowRun } from '../lib/gh.ts'
+import type {
+  CommitComparison,
+  GhClient,
+  IssueState,
+  PullRequestDetail,
+  WorkflowRun,
+} from '../lib/gh.ts'
 import { namesOrHead, type ReportedContext, reportContexts } from '../required-contexts.ts'
 
 // The derivation moved to `../required-contexts.ts` (round 10 ruling P6).
@@ -37,7 +44,8 @@ export type { ContextVerdict, ReportedContext } from '../required-contexts.ts'
 export const HELP = `One pull request's review-loop state, derived from the pull request and its checks.
 
 Usage:
-  workstreams.ts pr-state <number> [--round 0|1|2] [--substantial] [--rot-checked] [--json]
+  workstreams.ts pr-state <number> [--round 0|1|2] [--substantial]
+    [--round-1-head <sha>] [--rot-checked] [--json]
 
 Reads the status-check contexts the pull request's base branch requires, the
 head commit and what has reported on it, whether a workflow run for the head
@@ -51,6 +59,20 @@ diff. Together they are what separates review-2 from rot-check from done. Both
 flags describe a round that has finished, so neither is accepted with
 --round 0.
 
+--round-1-head is line 2 of the round 1 marker: the head that round 1
+reviewed. It holds only with --round 1. Without --substantial, the command
+reads the compare of that head to the current head. The state is review-2,
+not rot-check or done, when one of these is true:
+
+  the round 1 head is not an ancestor of the head, as after a rebase
+  the compare lists GitHub's limit of changed files, so the list can be short
+  a changed file is under src/, lib/, scripts/ or hooks/ at any depth
+    (a test file, a file under a test directory and a Markdown file are
+    not logic)
+
+"sinceRound1" gives the reason. A compare that could not be read gives no
+state at that step.
+
 The verdict over the required contexts:
 
   green       every required context reported and none of them failed, and
@@ -62,6 +84,13 @@ The verdict over the required contexts:
               adding contexts to the list
   no-run      no workflow run with event pull_request exists for the head
   unavailable something needed to answer could not be read
+
+A check from a cancelled workflow run does not count when a newer run of the
+same workflow has a check on the head. After the newer run makes its first
+check, a name it has not reported yet is pending, not failed. Before that
+check, the cancelled run's checks still count. When no ruleset covers the
+base, the head list also leaves out a name that contains \${{, an unexpanded
+matrix job.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
@@ -84,6 +113,7 @@ Exits 2 on a usage error, and 1 only when nothing at all could be read.`
 const SPEC = {
   round: { type: 'string', default: '0', choices: ['0', '1', '2'] },
   substantial: { type: 'boolean' },
+  'round-1-head': { type: 'string', default: '' },
   'rot-checked': { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
@@ -126,6 +156,13 @@ export interface WaitHint {
   readonly workflow: string
   readonly medianMs: number
   readonly samples: number
+}
+
+/** Whether logic changed after the head that round 1 reviewed, and why.
+ *  `logic` is also true when the compare cannot prove that no logic changed. */
+export interface SinceRound1 {
+  readonly logic: boolean
+  readonly reason: string
 }
 
 export interface PrStateReport {
@@ -174,6 +211,11 @@ export interface PrStateReport {
   readonly waitHint: WaitHint | null
   readonly round: number
   readonly substantial: boolean
+  /** The `--round-1-head` the caller named, or null for none. */
+  readonly round1Head: string | null
+  /** The compare of the round 1 head to the head. Null when the command did
+   *  not read it, or could not (then `unavailable` says why). */
+  readonly sinceRound1: SinceRound1 | null
   readonly rotChecked: boolean
   readonly state: LoopState | null
   /** Every reason this report is short. Empty is the only value that means
@@ -242,6 +284,10 @@ export const deriveState = (facts: {
   readonly unresolvedThreads: number
   readonly round: number
   readonly substantial: boolean
+  /** True when logic landed after the head that round 1 reviewed. False
+   *  when it did not, or when the caller named no such head. Null when
+   *  the caller named one and the compare could not be read. */
+  readonly logicSinceRound1: boolean | null
   readonly rotChecked: boolean
 }): LoopState | null => {
   if (facts.missing) return 'awaiting-pr'
@@ -264,7 +310,55 @@ export const deriveState = (facts: {
   // now reads "substantial" narrowly: a logic change under src/, lib/,
   // scripts/ or hooks/. Two rounds is still the limit.
   if (facts.round === 1 && facts.substantial) return 'review-2'
+  // #356: a commit after the round 1 marker had no review. Logic in it
+  // earns round 2, by the path part of the substantial rule. A compare
+  // nobody could read names no state, because a guess here can skip a
+  // review.
+  if (facts.round === 1 && facts.logicSinceRound1 === null) return null
+  if (facts.round === 1 && facts.logicSinceRound1) return 'review-2'
   return facts.rotChecked ? 'done' : 'rot-check'
+}
+
+/** The directories whose files hold logic, as the substantial rule in
+ *  `skills/review/SKILL.md` names them. */
+const LOGIC_DIRECTORIES: readonly string[] = ['src', 'lib', 'scripts', 'hooks']
+
+/** Directories that hold tests. Tests are never substantial, so a file
+ *  under one of them is not logic, even under `lib/` or `src/`. */
+const TEST_DIRECTORIES: readonly string[] = ['tests', 'test', '__tests__']
+
+/** Whether one changed path is logic: under a logic directory at any depth,
+ *  under no test directory, and not a test or Markdown file. */
+export const isLogicPath = (path: string): boolean => {
+  const directories = path.split('/')
+  const name = directories.pop() as string
+  if (/\.(test|spec)\.[^.]+$/.test(name) || name.endsWith('.md')) return false
+  if (directories.some((part) => TEST_DIRECTORIES.includes(part))) return false
+  return directories.some((part) => LOGIC_DIRECTORIES.includes(part))
+}
+
+/**
+ * Whether logic changed after the round 1 head, from the compare of that
+ * head to the current head (#356, round 14 rulings 2 and 4).
+ *
+ * The rule compares commits, not times: a rebase moves commit dates. A
+ * round 1 head that is not an ancestor of the head counts as logic, and so
+ * does a file list at GitHub's limit. Neither can prove that no logic
+ * changed, and the error to avoid is a skipped review.
+ */
+export const sinceRound1Of = (comparison: CommitComparison): SinceRound1 => {
+  if (comparison.status !== 'ahead' && comparison.status !== 'identical') {
+    return {
+      logic: true,
+      reason: `the round 1 head is not an ancestor of the head (${comparison.status})`,
+    }
+  }
+  if (comparison.filesAtLimit) {
+    return { logic: true, reason: "the compare lists GitHub's limit of changed files" }
+  }
+  const logic = comparison.files.filter(isLogicPath)
+  if (logic.length > 0) return { logic: true, reason: `logic changed: ${logic.join(', ')}` }
+  return { logic: false, reason: 'no logic changed under src/, lib/, scripts/ or hooks/' }
 }
 
 /** The middle of a sorted list of durations, rounded to whole milliseconds. */
@@ -407,6 +501,9 @@ export const renderReport = (report: PrStateReport): string => {
         authors(report.botThreadAuthors),
     )
   }
+  if (report.sinceRound1 !== null) {
+    lines.push(`since round 1: ${report.sinceRound1.reason}`)
+  }
   if (report.waitHint !== null) {
     const { workflow, medianMs, samples } = report.waitHint
     lines.push(
@@ -507,6 +604,7 @@ export const runPrState = async (
   const round = Number(parsed.value.options.round)
   const substantial = parsed.value.options.substantial
   const rotChecked = parsed.value.options['rot-checked']
+  const round1Head = parsed.value.options['round-1-head']
   // Both flags say something about a round that has finished, so at round
   // 0 neither can be true of anything. `deriveState` returns from its
   // round-0 arms before it reads either. Without this check, they would be
@@ -518,6 +616,16 @@ export const runPrState = async (
     return refused(
       '--substantial and --rot-checked describe a completed round, so neither holds with --round 0',
     )
+  }
+  // The round 1 head says what round 1 reviewed. With round 0 there is no
+  // such head. With round 2, round 2 reviewed every commit after it.
+  if (round1Head !== '' && round !== 1) {
+    return refused(
+      '--round-1-head names the head round 1 reviewed, so it holds only with --round 1',
+    )
+  }
+  if (round1Head !== '' && !/^[0-9a-f]{7,40}$/.test(round1Head)) {
+    return refused(`--round-1-head takes a commit sha, not "${round1Head}"`)
   }
 
   const unavailable: string[] = []
@@ -543,6 +651,15 @@ export const runPrState = async (
       ? { rows: [], unavailable: null }
       : await context.gh.listWorkflowRuns({ branch: detail.head })
   note(runs.unavailable)
+
+  // A substantial round 1 gives round 2 already, so the compare is not read.
+  const compared =
+    round1Head === '' || substantial || detail === null
+      ? null
+      : await context.gh.compareCommits({ base: round1Head, head: detail.headSha })
+  note(compared === null ? null : compared.unavailable)
+  const sinceRound1 =
+    compared === null || compared.comparison === null ? null : sinceRound1Of(compared.comparison)
 
   const sample = await context.gh.listWorkflowRuns({ perPage: HINT_SAMPLE })
   note(sample.unavailable)
@@ -611,6 +728,8 @@ export const runPrState = async (
     ),
     round,
     substantial,
+    round1Head: round1Head === '' ? null : round1Head,
+    sinceRound1,
     rotChecked,
     state: deriveState({
       missing: viewed.missing,
@@ -619,6 +738,9 @@ export const runPrState = async (
       unresolvedThreads: threadsOf(detail).blocking.length,
       round,
       substantial,
+      // When the command reads no compare, the fact is false and the state
+      // ignores it.
+      logicSinceRound1: compared === null ? false : (sinceRound1?.logic ?? null),
       rotChecked,
     }),
     unavailable,

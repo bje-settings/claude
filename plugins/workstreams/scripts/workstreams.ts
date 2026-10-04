@@ -46,8 +46,9 @@ commands:
                                      what it unlocks, and the blocked count
   pr-state <number> [--round 0|1|2]  where the review loop is on one pull
     [--substantial] [--rot-checked]  request: its required contexts, its
-    [--json]                         checks, its unresolved threads and the
-                                     state they add up to
+    [--round-1-head <sha>] [--json]  checks, its unresolved threads, the
+                                     logic since round 1 and the state they
+                                     add up to
   intersect [--json]                 every open pull request's head against
                                      the default branch and against each
                                      other: merge base, changed files and
