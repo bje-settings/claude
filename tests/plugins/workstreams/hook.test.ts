@@ -177,6 +177,8 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
   git.dirty(work)
+  // No other session's vitest can change this test's result (#358).
+  const pgrepLog = stubPgrepNoMatch(sandbox)
 
   for (const command of [
     'pnpm test',
@@ -204,6 +206,10 @@ it('allows a subagent the ordinary commands a layer is built out of', () => {
       stderr: result.stderr,
     }).toEqual({ command, status: 0, stdout: '', stderr: '' })
   }
+
+  // Only `pnpm test` runs vitest, so the stub answers once. Without this
+  // line, a stub that never ran would leave the test open to the race.
+  expect(readFileSync(pgrepLog, 'utf8')).toBe('called\n')
 })
 
 it('allows a tool that is not a shell, whatever the matcher lets through', () => {
@@ -419,6 +425,54 @@ it('denies a subagent whose cwd is a link to the directory a vitest runs in', as
   expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
 })
 
+it('denies pnpm -C <link> while a vitest runs in the resolved directory', async () => {
+  const sandbox = createSandbox()
+  const real = sandbox.join('real')
+  mkdirSync(real)
+  const link = sandbox.join('link')
+  symlinkSync(real, link)
+  const decoy = startVitestDecoy(realpathSync(real))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: realpathSync(sandbox.path),
+      tool_input: { command: `pnpm -C ${link} test` },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(denialIn(result.stdout)).toContain(`pid ${decoy.pid}`)
+})
+
+it('allows pnpm -C <link> when the resolved directory runs no vitest', async () => {
+  const sandbox = createSandbox()
+  const busy = sandbox.join('busy')
+  const idle = sandbox.join('idle')
+  mkdirSync(busy)
+  mkdirSync(idle)
+  const link = sandbox.join('link')
+  symlinkSync(idle, link)
+  const decoy = startVitestDecoy(realpathSync(busy))
+  await waitForSpawn(decoy)
+
+  const result = runScript(HOOK, {
+    stdin: payload({
+      agent_id: 'agent_01',
+      agent_type: 'workstreams:stream',
+      cwd: realpathSync(busy),
+      tool_input: { command: `pnpm -C ${link} test` },
+    }),
+    env: sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('')
+})
+
 it('allows a subagent in a different real directory than the one a vitest runs in', async () => {
   const sandbox = createSandbox()
   const busy = sandbox.join('busy')
@@ -460,6 +514,30 @@ const stubPgrepAndLsof = (sandbox: Sandbox, lsofOut: string): void => {
   )
   sandbox.stubPath(stubs)
 }
+
+/** A `pgrep` stub that finds no process, as a real one does with status 1.
+ *  A test that needs no real process uses it, so a vitest worker of another
+ *  session cannot change its result. It returns the path of a log that the
+ *  stub appends one line to for each call, so a test can prove the stub ran. */
+const stubPgrepNoMatch = (sandbox: Sandbox): string => {
+  const stubs = sandbox.join('stub-bin-none')
+  const log = path.join(stubs, 'pgrep.log')
+  mkdirSync(stubs, { recursive: true })
+  writeFileSync(path.join(stubs, 'pgrep'), `#!/bin/sh\necho called >> '${log}'\nexit 1\n`, {
+    mode: 0o755,
+  })
+  sandbox.stubPath(stubs)
+  return log
+}
+
+/** `stderr` without the line that the hook writes for a pid whose cwd it
+ *  could not read. A test that runs the real `pgrep` allows that line, as the
+ *  pid can belong to another session. Any other line stays. */
+const otherSessionsLinesRemoved = (stderr: string): string =>
+  stderr
+    .split('\n')
+    .filter((line) => !/^workstreams guard: pid \d+'s cwd could not be read/.test(line))
+    .join('\n')
 
 const deniedFrom = (sandbox: Sandbox, cwd: string): ReturnType<typeof runScript> =>
   runScript(HOOK, {
@@ -583,10 +661,13 @@ it('allows a subagent when only a file merely named after vitest sits in its cwd
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
-  expect(result.stderr).toBe('')
+  // Real `pgrep` runs here. Another session's vitest may add its own line, so
+  // only a line for this decoy, or any other kind of line, is forbidden (#358).
+  expect(result.stderr).not.toContain(`pid ${decoy.pid}'s cwd could not be read`)
+  expect(otherSessionsLinesRemoved(result.stderr)).toBe('')
 })
 
-it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
+it('allows when pgrep runs and finds nothing at this cwd', () => {
   const sandbox = createSandbox()
 
   const result = runScript(HOOK, {
@@ -603,10 +684,14 @@ it('allows in silence when pgrep runs and finds nothing at this cwd', () => {
   // otherwise. This proves pgrep's exit status 1 ("no match") reached
   // `decide` as an empty list, not as the "could not be listed" failure
   // the case above writes: that message would appear here too if `[]`
-  // and `null` were ever confused.
+  // and `null` were ever confused. On a busy machine pgrep answers with
+  // status 0, so the ordinary-commands test, which stubs it, is the proof
+  // that holds on every machine.
   expect(result.status).toBe(0)
   expect(result.stdout).toBe('')
-  expect(result.stderr).toBe('')
+  // Not `toBe('')`: real `pgrep` runs, and another session's vitest may add a
+  // line for its own pid (#358). Any other line is forbidden, a crash included.
+  expect(otherSessionsLinesRemoved(result.stderr)).toBe('')
 })
 
 it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {

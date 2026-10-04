@@ -306,12 +306,18 @@ The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spel
 --coverage`. `pnpm`'s own `-C <dir>`, `--dir <dir>`, and `--dir=<dir>` name the directory
 the check compares, rather than the tool call's own `cwd`: the worktree workflow's rule is
 "never `cd`; name the absolute path in every command", and this is the spelling that follows
-from it. The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
+from it.
+
+The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
 each one's cwd, through `/proc` or `lsof`. The guard resolves symbolic links in the payload
 `cwd` and in each process cwd first. On macOS, `/tmp` and `/var` are links, so both forms of
 one directory still match. A match on that directory is a denial. It names the pid, and asks
-the subagent to wait rather than start a second suite. A `-C` directory in the command is
-compared as typed.
+the subagent to wait rather than start a second suite.
+
+The guard joins a relative `-C` or `--dir` directory to the payload `cwd`. It resolves the
+links in that directory the same way. If it cannot resolve a directory, it compares the
+joined path. It does not expand `~` or `$VAR`. With no payload `cwd`, it cannot check a
+relative directory. It allows the command and writes a line on stderr.
 
 **The main conversation is never denied.** The test is `agent_id`. The input carries this
 field "only when the hook fires inside a subagent"

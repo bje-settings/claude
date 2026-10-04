@@ -52,12 +52,13 @@
 // never disappears from the check without a trace, the way every other
 // degraded read here explains itself.
 //
-// **Both cwd paths are resolved with `realpath` before the compare.** On
+// **Each compared directory is resolved with `realpath` before the compare.** On
 // macOS `/tmp` and `/var` are links, and a process cwd is the resolved
 // form. So this resolves the payload `cwd` (`resolvePayloadCwd`) and each
-// process cwd (`readProcCwds`, `readLsofCwds`). `decide` still compares
-// plain strings. A path that `realpath` cannot resolve keeps its own
-// string.
+// process cwd (`readProcCwds`, `readLsofCwds`). `runGuard` passes `realpath`
+// on. `secondSuite` uses it for a `pnpm -C` directory, after it joins a
+// relative one to the payload `cwd`. The compare itself still uses plain
+// strings. A path that `realpath` cannot resolve keeps its own string.
 //
 // **`pgrep`'s own pattern is narrower than a plain `vitest`.** A plain
 // substring match answers a process whose command line merely contains
@@ -186,6 +187,7 @@ if (meetsNodeFloor(process.version)) {
       git: gitOut,
       processes: readRunningVitest,
       output,
+      resolve: realpath,
     })
   } catch (error) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)

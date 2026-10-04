@@ -523,9 +523,25 @@ const trackedChanges = (porcelain: string): readonly string[] =>
  *  name the same directory with or without one; this keeps that
  *  difference from reading as two different worktrees. It does not
  *  resolve a symlink. `hooks/guard.ts` resolves the payload cwd and each
- *  process cwd before this runs ({@link resolvePayloadCwd}). A `-C`
- *  directory in the command stays as typed. */
+ *  process cwd before this runs ({@link resolvePayloadCwd}). `secondSuite`
+ *  resolves a `pnpm -C` directory itself, with the context's `resolve`. */
 const stripTrailingSlash = (directory: string): string => directory.replace(/\/+$/, '')
+
+/** The directory that a `pnpm -C` or `--dir` option names, written as a
+ *  process cwd is. A relative directory joins to the call cwd. Then
+ *  `context.resolve` follows each link. With no `resolve`, an absolute
+ *  directory stays as typed. A relative directory has no base when the cwd
+ *  is `null` or empty. It returns `null`, as an absent cwd does. */
+const namedDirectory = async (
+  directory: string,
+  cwd: string | null,
+  context: { readonly resolve?: PathResolver },
+): Promise<string | null> => {
+  const rooted = directory.startsWith('/')
+  if (!rooted && (cwd === null || cwd === '')) return null
+  const joined = rooted ? directory : `${cwd}/${directory}`
+  return context.resolve === undefined ? joined : resolvedOrSame(joined, context.resolve)
+}
 
 /** The verdict on a `vitest` command alone: whether another `vitest`
  *  process already runs in the same worktree. `decide` asks this before
@@ -538,12 +554,17 @@ const stripTrailingSlash = (directory: string): string => directory.replace(/\/+
 const secondSuite = async (
   command: string,
   call: ToolCall,
-  context: { readonly processes: ProcessReader; readonly output: Output },
+  context: {
+    readonly processes: ProcessReader
+    readonly output: Output
+    readonly resolve?: PathResolver
+  },
 ): Promise<Verdict | undefined> => {
   const target = vitestTarget(command)
   if (target === undefined) return undefined
 
-  const directory = target.directory ?? call.cwd
+  const directory =
+    target.directory === null ? call.cwd : await namedDirectory(target.directory, call.cwd, context)
   if (directory === null) {
     context.output.err.write(
       'workstreams guard: the payload carries no cwd, so a second vitest run could not be ' +
@@ -601,6 +622,9 @@ export const decide = async (
     readonly git: GitReader
     readonly processes: ProcessReader
     readonly output: Output
+    /** Resolves the links in a `pnpm -C` directory. Without it, a relative
+     *  directory only joins to the cwd, and an absolute one stays as typed. */
+    readonly resolve?: PathResolver
   },
 ): Promise<Verdict> => {
   if (call.agentId === null) return { decision: 'allow' }
@@ -695,6 +719,7 @@ export const runGuard = async (context: {
   readonly git: GitReader
   readonly processes: ProcessReader
   readonly output: Output
+  readonly resolve?: PathResolver
 }): Promise<number> => {
   const read = readToolCall(await context.stdin())
   // The discriminant rather than `isOk`, so that the failure arm narrows
