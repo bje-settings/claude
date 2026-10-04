@@ -63,8 +63,16 @@ Derive it on each call. Write nothing to disk.
    A marker is a first line that is exactly one of the four `/workstreams:review` posts.
    `Review round <n> done` gives `--round <n>`, the highest one. `Review round 1 done:
    substantial.` gives `--substantial`. `Rot check done.` gives `--rot-checked`. No marker
-   gives `--round 0`. A set that `pr-state` refuses, or a round 2 with no substantial
-   round 1, is a stop. Name the markers.
+   gives `--round 0`. A set that `pr-state` refuses, or a round 2 with no round 1, is a
+   stop. Name the markers.
+
+   With `--round 1`, read line 2 of the newest round 1 marker:
+
+   ```bash
+   gh pr view <number> --json comments --jq '[.comments[].body | split("\n") | select(.[0] | startswith("Review round 1 done")) | .[1]] | last'
+   ```
+
+   A line `Head <sha>.` gives `--round-1-head <sha>`. Any other line gives no flag.
 
 ## Order
 
@@ -88,7 +96,8 @@ Derive it on each call. Write nothing to disk.
    and `Rot check done.` markers, as `/workstreams:review` posts them. Put a link to the
    ruling comment on the line after the marker, above the footer. In any other state, a
    request to skip is a question. There, the two markers may not give `done`: CI that is
-   not green gives `fixing`, and a substantial round 1 gives `review-2`.
+   not green gives `fixing`. A substantial round 1, or logic after the round 1 head,
+   gives `review-2`.
 4. Wait for a wake. If no watch runs, arm it first ([Wakes](#wakes)). Then run the tick in
    [tick.md](tick.md), and wait again.
 5. When every layer is `done`, merged, or dropped, and the plan has no layer left, do
@@ -133,4 +142,5 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" intersect --json
 ```
 
-Add `--substantial` and `--rot-checked` to `pr-state` when the markers say so.
+Add `--substantial`, `--round-1-head <sha>` and `--rot-checked` to `pr-state` when the
+markers say so.

@@ -488,6 +488,16 @@ name, and the rollup lists both. `plugins/workstreams/src/required-contexts.ts` 
 `startedAt` to pick the later run, so a `gh stack push` that cancels a run in flight and starts a
 new one never leaves the cancelled run as the answer.
 
+A check run can also carry an optional `run`: the workflow run behind it. Both the detail and the
+heads queries read it through the check suite. It holds the run's `id` (`databaseId`), the
+workflow's `workflowId` (`databaseId`) and `workflow` name, the run's `createdAt`, and the
+suite's `conclusion`. GraphQL's `WorkflowRun` has no conclusion field of its own. A commit status
+has no `run`. A check run that no workflow made has none either: its suite answers a null
+`workflowRun`. A run that lacks a field is read as no `run`. `required-contexts.ts`
+`currentChecks` reads `run` to drop a cancelled run's checks once a newer run of the same
+workflow has a check on the head (#364). Two workflow files can have one name, so it compares
+`workflowId`.
+
 The threads and the comments are separate fields, because they are separate facts: the enterprise
 coverage bot posts a COMMENT on every pull request here. All three connections ask for `pageInfo`,
 unlike the dependency connections in the sweep query. A list at the page ceiling here says so
@@ -523,6 +533,28 @@ that asserts a run exists for a head would otherwise read a dropped row as "no r
 `listWorkflowRuns` reads ONE page, newest first, bounded by `perPage`, and does not claim to be the
 whole list. This repository held 1,733 runs when that was measured, and every caller wants the
 recent ones, not all of them. Ask this endpoint only what the newest page can answer.
+
+### `compareCommits`
+
+```ts
+const { comparison } = await gh.compareCommits({ base: 'dda20bc', head: 'a51ef71' })
+```
+
+`compareCommits` reads `repos/{owner}/{name}/compare/{base}...{head}?per_page=1` through REST.
+It answers `{ comparison, unavailable }` and never throws. `comparison` holds GitHub's `status`
+(`ahead`, `behind`, `diverged` or `identical`), the changed file names, and `filesAtLimit`.
+`ahead` and `identical` mean the base is an ancestor of the head.
+
+The file list comes on the first page only, so `per_page=1` reads one commit and the file list.
+Verified live on 2026-10-03. GitHub lists 300 files at most. A list of that length sets
+`filesAtLimit`, because it can be short. A renamed file gives its old name too, so a move out of
+a directory is seen.
+
+A reply with no documented `status`, no `files` list, or a file with no `filename` costs the
+whole read. A changed file dropped in silence is a change a caller reads as absent. A compare
+GitHub refused, such as one for an unknown commit, quotes GitHub's `message`.
+
+`workstreams pr-state` reads it for the commits after the round 1 head (#356).
 
 ## The TypeSafe transport and the Jev client
 

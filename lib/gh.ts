@@ -242,6 +242,31 @@ export interface CheckContext {
    *  second check under the same name, and this field is how a reader
    *  tells the new one from the one a `gh stack push` cancelled. */
   readonly startedAt: string | null
+  /** The workflow run that made this check. Absent for a commit status,
+   *  and for a check run that no workflow made: GitHub answers a null
+   *  `workflowRun` for it. Also absent when the run lacks a field. A newer
+   *  run of the same workflow on the same head can supersede a cancelled
+   *  run (#364). */
+  readonly run?: CheckWorkflowRun
+}
+
+/** The workflow run behind one check run, read through its check suite. */
+export interface CheckWorkflowRun {
+  /** The run's `databaseId`, the same id `actions/runs` names. Of two
+   *  runs created in the same second, the newer one has the larger id. */
+  readonly id: number
+  /** The workflow's `databaseId`. Two workflow files can have the same
+   *  name, so this id, not the name, tells one workflow from another. */
+  readonly workflowId: number
+  /** The workflow's own name, for a reader. */
+  readonly workflow: string
+  /** When the run was created. Of two runs of one workflow on one head,
+   *  the later one is the newer run. */
+  readonly createdAt: string
+  /** The check suite's conclusion, such as `SUCCESS` or `CANCELLED`, or
+   *  null while the run has not concluded. GraphQL's `WorkflowRun` has no
+   *  conclusion field of its own. */
+  readonly conclusion: string | null
 }
 
 /** One UNRESOLVED review thread's first comment: who opened it, and whether
@@ -312,6 +337,20 @@ export interface WorkflowRun {
    *  not from `created_at`, which can precede it by the queue wait. */
   readonly startedAt: string
   readonly updatedAt: string
+}
+
+/** How the head of a compare relates to its base, in GitHub's own words.
+ *  `ahead` and `identical` mean the base is an ancestor of the head. */
+export type CompareStatus = 'ahead' | 'behind' | 'diverged' | 'identical'
+
+/** One `<base>...<head>` compare, as `compareCommits` reads it. */
+export interface CommitComparison {
+  readonly status: CompareStatus
+  /** The path of each changed file. A renamed file gives its old path too. */
+  readonly files: readonly string[]
+  /** True when the file list has GitHub's limit of entries (300). Then the
+   *  list can be short, and cannot prove that a path did not change. */
+  readonly filesAtLimit: boolean
 }
 
 /**
@@ -408,6 +447,11 @@ export interface GhResults {
   }
   /** Workflow runs, newest first. */
   listWorkflowRuns: PagedResult<WorkflowRun>
+  /** One compare of two commits, or null when it could not be read. */
+  compareCommits: {
+    readonly comparison: CommitComparison | null
+    readonly unavailable: string | null
+  }
   /** Each repository GitHub answered for, by `owner/name`. A repository with
    *  no answer at all is left out, and the reason goes into `unavailable`. */
   repositoryStatus: {
@@ -590,6 +634,21 @@ export interface GhClient {
     readonly branch?: string
     readonly perPage?: number
   }): Promise<GhResults['listWorkflowRuns']>
+  /**
+   * The compare of `<base>...<head>` through REST
+   * (`repos/{owner}/{name}/compare/{base}...{head}`): how the head relates to
+   * the base, and the files that changed.
+   *
+   * It asks for one commit per page. The file list comes only on the first
+   * page, and the commits are not read. GitHub gives 300 files at most, so a
+   * list of that length sets `filesAtLimit`.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  compareCommits(query: {
+    readonly base: string
+    readonly head: string
+  }): Promise<GhResults['compareCommits']>
   /**
    * Open Dependabot alerts, open Dependabot pull requests, and the last
    * 100 merged pull requests, for each `owner/name` in `repos`.
@@ -1105,7 +1164,10 @@ const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor
             pageInfo { hasNextPage }
             nodes {
               __typename
-              ... on CheckRun { name status conclusion startedAt }
+              ... on CheckRun {
+                name status conclusion startedAt
+                checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }
+              }
               ... on StatusContext { context state createdAt }
             }
           }
@@ -1157,7 +1219,10 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
                 pageInfo { hasNextPage }
                 nodes {
                   __typename
-                  ... on CheckRun { name status conclusion startedAt }
+                  ... on CheckRun {
+                    name status conclusion startedAt
+                    checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }
+                  }
                   ... on StatusContext { context state createdAt }
                 }
               }
@@ -1345,6 +1410,25 @@ const isBotAuthor = (value: unknown): boolean =>
 const UNCONCLUDED: Record<string, true> = { PENDING: true, EXPECTED: true }
 
 /**
+ * The workflow run behind a check run's suite, or null when there is none.
+ *
+ * A check run that no workflow made, such as an uploaded code scanning
+ * result, has a suite whose `workflowRun` is null. A run that lacks a field
+ * is read as no run too. That is the safe side: a check with no run is never superseded,
+ * so it keeps its own conclusion.
+ */
+const readCheckWorkflowRun = (value: unknown): CheckWorkflowRun | null => {
+  const suite = asRecord(value)
+  const run = asRecord(suite?.workflowRun)
+  const id = asInteger(run?.databaseId)
+  const createdAt = asText(run?.createdAt)
+  const workflowId = asInteger(asRecord(run?.workflow)?.databaseId)
+  const workflow = asText(asRecord(run?.workflow)?.name)
+  if (id === null || createdAt === null || workflowId === null || workflow === null) return null
+  return { id, workflowId, workflow, createdAt, conclusion: asText(suite?.conclusion) }
+}
+
+/**
  * One reported check, from either object GitHub reports one as.
  *
  * This function tells the two apart by the fields present, not by
@@ -1368,11 +1452,13 @@ const readCheck = (node: unknown): CheckContext | null => {
   const record = asRecord(node)
   const name = asText(record?.name)
   if (name !== null) {
+    const run = readCheckWorkflowRun(record?.checkSuite)
     return {
       name,
       status: asText(record?.status),
       conclusion: asText(record?.conclusion),
       startedAt: asText(record?.startedAt),
+      ...(run === null ? {} : { run }),
     }
   }
   // A node that is not a record at all lands here too, and is refused by
@@ -1523,6 +1609,65 @@ const requiredContextsOf = (rules: readonly unknown[]): string[] | null => {
     }
   }
   return contexts
+}
+
+/** Every value {@link CompareStatus} can hold, for {@link ISSUE_STATES}'
+ *  reason: a new member with no key here is a `tsc` error. */
+const COMPARE_STATUSES: Record<CompareStatus, true> = {
+  ahead: true,
+  behind: true,
+  diverged: true,
+  identical: true,
+}
+
+const isCompareStatus = (value: unknown): value is CompareStatus =>
+  typeof value === 'string' && Object.hasOwn(COMPARE_STATUSES, value)
+
+/** The most files GitHub lists in one compare ("Compare two commits", REST
+ *  docs). A list of this length can be short. */
+const COMPARE_FILE_LIMIT = 300
+
+/**
+ * One compare reply, or the reason it could not be read.
+ *
+ * A file with no `filename` costs the whole read, on {@link
+ * requiredContextsOf}' grounds: a changed file dropped in silence is a
+ * change that a caller reads as absent.
+ */
+const readComparison = (value: unknown, range: string): GhResults['compareCommits'] => {
+  const reply = asRecord(value)
+  const status = reply?.status
+  if (!isCompareStatus(status)) {
+    // A refused compare (an unknown commit) still answers JSON, with
+    // GitHub's `message` in it.
+    const said = asText(reply?.message)
+    return {
+      comparison: null,
+      unavailable: `the compare of ${range} carried no status${said === null ? '' : `: ${said}`}`,
+    }
+  }
+  const entries = reply?.files
+  if (!Array.isArray(entries)) {
+    return { comparison: null, unavailable: `the compare of ${range} carried no files list` }
+  }
+  const files: string[] = []
+  for (const entry of entries) {
+    const file = asRecord(entry)
+    const filename = asText(file?.filename)
+    if (filename === null) {
+      return {
+        comparison: null,
+        unavailable: `a changed file in the compare of ${range} carried no filename`,
+      }
+    }
+    files.push(filename)
+    const previous = asText(file?.previous_filename)
+    if (previous !== null) files.push(previous)
+  }
+  return {
+    comparison: { status, files, filesAtLimit: entries.length >= COMPARE_FILE_LIMIT },
+    unavailable: null,
+  }
 }
 
 /** What one page of a paginated read yielded. */
@@ -2287,6 +2432,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         unavailable:
           unreadable === 0 ? null : `${unreadable} workflow run row(s) could not be read`,
       }
+    },
+
+    // `per_page=1` keeps the commit list to one entry. The file list comes
+    // on the first page only, with 300 files at most (verified live on
+    // 2026-10-03).
+    compareCommits: async (query) => {
+      const range = `${query.base}...${query.head}`
+      const path = `${encodeURIComponent(query.base)}...${encodeURIComponent(query.head)}`
+      const answer = await restJson(`compare/${path}?per_page=1`)
+      if (answer.unavailable !== null) return { comparison: null, unavailable: answer.unavailable }
+      return readComparison(answer.value, range)
     },
 
     // Never throws (the interface's own contract). One batch that failed

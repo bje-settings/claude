@@ -29,6 +29,8 @@ import { type GhClient, type GhEndpoint, GhError, type GhResults } from '../lib/
 export type {
   CheckContext,
   CommentText,
+  CommitComparison,
+  CompareStatus,
   GhClient,
   GhEndpoint,
   GhResults,
@@ -131,6 +133,7 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     requiredContexts: async () => answer(replies, 'requiredContexts'),
     viewPullRequestDetail: async () => answer(replies, 'viewPullRequestDetail'),
     listWorkflowRuns: async () => answer(replies, 'listWorkflowRuns'),
+    compareCommits: async () => answer(replies, 'compareCommits'),
     repositoryStatus: async () => answer(replies, 'repositoryStatus'),
   }
 }

@@ -4,7 +4,7 @@ description: What the /workstreams:review skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-02
+  at: 2026-10-04
 ---
 
 # /workstreams:review skill flow
@@ -16,7 +16,7 @@ act. Each call takes one step and returns. The caller waits between calls.
 flowchart TD
     R0{called with a round agent's JSON return?}
     R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in the pull request's worktree: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
-    RS --> R2{post the round's marker: posted?}
+    RS --> R2{post the round's marker, with a Head line<br/>for round 1: posted?}
     R2 -->|Yes| R1([Return])
     R2 -->|No| R3([Stop: say so]):::stop
     R0 -->|No| W{exactly one worktree matches the head branch?}
