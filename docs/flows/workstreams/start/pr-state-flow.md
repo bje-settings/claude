@@ -36,7 +36,8 @@ flowchart TD
     J -->|No| S1([verdict unavailable, no state,<br/>reasons listed, exit 0]):::stop
     J -->|Yes| K{A pull_request run<br/>for the head commit?}
     K -->|No| S2([state no-run, exit 0])
-    K -->|Yes| L[Contexts: the ruleset's list, or the<br/>checks on the head when no ruleset names any]
+    K -->|Yes| K3[Drop each check of a cancelled run<br/>that a newer run of its workflow follows]
+    K3 --> L[Contexts: the ruleset's list, or the checks<br/>on the head, less unexpanded matrix names,<br/>when no ruleset names any]
     L --> V[Verdict: red if one failed; pending if one has not<br/>concluded, or the list is empty or not settled; else green]
     V --> Q{Review rounds completed?}
     Q -->|0| Q0{Verdict?}
@@ -58,6 +59,13 @@ SUCCESS, SKIPPED and NEUTRAL each satisfy a context, and any other conclusion fa
 contexts list from the head is settled only when every run for the head has completed. A failed
 wait-hint read adds a reason to the list but does not change the verdict. An unresolved thread
 from a person blocks `done`.
+
+A check from a cancelled workflow run does not count when a newer run of the same workflow has a
+check on the head (#364). After the newer run makes its first check, a name it has not reported
+yet is pending, not failed. Before that check, the cancelled run's checks still count, because
+the check list shows no newer run. A cancelled run that no newer run follows still counts. A
+commit status has no run, so it always counts. The list from the head leaves out a name that
+contains `${{`, a matrix job that did not expand.
 
 A bot's own thread, a review bot such as Copilot included, is named apart. It does not block
 `done`, and neither does a plain comment (#219). A review bot's own finding is named, but the

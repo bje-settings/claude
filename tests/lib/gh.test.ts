@@ -1996,6 +1996,125 @@ describe('the review loop reads', () => {
       })
     }
 
+    it('reads the workflow run behind a check run through its check suite (#364)', async () => {
+      const suite = (workflowRun: unknown) => ({ conclusion: 'CANCELLED', workflowRun })
+      const { gh, calls } = clientAnsweringEach([
+        REPO,
+        prReply(
+          prNode({
+            commits: {
+              nodes: [
+                {
+                  commit: {
+                    oid: '9b13a20',
+                    statusCheckRollup: {
+                      contexts: {
+                        pageInfo: { hasNextPage: false },
+                        nodes: [
+                          {
+                            name: 'vitest',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 36975271473,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          // A check run that no workflow made: GitHub
+                          // answers a suite with a null `workflowRun`.
+                          {
+                            name: 'CodeQL',
+                            status: 'COMPLETED',
+                            conclusion: 'SUCCESS',
+                            checkSuite: { conclusion: 'SUCCESS', workflowRun: null },
+                          },
+                          // A run that lacks a field is read as no run.
+                          {
+                            name: 'types',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({ databaseId: 1, createdAt: '2026-10-01T00:00:00Z' }),
+                          },
+                          {
+                            name: 'biome',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'lint',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              workflow: { databaseId: 350526662, name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'ab',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { name: 'CI' },
+                            }),
+                          },
+                          {
+                            name: 'fan-in',
+                            status: 'COMPLETED',
+                            conclusion: 'FAILURE',
+                            checkSuite: suite({
+                              databaseId: 1,
+                              createdAt: '2026-10-01T00:00:00Z',
+                              workflow: { databaseId: 350526662 },
+                            }),
+                          },
+                          { context: 'vercel/preview', state: 'SUCCESS' },
+                        ],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+        ),
+      ])
+
+      const result = await gh.viewPullRequestDetail({ pullRequest: 178 })
+
+      expect(calls[1]?.args.join(' ')).toContain(
+        'checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }',
+      )
+      expect(result.pullRequest?.checks).toStrictEqual([
+        {
+          name: 'vitest',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          startedAt: null,
+          run: {
+            id: 36975271473,
+            workflowId: 350526662,
+            workflow: 'CI',
+            createdAt: '2026-10-01T00:00:00Z',
+            conclusion: 'CANCELLED',
+          },
+        },
+        { name: 'CodeQL', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+        { name: 'types', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'biome', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'ab', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'fan-in', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+        { name: 'vercel/preview', status: null, conclusion: 'SUCCESS', startedAt: null },
+      ])
+    })
+
     it('reads a head nothing has reported on as no checks, not as a failed read', async () => {
       const { gh } = clientAnsweringEach([
         REPO,

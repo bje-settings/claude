@@ -242,6 +242,31 @@ export interface CheckContext {
    *  second check under the same name, and this field is how a reader
    *  tells the new one from the one a `gh stack push` cancelled. */
   readonly startedAt: string | null
+  /** The workflow run that made this check. Absent for a commit status,
+   *  and for a check run that no workflow made: GitHub answers a null
+   *  `workflowRun` for it. Also absent when the run lacks a field. A newer
+   *  run of the same workflow on the same head can supersede a cancelled
+   *  run (#364). */
+  readonly run?: CheckWorkflowRun
+}
+
+/** The workflow run behind one check run, read through its check suite. */
+export interface CheckWorkflowRun {
+  /** The run's `databaseId`, the same id `actions/runs` names. Of two
+   *  runs created in the same second, the newer one has the larger id. */
+  readonly id: number
+  /** The workflow's `databaseId`. Two workflow files can have the same
+   *  name, so this id, not the name, tells one workflow from another. */
+  readonly workflowId: number
+  /** The workflow's own name, for a reader. */
+  readonly workflow: string
+  /** When the run was created. Of two runs of one workflow on one head,
+   *  the later one is the newer run. */
+  readonly createdAt: string
+  /** The check suite's conclusion, such as `SUCCESS` or `CANCELLED`, or
+   *  null while the run has not concluded. GraphQL's `WorkflowRun` has no
+   *  conclusion field of its own. */
+  readonly conclusion: string | null
 }
 
 /** One UNRESOLVED review thread's first comment: who opened it, and whether
@@ -1105,7 +1130,10 @@ const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor
             pageInfo { hasNextPage }
             nodes {
               __typename
-              ... on CheckRun { name status conclusion startedAt }
+              ... on CheckRun {
+                name status conclusion startedAt
+                checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }
+              }
               ... on StatusContext { context state createdAt }
             }
           }
@@ -1157,7 +1185,10 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
                 pageInfo { hasNextPage }
                 nodes {
                   __typename
-                  ... on CheckRun { name status conclusion startedAt }
+                  ... on CheckRun {
+                    name status conclusion startedAt
+                    checkSuite { conclusion workflowRun { databaseId createdAt workflow { databaseId name } } }
+                  }
                   ... on StatusContext { context state createdAt }
                 }
               }
@@ -1345,6 +1376,25 @@ const isBotAuthor = (value: unknown): boolean =>
 const UNCONCLUDED: Record<string, true> = { PENDING: true, EXPECTED: true }
 
 /**
+ * The workflow run behind a check run's suite, or null when there is none.
+ *
+ * A check run that no workflow made, such as an uploaded code scanning
+ * result, has a suite whose `workflowRun` is null. A run that lacks a field
+ * is read as no run too. That is the safe side: a check with no run is never superseded,
+ * so it keeps its own conclusion.
+ */
+const readCheckWorkflowRun = (value: unknown): CheckWorkflowRun | null => {
+  const suite = asRecord(value)
+  const run = asRecord(suite?.workflowRun)
+  const id = asInteger(run?.databaseId)
+  const createdAt = asText(run?.createdAt)
+  const workflowId = asInteger(asRecord(run?.workflow)?.databaseId)
+  const workflow = asText(asRecord(run?.workflow)?.name)
+  if (id === null || createdAt === null || workflowId === null || workflow === null) return null
+  return { id, workflowId, workflow, createdAt, conclusion: asText(suite?.conclusion) }
+}
+
+/**
  * One reported check, from either object GitHub reports one as.
  *
  * This function tells the two apart by the fields present, not by
@@ -1368,11 +1418,13 @@ const readCheck = (node: unknown): CheckContext | null => {
   const record = asRecord(node)
   const name = asText(record?.name)
   if (name !== null) {
+    const run = readCheckWorkflowRun(record?.checkSuite)
     return {
       name,
       status: asText(record?.status),
       conclusion: asText(record?.conclusion),
       startedAt: asText(record?.startedAt),
+      ...(run === null ? {} : { run }),
     }
   }
   // A node that is not a record at all lands here too, and is refused by

@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  type CheckContext,
   createGhMock,
   type GhReplies,
   ghFails,
@@ -744,6 +745,107 @@ describe('a base branch no ruleset covers', () => {
     )
 
     expect(report.contexts).toHaveLength(1)
+  })
+})
+
+describe('a cancelled run that a newer run supersedes (#364)', () => {
+  const OLD = '2026-10-01T00:00:00Z'
+  const NEW = '2026-10-01T00:01:00Z'
+  /** A check from run `id` of CI, whose own conclusion and whose run's
+   *  conclusion can differ: a fan-in job of a cancelled run fails. */
+  const fromRun = (
+    name: string,
+    conclusion: string | null,
+    id: number,
+    runConclusion: string | null,
+  ): CheckContext => ({
+    name,
+    status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
+    conclusion,
+    startedAt: id === 1 ? OLD : NEW,
+    run: {
+      id,
+      workflowId: 1,
+      workflow: 'CI',
+      createdAt: id === 1 ? OLD : NEW,
+      conclusion: runConclusion,
+    },
+  })
+  /** The shadcn#33 shape on a stack layer's base: a matrix placeholder and
+   *  a fan-in failure from the cancelled run, then the newer run's own. */
+  const SUPERSEDED: readonly CheckContext[] = [
+    fromRun(`ab-style (\${{ matrix.style }})`, 'CANCELLED', 1, 'CANCELLED'),
+    fromRun('vitest', 'FAILURE', 1, 'CANCELLED'),
+    fromRun('types', 'CANCELLED', 1, 'CANCELLED'),
+  ]
+  const onHead = (checks: readonly CheckContext[]): GhReplies =>
+    replies({
+      viewPullRequestDetail: {
+        pullRequest: detail({ base: 'wktr-130-ws-sweep', checks }),
+        unavailable: null,
+        missing: false,
+      },
+      requiredContexts: { contexts: [], unavailable: null },
+      listWorkflowRuns: {
+        rows: [run({ conclusion: 'cancelled' }), run({ conclusion: 'success' })],
+        unavailable: null,
+      },
+    })
+
+  it('reads green, and reaches done, once the newer run passed', async () => {
+    const checks = [
+      ...SUPERSEDED,
+      fromRun('vitest', 'SUCCESS', 2, 'SUCCESS'),
+      fromRun('types', 'SUCCESS', 2, 'SUCCESS'),
+    ]
+
+    const fresh = await reportOf(['178'], onHead(checks))
+    const finished = await reportOf(['178', '--round', '2', '--rot-checked'], onHead(checks))
+
+    expect(fresh.contextsFrom).toBe('head')
+    expect(fresh.contexts.map((context) => [context.name, context.verdict])).toEqual([
+      ['vitest', 'success'],
+      ['types', 'success'],
+    ])
+    expect(fresh.verdict).toBe('green')
+    expect(finished.state).toBe('done')
+  })
+
+  it('is pending, not red, while the newer run has not made a required check', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ checks: [...SUPERSEDED, fromRun('lint', null, 2, null)] }),
+          unavailable: null,
+          missing: false,
+        },
+        requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
+      }),
+    )
+
+    expect(report.contexts.map((context) => context.verdict)).toEqual(['pending', 'pending'])
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('ci-pending')
+  })
+
+  it('stays red when no newer run of the workflow follows the cancelled one', async () => {
+    const report = await reportOf(['178'], onHead(SUPERSEDED.slice(1)))
+
+    expect(report.verdict).toBe('red')
+    expect(report.state).toBe('red')
+  })
+
+  it('drops a matrix placeholder from the head list even with no newer run', async () => {
+    const report = await reportOf(
+      ['178'],
+      onHead([
+        fromRun(`ab-style (\${{ matrix.style }})`, 'SKIPPED', 1, 'SUCCESS'),
+        fromRun('vitest', 'SUCCESS', 1, 'SUCCESS'),
+      ]),
+    )
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest'])
   })
 })
 
