@@ -4,7 +4,7 @@ description: What the /workstreams:start skill does on each call and each wake, 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-01
+  at: 2026-10-03
 ---
 
 # /workstreams:start skill flow
@@ -25,7 +25,7 @@ flowchart TD
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
-    B -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers;<br/>a merged pull request is final, with no markers]
+    B -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers and the round 1 head;<br/>a merged pull request is final, with no markers]
     E --> E1{markers a set pr-state takes?}
     E1 -->|No| E2([Stop: name the markers]):::stop
     E1 -->|Yes| R

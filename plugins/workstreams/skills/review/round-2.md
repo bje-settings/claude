@@ -38,7 +38,8 @@ you review.
 
 ## The rot check belongs here
 
-Round 1 does not do it, because a substantial round 1 makes its own rot list stale.
+Round 1 does not do it, because a substantial round 1, or logic after it, makes its own
+rot list stale.
 Return the rot list against the FINAL diff, your own commits included.
 
 ## There is no round 3

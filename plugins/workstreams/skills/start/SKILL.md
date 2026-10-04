@@ -46,8 +46,16 @@ Derive it on each call. Write nothing to disk.
    A marker is a first line that is exactly one of the four `/workstreams:review` posts.
    `Review round <n> done` gives `--round <n>`, the highest one. `Review round 1 done:
    substantial.` gives `--substantial`. `Rot check done.` gives `--rot-checked`. No marker
-   gives `--round 0`. A set that `pr-state` refuses, or a round 2 with no substantial
-   round 1, is a stop. Name the markers.
+   gives `--round 0`. A set that `pr-state` refuses, or a round 2 with no round 1, is a
+   stop. Name the markers.
+
+   With `--round 1`, read line 2 of the newest round 1 marker:
+
+   ```bash
+   gh pr view <number> --json comments --jq '[.comments[].body | split("\n") | select(.[0] | startswith("Review round 1 done")) | .[1]] | last'
+   ```
+
+   A line `Head <sha>.` gives `--round-1-head <sha>`. Any other line gives no flag.
 
 ## Order
 
@@ -112,4 +120,5 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" intersect --json
 ```
 
-Add `--substantial` and `--rot-checked` to `pr-state` when the markers say so.
+Add `--substantial`, `--round-1-head <sha>` and `--rot-checked` to `pr-state` when the
+markers say so.

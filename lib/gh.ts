@@ -339,6 +339,20 @@ export interface WorkflowRun {
   readonly updatedAt: string
 }
 
+/** How the head of a compare relates to its base, in GitHub's own words.
+ *  `ahead` and `identical` mean the base is an ancestor of the head. */
+export type CompareStatus = 'ahead' | 'behind' | 'diverged' | 'identical'
+
+/** One `<base>...<head>` compare, as `compareCommits` reads it. */
+export interface CommitComparison {
+  readonly status: CompareStatus
+  /** The path of each changed file. A renamed file gives its old path too. */
+  readonly files: readonly string[]
+  /** True when the file list has GitHub's limit of entries (300). Then the
+   *  list can be short, and cannot prove that a path did not change. */
+  readonly filesAtLimit: boolean
+}
+
 /**
  * What a paginated GraphQL read answers with: the rows it could read, and the
  * reason it could not read more. This is the shape {@link
@@ -433,6 +447,11 @@ export interface GhResults {
   }
   /** Workflow runs, newest first. */
   listWorkflowRuns: PagedResult<WorkflowRun>
+  /** One compare of two commits, or null when it could not be read. */
+  compareCommits: {
+    readonly comparison: CommitComparison | null
+    readonly unavailable: string | null
+  }
   /** Each repository GitHub answered for, by `owner/name`. A repository with
    *  no answer at all is left out, and the reason goes into `unavailable`. */
   repositoryStatus: {
@@ -615,6 +634,21 @@ export interface GhClient {
     readonly branch?: string
     readonly perPage?: number
   }): Promise<GhResults['listWorkflowRuns']>
+  /**
+   * The compare of `<base>...<head>` through REST
+   * (`repos/{owner}/{name}/compare/{base}...{head}`): how the head relates to
+   * the base, and the files that changed.
+   *
+   * It asks for one commit per page. The file list comes only on the first
+   * page, and the commits are not read. GitHub gives 300 files at most, so a
+   * list of that length sets `filesAtLimit`.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  compareCommits(query: {
+    readonly base: string
+    readonly head: string
+  }): Promise<GhResults['compareCommits']>
   /**
    * Open Dependabot alerts, open Dependabot pull requests, and the last
    * 100 merged pull requests, for each `owner/name` in `repos`.
@@ -1577,6 +1611,65 @@ const requiredContextsOf = (rules: readonly unknown[]): string[] | null => {
   return contexts
 }
 
+/** Every value {@link CompareStatus} can hold, for {@link ISSUE_STATES}'
+ *  reason: a new member with no key here is a `tsc` error. */
+const COMPARE_STATUSES: Record<CompareStatus, true> = {
+  ahead: true,
+  behind: true,
+  diverged: true,
+  identical: true,
+}
+
+const isCompareStatus = (value: unknown): value is CompareStatus =>
+  typeof value === 'string' && Object.hasOwn(COMPARE_STATUSES, value)
+
+/** The most files GitHub lists in one compare ("Compare two commits", REST
+ *  docs). A list of this length can be short. */
+const COMPARE_FILE_LIMIT = 300
+
+/**
+ * One compare reply, or the reason it could not be read.
+ *
+ * A file with no `filename` costs the whole read, on {@link
+ * requiredContextsOf}' grounds: a changed file dropped in silence is a
+ * change that a caller reads as absent.
+ */
+const readComparison = (value: unknown, range: string): GhResults['compareCommits'] => {
+  const reply = asRecord(value)
+  const status = reply?.status
+  if (!isCompareStatus(status)) {
+    // A refused compare (an unknown commit) still answers JSON, with
+    // GitHub's `message` in it.
+    const said = asText(reply?.message)
+    return {
+      comparison: null,
+      unavailable: `the compare of ${range} carried no status${said === null ? '' : `: ${said}`}`,
+    }
+  }
+  const entries = reply?.files
+  if (!Array.isArray(entries)) {
+    return { comparison: null, unavailable: `the compare of ${range} carried no files list` }
+  }
+  const files: string[] = []
+  for (const entry of entries) {
+    const file = asRecord(entry)
+    const filename = asText(file?.filename)
+    if (filename === null) {
+      return {
+        comparison: null,
+        unavailable: `a changed file in the compare of ${range} carried no filename`,
+      }
+    }
+    files.push(filename)
+    const previous = asText(file?.previous_filename)
+    if (previous !== null) files.push(previous)
+  }
+  return {
+    comparison: { status, files, filesAtLimit: entries.length >= COMPARE_FILE_LIMIT },
+    unavailable: null,
+  }
+}
+
 /** What one page of a paginated read yielded. */
 interface Page {
   readonly nodes: readonly unknown[]
@@ -2339,6 +2432,17 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         unavailable:
           unreadable === 0 ? null : `${unreadable} workflow run row(s) could not be read`,
       }
+    },
+
+    // `per_page=1` keeps the commit list to one entry. The file list comes
+    // on the first page only, with 300 files at most (verified live on
+    // 2026-10-03).
+    compareCommits: async (query) => {
+      const range = `${query.base}...${query.head}`
+      const path = `${encodeURIComponent(query.base)}...${encodeURIComponent(query.head)}`
+      const answer = await restJson(`compare/${path}?per_page=1`)
+      if (answer.unavailable !== null) return { comparison: null, unavailable: answer.unavailable }
+      return readComparison(answer.value, range)
     },
 
     // Never throws (the interface's own contract). One batch that failed

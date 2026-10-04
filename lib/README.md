@@ -534,6 +534,28 @@ that asserts a run exists for a head would otherwise read a dropped row as "no r
 whole list. This repository held 1,733 runs when that was measured, and every caller wants the
 recent ones, not all of them. Ask this endpoint only what the newest page can answer.
 
+### `compareCommits`
+
+```ts
+const { comparison } = await gh.compareCommits({ base: 'dda20bc', head: 'a51ef71' })
+```
+
+`compareCommits` reads `repos/{owner}/{name}/compare/{base}...{head}?per_page=1` through REST.
+It answers `{ comparison, unavailable }` and never throws. `comparison` holds GitHub's `status`
+(`ahead`, `behind`, `diverged` or `identical`), the changed file names, and `filesAtLimit`.
+`ahead` and `identical` mean the base is an ancestor of the head.
+
+The file list comes on the first page only, so `per_page=1` reads one commit and the file list.
+Verified live on 2026-10-03. GitHub lists 300 files at most. A list of that length sets
+`filesAtLimit`, because it can be short. A renamed file gives its old name too, so a move out of
+a directory is seen.
+
+A reply with no documented `status`, no `files` list, or a file with no `filename` costs the
+whole read. A changed file dropped in silence is a change a caller reads as absent. A compare
+GitHub refused, such as one for an unknown commit, quotes GitHub's `message`.
+
+`workstreams pr-state` reads it for the commits after the round 1 head (#356).
+
 ## The TypeSafe transport and the Jev client
 
 ```ts
