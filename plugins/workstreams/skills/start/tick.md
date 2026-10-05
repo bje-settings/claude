@@ -44,7 +44,8 @@ On a collision:
 | State | Next action |
 | --- | --- |
 | `awaiting-pr` | Stop. GitHub said this number does not exist. |
-| `merged`, `closed` | Stop for this pull request. Report it. A layer that merges or closes mid-round gets a report only, never a review. A merged layer is finished: step 3 of `SKILL.md` writes the next layer. |
+| `merged` | Stop for this pull request. Report it. A layer that merges mid-round gets a report only, never a review. A merged layer is finished: step 3 of `SKILL.md` writes the next layer. |
+| `closed` | Closed with no merge. Report it, never a review. Read the `Mid-round ruling` comments on the layer's issues: `gh issue view <number> --json comments`. One about this layer is the answer: do not ask again. With no answer, ask one [question](#a-decision-mid-round), once: drop this layer and each layer above it from the round, reopen it, or replan. Record the answer on each of the layer's issues. Drop: the round can end, and the round end lists the dropped layers. Reopen: the person reopens it, and its state acts on the next wake. Replan: stop. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `ci-pending` | Nothing. The watch names each check as it reports. |
 | `red` | The agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise send it back with `SendMessage`. A pull request from a person, with no agent: report it, and stop. |
@@ -104,3 +105,4 @@ Examples from real rounds:
   ruling. To fix it in this round changes behaviour that no issue names, so that is a
   question.
 - To drop an issue from the round: a question.
+- A layer that closed with no merge: a question, in step 4.
