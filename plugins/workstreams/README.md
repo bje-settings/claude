@@ -56,7 +56,8 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 | Call | What it does |
 | --- | --- |
 | `/workstreams:start 4` (an example milestone) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
-| `/workstreams:start` | The same, over every milestone with open issues. |
+| `/workstreams:start 12 13` (example issues) | The same, for those issues alone. |
+| `/workstreams:start` | The same, over every milestone with open issues. With a round in flight, it asks first: continue that round, or start a new one. |
 | `/workstreams:start #260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
 Each call derives where the round stands from the tracker, and writes no file. The plan
@@ -67,9 +68,13 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question. A merged pull request is final for its layer, with no markers.
 
-`start` takes the newest plan on an open issue, or else on a closed issue. Then it looks
-for a `<round> end` record after the plan. With the record, a new sweep starts. Without
-it, the round is in flight, with its issues open or closed.
+A round is its issue set. Each issue is in the round of its newest plan comment, and in
+no other. `start` runs `rounds` with its scope to find the round in flight. A round with a
+`<round> end` record after its plan has ended, and a new sweep starts. Without it, the
+round is in flight, with its issues open or closed. So two rounds in one repository, on
+two issue sets, never read or change each other's state. Each round's watch takes
+`--heads` with its own branches, and a collision with another round's pull request gets
+no comment on that round's issues (#376).
 
 GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
 `done` or `merged` for the layer below. A person's message in chat never marks a layer
@@ -180,7 +185,9 @@ It posts the sequencing comment on every issue in the round. `skills/sweep/` car
 rules. `file-map.md` holds the mapping rules a file map must apply.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
-yet. It ends at its report.
+yet, with a milestone, issue numbers, or no scope. With no scope, `start` also names the
+issues of each round in flight. The sweep defers them, and does not read them. It ends at
+its report.
 
 ## `/workstreams:review`
 
@@ -408,7 +415,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" --help
 ### `sweep`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep [--milestone 4,5] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep [--milestone 4,5 | --issues 12,13] [--json]
 ```
 
 Reports the open milestones with their issue counts, every open pull request, including
@@ -416,8 +423,10 @@ ones no round opened, and, for each milestone asked for plus the issues on no mi
 at all, the two sets. `--milestone` takes one number or a comma-separated list. It is
 refused if given twice, because `parseArgs` would otherwise keep only the last one, and
 say nothing. Left out, the report covers every open milestone, plus any other milestone
-the issues name, so an open issue left on a closed milestone is still reported. `--json`
-prints one object for a skill to read.
+the issues name, so an open issue left on a closed milestone is still reported.
+`--issues` scopes the report to those issues, under the milestones they are on. What an
+issue unlocks is still read against every open issue. `--issues` and `--milestone` are
+not given together. `--json` prints one object for a skill to read.
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read. A read
 that partly fails is still an answer: the rows that arrived are reported, and every
@@ -425,6 +434,24 @@ reason the answer is short is listed under `unavailable`. A caller reads that li
 it acts on the sets.
 
 The repository is whatever `gh` resolves from the working directory.
+
+### `rounds`
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--issues 12,13 | --milestone 4] [--json]
+```
+
+Names the rounds in flight, each with its name, its plan line, when it was planned, and
+its issues, open or closed. It searches for the issues with a `plan, approved` comment.
+Each issue is in the round of its newest plan line. A round with a `<round> end` comment
+after its plan, on any of its issues, has ended, and is left out. Issues group by the
+whole plan line, which carries the date, so two rounds of one name on two days stay apart.
+
+`--issues` keeps the rounds that hold one of those issues. `--milestone` keeps the rounds
+with an issue on that milestone. The two are not given together. The GitHub search can
+take a minute to see a new comment. An issue with more than 100 comments is named under
+`unavailable`, because a plan older than those is not seen. The exit codes are those of
+`sweep`.
 
 ### `pr-state`
 
@@ -522,10 +549,12 @@ outside a git checkout, or read no pull request at all.
 ### `watch`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch [--interval 60] [--ticks 0] [--since-head <n>=<sha>,...] [--concluded <n>=<sha>,...]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch [--interval 60] [--ticks 0] [--heads <branch>,...] [--since-head <n>=<sha>,...] [--concluded <n>=<sha>,...]
 ```
 
-A long poll of every open pull request. It writes one line to stdout for each event
+A long poll of every open pull request, or with `--heads`, of each one whose head branch
+it names. A round passes its own branches, so another round's pull requests do not wake
+it. It writes one line to stdout for each event
 below, so that a Monitor wakes on each line:
 
 - a new pull request

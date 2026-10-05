@@ -17,19 +17,22 @@ flowchart TD
     P1 --> P0{its state: merged or closed?}
     P0 -->|Yes| P0a([Stop: report the state]):::stop
     P0 -->|No| W
-    A -->|milestone, or none| B{plan comment on an open issue?}
-    B -->|No| B1{newest plan on a closed issue?}
-    B1 -->|No| C[Invoke /workstreams:sweep]
-    B1 -->|Yes| B2{a round-end record after the plan?}
-    B2 -->|Yes: the round ended| C
+    A -->|milestone, issue numbers, or none| B[rounds: the rounds in flight<br/>that hold the scope]
+    B --> B0{a fact unread?}
+    B0 -->|Yes| B0a([Stop: name it]):::stop
+    B0 -->|No| B1{how many rounds?}
+    B1 -->|None| C[Invoke /workstreams:sweep with the scope;<br/>with no scope, leave out each round's issues]
+    B1 -->|Two or more, with a scope| B1a([Stop: name each round and its issues]):::stop
+    B1 -->|One or more, with no scope| B3([Ask one question: which round,<br/>or a new round]):::pause
+    B3 -->|a new round| C
+    B3 -->|a round| E
     C --> C1{sweep stopped?}
     C1 -->|Yes| C2([Stop: report what sweep returned]):::stop
     C1 -->|No| D[Invoke /workstreams:question]
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
-    B -->|Yes| B2
-    B2 -->|No: the round is in flight| E[Derive the round: plan, pull requests,<br/>stack order, review markers and the round 1 head;<br/>a merged pull request is final, with no markers]
+    B1 -->|One, with a scope: the round is in flight| E[Derive the round: plan, pull requests,<br/>stack order, review markers and the round 1 head;<br/>a merged pull request is final, with no markers]
     E --> E1{markers a set pr-state takes?}
     E1 -->|No| E2([Stop: name the markers]):::stop
     E1 -->|Yes| R
@@ -39,7 +42,7 @@ flowchart TD
     F -->|No, another state: its tick row acts| W
     G --> W{a wake can come?<br/>an agent at work, or the watch can run}
     W -->|No| W1([Stop: report where the round stands]):::stop
-    W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool]
+    W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool,<br/>with --heads for each branch the plan names]
     W2 --> X[End the turn and wait for a wake:<br/>a watch line, an agent's return, or expiry]
     W -->|Yes, a watch already runs,<br/>or it cannot run and an agent works| X
 
@@ -58,7 +61,7 @@ flowchart TD
     T4 -->|Yes, or no run: its state acts| K
     T3 -->|No| K{a conflict between two streams?}
     K -->|Yes| K1([Hold that stream; ask one question<br/>with a recommended redirect]):::pause
-    K1 --> K2[Record the ruling on both issues] --> N
+    K1 --> K2[Record the ruling on this round's issues;<br/>name another round's pull request] --> N
     K -->|No| Q{a decision the plan does not answer?}
     Q -->|No| N{state of each pull request}
     Q -->|a recommended option, cheap to reverse,<br/>no issue, layer or acceptance line added or dropped,<br/>behaviour changed only where a round issue names it| Q1[Ruling: apply it; record it on each issue;<br/>name it in this tick's report] --> N
@@ -114,6 +117,8 @@ two markers on GitHub. In another state, a request to skip is a question.
 A layer that closed with no merge is one question, asked once and recorded on its issues.
 A dropped layer lets the round end, as an open item. The round end reports first, then
 asks one question, one option for each part of the report that has an action. Its record
-on each issue starts with `<round> end`. A later call that finds that record after the
-plan starts a new sweep. Without it, the round is in flight, with its issues open or
-closed.
+on each issue starts with `<round> end`. `rounds` leaves out a round with that record
+after its plan. Without it, the round is in flight, with its issues open or closed.
+
+A round is its issue set. Each issue is in the round of its newest plan comment. So two
+rounds in one repository, on two issue sets, never read or change each other's state.

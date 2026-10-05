@@ -1178,6 +1178,7 @@ it("defaults to the root lib's own process runner", () => {
     'listMilestones',
     'listOpenPullRequestHeads',
     'listOpenPullRequests',
+    'listPlanIssues',
     'listPullRequests',
     'listRuns',
     'listWorkflowRuns',
@@ -1611,6 +1612,155 @@ describe('milestones, issues and pull requests', () => {
       unavailable: 'gh: could not resolve to a Repository',
     })
     expect(calls).toHaveLength(1)
+  })
+})
+
+// --- the plan comments (#376) -----------------------------------------------
+//
+// A search, not a repository connection: `$q` carries the repository, so
+// the argv has no owner or name, and the connection is `data.search`.
+describe('the issues that carry a plan comment', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+
+  /** One search page as gh prints it. */
+  const searchPage = (
+    nodes: readonly unknown[],
+    info: { hasNextPage?: boolean; endCursor?: string | null } = {},
+  ): Reply => ({
+    stdout: JSON.stringify({
+      data: {
+        search: {
+          pageInfo: { hasNextPage: info.hasNextPage ?? false, endCursor: info.endCursor ?? null },
+          nodes,
+        },
+      },
+    }),
+  })
+
+  const planNode = {
+    number: 12,
+    state: 'OPEN',
+    milestone: { number: 4 },
+    comments: {
+      pageInfo: { hasPreviousPage: false },
+      nodes: [
+        { createdAt: '2026-10-01T10:00:00Z', body: 'Sweep for milestone 4.\n\nDetails.' },
+        {
+          createdAt: '2026-10-02T10:00:00Z',
+          body: '  Round 3 plan, approved 2026-10-02.  \nLayers.',
+        },
+      ],
+    },
+  }
+
+  it('searches the repository for the plan phrase, with no owner or name variable', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, searchPage([planNode])])
+
+    const result = await gh.listPlanIssues()
+
+    expect(calls[1]?.args.slice(0, 4)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'q=repo:acme/widgets is:issue "plan, approved" in:comments',
+    ])
+    expect(calls[1]?.args.some((word) => word.startsWith('owner='))).toBe(false)
+    expect(calls[1]?.args[5]).toContain('search(query: $q, type: ISSUE, first: 25')
+    expect(calls[1]?.args[5]).toContain('comments(last: 100)')
+    expect(result).toEqual({
+      rows: [
+        {
+          number: 12,
+          state: 'OPEN',
+          milestone: 4,
+          comments: [
+            { createdAt: '2026-10-01T10:00:00Z', firstLine: 'Sweep for milestone 4.' },
+            { createdAt: '2026-10-02T10:00:00Z', firstLine: 'Round 3 plan, approved 2026-10-02.' },
+          ],
+          truncated: false,
+        },
+      ],
+      unavailable: null,
+    })
+  })
+
+  it('follows the search cursor to a second page', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      searchPage([planNode], { hasNextPage: true, endCursor: 'c1' }),
+      searchPage([{ ...planNode, number: 13 }]),
+    ])
+
+    const result = await gh.listPlanIssues()
+
+    expect(calls[2]?.args).toContain('cursor=c1')
+    expect(result.rows.map((row) => row.number)).toEqual([12, 13])
+  })
+
+  it('reads an issue on no milestone, and one with more comments than were read', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        {
+          ...planNode,
+          state: 'CLOSED',
+          milestone: null,
+          comments: { ...planNode.comments, pageInfo: { hasPreviousPage: true } },
+        },
+      ]),
+    ])
+
+    const result = await gh.listPlanIssues()
+
+    expect(result.rows[0]).toMatchObject({ state: 'CLOSED', milestone: null, truncated: true })
+  })
+
+  it('counts each row that is not the shape asked for, and keeps the rest', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        planNode,
+        // A pull request: the `... on Issue` fragment gives it no fields.
+        {},
+        { ...planNode, number: 20, state: 'DRAFT' },
+        { ...planNode, number: 21, milestone: { number: 'four' } },
+        { ...planNode, number: 22, milestone: undefined },
+        { ...planNode, number: 23, comments: null },
+        { ...planNode, number: 24, comments: { nodes: [{ createdAt: 1, body: 'x' }] } },
+        { ...planNode, number: 25, comments: { nodes: [{ createdAt: 'now' }] } },
+      ]),
+    ])
+
+    const result = await gh.listPlanIssues()
+
+    expect(result.rows.map((row) => row.number)).toEqual([12])
+    expect(result.unavailable).toBe('7 planIssues row(s) could not be read')
+  })
+
+  it('reads an empty comment body as an empty first line', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        { ...planNode, comments: { nodes: [{ createdAt: '2026-10-02T10:00:00Z', body: '' }] } },
+      ]),
+    ])
+
+    const result = await gh.listPlanIssues()
+
+    expect(result.rows[0]?.comments).toEqual([{ createdAt: '2026-10-02T10:00:00Z', firstLine: '' }])
+    expect(result.rows[0]?.truncated).toBe(false)
+  })
+
+  it('reads a reply with no search connection as no answer', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { stdout: JSON.stringify({ data: { repository: {} } }), status: 1, stderr: 'gh: bad query' },
+    ])
+
+    const result = await gh.listPlanIssues()
+
+    expect(result.rows).toEqual([])
+    expect(result.unavailable).toContain('bad query')
   })
 })
 

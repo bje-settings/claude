@@ -36,8 +36,9 @@ On a collision:
 2. Ask the person one `AskUserQuestion`: the redirect you recommend first, and the argument
    against it in its description. Examples of a redirect: rebase one stream onto the
    other, or hold one until the other merges.
-3. Record the ruling as one comment on the issue of each stream. End it with the round's
-   `_Recorded by <effort>, <date>._` line.
+3. Record the ruling as one comment on the issue of each stream of this round. A pull
+   request of another round, or one that no round opened, gets no comment: name it in the
+   ruling. End it with the round's `_Recorded by <effort>, <date>._` line.
 
 ## 4. Do the next action for each pull request
 

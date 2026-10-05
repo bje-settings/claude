@@ -114,6 +114,39 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
 
 const heads = (...rows: PullRequestHead[]) => ({ rows, unavailable: null })
 
+describe('a watch over one round’s heads (#376)', () => {
+  const ours = head({ number: 300, head: 'wktr-12-ours', headSha: SHA_B })
+  const theirs = head({ number: 301, head: 'wktr-20-theirs', headSha: SHA_C })
+  const fork = head({ number: 302, head: 'wktr-12-ours', headSha: SHA_A, crossRepository: true })
+
+  it('writes nothing about a pull request whose head branch is not named', async () => {
+    const { context, lines } = watchOver([{ heads: heads(ours, theirs, fork) }])
+
+    await runWatch(['--ticks', '1', '--heads', ' wktr-12-ours , ,wktr-99-none'], context)
+
+    expect(lines).toEqual([
+      `#300 open: wktr-12-ours -> main, head ${SHA_B}, draft, required 0/3 reported`,
+    ])
+  })
+
+  it('watches every open pull request when no head is named', async () => {
+    const { context, lines } = watchOver([{ heads: heads(ours, theirs) }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines.map((line) => line.split(':')[0])).toEqual(['#300 open', '#301 open'])
+  })
+
+  it('refuses a repeated --heads', async () => {
+    const { context } = watchOver([{ heads: heads(ours) }])
+
+    expect(await runWatch(['--heads', 'a', '--heads', 'b'], context)).toEqual({
+      outcome: 'refused',
+      error: '--heads is not repeatable; pass one comma-separated list',
+    })
+  })
+})
+
 describe('a watch over the open pull requests', () => {
   it('reports a pull request it has not seen, with its head in full', async () => {
     const { context, lines } = watchOver([{ heads: heads(head()) }])

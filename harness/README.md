@@ -83,7 +83,7 @@ lets the hook find a GitHub CLI on any machine, and it keeps a spawned run away 
 endpoint is named after its operation, not after gh's own argv. This way, the interface survives a
 change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
-`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `listOpenPullRequests`,
+`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `listPlanIssues`, `listOpenPullRequests`,
 `listOpenPullRequestHeads`, `requiredContexts`, `viewPullRequestDetail`, `listWorkflowRuns`,
 `compareCommits`, `repositoryStatus`.
 

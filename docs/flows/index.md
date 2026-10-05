@@ -25,6 +25,7 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [workstreams/start/_skill-flow.md](workstreams/start/_skill-flow.md) | What the /workstreams:start skill does on each call and each wake, and every way it stops. |
 | [workstreams/start/intersect-flow.md](workstreams/start/intersect-flow.md) | How `workstreams.ts intersect` reads each open pull request's head against the default branch and against the other heads, and each way it stops or reports a fact as unread. |
 | [workstreams/start/pr-state-flow.md](workstreams/start/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
+| [workstreams/start/rounds-flow.md](workstreams/start/rounds-flow.md) | How `workstreams.ts rounds` finds the rounds in flight from their plan comments, scopes them, and when its answer is short. |
 | [workstreams/start/watch-flow.md](workstreams/start/watch-flow.md) | How `workstreams.ts watch` polls each open pull request and writes one line for each event, and each way it stops or goes quiet. |
 | [workstreams/stream/_skill-flow.md](workstreams/stream/_skill-flow.md) | What the /workstreams:stream skill does in one step, and every way it declines to act. |
 | [workstreams/sweep/_skill-flow.md](workstreams/sweep/_skill-flow.md) | What the /workstreams:sweep skill does, and every way it declines to act. |

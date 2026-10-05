@@ -3,8 +3,8 @@ type: Reference
 description: How `workstreams.ts watch` polls each open pull request and writes one line for each event, and each way it stops or goes quiet.
 stale_after: 2027-03-27
 generated:
-  by: claude-sonnet
-  at: 2026-09-27
+  by: claude-opus
+  at: 2026-10-04
 ---
 
 # watch flow
@@ -15,13 +15,13 @@ starts, and again on each expiry.
 
 ```mermaid
 flowchart TD
-    A[watch run] --> B{Flags known, each value a whole number,<br/>each seed a number and a full sha,<br/>no seed flag given twice?}
+    A[watch run] --> B{Flags known, each value a whole number,<br/>each seed a number and a full sha,<br/>no seed flag or --heads given twice?}
     B -->|No| Z1([Refused, exit 2]):::stop
     B -->|--help or -h| H([Print usage, exit 0])
     B -->|Yes| C{Inside a git checkout?}
     C -->|No| Z2([One line: nothing to watch, exit 0]):::stop
     C -->|Yes| D[Remember the seeded heads:<br/>known, and concluded]
-    D --> E[Poll: the repository, the open heads,<br/>and each base's required contexts,<br/>read on its own]
+    D --> E[Poll: the repository, the open heads,<br/>only those --heads names if given,<br/>and each base's required contexts,<br/>read on its own]
     E --> F{gh on PATH?}
     F -->|No| Z3([One line: nothing to watch, exit 0]):::stop
     F -->|Yes| G{Anything at all read?}

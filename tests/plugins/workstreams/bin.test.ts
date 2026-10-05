@@ -31,7 +31,8 @@ it('prints the command list with no arguments at all, and exits 0', () => {
 
   expect(result.status).toBe(0)
   expect(result.stdout).toMatch(/^usage: workstreams\.ts <command>/)
-  expect(result.stdout).toContain('sweep [--milestone 4,5] [--json]')
+  expect(result.stdout).toContain('sweep [--milestone 4,5]')
+  expect(result.stdout).toContain('rounds [--issues 12,13]')
   expect(result.stdout).toContain('pr-state <number> [--round 0|1|2]')
   expect(result.stdout).toContain('intersect [--json]')
   expect(result.stdout).toContain('watch [--interval 60] [--ticks 0]')
@@ -92,6 +93,27 @@ it('refuses a repeated --milestone at the process boundary too', () => {
 
   expect(result.status).toBe(2)
   expect(result.stderr).toBe('--milestone is not repeatable; pass one comma-separated list\n')
+})
+
+it('prints rounds’ own usage for its --help, without asking gh anything', () => {
+  const result = runScript(BIN, { args: ['rounds', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^The rounds in flight/)
+  expect(result.stderr).toBe('')
+})
+
+it('refuses rounds with both scopes, before reaching gh', () => {
+  const result = runScript(BIN, {
+    args: ['rounds', '--issues', '12', '--milestone', '4'],
+    env: env(),
+  })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(
+    '--issues and --milestone are not given together; a round has one scope\n',
+  )
 })
 
 it('prints pr-state’s own usage for its --help', () => {
