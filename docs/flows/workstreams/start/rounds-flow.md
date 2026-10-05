@@ -32,7 +32,7 @@ flowchart TD
     I --> G{An end record for the round after its plan,<br/>on any open issue of it?}
     G -->|Yes| G1[Leave the round out: it ended] --> J
     G -->|No| J{--issues or --milestone given?}
-    J -->|Yes| K[Keep the rounds with an issue in the scope;<br/>with --issues, name each open issue in no round]
+    J -->|Yes| K[Keep the rounds with an issue in the scope;<br/>with --issues, name each open issue in no round,<br/>and each closed issue whose round did not end]
     J -->|No| L[Keep every round in flight]
     K --> M{A reason the answer is short?}
     L --> M

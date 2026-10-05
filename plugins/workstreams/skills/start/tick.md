@@ -18,6 +18,9 @@ returns. For each new head, check what its agent cannot be the only witness to:
 - **Lower layers.** Each lower layer's `headSha` is the same as at the last tick. A lower
   head moved, and no step of this round moved it: stop.
 - **The run.** `pullRequestRun` is `true`. `pr-state` names the remedy (`no-run`).
+- **The watch.** Its `--heads` holds this pull request's head, unless the watch runs with
+  no `--heads`. If not, stop the watch with `TaskStop`, and arm it again with the head
+  added ([Wakes](SKILL.md#wakes)).
 - **The checkouts.** `checkout.clean` is `true`. When no agent writes to a worktree, its
   `worktree.clean` is `true` too. A dirty checkout is a stop. Name it.
 

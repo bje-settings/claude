@@ -25,6 +25,7 @@ flowchart TD
     B1 -->|None| C[Invoke /workstreams:sweep with the scope;<br/>with no scope, leave out each round's issues]
     B1 -->|Two or more, with a scope| B1a([Stop: name each round and its issues]):::stop
     B1 -->|One, and an issue in scope in no round| B1b([Stop: name both parts]):::stop
+    B1 -->|None, and a closed issue whose round did not end| B1c([Read that round's plan;<br/>do the round end for it, then stop]):::stop
     B1 -->|One or more, with no scope| B3([Ask one question: which round,<br/>or a new round]):::pause
     B3 -->|a new round| C
     B3 -->|a round| E0
@@ -46,7 +47,7 @@ flowchart TD
     F -->|No, another state: its tick row acts| W
     G --> W{a wake can come?<br/>an agent at work, or the watch can run}
     W -->|No| W1([Stop: report where the round stands]):::stop
-    W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool,<br/>with --heads for each branch the plan names<br/>and each head found; for pr n, its own head]
+    W -->|Yes, no watch armed yet| W2[Arm the watch with the Monitor tool,<br/>with --heads for each branch the plan names<br/>and each head found; for pr n, its own head,<br/>none from a fork]
     W2 --> X[End the turn and wait for a wake:<br/>a watch line, an agent's return, or expiry]
     W -->|Yes, a watch already runs,<br/>or it cannot run and an agent works| X
 
@@ -61,6 +62,7 @@ flowchart TD
     T2 --> T3
     T3 -->|Yes| T4{files in the allowed set, lower heads unchanged,<br/>a run for the head, checkouts clean?}
     T4 -->|A lower head moved, or a checkout is dirty| S1([Stop: name it]):::stop
+    T4 -->|The head is not in the watch's --heads| T6[Stop the watch; arm it again<br/>with the head added] --> K
     T4 -->|An undeclared file| T5[Send it back to the layer] --> K
     T4 -->|Yes, or no run: its state acts| K
     T3 -->|No| K{a conflict between two streams?}

@@ -35,13 +35,17 @@ Derive it on each call. Write nothing to disk.
 
    A non-empty `unavailable` is a fact nobody could read. Say which, and stop.
 
-   - One round, with a scope, and `outside` empty: it is the round, in flight.
-   - A round and an `outside` issue: the scope is part in a round and part in none. Stop,
-     and name both parts.
+   - One round, with issues, and `outside` empty: it is the round, in flight.
+   - One round, with a milestone: it is the round, in flight. Say that the milestone's
+     other open issues are in no round. `outside` is null for a milestone.
+   - One round and an `outside` issue: the scope is part in a round and part in none.
+     Stop, and name both parts.
    - Two or more, with a scope: the scope holds issues of more than one round. Stop, and
      name each round and its issues.
    - One or more, with no scope: ask one `AskUserQuestion`. Give one option for
      each round, by its `plan` line and issues, and one option to start a new round.
+   - None, and an `unended` issue: that round's issues all closed before its round end.
+     Read its plan from that issue, do [round-end.md](round-end.md) for it, and stop.
    - None: no round is in flight in the scope.
 
    `rounds` lists the open issues of a round. The plan is the comment whose first line is
@@ -92,8 +96,8 @@ Derive it on each call. Write nothing to disk.
 1. A round in flight: go on at step 3. No round, or a new round: invoke
    `/workstreams:sweep` with the scope. With no scope, also give it the issues of each
    round in flight, to leave out. If it stops, stop.
-   Then invoke `/workstreams:question` with the same scope and the names of the rounds in
-   flight. Its plan mode is the approval. With no approved plan, stop.
+   Then invoke `/workstreams:question` with the same scope. Its plan mode is the approval.
+   With no approved plan, stop.
 2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or
    `closed` is a stop. Report it, and dispatch no round. Otherwise go to step 4.
    `/workstreams:review` chooses the review model when no plan names one.
@@ -131,9 +135,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch --heads <branch>,<bran
 
 `--heads` takes each branch the plan names, and the head of each pull request that step 2
 found. Then another round's pull requests do not wake this round. For `pr <n>`, give its
-`headRefName`, or no `--heads` when the pull request is from a fork. A `heads with no open
-pull request` line names a branch with no pull request yet: compare it with the plan. Hold its task id in the conversation. Do not arm a second watch while this one
-runs.
+`headRefName`. A pull request from a fork has no head to give, so leave out `--heads`:
+then every pull request wakes the round. Hold the watch's task id in the conversation. Do
+not arm a second watch while this one runs.
 
 Each line the watch writes is a wake. The other wake is an agent's completion
 notification.

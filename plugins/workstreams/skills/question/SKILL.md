@@ -6,7 +6,7 @@ allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(
 user-invocable: false
 ---
 
-Scope and the rounds in flight: $ARGUMENTS. The effort name and tag line come from the
+Scope: $ARGUMENTS. The effort name and tag line come from the
 `_Recorded by <effort>, <date>._` line already on the round's issues. The milestone or issue
 set comes from the sweep report.
 
@@ -49,11 +49,13 @@ reaches step 3 and cannot ask.
    approves or edits the plan there.
 
 7. After approval, check the round's issues once more:
-   `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --issues <n,n> --json`. If a
-   round in flight now holds one of them, stop, and name it: another session planned it
-   first. Then post the plan comment. Its first line names it the plan:
-   `<round> plan, approved <date>.` The round's name is one that no round in flight uses.
-   Trim the approved plan to its layers, with each layer's issues, branch, build model,
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --issues <n,n> --json`.
+   Stop, and name the cause, when a round in flight now holds one of them, when
+   `unavailable` is not empty, or when the command fails. Another session can have planned
+   them first. Then post the plan comment. Its first line names it the plan:
+   `<round> plan, approved <time>.`, with the approval time to the minute in UTC, for
+   example `Round 15 plan, approved 2026-10-04T18:22Z.`. The time makes the line unique
+   to this round. Trim the approved plan to its layers, with each layer's issues, branch, build model,
    review model and file set, and the one layer that changes each version line. Add the
    done condition, the review shape, and an estimate, as [plan-shape.md](plan-shape.md)
    sections 3 and 4 say. Post it on every issue in the round, and end it with the same

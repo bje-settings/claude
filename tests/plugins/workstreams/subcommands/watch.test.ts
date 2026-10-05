@@ -125,34 +125,8 @@ describe('a watch over one round’s heads (#376)', () => {
     await runWatch(['--ticks', '1', '--heads', ' wktr-12-ours , ,wktr-99-none'], context)
 
     expect(lines).toEqual([
-      'heads with no open pull request from this repository: wktr-99-none',
       `#300 open: wktr-12-ours -> main, head ${SHA_B}, draft, required 0/3 reported`,
     ])
-  })
-
-  it('names a head with no open pull request once for each new set of such names', async () => {
-    const { context, lines } = watchOver([
-      { heads: heads() },
-      { heads: heads() },
-      { heads: heads(ours) },
-    ])
-
-    await runWatch(['--ticks', '3', '--heads', 'wktr-12-ours,wktr-13-next'], context)
-
-    expect(lines.filter((line) => line.startsWith('heads with'))).toEqual([
-      'heads with no open pull request from this repository: wktr-12-ours, wktr-13-next',
-      'heads with no open pull request from this repository: wktr-13-next',
-    ])
-  })
-
-  it('says nothing about absent heads on a poll whose list fell short', async () => {
-    const { context, lines } = watchOver([
-      { heads: { rows: [theirs], unavailable: 'gh: one page short' } },
-    ])
-
-    await runWatch(['--ticks', '1', '--heads', 'wktr-12-ours'], context)
-
-    expect(lines.some((line) => line.startsWith('heads with'))).toBe(false)
   })
 
   it('reports a named pull request that merged, and nothing for another round’s', async () => {
@@ -167,10 +141,7 @@ describe('a watch over one round’s heads (#376)', () => {
 
     await runWatch(['--ticks', '2', '--heads', 'wktr-12-ours'], context)
 
-    expect(lines.slice(1)).toEqual([
-      'heads with no open pull request from this repository: wktr-12-ours',
-      '#300 merged',
-    ])
+    expect(lines.slice(1)).toEqual(['#300 merged'])
   })
 
   it('stays silent about a base that only another round’s pull request needs', async () => {

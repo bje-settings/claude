@@ -31,9 +31,9 @@ flowchart TD
     I --> J[EnterPlanMode: write the plan]
     J --> K{ExitPlanMode: approved?}
     K -->|No| J
-    K -->|Yes| KR{rounds --issues: a round in flight<br/>now holds one of the issues?}
-    KR -->|Yes| KR1([Stop: name it; another session planned it first]):::stop
-    KR -->|No| L[Plan comment on every issue in the round,<br/>its first line names it the plan,<br/>with a name no round in flight uses]
+    K -->|Yes| KR{rounds --issues: a round in flight now holds one of the issues,<br/>unavailable is not empty, or the command fails?}
+    KR -->|Yes| KR1([Stop: name the cause; another session can have planned them]):::stop
+    KR -->|No| L[Plan comment on every issue in the round;<br/>its first line names it the plan,<br/>with the approval time to the minute in UTC]
 
     L --> M{/gh:sync in own skill listing?}
     M -->|Yes| M1[Ask the person to run /gh:sync] --> M2

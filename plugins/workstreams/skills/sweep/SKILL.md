@@ -34,7 +34,7 @@ out: each one is in another round.
    of date. Leave the blocked set alone: nothing there is read, mapped, sized, or
    commented on.
 
-   Then read the decision records for the milestone or the issues in scope: every file under `docs/rfc/` and
+   Then read the decision records for the scope: every file under `docs/rfc/` and
    `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
    check against what has merged.
 

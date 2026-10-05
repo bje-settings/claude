@@ -445,8 +445,10 @@ export interface GhResults {
   listMilestones: PagedResult<MilestoneSummary>
   /** Open issues, with their dependency relationships. */
   listIssues: PagedResult<IssueSummary>
-  /** The issues that carry a round's plan comment. */
-  listPlanIssues: PagedResult<IssueComments>
+  /** The open issues that carry a round's plan comment, from a search. */
+  searchPlanIssues: PagedResult<IssueComments>
+  /** Named issues, open or closed, with their newest comments. */
+  readPlanIssues: PagedResult<IssueComments>
   /** Open pull requests, including ones no round opened. */
   listOpenPullRequests: PagedResult<PullRequestSummary>
   /** Open pull requests with their head commits and the checks on them. */
@@ -580,18 +582,22 @@ export interface GhClient {
   listIssues(query?: { readonly milestone?: string }): Promise<GhResults['listIssues']>
   /**
    * The open issues with a comment that contains the words `plan, approved`,
-   * and the first line of each of their newest comments.
+   * with the first line of each of their 100 newest comments.
    *
-   * With no `numbers`, this is a GitHub search, newest update first. A
-   * comment made in the last minute or so can be absent, because the
-   * search index is not immediate, and GitHub gives at most 1,000 results.
-   * With `numbers`, it reads those issues directly, open or closed, and
-   * sees every comment at once. A number that is not an issue is named
-   * under `unavailable`. Never throws, for {@link PagedResult}'s reason.
+   * This is a GitHub search, newest update first. A comment made in the
+   * last minute or so can be absent, because the search index is not
+   * immediate. Past 500 issues, the read stops and says so. Never throws,
+   * for {@link PagedResult}'s reason.
    */
-  listPlanIssues(query?: {
-    readonly numbers?: readonly number[]
-  }): Promise<GhResults['listPlanIssues']>
+  searchPlanIssues(): Promise<GhResults['searchPlanIssues']>
+  /**
+   * Named issues, open or closed, with the first line of each of their 100
+   * newest comments. This reads each issue directly, so it sees a new
+   * comment at once. A number that is not a positive whole number, or not
+   * an issue, is named under `unavailable`. An empty list reads nothing.
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  readPlanIssues(numbers: readonly number[]): Promise<GhResults['readPlanIssues']>
   /**
    * Every open pull request: number, title, head, base, and draft.
    *
@@ -1199,8 +1205,9 @@ const PLAN_FIELDS = `number
  *
  * Only open issues: a round with no open issue left has nothing to build,
  * and the rounds that ended before the round-end record existed (#368)
- * would otherwise stay in flight for ever. The search also sorts by update,
- * newest first, so a page limit cuts old issues, not live ones.
+ * would otherwise stay in flight for ever. The search words sort by update,
+ * newest first, so the page limit in `collect` cuts old issues, not live
+ * ones.
  */
 const PLAN_ISSUES_QUERY = `query($q: String!, $cursor: String) {
   search(query: $q, type: ISSUE, first: ${PLAN_PAGE}, after: $cursor) {
@@ -1221,8 +1228,8 @@ const PLAN_SEARCH = 'is:issue is:open "plan, approved" in:comments sort:updated-
 /**
  * The same fields for named issues, read directly, with one alias per
  * number. A direct read sees a comment at once, where the search index can
- * take a minute. Each number is a validated whole number, so it goes into
- * the query as text.
+ * take a minute. `readPlanIssues` passes only positive whole numbers, so
+ * each one goes into the query as text.
  */
 const buildPlanIssueQuery = (numbers: readonly number[]): string => {
   const fields = numbers.map(
@@ -2497,21 +2504,28 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         readIssue,
       ),
 
-    listPlanIssues: async (query = {}) => {
-      if (query.numbers === undefined) {
-        return collect(
-          { kind: 'search', label: 'planIssues', words: PLAN_SEARCH },
-          PLAN_ISSUES_QUERY,
-          [],
-          readPlanIssue,
-        )
-      }
+    searchPlanIssues: async () =>
+      collect(
+        { kind: 'search', label: 'planIssues', words: PLAN_SEARCH },
+        PLAN_ISSUES_QUERY,
+        [],
+        readPlanIssue,
+      ),
+
+    readPlanIssues: async (numbers) => {
       const rows: IssueComments[] = []
       const reasons: string[] = []
-      for (let i = 0; i < query.numbers.length; i += PLAN_PAGE) {
-        const chunk = query.numbers.slice(i, i + PLAN_PAGE)
-        // No field name is a NOT_FOUND to trust here: a number that is not
-        // an issue is a null alias, reported below by its number.
+      // The numbers go into the query as text, so this client checks them
+      // itself rather than trust each caller.
+      const valid = numbers.filter((number) => Number.isSafeInteger(number) && number > 0)
+      for (const number of numbers) {
+        if (!valid.includes(number)) reasons.push(`${number} is not an issue number`)
+      }
+      for (let i = 0; i < valid.length; i += PLAN_PAGE) {
+        const chunk = valid.slice(i, i + PLAN_PAGE)
+        // No field name is a NOT_FOUND to trust here. A number that is not
+        // an issue is a null alias. Its GraphQL error and its number both
+        // go into `unavailable`.
         const answer = await queryOnce(buildPlanIssueQuery(chunk), [], '')
         if (answer.unavailable !== null) reasons.push(answer.unavailable)
         const data = answer.data

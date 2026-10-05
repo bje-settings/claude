@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
-import type { IssueComments, PagedResult } from '#workstreams/lib/gh.ts'
+import type { IssueComments } from '#workstreams/lib/gh.ts'
 import {
   place,
   type RoundsReport,
@@ -33,8 +33,8 @@ const issue = (
   ...fields,
 })
 
-const PLAN_A = 'Round 3 plan, approved 2026-10-02.'
-const PLAN_B = 'Round 4 plan, approved 2026-10-03.'
+const PLAN_A = 'Round 3 plan, approved 2026-10-02T10:00Z.'
+const PLAN_B = 'Round 4 plan, approved 2026-10-03T10:00Z.'
 
 /** Two rounds in flight on one repository, with no milestone. Round 3 holds
  *  #12, #13 and the closed #11. Round 4 holds #20 and #21, and was planned a
@@ -47,25 +47,35 @@ const TWO_ROUNDS: readonly IssueComments[] = [
   issue(21, ['Sweep.', 'Rulings.', PLAN_B]),
 ]
 
-/** A `gh` whose search answers `searched`, and whose direct read answers
- *  each number asked for from `direct`, or from `searched` when `direct` is
- *  not given. A number in neither is not read. */
+/** What the search sees: the open issues with the plan words. A real search
+ *  finds nothing else, and no closed issue. */
+const searchable = (rows: readonly IssueComments[]): IssueComments[] =>
+  rows.filter(
+    (row) =>
+      row.state === 'OPEN' &&
+      row.comments.some((comment) => comment.firstLine.includes('plan, approved')),
+  )
+
+/** A `gh` whose search answers `searched`, and whose direct read answers each
+ *  number asked for from `direct`. Each defaults to a real view of `rows`. */
 const ghOver = (
-  searched: readonly IssueComments[],
-  options: { direct?: readonly IssueComments[]; searchShort?: string; directShort?: string } = {},
+  rows: readonly IssueComments[],
+  options: {
+    searched?: readonly IssueComments[]
+    direct?: readonly IssueComments[]
+    searchShort?: string
+    directShort?: string
+  } = {},
 ): GhClient => ({
   ...createGhMock(),
-  listPlanIssues: async (query = {}): Promise<PagedResult<IssueComments>> => {
-    if (query.numbers === undefined) {
-      return { rows: searched, unavailable: options.searchShort ?? null }
-    }
-    const pool = options.direct ?? searched
-    const wanted = query.numbers
-    return {
-      rows: pool.filter((row) => wanted.includes(row.number)),
-      unavailable: options.directShort ?? null,
-    }
-  },
+  searchPlanIssues: async () => ({
+    rows: options.searched ?? searchable(rows),
+    unavailable: options.searchShort ?? null,
+  }),
+  readPlanIssues: async (numbers) => ({
+    rows: (options.direct ?? rows).filter((row) => numbers.includes(row.number)),
+    unavailable: options.directShort ?? null,
+  }),
 })
 
 const reportOf = async (
@@ -93,18 +103,22 @@ describe('two rounds on one repository', () => {
           plan: PLAN_A,
           plannedAt: at(2),
           issues: [
-            { number: 12, state: 'OPEN', milestone: null },
-            { number: 13, state: 'OPEN', milestone: null },
+            { number: 12, milestone: null },
+            { number: 13, milestone: null },
           ],
         },
       ],
       outside: [],
+      unended: [],
       unavailable: [],
     })
   })
 
   it('returns both rounds, newest plan first, when no scope is given', async () => {
-    expect(plans(await reportOf([]))).toEqual([PLAN_B, PLAN_A])
+    const report = await reportOf([])
+
+    expect(plans(report)).toEqual([PLAN_B, PLAN_A])
+    expect(report).toMatchObject({ outside: null, unended: null, unavailable: [] })
   })
 
   it('returns both rounds for a scope that spans them, so the caller can stop', async () => {
@@ -135,6 +149,26 @@ describe('two rounds on one repository', () => {
     expect(plans(report)).toEqual([PLAN_B])
     expect(report.rounds[0]?.issues.map((entry) => entry.number)).toEqual([14, 20])
   })
+
+  it('keeps two rounds of one name on one day apart by their approval time (#379)', async () => {
+    const morning = 'Round 5 plan, approved 2026-10-04T09:12Z.'
+    const evening = 'Round 5 plan, approved 2026-10-04T18:40Z.'
+    const rows = [
+      issue(12, [morning]),
+      issue(20, [evening]),
+      issue(21, [evening, 'Round 5 end, 2026-10-05.']),
+    ]
+
+    // The evening round ended. The morning round, of the same name, did not.
+    expect(plans(await reportOf(['--issues', '12'], ghOver(rows)))).toEqual([morning])
+    expect(plans(await reportOf([], ghOver(rows)))).toEqual([morning])
+  })
+
+  it('still reads a plan line with a date and no time', async () => {
+    const dated = 'Round 2 plan, approved 2026-10-01.'
+
+    expect(plans(await reportOf([], ghOver([issue(12, [dated])])))).toEqual([dated])
+  })
 })
 
 describe('an issue scope', () => {
@@ -147,7 +181,18 @@ describe('an issue scope', () => {
     expect(report.outside).toEqual([30])
   })
 
-  it('does not name a closed issue asked for, or one it could not read', async () => {
+  it('names an open issue whose round ended as outside', async () => {
+    const rows = [issue(12, [PLAN_A, 'Round 3 end, 2026-10-04.'])]
+
+    expect(await reportOf(['--issues', '12'], ghOver(rows))).toEqual({
+      rounds: [],
+      outside: [12],
+      unended: [],
+      unavailable: [],
+    })
+  })
+
+  it('does not name a closed issue asked for, or one it could not read, as outside', async () => {
     const report = await reportOf(['--issues', '11,12,99'])
 
     expect(report.outside).toEqual([])
@@ -155,16 +200,34 @@ describe('an issue scope', () => {
   })
 
   it('sees a plan the search has not indexed yet, by reading the issues directly', async () => {
-    // The search still holds #30's sweep alone. The direct read sees the
-    // plan made a moment ago.
-    const gh = ghOver([issue(30, ['Sweep.'])], {
-      direct: [issue(30, ['Sweep.', 'Round 5 plan, approved 2026-10-04.'])],
-    })
+    const fresh = 'Round 5 plan, approved 2026-10-04T18:22Z.'
+    const gh = ghOver([issue(30, ['Sweep.', fresh])], { searched: [] })
 
     const report = await reportOf(['--issues', '30'], gh)
 
-    expect(plans(report)).toEqual(['Round 5 plan, approved 2026-10-04.'])
+    expect(plans(report)).toEqual([fresh])
     expect(report.outside).toEqual([])
+  })
+
+  it('takes a closed state from the direct read over an open one from the search', async () => {
+    const gh = ghOver(TWO_ROUNDS, {
+      direct: [issue(13, ['Sweep.', PLAN_A], { state: 'CLOSED' })],
+    })
+
+    const report = await reportOf(['--issues', '13'], gh)
+
+    expect(report.rounds).toEqual([])
+    expect(report.outside).toEqual([])
+    expect(report.unended).toEqual([{ number: 13, plan: PLAN_A }])
+  })
+
+  it('answers from the direct read when the search failed', async () => {
+    const gh = ghOver(TWO_ROUNDS, { searched: [], searchShort: 'gh: rate limit' })
+
+    const report = await reportOf(['--issues', '12'], gh)
+
+    expect(plans(report)).toEqual([PLAN_A])
+    expect(report.unavailable).toEqual(['gh: rate limit'])
   })
 
   it('carries the reason a direct read fell short', async () => {
@@ -174,6 +237,34 @@ describe('an issue scope', () => {
     )
 
     expect(report.unavailable).toEqual(['#99 could not be read as an issue'])
+  })
+})
+
+describe('a round whose issues all closed before its round end', () => {
+  it('is not in flight, and its closed issues asked for are named as unended', async () => {
+    const rows = [
+      issue(12, [PLAN_A], { state: 'CLOSED' }),
+      issue(13, [PLAN_A], { state: 'CLOSED' }),
+    ]
+
+    expect(await reportOf(['--issues', '12,13'], ghOver(rows))).toEqual({
+      rounds: [],
+      outside: [],
+      unended: [
+        { number: 12, plan: PLAN_A },
+        { number: 13, plan: PLAN_A },
+      ],
+      unavailable: [],
+    })
+  })
+
+  it('names no closed issue whose round ended, or that never had a plan', async () => {
+    const rows = [
+      issue(12, [PLAN_A, 'Round 3 end, 2026-10-04.'], { state: 'CLOSED' }),
+      issue(13, ['Sweep.'], { state: 'CLOSED' }),
+    ]
+
+    expect((await reportOf(['--issues', '12,13'], ghOver(rows))).unended).toEqual([])
   })
 })
 
@@ -206,21 +297,17 @@ describe('the end of a round', () => {
     expect(plans(await reportOf([], ghOver(rows)))).toEqual([PLAN_A])
   })
 
+  it('does not end a round on an end record from before its plan', async () => {
+    const rows = [issue(12, ['Round 3 end, x.', PLAN_A])]
+
+    expect(plans(await reportOf([], ghOver(rows)))).toEqual([PLAN_A])
+  })
+
   it('reads a new plan after an end record as a round in flight again', async () => {
-    const again = 'Round 3 plan, approved 2026-10-05.'
+    const again = 'Round 3 plan, approved 2026-10-05T10:00Z.'
     const rows = [issue(12, [PLAN_A, 'Round 3 end, 2026-10-04.', again])]
 
     expect(plans(await reportOf([], ghOver(rows)))).toEqual([again])
-  })
-
-  it('keeps two rounds of one name on two dates apart', async () => {
-    const later = 'Round 3 plan, approved 2026-10-03.'
-    const rows = [
-      issue(12, [PLAN_A, 'Round 3 end, 2026-10-02.']),
-      issue(13, ['Sweep.', 'Sweep again.', later]),
-    ]
-
-    expect(plans(await reportOf([], ghOver(rows)))).toEqual([later])
   })
 })
 
@@ -237,10 +324,11 @@ describe('the milestone scope', () => {
     expect(plans(await reportOf(['--milestone', '4,5'], ghOver(rows)))).toEqual([PLAN_B, PLAN_A])
   })
 
-  it('returns no round for a milestone none of them is on, and names nothing outside', async () => {
+  it('gives null outside and unended: a search cannot see the milestone’s other issues', async () => {
     expect(await reportOf(['--milestone', '6'], ghOver(rows))).toEqual({
       rounds: [],
-      outside: [],
+      outside: null,
+      unended: null,
       unavailable: [],
     })
   })
@@ -250,7 +338,6 @@ describe('place and roundsOf', () => {
   it('reads a heading or a quote of a plan as a plan that did not parse', () => {
     expect(place(issue(12, ['## Round 3 plan, approved 2026-10-02.']))).toEqual({
       plan: null,
-      ended: false,
       unparsed: true,
     })
   })
@@ -260,7 +347,17 @@ describe('place and roundsOf', () => {
   })
 
   it('forgets an unparsed line once a plan line follows it', () => {
-    expect(place(issue(12, ['Round 3 plan, approved', PLAN_A])).unparsed).toBe(false)
+    expect(place(issue(12, ['Round 3 plan, approved', PLAN_A]))).toEqual({
+      plan: { name: 'Round 3', line: PLAN_A, at: at(2), ended: false },
+      unparsed: false,
+    })
+  })
+
+  it('keeps an ended plan ended when an unparsed line follows the end record', () => {
+    expect(place(issue(12, [PLAN_A, 'Round 3 end, x.', 'Round 9 plan, approved']))).toEqual({
+      plan: { name: 'Round 3', line: PLAN_A, at: at(1), ended: true },
+      unparsed: true,
+    })
   })
 
   it('skips an issue whose comments hold no plan line', () => {
@@ -292,12 +389,46 @@ describe('what the read could not see', () => {
     expect(report.unavailable).toEqual(['#12 has a "plan, approved" line that is not a plan line'])
   })
 
-  it('names an issue whose newest plan is older than the comments read', async () => {
-    const rows = [issue(12, ['Comment.'], { truncated: true })]
+  it('names an issue of a round in scope with a newer plan that did not parse', async () => {
+    // #13 is outside the scope, but it sits in #12's round under its older
+    // plan, so the grouping cannot be trusted without a word.
+    const rows = [issue(12, [PLAN_A]), issue(13, [PLAN_A, 'Round 9 plan, approved'])]
 
-    expect((await reportOf([], ghOver(rows))).unavailable).toEqual([
+    const report = await reportOf(['--issues', '12'], ghOver(rows))
+
+    expect(plans(report)).toEqual([PLAN_A])
+    expect(report.unavailable).toEqual(['#13 has a "plan, approved" line that is not a plan line'])
+  })
+
+  it('names an issue the search found with no plan in the comments read', async () => {
+    const long = issue(12, ['Comment.'], { truncated: true })
+
+    expect((await reportOf([], ghOver([long], { searched: [long] }))).unavailable).toEqual([
       '#12 has more comments than were read, and no plan among them',
     ])
+  })
+
+  it('names an issue in both outside and unavailable when both hold', async () => {
+    const long = issue(30, ['Comment.'], { truncated: true })
+
+    expect(await reportOf(['--issues', '30'], ghOver([long], { searched: [long] }))).toEqual({
+      rounds: [],
+      outside: [30],
+      unended: [],
+      unavailable: ['#30 has more comments than were read, and no plan among them'],
+    })
+  })
+
+  it('says nothing about a long issue read directly that the search did not find', async () => {
+    // A long-running issue that never had a plan: it can still be planned.
+    const rows = [issue(412, ['Comment.'], { truncated: true })]
+
+    expect(await reportOf(['--issues', '412'], ghOver(rows))).toEqual({
+      rounds: [],
+      outside: [412],
+      unended: [],
+      unavailable: [],
+    })
   })
 
   it('says nothing about a long issue whose plan was read', async () => {
@@ -309,10 +440,10 @@ describe('what the read could not see', () => {
     expect(report.unavailable).toEqual([])
   })
 
-  it('says nothing about an issue outside the scope, or a closed one', async () => {
+  it('says nothing about an issue outside the scope and its rounds, or a closed one', async () => {
     const rows = [
       issue(12, [PLAN_A], { milestone: 4 }),
-      issue(30, ['Comment.'], { milestone: 5, truncated: true }),
+      issue(30, ['Round 9 plan, approved'], { milestone: 5 }),
       issue(31, ['Round 9 plan, approved'], { state: 'CLOSED', milestone: 4 }),
     ]
 
@@ -330,7 +461,7 @@ describe('what the read could not see', () => {
   it('fails, exit 1, when nothing at all could be read', async () => {
     // The harness double, which answers every call from one registration.
     const envelope = await runRounds([], {
-      gh: createGhMock({ listPlanIssues: { rows: [], unavailable: 'gh: rate limit' } }),
+      gh: createGhMock({ searchPlanIssues: { rows: [], unavailable: 'gh: rate limit' } }),
     })
 
     expect(envelope).toEqual({
@@ -339,14 +470,38 @@ describe('what the read could not see', () => {
     })
   })
 
+  it('fails, exit 1, when neither the search nor the direct read read anything', async () => {
+    const envelope = await runRounds(['--issues', '12'], {
+      gh: createGhMock({
+        searchPlanIssues: { rows: [], unavailable: 'gh: rate limit' },
+        readPlanIssues: { rows: [], unavailable: 'gh: timeout' },
+      }),
+    })
+
+    expect(envelope).toEqual({
+      outcome: 'failed',
+      error: 'the rounds read nothing: gh: rate limit; gh: timeout',
+    })
+  })
+
   it('answers no rounds when the search found nothing and nothing failed', async () => {
-    expect(await reportOf([], ghOver([]))).toEqual({ rounds: [], outside: [], unavailable: [] })
+    expect(await reportOf([], ghOver([]))).toEqual({
+      rounds: [],
+      outside: null,
+      unended: null,
+      unavailable: [],
+    })
   })
 })
 
 describe('usage', () => {
   // A refusal must come before any read: the double fails every read.
-  const refusing = { gh: createGhMock({ listPlanIssues: ghFails('must not be read') }) }
+  const refusing = {
+    gh: createGhMock({
+      searchPlanIssues: ghFails('must not be read'),
+      readPlanIssues: ghFails('must not be read'),
+    }),
+  }
 
   it('prints its own usage for --help', async () => {
     const envelope = await runRounds(['--help'], refusing)
@@ -384,10 +539,15 @@ describe('usage', () => {
 })
 
 describe('the report for a person', () => {
-  it('lists each round with its issues, and the issues in no round', async () => {
-    const rows = [issue(12, [PLAN_A], { milestone: 4 }), issue(13, [PLAN_A]), issue(30, ['x'])]
+  it('lists each round with its issues, the issues in no round, and the unended ones', async () => {
+    const rows = [
+      issue(12, [PLAN_A], { milestone: 4 }),
+      issue(13, [PLAN_A]),
+      issue(30, ['x']),
+      issue(40, [PLAN_B], { state: 'CLOSED' }),
+    ]
 
-    const envelope = await runRounds(['--issues', '12,30'], { gh: ghOver(rows) })
+    const envelope = await runRounds(['--issues', '12,30,40'], { gh: ghOver(rows) })
 
     expect(envelope).toEqual({
       outcome: 'ok',
@@ -397,12 +557,15 @@ describe('the report for a person', () => {
         '    #12  milestone 4',
         '    #13  no milestone',
         'in no round: #30',
+        `closed with no round end: #40  ${PLAN_B}`,
       ].join('\n'),
     })
   })
 
   it('says first that the list is incomplete', () => {
-    expect(renderRounds({ rounds: [], outside: [], unavailable: ['gh: rate limit'] })).toBe(
+    expect(
+      renderRounds({ rounds: [], outside: null, unended: null, unavailable: ['gh: rate limit'] }),
+    ).toBe(
       [
         'INCOMPLETE: the rounds below are short of what was asked for.',
         '  gh: rate limit',

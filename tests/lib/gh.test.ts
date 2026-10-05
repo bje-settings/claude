@@ -1178,13 +1178,14 @@ it("defaults to the root lib's own process runner", () => {
     'listMilestones',
     'listOpenPullRequestHeads',
     'listOpenPullRequests',
-    'listPlanIssues',
     'listPullRequests',
     'listRuns',
     'listWorkflowRuns',
     'readFailedRunLog',
+    'readPlanIssues',
     'repositoryStatus',
     'requiredContexts',
+    'searchPlanIssues',
     'updateBranch',
     'viewPullRequest',
     'viewPullRequestDetail',
@@ -1656,7 +1657,7 @@ describe('the issues that carry a plan comment', () => {
   it('searches the repository for the plan phrase, with no owner or name variable', async () => {
     const { gh, calls } = clientAnsweringEach([REPO, searchPage([planNode])])
 
-    const result = await gh.listPlanIssues()
+    const result = await gh.searchPlanIssues()
 
     expect(calls[1]?.args.slice(0, 4)).toEqual([
       'api',
@@ -1691,7 +1692,7 @@ describe('the issues that carry a plan comment', () => {
       searchPage([{ ...planNode, number: 13 }]),
     ])
 
-    const result = await gh.listPlanIssues()
+    const result = await gh.searchPlanIssues()
 
     expect(calls[2]?.args).toContain('cursor=c1')
     expect(result.rows.map((row) => row.number)).toEqual([12, 13])
@@ -1710,7 +1711,7 @@ describe('the issues that carry a plan comment', () => {
       ]),
     ])
 
-    const result = await gh.listPlanIssues()
+    const result = await gh.searchPlanIssues()
 
     expect(result.rows[0]).toMatchObject({ state: 'CLOSED', milestone: null, truncated: true })
   })
@@ -1731,7 +1732,7 @@ describe('the issues that carry a plan comment', () => {
       ]),
     ])
 
-    const result = await gh.listPlanIssues()
+    const result = await gh.searchPlanIssues()
 
     expect(result.rows.map((row) => row.number)).toEqual([12])
     expect(result.unavailable).toBe('7 planIssues row(s) could not be read')
@@ -1745,7 +1746,7 @@ describe('the issues that carry a plan comment', () => {
       ]),
     ])
 
-    const result = await gh.listPlanIssues()
+    const result = await gh.searchPlanIssues()
 
     expect(result.rows[0]?.comments).toEqual([{ createdAt: '2026-10-02T10:00:00Z', firstLine: '' }])
     expect(result.rows[0]?.truncated).toBe(false)
@@ -1767,7 +1768,7 @@ describe('the issues that carry a plan comment', () => {
       directReply([planNode, { ...planNode, number: 13, state: 'CLOSED' }]),
     ])
 
-    const result = await gh.listPlanIssues({ numbers: [12, 13] })
+    const result = await gh.readPlanIssues([12, 13])
 
     expect(calls[1]?.args.slice(0, 6)).toEqual([
       'api',
@@ -1801,7 +1802,7 @@ describe('the issues that carry a plan comment', () => {
       ),
     ])
 
-    const result = await gh.listPlanIssues({ numbers: [12, 99] })
+    const result = await gh.readPlanIssues([12, 99])
 
     expect(result.rows.map((row) => row.number)).toEqual([12])
     expect(result.unavailable).toBe(
@@ -1819,11 +1820,31 @@ describe('the issues that carry a plan comment', () => {
       { stdout: 'not json', status: 1, stderr: 'gh: timeout' },
     ])
 
-    const result = await gh.listPlanIssues({ numbers })
+    const result = await gh.readPlanIssues(numbers)
 
     expect(calls[3]?.args[7]).toContain('i0: issue(number: 26)')
     expect(result.rows).toHaveLength(25)
     expect(result.unavailable).toContain('timeout')
+  })
+
+  it('names each number that is not a positive whole number, and reads only the rest', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, directReply([planNode])])
+
+    const result = await gh.readPlanIssues([0, 1.5, Number.NaN, 12])
+
+    expect(calls[1]?.args[7]).toContain('i0: issue(number: 12)')
+    expect(calls[1]?.args[7]).not.toContain('i1:')
+    expect(result.rows.map((row) => row.number)).toEqual([12])
+    expect(result.unavailable).toBe(
+      '0 is not an issue number; 1.5 is not an issue number; NaN is not an issue number',
+    )
+  })
+
+  it('reads nothing for an empty list', async () => {
+    // No reply is registered, so any read would come back short.
+    const { gh } = clientAnsweringEach([])
+
+    expect(await gh.readPlanIssues([])).toEqual({ rows: [], unavailable: null })
   })
 
   it('reads a reply with no search connection as no answer', async () => {
@@ -1832,7 +1853,7 @@ describe('the issues that carry a plan comment', () => {
       { stdout: JSON.stringify({ data: { repository: {} } }), status: 1, stderr: 'gh: bad query' },
     ])
 
-    const result = await gh.listPlanIssues()
+    const result = await gh.searchPlanIssues()
 
     expect(result.rows).toEqual([])
     expect(result.unavailable).toContain('bad query')

@@ -2,8 +2,8 @@
 
 The round primitives: the parts that make up a round of issue-tracker work. Each part
 works on its own. The issue tracker is the source of truth. Blockers are issue dependency
-relationships, not prose. A round is an issue set: the unblocked issues of a milestone, or
-the issues the caller names.
+relationships, not prose. A round is an issue set: the unblocked issues of one milestone or
+of every milestone, or the issues the caller names.
 
 One skill exists for each of the five primitives in
 [#111](https://github.com/bje-settings/claude/issues/111). `/workstreams:start`, the
@@ -62,7 +62,8 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 | `/workstreams:start pr 260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
 Each call derives where the round stands from the tracker, and writes no file. The plan
-is the comment whose first line reads `<round> plan, approved <date>.`. The pull requests
+is the comment whose first line reads `<round> plan, approved <time>.`, with the approval
+time to the minute in UTC. The pull requests
 are the ones that close the round's issues, in the order `gh stack view` gives. Each pull
 request has three review facts. They are the rounds done, whether round 1 was substantial,
 and whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
@@ -452,16 +453,24 @@ update first. Each open issue is in the round of its newest plan comment. A roun
 `<round> end,` comment after its plan, on any of its open issues, has ended, and is left
 out. A round with no open issue is left out too, so the rounds that ended before #368
 added the end record do not stay in flight. Issues group by the whole plan line, which
-carries the date, so two rounds of one name on two days stay apart. A plan line starts
+carries the approval time, so two rounds of one name stay apart (#379). A plan line starts
 with a letter or a digit.
+
+The cost of the open-issue rule: a round whose issues all closed before its round end ran
+is not in flight. `start` with that round's issues finds it under `unended`, and runs its
+round end.
 
 `--issues` keeps the rounds that hold one of those issues, and reads those issues
 directly, so a plan made a moment ago is seen. `outside` names each open issue asked for
-that no round holds. `--milestone` keeps the rounds with an open issue on one of those
-milestones. The two are not given together. The GitHub search can take a minute to see a
-new comment. In the scope, `unavailable` names an issue with a `plan, approved` line that
-is not a plan line, and an issue whose newest plan is older than its 100 newest comments.
-The exit codes are those of `sweep`.
+that no round in flight holds. `unended` names each closed issue asked for whose newest
+plan has no end record. Both are null without `--issues`. `--milestone` keeps the rounds
+with an open issue on one of those milestones. The two are not given together. The
+GitHub search can take a minute to see a new comment.
+
+`unavailable` also names each open issue in the scope, or in a round in the scope, with a
+`plan, approved` line newer than its newest plan line that is not a plan line. It also
+names each such issue that the search found with no plan in its 100 newest comments. The
+exit codes are those of `sweep`.
 
 ### `pr-state`
 
