@@ -119,7 +119,10 @@ silent.
 
 --heads takes a comma-separated list of head branch names. A round passes
 the branches its plan names, so another round's pull requests in the same
-repository do not wake it. A pull request from a fork never matches.
+repository do not wake it. A pull request from a fork never matches. Each
+new set of names with no open pull request is written once:
+
+  heads with no open pull request from this repository: <names>
 
 --interval is the time between polls, in seconds. --ticks stops the watch
 after that many polls; 0, the default, polls until the watch is stopped.
@@ -509,6 +512,11 @@ export const runWatch = async (
       .map((word) => word.trim())
       .filter((word) => word !== ''),
   )
+  // An empty --heads would watch every pull request, the opposite of what
+  // a caller who gave the flag asked for.
+  if (heads.size === 0 && argv.some((word) => word === '--heads' || word.startsWith('--heads='))) {
+    return refused('--heads takes one or more branch names')
+  }
 
   const top = await toplevel({ cwd: context.cwd, env: context.env })
   if (top === null) {
@@ -525,6 +533,9 @@ export const runWatch = async (
   /** The reason the last poll's list fell short, so a reason that stays
    *  the same is written once and not on every poll. */
   let lastShort: string | null = null
+  /** The --heads names with no open pull request at the last complete
+   *  poll, joined, so that the same set is written once. */
+  let lastAbsent = ''
   /** The reason of the poll that failed last, while polls fail, and how
    *  many have failed since the last poll that read. */
   let lastFailed: string | null = null
@@ -555,6 +566,17 @@ export const runWatch = async (
         lines.push(`poll incomplete: ${short}; the pull requests it read are still watched`)
       }
       lastShort = short
+      // A name with no open pull request is said once for each new set of
+      // such names, so a typo in --heads does not watch nothing in silence.
+      // A short list cannot say a name is absent, so it says nothing.
+      if (short === null) {
+        const found = new Set(pulls.map((pull) => pull.head))
+        const absent = [...heads].filter((name) => !found.has(name)).join(', ')
+        if (absent !== '' && absent !== lastAbsent) {
+          lines.push(`heads with no open pull request from this repository: ${absent}`)
+        }
+        lastAbsent = absent
+      }
       for (const [branch, reason] of baseFailed) {
         if (baseFailures.get(branch) !== reason) {
           lines.push(baseFailureLine(branch, defaultBranch, reason))

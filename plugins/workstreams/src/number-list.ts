@@ -5,7 +5,8 @@ import { type Envelope, ok, refused } from './lib/envelope.ts'
 
 /**
  * The numbers a flag's value names, without repeats, or a refusal that names
- * what was wrong. An empty value is an empty list.
+ * what was wrong. An empty value is an empty list. A leading `#` on a number
+ * is allowed, so `#12` is issue 12.
  *
  * The shape is asserted before conversion, rather than inferred from the
  * result: `Number.parseInt` reads "4x" as 4 and "" as NaN. A sweep that

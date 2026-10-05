@@ -445,7 +445,7 @@ export interface GhResults {
   listMilestones: PagedResult<MilestoneSummary>
   /** Open issues, with their dependency relationships. */
   listIssues: PagedResult<IssueSummary>
-  /** Open and closed issues that carry a round's plan comment. */
+  /** The issues that carry a round's plan comment. */
   listPlanIssues: PagedResult<IssueComments>
   /** Open pull requests, including ones no round opened. */
   listOpenPullRequests: PagedResult<PullRequestSummary>
@@ -579,14 +579,19 @@ export interface GhClient {
    */
   listIssues(query?: { readonly milestone?: string }): Promise<GhResults['listIssues']>
   /**
-   * Every issue, open or closed, with a comment that contains the words
-   * `plan, approved`, and the first line of each of its comments.
+   * The open issues with a comment that contains the words `plan, approved`,
+   * and the first line of each of their newest comments.
    *
-   * This is a GitHub search, so a comment made in the last minute or so can
-   * be absent: the search index is not immediate. Never throws, for
-   * {@link PagedResult}'s reason.
+   * With no `numbers`, this is a GitHub search, newest update first. A
+   * comment made in the last minute or so can be absent, because the
+   * search index is not immediate, and GitHub gives at most 1,000 results.
+   * With `numbers`, it reads those issues directly, open or closed, and
+   * sees every comment at once. A number that is not an issue is named
+   * under `unavailable`. Never throws, for {@link PagedResult}'s reason.
    */
-  listPlanIssues(): Promise<GhResults['listPlanIssues']>
+  listPlanIssues(query?: {
+    readonly numbers?: readonly number[]
+  }): Promise<GhResults['listPlanIssues']>
   /**
    * Every open pull request: number, title, head, base, and draft.
    *
@@ -1178,29 +1183,53 @@ const PLAN_PAGE = 25
  *  ones to lose. */
 const PLAN_COMMENTS = 100
 
+/** The fields a round reads of one issue that carries a plan comment. */
+const PLAN_FIELDS = `number
+        state
+        milestone { number }
+        comments(last: ${PLAN_COMMENTS}) {
+          pageInfo { hasPreviousPage }
+          nodes { createdAt body }
+        }`
+
 /**
- * The issues that carry a plan comment, found by a search, because no
+ * The open issues that carry a plan comment, found by a search, because no
  * repository connection filters issues by the text of their comments.
  * `$q` holds the repository, so this query takes no `$owner` or `$name`.
- * The search covers closed issues too: a round whose pull requests merged
- * and closed every issue is still in flight until its round-end record.
+ *
+ * Only open issues: a round with no open issue left has nothing to build,
+ * and the rounds that ended before the round-end record existed (#368)
+ * would otherwise stay in flight for ever. The search also sorts by update,
+ * newest first, so a page limit cuts old issues, not live ones.
  */
 const PLAN_ISSUES_QUERY = `query($q: String!, $cursor: String) {
   search(query: $q, type: ISSUE, first: ${PLAN_PAGE}, after: $cursor) {
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on Issue {
-        number
-        state
-        milestone { number }
-        comments(last: ${PLAN_COMMENTS}) {
-          pageInfo { hasPreviousPage }
-          nodes { createdAt body }
-        }
+        ${PLAN_FIELDS}
       }
     }
   }
 }`
+
+/** The search words for {@link PLAN_ISSUES_QUERY}. `is:issue` keeps pull
+ *  requests out. The quotes make the two words one phrase, so they match
+ *  only next to each other and in that order. */
+const PLAN_SEARCH = 'is:issue is:open "plan, approved" in:comments sort:updated-desc'
+
+/**
+ * The same fields for named issues, read directly, with one alias per
+ * number. A direct read sees a comment at once, where the search index can
+ * take a minute. Each number is a validated whole number, so it goes into
+ * the query as text.
+ */
+const buildPlanIssueQuery = (numbers: readonly number[]): string => {
+  const fields = numbers.map(
+    (number, index) => `    i${index}: issue(number: ${number}) {\n        ${PLAN_FIELDS}\n    }`,
+  )
+  return `query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n${fields.join('\n')}\n  }\n}`
+}
 
 const PULL_REQUESTS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -1788,9 +1817,23 @@ interface Page {
 }
 
 /**
+ * Where one paginated read finds its connection. A repository read finds it
+ * at `data.repository.<field>`, with `$owner` and `$name` as variables. A
+ * search finds it at `data.search`, and `$q` carries the repository and the
+ * search words. `label` names a search in a reason.
+ */
+type Connection =
+  | { readonly kind: 'repository'; readonly field: string }
+  | { readonly kind: 'search'; readonly label: string; readonly words: string }
+
+/** The name of a connection in a reason. */
+const connectionName = (connection: Connection): string =>
+  connection.kind === 'repository' ? connection.field : connection.label
+
+/**
  * One page's reply, or `undefined` when there is nothing to read: stdout that
- * is not JSON, or JSON with no connection at `data.repository.<field>` in it,
- * or at `data.search` for a search. The reason for that `undefined` belongs to the caller, which holds the
+ * is not JSON, or JSON with no connection where {@link Connection} says. The
+ * reason for that `undefined` belongs to the caller, which holds the
  * {@link RunResult} and reports `accountOf` it, exactly as `parseIssueChunk`
  * leaves it.
  *
@@ -1799,7 +1842,7 @@ interface Page {
  * node that may legitimately be absent, so any error at all is a reason the
  * answer is short.
  */
-const parseConnection = (stdout: string, field: string, search: boolean): Page | undefined => {
+const parseConnection = (stdout: string, connection: Connection): Page | undefined => {
   let reply: Record<string, unknown> | undefined
   try {
     reply = asRecord(JSON.parse(stdout))
@@ -1807,11 +1850,13 @@ const parseConnection = (stdout: string, field: string, search: boolean): Page |
     return undefined
   }
   const data = asRecord(reply?.data)
-  const connection = asRecord(search ? data?.search : asRecord(data?.repository)?.[field])
-  if (connection === undefined) return undefined
-  const nodes = nodesOf(connection)
+  const found = asRecord(
+    connection.kind === 'search' ? data?.search : asRecord(data?.repository)?.[connection.field],
+  )
+  if (found === undefined) return undefined
+  const nodes = nodesOf(found)
   if (nodes === null) return undefined
-  const info = asRecord(connection.pageInfo)
+  const info = asRecord(found.pageInfo)
   const errorsField = reply?.errors
   const entries = Array.isArray(errorsField) ? errorsField : []
   const messages = entries
@@ -2026,22 +2071,19 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    * shape could not be read, ends up in `unavailable` beside the rows that
    * were read.
    */
-  // With `search`, the query is a GitHub search: `$q` carries the
-  // repository and the search words, and the connection is `data.search`.
-  // `field` then only names the read in a reason.
   const collect = async <T>(
-    field: string,
+    connection: Connection,
     query: string,
     variables: readonly string[],
     read: (node: unknown) => T | null,
-    search?: string,
   ): Promise<PagedResult<T>> => {
     const parts = await repositoryParts()
     if (parts.unavailable !== null) return { rows: [], unavailable: parts.unavailable }
+    const field = connectionName(connection)
     const scope =
-      search === undefined
+      connection.kind === 'repository'
         ? ['-f', `owner=${parts.owner}`, '-f', `name=${parts.name}`]
-        : ['-f', `q=repo:${parts.owner}/${parts.name} ${search}`]
+        : ['-f', `q=repo:${parts.owner}/${parts.name} ${connection.words}`]
 
     const rows: T[] = []
     const reasons: string[] = []
@@ -2066,7 +2108,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         reasons.push(accountOf(result, options.boundMs))
         break
       }
-      const answer = parseConnection(result.stdout, field, search !== undefined)
+      const answer = parseConnection(result.stdout, connection)
       if (answer === undefined) {
         reasons.push(accountOf(result, options.boundMs))
         break
@@ -2440,7 +2482,8 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       return { states, unavailable: joinedReasons(reasons) }
     },
 
-    listMilestones: async () => collect('milestones', MILESTONES_QUERY, [], readMilestone),
+    listMilestones: async () =>
+      collect({ kind: 'repository', field: 'milestones' }, MILESTONES_QUERY, [], readMilestone),
 
     // The milestone filter is a variable, not a second query, so the argv
     // differs by two words and the query text does not. Left out, the
@@ -2448,29 +2491,55 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     // is how a caller reads the issues on no milestone (see the interface).
     listIssues: async (query = {}) =>
       collect(
-        'issues',
+        { kind: 'repository', field: 'issues' },
         ISSUES_QUERY,
         query.milestone === undefined ? [] : ['-f', `milestone=${query.milestone}`],
         readIssue,
       ),
 
-    // `is:issue` keeps pull requests out. The quotes make the two words one
-    // phrase, so a comment with "plan" in one line and "approved" in
-    // another does not match.
-    listPlanIssues: async () =>
-      collect(
-        'planIssues',
-        PLAN_ISSUES_QUERY,
-        [],
-        readPlanIssue,
-        'is:issue "plan, approved" in:comments',
-      ),
+    listPlanIssues: async (query = {}) => {
+      if (query.numbers === undefined) {
+        return collect(
+          { kind: 'search', label: 'planIssues', words: PLAN_SEARCH },
+          PLAN_ISSUES_QUERY,
+          [],
+          readPlanIssue,
+        )
+      }
+      const rows: IssueComments[] = []
+      const reasons: string[] = []
+      for (let i = 0; i < query.numbers.length; i += PLAN_PAGE) {
+        const chunk = query.numbers.slice(i, i + PLAN_PAGE)
+        // No field name is a NOT_FOUND to trust here: a number that is not
+        // an issue is a null alias, reported below by its number.
+        const answer = await queryOnce(buildPlanIssueQuery(chunk), [], '')
+        if (answer.unavailable !== null) reasons.push(answer.unavailable)
+        const data = answer.data
+        if (data === null) continue
+        chunk.forEach((number, index) => {
+          const row = readPlanIssue(data[`i${index}`])
+          if (row === null) reasons.push(`#${number} could not be read as an issue`)
+          else rows.push(row)
+        })
+      }
+      return { rows, unavailable: joinedReasons(reasons) }
+    },
 
     listOpenPullRequests: async () =>
-      collect('pullRequests', PULL_REQUESTS_QUERY, [], readPullRequest),
+      collect(
+        { kind: 'repository', field: 'pullRequests' },
+        PULL_REQUESTS_QUERY,
+        [],
+        readPullRequest,
+      ),
 
     listOpenPullRequestHeads: async () =>
-      collect('pullRequests', PULL_REQUEST_HEADS_QUERY, [], readPullRequestHead),
+      collect(
+        { kind: 'repository', field: 'pullRequests' },
+        PULL_REQUEST_HEADS_QUERY,
+        [],
+        readPullRequestHead,
+      ),
 
     // The branch is percent-encoded into the path, because a branch name
     // may carry a `/` (`spike/context-audit`). An unencoded one would name

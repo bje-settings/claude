@@ -20,6 +20,7 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [gh/sync/sync-flow.md](gh/sync/sync-flow.md) | How `gh.ts sync` finds its checkouts, syncs each one in process, and which outcome sets its exit status. |
 | [mermaid/view/_skill-flow.md](mermaid/view/_skill-flow.md) | What the /mermaid:view skill does, and every way it declines to act. |
 | [workstreams/question/_skill-flow.md](workstreams/question/_skill-flow.md) | What the /workstreams:question skill does, and every way it declines to act. |
+| [workstreams/question/rounds-flow.md](workstreams/question/rounds-flow.md) | How `workstreams.ts rounds` finds the rounds in flight from their plan comments, scopes them, and when its answer is short. |
 | [workstreams/review/_skill-flow.md](workstreams/review/_skill-flow.md) | What the /workstreams:review skill does in one step, and every way it declines to act. |
 | [workstreams/review/pr-state-flow.md](workstreams/review/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
 | [workstreams/start/_skill-flow.md](workstreams/start/_skill-flow.md) | What the /workstreams:start skill does on each call and each wake, and every way it stops. |

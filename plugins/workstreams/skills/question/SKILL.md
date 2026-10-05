@@ -48,7 +48,10 @@ reaches step 3 and cannot ask.
    [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval. The human
    approves or edits the plan there.
 
-7. After approval, post the plan comment. Its first line names it the plan:
+7. After approval, check the round's issues once more:
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --issues <n,n> --json`. If a
+   round in flight now holds one of them, stop, and name it: another session planned it
+   first. Then post the plan comment. Its first line names it the plan:
    `<round> plan, approved <date>.` The round's name is one that no round in flight uses.
    Trim the approved plan to its layers, with each layer's issues, branch, build model,
    review model and file set, and the one layer that changes each version line. Add the

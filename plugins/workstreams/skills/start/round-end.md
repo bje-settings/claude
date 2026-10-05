@@ -93,7 +93,7 @@ Act on the answer:
   issue`.
 
 Then report what Claude did, and what it did not do. Post the same six parts, the facts
-for the record, and that result as one comment on each issue of the round. Its first line
-is `<round> end, <date>.`, for example `Round 14 end, 2026-10-02.`. `rounds` finds a
-finished round by the prefix `<round> end`. End the comment with the round's
-`_Recorded by <effort>, <date>._` line.
+for the record, and that result as one comment on each issue the plan names, open or
+closed. Its first line is `<round> end, <date>.`, for example `Round 14 end, 2026-10-02.`.
+`rounds` finds a finished round by the prefix `<round> end,`. End the comment with the
+round's `_Recorded by <effort>, <date>._` line.

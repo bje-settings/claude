@@ -76,7 +76,7 @@ map keeps the shape of the plan it was written for.
 
 ## What the records say
 
-- **Read the Decisions lists in `docs/rfc/` and `docs/adr/` for the milestone**, and
+- **Read the Decisions lists in `docs/rfc/` and `docs/adr/` for the scope**, and
   check each decision against what has merged. A requirement can sit in an ADR, absent
   from every issue body, and still bind the work. A sweep that reads the bodies alone has
   missed one twice. Each time, the miss surfaced only in a review round.

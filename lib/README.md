@@ -427,16 +427,23 @@ unfiltered `listIssues()` call, and a filter on `milestone === null`.
 
 ```ts
 const plans = await gh.listPlanIssues()
+const named = await gh.listPlanIssues({ numbers: [12, 13] })
 // plans.rows[0] -> { number, state, milestone, comments: [{ createdAt, firstLine }], truncated }
 ```
 
-The read behind `workstreams.ts rounds` (#376). It finds every issue, open or closed, with a
-`plan, approved` comment, and gives the first line of each of its newest 100 comments, oldest
-first. No repository connection filters issues by comment text, so this is a GitHub search: `$q`
-carries `repo:<owner>/<name>`, and the connection is `data.search`, not
-`data.repository.<field>`. The search index can take a minute to see a new comment. `truncated` is
-true for an issue with more comments than were read. A row that is not the shape asked for is
-counted under `unavailable`, as for the sweep's reads.
+The read behind `workstreams.ts rounds` (#376). Each row gives the first line of each of the
+issue's newest 100 comments, oldest first. `truncated` is true for an issue with more comments
+than were read.
+
+- With no `numbers`, it finds the open issues with a `plan, approved` comment. No repository
+  connection filters issues by comment text, so this is a GitHub search, newest update first. `$q`
+  carries `repo:<owner>/<name>`, and the connection is `data.search`, not
+  `data.repository.<field>`. The search index can take a minute to see a new comment, and GitHub
+  gives at most 1,000 results.
+- With `numbers`, it reads those issues directly, open or closed, one alias per number. It sees a
+  new comment at once. A number that is not an issue is named under `unavailable`.
+
+A row that is not the shape asked for is counted under `unavailable`, as for the sweep's reads.
 
 ### `listOpenPullRequestHeads`
 

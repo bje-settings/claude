@@ -2,7 +2,8 @@
 
 The round primitives: the parts that make up a round of issue-tracker work. Each part
 works on its own. The issue tracker is the source of truth. Blockers are issue dependency
-relationships, not prose. A round is the unblocked set, swept from the milestones in work.
+relationships, not prose. A round is an issue set: the unblocked issues of a milestone, or
+the issues the caller names.
 
 One skill exists for each of the five primitives in
 [#111](https://github.com/bje-settings/claude/issues/111). `/workstreams:start`, the
@@ -55,10 +56,10 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 
 | Call | What it does |
 | --- | --- |
-| `/workstreams:start 4` (an example milestone) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
-| `/workstreams:start 12 13` (example issues) | The same, for those issues alone. |
+| `/workstreams:start milestone 4` (an example milestone; a bare `4` works too) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
+| `/workstreams:start issues 12 13` (example issues) | The same, for those issues alone. |
 | `/workstreams:start` | The same, over every milestone with open issues. With a round in flight, it asks first: continue that round, or start a new one. |
-| `/workstreams:start #260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
+| `/workstreams:start pr 260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
 Each call derives where the round stands from the tracker, and writes no file. The plan
 is the comment whose first line reads `<round> plan, approved <date>.`. The pull requests
@@ -68,13 +69,17 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question. A merged pull request is final for its layer, with no markers.
 
+Other words are judged: `start` checks each number against the issues, the pull requests
+and the milestones, and asks when two readings stay possible.
+
 A round is its issue set. Each issue is in the round of its newest plan comment, and in
-no other. `start` runs `rounds` with its scope to find the round in flight. A round with a
-`<round> end` record after its plan has ended, and a new sweep starts. Without it, the
-round is in flight, with its issues open or closed. So two rounds in one repository, on
-two issue sets, never read or change each other's state. Each round's watch takes
-`--heads` with its own branches, and a collision with another round's pull request gets
-no comment on that round's issues (#376).
+no other. `start` runs `rounds` with its scope to find the round in flight. A round is in
+flight while one of its issues is open, until a `<round> end,` record follows its plan.
+A scope that is part in a round and part in none is a stop. `question` checks the issues
+once more before it posts a plan. So two rounds in one repository, on two issue sets,
+never act or comment on each other's issues and pull requests. Each round's watch takes
+`--heads` with its own branches. A collision with another round's pull request is named
+in the ruling, with no comment on the other round's issues (#376).
 
 GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
 `done` or `merged` for the layer below. A person's message in chat never marks a layer
@@ -186,8 +191,8 @@ rules. `file-map.md` holds the mapping rules a file map must apply.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it when a round has no plan
 yet, with a milestone, issue numbers, or no scope. With no scope, `start` also names the
-issues of each round in flight. The sweep defers them, and does not read them. It ends at
-its report.
+issues of each round in flight. The sweep defers them, and does not map or size them. It
+ends at its report.
 
 ## `/workstreams:review`
 
@@ -438,20 +443,25 @@ The repository is whatever `gh` resolves from the working directory.
 ### `rounds`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--issues 12,13 | --milestone 4] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--issues 12,13 | --milestone 4,5] [--json]
 ```
 
 Names the rounds in flight, each with its name, its plan line, when it was planned, and
-its issues, open or closed. It searches for the issues with a `plan, approved` comment.
-Each issue is in the round of its newest plan line. A round with a `<round> end` comment
-after its plan, on any of its issues, has ended, and is left out. Issues group by the
-whole plan line, which carries the date, so two rounds of one name on two days stay apart.
+its open issues. It searches the open issues with a `plan, approved` comment, newest
+update first. Each open issue is in the round of its newest plan comment. A round with a
+`<round> end,` comment after its plan, on any of its open issues, has ended, and is left
+out. A round with no open issue is left out too, so the rounds that ended before #368
+added the end record do not stay in flight. Issues group by the whole plan line, which
+carries the date, so two rounds of one name on two days stay apart. A plan line starts
+with a letter or a digit.
 
-`--issues` keeps the rounds that hold one of those issues. `--milestone` keeps the rounds
-with an issue on that milestone. The two are not given together. The GitHub search can
-take a minute to see a new comment. An issue with more than 100 comments is named under
-`unavailable`, because a plan older than those is not seen. The exit codes are those of
-`sweep`.
+`--issues` keeps the rounds that hold one of those issues, and reads those issues
+directly, so a plan made a moment ago is seen. `outside` names each open issue asked for
+that no round holds. `--milestone` keeps the rounds with an open issue on one of those
+milestones. The two are not given together. The GitHub search can take a minute to see a
+new comment. In the scope, `unavailable` names an issue with a `plan, approved` line that
+is not a plan line, and an issue whose newest plan is older than its 100 newest comments.
+The exit codes are those of `sweep`.
 
 ### `pr-state`
 

@@ -56,10 +56,10 @@ commands:
                                      other: merge base, changed files and
                                      merge-tree conflicts, with the runs and
                                      the checkouts
-  watch [--interval 60] [--ticks 0]  a long poll of every open pull request:
-    [--since-head <n>=<sha>,...]     one line for each new head, required
-    [--concluded <n>=<sha>,...]      context and CONCLUDED head, and a
-                                     heartbeat
+  watch [--interval 60] [--ticks 0]  a long poll of every open pull request,
+    [--heads <branch>,...]           or of the heads it names: one line for
+    [--since-head <n>=<sha>,...]     each new head, required context and
+    [--concluded <n>=<sha>,...]      CONCLUDED head, and a heartbeat
 
 workstreams.ts <command> --help prints that command's own usage.`
 

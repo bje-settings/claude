@@ -1662,11 +1662,11 @@ describe('the issues that carry a plan comment', () => {
       'api',
       'graphql',
       '-f',
-      'q=repo:acme/widgets is:issue "plan, approved" in:comments',
+      'q=repo:acme/widgets is:issue is:open "plan, approved" in:comments sort:updated-desc',
     ])
     expect(calls[1]?.args.some((word) => word.startsWith('owner='))).toBe(false)
-    expect(calls[1]?.args[5]).toContain('search(query: $q, type: ISSUE, first: 25')
-    expect(calls[1]?.args[5]).toContain('comments(last: 100)')
+    expect(calls[1]?.args[5]).toContain('search(query: $q, type: ISSUE')
+    expect(calls[1]?.args[5]).toContain('comments(last:')
     expect(result).toEqual({
       rows: [
         {
@@ -1749,6 +1749,81 @@ describe('the issues that carry a plan comment', () => {
 
     expect(result.rows[0]?.comments).toEqual([{ createdAt: '2026-10-02T10:00:00Z', firstLine: '' }])
     expect(result.rows[0]?.truncated).toBe(false)
+  })
+
+  /** A direct read's reply: one alias per issue, in the order asked. */
+  const directReply = (nodes: readonly unknown[], errors?: readonly unknown[]): Reply => ({
+    stdout: JSON.stringify({
+      data: {
+        repository: Object.fromEntries(nodes.map((node, index) => [`i${index}`, node])),
+      },
+      ...(errors === undefined ? {} : { errors }),
+    }),
+  })
+
+  it('reads named issues directly, one alias per number, with owner and name', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      directReply([planNode, { ...planNode, number: 13, state: 'CLOSED' }]),
+    ])
+
+    const result = await gh.listPlanIssues({ numbers: [12, 13] })
+
+    expect(calls[1]?.args.slice(0, 6)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'owner=acme',
+      '-f',
+      'name=widgets',
+    ])
+    expect(calls[1]?.args[7]).toContain('i0: issue(number: 12)')
+    expect(calls[1]?.args[7]).toContain('i1: issue(number: 13)')
+    expect(result.rows.map((row) => [row.number, row.state])).toEqual([
+      [12, 'OPEN'],
+      [13, 'CLOSED'],
+    ])
+    expect(result.unavailable).toBeNull()
+  })
+
+  it('names a number that is not an issue, with the reply’s own error', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      directReply(
+        [planNode, null],
+        [
+          {
+            type: 'NOT_FOUND',
+            path: ['repository', 'i1'],
+            message: 'Could not resolve to an Issue',
+          },
+        ],
+      ),
+    ])
+
+    const result = await gh.listPlanIssues({ numbers: [12, 99] })
+
+    expect(result.rows.map((row) => row.number)).toEqual([12])
+    expect(result.unavailable).toBe(
+      'Could not resolve to an Issue; #99 could not be read as an issue',
+    )
+  })
+
+  it('reads more numbers than one query holds in batches, and keeps a batch that answered', async () => {
+    const numbers = Array.from({ length: 26 }, (_, index) => index + 1)
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      directReply(numbers.slice(0, 25).map((number) => ({ ...planNode, number }))),
+      // Each batch resolves the repository again, the way `queryOnce` does.
+      REPO,
+      { stdout: 'not json', status: 1, stderr: 'gh: timeout' },
+    ])
+
+    const result = await gh.listPlanIssues({ numbers })
+
+    expect(calls[3]?.args[7]).toContain('i0: issue(number: 26)')
+    expect(result.rows).toHaveLength(25)
+    expect(result.unavailable).toContain('timeout')
   })
 
   it('reads a reply with no search connection as no answer', async () => {
