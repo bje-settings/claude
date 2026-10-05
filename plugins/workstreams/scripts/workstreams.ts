@@ -21,7 +21,7 @@
 // command nobody asked for is never loaded. A new command changes no other
 // line here.
 //
-// Every arm answers with an envelope. For `sweep`, `pr-state` and
+// Every arm answers with an envelope. For `sweep`, `rounds`, `pr-state` and
 // `intersect`, the whole output is one payload a caller either gets or
 // does not (`lib/envelope.ts`). `watch` writes a line for each event while
 // it runs. Its envelope is only the end. That is empty, or the one line
@@ -41,9 +41,11 @@ const { createOutput } = await import('../src/lib/streams.ts')
 const USAGE = `usage: workstreams.ts <command> [options]
 
 commands:
-  sweep [--milestone 4,5] [--json]   what a round could start on: milestones,
-                                     open pull requests, the unblocked set,
+  sweep [--milestone 4,5]            what a round could start on: milestones,
+    [--issues 12,13] [--json]        open pull requests, the unblocked set,
                                      what it unlocks, and the blocked count
+  rounds [--issues 12,13]            the rounds in flight, each with its
+    [--milestone 4] [--json]         plan line and its issues
   pr-state <number> [--round 0|1|2]  where the review loop is on one pull
     [--substantial] [--rot-checked]  request: its required contexts, its
     [--round-1-head <sha>] [--json]  checks, its unresolved threads, the
@@ -54,10 +56,10 @@ commands:
                                      other: merge base, changed files and
                                      merge-tree conflicts, with the runs and
                                      the checkouts
-  watch [--interval 60] [--ticks 0]  a long poll of every open pull request:
-    [--since-head <n>=<sha>,...]     one line for each new head, required
-    [--concluded <n>=<sha>,...]      context and CONCLUDED head, and a
-                                     heartbeat
+  watch [--interval 60] [--ticks 0]  a long poll of every open pull request,
+    [--heads <branch>,...]           or of the heads it names: one line for
+    [--since-head <n>=<sha>,...]     each new head, required context and
+    [--concluded <n>=<sha>,...]      CONCLUDED head, and a heartbeat
 
 workstreams.ts <command> --help prints that command's own usage.`
 
@@ -88,6 +90,12 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     // `gh` resolves from its working directory.
     return write(
       await runSweep(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
+    )
+  }
+  if (name === 'rounds') {
+    const { runRounds } = await import('../src/subcommands/rounds.ts')
+    return write(
+      await runRounds(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
     )
   }
   if (name === 'pr-state') {

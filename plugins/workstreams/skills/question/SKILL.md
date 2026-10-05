@@ -6,9 +6,9 @@ allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(
 user-invocable: false
 ---
 
-Round: $ARGUMENTS. The effort name and tag line come from the `_Recorded by <effort>,
-<date>._` line already on the round's issues. The milestone or issue set comes from the
-sweep report.
+Scope: $ARGUMENTS. The effort name and tag line come from the
+`_Recorded by <effort>, <date>._` line already on the round's issues. The milestone or issue
+set comes from the sweep report.
 
 Run this in the main conversation. `AskUserQuestion` is removed from every subagent
 ([sub-agents](https://code.claude.com/docs/en/sub-agents#available-tools)), so a subagent
@@ -48,12 +48,18 @@ reaches step 3 and cannot ask.
    [plan-shape.md](plan-shape.md) sets out. `ExitPlanMode` is the approval. The human
    approves or edits the plan there.
 
-7. After approval, post the plan comment. Its first line names it the plan:
-   `<round> plan, approved <date>.` Trim the approved plan to its layers, with each
-   layer's issues, branch, build model, review model and file set, and the one layer that
-   changes each version line. Add the done condition, the review shape, and an estimate,
-   as [plan-shape.md](plan-shape.md) sections 3 and 4 say. Post it on every issue in the
-   round, and end it with the same `_Recorded by <effort name>, <date>._` line.
+7. After approval, check the round's issues once more:
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --issues <n,n> --json`.
+   Stop, and name the cause, when a round in flight now holds one of them, when
+   `unavailable` is not empty, or when the command fails. Another session can have planned
+   them first. Then post the plan comment. Its first line names it the plan:
+   `<round> plan, approved <time>.`, with the approval time to the minute in UTC, for
+   example `Round 15 plan, approved 2026-10-04T18:22Z.`. The time makes the line unique
+   to this round. Trim the approved plan to its layers, with each layer's issues, branch, build model,
+   review model and file set, and the one layer that changes each version line. Add the
+   done condition, the review shape, and an estimate, as [plan-shape.md](plan-shape.md)
+   sections 3 and 4 say. Post it on every issue in the round, and end it with the same
+   `_Recorded by <effort name>, <date>._` line.
 
 8. Housekeeping, before the first worktree.
 

@@ -28,12 +28,14 @@ import { type GhClient, type GhEndpoint, GhError, type GhResults } from '../lib/
 
 export type {
   CheckContext,
+  CommentLine,
   CommentText,
   CommitComparison,
   CompareStatus,
   GhClient,
   GhEndpoint,
   GhResults,
+  IssueComments,
   IssueRef,
   IssueState,
   IssueSummary,
@@ -128,6 +130,8 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     issueStates: async () => answer(replies, 'issueStates'),
     listMilestones: async () => answer(replies, 'listMilestones'),
     listIssues: async () => answer(replies, 'listIssues'),
+    searchPlanIssues: async () => answer(replies, 'searchPlanIssues'),
+    readPlanIssues: async () => answer(replies, 'readPlanIssues'),
     listOpenPullRequests: async () => answer(replies, 'listOpenPullRequests'),
     listOpenPullRequestHeads: async () => answer(replies, 'listOpenPullRequestHeads'),
     requiredContexts: async () => answer(replies, 'requiredContexts'),

@@ -423,6 +423,29 @@ error and never by silence.
 2026-09-21: that filter matches nothing, not the unassigned issues. A caller reads that set from an
 unfiltered `listIssues()` call, and a filter on `milestone === null`.
 
+### `searchPlanIssues` and `readPlanIssues`
+
+```ts
+const plans = await gh.searchPlanIssues()
+const named = await gh.readPlanIssues([12, 13])
+// plans.rows[0] -> { number, state, milestone, comments: [{ createdAt, firstLine }], truncated }
+```
+
+The reads behind `workstreams.ts rounds` (#376). Each row gives the first line of each of the
+issue's newest 100 comments, oldest first. `truncated` is true for an issue with more comments
+than were read.
+
+- `searchPlanIssues` finds the open issues with a `plan, approved` comment. No repository
+  connection filters issues by comment text, so this is a GitHub search, newest update first. `$q`
+  carries `repo:<owner>/<name>`, and the connection is `data.search`, not
+  `data.repository.<field>`. The search index can take a minute to see a new comment. Past 500
+  issues, the read stops and says so.
+- `readPlanIssues` reads named issues directly, open or closed, one alias per number. It sees a
+  new comment at once. A number that is not a positive whole number, or not an issue, is named
+  under `unavailable`. An empty list reads nothing.
+
+A row that is not the shape asked for is counted under `unavailable`, as for the sweep's reads.
+
 ### `listOpenPullRequestHeads`
 
 ```ts

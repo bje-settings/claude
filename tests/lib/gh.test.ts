@@ -1182,8 +1182,10 @@ it("defaults to the root lib's own process runner", () => {
     'listRuns',
     'listWorkflowRuns',
     'readFailedRunLog',
+    'readPlanIssues',
     'repositoryStatus',
     'requiredContexts',
+    'searchPlanIssues',
     'updateBranch',
     'viewPullRequest',
     'viewPullRequestDetail',
@@ -1611,6 +1613,250 @@ describe('milestones, issues and pull requests', () => {
       unavailable: 'gh: could not resolve to a Repository',
     })
     expect(calls).toHaveLength(1)
+  })
+})
+
+// --- the plan comments (#376) -----------------------------------------------
+//
+// A search, not a repository connection: `$q` carries the repository, so
+// the argv has no owner or name, and the connection is `data.search`.
+describe('the issues that carry a plan comment', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+
+  /** One search page as gh prints it. */
+  const searchPage = (
+    nodes: readonly unknown[],
+    info: { hasNextPage?: boolean; endCursor?: string | null } = {},
+  ): Reply => ({
+    stdout: JSON.stringify({
+      data: {
+        search: {
+          pageInfo: { hasNextPage: info.hasNextPage ?? false, endCursor: info.endCursor ?? null },
+          nodes,
+        },
+      },
+    }),
+  })
+
+  const planNode = {
+    number: 12,
+    state: 'OPEN',
+    milestone: { number: 4 },
+    comments: {
+      pageInfo: { hasPreviousPage: false },
+      nodes: [
+        { createdAt: '2026-10-01T10:00:00Z', body: 'Sweep for milestone 4.\n\nDetails.' },
+        {
+          createdAt: '2026-10-02T10:00:00Z',
+          body: '  Round 3 plan, approved 2026-10-02.  \nLayers.',
+        },
+      ],
+    },
+  }
+
+  it('searches the repository for the plan phrase, with no owner or name variable', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, searchPage([planNode])])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(calls[1]?.args.slice(0, 4)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'q=repo:acme/widgets is:issue is:open "plan, approved" in:comments sort:updated-desc',
+    ])
+    expect(calls[1]?.args.some((word) => word.startsWith('owner='))).toBe(false)
+    expect(calls[1]?.args[5]).toContain('search(query: $q, type: ISSUE')
+    expect(calls[1]?.args[5]).toContain('comments(last:')
+    expect(result).toEqual({
+      rows: [
+        {
+          number: 12,
+          state: 'OPEN',
+          milestone: 4,
+          comments: [
+            { createdAt: '2026-10-01T10:00:00Z', firstLine: 'Sweep for milestone 4.' },
+            { createdAt: '2026-10-02T10:00:00Z', firstLine: 'Round 3 plan, approved 2026-10-02.' },
+          ],
+          truncated: false,
+        },
+      ],
+      unavailable: null,
+    })
+  })
+
+  it('follows the search cursor to a second page', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      searchPage([planNode], { hasNextPage: true, endCursor: 'c1' }),
+      searchPage([{ ...planNode, number: 13 }]),
+    ])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(calls[2]?.args).toContain('cursor=c1')
+    expect(result.rows.map((row) => row.number)).toEqual([12, 13])
+  })
+
+  it('reads an issue on no milestone, and one with more comments than were read', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        {
+          ...planNode,
+          state: 'CLOSED',
+          milestone: null,
+          comments: { ...planNode.comments, pageInfo: { hasPreviousPage: true } },
+        },
+      ]),
+    ])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(result.rows[0]).toMatchObject({ state: 'CLOSED', milestone: null, truncated: true })
+  })
+
+  it('counts each row that is not the shape asked for, and keeps the rest', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        planNode,
+        // A pull request: the `... on Issue` fragment gives it no fields.
+        {},
+        { ...planNode, number: 20, state: 'DRAFT' },
+        { ...planNode, number: 21, milestone: { number: 'four' } },
+        { ...planNode, number: 22, milestone: undefined },
+        { ...planNode, number: 23, comments: null },
+        { ...planNode, number: 24, comments: { nodes: [{ createdAt: 1, body: 'x' }] } },
+        { ...planNode, number: 25, comments: { nodes: [{ createdAt: 'now' }] } },
+      ]),
+    ])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(result.rows.map((row) => row.number)).toEqual([12])
+    expect(result.unavailable).toBe('7 planIssues row(s) could not be read')
+  })
+
+  it('reads an empty comment body as an empty first line', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        { ...planNode, comments: { nodes: [{ createdAt: '2026-10-02T10:00:00Z', body: '' }] } },
+      ]),
+    ])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(result.rows[0]?.comments).toEqual([{ createdAt: '2026-10-02T10:00:00Z', firstLine: '' }])
+    expect(result.rows[0]?.truncated).toBe(false)
+  })
+
+  /** A direct read's reply: one alias per issue, in the order asked. */
+  const directReply = (nodes: readonly unknown[], errors?: readonly unknown[]): Reply => ({
+    stdout: JSON.stringify({
+      data: {
+        repository: Object.fromEntries(nodes.map((node, index) => [`i${index}`, node])),
+      },
+      ...(errors === undefined ? {} : { errors }),
+    }),
+  })
+
+  it('reads named issues directly, one alias per number, with owner and name', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      directReply([planNode, { ...planNode, number: 13, state: 'CLOSED' }]),
+    ])
+
+    const result = await gh.readPlanIssues([12, 13])
+
+    expect(calls[1]?.args.slice(0, 6)).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      'owner=acme',
+      '-f',
+      'name=widgets',
+    ])
+    expect(calls[1]?.args[7]).toContain('i0: issue(number: 12)')
+    expect(calls[1]?.args[7]).toContain('i1: issue(number: 13)')
+    expect(result.rows.map((row) => [row.number, row.state])).toEqual([
+      [12, 'OPEN'],
+      [13, 'CLOSED'],
+    ])
+    expect(result.unavailable).toBeNull()
+  })
+
+  it('names a number that is not an issue, with the reply’s own error', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      directReply(
+        [planNode, null],
+        [
+          {
+            type: 'NOT_FOUND',
+            path: ['repository', 'i1'],
+            message: 'Could not resolve to an Issue',
+          },
+        ],
+      ),
+    ])
+
+    const result = await gh.readPlanIssues([12, 99])
+
+    expect(result.rows.map((row) => row.number)).toEqual([12])
+    expect(result.unavailable).toBe(
+      'Could not resolve to an Issue; #99 could not be read as an issue',
+    )
+  })
+
+  it('reads more numbers than one query holds in batches, and keeps a batch that answered', async () => {
+    const numbers = Array.from({ length: 26 }, (_, index) => index + 1)
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      directReply(numbers.slice(0, 25).map((number) => ({ ...planNode, number }))),
+      // Each batch resolves the repository again, the way `queryOnce` does.
+      REPO,
+      { stdout: 'not json', status: 1, stderr: 'gh: timeout' },
+    ])
+
+    const result = await gh.readPlanIssues(numbers)
+
+    expect(calls[3]?.args[7]).toContain('i0: issue(number: 26)')
+    expect(result.rows).toHaveLength(25)
+    expect(result.unavailable).toContain('timeout')
+  })
+
+  it('names each number that is not a positive whole number, and reads only the rest', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, directReply([planNode])])
+
+    const result = await gh.readPlanIssues([0, 1.5, Number.NaN, 12])
+
+    expect(calls[1]?.args[7]).toContain('i0: issue(number: 12)')
+    expect(calls[1]?.args[7]).not.toContain('i1:')
+    expect(result.rows.map((row) => row.number)).toEqual([12])
+    expect(result.unavailable).toBe(
+      '0 is not an issue number; 1.5 is not an issue number; NaN is not an issue number',
+    )
+  })
+
+  it('reads nothing for an empty list', async () => {
+    // No reply is registered, so any read would come back short.
+    const { gh } = clientAnsweringEach([])
+
+    expect(await gh.readPlanIssues([])).toEqual({ rows: [], unavailable: null })
+  })
+
+  it('reads a reply with no search connection as no answer', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { stdout: JSON.stringify({ data: { repository: {} } }), status: 1, stderr: 'gh: bad query' },
+    ])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(result.rows).toEqual([])
+    expect(result.unavailable).toContain('bad query')
   })
 })
 

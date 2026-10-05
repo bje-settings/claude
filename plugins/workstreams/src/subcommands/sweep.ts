@@ -20,11 +20,12 @@ import type {
   MilestoneSummary,
   PullRequestSummary,
 } from '../lib/gh.ts'
+import { numberList, repeated } from '../number-list.ts'
 
 export const HELP = `What a round could start on, read from the issue tracker.
 
 Usage:
-  workstreams.ts sweep [--milestone 4,5] [--json]
+  workstreams.ts sweep [--milestone 4,5 | --issues 12,13] [--json]
 
 Reports the repository's open milestones with their issue counts, every open
 pull request including ones no round opened, and, for each milestone asked
@@ -43,6 +44,13 @@ themselves, so that nothing read goes unreported. It is not repeatable: a
 second --milestone would silently replace the first, so it is refused and the
 comma list named instead.
 
+--issues takes issue numbers, one or a comma-separated list, and scopes the
+report to those issues, under the milestones they are on. An issue named
+that was not among the open issues read is listed under "unavailable".
+--issues and --milestone are not given together. What an issue unlocks is
+still read against every open issue, so a scope never hides what its work
+releases.
+
 --json prints the report as one JSON object for a skill to read; without it
 the same report is printed for a person.
 
@@ -53,6 +61,7 @@ which a caller reads before acting on the sets.`
 
 const SPEC = {
   milestone: { type: 'string', default: '' },
+  issues: { type: 'string', default: '' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const
@@ -219,39 +228,6 @@ const groupOf = (milestone: GroupHeader | null, issues: readonly ReportedIssue[]
   }
 }
 
-/** The milestone numbers asked for, or a refusal that names what was wrong. */
-export const requestedMilestones = (value: string): Envelope<number[]> => {
-  if (value === '') return ok([])
-  const numbers: number[] = []
-  for (const word of value.split(',')) {
-    const trimmed = word.trim()
-    // The code asserts the shape before conversion, rather than infer it
-    // from the result: `Number.parseInt` reads "4x" as 4 and "" as NaN. A
-    // sweep that quietly swept milestone 4 for someone who typed "4x" would
-    // answer a question nobody asked.
-    if (!/^[1-9][0-9]*$/.test(trimmed)) {
-      return refused(`--milestone takes milestone numbers, not "${trimmed}"`)
-    }
-    const number = Number(trimmed)
-    if (!numbers.includes(number)) numbers.push(number)
-  }
-  return ok(numbers)
-}
-
-/**
- * Whether the command line names `--milestone` more than once.
- *
- * `lib/args.ts` declares no repeatable option. `parseArgs` answers a
- * repeated one with its LAST value, and no complaint. So `--milestone 4
- * --milestone 5` would sweep milestone 5, and say nothing about the 4 the
- * caller also asked for. This is scanned here, rather than solved in
- * `lib/args.ts`, because one command that wants a list is not yet an
- * argument for a repeatable option every other command would inherit
- * untested.
- */
-export const repeatedMilestone = (argv: readonly string[]): boolean =>
-  argv.filter((word) => word === '--milestone' || word.startsWith('--milestone=')).length > 1
-
 /** One unblocked issue, for a person: why it needs no more work, and what
  *  it unlocks. `openBlockers` is always empty here. That is what defines
  *  the unblocked set. A blocked issue's "behind #N" case never applies to
@@ -392,11 +368,17 @@ export const runSweep = async (
   const parsed = parseArguments(argv, SPEC)
   if (parsed.outcome !== 'ok') return parsed
   if (parsed.value.help) return ok(HELP)
-  if (repeatedMilestone(argv)) {
-    return refused('--milestone is not repeatable; pass one comma-separated list')
+  for (const flag of ['--milestone', '--issues']) {
+    if (repeated(argv, flag))
+      return refused(`${flag} is not repeatable; pass one comma-separated list`)
   }
-  const requested = requestedMilestones(parsed.value.milestone)
+  const requested = numberList(parsed.value.milestone, '--milestone', 'milestone')
   if (requested.outcome !== 'ok') return requested
+  const scoped = numberList(parsed.value.issues, '--issues', 'issue')
+  if (scoped.outcome !== 'ok') return scoped
+  if (requested.value.length > 0 && scoped.value.length > 0) {
+    return refused('--milestone and --issues are not given together; a round has one scope')
+  }
 
   const unavailable: string[] = []
   const note = (reason: string | null): void => {
@@ -414,13 +396,20 @@ export const runSweep = async (
   // milestone, which is the documented contract. Asked for none, the scope is
   // every open milestone plus every milestone the issues themselves name, so
   // that nothing that was read goes unreported.
+  //
+  // Asked for issues, the scope is those issues, and the groups are the
+  // milestones they are on.
+  const inScope = (issue: { readonly number: number }): boolean =>
+    scoped.value.length === 0 || scoped.value.includes(issue.number)
   const numbers =
     requested.value.length > 0
       ? requested.value
       : [
           ...new Set([
-            ...milestones.rows.map((milestone) => milestone.number),
-            ...milestonesNamed(everything.rows),
+            ...(scoped.value.length > 0
+              ? []
+              : milestones.rows.map((milestone) => milestone.number)),
+            ...milestonesNamed(everything.rows.filter(inScope)),
           ]),
         ].sort((left, right) => left - right)
 
@@ -445,7 +434,12 @@ export const runSweep = async (
     return failed(`the sweep read nothing: ${unavailable.join('; ')}`)
   }
 
-  const classified = classify(read)
+  for (const number of scoped.value) {
+    if (!seen.has(number)) unavailable.push(`#${number} was not among the open issues read`)
+  }
+
+  // `unlocks` is computed over every issue read, before the scope applies.
+  const classified = classify(read).filter(inScope)
   const groups = numbers.map((number) => groupOf(headerFor(number, milestones.rows), classified))
   const unassigned = groupOf(null, classified)
 

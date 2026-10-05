@@ -83,9 +83,9 @@ lets the hook find a GitHub CLI on any machine, and it keeps a spawned run away 
 endpoint is named after its operation, not after gh's own argv. This way, the interface survives a
 change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
-`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `listOpenPullRequests`,
-`listOpenPullRequestHeads`, `requiredContexts`, `viewPullRequestDetail`, `listWorkflowRuns`,
-`compareCommits`, `repositoryStatus`.
+`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
+`listOpenPullRequests`, `listOpenPullRequestHeads`, `requiredContexts`, `viewPullRequestDetail`,
+`listWorkflowRuns`, `compareCommits`, `repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is

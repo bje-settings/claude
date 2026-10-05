@@ -1,13 +1,14 @@
 ---
 name: sweep
 description: Find the work a round can start on, and say how it should be sequenced.
-argument-hint: [milestone]
+argument-hint: [milestone | issue numbers] [leave out: issue numbers]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob
 user-invocable: false
 ---
 
-Milestones to sweep: $ARGUMENTS. With no argument, sweep every milestone that has open issues
-and report per milestone.
+Scope: $ARGUMENTS. A milestone or issue numbers scope the sweep. With no scope, sweep every
+milestone that has open issues and report per milestone. The caller can name issues to leave
+out: each one is in another round.
 
 ## Process
 
@@ -17,7 +18,8 @@ and report per milestone.
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" sweep --json
    ```
 
-   Add `--milestone 4` or `--milestone 4,5` for the milestones named above.
+   Add `--milestone 4` or `--milestone 4,5` for the milestones named above, or
+   `--issues 12,13` for the issues.
 
    A non-empty `unavailable` means the sets are short of what was asked for. Say so and
    stop.
@@ -32,7 +34,7 @@ and report per milestone.
    of date. Leave the blocked set alone: nothing there is read, mapped, sized, or
    commented on.
 
-   Then read the decision records for the milestone: every file under `docs/rfc/` and
+   Then read the decision records for the scope: every file under `docs/rfc/` and
    `docs/adr/`, and the Decisions lists in particular. [file-map.md](file-map.md) has the
    check against what has merged.
 
@@ -47,7 +49,9 @@ and report per milestone.
 4. Classify and size each issue, in this shape:
 
    - **Classification**: work now, defer with a reason, blocked on another issue, or
-     already fixed, with the commit ([file-map.md](file-map.md)).
+     already fixed, with the commit ([file-map.md](file-map.md)). An issue the caller
+     leaves out is deferred, with its round as the reason. Do not read, map, size or
+     comment on it.
    - **Touched files and regions**, from step 3. Include files it may touch in comments
      only.
    - **Size**: the build model and the review model per layer, and the session effort the

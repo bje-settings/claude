@@ -1,12 +1,24 @@
 ---
 name: start
-description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. With `#<pr>`, take one pull request through review to done. The one entry to the workstreams primitives.
-argument-hint: [milestone | #pr]
+description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. A round is a milestone or a set of issues. With `pr <n>`, take one pull request through review to done. The one entry to the workstreams primitives.
+argument-hint: [milestone <n> | issues <n> <n> | pr <n>]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
 ---
 
-Round: $ARGUMENTS. A milestone, or nothing, starts or continues a round. `#<pr>` reviews
-that one pull request, with no sweep and no plan.
+Scope: $ARGUMENTS.
+
+- `milestone <n>` or a bare number: that milestone.
+- `issues <n> <n>`: those issues.
+- `pr <n>`: that one pull request, with no sweep and no plan.
+- Nothing: every milestone with open issues.
+
+For other words, judge what the person asked. Check each number with `gh issue view`,
+`gh pr view` or the milestones that `sweep` reports. If two readings stay possible, ask one
+`AskUserQuestion`.
+
+A round is its issue set. Each issue is in the round of its newest plan comment, and in no
+other. Another round in this repository holds other issues. Act and comment only on the
+issues and pull requests of this round.
 
 Run this in the main conversation. A subagent has no `AskUserQuestion` and no plan mode,
 and nothing wakes it.
@@ -15,33 +27,38 @@ and nothing wakes it.
 
 Derive it on each call. Write nothing to disk.
 
-1. **The plan.** The latest comment whose first line reads `<round> plan, approved <date>.`
-   It names each layer's issues, branch, build model, review model, allowed file set and
-   reviewers. Find the open issues that carry one:
+1. **The round.** Find the rounds in flight that hold the scope:
 
    ```bash
-   gh issue list --state open --search '"plan, approved" in:comments' [--milestone <milestone>] --json number,title
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--milestone <n> | --issues <n,n>] --json
    ```
 
-   The round is the newest plan. An open issue whose latest plan names an earlier round is
-   not in it.
+   A non-empty `unavailable` is a fact nobody could read. Say which, and stop.
 
-   When no open issue carries one, find the newest plan on a closed issue:
+   - One round, with issues, and `outside` empty: it is the round, in flight.
+   - One round, with a milestone: it is the round, in flight. Say that the milestone's
+     other open issues are in no round. `outside` is null for a milestone.
+   - One round and an `outside` issue: the scope is part in a round and part in none.
+     Stop, and name both parts.
+   - Two or more, with a scope: the scope holds issues of more than one round. Stop, and
+     name each round and its issues.
+   - One or more, with no scope: ask one `AskUserQuestion`. Give one option for
+     each round, by its `plan` line and issues, and one option to start a new round.
+   - None, and an `unended` issue: that round's issues all closed before its round end.
+     Read its plan from that issue, do [round-end.md](round-end.md) for it, and stop.
+   - None: no round is in flight in the scope.
+
+   `rounds` lists the open issues of a round. The plan is the comment whose first line is
+   the round's `plan`. It names every issue of the round, the closed ones too, and each
+   layer's branch, build model, review model, allowed file set and reviewers. Read it from
+   one issue of the round:
 
    ```bash
-   gh issue list --state closed --search '"plan, approved" in:comments sort:updated-desc' [--milestone <milestone>] --limit 20 --json number,comments --jq '[.[] | .number as $n | .comments[] | select(.body | test("^[^\n]* plan, approved ")) | {at: .createdAt, issue: $n, line: (.body | split("\n")[0])}] | max_by(.at)'
+   gh issue view <number> --json comments --jq '[.comments[].body | select(startswith("<plan>"))] | last'
    ```
 
-   No output: no plan. Then, for an open or a closed plan, read the first lines of the
-   comments on one issue of the round:
+   No output, or `null`: stop, and name the issue.
 
-   ```bash
-   gh issue view <number> --json comments --jq '.comments[].body | split("\n")[0]'
-   ```
-
-   A first line after the plan that starts with `<round> end` is the round-end record
-   ([round-end.md](round-end.md) step 4). With the record, the round is finished. Without
-   it, the round is in flight, with its issues open or closed.
 2. **The pull requests.** `gh pr list --state all --limit 1000 --json number,state,headRefName,baseRefName,closingIssuesReferences`
    names the ones that close a round issue, or whose head is a branch the plan names.
    Without `--limit`, gh gives only 30. When one branch has more than one pull request,
@@ -76,11 +93,12 @@ Derive it on each call. Write nothing to disk.
 
 ## Order
 
-1. A round in flight: go on at step 3. No plan comment, or a finished round: invoke
-   `/workstreams:sweep` with the milestone. If it stops, stop.
-   Then invoke `/workstreams:question` with the same milestone. Its plan mode is the
-   approval. With no approved plan, stop.
-2. `#<pr>`: that pull request is the whole round. Read its state first. `merged` or
+1. A round in flight: go on at step 3. No round, or a new round: invoke
+   `/workstreams:sweep` with the scope. With no scope, also give it the issues of each
+   round in flight, to leave out. If it stops, stop.
+   Then invoke `/workstreams:question` with the same scope. Its plan mode is the approval.
+   With no approved plan, stop.
+2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or
    `closed` is a stop. Report it, and dispatch no round. Otherwise go to step 4.
    `/workstreams:review` chooses the review model when no plan names one.
 3. Invoke `/workstreams:stream` with the next layer's issues only when there is no layer
@@ -112,10 +130,14 @@ Each time the wait loop starts, arm the watch with the Monitor tool, at the long
 timeout it allows:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" watch --heads <branch>,<branch>
 ```
 
-Hold its task id in the conversation. Do not arm a second watch while this one runs.
+`--heads` takes each branch the plan names, and the head of each pull request that step 2
+found. Then another round's pull requests do not wake this round. For `pr <n>`, give its
+`headRefName`. A pull request from a fork has no head to give, so leave out `--heads`:
+then every pull request wakes the round. Hold the watch's task id in the conversation. Do
+not arm a second watch while this one runs.
 
 Each line the watch writes is a wake. The other wake is an agent's completion
 notification.

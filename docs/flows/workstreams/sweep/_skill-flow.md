@@ -4,7 +4,7 @@ description: What the /workstreams:sweep skill does, and every way it declines t
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-01
+  at: 2026-10-04
 ---
 
 # /workstreams:sweep skill flow
@@ -35,7 +35,7 @@ flowchart TD
     J --> K{claim cited to a line just read?}
     K -->|No| K1[Grep for it; a remembered claim is not a claim]
     K1 --> J
-    K -->|Yes| L[Classify, size, and estimate the review]
+    K -->|Yes| L[Classify, size, and estimate the review;<br/>an issue the caller leaves out is deferred, with its round]
 
     L --> M{touch the same file, region, or CI workflow,<br/>apart from a version line or separate README sections?}
     M -->|No| N[Parallel streams]

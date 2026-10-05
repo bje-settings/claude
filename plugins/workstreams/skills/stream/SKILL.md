@@ -6,11 +6,11 @@ allowed-tools: Bash(gh issue view *) Bash(git worktree add *) Read Grep Glob Wri
 user-invocable: false
 ---
 
-Issues to build: $ARGUMENTS. The issue order and the build model per layer come from the plan
-comment on the round's issues. The briefs go in the session's scratchpad. If the plan
-comment does not name the order and model for every issue in `$ARGUMENTS`, stop. Say
-which is missing rather than guess: a placeholder left in a brief is a layer that will
-guess too.
+Issues to build: $ARGUMENTS. The issue order and the build model per layer come from the
+round's plan: the newest plan comment on the round's issues. The briefs go in the session's
+scratchpad. If the plan comment does not name the order and model for every issue in
+`$ARGUMENTS`, stop. Say which is missing rather than guess: a placeholder left in a brief is
+a layer that will guess too.
 
 One stream is one worktree, with one branch and one agent per layer, in sequence.
 

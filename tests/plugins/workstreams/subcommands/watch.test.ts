@@ -114,6 +114,79 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
 
 const heads = (...rows: PullRequestHead[]) => ({ rows, unavailable: null })
 
+describe('a watch over one round’s heads (#376)', () => {
+  const ours = head({ number: 300, head: 'wktr-12-ours', headSha: SHA_B })
+  const theirs = head({ number: 301, head: 'wktr-20-theirs', headSha: SHA_C })
+  const fork = head({ number: 302, head: 'wktr-12-ours', headSha: SHA_A, crossRepository: true })
+
+  it('writes nothing about a pull request whose head branch is not named', async () => {
+    const { context, lines } = watchOver([{ heads: heads(ours, theirs, fork) }])
+
+    await runWatch(['--ticks', '1', '--heads', ' wktr-12-ours , ,wktr-99-none'], context)
+
+    expect(lines).toEqual([
+      `#300 open: wktr-12-ours -> main, head ${SHA_B}, draft, required 0/3 reported`,
+    ])
+  })
+
+  it('reports a named pull request that merged, and nothing for another round’s', async () => {
+    const merged = { pullRequest: null, unavailable: null, missing: false }
+    const { context, lines } = watchOver([
+      { heads: heads(ours, theirs) },
+      {
+        heads: heads(),
+        detail: { ...merged, pullRequest: { ...detailOf(300), state: 'MERGED' } },
+      },
+    ])
+
+    await runWatch(['--ticks', '2', '--heads', 'wktr-12-ours'], context)
+
+    expect(lines.slice(1)).toEqual(['#300 merged'])
+  })
+
+  it('stays silent about a base that only another round’s pull request needs', async () => {
+    const stacked = head({ number: 303, head: 'wktr-21-up', headSha: SHA_C, base: 'wktr-20-x' })
+    const { context, lines } = watchOver([
+      { heads: heads(ours, stacked), required: { main: REQUIRED, 'wktr-20-x': new Error('down') } },
+    ])
+
+    await runWatch(['--ticks', '1', '--heads', 'wktr-12-ours'], context)
+
+    expect(lines).toEqual([
+      `#300 open: wktr-12-ours -> main, head ${SHA_B}, draft, required 0/3 reported`,
+    ])
+  })
+
+  it.each([[['--heads', ' , ']], [['--heads=']]])(
+    'refuses %j, which names no branch',
+    async (argv) => {
+      const { context } = watchOver([{ heads: heads(ours) }])
+
+      expect(await runWatch(argv, context)).toEqual({
+        outcome: 'refused',
+        error: '--heads takes one or more branch names',
+      })
+    },
+  )
+
+  it('watches every open pull request when no head is named', async () => {
+    const { context, lines } = watchOver([{ heads: heads(ours, theirs) }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines.map((line) => line.split(':')[0])).toEqual(['#300 open', '#301 open'])
+  })
+
+  it('refuses a repeated --heads', async () => {
+    const { context } = watchOver([{ heads: heads(ours) }])
+
+    expect(await runWatch(['--heads', 'a', '--heads', 'b'], context)).toEqual({
+      outcome: 'refused',
+      error: '--heads is not repeatable; pass one comma-separated list',
+    })
+  })
+})
+
 describe('a watch over the open pull requests', () => {
   it('reports a pull request it has not seen, with its head in full', async () => {
     const { context, lines } = watchOver([{ heads: heads(head()) }])

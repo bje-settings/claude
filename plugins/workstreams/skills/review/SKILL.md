@@ -14,8 +14,8 @@ branch. The round's issues are the ones its body closes (`gh pr view <number>`),
 the ones the caller names. No worktree match, or more than one, is a stop. Name what is
 absent. A round dispatched into a guessed worktree will guess again inside it.
 
-The model for the round agent comes from the plan comment on those issues, or from the
-caller. When neither names one, choose it by this rule. Do not ask, and do not stop:
+The model for the round agent comes from the newest plan comment on those issues, or from
+the caller. When neither names one, choose it by this rule. Do not ask, and do not stop:
 
 - `opus` for round 2.
 - `opus` for round 1 when the diff changes logic under `src/`, `lib/`, `scripts/` or

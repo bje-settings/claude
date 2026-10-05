@@ -68,16 +68,18 @@ import { parseArguments } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
 import { type GhClient, GhError, type PullRequestHead } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
+import { repeated } from '../number-list.ts'
 import { namesOrDefault, type ReportedContext, reportContexts } from '../required-contexts.ts'
 
 export const HELP = `Every open pull request's head and required checks, as one line per event.
 
 Usage:
-  workstreams.ts watch [--interval 60] [--ticks 0]
+  workstreams.ts watch [--interval 60] [--ticks 0] [--heads <branch>,...]
                        [--since-head <n>=<sha>,...] [--concluded <n>=<sha>,...]
 
 Polls every open pull request of the repository, including ones no round
-opened, and writes one line for each of these events:
+opened, or with --heads only those whose head branch it names, and writes
+one line for each of these events:
 
   #<n> open: ...        a pull request this watch has not seen, with its head
   #<n> new head <sha>   a head that moved, compared by the full sha
@@ -115,6 +117,12 @@ after a push, the API answers the old head, then the new one. A seen head
 becomes current only on its second answer in a row. A one-poll flip stays
 silent.
 
+--heads takes a comma-separated list of head branch names. A round passes
+the branches its plan names, so another round's pull requests in the same
+repository do not wake it. A pull request from a fork never matches. A name
+with no open pull request yet writes nothing: the caller checks each head it
+knows against the names it gave.
+
 --interval is the time between polls, in seconds. --ticks stops the watch
 after that many polls; 0, the default, polls until the watch is stopped.
 
@@ -132,6 +140,7 @@ const SPEC = {
   ticks: { type: 'string', default: '0' },
   'since-head': { type: 'string', default: '' },
   concluded: { type: 'string', default: '' },
+  heads: { type: 'string', default: '' },
   help: { type: 'boolean', short: 'h' },
 } as const
 
@@ -184,13 +193,6 @@ export const parseSeeds = (value: string, flag: string): Envelope<Map<number, st
   }
   return ok(seeds)
 }
-
-/** Whether the command line names `flag` more than once. `parseArgs`
- *  answers a repeated option with its last value, and no complaint. So a
- *  second list would replace the first in silence. `sweep.ts` has the same
- *  check for `--milestone`. */
-const repeated = (argv: readonly string[], flag: string): boolean =>
-  argv.filter((word) => word === flag || word.startsWith(`${flag}=`)).length > 1
 
 /** A whole number from a flag, or null when the word is not one. */
 const wholeNumber = (word: string, least: number): number | null =>
@@ -284,8 +286,9 @@ type PollOutcome =
   | { readonly kind: 'failed'; readonly reason: string }
   | { readonly kind: 'end'; readonly reason: string }
 
-/** One poll's reads. Nothing here decides an event. */
-const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
+/** One poll's reads. Nothing here decides an event. An empty `heads`
+ *  keeps every open pull request. */
+const readPoll = async (gh: GhClient, heads: ReadonlySet<string>): Promise<PollOutcome> => {
   let repository: Record<string, unknown>
   try {
     repository = await gh.viewRepository()
@@ -297,19 +300,23 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
   if (defaultBranch === null) {
     return { kind: 'failed', reason: 'the repository reply named no default branch' }
   }
-  const heads = await gh.listOpenPullRequestHeads()
+  const open = await gh.listOpenPullRequestHeads()
   // A short list with rows still gives those rows. One row with too many
   // checks must not stop the watch for every other pull request.
-  if (heads.unavailable !== null && heads.rows.length === 0) {
-    return { kind: 'failed', reason: heads.unavailable }
+  if (open.unavailable !== null && open.rows.length === 0) {
+    return { kind: 'failed', reason: open.unavailable }
   }
+  const pulls =
+    heads.size === 0
+      ? open.rows
+      : open.rows.filter((pull) => !pull.crossRepository && heads.has(pull.head))
 
   // Each base reads on its own. A base whose read fails leaves only its own
   // pull requests unread this poll. It does not fail the poll for the rest
   // (#265).
   const required = new Map<string, readonly string[]>()
   const baseFailed = new Map<string, string>()
-  for (const branch of new Set([defaultBranch, ...heads.rows.map((pull) => pull.base)])) {
+  for (const branch of new Set([defaultBranch, ...pulls.map((pull) => pull.base)])) {
     const answer = await gh.requiredContexts({ branch })
     if (answer.unavailable !== null) {
       baseFailed.set(branch, answer.unavailable)
@@ -323,7 +330,7 @@ const readPoll = async (gh: GhClient): Promise<PollOutcome> => {
   }
   return {
     kind: 'read',
-    snapshot: { defaultBranch, pulls: heads.rows, required, baseFailed, short: heads.unavailable },
+    snapshot: { defaultBranch, pulls, required, baseFailed, short: open.unavailable },
   }
 }
 
@@ -495,6 +502,20 @@ export const runWatch = async (
   if (sinceHead.outcome !== 'ok') return sinceHead
   const concluded = parseSeeds(parsed.value.concluded, '--concluded')
   if (concluded.outcome !== 'ok') return concluded
+  if (repeated(argv, '--heads')) {
+    return refused('--heads is not repeatable; pass one comma-separated list')
+  }
+  const heads = new Set(
+    parsed.value.heads
+      .split(',')
+      .map((word) => word.trim())
+      .filter((word) => word !== ''),
+  )
+  // An empty --heads would watch every pull request, the opposite of what
+  // a caller who gave the flag asked for.
+  if (heads.size === 0 && argv.some((word) => word === '--heads' || word.startsWith('--heads='))) {
+    return refused('--heads takes one or more branch names')
+  }
 
   const top = await toplevel({ cwd: context.cwd, env: context.env })
   if (top === null) {
@@ -522,7 +543,7 @@ export const runWatch = async (
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
     const lines: string[] = []
-    const outcome = await readPoll(gh)
+    const outcome = await readPoll(gh, heads)
     if (outcome.kind === 'end') return ok(`watch: ${outcome.reason}, so there is nothing to watch`)
     if (outcome.kind === 'failed') {
       if (outcome.reason !== lastFailed) lines.push(`poll failed: ${outcome.reason}`)

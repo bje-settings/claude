@@ -390,6 +390,63 @@ describe('the command line', () => {
   })
 })
 
+describe('the issue scope (#376)', () => {
+  // #130 is on milestone 4, #140 on no milestone, #150 on milestone 4 and
+  // blocked by #130 alone, so #130 unlocks it.
+  const issues = [
+    issue(130),
+    issue(140, { milestone: null }),
+    issue(150, { blockedBy: [{ number: 130, state: 'OPEN' }] }),
+  ]
+
+  it('reports only the issues named, under the milestones they are on', async () => {
+    const report = await reportOf(['--issues', '130'], mockWith(issues))
+
+    expect(report.groups.map((group) => group.milestone?.number)).toEqual([4])
+    expect(report.groups[0]?.unblocked.map((entry) => entry.number)).toEqual([130])
+    expect(report.groups[0]?.blocked).toEqual([])
+    expect(report.unassigned.unblocked).toEqual([])
+    expect(report.combined).toEqual({ unblocked: [130], blocked: [] })
+    expect(report.unavailable).toEqual([])
+  })
+
+  it('still reads what an issue in scope unlocks from every open issue', async () => {
+    const report = await reportOf(['--issues', '130'], mockWith(issues))
+
+    expect(report.groups[0]?.unblocked[0]?.unlocks).toEqual([150])
+  })
+
+  it('reports an issue on no milestone in the unassigned set, with no milestone group', async () => {
+    const report = await reportOf(['--issues', '#140'], mockWith(issues))
+
+    expect(report.groups).toEqual([])
+    expect(report.unassigned.unblocked.map((entry) => entry.number)).toEqual([140])
+  })
+
+  it('names an issue it was asked for and did not read as an open issue', async () => {
+    const report = await reportOf(['--issues', '130,999'], mockWith(issues))
+
+    expect(report.unavailable).toEqual(['#999 was not among the open issues read'])
+  })
+
+  it('refuses --issues beside --milestone, a repeated --issues, and a bad number', async () => {
+    const cases: Array<[string[], string]> = [
+      [
+        ['--milestone', '4', '--issues', '130'],
+        '--milestone and --issues are not given together; a round has one scope',
+      ],
+      [
+        ['--issues', '1', '--issues', '2'],
+        '--issues is not repeatable; pass one comma-separated list',
+      ],
+      [['--issues', 'x'], '--issues takes issue numbers, not "x"'],
+    ]
+    for (const [argv, error] of cases) {
+      expect(await runSweep(argv, { gh: createGhMock() })).toEqual({ outcome: 'refused', error })
+    }
+  })
+})
+
 describe('what the sweep does with a read it could not complete', () => {
   it('reports the reason, marks the report incomplete, and still answers', async () => {
     // A partial answer is an answer, and a caller is told to read
