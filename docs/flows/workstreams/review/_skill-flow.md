@@ -17,8 +17,10 @@ flowchart TD
     R0{called with a round agent's JSON return?}
     R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in the pull request's worktree: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
     RS --> R2{post the round's marker, with a Head line<br/>for round 1: posted?}
-    R2 -->|Yes| R1([Return])
+    R2 -->|Yes| BT{reply on each bot thread the round settled,<br/>then resolve it: each call worked?}
     R2 -->|No| R3([Stop: say so]):::stop
+    BT -->|Yes| R1([Return])
+    BT -->|No| BT1([Stop: name the thread]):::stop
     R0 -->|No| W{exactly one worktree matches the head branch?}
     W -->|No| W1([Stop: say which is absent; never guess]):::stop
     W -->|Yes| C[Read the pull request's state once]
@@ -30,7 +32,7 @@ flowchart TD
     E -->|awaiting-pr| E1([Return: GitHub said this number does not exist]):::stop
     E -->|merged or closed| E1b([Return: the pull request already finished]):::stop
     E -->|no-run| F([Close and reopen the pull request, then return])
-    E -->|fixing| G2([Return: name the contexts that failed,<br/>and each open bot thread apart])
+    E -->|fixing| G2([Return: name the contexts that failed; settle each<br/>mermaid preview thread no round settled; name each other bot thread])
 
     E -->|review-1, any CI verdict,<br/>or review-2| M{the plan or the caller names a review model?}
     M -->|Yes| I
@@ -40,7 +42,7 @@ flowchart TD
     J --> K([Dispatch one round agent, then return with the model and the reason;<br/>its return goes to the caller])
 
     E -->|rot-check| Q([Title and body against the final diff;<br/>post the rot check marker, then return])
-    E -->|done| S([Report: state, applied, rejected,<br/>corrections, lower_layer, open bot threads])
+    E -->|done| S([Report: state, applied, rejected,<br/>corrections, lower_layer, bot threads settled])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
