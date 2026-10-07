@@ -4,7 +4,7 @@ description: What the /workstreams:review skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-04
+  at: 2026-10-07
 ---
 
 # /workstreams:review skill flow
@@ -23,7 +23,7 @@ flowchart TD
     BT -->|No| BT1([Stop: name the thread]):::stop
     R0 -->|No| W{exactly one worktree matches the head branch?}
     W -->|No| W1([Stop: say which is absent; never guess]):::stop
-    W -->|Yes| C[Read the pull request's state once]
+    W -->|Yes| C[Read the pull request's state once;<br/>the round 1 head flag goes with --round 1 only]
 
     C --> D{could every fact be read?}
     D -->|No, no state at all| D1([Return: say which fact nobody could see]):::stop

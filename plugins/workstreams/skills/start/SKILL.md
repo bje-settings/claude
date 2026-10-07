@@ -1,20 +1,26 @@
 ---
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. A round is a milestone or a set of issues. With `pr <n>`, take one pull request through review to done. The one entry to the workstreams primitives.
-argument-hint: [milestone <n> | issues <n> <n> | pr <n>]
+argument-hint: [optional focus, in your own words]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
 ---
 
 Scope: $ARGUMENTS.
 
-- `milestone <n>` or a bare number: that milestone.
+- `milestone <n>`, or a bare number that names a milestone: that milestone.
 - `issues <n> <n>`: those issues.
 - `pr <n>`: that one pull request, with no sweep and no plan.
 - Nothing: every milestone with open issues.
+- Free words, such as `any LSP related issue` or `all bugs`: an issue list. Get it with
+  `gh issue list --limit 1000 --json number,title` and a filter:
+  `--search "<key words>"`, `--label <label>` or `--type <issue type>`. Search with the key
+  words only: GitHub matches every word. Show the set. Then run the `issues` scope on its
+  numbers. An empty set is a stop.
 
-For other words, judge what the person asked. Check each number with `gh issue view`,
-`gh pr view` or the milestones that `sweep` reports. If two readings stay possible, ask one
-`AskUserQuestion`.
+For other words, and a bare number that names no milestone, judge what the person asked.
+Check each number with `gh issue view`, `gh pr view` or the milestones that `sweep`
+reports. A number that names only an issue gives the `issues` scope. If two readings stay
+possible, ask one `AskUserQuestion`.
 
 A round is its issue set. Each issue is in the round of its newest plan comment, and in no
 other. Another round in this repository holds other issues. Act and comment only on the
@@ -164,5 +170,5 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" intersect --json
 ```
 
-Add `--substantial`, `--round-1-head <sha>` and `--rot-checked` to `pr-state` when the
-markers say so.
+Add `--substantial` and `--rot-checked` to `pr-state` when the markers say so. Add
+`--round-1-head <sha>` only with `--round 1`: `pr-state` refuses it with any other round.

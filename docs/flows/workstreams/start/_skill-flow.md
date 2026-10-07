@@ -4,7 +4,7 @@ description: What the /workstreams:start skill does on each call and each wake, 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-04
+  at: 2026-10-07
 ---
 
 # /workstreams:start skill flow
@@ -13,8 +13,12 @@ What `/workstreams:start` does to a round or to one pull request, and every way 
 
 ```mermaid
 flowchart TD
-    A0[Read the argument: milestone, issues, pr, or none;<br/>judge other words, and ask if two readings stay] --> A
-    A{argument?} -->|pr n| P1[That pull request is the whole round]
+    A0[Read the argument: milestone, issues, pr, free words, or none;<br/>judge other words and a bare number that names no milestone;<br/>ask if two readings stay] --> A
+    A{argument?} -->|free words| FW[Resolve them to an issue list with gh issue list:<br/>key words, label or issue type; show the set]
+    FW --> FW1{set empty?}
+    FW1 -->|Yes| FW2([Stop: no issue matches]):::stop
+    FW1 -->|No| B
+    A -->|pr n| P1[That pull request is the whole round]
     P1 --> P0{its state: merged or closed?}
     P0 -->|Yes| P0a([Stop: report the state]):::stop
     P0 -->|No| W
@@ -37,7 +41,7 @@ flowchart TD
     D1 -->|Yes| E
     B1 -->|One, with a scope: the round is in flight| E0{the plan read?}
     E0 -->|No| E0a([Stop: name the issue]):::stop
-    E0 -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers and the round 1 head;<br/>a merged pull request is final, with no markers]
+    E0 -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers and, with round 1 only, the round 1 head;<br/>a merged pull request is final, with no markers]
     E --> E1{markers a set pr-state takes?}
     E1 -->|No| E2([Stop: name the markers]):::stop
     E1 -->|Yes| R

@@ -4,7 +4,7 @@ description: What the /workstreams:stream skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-01
+  at: 2026-10-07
 ---
 
 # /workstreams:stream skill flow
@@ -19,7 +19,11 @@ flowchart TD
     C -->|Yes| R{a layer's return in view, not yet read?}
 
     R -->|Yes| S[Act on each of the five fields:<br/>constraints_checked, brief_vs_code,<br/>outside_set, lower_layer, injected_text_seen]
-    S --> S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
+    S --> S0{a body edit claimed: read-back present<br/>and matching the body?}
+    S0 -->|No| S2[Send it back to the layer with SendMessage;<br/>name the heading that differs] --> S3{second missing or mismatched<br/>read-back from this layer?}
+    S3 -->|Yes| S4([Stop: name it for the caller]):::stop
+    S3 -->|No| X1([End the step; the layer returns again])
+    S0 -->|Yes, or no claim| S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
 
     R -->|No| D{worktree for the stream exists?}
     D -->|No| D1[Create it once, from the planned tip;<br/>install from the lock file there] --> E

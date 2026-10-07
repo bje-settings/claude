@@ -51,6 +51,12 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    corrects the next layer's brief. [brief.md](brief.md)'s Return section says what each
    field carries.
 
+   A return that claims an edit to the pull request body must carry the body's read-back.
+   Compare it with the claim, and with `gh pr view <number> --json body`. A missing
+   read-back, or one that does not match, goes back to the layer with `SendMessage`. Name
+   the heading that differs, and end the step. A second missing or mismatched read-back
+   from the same layer is a stop instead: name it for the caller.
+
    Report the pull request, its head, its run, the CI state at return, and what the layer
    returned under the five fields. CI need not be green: the review can start at once.
    The caller's next action is step 2 of its tick, in `skills/start/tick.md`, never the
