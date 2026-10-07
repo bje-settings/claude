@@ -200,18 +200,15 @@ const EXPRESSION_VALUE = '[^()]+'
 const literal = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * The pattern that a skipped check's name gives, or null for a name with no
- * `${{ ... }}` span.
+ * The pattern that a skipped check's name gives.
  *
- * Each span matches one or more characters that are not `(` or `)`. The
- * rest of the name matches literally. The pattern is anchored at both ends,
- * so no prefix or suffix of a name matches.
+ * Each `${{ ... }}` span matches one or more characters that are not `(` or
+ * `)`. The rest of the name matches literally. The pattern is anchored at
+ * both ends, so no prefix or suffix of a name matches. A name with no span
+ * matches only itself. That name has reported, so it is never left out.
  */
-const wildcardOf = (name: string): RegExp | null => {
-  const parts = name.split(EXPRESSION)
-  if (parts.length === 1) return null
-  return new RegExp(`^${parts.map(literal).join(EXPRESSION_VALUE)}$`)
-}
+const wildcardOf = (name: string): RegExp =>
+  new RegExp(`^${name.split(EXPRESSION).map(literal).join(EXPRESSION_VALUE)}$`)
 
 /** The verdict list on a draft, and the names that it leaves out. */
 export interface DraftSplit {
@@ -254,7 +251,7 @@ export const splitDraftSkipped = (
   if (!draft) return { counted: contexts, draftSkipped: [] }
   const patterns = checks
     .filter((check) => check.run?.conclusion === 'SKIPPED')
-    .flatMap((check) => wildcardOf(check.name) ?? [])
+    .map((check) => wildcardOf(check.name))
   const skipped = new Set(
     contexts
       .filter(
