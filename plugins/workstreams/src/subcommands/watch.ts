@@ -133,7 +133,8 @@ not hold CONCLUDED when a check on the head, from a check suite that
 concluded SKIPPED, has a name with \${{ ... }} that matches it. That context
 runs after ready for review, and the CONCLUDED line names it. A head that is
 not a draft waits for every required context. When the draft is marked
-ready, the same head can conclude again, after those contexts report.
+ready, the same head concludes again, after those contexts report. A head
+given to --concluded does so only when the first poll finds it a draft.
 
 A check from a cancelled workflow run does not count when a newer run of the
 same workflow exists on the head, also when that run has made no check yet and has not completed.
@@ -162,7 +163,8 @@ after that many polls; 0, the default, polls until the watch is stopped.
 --since-head and --concluded tell a watch that starts again what the caller
 already knows, as a comma-separated list of <number>=<full head sha>. A known
 head is not reported as open, and its contexts that have already reported are
-not reported again. A head given to --concluded is also not concluded again.
+not reported again. A head given to --concluded is also not concluded again,
+other than a draft as above.
 A head that has moved since is reported as a new head.
 
 Outside a git checkout, or with no gh to run, the watch writes one line and
@@ -236,7 +238,11 @@ interface Tracked {
   sha: string
   /** The last conclusion written for each required context of this head. */
   readonly reported: Map<string, string>
-  concluded: boolean
+  /** How this head last concluded, or null when it has not. `draft` is a
+   *  CONCLUDED on a draft with a draft-skipped context (#365). Those
+   *  contexts count once the pull request is ready, so such a head
+   *  concludes again then. `final` concludes nothing again. */
+  concluded: 'final' | 'draft' | null
   /** True for a head the caller seeded and this watch has not polled yet.
    *  Its first poll writes nothing about what has already reported. */
   seeded: boolean
@@ -250,12 +256,6 @@ interface Tracked {
    *  the very next poll (ruling 5, #296). A different answer on the next
    *  poll drops it with no line, and starts the count over. */
   pending: string | null
-  /** True when the last CONCLUDED was on a draft with a draft-skipped
-   *  context (#365). Those contexts count once the pull request is ready,
-   *  on the same head, so the head can then conclude again. Each CONCLUDED
-   *  sets it. A new head starts with `concluded` false, so a stale value
-   *  changes nothing. */
-  concludedAsDraft: boolean
 }
 
 /** What one poll read. */
@@ -434,22 +434,20 @@ const seededMemory = (
     memory.set(number, {
       sha,
       reported: new Map(),
-      concluded: false,
+      concluded: null,
       seeded: true,
       seenHeads: new Set([sha]),
       pending: null,
-      concludedAsDraft: false,
     })
   }
   for (const [number, sha] of concluded) {
     memory.set(number, {
       sha,
       reported: new Map(),
-      concluded: true,
+      concluded: 'final',
       seeded: true,
       seenHeads: new Set([sha]),
       pending: null,
-      concludedAsDraft: false,
     })
   }
   return memory
@@ -504,11 +502,10 @@ const pullLines = (
     tracked = {
       sha: pull.headSha,
       reported: new Map(),
-      concluded: false,
+      concluded: null,
       seeded: false,
       seenHeads: new Set([pull.headSha]),
       pending: null,
-      concludedAsDraft: false,
     }
     memory.set(pull.number, tracked)
     quiet = true
@@ -517,16 +514,17 @@ const pullLines = (
     tracked.sha = pull.headSha
     tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
-    tracked.concluded = false
+    tracked.concluded = null
     quiet = true
   } else if (tracked.seeded) {
     quiet = true
+    // The caller does not say how a seeded head concluded. A draft that
+    // has draft-skipped contexts now concluded without them (#365).
+    if (tracked.concluded !== null && pull.draft && split.draftSkipped.length > 0) {
+      tracked.concluded = 'draft'
+    }
   }
   tracked.seeded = false
-  // A draft that concluded without its draft-skipped contexts is now
-  // ready: those contexts count, so the head concludes again (#365).
-  // The next CONCLUDED sets `concludedAsDraft` again.
-  if (tracked.concludedAsDraft && !pull.draft) tracked.concluded = false
 
   for (const context of contexts) {
     if (context.conclusion === null) continue
@@ -543,9 +541,11 @@ const pullLines = (
   const complete =
     contexts.length + split.draftSkipped.length > 0 &&
     contexts.every((context) => context.conclusion !== null)
-  if (complete && !tracked.concluded) {
-    tracked.concluded = true
-    tracked.concludedAsDraft = split.draftSkipped.length > 0
+  // A head that concluded as a draft concludes again once it is ready:
+  // its draft-skipped contexts then count (#365).
+  const again = tracked.concluded === 'draft' && !pull.draft
+  if (complete && (tracked.concluded === null || again)) {
+    tracked.concluded = split.draftSkipped.length > 0 ? 'draft' : 'final'
     const failed = failures(contexts)
     const verdict = failed.length === 0 ? 'all passed' : `failed: ${failed.join(', ')}`
     const later =
@@ -770,7 +770,7 @@ export const runWatch = async (
       quietSince = context.now()
     } else if (context.now() - quietSince >= HEARTBEAT_MS) {
       const open = memory.size
-      const done = [...memory.values()].filter((tracked) => tracked.concluded).length
+      const done = [...memory.values()].filter((tracked) => tracked.concluded !== null).length
       context.write(
         `heartbeat: ${open} open pull request${open === 1 ? '' : 's'}, ${done} concluded, ` +
           'no change in 10 minutes',
