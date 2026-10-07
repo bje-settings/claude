@@ -32,7 +32,7 @@ flowchart TD
     E -->|no-run| F([Close and reopen the pull request, then return])
     E -->|fixing| G2([Return: name the contexts that failed,<br/>and each open bot thread apart])
 
-    E -->|review-1 or review-2,<br/>review-1 whatever CI says| M{the plan or the caller names a review model?}
+    E -->|review-1, any CI verdict,<br/>or review-2| M{the plan or the caller names a review model?}
     M -->|Yes| I
     M -->|No, never a question| M1[Choose one: opus for round 2, logic,<br/>or new behaviour at the top of a stream;<br/>sonnet for any other round 1] --> I
     I[Brief from the round template;<br/>round 2 adds its own rules and round 1's findings,<br/>from the return the caller passes]

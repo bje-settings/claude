@@ -210,7 +210,7 @@ commits changed code logic, or logic landed after the head that round 1 reviewed
 | `awaiting-pr` | GitHub said this pull request number does not exist. A failed read gives `state: null` instead. |
 | `merged`, `closed` | The pull request already finished. Report it, and dispatch no round. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
-| `review-1`, `review-2` | Dispatch a round. Round 1 does not wait for CI (#384): it reads CI when its reviewers return, and fixes a failed check in the same pass. |
+| `review-1`, `review-2` | Dispatch a round. Round 1 does not wait for CI (#384). It reads CI when its reviewers return, and fixes a failed check in the same pass. |
 | `fixing` | CI is not green after a round, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
 | `rot-check` | Check the title and body against the final diff. |
 | `done` | Two rounds at most, CI green, no unresolved thread from a person, the body true. A bot's own thread can still be open. |

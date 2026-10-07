@@ -87,7 +87,7 @@ flowchart TD
     NR -->|Yes| NR1[Re-run the failed jobs once] --> X
     NR -->|No| N5[Resume it with SendMessage] --> X
     N4 -->|No agent: a person's pull request| S4([Stop: report red CI]):::stop
-    N -->|review-1, review-2, rot-check,<br/>review-1 whatever CI says| N7{an agent at work on it,<br/>the layer agent or a round agent?}
+    N -->|review-1 with any CI verdict,<br/>review-2, rot-check| N7{an agent at work on it,<br/>the layer agent or a round agent?}
     N7 -->|Yes| X
     N7 -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
     N -->|merged| NM[Report it; never a review] --> R
