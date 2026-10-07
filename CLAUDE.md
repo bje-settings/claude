@@ -160,6 +160,9 @@ setup.
 on `.ts`, and `tsc`, `biome` and their language servers run the same pinned `node_modules`. When
 you change a child server, change `.claude/lsp-merge.json`, not `enabledPlugins`.
 
+`.claude/settings.json` also enables each other plugin in this marketplace: `gh`, `workstreams`,
+`mermaid` and `audit`. When you add a plugin to the marketplace, add it to `enabledPlugins` too.
+
 Otherwise `.claude/settings.json` matches SurveyMonkey/skills' settings: it turns off auto memory
 (`autoMemoryEnabled`) and strips the attribution trailer (`attribution`).
 
