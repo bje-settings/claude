@@ -347,14 +347,16 @@ describe('namesOrHead', () => {
   })
 
   it('falls back to the names that reported on the head when no ruleset covers the base', () => {
-    expect(namesOrHead([], [check('CodeQL', 'SUCCESS'), check('vitest', null)])).toEqual({
+    const running = fromRun(check('vitest', null), 1, OLD, null)
+
+    expect(namesOrHead([], [check('CodeQL', 'SUCCESS'), running])).toEqual({
       names: ['CodeQL', 'vitest'],
       from: 'head',
     })
   })
 
   it('drops a matrix placeholder name from the head list (ruling 5)', () => {
-    const checks = [check(PLACEHOLDER, 'CANCELLED'), check('vitest', null)]
+    const checks = [check(PLACEHOLDER, 'CANCELLED'), fromRun(check('vitest', null), 1, OLD, null)]
 
     expect(namesOrHead([], checks)).toEqual({ names: ['vitest'], from: 'head' })
   })
@@ -377,6 +379,41 @@ describe('namesOrHead', () => {
 
   it('keeps a placeholder-shaped name that a ruleset requires', () => {
     expect(namesOrHead([PLACEHOLDER], [])).toEqual({ names: [PLACEHOLDER], from: 'ruleset' })
+  })
+
+  describe('a pending check with no workflow run (#383)', () => {
+    const pendingStatus: CheckContext = {
+      name: 'gitStream.cm',
+      status: null,
+      conclusion: null,
+      startedAt: null,
+    }
+
+    it('drops it from the head list', () => {
+      expect(namesOrHead([], [check('vitest', 'SUCCESS'), pendingStatus])).toEqual({
+        names: ['vitest'],
+        from: 'head',
+      })
+    })
+
+    it('keeps it once it has concluded', () => {
+      const ended = { ...pendingStatus, conclusion: 'FAILURE' }
+
+      expect(namesOrHead([], [ended])).toEqual({ names: ['gitStream.cm'], from: 'head' })
+    })
+
+    it('keeps a pending check that has a run', () => {
+      const running = fromRun(check('lint', null, OLD), 1, OLD, null)
+
+      expect(namesOrHead([], [running])).toEqual({ names: ['lint'], from: 'head' })
+    })
+
+    it('keeps it when a ruleset requires it', () => {
+      expect(namesOrHead(['gitStream.cm'], [pendingStatus])).toEqual({
+        names: ['gitStream.cm'],
+        from: 'ruleset',
+      })
+    })
   })
 })
 

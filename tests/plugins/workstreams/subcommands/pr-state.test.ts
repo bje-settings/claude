@@ -189,10 +189,11 @@ describe('the facts it reads', () => {
     expect(report.comments).toBe(2)
   })
 
-  it('leaves fixing once every unresolved thread is a bot preview, and names them', async () => {
+  it('holds fixing while every unresolved thread is a bot preview, and names them', async () => {
     // #219: 12 of #213's 13 unresolved threads were the mermaid-preview
-    // workflow, posted by `github-actions` on every changed file. A bot
-    // thread is informational, so it must not hold the loop at fixing.
+    // workflow, posted by `github-actions` on every changed file. #383
+    // (round 15 ruling 7) makes a bot thread hold fixing again: the
+    // review skill replies on each one and resolves it.
     const report = await reportOf(
       ['178', '--round', '1'],
       replies({
@@ -216,7 +217,7 @@ describe('the facts it reads', () => {
     // is: `renderReport`'s own `authors()` helper is what dedupes for a
     // person to read.
     expect(report.botThreadAuthors).toEqual(['github-actions', 'github-actions'])
-    expect(report.state).toBe('rot-check')
+    expect(report.state).toBe('fixing')
   })
 
   it('holds fixing on a mixed set, and names both counts apart', async () => {
@@ -1948,7 +1949,7 @@ describe('the report a person reads', () => {
     expect(answer.outcome === 'ok' && answer.value).toContain('comments: 0')
   })
 
-  it('names the bot threads on their own line, apart from the ones that hold fixing', async () => {
+  it('names the bot threads on their own line, apart from a person’s', async () => {
     const answer = await ran(
       ['178'],
       replies({
@@ -1968,7 +1969,9 @@ describe('the report a person reads', () => {
 
     const text = answer.outcome === 'ok' ? answer.value : ''
     expect(text).toContain('unresolved review threads: 1 (reviewer-a)')
-    expect(text).toContain('bot threads (informational, not waited on): 1 (github-actions)')
+    expect(text).toContain(
+      'bot threads (waited on, the review skill resolves them): 1 (github-actions)',
+    )
   })
 
   it('says nothing about bot threads when there are none', async () => {
@@ -2098,5 +2101,166 @@ describe('a draft and the checks that skip drafts (#365)', () => {
     const text = answer.outcome === 'ok' ? answer.value : ''
     expect(text).not.toContain('runs after ready for review')
     expect(text).toContain(`pending  ${ACTIONS}  not reported`)
+  })
+})
+
+describe('a bot thread holds fixing after a round (#383)', () => {
+  const PERSON = { author: 'reviewer-a', bot: false } as const
+  const BOT = { author: 'github-actions', bot: true } as const
+  const KINDS = [
+    ['no thread', []],
+    ['a person thread', [PERSON]],
+    ['a bot thread', [BOT]],
+    ['a person and a bot thread', [PERSON, BOT]],
+  ] as const
+  // Green CI. Round 0 gives review-1 whatever the threads (#384). After a
+  // round, any unresolved thread gives fixing, and none gives rot-check.
+  const EXPECTED: Record<string, readonly [LoopState, LoopState, LoopState]> = {
+    'no thread': ['review-1', 'rot-check', 'rot-check'],
+    'a person thread': ['review-1', 'fixing', 'fixing'],
+    'a bot thread': ['review-1', 'fixing', 'fixing'],
+    'a person and a bot thread': ['review-1', 'fixing', 'fixing'],
+  }
+
+  const withThreads = (threads: PullRequestDetail['unresolvedThreads'], checks?: CheckContext[]) =>
+    replies({
+      viewPullRequestDetail: {
+        pullRequest: detail({ unresolvedThreads: threads, ...(checks ? { checks } : {}) }),
+        unavailable: null,
+        missing: false,
+      },
+    })
+
+  for (const [kind, threads] of KINDS) {
+    for (const round of [0, 1, 2] as const) {
+      const expected = (EXPECTED[kind] as readonly LoopState[])[round]
+      it(`is ${expected} at round ${round} with ${kind} and green CI`, async () => {
+        const report = await reportOf(['178', '--round', String(round)], withThreads([...threads]))
+
+        expect(report.verdict).toBe('green')
+        expect(report.state).toBe(expected)
+      })
+    }
+  }
+
+  it('is fixing for a bot thread at round 2 with --rot-checked, not done', async () => {
+    const report = await reportOf(['178', '--round', '2', '--rot-checked'], withThreads([BOT]))
+
+    expect(report.botThreads).toBe(1)
+    expect(report.unresolvedThreads).toBe(0)
+    expect(report.state).toBe('fixing')
+  })
+
+  it('is review-1 at round 0 with a bot thread and red CI', async () => {
+    const red: CheckContext[] = [
+      { name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
+      { name: 'types', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null },
+    ]
+    const report = await reportOf(['178'], withThreads([BOT], red))
+
+    expect(report.verdict).toBe('red')
+    expect(report.state).toBe('review-1')
+  })
+})
+
+describe('a pending check with no workflow run, when no ruleset covers the base (#383)', () => {
+  const ACTIONS_RUN = {
+    id: 1000,
+    workflowId: 10,
+    workflow: 'CI',
+    createdAt: '2026-09-22T06:31:10Z',
+    conclusion: 'SUCCESS',
+  } as const
+  const vitest: CheckContext = {
+    name: 'vitest',
+    status: 'COMPLETED',
+    conclusion: 'SUCCESS',
+    startedAt: null,
+    run: ACTIONS_RUN,
+  }
+  /** A commit status reads with a null status, and with a null conclusion
+   *  while it is PENDING or EXPECTED (`lib/gh.ts` `readCheck`). */
+  const status = (name: string, conclusion: string | null): CheckContext => ({
+    name,
+    status: null,
+    conclusion,
+    startedAt: null,
+  })
+  /** A check run that no workflow made, such as one from an app. */
+  const appCheck = (name: string, state: string, conclusion: string | null): CheckContext => ({
+    name,
+    status: state,
+    conclusion,
+    startedAt: null,
+  })
+
+  const onTopicBase = (checks: CheckContext[], required: string[] = []) =>
+    replies({
+      viewPullRequestDetail: {
+        pullRequest: detail({ base: 'wktr-130-ws-sweep', checks }),
+        unavailable: null,
+        missing: false,
+      },
+      requiredContexts: { contexts: required, unavailable: null },
+    })
+
+  for (const [what, check] of [
+    ['a PENDING commit status', status('gitStream.cm', null)],
+    ['a QUEUED app check run', appCheck('gitStream.cm', 'QUEUED', null)],
+    ['an IN_PROGRESS app check run', appCheck('gitStream.cm', 'IN_PROGRESS', null)],
+    ['a WAITING app check run', appCheck('gitStream.cm', 'WAITING', null)],
+  ] as const) {
+    it(`leaves out ${what}, so the verdict is green when all else passed`, async () => {
+      const report = await reportOf(['178', '--round', '1'], onTopicBase([vitest, check]))
+
+      expect(report.contextsFrom).toBe('head')
+      expect(report.contexts.map((context) => context.name)).toEqual(['vitest'])
+      expect(report.verdict).toBe('green')
+      expect(report.state).toBe('rot-check')
+    })
+  }
+
+  it('still counts a concluded commit status with no run', async () => {
+    const report = await reportOf(['178'], onTopicBase([vitest, status('preview', 'FAILURE')]))
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'preview'])
+    expect(report.verdict).toBe('red')
+  })
+
+  it('still counts a concluded app check run with no run', async () => {
+    const report = await reportOf(
+      ['178'],
+      onTopicBase([vitest, appCheck('gitStream.cm', 'COMPLETED', 'SUCCESS')]),
+    )
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'gitStream.cm'])
+    expect(report.verdict).toBe('green')
+  })
+
+  it('still holds at pending on a pending check WITH a run', async () => {
+    const running: CheckContext = {
+      name: 'types',
+      status: 'IN_PROGRESS',
+      conclusion: null,
+      startedAt: null,
+      run: { ...ACTIONS_RUN, conclusion: null },
+    }
+    const report = await reportOf(['178', '--round', '1'], onTopicBase([vitest, running]))
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'types'])
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('fixing')
+  })
+
+  it('still holds at pending on a required check with no run, under a ruleset', async () => {
+    const report = await reportOf(
+      ['178', '--round', '1'],
+      onTopicBase([vitest, status('gitStream.cm', null)], ['vitest', 'gitStream.cm']),
+    )
+
+    expect(report.contextsFrom).toBe('ruleset')
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'gitStream.cm'])
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('fixing')
   })
 })

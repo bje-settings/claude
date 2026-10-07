@@ -271,6 +271,20 @@ export const splitDraftSkipped = (
   }
 }
 
+/**
+ * Whether a check has not concluded, and no workflow run made it.
+ *
+ * `lib/gh.ts` reads both kinds of check with no `run`. A commit status
+ * has no run. Its `PENDING` and `EXPECTED` states read as a null
+ * `conclusion`. A check run that no workflow made, such as one from an
+ * app, also has no run. Its `QUEUED`, `IN_PROGRESS` and `WAITING` states
+ * have a null `conclusion` too. So a null `conclusion` and an absent `run`
+ * are the whole test. A check of either kind that has concluded is not
+ * pending, and is never left out by this rule.
+ */
+const isPendingWithoutRun = (check: CheckContext): boolean =>
+  check.run === undefined && check.conclusion === null
+
 /** The names a head must pass, and where they came from. */
 export interface ContextNames<From extends string> {
   readonly names: readonly string[]
@@ -285,10 +299,18 @@ export interface ContextNames<From extends string> {
  * must know when it is settled. `pr-state` reads that from the workflow
  * runs on the head.
  *
- * The head list leaves out two kinds of name (#364). One is a name that
- * only a superseded cancelled run reported ({@link currentChecks}). The
- * other is a name that contains `${{`. That is a matrix job whose run
- * stopped before the matrix expanded, so no run reports it again.
+ * The head list leaves out three kinds of name. One is a name that only a
+ * superseded cancelled run reported ({@link currentChecks}, #364). One is
+ * a name that contains `${{`. That is a matrix job whose run stopped
+ * before the matrix expanded, so no run reports it again (#364).
+ *
+ * The third is a pending check with no workflow run behind it (#383,
+ * round 15 ruling 7): see {@link isPendingWithoutRun}. No workflow run on
+ * the head waits for it, so `pr-state` cannot know if it will conclude.
+ * One such check, from an app that never concluded it, held a stacked
+ * pull request at `pending`. When it concludes, its name counts again,
+ * with its conclusion. A check with a run is not changed by this rule.
+ * Under a ruleset, nothing is left out: a required name always counts.
  */
 export const namesOrHead = (
   required: readonly string[],
@@ -299,6 +321,7 @@ export const namesOrHead = (
     ? { names: required, from: 'ruleset' }
     : {
         names: currentChecks(checks, headRuns)
+          .filter((check) => !isPendingWithoutRun(check))
           .map((check) => check.name)
           .filter((name) => !name.includes(MATRIX_PLACEHOLDER)),
         from: 'head',
