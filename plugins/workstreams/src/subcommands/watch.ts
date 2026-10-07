@@ -73,7 +73,7 @@
 // ruling 5). On a draft head, a required context that no check on the head
 // names is left out when a check from a skipped check suite has a
 // `${{ ... }}` name that matches it. The CONCLUDED line names each one. When
-// the draft is marked ready, the same head can conclude again.
+// the draft is marked ready, the same head concludes again.
 //
 // The command function is the seam (ADR 001). Parsed arguments, a client
 // factory, a clock, a sleep and a writer go in. An envelope comes out.

@@ -618,7 +618,8 @@ CodeQL checks, and none of the required ones.
 
 On a draft head, `CONCLUDED` does not wait for a context in `pr-state`'s `draftSkipped`
 (#365). The line names each one after `runs after ready for review:`. When the person marks
-the draft ready, the same head can conclude again, after those contexts report.
+the draft ready, the same head concludes again, after those contexts report. A head given to
+`--concluded` does so only when the first poll finds it a draft.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
 So a cancelled run's check does not count in `watch` either, once a newer run of the same
