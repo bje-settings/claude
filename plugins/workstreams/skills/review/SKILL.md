@@ -2,7 +2,7 @@
 name: review
 description: Take one step of the review loop on one draft pull request, from its state. Dispatch a review round, record a finished one, reopen for a missing run, do the rot check, or report.
 argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--round-1-head <sha>] [--rot-checked] [round return]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(git worktree list *) Bash(git -C * diff *) Read Grep Glob Agent
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(gh api graphql *) Bash(git worktree list *) Bash(git -C * diff *) Read Grep Glob Agent
 user-invocable: false
 ---
 
@@ -61,8 +61,17 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 
 0. Called with a round agent's JSON return: check its `substantial` against
    `git -C <worktree> diff <from> <head>`. The diff decides the marker. Post that
-   round's marker, with its `Head` line for round 1, name any disagreement, then
-   return. A marker that did not post is a stop. Say so.
+   round's marker, with its `Head` line for round 1, name any disagreement. A marker
+   that did not post is a stop: say so, and settle no thread. Then settle each entry of
+   the return's `bot_threads`. Reply `Fixed in <commit>.`, or `Not changed: <reason>.`
+   when `commit` is `null`. Then resolve the thread, and return.
+
+   ```bash
+   gh api graphql -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{id}}}' -f id=<thread id> -f body='<reply>'
+   gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<thread id>
+   ```
+
+   A reply or a resolve that failed is a stop. Name the thread.
 
 1. Read the state once.
 
@@ -93,7 +102,7 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    | `merged`, `closed` | Nothing. The pull request already finished. Report the state, then return. |
    | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`. |
    | `review-1`, `review-2` | Step 3. CI can still run, or be red, at `review-1`: the round reads it. |
-   | `fixing` | Nothing. CI is not green, or a review thread from a person is unresolved. Name the contexts that failed. A bot's own thread, review bots such as Copilot included, is named under `botThreadAuthors`. It does not hold this state: say what it is. The loop can reach `done` with such a thread still open. |
+   | `fixing` | CI is not green, or a review thread is unresolved, from a person or a bot (`botThreads`, review bots such as Copilot included). Name the contexts that failed. A bot thread that no round settled, such as one a push opened after the round, is yours: read the threads with the query of [round-brief.md](round-brief.md) step 5. Settle each mermaid preview thread by its rule there, with the two calls of step 0. No round can run while this state holds. So name each other bot thread with its id, for the person, and stop. |
    | `rot-check` | Step 4. |
    | `done` | Step 5. |
 
@@ -123,5 +132,5 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    rounds returned. Then post the `Rot check done.` marker.
 
 5. Report five things: the state reached, what each round applied and rejected with its
-   reason, the rot check's corrections, anything returned under `lower_layer`, and any
-   thread still open under `botThreadAuthors`.
+   reason, the rot check's corrections, anything returned under `lower_layer`, and each
+   bot thread the caller settled, with its reply.

@@ -109,8 +109,10 @@ const isSuperseded = (run: CheckContext['run'], runs: readonly RunStamp[]): bool
  *
  * A run is superseded when it was cancelled, and a newer run of the same
  * workflow exists on the head. A check with no run, such as a commit
- * status, always counts. A check from a cancelled run that no newer run
- * follows also counts. That run is still the answer, and it is red.
+ * status, is never superseded. (With no ruleset, `pr-state` also leaves
+ * out a pending one: {@link isPendingWithoutRun}.) A check from a
+ * cancelled run that no newer run follows also counts. That run is
+ * still the answer, and it is red.
  *
  * The newer run is visible in two ways. Its own checks show it. When it
  * has made no check yet, only the head's workflow runs show it. The caller
@@ -271,6 +273,45 @@ export const splitDraftSkipped = (
   }
 }
 
+/**
+ * Whether a check has not concluded, and no workflow run made it.
+ *
+ * `lib/gh.ts` reads both kinds of check with no `run`. A commit status
+ * has no run. Its `PENDING` and `EXPECTED` states read as a null
+ * `conclusion`. A check run that no workflow made, such as one from an
+ * app, also has no run. Each `CheckStatusState` other than `COMPLETED`
+ * (`REQUESTED`, `QUEUED`, `IN_PROGRESS`, `WAITING`, `PENDING`) has a
+ * null `conclusion` too. So a null `conclusion` and an absent `run` are
+ * the whole test. A check of either kind that has concluded is not
+ * pending, and is never left out by this rule.
+ *
+ * `lib/gh.ts` also reads a workflow run that lacks a field as no run. So
+ * this rule also leaves out a pending Actions check whose run came back
+ * short. The verdict still waits for that run when its event is
+ * `pull_request`. `pr-state` reads those runs of the head. Its head list
+ * is not final until each one has completed.
+ */
+const isPendingWithoutRun = (check: CheckContext): boolean =>
+  check.run === undefined && check.conclusion === null
+
+/**
+ * The checks that answer for the names of the head list: all of them,
+ * less each pending check with no run whose name a check with a run also
+ * reports (#383, round 15 ruling 7).
+ *
+ * The check with a run then answers for the name. A pending check with
+ * no run is kept when no check with a run has its name. When an older
+ * check of that name with no run has concluded, the pending one is the
+ * newer report, such as a re-run of an app's check. It answers, so a
+ * stale conclusion does not.
+ */
+export const answeringChecks = (checks: readonly CheckContext[]): CheckContext[] => {
+  const withRun = new Set(
+    checks.filter((check) => check.run !== undefined).map((check) => check.name),
+  )
+  return checks.filter((check) => !(isPendingWithoutRun(check) && withRun.has(check.name)))
+}
+
 /** The names a head must pass, and where they came from. */
 export interface ContextNames<From extends string> {
   readonly names: readonly string[]
@@ -285,10 +326,20 @@ export interface ContextNames<From extends string> {
  * must know when it is settled. `pr-state` reads that from the workflow
  * runs on the head.
  *
- * The head list leaves out two kinds of name (#364). One is a name that
- * only a superseded cancelled run reported ({@link currentChecks}). The
- * other is a name that contains `${{`. That is a matrix job whose run
- * stopped before the matrix expanded, so no run reports it again.
+ * The head list leaves out three kinds of name. One is a name that only a
+ * superseded cancelled run reported ({@link currentChecks}, #364). One is
+ * a name that contains `${{`. That is a matrix job whose run stopped
+ * before the matrix expanded, so no run reports it again (#364).
+ *
+ * The third is a pending check with no workflow run behind it (#383,
+ * round 15 ruling 7): see {@link isPendingWithoutRun}. No workflow run on
+ * the head waits for it, so `pr-state` cannot know if it will conclude.
+ * One such check, from an app that never concluded it, held a stacked
+ * pull request at `pending`. When it concludes, its name counts again,
+ * with its conclusion. A check with a run is not changed by this rule.
+ * When a check with a run has the same name, that check answers for it.
+ * `pr-state` gives {@link reportContexts} the {@link answeringChecks}.
+ * Under a ruleset, nothing is left out: a required name always counts.
  */
 export const namesOrHead = (
   required: readonly string[],
@@ -299,6 +350,7 @@ export const namesOrHead = (
     ? { names: required, from: 'ruleset' }
     : {
         names: currentChecks(checks, headRuns)
+          .filter((check) => !isPendingWithoutRun(check))
           .map((check) => check.name)
           .filter((name) => !name.includes(MATRIX_PLACEHOLDER)),
         from: 'head',

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CheckContext } from '#harness/gh.ts'
 import {
+  answeringChecks,
   namesOrDefault,
   namesOrHead,
   needsHeadRuns,
@@ -347,14 +348,16 @@ describe('namesOrHead', () => {
   })
 
   it('falls back to the names that reported on the head when no ruleset covers the base', () => {
-    expect(namesOrHead([], [check('CodeQL', 'SUCCESS'), check('vitest', null)])).toEqual({
+    const running = fromRun(check('vitest', null), 1, OLD, null)
+
+    expect(namesOrHead([], [check('CodeQL', 'SUCCESS'), running])).toEqual({
       names: ['CodeQL', 'vitest'],
       from: 'head',
     })
   })
 
   it('drops a matrix placeholder name from the head list (ruling 5)', () => {
-    const checks = [check(PLACEHOLDER, 'CANCELLED'), check('vitest', null)]
+    const checks = [check(PLACEHOLDER, 'CANCELLED'), fromRun(check('vitest', null), 1, OLD, null)]
 
     expect(namesOrHead([], checks)).toEqual({ names: ['vitest'], from: 'head' })
   })
@@ -377,6 +380,88 @@ describe('namesOrHead', () => {
 
   it('keeps a placeholder-shaped name that a ruleset requires', () => {
     expect(namesOrHead([PLACEHOLDER], [])).toEqual({ names: [PLACEHOLDER], from: 'ruleset' })
+  })
+
+  describe('a pending check with no workflow run (#383)', () => {
+    const pendingStatus: CheckContext = {
+      name: 'gitStream.cm',
+      status: null,
+      conclusion: null,
+      startedAt: null,
+    }
+
+    it('drops it from the head list', () => {
+      expect(namesOrHead([], [check('vitest', 'SUCCESS'), pendingStatus])).toEqual({
+        names: ['vitest'],
+        from: 'head',
+      })
+    })
+
+    it('keeps it once it has concluded', () => {
+      const ended = { ...pendingStatus, conclusion: 'FAILURE' }
+
+      expect(namesOrHead([], [ended])).toEqual({ names: ['gitStream.cm'], from: 'head' })
+    })
+
+    it('keeps a check with no run whose conclusion is an empty string', () => {
+      const blank = { ...pendingStatus, conclusion: '' }
+
+      expect(namesOrHead([], [blank])).toEqual({ names: ['gitStream.cm'], from: 'head' })
+    })
+
+    it('keeps a pending check that has a run', () => {
+      const running = fromRun(check('lint', null, OLD), 1, OLD, null)
+
+      expect(namesOrHead([], [running])).toEqual({ names: ['lint'], from: 'head' })
+    })
+
+    it('keeps it when a ruleset requires it', () => {
+      expect(namesOrHead(['gitStream.cm'], [pendingStatus])).toEqual({
+        names: ['gitStream.cm'],
+        from: 'ruleset',
+      })
+    })
+  })
+})
+
+describe('answeringChecks (#383)', () => {
+  const pending = (startedAt: string | null = null): CheckContext => ({
+    name: 'vitest',
+    status: null,
+    conclusion: null,
+    startedAt,
+  })
+
+  it('drops a pending check with no run whose name a check with a run reports', () => {
+    const ran = fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+
+    expect(answeringChecks([ran, pending(NEW)])).toEqual([ran])
+  })
+
+  it('keeps a pending check with no run whose name no check with a run reports', () => {
+    const ran = fromRun(check('types', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+
+    expect(answeringChecks([ran, pending()])).toEqual([ran, pending()])
+  })
+
+  it('keeps a newer pending check with no run beside a concluded one with no run', () => {
+    const ended = { ...pending(OLD), conclusion: 'SUCCESS' }
+
+    expect(answeringChecks([ended, pending(NEW)])).toEqual([ended, pending(NEW)])
+  })
+
+  it('keeps a concluded check with no run beside a check with a run', () => {
+    const ran = fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+    const ended = { ...pending(NEW), conclusion: 'FAILURE' }
+
+    expect(answeringChecks([ran, ended])).toEqual([ran, ended])
+  })
+
+  it('keeps a pending check with a run beside another check with a run', () => {
+    const first = fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+    const second = fromRun(check('vitest', null, NEW), 2, NEW, null)
+
+    expect(answeringChecks([first, second])).toEqual([first, second])
   })
 })
 

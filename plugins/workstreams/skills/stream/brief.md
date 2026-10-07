@@ -37,11 +37,27 @@ watching you.
 
 ## Your pull request
 
-Run `(cd <worktree> && gh stack submit --auto)`. Never run `gh pr create`. A layer's
-pull request is created as part of the stack, so the GitHub UI shows it as one from the
-first push. `--auto` skips the editor, and creates new pull requests as drafts. It takes
-no title, and names the pull request after the branch. So `gh pr edit <n> --title
-"<title>" --body-file <file>` is the VERY NEXT command. The body ends `Closes <#issue>`.
+Run `(cd <worktree> && gh stack submit --auto)`. Do not run `gh pr create`, except in
+the first case below. A layer's pull request is created as part of the stack, so the
+GitHub UI shows it as one from the first push. `--auto` skips the editor, and creates new
+pull requests as drafts. It takes no title, and names the pull request after the branch.
+So `gh pr edit <n> --title "<title>" --body-file <file>` is the VERY NEXT command. The body
+ends `Closes <#issue>`.
+
+Two cases differ:
+
+- `gh stack submit` fails because stacks are not enabled: run `git -C <worktree> push -u
+  origin <your branch>`, then `gh pr create --draft --base <lower branch> --head <your
+  branch> --title "<title>" --body-file <file>`. Without `--title`, `gh pr create`
+  prompts.
+- Your layer joins a GitHub stack that this worktree did not initialise: run
+  `(cd <worktree> && gh stack link <stack number or lower PR> <your branch>)`. It pushes
+  the branch and opens its pull request. Then run the `gh pr edit` above on it, and
+  `gh pr ready --undo <n>` if it is not a draft.
+
+A permission check can refuse any of these commands. Then stop, and return the exact
+command for the person.
+
 Both `gh stack submit` and `gh stack push` have opened a head with no `pull_request`
 workflows on it (rounds 5 to 7). That is why the run check below follows every push.
 

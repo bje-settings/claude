@@ -80,6 +80,14 @@ reaches step 3 and cannot ask.
    - When the records do not say so: ask this one question, with disabling the hook as
      the recommendation, and the per-push cost stated.
 
+   Read each CI workflow's `pull_request` filter: Grep `.github/workflows/` in the root
+   checkout for `pull_request`, and the `branches` or `branches-ignore` lines below it.
+   The filter matches the base branch. In a GitHub stack, CI for the default branch runs on
+   each layer. Without one, as when stacks are not enabled, an upper layer's base can get
+   no `pull_request` CI. Then post one comment on each issue of the round. Name the layer,
+   and give its order: merge the layer below, retarget this layer onto the branch it
+   merged into, then CI runs.
+
    Note any open pull request of another effort that shares files with the round.
 
 9. Report what was asked and answered, what was ruled instead and why, the rulings comment,

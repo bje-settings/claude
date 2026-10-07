@@ -18,6 +18,11 @@
 // command that carried either list in its source would report the wrong
 // answer for half the pull requests a stack is made of.
 //
+// **A bot's thread holds the loop too** (#383, round 15 ruling 7). This
+// reverses the part of #219 that left bot threads out of `fixing`. #219's
+// acceptance still holds through its second option: the report names each
+// bot thread apart, and `skills/review` says what to do with it.
+//
 // The judgement is in `skills/review`. This command says what is true, and
 // which state that adds up to. It says nothing about what to do next. The
 // close-and-reopen remedy for a head with no workflow run, the wait, the
@@ -35,6 +40,7 @@ import type {
   WorkflowRun,
 } from '../lib/gh.ts'
 import {
+  answeringChecks,
   namesOrHead,
   type ReportedContext,
   reportContexts,
@@ -94,7 +100,9 @@ A check from a cancelled workflow run does not count when a newer run of the
 same workflow exists on the head, also when that run has made no check yet and has not completed.
 A name the newer run has not reported yet is pending, not failed. When no
 ruleset covers the base, the head list also leaves out a name that contains
-\${{, an unexpanded matrix job.
+\${{, an unexpanded matrix job. It also leaves out a check that has not
+concluded and has no workflow run, such as a pending commit status (#383).
+Such a check does not answer for a name that a check with a run reports.
 
 On a draft, a required context that no check on the head names is left out
 of the verdict when a check on the head, from a check suite that concluded
@@ -108,6 +116,14 @@ With --round 0, a pull request with a workflow run for its head is
 review-1 when the verdict is green, pending or red. The first review starts
 while CI runs, and the round reads CI when its reviewers return. After a
 round, CI that is not green gives fixing, and done needs green.
+
+After a round, an unresolved review thread also gives fixing, from a
+person or from a bot (#383). "botThreads" counts the bot threads apart
+from "unresolvedThreads". This reverses part of #219. #219 still holds
+by its second option: the report names each bot thread. The review skill
+replies on and resolves each one that a round settled, and each mermaid
+preview thread. It names each other bot thread for the person. A plain
+comment never holds the loop.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
@@ -220,11 +236,15 @@ export interface PrStateReport {
   readonly runsForHead: readonly ReportedRun[]
   readonly verdict: Verdict
   /** Unresolved review threads from a PERSON. These hold the loop at
-   *  `fixing`. A bot's own thread is named apart, under `botThreads`. */
+   *  `fixing`. A bot's own thread is named apart, under `botThreads`, and
+   *  holds it too (#383). */
   readonly unresolvedThreads: number
   readonly unresolvedThreadAuthors: readonly string[]
   /** Unresolved review threads whose first comment came from a bot account.
-   *  Informational: the round names them and does not wait on them. */
+   *  They hold the loop at `fixing` after a round, as a person's thread
+   *  does (#383, which reverses part of #219). The review skill replies
+   *  on and resolves each one that a round settled, and each mermaid
+   *  preview thread. It names each other one for the person. */
   readonly botThreads: number
   readonly botThreadAuthors: readonly string[]
   readonly comments: number
@@ -293,13 +313,15 @@ export const verdictOf = (
  * threads and markers do not change it. A pull request that finished
  * stays final.
  *
- * An unresolved review THREAD from a PERSON keeps the loop in `fixing`,
- * however green CI is. A thread is work someone still waits on. The
- * caller leaves a bot's own thread out of `facts.unresolvedThreads`
- * before it calls this (#219). That thread is informational, and a loop
- * that waited on it would never reach `done`. A plain comment does not
- * hold the loop either, for the same reason. The enterprise coverage bot
- * posts one on every pull request here.
+ * An unresolved review THREAD keeps the loop in `fixing`, however green
+ * CI is. A thread is work someone still waits on. The caller counts a
+ * bot's own thread in `facts.unresolvedThreads` too (#383, round 15
+ * ruling 7). That reverses part of #219, which left bot threads out
+ * because nobody answered them. Now the review skill replies on and
+ * resolves each one that a round settled, and each mermaid preview
+ * thread. It names each other one for the person. A plain comment does not
+ * hold the loop. The enterprise coverage bot posts one on every pull
+ * request here, and nobody resolves a comment.
  */
 export const deriveState = (facts: {
   /** True only when GitHub itself said this pull request number does not
@@ -524,12 +546,12 @@ export const renderReport = (report: PrStateReport): string => {
       authors(report.unresolvedThreadAuthors),
     `comments: ${report.comments}${authors(report.commentAuthors)}`,
   )
-  // A bot's own thread is informational (#219). The line names it apart
-  // from the count that holds the loop at `fixing`. It says nothing at
-  // all when there is none.
+  // A bot's own thread holds the loop at `fixing` too (#383). The line
+  // names it apart from a person's, so a reader knows who must answer.
+  // It says nothing at all when there is none.
   if (report.botThreads > 0) {
     lines.push(
-      `bot threads (informational, not waited on): ${report.botThreads}` +
+      `bot threads (waited on after a round): ${report.botThreads}` +
         authors(report.botThreadAuthors),
     )
   }
@@ -551,17 +573,17 @@ export interface PrStateContext {
   readonly gh: GhClient
 }
 
-/** The unresolved threads, split into two lists: the ones that hold the
- *  loop, and the ones a bot opened (#219). A thread reads as a person's
+/** The unresolved threads, split into two lists: a person's and a bot's
+ *  (#219). Both hold the loop (#383). A thread reads as a person's
  *  when its `bot` flag is not `true`. This is the safe side, the same one
  *  an unknown author takes in {@link PullRequestDetail}. */
 const threadsOf = (
   detail: PullRequestDetail | null,
-): { blocking: readonly string[]; bots: readonly string[] } => {
-  if (detail === null) return { blocking: [], bots: [] }
-  const blocking = detail.unresolvedThreads.filter((thread) => !thread.bot).map((t) => t.author)
+): { people: readonly string[]; bots: readonly string[] } => {
+  if (detail === null) return { people: [], bots: [] }
+  const people = detail.unresolvedThreads.filter((thread) => !thread.bot).map((t) => t.author)
   const bots = detail.unresolvedThreads.filter((thread) => thread.bot).map((t) => t.author)
-  return { blocking, bots }
+  return { people, bots }
 }
 
 /** The report's pull request half, filled in or left unread. */
@@ -591,8 +613,8 @@ const pullRequestFields = (
         head: null,
         headSha: null,
         mergeable: null,
-        unresolvedThreads: threads.blocking.length,
-        unresolvedThreadAuthors: threads.blocking,
+        unresolvedThreads: threads.people.length,
+        unresolvedThreadAuthors: threads.people,
         botThreads: threads.bots.length,
         botThreadAuthors: threads.bots,
         comments: 0,
@@ -605,8 +627,8 @@ const pullRequestFields = (
         head: detail.head,
         headSha: detail.headSha,
         mergeable: detail.mergeable,
-        unresolvedThreads: threads.blocking.length,
-        unresolvedThreadAuthors: threads.blocking,
+        unresolvedThreads: threads.people.length,
+        unresolvedThreadAuthors: threads.people,
         botThreads: threads.bots.length,
         botThreadAuthors: threads.bots,
         comments: detail.commentAuthors.length,
@@ -723,8 +745,11 @@ export const runPrState = async (
   const fromRuleset = list.from === 'ruleset'
   // On a draft, a context that a skipped matrix check stands for is not
   // part of the verdict (#365, round 15 ruling 5).
+  // With no ruleset, a pending check with no run does not answer for a
+  // name that a check with a run also reports (#383, round 15 ruling 7).
+  const answering = fromRuleset ? checks : answeringChecks(checks)
   const split = splitDraftSkipped(
-    reportContexts(checks, list.names, runsForHead),
+    reportContexts(answering, list.names, runsForHead),
     checks,
     detail?.draft === true,
   )
@@ -776,7 +801,8 @@ export const runPrState = async (
       missing: viewed.missing,
       pullRequestState: detail === null ? null : detail.state,
       verdict,
-      unresolvedThreads: threadsOf(detail).blocking.length,
+      // A person's thread and a bot's both hold the loop (#383).
+      unresolvedThreads: detail === null ? 0 : detail.unresolvedThreads.length,
       round,
       substantial,
       // When the command reads no compare, the fact is false and the state

@@ -211,9 +211,9 @@ commits changed code logic, or logic landed after the head that round 1 reviewed
 | `merged`, `closed` | The pull request already finished. Report it, and dispatch no round. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
 | `review-1`, `review-2` | Dispatch a round. Round 1 does not wait for CI (#384). It reads CI when its reviewers return, and fixes a failed check in the same pass. |
-| `fixing` | CI is not green after a round, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
+| `fixing` | CI is not green after a round, or a review thread is unresolved, from a person or a bot (#383). The round settles each bot thread as a finding, and the skill replies on it and resolves it. A mermaid preview thread is rejected as informational. Another bot thread that no round settled goes to the person. |
 | `rot-check` | Check the title and body against the final diff. |
-| `done` | Two rounds at most, CI green, no unresolved thread from a person, the body true. A bot's own thread can still be open. |
+| `done` | Two rounds at most, CI green, no unresolved thread, the body true. |
 
 The rules a round runs under are in `skills/review/round-brief.md`, the brief template.
 `round-2.md` adds the round 2 rules. `rot-check.md` covers the caller's last step. Each
@@ -266,7 +266,10 @@ The dispatch prompt points at the file. It repeats only the lines most often got
 `gh stack` has no `-C` flag, so the brief allows it in one form only,
 `(cd <worktree> && gh stack ...)`. The layer's first `gh stack` command is `init` for the
 bottom layer, or `add` for an upper one. The layer reads the root checkout's branch before
-and after it, and stops if the root moved.
+and after it, and stops if the root moved. When `gh stack submit` fails because stacks are
+not enabled, the layer pushes with `git push` and opens a draft with `gh pr create --draft`.
+A layer that joins a GitHub stack its worktree did not initialise uses `gh stack link` (#383,
+#366). A permission check can refuse either one; the layer then returns the command.
 A layer runs only the tests related to its changes. CI's full suite is the coverage gate.
 The layer returns after its push and the run check, and does not wait for CI (#272). The
 caller reads CI with `pr-state`, and resumes the agent with `SendMessage` when CI goes red.
@@ -408,7 +411,9 @@ plugin is present (otherwise the skill fast-forwards the default branch itself),
 ignored leftover under `plugins/`, and a preflight for a local hook that runs a full
 suite on every push. That hook is disabled for the round only when the repository's own
 records say CI is the enforcement boundary. Otherwise the skill asks about it once, with
-the per-push cost stated.
+the per-push cost stated. It also reads each workflow's `pull_request` branch filter. When
+an upper layer's base gets no CI, it says so on the round's issues, with the order: merge
+the layer below, retarget, then CI runs (#383).
 
 It is `user-invocable: false`. `/workstreams:start` invokes it after a sweep.
 
@@ -499,7 +504,15 @@ check on the head (#364). Workflow concurrency cancels a run that way. `pr-state
 runs for the head, so a newer run that has made no check yet supersedes it too (#370). A name the
 newer run has not reported yet is pending, not failed. A newer run that completed with no check does not
 supersede, since it will make none. The list from the head also leaves out a name that contains
-`${{`, a matrix job that did not expand.
+`${{`, a matrix job that did not expand. A commit status has no run, so no newer run supersedes it.
+
+With no ruleset, the list from the head also leaves out a pending check with no workflow run
+behind it (#383): a commit status at `PENDING` or `EXPECTED`, or a check run that no workflow
+made, with no conclusion. Nothing on the head waits for it, so it could hold the verdict at
+`pending` with no end. Once it concludes, it counts. A check with a run, and each name a ruleset
+requires, still counts while it is pending. When a check with a run reports the same name, that
+check answers for it. When only checks with no run report it, a newer pending one still answers,
+such as a re-run of an app's check.
 
 A workflow can skip a job on a draft, and run it after the pull request is ready for review
 (#365). GitHub skips a matrix job before the matrix expands, so its check keeps the
@@ -514,11 +527,14 @@ heuristic: a skipped check with a broad name, such as `${{ matrix.os }}`, matche
 required name with no parenthesis.
 
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
-has answered nothing for a head whose runs existed. Only an unresolved thread from a
-PERSON holds the loop. A bot's own thread, review bots included, is counted apart under
-`botThreads` and does not hold it (#219). A plain comment is never counted at all: the
-enterprise coverage bot posts a comment on every pull request, and a loop that counted it
-would never reach `done`.
+has answered nothing for a head whose runs existed. After a round, an unresolved thread holds
+the loop at `fixing`, from a person or from a bot. A bot's own thread, review bots included, is
+counted apart under `botThreads` (#383, round 15 ruling 7). This reverses part of #219, which
+left bot threads out. #219 still holds by its second option: the report names each bot thread.
+`/workstreams:review` replies on and resolves each one that a round settled, and each mermaid
+preview thread. It names each other bot thread for the person. A plain comment is never counted at
+all: the enterprise coverage bot posts a comment on every pull request, and nobody resolves a
+comment.
 
 `--round`, `--substantial`, `--round-1-head` and `--rot-checked` are the four facts the
 command cannot read. `/workstreams:start` reads them from the marker comments that

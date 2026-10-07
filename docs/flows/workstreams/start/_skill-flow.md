@@ -67,7 +67,9 @@ flowchart TD
     T4 -->|Yes, or no run: its state acts| K
     T3 -->|No| K{a conflict between two streams?}
     K -->|Yes| K1([Hold that stream; ask one question<br/>with a recommended redirect]):::pause
-    K1 --> K2[Record the ruling on this round's issues;<br/>name another round's pull request] --> N
+    K1 --> K2[Record the ruling on this round's issues;<br/>name another round's pull request] --> KR{the ruling restacks one stream<br/>onto the other?}
+    KR -->|No| N
+    KR -->|Yes, in a gap| KR1[Rebase the upper branch, push it, set its base, link the two pull requests;<br/>that worktree then pushes with git push --force-with-lease only] --> N
     K -->|No| Q{a decision the plan does not answer?}
     Q -->|No| N{state of each pull request}
     Q -->|a recommended option, cheap to reverse,<br/>no issue, layer or acceptance line added or dropped,<br/>behaviour changed only where a round issue names it| Q1[Ruling: apply it; record it on each issue;<br/>name it in this tick's report] --> N
@@ -79,6 +81,7 @@ flowchart TD
     N1 -->|Yes| S2([Stop]):::stop
     N -->|fixing| NF{a round agent at work on it?}
     NF -->|Yes| X
+    NF -->|No, CI green, a bot thread<br/>that no round settled| NB[Invoke /workstreams:review once for this head;<br/>a second such wake is a stop] --> X
     NF -->|No, CI pending or a thread open| N3{ten wakes on this state?<br/>a check report does not count}
     N3 -->|No| X
     N3 -->|Yes| S3([Stop: name the contexts not reported]):::stop
