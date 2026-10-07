@@ -38,7 +38,7 @@ flowchart TD
     J -->|No| S1([verdict unavailable, no state,<br/>reasons listed, exit 0]):::stop
     J -->|Yes| K{A pull_request run<br/>for the head commit?}
     K -->|No| S2([state no-run, exit 0])
-    K -->|Yes| K3[Drop each check of a cancelled run<br/>that a newer run of its workflow follows]
+    K -->|Yes| K3[Drop each check of a cancelled run<br/>that a newer run of its workflow follows,<br/>with or without a check yet]
     K3 --> L[Contexts: the ruleset's list, or the checks<br/>on the head, less unexpanded matrix names,<br/>when no ruleset names any]
     L --> V[Verdict: red if one failed; pending if one has not<br/>concluded, or the list is empty or not settled; else green]
     V --> Q{Review rounds completed?}
@@ -69,10 +69,10 @@ wait-hint read adds a reason to the list but does not change the verdict. An unr
 from a person blocks `done`.
 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
-check on the head (#364). After the newer run makes its first check, a name it has not reported
-yet is pending, not failed. Before that check, the cancelled run's checks still count, because
-the check list shows no newer run. A cancelled run that no newer run follows still counts. A
-commit status has no run, so it always counts. The list from the head leaves out a name that
+check on the head (#364). `pr-state` also reads the runs for the head, so a newer run that has
+made no check yet supersedes it too (#370). A name the newer run has not reported yet is pending,
+not failed. A cancelled run that no newer run follows still counts. A commit status has no run, so
+it always counts. The list from the head leaves out a name that
 contains `${{`, a matrix job that did not expand.
 
 A bot's own thread, a review bot such as Copilot included, is named apart. It does not block
