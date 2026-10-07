@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CheckContext } from '#harness/gh.ts'
 import {
+  answeringChecks,
   namesOrDefault,
   namesOrHead,
   needsHeadRuns,
@@ -420,6 +421,47 @@ describe('namesOrHead', () => {
         from: 'ruleset',
       })
     })
+  })
+})
+
+describe('answeringChecks (#383)', () => {
+  const pending = (startedAt: string | null = null): CheckContext => ({
+    name: 'vitest',
+    status: null,
+    conclusion: null,
+    startedAt,
+  })
+
+  it('drops a pending check with no run whose name a check with a run reports', () => {
+    const ran = fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+
+    expect(answeringChecks([ran, pending(NEW)])).toEqual([ran])
+  })
+
+  it('keeps a pending check with no run whose name no check with a run reports', () => {
+    const ran = fromRun(check('types', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+
+    expect(answeringChecks([ran, pending()])).toEqual([ran, pending()])
+  })
+
+  it('keeps a newer pending check with no run beside a concluded one with no run', () => {
+    const ended = { ...pending(OLD), conclusion: 'SUCCESS' }
+
+    expect(answeringChecks([ended, pending(NEW)])).toEqual([ended, pending(NEW)])
+  })
+
+  it('keeps a concluded check with no run beside a check with a run', () => {
+    const ran = fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+    const ended = { ...pending(NEW), conclusion: 'FAILURE' }
+
+    expect(answeringChecks([ran, ended])).toEqual([ran, ended])
+  })
+
+  it('keeps a pending check with a run beside another check with a run', () => {
+    const first = fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')
+    const second = fromRun(check('vitest', null, NEW), 2, NEW, null)
+
+    expect(answeringChecks([first, second])).toEqual([first, second])
   })
 })
 

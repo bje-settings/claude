@@ -1303,6 +1303,19 @@ describe('review round 1 starts when the pull request opens (#384)', () => {
       expect(deriveState({ ...open, round, verdict: 'red' })).toBe('fixing')
     })
 
+    // The thread rule comes after the no-run and unavailable rules (#383).
+    it(`is no-run at round ${round} with an unresolved thread and no run`, () => {
+      expect(deriveState({ ...open, round, verdict: 'no-run', unresolvedThreads: 1 })).toBe(
+        'no-run',
+      )
+    })
+
+    it(`is null at round ${round} with an unresolved thread and an unavailable verdict`, () => {
+      expect(
+        deriveState({ ...open, round, verdict: 'unavailable', unresolvedThreads: 1 }),
+      ).toBeNull()
+    })
+
     for (const verdict of ['pending', 'red'] as const) {
       it(`is fixing at round ${round} with ${verdict} CI, before a substantial round or new logic earns review-2`, () => {
         expect(
@@ -2192,6 +2205,8 @@ describe('a pending check with no workflow run, when no ruleset covers the base 
     conclusion,
     startedAt: null,
   })
+  const OLDER = '2026-09-22T06:35:00Z'
+  const NEWER = '2026-09-22T06:40:00Z'
   /** A check run that no workflow made, such as one from an app. */
   const appCheck = (name: string, state: string, conclusion: string | null): CheckContext => ({
     name,
@@ -2236,6 +2251,16 @@ describe('a pending check with no workflow run, when no ruleset covers the base 
       { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
     ])
     expect(report.verdict).toBe('green')
+  })
+
+  it('lets a newer pending app check answer for a name whose older check had no run', async () => {
+    // A re-run of an app's check: the stale conclusion must not answer.
+    const ended = { ...appCheck('gitStream.cm', 'COMPLETED', 'SUCCESS'), startedAt: OLDER }
+    const rerun = { ...appCheck('gitStream.cm', 'QUEUED', null), startedAt: NEWER }
+    const report = await reportOf(['178', '--round', '1'], onTopicBase([vitest, ended, rerun]))
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'gitStream.cm'])
+    expect(report.verdict).toBe('pending')
   })
 
   it('lets a newer pending status answer for its name under a ruleset', async () => {

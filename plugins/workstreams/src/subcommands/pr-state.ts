@@ -40,7 +40,7 @@ import type {
   WorkflowRun,
 } from '../lib/gh.ts'
 import {
-  isPendingWithoutRun,
+  answeringChecks,
   namesOrHead,
   type ReportedContext,
   reportContexts,
@@ -743,7 +743,7 @@ export const runPrState = async (
   // part of the verdict (#365, round 15 ruling 5).
   // With no ruleset, a pending check with no run does not answer for a
   // name that a check with a run also reports (#383, round 15 ruling 7).
-  const answering = fromRuleset ? checks : checks.filter((check) => !isPendingWithoutRun(check))
+  const answering = fromRuleset ? checks : answeringChecks(checks)
   const split = splitDraftSkipped(
     reportContexts(answering, list.names, runsForHead),
     checks,
