@@ -518,7 +518,7 @@ suite's `conclusion`. GraphQL's `WorkflowRun` has no conclusion field of its own
 has no `run`. A check run that no workflow made has none either: its suite answers a null
 `workflowRun`. A run that lacks a field is read as no `run`. `required-contexts.ts`
 `currentChecks` reads `run` to drop a cancelled run's checks once a newer run of the same
-workflow has a check on the head (#364). Two workflow files can have one name, so it compares
+workflow exists on the head (#364, #370). Two workflow files can have one name, so it compares
 `workflowId`.
 
 The threads and the comments are separate fields, because they are separate facts: the enterprise

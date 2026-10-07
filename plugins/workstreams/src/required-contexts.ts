@@ -16,7 +16,7 @@
 //
 // Both callers read the checks through the same filter (#364). A check
 // from a cancelled workflow run does not count when a newer run of the
-// same workflow has a check on the head. Workflow concurrency cancels a
+// same workflow exists on the head (#370). Workflow concurrency cancels a
 // run that way. The cancelled run's fan-in jobs then fail. A reader that
 // kept them would report red while the newer run still works.
 //
