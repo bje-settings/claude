@@ -19,7 +19,7 @@ flowchart TD
     C -->|Yes| R{a layer's return in view, not yet read?}
 
     R -->|Yes| S[Act on each of the five fields:<br/>constraints_checked, brief_vs_code,<br/>outside_set, lower_layer, injected_text_seen]
-    S --> S1([Report: pull request, head, CI state,<br/>and the five fields; the caller's tick step 2 is next])
+    S --> S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
 
     R -->|No| D{worktree for the stream exists?}
     D -->|No| D1[Create it once, from the planned tip;<br/>install from the lock file there] --> E

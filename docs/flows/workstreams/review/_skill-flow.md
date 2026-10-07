@@ -30,11 +30,9 @@ flowchart TD
     E -->|awaiting-pr| E1([Return: GitHub said this number does not exist]):::stop
     E -->|merged or closed| E1b([Return: the pull request already finished]):::stop
     E -->|no-run| F([Close and reopen the pull request, then return])
-    E -->|ci-pending| G([Return the state])
-    E -->|red| G1([Return: name the contexts that failed]):::stop
-    E -->|fixing| G2([Return: name each open bot thread apart])
+    E -->|fixing| G2([Return: name the contexts that failed,<br/>and each open bot thread apart])
 
-    E -->|review-1 or review-2| M{the plan or the caller names a review model?}
+    E -->|review-1, any CI verdict,<br/>or review-2| M{the plan or the caller names a review model?}
     M -->|Yes| I
     M -->|No, never a question| M1[Choose one: opus for round 2, logic,<br/>or new behaviour at the top of a stream;<br/>sonnet for any other round 1] --> I
     I[Brief from the round template;<br/>round 2 adds its own rules and round 1's findings,<br/>from the return the caller passes]
@@ -51,4 +49,6 @@ The round brief holds the rules inside the round agent. Reviewers are read-only,
 before any edit. The findings list comes before any edit, and goes in the return. Each
 finding and each rejection is cited. A claim that something is tested is mutated first.
 Round 2 checks round 1's commits before anything else. The round agent does not end its
-turn, or return, while a reviewer it dispatched still runs.
+turn, or return, while a reviewer it dispatched still runs. Then it reads CI and the unresolved
+threads once, and fixes them with the findings in one pass. It returns after the push and the run
+check, and does not watch CI.

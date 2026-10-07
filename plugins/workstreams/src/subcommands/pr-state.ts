@@ -104,6 +104,11 @@ after ready for review. "draftSkipped" names each one, and is empty when the
 pull request is not a draft. A draft whose only missing contexts are
 draft-skipped is green.
 
+With --round 0, a pull request with a workflow run for its head is
+review-1 when the verdict is green, pending or red. The first review starts
+while CI runs, and the round reads CI when its reviewers return. After a
+round, CI that is not green gives fixing, and done needs green.
+
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
 reason then appears under "unavailable".
@@ -144,9 +149,7 @@ export type LoopState =
   | 'awaiting-pr'
   | 'merged'
   | 'closed'
-  | 'ci-pending'
   | 'no-run'
-  | 'red'
   | 'review-1'
   | 'fixing'
   | 'review-2'
@@ -281,6 +284,10 @@ export const verdictOf = (
  * be read would send a round to review a pull request whose checks
  * nobody has seen.
  *
+ * At round 0, an open pull request with a run on its head gives
+ * `review-1` whatever CI says (#384). CI that is `pending` or `red` does
+ * not hold the first review. `done` still needs `green`, at every round.
+ *
  * A merged or closed pull request gives `merged` or `closed` (#277). This
  * check runs right after `awaiting-pr`, before every other rule. CI,
  * threads and markers do not change it. A pull request that finished
@@ -318,13 +325,12 @@ export const deriveState = (facts: {
   if (facts.pullRequestState === 'CLOSED') return 'closed'
   if (facts.verdict === 'unavailable') return null
   if (facts.verdict === 'no-run') return 'no-run'
-  if (facts.round === 0) {
-    if (facts.verdict === 'red') return 'red'
-    if (facts.verdict === 'pending') return 'ci-pending'
-    return 'review-1'
-  }
-  // A round has already run, so CI that is not green means that round's
-  // own fixes have not landed, not the stream's problem.
+  // #384: round 1 starts when the pull request opens, with a run on its
+  // head. It does not wait for CI. The round reads CI once its reviewers
+  // return, and fixes a failed check in the same pass.
+  if (facts.round === 0) return 'review-1'
+  // A round has already run, so CI that is not green holds the loop. The
+  // round's own fixes, or a failure it did not fix, have not landed.
   if (facts.verdict !== 'green') return 'fixing'
   if (facts.unresolvedThreads > 0) return 'fixing'
   // The two-round ceiling. Round 2 never schedules a third. On nine of the

@@ -6,7 +6,7 @@ Send it as one message. The round agent returns once.
 ---
 
 You are the ROUND AGENT for review round `<round>` on pull request `<number>` of
-`<owner/repo>`. You run the review, verify, apply, commit, push, watch CI, and return
+`<owner/repo>`. You run the review, read CI, verify, apply, commit, push, and return
 once. Whoever dispatched you is another session. That session is not watching you.
 
 Worktree, named by absolute path in every command, never `cd`:
@@ -43,9 +43,23 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    your turn, and do not return, while a reviewer you dispatched still runs. Each
    reviewer's completion notification comes to you. One round agent returned with five
    reviewers still at work, and cost a resume.
-5. List the findings in your own text BEFORE any edit: every finding, the reviewer it
-   came from, your verdict (APPLY or REJECT), and the evidence. The same list goes in
-   your return, in the prose before the JSON line. A file is optional, never required.
+5. When every reviewer has returned, read the head's CI once, and its unresolved review
+   threads, from people and from bots. Do not use `--watch`. `gh pr checks` exits 8
+   while a check is pending, and 1 when a check failed. Both are answers. `<owner>` and
+   `<repo>` are the two parts of `<owner/repo>`:
+
+   ```bash
+   gh pr checks <number>
+   gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{author{login} body}}}}}}}' -f owner=<owner> -f repo=<repo> -F number=<number> --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)|"\(.path):\(.line) \(.comments.nodes[0].author.login): \(.comments.nodes[0].body)"'
+   ```
+
+   Then list the findings in your own text BEFORE any edit. It is one list, for one fix
+   pass: each reviewer finding, each failed check with its run id, and each unresolved
+   thread. Give each one its source (the reviewer, the check, or the thread's author),
+   your verdict (APPLY or REJECT), and the evidence. A check can fail in a file this
+   pull request does not change. That check is not yours to fix: REJECT it, and name its
+   run id. The same list goes in your return, in the prose before the JSON line. A file
+   is optional, never required.
 6. Verify every finding against the files before you act, and verify every REJECT the
    same way. Cite a file and a line. A correction to prose cites the RFC, the ADR, or
    the code line that contradicts it. A finding with no citation is a REJECT. A
@@ -93,10 +107,13 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
     Never use `?head_sha=`: it once answered nothing for a head whose runs existed,
     and cost a close-and-reopen and a whole CI run. If nothing appears after two
     minutes, run `gh pr close <number> && gh pr reopen <number>`.
-13. Watch CI in the foreground: run `gh pr checks <number> --watch --interval 30`,
-    with a timeout of 590000 ms. Re-run it on timeout. Done means every required
-    context REPORTED success. Red CI is yours to fix. Red on a file you did not
-    touch is not: return, and give the failed run's id.
+13. Read the new head's CI once, for the `ci` field of your return. The run id is the
+    number after `/runs/` in each `link`. Do not wait for CI. The caller reads it, and
+    resumes you with `SendMessage` when it goes red.
+
+    ```bash
+    gh pr checks <number> --json name,state,link
+    ```
 14. Run `git status --porcelain` in BOTH checkouts again.
 
 ## What you never do
@@ -108,11 +125,10 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 - Never lower a coverage threshold, add a coverage exclusion, or weaken a guard test
   to make it pass. Restructure instead.
 - Never run a command in the background. Re-run in the foreground, with an explicit
-  timeout of at most 590000 ms, any command the harness moves to the background. Your
-  last command before you return is the CI watch. Never return saying you are still
-  waiting.
-- Never end your turn or return before step 14, except as step 13 says. Never do either
-  while a reviewer you dispatched still runs (step 4).
+  timeout of at most 590000 ms, any command the harness moves to the background.
+- Never watch CI, and never wait for it. Never return saying you are still waiting.
+- Never end your turn or return before step 14, or while a reviewer you dispatched
+  still runs (step 4).
 - Never run the full suite. Run only the tests that reach the files you change:
   `<the repository's related-tests command>`, or the named test files. Also run the type
   check, the linter and the validators, one at a time. CI's full suite is the coverage gate.
@@ -138,7 +154,7 @@ Prose first, with the findings list of step 5. Then, on the LAST LINE, one JSON 
  "applied": [{"finding": "...", "source": "<reviewer>", "verified": "<file:line>", "change": "..."}],
  "rejected": [{"finding": "...", "source": "<reviewer>", "why": "<file:line>"}],
  "substantial": true|false, "pushed": true|false, "from": "<sha>", "head": "<sha>",
- "ci": {"<context>": "<state>"}, "reruns": <n>,
+ "ci": {"runs": [<run id>], "contexts": {"<context>": "<state>"}}, "reruns": <n>,
  "lower_layer": [{"finding": "...", "evidence": "..."}],
  "rot_list": ["..."], "findings_file": "<path>",
  "restored": ["<path>: <what it was>"],
@@ -147,6 +163,7 @@ Prose first, with the findings list of step 5. Then, on the LAST LINE, one JSON 
 
 `applied` carries the verified file and line for each fix, so the next round does not
 rediscover the context this one already read. `findings_file` is `null` when you wrote no
-file. `from` is the head named above.
+file. `from` is the head named above. `ci` gives the state of each context at step 13,
+`pending` included, and the id of each workflow run with event `pull_request` on `head`.
 `substantial` classifies your own commits: `<the substantial rule from SKILL.md,
 verbatim>`

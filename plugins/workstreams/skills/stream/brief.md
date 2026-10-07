@@ -45,9 +45,10 @@ no title, and names the pull request after the branch. So `gh pr edit <n> --titl
 Both `gh stack submit` and `gh stack push` have opened a head with no `pull_request`
 workflows on it (rounds 5 to 7). That is why the run check below follows every push.
 
-Open the draft as early as you have something CI can run on. It gives CI signal on each
-slice; it is not for review. The review loop keys on your return, because a round spent
-on a partial diff is a round spent on work you are still changing.
+Open the draft as early as you have something CI can run on, so CI runs while you work.
+The review loop keys on your return, not on CI: round 1 starts when you return, while CI
+can still run. A round spent on a partial diff is a round spent on work you are still
+changing.
 
 ## Read first, in this order
 
@@ -95,7 +96,8 @@ return can be checked against them one for one.
 6. Never run a command in the background. The harness sometimes moves a command to the
    background on its own, once its timeout passes. Re-run that command in the
    foreground, with an explicit timeout of at most 590000 ms. Your last command before you
-   return is the CI watch. If you return with CI pending, you have stopped short.
+   return is the run check (How the work goes). Do not watch CI. A return with CI pending
+   is complete when it names its head and its run.
 7. Never run the full suite. Run only the tests that reach the files you change:
    `<the repository's related-tests command>`, or the named test files. Also run the type
    check, the linter and the validators, one at a time. CI's full suite is the coverage gate.
@@ -150,15 +152,14 @@ return can be checked against them one for one.
 - **After every push, check the run:**
 
   ```bash
-  gh api "repos/<owner/repo>/actions/runs?branch=<your branch>" --jq '.workflow_runs[]|select(.event=="pull_request")|"\(.head_sha[0:7]) \(.name) \(.status)"'
+  gh api "repos/<owner/repo>/actions/runs?branch=<your branch>" --jq '.workflow_runs[]|select(.event=="pull_request")|"\(.id) \(.head_sha[0:7]) \(.name) \(.status)"'
   ```
 
   Never use `?head_sha=`: it has answered nothing for a head whose runs existed. If
   nothing appears after two minutes, run `gh pr close <n> && gh pr reopen <n>`, once.
 
-- **Done means every required context REPORTED success**, never "the watch exited 0". A
-  watch has exited 0 on the few checks that existed while the `pull_request` workflows
-  had never started at all.
+- **CI after your return is the caller's to read**, through `pr-state`. When it goes red,
+  the caller resumes you with `SendMessage`.
 - **Red on a file you did not touch** is not yours to fix. Return, and give the failed
   run's id. The orchestrator runs it again.
 
@@ -174,8 +175,8 @@ proves a guard is real.>`
 All of the following:
 
 - A draft pull request against `<lower branch>`.
-- Every required context reported success on the final head, with a workflow run of
-  event `pull_request`. Red on a file you did not touch is a return, not done.
+- A workflow run of event `pull_request` on the final head. CI need not be green when
+  you return: the caller checks it with `pr-state`.
 - No unresolved review thread from a person. A bot's own thread does not count.
 - `<the local gates of rule 7, by command>` green.
 - The worktree on your branch, and the root checkout, both clean.
@@ -194,13 +195,16 @@ Prose first. Cover:
 Then, on the LAST LINE, one JSON object:
 
 ```
-{"pr": <number>, "head": "<sha>", "ci": "green|red", "reruns": <n>,
+{"pr": <number>, "head": "<sha>", "ci": "pending|green|red", "runs": [<run id>], "reruns": <n>,
  "constraints_checked": [{"rule": 1, "how": "..."}, ... one entry per numbered rule],
  "outside_set": ["<path>: <why>"],
  "brief_vs_code": ["<the brief's claim>: <what the code or the documentation says>"],
  "lower_layer": [{"finding": "...", "evidence": "...", "would_apply": true|false}],
  "injected_text_seen": ["<where>: <gist>"], "notes": ["..."]}
 ```
+
+`ci` is the state when you return. `runs` holds the id of each workflow run with event
+`pull_request` on `head`.
 
 Before you write `constraints_checked`, re-read the rules above, one at a time, against
 your own diff. That field exists because a worker once returned a layer that did the

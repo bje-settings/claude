@@ -77,15 +77,17 @@ flowchart TD
     N -->|no-run| N1{second no-run on this head?}
     N1 -->|No| N2[review: close and reopen] --> X
     N1 -->|Yes| S2([Stop]):::stop
-    N -->|ci-pending or fixing| N3{ten wakes on this state,<br/>no agent at work?}
+    N -->|fixing| NF{a round agent at work on it?}
+    NF -->|Yes| X
+    NF -->|No, CI pending or a thread open| N3{ten wakes on this state?<br/>a check report does not count}
     N3 -->|No| X
     N3 -->|Yes| S3([Stop: name the contexts not reported]):::stop
-    N -->|red, or fixing after a round agent<br/>returned red| N4{its agent returned?}
+    NF -->|No, CI red| N4{an agent pushed the head?}
     N4 -->|Yes| NR{red on a file the agent did not touch,<br/>and no re-run yet?}
     NR -->|Yes| NR1[Re-run the failed jobs once] --> X
-    NR -->|No| N5[Send it back with SendMessage] --> X
+    NR -->|No| N5[Resume it with SendMessage] --> X
     N4 -->|No agent: a person's pull request| S4([Stop: report red CI]):::stop
-    N -->|review-1, review-2, rot-check| N7{a round agent at work on it?}
+    N -->|review-1 with any CI verdict,<br/>review-2, rot-check| N7{an agent at work on it,<br/>the layer agent or a round agent?}
     N7 -->|Yes| X
     N7 -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
     N -->|merged| NM[Report it; never a review] --> R
@@ -115,6 +117,9 @@ flowchart TD
 A layer's return goes to `/workstreams:stream` to read. A round agent's return goes to
 `/workstreams:review`, which posts the round's marker. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
 layer or above it. Otherwise the finding waits for the round-end report.
+
+A layer agent returns after its push and the run check, with CI still able to run. `pr-state`
+gives `review-1` while CI runs, so the tick waits only for that agent's return.
 
 Only `pr-state` marks a layer done. A message from the person in chat changes no state. An
 explicit request to skip the review of a layer in `review-1` becomes a ruling comment and
