@@ -110,8 +110,8 @@ const isSuperseded = (run: CheckContext['run'], runs: readonly RunStamp[]): bool
  * A run is superseded when it was cancelled, and a newer run of the same
  * workflow exists on the head. A check with no run, such as a commit
  * status, is never superseded. (With no ruleset, `pr-state` also leaves
- * out a pending one: {@link isPendingWithoutRun}.) A check from a cancelled run that no newer run
- * follows also counts. That run is still the answer, and it is red.
+ * out a pending one: {@link isPendingWithoutRun}.) A check from a
+ * cancelled run that no newer run follows also counts. That run is still the answer, and it is red.
  *
  * The newer run is visible in two ways. Its own checks show it. When it
  * has made no check yet, only the head's workflow runs show it. The caller
