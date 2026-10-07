@@ -62,14 +62,26 @@
 // way as any other (ruling 4, #295). `lib/gh.ts` keeps no such bound by
 // default. Only this command sets one.
 //
+// **One run read, and only when it can matter** (round 15 ruling 6, #370).
+// A newer workflow run that made no check yet is visible only in the
+// head's workflow runs. The watch reads them for a pull request only on a
+// poll where a cancelled check has no newer check. An ordinary poll makes
+// no extra call, so the one-call poll of round 14 holds in the common case.
+// The read carries the same bound as every other call.
+//
 // The command function is the seam (ADR 001). Parsed arguments, a client
 // factory, a clock, a sleep and a writer go in. An envelope comes out.
 import { parseArguments } from '../lib/args.ts'
 import { type Envelope, ok, refused } from '../lib/envelope.ts'
-import { type GhClient, GhError, type PullRequestHead } from '../lib/gh.ts'
+import { type GhClient, GhError, type PullRequestHead, type WorkflowRun } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import { repeated } from '../number-list.ts'
-import { namesOrDefault, type ReportedContext, reportContexts } from '../required-contexts.ts'
+import {
+  namesOrDefault,
+  needsHeadRuns,
+  type ReportedContext,
+  reportContexts,
+} from '../required-contexts.ts'
 
 export const HELP = `Every open pull request's head and required checks, as one line per event.
 
@@ -105,10 +117,12 @@ rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
 
 A check from a cancelled workflow run does not count when a newer run of the
-same workflow has a check on the head. Then the watch writes no failure line
-for it, and the head is not CONCLUDED until the newer run reports each
-required context. Before the newer run makes its first check, the cancelled
-run's checks still count.
+same workflow exists on the head, also when that run has made no check yet.
+Then the watch writes no failure line for it, and the head is not CONCLUDED
+until the newer run reports each required context. The watch reads the
+head's workflow runs only on a poll where a cancelled check has no newer
+check. If that read fails, the watch writes one line for each new reason and
+leaves the pull request unread that poll.
 
 Each base reads its required contexts on its own. A base whose read fails
 leaves unread only the pull requests that need its list, not every pull
@@ -230,6 +244,13 @@ interface Snapshot {
   readonly baseFailed: ReadonlyMap<string, string>
   /** Why the list of pull requests fell short, or null when it did not. */
   readonly short: string | null
+  /** The pull_request runs on the head of each pull request whose runs were
+   *  read this poll (#370), by number. */
+  readonly runs: ReadonlyMap<number, readonly WorkflowRun[]>
+  /** Why the runs of a pull request could not be read, by number. Such a
+   *  pull request is unread this poll. It is never read as having no newer
+   *  run. */
+  readonly runsFailed: ReadonlyMap<number, string>
 }
 
 const short = (sha: string): string => sha.slice(0, 7)
@@ -328,9 +349,33 @@ const readPoll = async (gh: GhClient, heads: ReadonlySet<string>): Promise<PollO
   if (required.size === 0) {
     return { kind: 'failed', reason: [...baseFailed.values()].join('; ') }
   }
+  // A newer run with no check yet shows in the head's runs only. Ask for
+  // them when a cancelled check has no newer check (#370, ruling 6).
+  const runs = new Map<number, readonly WorkflowRun[]>()
+  const runsFailed = new Map<number, string>()
+  for (const pull of pulls) {
+    if (!needsHeadRuns(pull.checks)) continue
+    const answer = await gh.listWorkflowRuns({ branch: pull.head })
+    if (answer.unavailable !== null) {
+      runsFailed.set(pull.number, answer.unavailable)
+      continue
+    }
+    runs.set(
+      pull.number,
+      answer.rows.filter((run) => run.event === 'pull_request' && run.headSha === pull.headSha),
+    )
+  }
   return {
     kind: 'read',
-    snapshot: { defaultBranch, pulls, required, baseFailed, short: open.unavailable },
+    snapshot: {
+      defaultBranch,
+      pulls,
+      required,
+      baseFailed,
+      short: open.unavailable,
+      runs,
+      runsFailed,
+    },
   }
 }
 
@@ -394,6 +439,7 @@ const pullLines = (
   pull: PullRequestHead,
   names: readonly string[],
   memory: Map<number, Tracked>,
+  runs: readonly WorkflowRun[],
 ): string[] => {
   const seen = memory.get(pull.number)
   // A head this watch has already seen, other than the current one, is not
@@ -416,7 +462,7 @@ const pullLines = (
   }
 
   const lines: string[] = []
-  const contexts = reportContexts(pull.checks, names)
+  const contexts = reportContexts(pull.checks, names, runs)
   let tracked = seen
   let quiet = false
   if (tracked === undefined) {
@@ -540,6 +586,10 @@ export const runWatch = async (
    *  branch, while that base stays unread. A reason that stays the same is
    *  written once, and a base's return is written once too (#265). */
   const baseFailures = new Map<string, string>()
+  /** The last reason a pull request's workflow runs could not be read, by
+   *  number, while they stay unread. A reason that stays the same is written
+   *  once (#370). */
+  const runReasons = new Map<number, string>()
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
     const lines: string[] = []
@@ -557,7 +607,8 @@ export const runWatch = async (
       }
       lastFailed = null
       failedPolls = 0
-      const { defaultBranch, pulls, required, baseFailed, short } = outcome.snapshot
+      const { defaultBranch, pulls, required, baseFailed, short, runs, runsFailed } =
+        outcome.snapshot
       if (short !== null && short !== lastShort) {
         lines.push(`poll incomplete: ${short}; the pull requests it read are still watched`)
       }
@@ -614,7 +665,22 @@ export const runWatch = async (
         // (ruling 6, #298).
         const list = namesOrDefault(own, listFor(defaultBranch) ?? null)
         if (list.from === 'unread') continue
-        lines.push(...pullLines(pull, list.names, memory))
+        // The head's runs could not be read, so a cancelled check cannot be
+        // told from a superseded one. This pull request is left as it was
+        // and read again next poll. The reason is written once.
+        const runsReason = runsFailed.get(pull.number)
+        if (runsReason !== undefined) {
+          if (runReasons.get(pull.number) !== runsReason) {
+            lines.push(
+              `#${pull.number} workflow runs could not be read: ${runsReason}; ` +
+                'the pull request is unread this poll',
+            )
+          }
+          runReasons.set(pull.number, runsReason)
+          continue
+        }
+        runReasons.delete(pull.number)
+        lines.push(...pullLines(pull, list.names, memory, runs.get(pull.number) ?? []))
       }
     }
 

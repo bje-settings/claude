@@ -10,8 +10,9 @@
 //   - `pr-state` falls back to the names that reported on the head. It also
 //     reads the workflow runs, so it can tell when that list is settled.
 //   - `watch` falls back to the DEFAULT branch's list (ruling P9). It reads
-//     no runs. In round 5, the head-only rule concluded on seven CodeQL
-//     checks and none of the required ones.
+//     the workflow runs of a head only when a cancelled check has no newer
+//     check (#370). In round 5, the head-only rule concluded on seven
+//     CodeQL checks and none of the required ones.
 //
 // Both callers read the checks through the same filter (#364). A check
 // from a cancelled workflow run does not count when a newer run of the
@@ -20,7 +21,7 @@
 // kept them would report red while the newer run still works.
 //
 // This file ships. It imports only a type from `lib/`.
-import type { CheckContext, CheckWorkflowRun } from './lib/gh.ts'
+import type { CheckContext } from './lib/gh.ts'
 
 /**
  * What a required context adds up to.
@@ -67,41 +68,72 @@ const isLater = (candidate: CheckContext, current: CheckContext): boolean => {
   return candidate.conclusion === null && current.conclusion !== null
 }
 
+/** What the newer-run compare reads of a run. A check's `CheckWorkflowRun`
+ *  and a row of `actions/runs` (`WorkflowRun`) both carry it. */
+export interface RunStamp {
+  readonly id: number
+  readonly workflowId: number
+  readonly createdAt: string
+}
+
 /**
  * Which of two workflow runs is the newer one: the later `createdAt`, and
  * on a tie the larger run id. Two runs can start in the same second. The
  * newer run must also win after it concludes, or the cancelled run stays
  * the answer.
  */
-const isNewerRun = (candidate: CheckWorkflowRun, current: CheckWorkflowRun): boolean =>
+const isNewerRun = (candidate: RunStamp, current: RunStamp): boolean =>
   candidate.createdAt === current.createdAt
     ? candidate.id > current.id
     : candidate.createdAt > current.createdAt
 
+/** The run of each check that has one. */
+const checkRuns = (checks: readonly CheckContext[]): RunStamp[] =>
+  checks.flatMap((check) => (check.run === undefined ? [] : [check.run]))
+
+/** Whether `run` was cancelled, and one of `runs` is a newer run of the same
+ *  workflow. */
+const isSuperseded = (run: CheckContext['run'], runs: readonly RunStamp[]): boolean =>
+  run !== undefined &&
+  run.conclusion === 'CANCELLED' &&
+  runs.some((other) => other.workflowId === run.workflowId && isNewerRun(other, run))
+
 /**
  * The checks that still count: every check, less those from a superseded
- * cancelled run (#364).
+ * cancelled run (#364, #370).
  *
  * A run is superseded when it was cancelled, and a newer run of the same
- * workflow has a check on the same head. A check with no run, such as a
- * commit status, always counts. A check from a cancelled run that no newer
- * run follows also counts. That run is still the answer, and it is red.
+ * workflow exists on the head. A check with no run, such as a commit
+ * status, always counts. A check from a cancelled run that no newer run
+ * follows also counts. That run is still the answer, and it is red.
  *
- * The newer run is visible only through its own checks. Before it makes
- * its first check, the cancelled run's checks still count. After that, a
- * name it has not made yet has no check that counts. That name reads as
- * not reported, so it is pending, not failed.
+ * The newer run is visible in two ways. Its own checks show it. When it
+ * has made no check yet, only the head's workflow runs show it. The caller
+ * passes those as `headRuns`. Without them, the cancelled run's checks
+ * still count until the newer run makes a first check. After that, a name
+ * the newer run has not made yet has no check that counts. That name reads
+ * as not reported, so it is pending, not failed.
  *
  * A run is cancelled only when its check suite says so. While its
  * `always()` jobs still run, the suite has no conclusion, so its checks
  * still count, also those that already failed.
  */
-export const currentChecks = (checks: readonly CheckContext[]): CheckContext[] => {
-  const runs = checks.flatMap((check) => (check.run === undefined ? [] : [check.run]))
-  const superseded = (run: CheckWorkflowRun): boolean =>
-    run.conclusion === 'CANCELLED' &&
-    runs.some((other) => other.workflowId === run.workflowId && isNewerRun(other, run))
-  return checks.filter((check) => check.run === undefined || !superseded(check.run))
+export const currentChecks = (
+  checks: readonly CheckContext[],
+  headRuns: readonly RunStamp[] = [],
+): CheckContext[] => {
+  const runs = [...checkRuns(checks), ...headRuns]
+  return checks.filter((check) => !isSuperseded(check.run, runs))
+}
+
+/** Whether a cancelled check has no newer check on the head. Only then can
+ *  a newer run with no check yet change the answer ({@link currentChecks}),
+ *  so only then does a caller need to read the head's workflow runs. */
+export const needsHeadRuns = (checks: readonly CheckContext[]): boolean => {
+  const runs = checkRuns(checks)
+  return checks.some(
+    (check) => check.run?.conclusion === 'CANCELLED' && !isSuperseded(check.run, runs),
+  )
 }
 
 /** The most recent conclusion reported under `name`, and whether anything
@@ -135,8 +167,9 @@ const reportedAs = (checks: readonly CheckContext[], name: string): ReportedCont
 export const reportContexts = (
   checks: readonly CheckContext[],
   names: readonly string[],
+  headRuns: readonly RunStamp[] = [],
 ): ReportedContext[] => {
-  const current = currentChecks(checks)
+  const current = currentChecks(checks, headRuns)
   return [...new Set(names)].map((name) => reportedAs(current, name))
 }
 
@@ -166,11 +199,12 @@ export interface ContextNames<From extends string> {
 export const namesOrHead = (
   required: readonly string[],
   checks: readonly CheckContext[],
+  headRuns: readonly RunStamp[] = [],
 ): ContextNames<'ruleset' | 'head'> =>
   required.length > 0
     ? { names: required, from: 'ruleset' }
     : {
-        names: currentChecks(checks)
+        names: currentChecks(checks, headRuns)
           .map((check) => check.name)
           .filter((name) => !name.includes(MATRIX_PLACEHOLDER)),
         from: 'head',

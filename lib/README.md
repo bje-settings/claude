@@ -551,6 +551,10 @@ from a `push` run, nor say which head either ran on. `listWorkflowRuns` filters 
 never `?head_sha=`: that filter once answered nothing for a head whose runs did exist, and cost a
 close-and-reopen and a whole CI run.
 
+A row carries the run's `id`, `workflowId` and `createdAt` too. `required-contexts.ts`
+`currentChecks` reads them to find a newer run that has made no check yet (#370). A row that
+lacks one of them is unreadable.
+
 A row that is not the shape REST promises is counted into `unavailable`, never dropped. A caller
 that asserts a run exists for a head would otherwise read a dropped row as "no run".
 `listWorkflowRuns` reads ONE page, newest first, bounded by `perPage`, and does not claim to be the

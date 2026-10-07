@@ -86,11 +86,10 @@ The verdict over the required contexts:
   unavailable something needed to answer could not be read
 
 A check from a cancelled workflow run does not count when a newer run of the
-same workflow has a check on the head. After the newer run makes its first
-check, a name it has not reported yet is pending, not failed. Before that
-check, the cancelled run's checks still count. When no ruleset covers the
-base, the head list also leaves out a name that contains \${{, an unexpanded
-matrix job.
+same workflow exists on the head, also when that run has made no check yet.
+A name the newer run has not reported yet is pending, not failed. When no
+ruleset covers the base, the head list also leaves out a name that contains
+\${{, an unexpanded matrix job.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
@@ -681,14 +680,15 @@ export const runPrState = async (
   // covers requires nothing. That fact is true, and useless on its own:
   // every layer of a stack is based on one, and a verdict over an empty
   // list would be green before a single check had run.
-  const list = namesOrHead(required.contexts, checks)
-  const fromRuleset = list.from === 'ruleset'
-  const contexts = reportContexts(checks, list.names)
-
   const runsForHead =
     detail === null
       ? []
       : runs.rows.filter((run) => run.event === 'pull_request' && run.headSha === detail.headSha)
+  // The head's runs also show a newer run that has made no check yet, which
+  // supersedes a cancelled run (#370).
+  const list = namesOrHead(required.contexts, checks, runsForHead)
+  const fromRuleset = list.from === 'ruleset'
+  const contexts = reportContexts(checks, list.names, runsForHead)
 
   // `viewed.unavailable` counts as much as the other two. It is not only
   // "no pull request": it is also a reply whose check, thread, or comment
