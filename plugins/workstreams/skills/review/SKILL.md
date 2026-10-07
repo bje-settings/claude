@@ -79,8 +79,9 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0|1|2> --json
    ```
 
-   Add `--substantial`, `--round-1-head <sha>` and `--rot-checked` when the caller passes
-   them. `sinceRound1` says why the state is `review-2` after a round 1 that was not
+   Add `--substantial` and `--rot-checked` when the caller passes them. Add
+   `--round-1-head <sha>` only with `--round 1`: `pr-state` refuses it with any other
+   round. `sinceRound1` says why the state is `review-2` after a round 1 that was not
    substantial.
 
    A non-empty `unavailable` means a fact could not be read. Say which fact. Do not act

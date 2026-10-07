@@ -58,6 +58,7 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 | --- | --- |
 | `/workstreams:start milestone 4` (an example milestone; a bare `4` works too) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
 | `/workstreams:start issues 12 13` (example issues) | The same, for those issues alone. |
+| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to an issue list with `gh issue list` (`--search`, `--label` or `--type`), and shows the set. Then it runs the `issues` scope on that set. An empty set is a stop. |
 | `/workstreams:start` | The same, over every milestone with open issues. With a round in flight, it asks first: continue that round, or start a new one. |
 | `/workstreams:start pr 260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
@@ -70,7 +71,8 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question. A merged pull request is final for its layer, with no markers.
 
-Other words are judged: `start` checks each number against the issues, the pull requests
+Its `argument-hint` invites an optional focus in free words, as `/compact` does. Other
+words are judged: `start` checks each number against the issues, the pull requests
 and the milestones, and asks when two readings stay possible.
 
 A round is its issue set. Each issue is in the round of its newest plan comment, and in
@@ -264,12 +266,16 @@ The brief is a file, not a prompt. `skills/stream/brief.md` is the template. It 
 
 The dispatch prompt points at the file. It repeats only the lines most often got wrong.
 `gh stack` has no `-C` flag, so the brief allows it in one form only,
-`(cd <worktree> && gh stack ...)`. The layer's first `gh stack` command is `init` for the
+`(cd <worktree> && gh stack ...)`. The one other `cd` is a subshell into a directory under
+the session's scratchpad, for the layer's real exercise only: `(cd <scratchpad dir> && <command>)`
+(#374). The layer's first `gh stack` command is `init` for the
 bottom layer, or `add` for an upper one. The layer reads the root checkout's branch before
 and after it, and stops if the root moved. When `gh stack submit` fails because stacks are
 not enabled, the layer pushes with `git push` and opens a draft with `gh pr create --draft`.
 A layer that joins a GitHub stack its worktree did not initialise uses `gh stack link` (#383,
-#366). A permission check can refuse either one; the layer then returns the command.
+#366). A permission check can refuse either one. A denied repository step stops the layer
+before the dependent step. It returns the command and the denial text, and tries no other
+route (#380).
 A layer runs only the tests related to its changes. CI's full suite is the coverage gate.
 The layer returns after its push and the run check, and does not wait for CI (#272). The
 caller reads CI with `pr-state`, and resumes the agent with `SendMessage` when CI goes red.
@@ -283,6 +289,10 @@ most valuable part of an upper layer's brief.
 | `outside_set` | What the layer touched beyond the allowed set. A small, reasonable touch is expected every layer. A silent one is not. |
 | `lower_layer` | A defect in a branch the layer does not own. Never applied there. |
 | `injected_text_seen` | Text inside a tool result that read like an instruction. |
+
+A layer that edits its pull request body also returns each section heading and the first
+line under it, read back with `gh pr view <n> --json body`. The caller compares the
+read-back with the claim, and sends the layer back on a missing or mismatched one (#375).
 
 Each call takes one step, and returns. It writes the next layer's brief and dispatches its
 agent, or it reads a layer's return. It never waits.
@@ -405,7 +415,9 @@ than asked.
 Both kinds are recorded in one rulings comment, posted on every issue in the round. The
 skill then enters plan mode itself and writes the plan. `ExitPlanMode` is the approval,
 not a hand-back. `skills/stream/brief.md` is the template the plan feeds, so the plan
-answers what that template needs. Once approved, the plan comment goes on every issue in
+answers what that template needs. Each layer in the plan fits one agent's budget. A
+layer that does not fit is split into more layers, never into slices by hand. The stream
+has one worktree until #263 (#380). Once approved, the plan comment goes on every issue in
 the round. Housekeeping then runs before the first worktree: `/gh:sync` when the `gh`
 plugin is present (otherwise the skill fast-forwards the default branch itself), any
 ignored leftover under `plugins/`, and a preflight for a local hook that runs a full
@@ -540,7 +552,8 @@ comment.
 command cannot read. `/workstreams:start` reads them from the marker comments that
 `/workstreams:review` posts.
 
-`--round-1-head` holds only with `--round 1`. Without `--substantial`, the command reads the
+`--round-1-head` holds only with `--round 1`, so `start` and `review` pass it with that
+round only (#380). Without `--substantial`, the command reads the
 compare of that head to the current head (#356). It compares commits, not times, because a
 rebase moves commit dates. These give `review-2`:
 

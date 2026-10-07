@@ -1,7 +1,7 @@
 ---
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. A round is a milestone or a set of issues. With `pr <n>`, take one pull request through review to done. The one entry to the workstreams primitives.
-argument-hint: [milestone <n> | issues <n> <n> | pr <n>]
+argument-hint: [optional focus, in your own words]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage AskUserQuestion Monitor TaskStop
 ---
 
@@ -11,6 +11,10 @@ Scope: $ARGUMENTS.
 - `issues <n> <n>`: those issues.
 - `pr <n>`: that one pull request, with no sweep and no plan.
 - Nothing: every milestone with open issues.
+- Free words, such as `any LSP related issue` or `all bugs`: resolve them to an issue list
+  with `gh issue list --search "<words>" --json number,title`, `--label <label>` or
+  `--type <issue type>`. Show the set. Then run the `issues` scope on its numbers. An empty
+  set is a stop.
 
 For other words, judge what the person asked. Check each number with `gh issue view`,
 `gh pr view` or the milestones that `sweep` reports. If two readings stay possible, ask one
@@ -164,5 +168,5 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" intersect --json
 ```
 
-Add `--substantial`, `--round-1-head <sha>` and `--rot-checked` to `pr-state` when the
-markers say so.
+Add `--substantial` and `--rot-checked` to `pr-state` when the markers say so. Add
+`--round-1-head <sha>` only with `--round 1`: `pr-state` refuses it with any other round.

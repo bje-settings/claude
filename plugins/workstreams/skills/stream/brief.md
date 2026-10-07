@@ -16,8 +16,8 @@ watching you.
 ## Where you work
 
 - Repository root, never edited: `<absolute path>`
-- Worktree, named by absolute path in every command, never `cd` (`gh stack` below is the
-  one exception): `<absolute path>`
+- Worktree, named by absolute path in every command, never `cd` (rule 12 names the two
+  exceptions): `<absolute path>`
   It has `<lower branch>` checked out at `<sha>`.
 - The install is done: `<the package manager's install, and uv sync --locked if there is a
   uv.lock>`. `<Say so when the repository installs git hooks: an install can write into the
@@ -129,8 +129,11 @@ return can be checked against them one for one.
 11. `<The idiom rules this repository's reviews keep finding: for a port out of Python, `||`
     and a truthiness test rather than `??` or `=== null`; whatever else the last review
     caught.>`
-12. Every command names its directory by absolute path. Never `cd`. The one exception is
-    `gh stack`, in the form `(cd <worktree> && gh stack ...)` and no other.
+12. Every command names its directory by absolute path. Never `cd`. Two exceptions. One is
+    `gh stack`, in the form `(cd <worktree> && gh stack ...)` and no other. The other is
+    the real exercise of rule 17, in the form `(cd <scratchpad dir> && <command>)`.
+    `<scratchpad dir>` is a directory under the session's scratchpad. Never `cd` into a
+    worktree or the root checkout.
 13. The thing you build assumes nothing about this machine or this repository, beyond
     what its dependency hook checks. No path out of this checkout reaches a shipped file.
 14. `<The prose rules: a skill's diagrams live in docs/flows/<plugin>/<skill>/ only, every script
@@ -165,6 +168,11 @@ return can be checked against them one for one.
   than the ruling does.
 - **A little beyond the allowed set is expected.** A README the diff made false, a header
   note on a neighbouring file. Declare each one. A silent one is not allowed.
+- **A denied step is a stop.** A repository step that the permission check denies stops
+  the layer before the dependent step. The return gives the exact command and the denial
+  text. The layer tries no other route or tool for the same change. Field evidence, round
+  15: denials of `gh stack submit`, of a script that wrote a skill file, and of an
+  `allowed-tools` edit.
 - **After every push, check the run:**
 
   ```bash
@@ -207,6 +215,8 @@ Prose first. Cover:
   its citation
 - what you exercised for real
 - anything a reviewer should look at hard
+- when the layer edits its pull request body: each section heading and the first line
+  under it, read back with `gh pr view <n> --json body` after the edit
 
 Then, on the LAST LINE, one JSON object:
 
