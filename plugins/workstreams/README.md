@@ -197,7 +197,7 @@ ends at its report.
 
 ## `/workstreams:review`
 
-Takes one draft pull request from green CI to `done`, whoever opened it.
+Takes one draft pull request from its first workflow run to `done`, whoever opened it.
 
 The command answers where the loop is. The skill takes the one step that the state calls
 for, and returns. It dispatches a round, reopens for an absent run, does the rot check, or
@@ -210,10 +210,8 @@ commits changed code logic, or logic landed after the head that round 1 reviewed
 | `awaiting-pr` | GitHub said this pull request number does not exist. A failed read gives `state: null` instead. |
 | `merged`, `closed` | The pull request already finished. Report it, and dispatch no round. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
-| `ci-pending` | A required context has not reported. The caller waits. |
-| `red` | A required context failed before any round ran, so it belongs to whoever opened it. |
-| `review-1`, `review-2` | Dispatch a round. |
-| `fixing` | The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
+| `review-1`, `review-2` | Dispatch a round. Round 1 does not wait for CI (#384): it reads CI when its reviewers return, and fixes a failed check in the same pass. |
+| `fixing` | CI is not green after a round, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named apart and does not hold this state (#219). |
 | `rot-check` | Check the title and body against the final diff. |
 | `done` | Two rounds at most, CI green, no unresolved thread from a person, the body true. A bot's own thread can still be open. |
 
@@ -270,6 +268,8 @@ The dispatch prompt points at the file. It repeats only the lines most often got
 bottom layer, or `add` for an upper one. The layer reads the root checkout's branch before
 and after it, and stops if the root moved.
 A layer runs only the tests related to its changes. CI's full suite is the coverage gate.
+The layer returns after its push and the run check, and does not wait for CI (#272). The
+caller reads CI with `pr-state`, and resumes the agent with `SendMessage` when CI goes red.
 The lessons section grows layer by layer from what each review finds. That growth is the
 most valuable part of an upper layer's brief.
 

@@ -45,10 +45,7 @@ flowchart TD
     L2 -->|No| V
     L3 --> V[Verdict: red if one failed; pending if one has not<br/>concluded, or the list is empty or not settled; else green]
     V --> Q{Review rounds completed?}
-    Q -->|0| Q0{Verdict?}
-    Q0 -->|red| T1([state red, exit 0])
-    Q0 -->|pending| T2([state ci-pending, exit 0])
-    Q0 -->|green| T3([state review-1, exit 0])
+    Q -->|0: green, pending or red| T3([state review-1, exit 0])
     Q -->|1 or 2| Q1{Green, and no unresolved<br/>thread from a person?}
     Q1 -->|No| T4([state fixing, exit 0])
     Q1 -->|Yes, a bot's own thread<br/>may still be unresolved| Q2{Round 1, and --substantial?}
@@ -65,6 +62,10 @@ flowchart TD
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+At round 0 the verdict does not hold the first review (#384). Green, pending and red each give
+`review-1`, so round 1 starts while CI runs. After a round, CI that is not green gives `fixing`,
+and `done` needs green.
 
 SUCCESS, SKIPPED and NEUTRAL each satisfy a context, and any other conclusion fails it. A
 contexts list from the head is settled only when every run for the head has completed. A failed

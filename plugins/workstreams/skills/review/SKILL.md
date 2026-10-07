@@ -92,10 +92,8 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    | `awaiting-pr` | Nothing. GitHub said this pull request number does not exist. A read gh refused for another reason gives `state: null` instead. |
    | `merged`, `closed` | Nothing. The pull request already finished. Report the state, then return. |
    | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`. |
-   | `ci-pending` | Nothing. |
-   | `red` | Nothing. Name the contexts that failed. |
-   | `review-1`, `review-2` | Step 3. |
-   | `fixing` | Nothing. The round's own fixes have not landed, or a review thread from a person is unresolved. A bot's own thread, review bots such as Copilot included, is named under `botThreadAuthors`. It does not hold this state: say what it is. The loop can reach `done` with such a thread still open. |
+   | `review-1`, `review-2` | Step 3. CI can still run, or be red, at `review-1`: the round reads it. |
+   | `fixing` | Nothing. CI is not green, or a review thread from a person is unresolved. Name the contexts that failed. A bot's own thread, review bots such as Copilot included, is named under `botThreadAuthors`. It does not hold this state: say what it is. The loop can reach `done` with such a thread still open. |
    | `rot-check` | Step 4. |
    | `done` | Step 5. |
 
