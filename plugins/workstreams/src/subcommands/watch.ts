@@ -516,7 +516,6 @@ const pullLines = (
     tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
     tracked.concluded = false
-    tracked.concludedAsDraft = false
     quiet = true
   } else if (tracked.seeded) {
     quiet = true
@@ -524,10 +523,8 @@ const pullLines = (
   tracked.seeded = false
   // A draft that concluded without its draft-skipped contexts is now
   // ready: those contexts count, so the head concludes again (#365).
-  if (tracked.concludedAsDraft && !pull.draft) {
-    tracked.concluded = false
-    tracked.concludedAsDraft = false
-  }
+  // The next CONCLUDED sets `concludedAsDraft` again.
+  if (tracked.concludedAsDraft && !pull.draft) tracked.concluded = false
 
   for (const context of contexts) {
     if (context.conclusion === null) continue

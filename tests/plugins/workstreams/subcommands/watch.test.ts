@@ -1640,6 +1640,18 @@ describe('a draft and the checks that skip drafts (#365)', () => {
     ])
   })
 
+  it('concludes a draft head once while it stays a draft', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
   it('does not conclude a head again when its draft concluded with nothing left out', async () => {
     const { context, lines } = watchOver([
       { heads: heads(head({ checks })) },
