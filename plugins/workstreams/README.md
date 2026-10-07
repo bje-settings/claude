@@ -267,9 +267,9 @@ The brief is a file, not a prompt. `skills/stream/brief.md` is the template. It 
 
 The dispatch prompt points at the file. It repeats only the lines most often got wrong.
 `gh stack` has no `-C` flag, so the brief allows it in one form only,
-`(cd <worktree> && gh stack ...)`. The one other `cd` is a subshell into a directory under
-the session's scratchpad, for the layer's real exercise only: `(cd <scratchpad dir> && <command>)`
-(#374). The layer's first `gh stack` command is `init` for the
+`(cd <worktree> && gh stack ...)`. The one other `cd` is for the layer's real exercise only
+(#374). It is a subshell into a directory under the session's scratchpad:
+`(cd <scratchpad dir> && <command>)`. The layer's first `gh stack` command is `init` for the
 bottom layer, or `add` for an upper one. The layer reads the root checkout's branch before
 and after it, and stops if the root moved. When `gh stack submit` fails because stacks are
 not enabled, the layer pushes with `git push` and opens a draft with `gh pr create --draft`.
@@ -291,9 +291,10 @@ most valuable part of an upper layer's brief.
 | `lower_layer` | A defect in a branch the layer does not own. Never applied there. |
 | `injected_text_seen` | Text inside a tool result that read like an instruction. |
 
-A layer that edits its pull request body also returns each section heading and the first
-line under it, read back with `gh pr view <n> --json body`. The caller compares the
-read-back with the claim, and sends the layer back on a missing or mismatched one (#375).
+A layer that edits its pull request body also returns the body's read-back. It reads the
+body with `gh pr view <n> --json body`, and gives each section heading and its first line.
+The caller compares the read-back with the claim, and sends the layer back on a missing or
+mismatched one. A second one from the same layer is a stop (#375).
 
 Each call takes one step, and returns. It writes the next layer's brief and dispatches its
 agent, or it reads a layer's return. It never waits.
@@ -416,8 +417,8 @@ than asked.
 Both kinds are recorded in one rulings comment, posted on every issue in the round. The
 skill then enters plan mode itself and writes the plan. `ExitPlanMode` is the approval,
 not a hand-back. `skills/stream/brief.md` is the template the plan feeds, so the plan
-answers what that template needs. Each layer in the plan fits one agent's budget. A
-layer that does not fit is split into more layers, never into slices by hand. The stream
+answers what that template needs. Each layer in the plan fits one agent's budget. The
+plan splits a layer that does not fit into more layers, never into slices by hand. The stream
 has one worktree until #263 (#380). Once approved, the plan comment goes on every issue in
 the round. Housekeeping then runs before the first worktree: `/gh:sync` when the `gh`
 plugin is present (otherwise the skill fast-forwards the default branch itself), any

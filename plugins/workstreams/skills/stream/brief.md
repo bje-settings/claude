@@ -170,9 +170,8 @@ return can be checked against them one for one.
   note on a neighbouring file. Declare each one. A silent one is not allowed.
 - **A denied step is a stop.** A repository step that the permission check denies stops
   the layer before the dependent step. The return gives the exact command and the denial
-  text. The layer tries no other route or tool for the same change. Field evidence, round
-  15: denials of `gh stack submit`, of a script that wrote a skill file, and of an
-  `allowed-tools` edit.
+  text. The layer tries no other route or tool for the same change. Three denials in one
+  round: `gh stack submit`, a script that wrote a skill file, and an `allowed-tools` edit.
 - **After every push, check the run:**
 
   ```bash
@@ -215,8 +214,8 @@ Prose first. Cover:
   its citation
 - what you exercised for real
 - anything a reviewer should look at hard
-- when the layer edits its pull request body: each section heading and the first line
-  under it, read back with `gh pr view <n> --json body` after the edit
+- the body read-back, when you edit your pull request body. After the edit, run
+  `gh pr view <n> --json body`. Give each section heading and the first line under it.
 
 Then, on the LAST LINE, one JSON object:
 

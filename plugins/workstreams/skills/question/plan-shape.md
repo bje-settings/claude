@@ -4,7 +4,7 @@ One section per primitive:
 
 1. What is left of the question phase.
 2. The stream, with its layers, file sets, and size, and the one layer that changes each
-   version line. Each layer fits one agent's budget. Split a layer that does not into
+   version line. Each layer fits one agent's budget. Split a layer that does not fit into
    more layers in the plan, never into slices by hand. The stream has one worktree, until
    #263.
 3. The review loop per layer, with its review model and reviewers. A plan with no review
