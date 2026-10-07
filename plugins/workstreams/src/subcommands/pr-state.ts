@@ -34,7 +34,12 @@ import type {
   PullRequestDetail,
   WorkflowRun,
 } from '../lib/gh.ts'
-import { namesOrHead, type ReportedContext, reportContexts } from '../required-contexts.ts'
+import {
+  namesOrHead,
+  type ReportedContext,
+  reportContexts,
+  splitDraftSkipped,
+} from '../required-contexts.ts'
 
 // The derivation moved to `../required-contexts.ts` (round 10 ruling P6).
 // These two types stay exported here too, so a caller of this command
@@ -90,6 +95,14 @@ same workflow exists on the head, also when that run has made no check yet and h
 A name the newer run has not reported yet is pending, not failed. When no
 ruleset covers the base, the head list also leaves out a name that contains
 \${{, an unexpanded matrix job.
+
+On a draft, a required context that no check on the head names is left out
+of the verdict when a check on the head, from a check suite that concluded
+SKIPPED, has a name with \${{ ... }} that matches it. Each \${{ ... }}
+matches one or more characters that are not ( or ). Such a context runs
+after ready for review. "draftSkipped" names each one, and is empty when the
+pull request is not a draft. A draft whose only missing contexts are
+draft-skipped is green.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
@@ -191,7 +204,13 @@ export interface PrStateReport {
    * empty answer from a question nobody put.
    */
   readonly contextsFrom: 'ruleset' | 'head' | 'unread'
+  /** The contexts that are part of the verdict. On a draft, this leaves
+   *  out each name in `draftSkipped`. */
   readonly contexts: readonly ReportedContext[]
+  /** The required names that run only after the pull request is ready for
+   *  review, sorted (#365). Not part of the verdict. Empty when the pull
+   *  request is not a draft. */
+  readonly draftSkipped: readonly string[]
   /** Whether a workflow run with event `pull_request` exists for the head.
    *  Read from `actions/runs?branch=`, never `?head_sha=`. */
   readonly hasPullRequestRun: boolean
@@ -237,16 +256,21 @@ export interface PrStateReport {
  * workflow has finished while another has not yet added all its checks
  * would be green over a fraction. Both cases are `pending`: the answer is
  * not that the pull request passed, it is that nobody knows yet.
+ *
+ * `draftSkipped` names the contexts a draft does not wait for (#365). A
+ * list that only they emptied is not empty: the ruleset named them, and
+ * the draft has nothing more to wait for.
  */
 export const verdictOf = (
   contexts: readonly ReportedContext[],
   hasRun: boolean,
   namesFinal: boolean,
+  draftSkipped: readonly string[],
 ): Verdict => {
   if (!hasRun) return 'no-run'
   if (contexts.some((context) => context.verdict === 'failed')) return 'red'
   if (contexts.some((context) => context.verdict === 'pending')) return 'pending'
-  return namesFinal && contexts.length > 0 ? 'green' : 'pending'
+  return namesFinal && contexts.length + draftSkipped.length > 0 ? 'green' : 'pending'
 }
 
 /**
@@ -477,6 +501,9 @@ export const renderReport = (report: PrStateReport): string => {
     const said = context.reported ? (context.conclusion ?? 'running') : 'not reported'
     lines.push(`  ${context.verdict.padEnd(8)} ${context.name}  ${said}`)
   }
+  for (const name of report.draftSkipped) {
+    lines.push(`  skipped  ${name}  runs after ready for review`)
+  }
 
   lines.push('', `runs for this head with event pull_request (${report.runsForHead.length})`)
   for (const run of report.runsForHead) {
@@ -688,7 +715,14 @@ export const runPrState = async (
   // supersedes a cancelled run (#370).
   const list = namesOrHead(required.contexts, checks, runsForHead)
   const fromRuleset = list.from === 'ruleset'
-  const contexts = reportContexts(checks, list.names, runsForHead)
+  // On a draft, a context that a skipped matrix check stands for is not
+  // part of the verdict (#365, round 15 ruling 5).
+  const split = splitDraftSkipped(
+    reportContexts(checks, list.names, runsForHead),
+    checks,
+    detail?.draft === true,
+  )
+  const contexts = split.counted
 
   // `viewed.unavailable` counts as much as the other two. It is not only
   // "no pull request": it is also a reply whose check, thread, or comment
@@ -707,7 +741,7 @@ export const runPrState = async (
   const namesFinal = fromRuleset || runsForHead.every((run) => run.status === 'completed')
   const verdict: Verdict = unreadable
     ? 'unavailable'
-    : verdictOf(contexts, runsForHead.length > 0, namesFinal)
+    : verdictOf(contexts, runsForHead.length > 0, namesFinal, split.draftSkipped)
 
   const report: PrStateReport = {
     pullRequest: requested.value,
@@ -715,6 +749,7 @@ export const runPrState = async (
     requiredContexts: required.contexts,
     contextsFrom: detail === null ? 'unread' : list.from,
     contexts,
+    draftSkipped: split.draftSkipped,
     hasPullRequestRun: runsForHead.length > 0,
     runsForHead: runsForHead.map((run) => ({
       name: run.name,

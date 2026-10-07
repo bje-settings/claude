@@ -69,6 +69,12 @@
 // no extra call, so the one-call poll of round 14 holds in the common case.
 // The read carries the same bound as every other call.
 //
+// **A draft does not wait for a check that skips drafts** (#365, round 15
+// ruling 5). On a draft head, a required context that no check on the head
+// names is left out when a check from a skipped check suite has a
+// `${{ ... }}` name that matches it. The CONCLUDED line names each one. When
+// the draft is marked ready, the same head concludes again.
+//
 // The command function is the seam (ADR 001). Parsed arguments, a client
 // factory, a clock, a sleep and a writer go in. An envelope comes out.
 import { parseArguments } from '../lib/args.ts'
@@ -81,6 +87,7 @@ import {
   needsHeadRuns,
   type ReportedContext,
   reportContexts,
+  splitDraftSkipped,
 } from '../required-contexts.ts'
 
 export const HELP = `Every open pull request's head and required checks, as one line per event.
@@ -121,6 +128,14 @@ covers the base, as for each stack layer above the first, they come from the
 rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
 
+On a draft head, a required context that no check on the head names does
+not hold CONCLUDED when a check on the head, from a check suite that
+concluded SKIPPED, has a name with \${{ ... }} that matches it. That context
+runs after ready for review, and the CONCLUDED line names it. A head that is
+not a draft waits for every required context. When the draft is marked
+ready, the same head concludes again, after those contexts report. A head
+given to --concluded does so only when the first poll finds it a draft.
+
 A check from a cancelled workflow run does not count when a newer run of the
 same workflow exists on the head, also when that run has made no check yet and has not completed.
 Then the watch writes no failure line for it, and the head is not CONCLUDED
@@ -148,7 +163,8 @@ after that many polls; 0, the default, polls until the watch is stopped.
 --since-head and --concluded tell a watch that starts again what the caller
 already knows, as a comma-separated list of <number>=<full head sha>. A known
 head is not reported as open, and its contexts that have already reported are
-not reported again. A head given to --concluded is also not concluded again.
+not reported again. A head given to --concluded is also not concluded again,
+other than a draft as above.
 A head that has moved since is reported as a new head.
 
 Outside a git checkout, or with no gh to run, the watch writes one line and
@@ -222,7 +238,11 @@ interface Tracked {
   sha: string
   /** The last conclusion written for each required context of this head. */
   readonly reported: Map<string, string>
-  concluded: boolean
+  /** How this head last concluded, or null when it has not. `draft` is a
+   *  CONCLUDED on a draft with a draft-skipped context (#365). Those
+   *  contexts count once the pull request is ready, so such a head
+   *  concludes again then. `final` concludes nothing again. */
+  concluded: 'final' | 'draft' | null
   /** True for a head the caller seeded and this watch has not polled yet.
    *  Its first poll writes nothing about what has already reported. */
   seeded: boolean
@@ -414,7 +434,7 @@ const seededMemory = (
     memory.set(number, {
       sha,
       reported: new Map(),
-      concluded: false,
+      concluded: null,
       seeded: true,
       seenHeads: new Set([sha]),
       pending: null,
@@ -424,7 +444,7 @@ const seededMemory = (
     memory.set(number, {
       sha,
       reported: new Map(),
-      concluded: true,
+      concluded: 'final',
       seeded: true,
       seenHeads: new Set([sha]),
       pending: null,
@@ -467,7 +487,10 @@ const pullLines = (
   }
 
   const lines: string[] = []
-  const contexts = reportContexts(pull.checks, names, runs)
+  // A draft does not wait for a context that a skipped matrix check stands
+  // for (#365).
+  const split = splitDraftSkipped(reportContexts(pull.checks, names, runs), pull.checks, pull.draft)
+  const contexts = split.counted
   let tracked = seen
   let quiet = false
   if (tracked === undefined) {
@@ -479,7 +502,7 @@ const pullLines = (
     tracked = {
       sha: pull.headSha,
       reported: new Map(),
-      concluded: false,
+      concluded: null,
       seeded: false,
       seenHeads: new Set([pull.headSha]),
       pending: null,
@@ -491,10 +514,14 @@ const pullLines = (
     tracked.sha = pull.headSha
     tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
-    tracked.concluded = false
+    tracked.concluded = null
     quiet = true
   } else if (tracked.seeded) {
     quiet = true
+    // The caller does not say how a seeded head concluded. A draft that
+    // has draft-skipped contexts now concluded without them (#365). Only
+    // a draft has such contexts.
+    if (tracked.concluded !== null && split.draftSkipped.length > 0) tracked.concluded = 'draft'
   }
   tracked.seeded = false
 
@@ -508,15 +535,25 @@ const pullLines = (
   }
 
   // An empty list concludes nothing: "no ruleset requires anything" is not
-  // "every required context passed".
-  const complete = contexts.length > 0 && contexts.every((context) => context.conclusion !== null)
-  if (complete && !tracked.concluded) {
-    tracked.concluded = true
+  // "every required context passed". A list that only draft-skipped names
+  // emptied is not empty: the ruleset named them.
+  const complete =
+    contexts.length + split.draftSkipped.length > 0 &&
+    contexts.every((context) => context.conclusion !== null)
+  // A head that concluded as a draft concludes again once it is ready:
+  // its draft-skipped contexts then count (#365).
+  const again = tracked.concluded === 'draft' && !pull.draft
+  if (complete && (tracked.concluded === null || again)) {
+    tracked.concluded = split.draftSkipped.length > 0 ? 'draft' : 'final'
     const failed = failures(contexts)
     const verdict = failed.length === 0 ? 'all passed' : `failed: ${failed.join(', ')}`
+    const later =
+      split.draftSkipped.length === 0
+        ? ''
+        : `; runs after ready for review: ${split.draftSkipped.join(', ')}`
     lines.push(
       `#${pull.number} ${short(pull.headSha)} CONCLUDED: ` +
-        `${contexts.length}/${contexts.length} required reported, ${verdict}`,
+        `${contexts.length}/${contexts.length} required reported, ${verdict}${later}`,
     )
   }
   return lines
@@ -732,7 +769,7 @@ export const runWatch = async (
       quietSince = context.now()
     } else if (context.now() - quietSince >= HEARTBEAT_MS) {
       const open = memory.size
-      const done = [...memory.values()].filter((tracked) => tracked.concluded).length
+      const done = [...memory.values()].filter((tracked) => tracked.concluded !== null).length
       context.write(
         `heartbeat: ${open} open pull request${open === 1 ? '' : 's'}, ${done} concluded, ` +
           'no change in 10 minutes',

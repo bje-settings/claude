@@ -1564,3 +1564,179 @@ function detailOf(number: number) {
     commentAuthors: [],
   }
 }
+
+describe('a draft and the checks that skip drafts (#365)', () => {
+  const ACTIONS = 'Analyze (actions)'
+  const SCRIPTS = 'Analyze (javascript-typescript)'
+  /** A matrix job that a draft condition skipped before the matrix
+   *  expanded. Its check suite concluded SKIPPED. */
+  const matrix: CheckContext = {
+    ...done(`Analyze (\${{ matrix.language }})`, 'SKIPPED'),
+    run: {
+      id: 77,
+      workflowId: 30,
+      workflow: 'CodeQL',
+      createdAt: '2026-10-06T00:00:00Z',
+      conclusion: 'SKIPPED',
+    },
+  }
+  const checks = [...REQUIRED.map((name) => done(name)), matrix]
+  const required = { main: [...REQUIRED, SCRIPTS, ACTIONS] }
+
+  it('concludes a draft head on the other contexts, and names the ones that run later', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
+  it('does not conclude the same head when it is not a draft', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks, draft: false })), required },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, ready, required 3/5 reported`,
+    ])
+  })
+
+  it('concludes a draft head whose every required context skips drafts', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: [matrix] })), required: { main: [ACTIONS] } },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/0 reported`,
+      `#259 aaaaaaa CONCLUDED: 0/0 required reported, all passed; runs after ready for review: ${ACTIONS}`,
+    ])
+  })
+
+  it('concludes the same head again once the draft is ready and the later checks report', async () => {
+    const later = [...checks, done(ACTIONS), done(SCRIPTS, 'FAILURE')]
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks })), required },
+      { heads: heads(head({ checks, draft: false })), required },
+      { heads: heads(head({ checks: later, draft: false })), required },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+      `#259 aaaaaaa ${SCRIPTS}: FAILURE`,
+      `#259 aaaaaaa ${ACTIONS}: SUCCESS`,
+      `#259 aaaaaaa CONCLUDED: 5/5 required reported, failed: ${SCRIPTS} (FAILURE)`,
+    ])
+  })
+
+  it('concludes a draft head once while it stays a draft', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
+  it('does not conclude a head again when its draft concluded with nothing left out', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks })) },
+      { heads: heads(head({ checks, draft: false })) },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed',
+    ])
+  })
+
+  it('does not conclude a head again when it goes back to a draft before the later checks', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks })), required },
+      { heads: heads(head({ checks, draft: false })), required },
+      { heads: heads(head({ checks })), required },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
+  it('concludes a head from --concluded again when the first poll finds it a draft', async () => {
+    const later = [...checks, done(ACTIONS), done(SCRIPTS)]
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks })), required },
+      { heads: heads(head({ checks: later, draft: false })), required },
+    ])
+
+    await runWatch(['--ticks', '2', '--concluded', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([
+      `#259 aaaaaaa ${SCRIPTS}: SUCCESS`,
+      `#259 aaaaaaa ${ACTIONS}: SUCCESS`,
+      '#259 aaaaaaa CONCLUDED: 5/5 required reported, all passed',
+    ])
+  })
+
+  it('does not conclude a head from --concluded again when the first poll finds it ready', async () => {
+    const later = [...checks, done(ACTIONS), done(SCRIPTS)]
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks, draft: false })), required },
+      { heads: heads(head({ checks: later, draft: false })), required },
+    ])
+
+    await runWatch(['--ticks', '2', '--concluded', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([`#259 aaaaaaa ${SCRIPTS}: SUCCESS`, `#259 aaaaaaa ${ACTIONS}: SUCCESS`])
+  })
+
+  it('does not conclude a head from --concluded again when its draft left nothing out', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks })) },
+      { heads: heads(head({ checks, draft: false })) },
+    ])
+
+    await runWatch(['--ticks', '2', '--concluded', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([])
+  })
+
+  it('concludes a draft head from --since-head on the other contexts', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '1', '--since-head', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
+  it('does not conclude a draft head from --concluded again while it stays a draft', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '2', '--concluded', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([])
+  })
+})

@@ -572,6 +572,7 @@ describe('the verdict over the required contexts', () => {
       ],
       true,
       true,
+      [],
     )
 
     expect(verdict).toBe('red')
@@ -584,9 +585,10 @@ describe('the verdict over the required contexts', () => {
       { name: 'a', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
     ] as const
 
-    expect(verdictOf(settled, true, true)).toBe('green')
-    expect(verdictOf(settled, true, false)).toBe('pending')
-    expect(verdictOf([], true, true)).toBe('pending')
+    expect(verdictOf(settled, true, true, [])).toBe('green')
+    expect(verdictOf(settled, true, false, [])).toBe('pending')
+    expect(verdictOf([], true, true, [])).toBe('pending')
+    expect(verdictOf([], true, true, ['Analyze (actions)'])).toBe('green')
   })
 
   for (const [what, rows] of [
@@ -1828,5 +1830,127 @@ describe('the report a person reads', () => {
 
     const text = answer.outcome === 'ok' ? answer.value : ''
     expect(text).not.toContain('bot threads')
+  })
+})
+
+describe('a draft and the checks that skip drafts (#365)', () => {
+  // The field case's shape: a ruleset requires two matrix contexts of a
+  // code scanning workflow, and the workflow skips that job on a draft.
+  // GitHub skips it before the matrix expands, so the one check keeps the
+  // expression in its name, and its suite concludes SKIPPED.
+  const ACTIONS = 'Analyze (actions)'
+  const SCRIPTS = 'Analyze (javascript-typescript)'
+  const REQUIRED = ['vitest', 'types', SCRIPTS, ACTIONS]
+  const passed = (name: string): CheckContext => ({
+    name,
+    status: 'COMPLETED',
+    conclusion: 'SUCCESS',
+    startedAt: null,
+  })
+  const skipped = (name: string, suite: string | null = 'SKIPPED'): CheckContext => ({
+    name,
+    status: 'COMPLETED',
+    conclusion: 'SKIPPED',
+    startedAt: null,
+    run: {
+      id: 77,
+      workflowId: 30,
+      workflow: 'CodeQL',
+      createdAt: '2026-10-06T00:00:00Z',
+      conclusion: suite,
+    },
+  })
+  const MATRIX = `Analyze (\${{ matrix.language }})`
+
+  /** The replies for a pull request with these checks and this draft flag,
+   *  under `required`. */
+  const facts = (
+    checks: readonly CheckContext[],
+    draft = true,
+    required: readonly string[] = REQUIRED,
+  ): GhReplies =>
+    replies({
+      viewPullRequestDetail: {
+        pullRequest: detail({ draft, checks }),
+        unavailable: null,
+        missing: false,
+      },
+      requiredContexts: { contexts: required, unavailable: null },
+    })
+
+  const FIELD = [passed('vitest'), passed('types'), skipped(MATRIX)]
+
+  it('is green on a draft whose only missing contexts a skipped matrix check stands for', async () => {
+    const report = await reportOf(['178'], facts(FIELD))
+
+    expect(report.verdict).toBe('green')
+    expect(report.state).toBe('review-1')
+    expect(report.draftSkipped).toEqual([ACTIONS, SCRIPTS])
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'types'])
+    expect(report.requiredContexts).toEqual(REQUIRED)
+  })
+
+  it('is pending for the same pull request when it is not a draft, with none left out', async () => {
+    const report = await reportOf(['178'], facts(FIELD, false))
+
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('ci-pending')
+    expect(report.draftSkipped).toEqual([])
+    expect(report.contexts.map((context) => context.name)).toEqual(REQUIRED)
+  })
+
+  it('keeps a required context with no matching skipped check as a gate on a draft', async () => {
+    const report = await reportOf(['178'], facts(FIELD, true, [...REQUIRED, 'lint']))
+
+    expect(report.verdict).toBe('pending')
+    expect(report.draftSkipped).toEqual([ACTIONS, SCRIPTS])
+    expect(report.contexts.at(-1)).toEqual({
+      name: 'lint',
+      reported: false,
+      conclusion: null,
+      verdict: 'pending',
+    })
+  })
+
+  it('keeps the gate when the matching check came from a suite that did not conclude SKIPPED', async () => {
+    const checks = [passed('vitest'), passed('types'), skipped(MATRIX, 'SUCCESS')]
+
+    const report = await reportOf(['178'], facts(checks))
+
+    expect(report.verdict).toBe('pending')
+    expect(report.draftSkipped).toEqual([])
+  })
+
+  it('stays red on a draft when a required context failed, also one a wildcard matches', async () => {
+    const failed: CheckContext = { ...passed(ACTIONS), conclusion: 'FAILURE' }
+
+    const report = await reportOf(['178'], facts([...FIELD, failed]))
+
+    expect(report.verdict).toBe('red')
+    expect(report.draftSkipped).toEqual([SCRIPTS])
+  })
+
+  it('is green on a draft when the ruleset requires only contexts that skip drafts', async () => {
+    const report = await reportOf(['178'], facts([skipped(MATRIX)], true, [ACTIONS, SCRIPTS]))
+
+    expect(report.verdict).toBe('green')
+    expect(report.contexts).toEqual([])
+    expect(report.draftSkipped).toEqual([ACTIONS, SCRIPTS])
+  })
+
+  it('names each one in the text as a check that runs after ready for review', async () => {
+    const answer = await ran(['178'], facts(FIELD))
+
+    const text = answer.outcome === 'ok' ? answer.value : ''
+    expect(text).toContain(`  skipped  ${ACTIONS}  runs after ready for review`)
+    expect(text).toContain(`  skipped  ${SCRIPTS}  runs after ready for review`)
+  })
+
+  it('writes no such line when the pull request is not a draft', async () => {
+    const answer = await ran(['178'], facts(FIELD, false))
+
+    const text = answer.outcome === 'ok' ? answer.value : ''
+    expect(text).not.toContain('runs after ready for review')
+    expect(text).toContain(`pending  ${ACTIONS}  not reported`)
   })
 })

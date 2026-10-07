@@ -43,8 +43,8 @@ flowchart TD
     J -->|Yes, API may have flipped back| J2{Same head answered<br/>on the poll just before?}
     J2 -->|No, first time| L
     J2 -->|Yes, twice in a row| K
-    K --> K2{Every required context reported?<br/>An empty list never is}
-    K2 -->|Yes, once per head| K1[CONCLUDED, with each failure]
+    K --> K2{Every required context reported?<br/>On a draft, not one that a skipped<br/>matrix check stands for. An empty<br/>list never is}
+    K2 -->|Yes, once per head,<br/>and again once a draft is ready| K1[CONCLUDED, with each failure, and<br/>each context that runs after ready]
     K2 -->|No| L
     K1 --> L
     G1 --> L{Any line this poll?}
@@ -70,6 +70,14 @@ a poll where a cancelled check has no newer check (#370), under the same bound a
 ordinary poll makes no other call. A cancelled run that no newer run follows still counts, and its
 failures are written. If the read fails, the watch writes one line for each new reason and leaves
 that pull request unread for the poll. It never reads a failed read as "no newer run". While the read stays down, the heartbeat names that pull request. The first poll that reads them again writes `workflow runs read again`.
+
+On a draft head, `CONCLUDED` does not wait for a required context that no check on the head
+names, when a check from a check suite that concluded `SKIPPED` has a `${{ ... }}` name that
+matches it (#365). That is the same rule as `pr-state`'s `draftSkipped`. The `CONCLUDED` line
+names each such context after `runs after ready for review:`. A head that is not a draft waits for
+every required context. When the person marks such a draft ready, the same head concludes
+again, after those contexts report. A head given to `--concluded` does so only when the first poll
+finds it a draft.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread only the
 pull requests that need its list. The other pull requests still read, and can still conclude. A

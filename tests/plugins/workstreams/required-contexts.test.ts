@@ -9,6 +9,7 @@ import {
   namesOrHead,
   needsHeadRuns,
   reportContexts,
+  splitDraftSkipped,
 } from '#workstreams/required-contexts.ts'
 
 const check = (
@@ -407,5 +408,169 @@ describe('namesOrDefault', () => {
       names: ['release-check'],
       from: 'ruleset',
     })
+  })
+})
+
+describe('splitDraftSkipped (#365, round 15 ruling 5)', () => {
+  /** A matrix job that a draft condition skipped before the matrix
+   *  expanded, as GitHub reports it. Its suite's conclusion is `suite`. */
+  const MATRIX = `Analyze (\${{ matrix.language }})`
+  const skippedCheck = (name: string, suite: string | null = 'SKIPPED'): CheckContext =>
+    fromRun(check(name, 'SKIPPED'), 7, OLD, suite, 3, 'CodeQL')
+  const ACTIONS = 'Analyze (actions)'
+  const SCRIPTS = 'Analyze (javascript-typescript)'
+
+  /** The split of `names` over `checks`, on a draft unless `draft` says no. */
+  const split = (names: readonly string[], checks: readonly CheckContext[], draft = true) =>
+    splitDraftSkipped(reportContexts(checks, names), checks, draft)
+
+  it('leaves out each name a skipped matrix check stands for, sorted, on a draft', () => {
+    const checks = [check('vitest', 'SUCCESS'), skippedCheck(MATRIX)]
+
+    const answer = split([SCRIPTS, 'vitest', ACTIONS], checks)
+
+    expect(answer.draftSkipped).toEqual([ACTIONS, SCRIPTS])
+    expect(answer.counted).toEqual([
+      { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
+    ])
+  })
+
+  it('leaves out nothing when the pull request is not a draft', () => {
+    const checks = [check('vitest', 'SUCCESS'), skippedCheck(MATRIX)]
+
+    const answer = split([ACTIONS, 'vitest'], checks, false)
+
+    expect(answer.draftSkipped).toEqual([])
+    expect(answer.counted.map((context) => context.name)).toEqual([ACTIONS, 'vitest'])
+  })
+
+  it('keeps a name that no skipped check matches as a gate', () => {
+    const answer = split([ACTIONS, 'lint'], [skippedCheck(MATRIX)])
+
+    expect(answer.draftSkipped).toEqual([ACTIONS])
+    expect(answer.counted).toEqual([
+      { name: 'lint', reported: false, conclusion: null, verdict: 'pending' },
+    ])
+  })
+
+  for (const [what, suite] of [
+    ['concluded SUCCESS', 'SUCCESS'],
+    ['concluded FAILURE', 'FAILURE'],
+    ['has not concluded', null],
+  ] as const) {
+    it(`does not count a matching check whose suite ${what}`, () => {
+      const answer = split([ACTIONS], [skippedCheck(MATRIX, suite)])
+
+      expect(answer.draftSkipped).toEqual([])
+      expect(answer.counted.map((context) => context.name)).toEqual([ACTIONS])
+    })
+  }
+
+  it('does not count a matching check that no workflow run made', () => {
+    const answer = split([ACTIONS], [check(MATRIX, 'SKIPPED')])
+
+    expect(answer.draftSkipped).toEqual([])
+  })
+
+  it('keeps the verdict of a name that reported, also a failure a wildcard matches', () => {
+    const checks = [check(ACTIONS, 'FAILURE'), skippedCheck(MATRIX)]
+
+    const answer = split([ACTIONS], checks)
+
+    expect(answer.draftSkipped).toEqual([])
+    expect(answer.counted).toEqual([
+      { name: ACTIONS, reported: true, conclusion: 'FAILURE', verdict: 'failed' },
+    ])
+  })
+
+  for (const [what, conclusion, verdict] of [
+    ['passed', 'SUCCESS', 'success'],
+    ['still runs', null, 'pending'],
+  ] as const) {
+    it(`keeps the verdict of a name that ${what}, also one a wildcard matches`, () => {
+      const checks = [check(ACTIONS, conclusion), skippedCheck(MATRIX)]
+
+      const answer = split([ACTIONS], checks)
+
+      expect(answer.draftSkipped).toEqual([])
+      expect(answer.counted).toEqual([{ name: ACTIONS, reported: true, conclusion, verdict }])
+    })
+  }
+
+  it('waits for a name that only a superseded cancelled run reported', () => {
+    // The newer run of the same workflow has made another check, but not
+    // this one yet. The name reads as not reported, and is still a gate.
+    const checks = [
+      fromRun(check(ACTIONS, 'FAILURE'), 1, OLD, 'CANCELLED'),
+      fromRun(check('vitest', null), 2, NEW, null),
+      skippedCheck(MATRIX),
+    ]
+
+    const answer = split([ACTIONS], checks)
+
+    expect(answer.draftSkipped).toEqual([])
+    expect(answer.counted).toEqual([
+      { name: ACTIONS, reported: false, conclusion: null, verdict: 'pending' },
+    ])
+  })
+
+  it('does not read a plain-named skipped check as a wildcard', () => {
+    const answer = split(['CodeQL'], [skippedCheck('CodeQL (all)')])
+
+    expect(answer.draftSkipped).toEqual([])
+  })
+
+  for (const name of [
+    `pre ${ACTIONS}`,
+    `${ACTIONS} post`,
+    'Analyze ()',
+    'Analyze (actions) (more)',
+    'Analyze (a(b)c)',
+    'Analyze (a(b)',
+    'Analyze (a)b)',
+  ]) {
+    it(`matches the whole name only, and no span holds a parenthesis: ${name}`, () => {
+      expect(split([name], [skippedCheck(MATRIX)]).draftSkipped).toEqual([])
+    })
+  }
+
+  it('matches each regular expression character in a name literally', () => {
+    const checks = [skippedCheck(`a.b+c [\${{ matrix.x }}] $^|*?{}\\`)]
+    const literal = 'a.b+c [one] $^|*?{}\\'
+
+    expect(split([literal], checks).draftSkipped).toEqual([literal])
+    expect(split(['aXb+c [one] $^|*?{}\\'], checks).draftSkipped).toEqual([])
+    expect(split(['a.bbc [one] $^|*?{}\\'], checks).draftSkipped).toEqual([])
+  })
+
+  it('reads every skipped check, not only the first or the last', () => {
+    const checks = [
+      skippedCheck(`docs (\${{ matrix.page }}) build`),
+      skippedCheck(MATRIX),
+      skippedCheck(`lint (\${{ matrix.part }}) all`),
+    ]
+
+    expect(split([ACTIONS], checks).draftSkipped).toEqual([ACTIONS])
+  })
+
+  it('matches a brace quantifier in a name literally', () => {
+    const checks = [skippedCheck(`x{2} (\${{ matrix.x }})`)]
+
+    expect(split(['x{2} (one)'], checks).draftSkipped).toEqual(['x{2} (one)'])
+    expect(split(['xx (one)'], checks).draftSkipped).toEqual([])
+  })
+
+  it('reads a span up to the first }}, also with a single } in it', () => {
+    const checks = [skippedCheck(`Analyze (\${{ format('{0}-x', matrix.language) }})`)]
+
+    expect(split([ACTIONS], checks).draftSkipped).toEqual([ACTIONS])
+  })
+
+  it('reads each span of a name with more than one as its own wildcard', () => {
+    const checks = [skippedCheck(`build (\${{ matrix.os }}, \${{ matrix.node }})`)]
+
+    expect(split(['build (ubuntu, 22)', 'build (ubuntu)'], checks).draftSkipped).toEqual([
+      'build (ubuntu, 22)',
+    ])
   })
 })
