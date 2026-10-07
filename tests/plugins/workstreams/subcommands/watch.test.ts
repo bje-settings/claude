@@ -1199,6 +1199,21 @@ describe('a watch over a cancelled run that a started run supersedes (#370)', ()
     expect(lines.at(-1)).toBe('heartbeat: workflow runs for #259 still unread, the last: gh down')
   })
 
+  it('names every pull request with unread runs on the heartbeat, sorted', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(SECOND, head({ checks: CANCELLED_RUN })),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines.at(-1)).toBe(
+      'heartbeat: workflow runs for #259, #260 still unread, the last: gh down',
+    )
+  })
+
   it('writes a reason again after the pull request left the list and came back', async () => {
     const down = { rows: [], unavailable: 'gh down' }
     const { context, lines } = watchOver([
