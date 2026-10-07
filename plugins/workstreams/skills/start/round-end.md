@@ -30,7 +30,9 @@ The open items, by the part of step 4 that holds them:
 - Part 4: each change of scope that the round found for an issue outside it.
 - Part 5: each `lower_layer` finding not applied, each open bot thread
   (`botThreadAuthors` from `pr-state`), each plan issue still open after its pull request
-  merged, and each dropped layer, with its issues.
+  merged, and each dropped layer, with its issues. For each pull request with a
+  `draftSkipped` list from `pr-state`, one item for the person: "mark ready, then these
+  checks run", with the list.
 
 ## 3. The cost
 

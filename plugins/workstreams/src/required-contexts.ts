@@ -20,6 +20,9 @@
 // run that way. The cancelled run's fan-in jobs then fail. A reader that
 // kept them would report red while the newer run still works.
 //
+// Both callers also leave the same contexts out on a draft (#365): those
+// that a skipped matrix check stands for ({@link splitDraftSkipped}).
+//
 // This file ships. It imports only a type from `lib/`.
 import type { CheckContext } from './lib/gh.ts'
 

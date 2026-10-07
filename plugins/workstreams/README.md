@@ -501,6 +501,16 @@ newer run has not reported yet is pending, not failed. A newer run that complete
 supersede, since it will make none. The list from the head also leaves out a name that contains
 `${{`, a matrix job that did not expand.
 
+A workflow can skip a job on a draft, and run it after the pull request is ready for review
+(#365). GitHub skips a matrix job before the matrix expands, so its check keeps the
+expression, such as `Analyze (${{ matrix.language }})`. On a draft, a required context that
+has not reported is in `draftSkipped` when a check on the head, from a check suite that
+concluded `SKIPPED`, has a `${{ ... }}` name that matches it. Each `${{ ... }}` matches one
+or more characters that are not `(` or `)`. The verdict leaves these contexts out, and the
+text says each one "runs after ready for review". So a draft whose only missing contexts
+skip drafts is `green`. When the pull request is not a draft, `draftSkipped` is empty and
+each context counts. No workflow file is read.
+
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
 has answered nothing for a head whose runs existed. Only an unresolved thread from a
 PERSON holds the loop. A bot's own thread, review bots included, is counted apart under
@@ -603,6 +613,9 @@ from the rules of the base branch. When no ruleset covers the base, the list com
 the default branch (ruling P9). Each stack layer above the first is such a case. In round
 5, a watch concluded on the checks that had reported on the head. Those were seven
 CodeQL checks, and none of the required ones.
+
+On a draft head, `CONCLUDED` does not wait for a context in `pr-state`'s `draftSkipped`
+(#365). The line names each one after `runs after ready for review:`.
 
 `pr-state` and `watch` share one derivation of the list, `src/required-contexts.ts`.
 So a cancelled run's check does not count in `watch` either, once a newer run of the same
