@@ -12,6 +12,7 @@ import {
   type GhReplies,
   ghFails,
   type PullRequestHead,
+  type WorkflowRun,
 } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createSandbox } from '#harness/sandbox.ts'
@@ -54,6 +55,9 @@ interface Poll {
   readonly required?: Readonly<Record<string, readonly string[] | Error>> | Error
   readonly repository?: GhReplies['viewRepository'] | Error
   readonly detail?: GhReplies['viewPullRequestDetail']
+  readonly runs?: GhReplies['listWorkflowRuns']
+  /** The runs of one branch, which win over `runs` for that branch. */
+  readonly runsByBranch?: Readonly<Record<string, GhReplies['listWorkflowRuns']>>
 }
 
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
@@ -72,6 +76,8 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
   let index = 0
   let clock = 1_000_000
   const lines: string[] = []
+  /** The branch of each workflow runs read the watch made. */
+  const runReads: string[] = []
   const current = (): Poll => polls[Math.min(index, polls.length - 1)] as Poll
   const base = createGhMock()
   const reply = <T>(value: T | Error | undefined, name: string): T => {
@@ -93,6 +99,11 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
       return { contexts: answer, unavailable: null }
     },
     viewPullRequestDetail: async () => reply(current().detail, 'viewPullRequestDetail'),
+    listWorkflowRuns: async (query) => {
+      runReads.push(query?.branch ?? '')
+      const own = current().runsByBranch?.[query?.branch ?? '']
+      return reply(own ?? current().runs, 'listWorkflowRuns')
+    },
   }
   const context: WatchContext = {
     createGh: () => gh,
@@ -109,7 +120,7 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
     stopped: () => false,
     ...overrides,
   }
-  return { context, lines, gh, elapsed: () => clock - 1_000_000 }
+  return { context, lines, gh, runReads, elapsed: () => clock - 1_000_000 }
 }
 
 const heads = (...rows: PullRequestHead[]) => ({ rows, unavailable: null })
@@ -998,7 +1009,8 @@ describe('a watch over a cancelled run that a newer run supersedes (#364)', () =
   it('still reports a cancelled run that no newer run follows, and concludes on it', async () => {
     const { context, lines } = watchOver([
       { heads: heads(head()) },
-      { heads: heads(head({ checks: CANCELLED_RUN })) },
+      // No newer run exists, so the read finds none.
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: { rows: [], unavailable: null } },
     ])
 
     await runWatch(['--ticks', '2'], context)
@@ -1011,6 +1023,304 @@ describe('a watch over a cancelled run that a newer run supersedes (#364)', () =
       '#259 aaaaaaa CONCLUDED: 3/3 required reported, ' +
         'failed: vitest (FAILURE), types (CANCELLED), biome (CANCELLED)',
     ])
+  })
+})
+
+describe('a watch over a cancelled run that a started run supersedes (#370)', () => {
+  const OLD = '2026-10-01T00:00:00Z'
+  const NEW = '2026-10-01T00:01:00Z'
+  const cancelled = (name: string, conclusion: string): CheckContext => ({
+    name,
+    status: 'COMPLETED',
+    conclusion,
+    startedAt: OLD,
+    run: { id: 1, workflowId: 1, workflow: 'CI', createdAt: OLD, conclusion: 'CANCELLED' },
+  })
+  const CANCELLED_RUN = [
+    cancelled('vitest', 'FAILURE'),
+    cancelled('types', 'CANCELLED'),
+    cancelled('biome', 'CANCELLED'),
+  ]
+  /** A row of `actions/runs`, by default the started run, newer than run 1. */
+  const row = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
+    id: 2,
+    workflowId: 1,
+    createdAt: NEW,
+    name: 'CI',
+    event: 'pull_request',
+    headSha: SHA_A,
+    status: 'in_progress',
+    conclusion: null,
+    startedAt: NEW,
+    updatedAt: NEW,
+    ...overrides,
+  })
+  const OPEN = `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/3 reported`
+  const FAILED = 'failed: vitest (FAILURE), types (CANCELLED), biome (CANCELLED)'
+
+  it('writes no failure and no CONCLUDED while a started run has made no check', async () => {
+    const { context, lines, runReads } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: { rows: [row()], unavailable: null },
+      },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([OPEN])
+    expect(runReads).toEqual(['wktr-219-pr-sweep', 'wktr-219-pr-sweep'])
+  })
+
+  for (const [why, newer] of [
+    ['no other run', []],
+    ['an older run only', [row({ id: 0, createdAt: '2026-09-30T00:00:00Z' })]],
+    ['a newer run of another workflow', [row({ workflowId: 2 })]],
+    ['a newer run on another head', [row({ headSha: SHA_B })]],
+    ['a newer run of another event', [row({ event: 'push' })]],
+  ] as const) {
+    it(`still fails a cancelled run with ${why}`, async () => {
+      const { context, lines, runReads } = watchOver([
+        {
+          heads: heads(head({ checks: CANCELLED_RUN })),
+          runs: { rows: newer, unavailable: null },
+        },
+      ])
+
+      await runWatch(['--ticks', '1'], context)
+
+      expect(lines).toContain(`#259 aaaaaaa CONCLUDED: 3/3 required reported, ${FAILED}`)
+      expect(runReads).toEqual(['wktr-219-pr-sweep'])
+    })
+  }
+
+  it('makes no run read on an ordinary poll', async () => {
+    const newer: CheckContext = {
+      name: 'lint',
+      status: 'IN_PROGRESS',
+      conclusion: null,
+      startedAt: NEW,
+      run: { id: 2, workflowId: 1, workflow: 'CI', createdAt: NEW, conclusion: null },
+    }
+    const { context, runReads } = watchOver([
+      { heads: heads(head({ checks: [] })) },
+      { heads: heads(head({ checks: REQUIRED.map((name) => done(name)) })) },
+      // A cancelled run with a newer check needs no read either.
+      { heads: heads(head({ checks: [...CANCELLED_RUN, newer] })) },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(runReads).toEqual([])
+  })
+
+  it('reports a runs read that failed once, leaves the pull request unread, then reads again', async () => {
+    const down = { rows: [], unavailable: 'gh did not answer in 5000 ms' }
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: { rows: [row()], unavailable: null } },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+    ])
+
+    await runWatch(['--ticks', '4'], context)
+
+    const reason =
+      '#259 workflow runs could not be read: gh did not answer in 5000 ms; ' +
+      'the pull request is unread this poll'
+    expect(lines).toEqual([reason, '#259 workflow runs read again', OPEN, reason])
+  })
+
+  it('keeps a cancelled run red when its newer run completed with no check', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: {
+          rows: [row({ status: 'completed', conclusion: 'startup_failure' })],
+          unavailable: null,
+        },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain(`#259 aaaaaaa CONCLUDED: 3/3 required reported, ${FAILED}`)
+  })
+
+  it('writes no read-again line when a poll needed no read', async () => {
+    const down = { rows: [], unavailable: 'gh down' }
+    const { context, lines, runReads } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+      { heads: heads(head({ checks: [] })), runs: down },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(runReads).toEqual(['wktr-219-pr-sweep'])
+    expect(lines.some((line) => line.includes('read again'))).toBe(false)
+    expect(lines.at(-1)).toBe(OPEN)
+  })
+
+  it('treats a partial runs read as a failed read', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: { rows: [row()], unavailable: 'one row unreadable' },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      '#259 workflow runs could not be read: one row unreadable; ' +
+        'the pull request is unread this poll',
+    ])
+  })
+
+  it('writes each new reason a runs read fails with', async () => {
+    const down = (unavailable: string) => ({ rows: [], unavailable })
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down('reason X') },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down('reason Y') },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      '#259 workflow runs could not be read: reason X; the pull request is unread this poll',
+      '#259 workflow runs could not be read: reason Y; the pull request is unread this poll',
+    ])
+  })
+
+  const SECOND = head({
+    number: 260,
+    head: 'wktr-260-b',
+    headSha: SHA_B,
+    checks: CANCELLED_RUN,
+  })
+
+  it('reads the runs of the second pull request when the first read fails', async () => {
+    const { context, lines, runReads } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: { rows: [], unavailable: 'gh down' },
+        runsByBranch: { 'wktr-260-b': { rows: [row({ headSha: SHA_B })], unavailable: null } },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(runReads).toEqual(['wktr-219-pr-sweep', 'wktr-260-b'])
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('#259 workflow runs could not be read')
+    expect(lines[1]).toContain('#260 open')
+  })
+
+  it('gives each pull request its own runs', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: { rows: [], unavailable: null },
+        runsByBranch: { 'wktr-260-b': { rows: [row({ headSha: SHA_B })], unavailable: null } },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines.some((line) => line.startsWith('#259 aaaaaaa CONCLUDED'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('#260 open'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('#260') && line.includes('CONCLUDED'))).toBe(false)
+  })
+
+  it('writes a heartbeat that names a pull request with unread runs, not "no change"', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines.at(-1)).toBe('heartbeat: workflow runs for #259 still unread, the last: gh down')
+  })
+
+  it('names every pull request with unread runs on the heartbeat, sorted', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(SECOND, head({ checks: CANCELLED_RUN })),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines.at(-1)).toBe(
+      'heartbeat: workflow runs for #259, #260 still unread, the last: gh down',
+    )
+  })
+
+  it('names the reason that changed last on the heartbeat, and writes it once', async () => {
+    const down = (unavailable: string) => ({ rows: [], unavailable })
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: down('reason A'),
+        runsByBranch: { 'wktr-260-b': down('reason B') },
+      },
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: down('reason C'),
+        runsByBranch: { 'wktr-260-b': down('reason B') },
+      },
+    ])
+
+    await runWatch(['--ticks', '24'], context)
+
+    const beats = lines.filter((line) => line.startsWith('heartbeat'))
+    expect(beats[0]).toBe(
+      'heartbeat: workflow runs for #259, #260 still unread, the last: reason C',
+    )
+    expect(beats).toHaveLength(2)
+  })
+
+  it('sorts the pull requests on the heartbeat by number, not by text', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(
+          head({ number: 100, head: 'b100', headSha: SHA_B, checks: CANCELLED_RUN }),
+          head({ number: 99, head: 'b99', headSha: SHA_B, checks: CANCELLED_RUN }),
+        ),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines.at(-1)).toBe(
+      'heartbeat: workflow runs for #99, #100 still unread, the last: gh down',
+    )
+  })
+
+  it('writes a reason again after the pull request left the list and came back', async () => {
+    const down = { rows: [], unavailable: 'gh down' }
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+      {
+        heads: heads(),
+        runs: down,
+        detail: {
+          pullRequest: { ...detailOf(259), state: 'MERGED' },
+          unavailable: null,
+          missing: false,
+        },
+      },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines.filter((line) => line.includes('could not be read'))).toHaveLength(2)
   })
 })
 

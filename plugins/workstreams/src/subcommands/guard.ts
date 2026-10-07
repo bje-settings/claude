@@ -409,6 +409,35 @@ const VITEST_VERB = /(^|[\\/])vitest(\.cmd)?$/i
  *  git command's own `-C`. */
 export interface VitestTarget {
   readonly directory: string | null
+  /** True when the directory could not be read: a quote never closes, or one
+   *  is left in the value. The guard then reports it and allows the run. */
+  readonly unclosedQuote?: true
+}
+
+/** A segment split on whitespace, where a quoted span stays inside one
+ *  token with its quote marks kept ({@link readDirectoryValue} removes
+ *  them). `closed` is false when a quote never closes. The rest of the
+ *  segment is then the last token. */
+const tokenize = (segment: string): { tokens: string[]; closed: boolean } => {
+  const tokens: string[] = []
+  let current = ''
+  let quote = ''
+  for (const char of segment) {
+    if (quote !== '') {
+      current += char
+      if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") {
+      current += char
+      quote = char
+    } else if (/\s/.test(char)) {
+      if (current !== '') tokens.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  if (current !== '') tokens.push(current)
+  return { tokens, closed: quote === '' }
 }
 
 /** A `-C`/`--dir` value, with one matching pair of surrounding `'` or `"`
@@ -443,8 +472,8 @@ const readDirectoryValue = (value: string): string | null => {
  *  (`plugins/workstreams/skills/stream/brief.md`), which makes this the
  *  ordinary spelling a subagent uses to test one worktree, not an edge
  *  case. A directory value wrapped in one matching pair of quote marks has
- *  them stripped, since a subagent may quote an absolute path on habit
- *  even where it holds no space; an empty value, from either form, reads
+ *  them stripped. The tokens keep a quoted span whole, so a path with a
+ *  space is one value (#371); an empty value, from either form, reads
  *  as no directory named, the meaning {@link Destructive.directory} also
  *  gives an absent `-C`.
  *
@@ -483,13 +512,59 @@ const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined =
   return sub === 'run' && at(tokens, cursor + 1) === 'test' ? { directory } : undefined
 }
 
+/** One segment, read for a `vitest` run. The tokens keep a quoted value
+ *  whole, so `-C "/a b"` names `/a b` (#371). A quote that never closes
+ *  swallows the rest of the segment, also the subcommand. When that quote
+ *  opens a `pnpm` directory value, the guard cannot read the directory, and
+ *  it says so ({@link VitestTarget.unclosedQuote}). Any other unclosed quote
+ *  is read from the tokens, and when they hold no run, as the plain
+ *  whitespace split did, so a typo elsewhere in the command still finds the
+ *  run. */
+const readVitestSegment = (segment: string): VitestTarget | undefined => {
+  const { tokens, closed } = tokenize(segment)
+  if (closed) return readVitestTarget(tokens)
+  const start = tokens.findIndex((token) => !OPENERS.includes(token) && !ASSIGNMENT.test(token))
+  const verb = at(tokens, start)
+  // The open quote is the last token. It is a pnpm directory value only when
+  // every token before it is a complete pnpm directory option, as in
+  // `readVitestTarget`. An option after the subcommand is the tool's own.
+  const end = tokens.length - 1
+  let cursor = start + 1
+  while (cursor < end) {
+    const token = at(tokens, cursor)
+    if (token === '-C' || token === '--dir') {
+      if (cursor + 1 === end) break
+      cursor += 2
+    } else if (/^(-C|--dir)=/.test(token)) {
+      cursor += 1
+    } else {
+      break
+    }
+  }
+  const token = at(tokens, cursor)
+  const value =
+    cursor === end
+      ? /^(-C|--dir)=/.test(token)
+      : cursor === end - 1 && (token === '-C' || token === '--dir')
+  return PNPM_VERB.test(verb) && value
+    ? { directory: null, unclosedQuote: true }
+    : (readVitestTarget(tokens) ?? readVitestTarget(segment.trim().split(/\s+/)))
+}
+
 /** What a `vitest` run in `command` would act on, or `undefined` when no
  *  segment starts one, cut at the same shell operators {@link
  *  destructiveGit} cuts at. */
 export const vitestTarget = (command: string): VitestTarget | undefined => {
   for (const segment of command.split(SEGMENTS)) {
-    const target = readVitestTarget(segment.trim().split(/\s+/))
-    if (target !== undefined) return target
+    const target = readVitestSegment(segment)
+    if (target === undefined) continue
+    // A quote mark kept inside a token, as in `/w/"a b"`, means the value was
+    // not read whole. A `"` in a path, or a `'` span with a space in it, is
+    // not a path to trust. A lone `'`, as in `it's`, is a real name.
+    // The guard says so and allows, as for an unclosed quote.
+    return target.directory !== null && /"|'[^']*\s[^']*'/.test(target.directory)
+      ? { directory: null, unclosedQuote: true }
+      : target
   }
   return undefined
 }
@@ -562,6 +637,13 @@ const secondSuite = async (
 ): Promise<Verdict | undefined> => {
   const target = vitestTarget(command)
   if (target === undefined) return undefined
+  if (target.unclosedQuote) {
+    context.output.err.write(
+      'workstreams guard: a quote in a pnpm directory value does not close or does not match, so ' +
+        'the directory could not be read and a second vitest run could not be checked; allowing it.\n',
+    )
+    return undefined
+  }
 
   const directory =
     target.directory === null ? call.cwd : await namedDirectory(target.directory, call.cwd, context)

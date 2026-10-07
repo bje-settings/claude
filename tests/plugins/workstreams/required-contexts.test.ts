@@ -4,7 +4,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CheckContext } from '#harness/gh.ts'
-import { namesOrDefault, namesOrHead, reportContexts } from '#workstreams/required-contexts.ts'
+import {
+  namesOrDefault,
+  namesOrHead,
+  needsHeadRuns,
+  reportContexts,
+} from '#workstreams/required-contexts.ts'
 
 const check = (
   name: string,
@@ -248,6 +253,87 @@ describe('reportContexts over superseded cancelled runs (#364)', () => {
       { name: 'vercel/preview', reported: true, conclusion: 'FAILURE', verdict: 'failed' },
       { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
     ])
+  })
+})
+
+describe('a cancelled run that a started run supersedes (#370)', () => {
+  /** A row of `actions/runs`: all the compare reads of it. */
+  const started = (id: number, createdAt: string, workflowId = 1) => ({ id, workflowId, createdAt })
+  const cancelled = [fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, 'CANCELLED')]
+
+  it('reads a name pending when a newer run has made no check yet', () => {
+    expect(reportContexts(cancelled, ['vitest'], [started(2, NEW)])).toEqual([
+      { name: 'vitest', reported: false, conclusion: null, verdict: 'pending' },
+    ])
+  })
+
+  it('still reads the cancelled run red with no runs passed', () => {
+    expect(reportContexts(cancelled, ['vitest'])[0]?.verdict).toBe('failed')
+    expect(reportContexts(cancelled, ['vitest'], [])[0]?.verdict).toBe('failed')
+  })
+
+  for (const [why, runs] of [
+    ['the same run', [started(1, OLD)]],
+    ['an older run', [started(0, '2026-09-30T00:00:00Z')]],
+    ['a newer run of another workflow', [started(2, NEW, 2)]],
+  ] as const) {
+    it(`keeps the cancelled run red when the head's runs hold ${why}`, () => {
+      expect(reportContexts(cancelled, ['vitest'], runs)[0]?.verdict).toBe('failed')
+    })
+  }
+
+  for (const status of ['queued', 'in_progress', 'waiting']) {
+    it(`lets a newer ${status} run with no check supersede the cancelled run`, () => {
+      expect(
+        reportContexts(cancelled, ['vitest'], [{ ...started(2, NEW), status }])[0]?.verdict,
+      ).toBe('pending')
+    })
+  }
+
+  it('keeps the cancelled run red when the newer run completed with no check', () => {
+    const ended = { ...started(2, NEW), status: 'completed' }
+
+    expect(reportContexts(cancelled, ['vitest'], [ended])[0]?.verdict).toBe('failed')
+    expect(namesOrHead([], cancelled, [ended])).toEqual({ names: ['vitest'], from: 'head' })
+  })
+
+  it('lets the larger run id be the newer run on a tie in creation time', () => {
+    expect(reportContexts(cancelled, ['vitest'], [started(2, OLD)])[0]?.verdict).toBe('pending')
+    expect(reportContexts(cancelled, ['vitest'], [started(0, OLD)])[0]?.verdict).toBe('failed')
+  })
+
+  it('does not supersede a run that was not cancelled', () => {
+    const running = [fromRun(check('vitest', 'FAILURE', OLD), 1, OLD, null)]
+
+    expect(reportContexts(running, ['vitest'], [started(2, NEW)])[0]?.verdict).toBe('failed')
+  })
+
+  it('drops a name only the superseded run reported from the head list', () => {
+    expect(namesOrHead([], cancelled, [started(2, NEW)])).toEqual({ names: [], from: 'head' })
+    expect(namesOrHead([], cancelled)).toEqual({ names: ['vitest'], from: 'head' })
+  })
+
+  describe('needsHeadRuns', () => {
+    it('is true for a cancelled run that no check of a newer run follows', () => {
+      expect(needsHeadRuns(cancelled)).toBe(true)
+      expect(needsHeadRuns([...cancelled, fromRun(check('lint', null, OLD), 0, OLD, null)])).toBe(
+        true,
+      )
+    })
+
+    it('is false once a newer run has a check', () => {
+      expect(needsHeadRuns([...cancelled, fromRun(check('lint', null, NEW), 2, NEW, null)])).toBe(
+        false,
+      )
+    })
+
+    it('is false with no cancelled run, no run at all, or no check', () => {
+      expect(needsHeadRuns([fromRun(check('vitest', 'SUCCESS', OLD), 1, OLD, 'SUCCESS')])).toBe(
+        false,
+      )
+      expect(needsHeadRuns([check('vitest', 'FAILURE')])).toBe(false)
+      expect(needsHeadRuns([])).toBe(false)
+    })
   })
 })
 

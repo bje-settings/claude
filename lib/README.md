@@ -518,7 +518,7 @@ suite's `conclusion`. GraphQL's `WorkflowRun` has no conclusion field of its own
 has no `run`. A check run that no workflow made has none either: its suite answers a null
 `workflowRun`. A run that lacks a field is read as no `run`. `required-contexts.ts`
 `currentChecks` reads `run` to drop a cancelled run's checks once a newer run of the same
-workflow has a check on the head (#364). Two workflow files can have one name, so it compares
+workflow exists on the head (#364, #370). Two workflow files can have one name, so it compares
 `workflowId`.
 
 The threads and the comments are separate fields, because they are separate facts: the enterprise
@@ -550,6 +550,10 @@ list that carries neither `event` nor the head commit. So a caller cannot tell a
 from a `push` run, nor say which head either ran on. `listWorkflowRuns` filters with `?branch=`,
 never `?head_sha=`: that filter once answered nothing for a head whose runs did exist, and cost a
 close-and-reopen and a whole CI run.
+
+A row carries the run's `id`, `workflowId` and `createdAt` too. `required-contexts.ts`
+`currentChecks` reads them to find a newer run that has made no check yet (#370). A row that
+lacks one of them is unreadable.
 
 A row that is not the shape REST promises is counted into `unavailable`, never dropped. A caller
 that asserts a run exists for a head would otherwise read a dropped row as "no run".

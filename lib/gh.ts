@@ -343,6 +343,16 @@ export interface PullRequestDetail {
 
 /** One workflow run, as `actions/runs` reports it. */
 export interface WorkflowRun {
+  /** The run's `id`, the same number as {@link CheckWorkflowRun.id}. Of two
+   *  runs created in the same second, the newer one has the larger id. */
+  readonly id: number
+  /** The workflow's `workflow_id`, the same number as
+   *  {@link CheckWorkflowRun.workflowId}. */
+  readonly workflowId: number
+  /** When the run was created, the same field as
+   *  {@link CheckWorkflowRun.createdAt}. A run that made no check yet is
+   *  visible only here (#370). */
+  readonly createdAt: string
   /** The run's name, which is the workflow's `name:` (`CI` here). */
   readonly name: string
   /** `pull_request`, `push`, `pull_request_target`, and the rest. A caller
@@ -1716,11 +1726,18 @@ const readWorkflowRun = (node: unknown): WorkflowRun | null => {
   const status = asText(record?.status)
   const startedAt = asText(record?.run_started_at)
   const updatedAt = asText(record?.updated_at)
+  const id = asInteger(record?.id)
+  const workflowId = asInteger(record?.workflow_id)
+  const createdAt = asText(record?.created_at)
   if (name === null || event === null || headSha === null) return null
+  if (id === null || workflowId === null || createdAt === null) return null
   if (status === null || startedAt === null || updatedAt === null) return null
   // A run that has not concluded reports `conclusion: null`. That null is
   // the difference between "in progress" and "failed".
   return {
+    id,
+    workflowId,
+    createdAt,
     name,
     event,
     headSha,

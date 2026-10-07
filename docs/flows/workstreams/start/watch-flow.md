@@ -39,7 +39,7 @@ flowchart TD
     I1 -->|Yes| I2{No ruleset on this base,<br/>and the default branch failed<br/>to read this poll?}
     I2 -->|Yes| L
     I2 -->|No| J{Head already seen,<br/>and not the current one?}
-    J -->|No| K[open, or new head, then each required context<br/>as it reports; a cancelled run's check does<br/>not count once a newer run of its workflow has a check]
+    J -->|No| K[open, or new head, then each required context<br/>as it reports; a cancelled run's check does<br/>not count once a newer run of its workflow exists;<br/>the runs are read only when a cancelled check<br/>has no newer check]
     J -->|Yes, API may have flipped back| J2{Same head answered<br/>on the poll just before?}
     J2 -->|No, first time| L
     J2 -->|Yes, twice in a row| K
@@ -64,10 +64,12 @@ they come from the rules of the default branch. Each stack layer above the first
 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). The watch then writes no failure line for it, and the head is not
-`CONCLUDED` until the newer run reports each required context. Before the newer run makes its
-first check, the cancelled run's checks still count. The check list shows no newer run until then,
-and the watch makes no other call. A cancelled run that no newer run follows still counts, and its
-failures are written.
+`CONCLUDED` until the newer run reports each required context. A newer run that has made no check
+yet shows only in the workflow runs for the head, and only while it has not completed. The watch reads them for a pull request only on
+a poll where a cancelled check has no newer check (#370), under the same bound as every call. An
+ordinary poll makes no other call. A cancelled run that no newer run follows still counts, and its
+failures are written. If the read fails, the watch writes one line for each new reason and leaves
+that pull request unread for the poll. It never reads a failed read as "no newer run". While the read stays down, the heartbeat names that pull request. The first poll that reads them again writes `workflow runs read again`.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread only the
 pull requests that need its list. The other pull requests still read, and can still conclude. A

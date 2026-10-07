@@ -101,6 +101,9 @@ const pull = (number: number, head: string, headSha: string, base = 'main'): Pul
 })
 
 const run = (headSha: string, event = 'pull_request'): WorkflowRun => ({
+  id: 1000,
+  workflowId: 10,
+  createdAt: '2026-09-26T09:59:50Z',
   name: 'CI',
   event,
   headSha,

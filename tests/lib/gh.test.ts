@@ -1902,6 +1902,9 @@ describe('the review loop reads', () => {
   })
 
   const runRow = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: 1000,
+    workflow_id: 10,
+    created_at: '2026-09-22T06:31:10Z',
     name: 'CI',
     event: 'pull_request',
     head_sha: '9b13a20',
@@ -2708,6 +2711,9 @@ describe('the review loop reads', () => {
       expect(result).toEqual({
         rows: [
           {
+            id: 1000,
+            workflowId: 10,
+            createdAt: '2026-09-22T06:31:10Z',
             name: 'CI',
             event: 'pull_request',
             headSha: '9b13a20',
@@ -2753,7 +2759,17 @@ describe('the review loop reads', () => {
       expect(result.rows[0]?.conclusion).toBeNull()
     })
 
-    for (const field of ['name', 'event', 'head_sha', 'status', 'run_started_at', 'updated_at']) {
+    for (const field of [
+      'name',
+      'event',
+      'head_sha',
+      'status',
+      'run_started_at',
+      'updated_at',
+      'id',
+      'workflow_id',
+      'created_at',
+    ]) {
       it(`counts a row with no ${field} as unreadable rather than dropping it in silence`, async () => {
         // A dropped row is a caller that reads "no run for this head", and
         // then closes and reopens a pull request over it.

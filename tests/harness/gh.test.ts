@@ -125,6 +125,9 @@ it('answers every endpoint it declares', async () => {
     listWorkflowRuns: {
       rows: [
         {
+          id: 1000,
+          workflowId: 10,
+          createdAt: '2026-09-22T06:31:10Z',
           name: 'CI',
           event: 'pull_request',
           headSha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',

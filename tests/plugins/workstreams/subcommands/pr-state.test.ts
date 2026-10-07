@@ -42,6 +42,9 @@ const detail = (overrides: Partial<PullRequestDetail> = {}): PullRequestDetail =
 })
 
 const run = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
+  id: 1000,
+  workflowId: 10,
+  createdAt: '2026-09-22T06:31:10Z',
   name: 'CI',
   event: 'pull_request',
   headSha: '9b13a20',
@@ -849,6 +852,68 @@ describe('a cancelled run that a newer run supersedes (#364)', () => {
 
     expect(report.contexts.map((context) => context.name)).toEqual(['vitest'])
   })
+})
+
+describe('a cancelled run that a started run supersedes (#370)', () => {
+  const OLD = '2026-10-01T00:00:00Z'
+  const NEW = '2026-10-01T00:01:00Z'
+  const cancelled = (name: string, conclusion: string): CheckContext => ({
+    name,
+    status: 'COMPLETED',
+    conclusion,
+    startedAt: OLD,
+    run: { id: 1, workflowId: 1, workflow: 'CI', createdAt: OLD, conclusion: 'CANCELLED' },
+  })
+  const CANCELLED_RUN = [cancelled('vitest', 'FAILURE'), cancelled('types', 'CANCELLED')]
+  /** The started run: in progress, with no check on the head yet. */
+  const started = run({
+    id: 2,
+    workflowId: 1,
+    createdAt: NEW,
+    status: 'in_progress',
+    conclusion: null,
+  })
+  const onHead = (rows: WorkflowRun[], contexts: string[]): GhReplies =>
+    replies({
+      viewPullRequestDetail: {
+        pullRequest: detail({ checks: CANCELLED_RUN }),
+        unavailable: null,
+        missing: false,
+      },
+      requiredContexts: { contexts, unavailable: null },
+      listWorkflowRuns: { rows, unavailable: null },
+    })
+
+  it('reads pending, not red, while the started run has made no check', async () => {
+    const report = await reportOf(['178'], onHead([started], ['vitest', 'types']))
+
+    expect(report.contexts.map((context) => context.verdict)).toEqual(['pending', 'pending'])
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('ci-pending')
+  })
+
+  it('reads pending when no ruleset covers the base and the head list is not settled', async () => {
+    const report = await reportOf(['178'], onHead([started], []))
+
+    expect(report.contextsFrom).toBe('head')
+    expect(report.contexts).toEqual([])
+    expect(report.verdict).toBe('pending')
+  })
+
+  const first = run({ id: 1, workflowId: 1, createdAt: OLD, conclusion: 'cancelled' })
+  for (const [why, rows] of [
+    ['no other run', [first]],
+    ['a newer run of another workflow', [first, { ...started, workflowId: 2 }]],
+    ['a newer run on another head', [first, { ...started, headSha: 'f00dbab' }]],
+    ['a newer run of another event', [first, { ...started, event: 'push' }]],
+  ] as const) {
+    it(`stays red for a cancelled run with ${why}`, async () => {
+      const report = await reportOf(['178'], onHead([...rows], ['vitest', 'types']))
+
+      expect(report.verdict).toBe('red')
+      expect(report.state).toBe('red')
+    })
+  }
 })
 
 describe('what it does with a read that fell short', () => {
