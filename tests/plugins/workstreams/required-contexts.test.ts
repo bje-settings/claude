@@ -282,6 +282,21 @@ describe('a cancelled run that a started run supersedes (#370)', () => {
     })
   }
 
+  for (const status of ['queued', 'in_progress', 'waiting']) {
+    it(`lets a newer ${status} run with no check supersede the cancelled run`, () => {
+      expect(
+        reportContexts(cancelled, ['vitest'], [{ ...started(2, NEW), status }])[0]?.verdict,
+      ).toBe('pending')
+    })
+  }
+
+  it('keeps the cancelled run red when the newer run completed with no check', () => {
+    const ended = { ...started(2, NEW), status: 'completed' }
+
+    expect(reportContexts(cancelled, ['vitest'], [ended])[0]?.verdict).toBe('failed')
+    expect(namesOrHead([], cancelled, [ended])).toEqual({ names: ['vitest'], from: 'head' })
+  })
+
   it('lets the larger run id be the newer run on a tie in creation time', () => {
     expect(reportContexts(cancelled, ['vitest'], [started(2, OLD)])[0]?.verdict).toBe('pending')
     expect(reportContexts(cancelled, ['vitest'], [started(0, OLD)])[0]?.verdict).toBe('failed')

@@ -1131,6 +1131,52 @@ describe('a watch over a cancelled run that a started run supersedes (#370)', ()
     expect(lines).toEqual([reason, '#259 workflow runs read again', OPEN, reason])
   })
 
+  it('keeps a cancelled run red when its newer run completed with no check', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: {
+          rows: [row({ status: 'completed', conclusion: 'startup_failure' })],
+          unavailable: null,
+        },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain(`#259 aaaaaaa CONCLUDED: 3/3 required reported, ${FAILED}`)
+  })
+
+  it('writes no read-again line when a poll needed no read', async () => {
+    const down = { rows: [], unavailable: 'gh down' }
+    const { context, lines, runReads } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+      { heads: heads(head({ checks: [] })), runs: down },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(runReads).toEqual(['wktr-219-pr-sweep'])
+    expect(lines.some((line) => line.includes('read again'))).toBe(false)
+    expect(lines.at(-1)).toBe(OPEN)
+  })
+
+  it('treats a partial runs read as a failed read', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: { rows: [row()], unavailable: 'one row unreadable' },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      '#259 workflow runs could not be read: one row unreadable; ' +
+        'the pull request is unread this poll',
+    ])
+  })
+
   it('writes each new reason a runs read fails with', async () => {
     const down = (unavailable: string) => ({ rows: [], unavailable })
     const { context, lines } = watchOver([
@@ -1211,6 +1257,48 @@ describe('a watch over a cancelled run that a started run supersedes (#370)', ()
 
     expect(lines.at(-1)).toBe(
       'heartbeat: workflow runs for #259, #260 still unread, the last: gh down',
+    )
+  })
+
+  it('names the reason that changed last on the heartbeat, and writes it once', async () => {
+    const down = (unavailable: string) => ({ rows: [], unavailable })
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: down('reason A'),
+        runsByBranch: { 'wktr-260-b': down('reason B') },
+      },
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: down('reason C'),
+        runsByBranch: { 'wktr-260-b': down('reason B') },
+      },
+    ])
+
+    await runWatch(['--ticks', '24'], context)
+
+    const beats = lines.filter((line) => line.startsWith('heartbeat'))
+    expect(beats[0]).toBe(
+      'heartbeat: workflow runs for #259, #260 still unread, the last: reason C',
+    )
+    expect(beats).toHaveLength(2)
+  })
+
+  it('sorts the pull requests on the heartbeat by number, not by text', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(
+          head({ number: 100, head: 'b100', headSha: SHA_B, checks: CANCELLED_RUN }),
+          head({ number: 99, head: 'b99', headSha: SHA_B, checks: CANCELLED_RUN }),
+        ),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines.at(-1)).toBe(
+      'heartbeat: workflow runs for #99, #100 still unread, the last: gh down',
     )
   })
 

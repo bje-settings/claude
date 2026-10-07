@@ -452,6 +452,40 @@ describe('the directory a vitest run names', () => {
     })
   }
 
+  it('reads the directory from the tokens when a later quote never closes', () => {
+    expect(vitestTarget('pnpm -C "/a b" test -t "x|y"')).toEqual({ directory: '/a b' })
+    expect(vitestTarget('pnpm -C "/a b" test -t "foo')).toEqual({ directory: '/a b' })
+  })
+
+  it('reads a run the unclosed quote hides from the plain split', () => {
+    expect(vitestTarget('CI="x pnpm test')).toEqual({ directory: null })
+  })
+
+  for (const command of [
+    'pnpm -C /a --dir="x y test',
+    'pnpm -C /a -C "x y test',
+    'pnpm --dir=/a -C "x y test',
+  ]) {
+    it(`flags an unclosed quote after a complete option in ${JSON.stringify(command)}`, () => {
+      expect(vitestTarget(command)).toEqual({ directory: null, unclosedQuote: true })
+    })
+  }
+
+  it('does not read an option after the subcommand as the pnpm directory', () => {
+    expect(vitestTarget('pnpm exec vitest run --dir "x')).toEqual({ directory: null })
+    expect(vitestTarget('pnpm exec vitest run -C="x')).toEqual({ directory: null })
+  })
+
+  for (const command of [
+    `pnpm -C /w/"a b" test`,
+    `pnpm -C /w/'a b' test`,
+    `pnpm -C /w/"ab" test`,
+  ]) {
+    it(`flags a quote kept inside the value in ${JSON.stringify(command)}`, () => {
+      expect(vitestTarget(command)).toEqual({ directory: null, unclosedQuote: true })
+    })
+  }
+
   for (const command of ['echo "it', 'pnpm build "x y', 'pnpm -C /w test "x', 'CI="x y']) {
     it(`does not flag the unclosed quote in ${JSON.stringify(command)}`, () => {
       expect(vitestTarget(command)?.unclosedQuote).toBeUndefined()
