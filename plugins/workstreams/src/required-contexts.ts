@@ -183,6 +183,88 @@ export const reportContexts = (
  *  never ran. A template literal, so the `$` is not read as a mistake. */
 const MATRIX_PLACEHOLDER = `\${{`
 
+/** One `${{ ... }}` span in a check name, up to the first `}}`. */
+const EXPRESSION = /\$\{\{.*?\}\}/
+
+/** What one expression span matches: one or more characters, none of them
+ *  `(` or `)`. A matrix value fills the span, and GitHub puts the values of
+ *  a matrix job between parentheses. So a span never crosses the closing
+ *  parenthesis into the next part of the name. */
+const EXPRESSION_VALUE = '[^()]+'
+
+/** A literal part of a check name, with each regular expression character
+ *  escaped. Node 22 has no `RegExp.escape`. */
+const literal = (part: string): string => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * The pattern that a skipped check's name gives, or null for a name with no
+ * `${{ ... }}` span.
+ *
+ * Each span matches one or more characters that are not `(` or `)`. The
+ * rest of the name matches literally. The pattern is anchored at both ends,
+ * so no prefix or suffix of a name matches.
+ */
+const wildcardOf = (name: string): RegExp | null => {
+  const parts = name.split(EXPRESSION)
+  if (parts.length === 1) return null
+  return new RegExp(`^${parts.map(literal).join(EXPRESSION_VALUE)}$`)
+}
+
+/** The verdict list on a draft, and the names that it leaves out. */
+export interface DraftSplit {
+  /** The contexts that are part of the verdict, in the order given. */
+  readonly counted: readonly ReportedContext[]
+  /** The required names that run only after the pull request is ready
+   *  for review, sorted. Empty when the pull request is not a draft. */
+  readonly draftSkipped: readonly string[]
+}
+
+/**
+ * The required contexts that a draft does not wait for (#365, round 15
+ * ruling 5).
+ *
+ * A workflow can skip a job on a draft. GitHub skips a matrix job before
+ * it expands the matrix. So the check keeps the expression in its name,
+ * such as `Analyze (${{ matrix.language }})`, and the required names, such
+ * as `Analyze (actions)`, never report on the draft head. A plain-named
+ * skipped job reports `SKIPPED` under its own name, which satisfies.
+ *
+ * On a draft, a required context is draft-skipped when all of these are
+ * true:
+ *
+ *   - Nothing reported under its name. A name that reported keeps its own
+ *     verdict, also when it failed.
+ *   - A check on the head came from a check suite that concluded
+ *     `SKIPPED`. A suite that has not concluded, or that concluded in any
+ *     other way, does not count.
+ *   - That check's name has a `${{ ... }}` span, and matches the required
+ *     name with each span read as a wildcard ({@link wildcardOf}).
+ *
+ * This is a heuristic. An unrelated skipped matrix job with a broad name
+ * can match. No workflow file is read.
+ */
+export const splitDraftSkipped = (
+  contexts: readonly ReportedContext[],
+  checks: readonly CheckContext[],
+  draft: boolean,
+): DraftSplit => {
+  if (!draft) return { counted: contexts, draftSkipped: [] }
+  const patterns = checks
+    .filter((check) => check.run?.conclusion === 'SKIPPED')
+    .flatMap((check) => wildcardOf(check.name) ?? [])
+  const skipped = new Set(
+    contexts
+      .filter(
+        (context) => !context.reported && patterns.some((pattern) => pattern.test(context.name)),
+      )
+      .map((context) => context.name),
+  )
+  return {
+    counted: contexts.filter((context) => !skipped.has(context.name)),
+    draftSkipped: [...skipped].sort(),
+  }
+}
+
 /** The names a head must pass, and where they came from. */
 export interface ContextNames<From extends string> {
   readonly names: readonly string[]

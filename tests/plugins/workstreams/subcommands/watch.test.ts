@@ -1564,3 +1564,59 @@ function detailOf(number: number) {
     commentAuthors: [],
   }
 }
+
+describe('a draft and the checks that skip drafts (#365)', () => {
+  const ACTIONS = 'Analyze (actions)'
+  const SCRIPTS = 'Analyze (javascript-typescript)'
+  /** A matrix job that a draft condition skipped before the matrix
+   *  expanded. Its check suite concluded SKIPPED. */
+  const matrix: CheckContext = {
+    ...done(`Analyze (\${{ matrix.language }})`, 'SKIPPED'),
+    run: {
+      id: 77,
+      workflowId: 30,
+      workflow: 'CodeQL',
+      createdAt: '2026-10-06T00:00:00Z',
+      conclusion: 'SKIPPED',
+    },
+  }
+  const checks = [...REQUIRED.map((name) => done(name)), matrix]
+  const required = { main: [...REQUIRED, SCRIPTS, ACTIONS] }
+
+  it('concludes a draft head on the other contexts, and names the ones that run later', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 3/3 reported`,
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
+  it('does not conclude the same head when it is not a draft', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks, draft: false })), required },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, ready, required 3/5 reported`,
+    ])
+  })
+
+  it('concludes a draft head whose every required context skips drafts', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: [matrix] })), required: { main: [ACTIONS] } },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 0/0 reported`,
+      `#259 aaaaaaa CONCLUDED: 0/0 required reported, all passed; runs after ready for review: ${ACTIONS}`,
+    ])
+  })
+})

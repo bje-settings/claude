@@ -69,6 +69,11 @@
 // no extra call, so the one-call poll of round 14 holds in the common case.
 // The read carries the same bound as every other call.
 //
+// **A draft does not wait for a check that skips drafts** (#365, round 15
+// ruling 5). On a draft head, a required context that has not reported is
+// left out when a check from a skipped check suite has a `${{ ... }}` name
+// that matches it. The CONCLUDED line names each one.
+//
 // The command function is the seam (ADR 001). Parsed arguments, a client
 // factory, a clock, a sleep and a writer go in. An envelope comes out.
 import { parseArguments } from '../lib/args.ts'
@@ -81,6 +86,7 @@ import {
   needsHeadRuns,
   type ReportedContext,
   reportContexts,
+  splitDraftSkipped,
 } from '../required-contexts.ts'
 
 export const HELP = `Every open pull request's head and required checks, as one line per event.
@@ -120,6 +126,12 @@ The required contexts come from the rules of the base branch. When no ruleset
 covers the base, as for each stack layer above the first, they come from the
 rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
+
+On a draft head, a required context that has not reported does not hold
+CONCLUDED when a check on the head, from a check suite that concluded SKIPPED,
+has a name with \${{ ... }} that matches it. That context runs after ready
+for review, and the CONCLUDED line names it. A head that is not a draft
+waits for every required context.
 
 A check from a cancelled workflow run does not count when a newer run of the
 same workflow exists on the head, also when that run has made no check yet and has not completed.
@@ -467,7 +479,10 @@ const pullLines = (
   }
 
   const lines: string[] = []
-  const contexts = reportContexts(pull.checks, names, runs)
+  // A draft does not wait for a context that a skipped matrix check stands
+  // for (#365).
+  const split = splitDraftSkipped(reportContexts(pull.checks, names, runs), pull.checks, pull.draft)
+  const contexts = split.counted
   let tracked = seen
   let quiet = false
   if (tracked === undefined) {
@@ -508,15 +523,22 @@ const pullLines = (
   }
 
   // An empty list concludes nothing: "no ruleset requires anything" is not
-  // "every required context passed".
-  const complete = contexts.length > 0 && contexts.every((context) => context.conclusion !== null)
+  // "every required context passed". A list that only draft-skipped names
+  // emptied is not empty: the ruleset named them.
+  const complete =
+    contexts.length + split.draftSkipped.length > 0 &&
+    contexts.every((context) => context.conclusion !== null)
   if (complete && !tracked.concluded) {
     tracked.concluded = true
     const failed = failures(contexts)
     const verdict = failed.length === 0 ? 'all passed' : `failed: ${failed.join(', ')}`
+    const later =
+      split.draftSkipped.length === 0
+        ? ''
+        : `; runs after ready for review: ${split.draftSkipped.join(', ')}`
     lines.push(
       `#${pull.number} ${short(pull.headSha)} CONCLUDED: ` +
-        `${contexts.length}/${contexts.length} required reported, ${verdict}`,
+        `${contexts.length}/${contexts.length} required reported, ${verdict}${later}`,
     )
   }
   return lines
