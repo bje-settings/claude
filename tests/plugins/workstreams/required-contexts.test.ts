@@ -543,6 +543,29 @@ describe('splitDraftSkipped (#365, round 15 ruling 5)', () => {
     expect(split(['a.bbc [one] $^|*?{}\\'], checks).draftSkipped).toEqual([])
   })
 
+  it('reads every skipped check, not only the first or the last', () => {
+    const checks = [
+      skippedCheck(`docs (\${{ matrix.page }}) build`),
+      skippedCheck(MATRIX),
+      skippedCheck(`lint (\${{ matrix.part }}) all`),
+    ]
+
+    expect(split([ACTIONS], checks).draftSkipped).toEqual([ACTIONS])
+  })
+
+  it('matches a brace quantifier in a name literally', () => {
+    const checks = [skippedCheck(`x{2} (\${{ matrix.x }})`)]
+
+    expect(split(['x{2} (one)'], checks).draftSkipped).toEqual(['x{2} (one)'])
+    expect(split(['xx (one)'], checks).draftSkipped).toEqual([])
+  })
+
+  it('reads a span up to the first }}, also with a single } in it', () => {
+    const checks = [skippedCheck(`Analyze (\${{ format('{0}-x', matrix.language) }})`)]
+
+    expect(split([ACTIONS], checks).draftSkipped).toEqual([ACTIONS])
+  })
+
   it('reads each span of a name with more than one as its own wildcard', () => {
     const checks = [skippedCheck(`build (\${{ matrix.os }}, \${{ matrix.node }})`)]
 
