@@ -86,7 +86,7 @@ The verdict over the required contexts:
   unavailable something needed to answer could not be read
 
 A check from a cancelled workflow run does not count when a newer run of the
-same workflow exists on the head, also when that run has made no check yet.
+same workflow exists on the head, also when that run has made no check yet and has not completed.
 A name the newer run has not reported yet is pending, not failed. When no
 ruleset covers the base, the head list also leaves out a name that contains
 \${{, an unexpanded matrix job.

@@ -335,8 +335,8 @@ The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spel
 the check compares, rather than the tool call's own `cwd`: the worktree workflow's rule is
 "never `cd`; name the absolute path in every command", and this is the spelling that follows
 from it. A quoted value stays one argument, so `pnpm -C "/a b" test` and `pnpm --dir='/a b'
-test` name `/a b` (#371). A quote that does not close in a `pnpm -C` value leaves the directory
-unread. The guard then writes a line on stderr and allows the command.
+test` name `/a b` (#371). A quote that does not close in a `pnpm -C` value, or a quote left inside the value, leaves the
+directory unread. The guard then writes a line on stderr and allows the command.
 
 The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
 each one's cwd, through `/proc` or `lsof`. The guard resolves symbolic links in the payload
@@ -497,7 +497,8 @@ decide whether the report is an answer at all, and every layer of a stack is an 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). Workflow concurrency cancels a run that way. `pr-state` also reads the
 runs for the head, so a newer run that has made no check yet supersedes it too (#370). A name the
-newer run has not reported yet is pending, not failed. The list from the head also leaves out a name that contains
+newer run has not reported yet is pending, not failed. A newer run that completed with no check does not
+supersede, since it will make none. The list from the head also leaves out a name that contains
 `${{`, a matrix job that did not expand.
 
 The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: that query
@@ -607,7 +608,7 @@ CodeQL checks, and none of the required ones.
 So a cancelled run's check does not count in `watch` either, once a newer run of the same
 workflow exists on the head. The watch then writes no failure line for it, and no
 `CONCLUDED` until the newer run reports each required context. A newer run with no check yet
-shows only in the head's workflow runs. The watch reads them for a pull request only on a poll
+shows only in the head's workflow runs, and only while it has not completed. The watch reads them for a pull request only on a poll
 where a cancelled check has no newer check, under the same per-call bound (round 15 ruling 6,
 #370). An ordinary poll makes no extra call. A failed read gives one line for each new reason,
 and leaves that pull request unread for the poll.

@@ -65,11 +65,11 @@ they come from the rules of the default branch. Each stack layer above the first
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). The watch then writes no failure line for it, and the head is not
 `CONCLUDED` until the newer run reports each required context. A newer run that has made no check
-yet shows only in the workflow runs for the head. The watch reads them for a pull request only on
+yet shows only in the workflow runs for the head, and only while it has not completed. The watch reads them for a pull request only on
 a poll where a cancelled check has no newer check (#370), under the same bound as every call. An
 ordinary poll makes no other call. A cancelled run that no newer run follows still counts, and its
 failures are written. If the read fails, the watch writes one line for each new reason and leaves
-that pull request unread for the poll. It never reads a failed read as "no newer run". While the read stays down, the heartbeat names that pull request. The first poll that reads again writes `workflow runs read again`.
+that pull request unread for the poll. It never reads a failed read as "no newer run". While the read stays down, the heartbeat names that pull request. The first poll that reads them again writes `workflow runs read again`.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread only the
 pull requests that need its list. The other pull requests still read, and can still conclude. A

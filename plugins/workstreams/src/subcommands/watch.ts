@@ -122,7 +122,7 @@ rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
 
 A check from a cancelled workflow run does not count when a newer run of the
-same workflow exists on the head, also when that run has made no check yet.
+same workflow exists on the head, also when that run has made no check yet and has not completed.
 Then the watch writes no failure line for it, and the head is not CONCLUDED
 until the newer run reports each required context. The watch reads the
 head's workflow runs only on a poll where a cancelled check has no newer

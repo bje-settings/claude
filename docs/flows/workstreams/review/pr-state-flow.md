@@ -71,7 +71,7 @@ from a person blocks `done`.
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). `pr-state` also reads the runs for the head, so a newer run that has
 made no check yet supersedes it too (#370). A name the newer run has not reported yet is pending,
-not failed. A cancelled run that no newer run follows still counts. A commit status has no run, so
+not failed. A newer run that completed with no check does not supersede. A cancelled run that no newer run follows still counts. A commit status has no run, so
 it always counts. The list from the head leaves out a name that
 contains `${{`, a matrix job that did not expand.
 
