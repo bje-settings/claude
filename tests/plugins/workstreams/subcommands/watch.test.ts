@@ -56,6 +56,8 @@ interface Poll {
   readonly repository?: GhReplies['viewRepository'] | Error
   readonly detail?: GhReplies['viewPullRequestDetail']
   readonly runs?: GhReplies['listWorkflowRuns']
+  /** The runs of one branch, which win over `runs` for that branch. */
+  readonly runsByBranch?: Readonly<Record<string, GhReplies['listWorkflowRuns']>>
 }
 
 const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
@@ -99,7 +101,8 @@ const watchOver = (polls: readonly Poll[], overrides: Partial<WatchContext> = {}
     viewPullRequestDetail: async () => reply(current().detail, 'viewPullRequestDetail'),
     listWorkflowRuns: async (query) => {
       runReads.push(query?.branch ?? '')
-      return reply(current().runs, 'listWorkflowRuns')
+      const own = current().runsByBranch?.[query?.branch ?? '']
+      return reply(own ?? current().runs, 'listWorkflowRuns')
     },
   }
   const context: WatchContext = {
@@ -1143,21 +1146,44 @@ describe('a watch over a cancelled run that a started run supersedes (#370)', ()
     ])
   })
 
-  it('reads the second pull request when the runs of the first cannot be read', async () => {
-    const second = head({ number: 260, head: 'wktr-260-b', headSha: SHA_B })
+  const SECOND = head({
+    number: 260,
+    head: 'wktr-260-b',
+    headSha: SHA_B,
+    checks: CANCELLED_RUN,
+  })
+
+  it('reads the runs of the second pull request when the first read fails', async () => {
     const { context, lines, runReads } = watchOver([
       {
-        heads: heads(head({ checks: CANCELLED_RUN }), second),
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
         runs: { rows: [], unavailable: 'gh down' },
+        runsByBranch: { 'wktr-260-b': { rows: [row({ headSha: SHA_B })], unavailable: null } },
       },
     ])
 
     await runWatch(['--ticks', '1'], context)
 
-    expect(runReads).toEqual(['wktr-219-pr-sweep'])
+    expect(runReads).toEqual(['wktr-219-pr-sweep', 'wktr-260-b'])
     expect(lines).toHaveLength(2)
     expect(lines[0]).toContain('#259 workflow runs could not be read')
     expect(lines[1]).toContain('#260 open')
+  })
+
+  it('gives each pull request its own runs', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), SECOND),
+        runs: { rows: [], unavailable: null },
+        runsByBranch: { 'wktr-260-b': { rows: [row({ headSha: SHA_B })], unavailable: null } },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines.some((line) => line.startsWith('#259 aaaaaaa CONCLUDED'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('#260 open'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('#260') && line.includes('CONCLUDED'))).toBe(false)
   })
 
   it('writes a heartbeat that names a pull request with unread runs, not "no change"', async () => {
