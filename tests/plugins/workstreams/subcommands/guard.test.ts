@@ -434,7 +434,7 @@ describe('the directory a vitest run names', () => {
     })
   }
 
-  for (const command of ['echo "it', 'pnpm build "x y', 'pnpm -C /w test "x']) {
+  for (const command of ['echo "it', 'pnpm build "x y', 'pnpm -C /w test "x', 'CI="x y']) {
     it(`does not flag the unclosed quote in ${JSON.stringify(command)}`, () => {
       expect(vitestTarget(command)?.unclosedQuote).toBeUndefined()
     })
