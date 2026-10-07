@@ -55,8 +55,9 @@ On a collision:
 | `fixing` | Nothing while a round agent works on this pull request: its return, or a person who resolves a thread, is the next wake. With no agent at work and a `red` verdict, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`. A pull request from a person, with no agent: report it, and stop. With a `pending` verdict, the watch names each check as it reports. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
-Ten wakes on one state, with no agent at work on that pull request, is a stop. Name the
-contexts whose `reported` is `false`.
+Ten wakes on one state, with no agent at work on that pull request, is a stop. A watch
+line in which a context of its head reports is not one of the ten: CI can still run in
+`fixing`. Name the contexts whose `reported` is `false`.
 
 ## 5. Read an agent's return
 

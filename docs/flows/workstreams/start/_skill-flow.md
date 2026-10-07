@@ -79,7 +79,7 @@ flowchart TD
     N1 -->|Yes| S2([Stop]):::stop
     N -->|fixing| NF{a round agent at work on it?}
     NF -->|Yes| X
-    NF -->|No, CI pending or a thread open| N3{ten wakes on this state?}
+    NF -->|No, CI pending or a thread open| N3{ten wakes on this state,<br/>not one a check report?}
     N3 -->|No| X
     N3 -->|Yes| S3([Stop: name the contexts not reported]):::stop
     NF -->|No, CI red| N4{an agent pushed the head?}
