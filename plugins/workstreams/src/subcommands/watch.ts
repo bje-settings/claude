@@ -110,6 +110,11 @@ one line for each of these events:
   required contexts     the first poll that read a base's required
     for <branch> read   contexts again, after a failure.
     again
+  #<n> workflow runs    the head's workflow runs could not be read. That
+    could not be read   pull request goes unread this poll. Written once for
+                        each new reason.
+  #<n> workflow runs    the first poll that read them again.
+    read again
 
 The required contexts come from the rules of the base branch. When no ruleset
 covers the base, as for each stack layer above the first, they come from the
@@ -588,7 +593,7 @@ export const runWatch = async (
   const baseFailures = new Map<string, string>()
   /** The last reason a pull request's workflow runs could not be read, by
    *  number, while they stay unread. A reason that stays the same is written
-   *  once (#370). */
+   *  once, and a return is written once too (#370). */
   const runReasons = new Map<number, string>()
   let quietSince = context.now()
   for (let tick = 1; !context.stopped(); tick += 1) {
@@ -641,6 +646,9 @@ export const runWatch = async (
         )
       }
       const open = new Set(pulls.map((pull) => pull.number))
+      for (const number of [...runReasons.keys()]) {
+        if (!open.has(number)) runReasons.delete(number)
+      }
       for (const number of [...knownOpen]) {
         if (open.has(number)) continue
         const left = await leftOpenList(gh, number)
@@ -679,7 +687,9 @@ export const runWatch = async (
           runReasons.set(pull.number, runsReason)
           continue
         }
-        runReasons.delete(pull.number)
+        if (runReasons.delete(pull.number)) {
+          lines.push(`#${pull.number} workflow runs read again`)
+        }
         lines.push(...pullLines(pull, list.names, memory, runs.get(pull.number) ?? []))
       }
     }
@@ -701,6 +711,18 @@ export const runWatch = async (
       const reason = [...baseFailures.values()].at(-1)
       context.write(
         oneLine(`heartbeat: required contexts for ${branches} still unread, the last: ${reason}`),
+      )
+      quietSince = context.now()
+    } else if (context.now() - quietSince >= HEARTBEAT_MS && runReasons.size > 0) {
+      // A pull request whose runs stay unread is as old as its last good
+      // read. "No change" would claim what no poll could see for it (#370).
+      const numbers = [...runReasons.keys()]
+        .sort((a, b) => a - b)
+        .map((number) => `#${number}`)
+        .join(', ')
+      const reason = [...runReasons.values()].at(-1)
+      context.write(
+        oneLine(`heartbeat: workflow runs for ${numbers} still unread, the last: ${reason}`),
       )
       quietSince = context.now()
     } else if (context.now() - quietSince >= HEARTBEAT_MS) {

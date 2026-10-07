@@ -629,7 +629,8 @@ this command sets one.
 A poll that read no pull request writes a `poll failed` line and changes nothing. The
 line comes once for each new reason, and not on each poll. The first poll that reads
 again writes `poll read again`. While polls fail, the heartbeat names the failure. While
-a base stays unread, it names that instead. Neither says "no change". A list that fell
+a base stays unread, or the runs of a pull request, it names that instead. Neither says "no
+change". A list that fell
 short still gives the rows that arrived, and the watch keeps them. It writes one `poll
 incomplete` line for each new reason. One reason is a pull request with more checks
 than one page holds. A pull request that is absent from a short list is not reported as

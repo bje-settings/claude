@@ -1125,7 +1125,73 @@ describe('a watch over a cancelled run that a started run supersedes (#370)', ()
     const reason =
       '#259 workflow runs could not be read: gh did not answer in 5000 ms; ' +
       'the pull request is unread this poll'
-    expect(lines).toEqual([reason, OPEN, reason])
+    expect(lines).toEqual([reason, '#259 workflow runs read again', OPEN, reason])
+  })
+
+  it('writes each new reason a runs read fails with', async () => {
+    const down = (unavailable: string) => ({ rows: [], unavailable })
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down('reason X') },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down('reason Y') },
+    ])
+
+    await runWatch(['--ticks', '2'], context)
+
+    expect(lines).toEqual([
+      '#259 workflow runs could not be read: reason X; the pull request is unread this poll',
+      '#259 workflow runs could not be read: reason Y; the pull request is unread this poll',
+    ])
+  })
+
+  it('reads the second pull request when the runs of the first cannot be read', async () => {
+    const second = head({ number: 260, head: 'wktr-260-b', headSha: SHA_B })
+    const { context, lines, runReads } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN }), second),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(runReads).toEqual(['wktr-219-pr-sweep'])
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toContain('#259 workflow runs could not be read')
+    expect(lines[1]).toContain('#260 open')
+  })
+
+  it('writes a heartbeat that names a pull request with unread runs, not "no change"', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: CANCELLED_RUN })),
+        runs: { rows: [], unavailable: 'gh down' },
+      },
+    ])
+
+    await runWatch(['--ticks', '12'], context)
+
+    expect(lines.at(-1)).toBe('heartbeat: workflow runs for #259 still unread, the last: gh down')
+  })
+
+  it('writes a reason again after the pull request left the list and came back', async () => {
+    const down = { rows: [], unavailable: 'gh down' }
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+      {
+        heads: heads(),
+        runs: down,
+        detail: {
+          pullRequest: { ...detailOf(259), state: 'MERGED' },
+          unavailable: null,
+          missing: false,
+        },
+      },
+      { heads: heads(head({ checks: CANCELLED_RUN })), runs: down },
+    ])
+
+    await runWatch(['--ticks', '3'], context)
+
+    expect(lines.filter((line) => line.includes('could not be read'))).toHaveLength(2)
   })
 })
 
