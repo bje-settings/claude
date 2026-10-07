@@ -70,9 +70,10 @@
 // The read carries the same bound as every other call.
 //
 // **A draft does not wait for a check that skips drafts** (#365, round 15
-// ruling 5). On a draft head, a required context that has not reported is
-// left out when a check from a skipped check suite has a `${{ ... }}` name
-// that matches it. The CONCLUDED line names each one.
+// ruling 5). On a draft head, a required context that no check on the head
+// names is left out when a check from a skipped check suite has a
+// `${{ ... }}` name that matches it. The CONCLUDED line names each one. When
+// the draft is marked ready, the same head can conclude again.
 //
 // The command function is the seam (ADR 001). Parsed arguments, a client
 // factory, a clock, a sleep and a writer go in. An envelope comes out.
@@ -127,11 +128,12 @@ covers the base, as for each stack layer above the first, they come from the
 rules of the default branch. A head is CONCLUDED only when every one of them
 has reported. A check that no ruleset requires never concludes a head.
 
-On a draft head, a required context that has not reported does not hold
-CONCLUDED when a check on the head, from a check suite that concluded SKIPPED,
-has a name with \${{ ... }} that matches it. That context runs after ready
-for review, and the CONCLUDED line names it. A head that is not a draft
-waits for every required context.
+On a draft head, a required context that no check on the head names does
+not hold CONCLUDED when a check on the head, from a check suite that
+concluded SKIPPED, has a name with \${{ ... }} that matches it. That context
+runs after ready for review, and the CONCLUDED line names it. A head that is
+not a draft waits for every required context. When the draft is marked
+ready, the same head can conclude again, after those contexts report.
 
 A check from a cancelled workflow run does not count when a newer run of the
 same workflow exists on the head, also when that run has made no check yet and has not completed.
@@ -248,6 +250,10 @@ interface Tracked {
    *  the very next poll (ruling 5, #296). A different answer on the next
    *  poll drops it with no line, and starts the count over. */
   pending: string | null
+  /** True when this head concluded as a draft with a draft-skipped
+   *  context (#365). Those contexts count once the pull request is ready,
+   *  on the same head, so the head can then conclude again. */
+  concludedAsDraft: boolean
 }
 
 /** What one poll read. */
@@ -430,6 +436,7 @@ const seededMemory = (
       seeded: true,
       seenHeads: new Set([sha]),
       pending: null,
+      concludedAsDraft: false,
     })
   }
   for (const [number, sha] of concluded) {
@@ -440,6 +447,7 @@ const seededMemory = (
       seeded: true,
       seenHeads: new Set([sha]),
       pending: null,
+      concludedAsDraft: false,
     })
   }
   return memory
@@ -498,6 +506,7 @@ const pullLines = (
       seeded: false,
       seenHeads: new Set([pull.headSha]),
       pending: null,
+      concludedAsDraft: false,
     }
     memory.set(pull.number, tracked)
     quiet = true
@@ -507,11 +516,18 @@ const pullLines = (
     tracked.seenHeads.add(pull.headSha)
     tracked.reported.clear()
     tracked.concluded = false
+    tracked.concludedAsDraft = false
     quiet = true
   } else if (tracked.seeded) {
     quiet = true
   }
   tracked.seeded = false
+  // A draft that concluded without its draft-skipped contexts is now
+  // ready: those contexts count, so the head concludes again (#365).
+  if (tracked.concludedAsDraft && !pull.draft) {
+    tracked.concluded = false
+    tracked.concludedAsDraft = false
+  }
 
   for (const context of contexts) {
     if (context.conclusion === null) continue
@@ -530,6 +546,7 @@ const pullLines = (
     contexts.every((context) => context.conclusion !== null)
   if (complete && !tracked.concluded) {
     tracked.concluded = true
+    tracked.concludedAsDraft = split.draftSkipped.length > 0
     const failed = failures(contexts)
     const verdict = failed.length === 0 ? 'all passed' : `failed: ${failed.join(', ')}`
     const later =

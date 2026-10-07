@@ -71,11 +71,12 @@ ordinary poll makes no other call. A cancelled run that no newer run follows sti
 failures are written. If the read fails, the watch writes one line for each new reason and leaves
 that pull request unread for the poll. It never reads a failed read as "no newer run". While the read stays down, the heartbeat names that pull request. The first poll that reads them again writes `workflow runs read again`.
 
-On a draft head, `CONCLUDED` does not wait for a required context that has not reported, when a
-check from a check suite that concluded `SKIPPED` has a `${{ ... }}` name that matches it (#365).
-That is the same rule as `pr-state`'s `draftSkipped`. The `CONCLUDED` line names each such
-context after `runs after ready for review:`. A head that is not a draft waits for every required
-context.
+On a draft head, `CONCLUDED` does not wait for a required context that no check on the head
+names, when a check from a check suite that concluded `SKIPPED` has a `${{ ... }}` name that
+matches it (#365). That is the same rule as `pr-state`'s `draftSkipped`. The `CONCLUDED` line
+names each such context after `runs after ready for review:`. A head that is not a draft waits for
+every required context. When the person marks such a draft ready, the same head can conclude
+again, after those contexts report.
 
 Each base reads its required contexts on its own. A base whose read fails leaves unread only the
 pull requests that need its list. The other pull requests still read, and can still conclude. A
