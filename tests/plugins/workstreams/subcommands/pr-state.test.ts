@@ -1272,6 +1272,27 @@ describe('review round 1 starts when the pull request opens (#384)', () => {
     }
   })
 
+  for (const verdict of ['green', 'pending', 'red'] as const) {
+    it(`is review-1 at round 0 with ${verdict} CI and an unresolved thread from a person`, () => {
+      expect(deriveState({ ...open, verdict, unresolvedThreads: 2 })).toBe('review-1')
+    })
+
+    // The command refuses these flags at round 0. The pure function still
+    // gives review-1, so no fact other than the verdict holds the first review.
+    it(`is review-1 at round 0 with ${verdict} CI, whatever the other facts say`, () => {
+      expect(
+        deriveState({
+          ...open,
+          verdict,
+          unresolvedThreads: 2,
+          substantial: true,
+          logicSinceRound1: true,
+          rotChecked: true,
+        }),
+      ).toBe('review-1')
+    })
+  }
+
   for (const round of [1, 2]) {
     it(`is fixing at round ${round} while CI is pending`, () => {
       expect(deriveState({ ...open, round, verdict: 'pending' })).toBe('fixing')
@@ -1280,6 +1301,21 @@ describe('review round 1 starts when the pull request opens (#384)', () => {
     it(`is fixing at round ${round} when CI is red`, () => {
       expect(deriveState({ ...open, round, verdict: 'red' })).toBe('fixing')
     })
+
+    for (const verdict of ['pending', 'red'] as const) {
+      it(`is fixing at round ${round} with ${verdict} CI, before a substantial round or new logic earns review-2`, () => {
+        expect(
+          deriveState({
+            ...open,
+            round,
+            verdict,
+            substantial: true,
+            logicSinceRound1: true,
+            rotChecked: true,
+          }),
+        ).toBe('fixing')
+      })
+    }
   }
 
   for (const round of [0, 1, 2]) {
