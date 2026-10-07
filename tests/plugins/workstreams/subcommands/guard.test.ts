@@ -407,9 +407,36 @@ describe('the directory a vitest run names', () => {
     ['pnpm -C "/w" test', '/w'],
     ["pnpm -C '/w' test", '/w'],
     ['pnpm -C /w vitest run', '/w'],
+    // A quoted value with a space stays one argument (#371).
+    ['pnpm -C "/a b" test', '/a b'],
+    ["pnpm -C '/a b' test", '/a b'],
+    ["pnpm --dir='/a b' test", '/a b'],
+    ['pnpm -C=" /a b " test', ' /a b '],
+    ['pnpm -C "/a b" exec vitest', '/a b'],
   ] as const) {
     it(`names ${directory} for ${JSON.stringify(command)}`, () => {
       expect(vitestTarget(command)).toEqual({ directory })
+    })
+  }
+
+  it('flags a quote that never closes', () => {
+    expect(vitestTarget('pnpm -C "/a b test')).toMatchObject({ unclosedQuote: true })
+  })
+
+  it('reads a quote that closes after another quote mark as closed', () => {
+    expect(vitestTarget(`pnpm -C "it's" test`)).toEqual({ directory: "it's" })
+  })
+
+  for (const command of [`pnpm --dir='/a b test`, 'CI=1 pnpm -C "/a b test', 'vitest -C "/a b']) {
+    it(`flags the unclosed quote in ${JSON.stringify(command)} only for pnpm`, () => {
+      const target = vitestTarget(command)
+      expect(target?.unclosedQuote).toBe(command.startsWith('vitest') ? undefined : true)
+    })
+  }
+
+  for (const command of ['echo "it', 'pnpm build "x y', 'pnpm -C /w test "x']) {
+    it(`does not flag the unclosed quote in ${JSON.stringify(command)}`, () => {
+      expect(vitestTarget(command)?.unclosedQuote).toBeUndefined()
     })
   }
 })
@@ -693,6 +720,34 @@ describe('a second vitest suite', () => {
 
     expect(verdict.decision).toBe('deny')
     expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+  })
+
+  describe('a quoted pnpm -C directory with a space (#371)', () => {
+    for (const command of ['pnpm -C "/a b" test', "pnpm --dir='/a b' test"]) {
+      it(`refuses ${JSON.stringify(command)} while a vitest runs in /a b`, async () => {
+        const verdict = await decide(call({ command, cwd: '/root' }), {
+          git: () => Promise.reject(new Error('git must not be asked')),
+          processes: running([{ pid: 4242, cwd: '/a b' }]),
+          output: createOutputPair(),
+        })
+
+        expect(verdict.decision).toBe('deny')
+        expect(verdict).toMatchObject({ reason: expect.stringContaining('/a b') })
+      })
+    }
+
+    it('reports an unclosed quote on stderr, and allows', async () => {
+      const output = createOutputPair()
+
+      const verdict = await decide(call({ command: 'pnpm -C "/a b test', cwd: '/root' }), {
+        git: () => Promise.reject(new Error('git must not be asked')),
+        processes: running([{ pid: 4242, cwd: '/root' }]),
+        output,
+      })
+
+      expect(verdict).toEqual({ decision: 'allow' })
+      expect(output.stderr()).toContain('does not close')
+    })
   })
 
   describe('a pnpm -C directory, resolved before it is compared', () => {

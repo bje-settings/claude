@@ -409,6 +409,35 @@ const VITEST_VERB = /(^|[\\/])vitest(\.cmd)?$/i
  *  git command's own `-C`. */
 export interface VitestTarget {
   readonly directory: string | null
+  /** True when a quote in the segment never closes. The directory is then
+   *  not known, so the guard reports it and allows the run. */
+  readonly unclosedQuote?: true
+}
+
+/** A segment split on whitespace, where a quoted span stays inside one
+ *  token with its quote marks kept ({@link readDirectoryValue} removes
+ *  them). `closed` is false when a quote never closes. The rest of the
+ *  segment is then the last token. */
+const tokenize = (segment: string): { tokens: string[]; closed: boolean } => {
+  const tokens: string[] = []
+  let current = ''
+  let quote = ''
+  for (const char of segment) {
+    if (quote !== '') {
+      current += char
+      if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") {
+      current += char
+      quote = char
+    } else if (/\s/.test(char)) {
+      if (current !== '') tokens.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  if (current !== '') tokens.push(current)
+  return { tokens, closed: quote === '' }
 }
 
 /** A `-C`/`--dir` value, with one matching pair of surrounding `'` or `"`
@@ -443,8 +472,8 @@ const readDirectoryValue = (value: string): string | null => {
  *  (`plugins/workstreams/skills/stream/brief.md`), which makes this the
  *  ordinary spelling a subagent uses to test one worktree, not an edge
  *  case. A directory value wrapped in one matching pair of quote marks has
- *  them stripped, since a subagent may quote an absolute path on habit
- *  even where it holds no space; an empty value, from either form, reads
+ *  them stripped. The tokens keep a quoted span whole, so a path with a
+ *  space is one value (#371); an empty value, from either form, reads
  *  as no directory named, the meaning {@link Destructive.directory} also
  *  gives an absent `-C`.
  *
@@ -483,12 +512,27 @@ const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined =
   return sub === 'run' && at(tokens, cursor + 1) === 'test' ? { directory } : undefined
 }
 
+/** One segment, read for a `vitest` run. The tokens keep a quoted value
+ *  whole, so `-C "/a b"` names `/a b` (#371). A quote that never closes
+ *  swallows the rest of the segment, also the subcommand. When that quote
+ *  opens a `pnpm` directory value, the guard cannot read the directory, and
+ *  it says so ({@link VitestTarget.unclosedQuote}). */
+const readVitestSegment = (segment: string): VitestTarget | undefined => {
+  const { tokens, closed } = tokenize(segment)
+  if (closed) return readVitestTarget(tokens)
+  const verb = tokens.find((token) => !OPENERS.includes(token) && !ASSIGNMENT.test(token)) ?? ''
+  const previous = at(tokens, tokens.length - 2)
+  const value =
+    previous === '-C' || previous === '--dir' || /^(-C|--dir)=/.test(at(tokens, tokens.length - 1))
+  return PNPM_VERB.test(verb) && value ? { directory: null, unclosedQuote: true } : undefined
+}
+
 /** What a `vitest` run in `command` would act on, or `undefined` when no
  *  segment starts one, cut at the same shell operators {@link
  *  destructiveGit} cuts at. */
 export const vitestTarget = (command: string): VitestTarget | undefined => {
   for (const segment of command.split(SEGMENTS)) {
-    const target = readVitestTarget(segment.trim().split(/\s+/))
+    const target = readVitestSegment(segment)
     if (target !== undefined) return target
   }
   return undefined
@@ -562,6 +606,13 @@ const secondSuite = async (
 ): Promise<Verdict | undefined> => {
   const target = vitestTarget(command)
   if (target === undefined) return undefined
+  if (target.unclosedQuote) {
+    context.output.err.write(
+      'workstreams guard: a quote in this vitest command does not close, so its directory ' +
+        'could not be read and a second vitest run could not be checked; allowing it.\n',
+    )
+    return undefined
+  }
 
   const directory =
     target.directory === null ? call.cwd : await namedDirectory(target.directory, call.cwd, context)
