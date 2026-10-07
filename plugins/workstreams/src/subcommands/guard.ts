@@ -516,7 +516,9 @@ const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined =
  *  whole, so `-C "/a b"` names `/a b` (#371). A quote that never closes
  *  swallows the rest of the segment, also the subcommand. When that quote
  *  opens a `pnpm` directory value, the guard cannot read the directory, and
- *  it says so ({@link VitestTarget.unclosedQuote}). */
+ *  it says so ({@link VitestTarget.unclosedQuote}). Any other unclosed quote
+ *  reads as the plain whitespace split did, so a typo elsewhere in the
+ *  command still finds the run. */
 const readVitestSegment = (segment: string): VitestTarget | undefined => {
   const { tokens, closed } = tokenize(segment)
   if (closed) return readVitestTarget(tokens)
@@ -524,7 +526,9 @@ const readVitestSegment = (segment: string): VitestTarget | undefined => {
   const previous = at(tokens, tokens.length - 2)
   const value =
     previous === '-C' || previous === '--dir' || /^(-C|--dir)=/.test(at(tokens, tokens.length - 1))
-  return PNPM_VERB.test(verb) && value ? { directory: null, unclosedQuote: true } : undefined
+  return PNPM_VERB.test(verb) && value
+    ? { directory: null, unclosedQuote: true }
+    : readVitestTarget(segment.trim().split(/\s+/))
 }
 
 /** What a `vitest` run in `command` would act on, or `undefined` when no
@@ -608,7 +612,7 @@ const secondSuite = async (
   if (target === undefined) return undefined
   if (target.unclosedQuote) {
     context.output.err.write(
-      'workstreams guard: a quote in this vitest command does not close, so its directory ' +
+      'workstreams guard: a quote in a pnpm directory value does not close, so the directory ' +
         'could not be read and a second vitest run could not be checked; allowing it.\n',
     )
     return undefined
