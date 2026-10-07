@@ -120,8 +120,10 @@ round, CI that is not green gives fixing, and done needs green.
 After a round, an unresolved review thread also gives fixing, from a
 person or from a bot (#383). "botThreads" counts the bot threads apart
 from "unresolvedThreads". This reverses part of #219. #219 still holds
-by its second option: the report names each bot thread, and the review
-skill replies on it and resolves it. A plain comment never holds the loop.
+by its second option: the report names each bot thread. The review skill
+replies on and resolves each one that a round settled, and each mermaid
+preview thread. It names each other bot thread for the person. A plain
+comment never holds the loop.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
@@ -240,8 +242,9 @@ export interface PrStateReport {
   readonly unresolvedThreadAuthors: readonly string[]
   /** Unresolved review threads whose first comment came from a bot account.
    *  They hold the loop at `fixing` after a round, as a person's thread
-   *  does (#383, which reverses part of #219). The round settles each one,
-   *  and the review skill replies on it and resolves it. */
+   *  does (#383, which reverses part of #219). The review skill replies
+   *  on and resolves each one that a round settled, and each mermaid
+   *  preview thread. It names each other one for the person. */
   readonly botThreads: number
   readonly botThreadAuthors: readonly string[]
   readonly comments: number
@@ -314,8 +317,9 @@ export const verdictOf = (
  * CI is. A thread is work someone still waits on. The caller counts a
  * bot's own thread in `facts.unresolvedThreads` too (#383, round 15
  * ruling 7). That reverses part of #219, which left bot threads out
- * because nobody answered them. Now the round settles each one, and the
- * review skill replies on it and resolves it. A plain comment does not
+ * because nobody answered them. Now the review skill replies on and
+ * resolves each one that a round settled, and each mermaid preview
+ * thread. It names each other one for the person. A plain comment does not
  * hold the loop. The enterprise coverage bot posts one on every pull
  * request here, and nobody resolves a comment.
  */
@@ -547,7 +551,7 @@ export const renderReport = (report: PrStateReport): string => {
   // It says nothing at all when there is none.
   if (report.botThreads > 0) {
     lines.push(
-      `bot threads (waited on, the review skill resolves them): ${report.botThreads}` +
+      `bot threads (waited on after a round): ${report.botThreads}` +
         authors(report.botThreadAuthors),
     )
   }

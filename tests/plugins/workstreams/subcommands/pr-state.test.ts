@@ -1982,9 +1982,7 @@ describe('the report a person reads', () => {
 
     const text = answer.outcome === 'ok' ? answer.value : ''
     expect(text).toContain('unresolved review threads: 1 (reviewer-a)')
-    expect(text).toContain(
-      'bot threads (waited on, the review skill resolves them): 1 (github-actions)',
-    )
+    expect(text).toContain('bot threads (waited on after a round): 1 (github-actions)')
   })
 
   it('says nothing about bot threads when there are none', async () => {

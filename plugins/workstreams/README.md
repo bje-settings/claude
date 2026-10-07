@@ -511,7 +511,8 @@ behind it (#383): a commit status at `PENDING` or `EXPECTED`, or a check run tha
 made, with no conclusion. Nothing on the head waits for it, so it could hold the verdict at
 `pending` with no end. Once it concludes, it counts. A check with a run, and each name a ruleset
 requires, still counts while it is pending. When a check with a run reports the same name, that
-check answers for it.
+check answers for it. When only checks with no run report it, a newer pending one still answers,
+such as a re-run of an app's check.
 
 A workflow can skip a job on a draft, and run it after the pull request is ready for review
 (#365). GitHub skips a matrix job before the matrix expands, so its check keeps the
@@ -529,8 +530,9 @@ The run check reads `actions/runs?branch=<head ref>`, and never `?head_sha=`: th
 has answered nothing for a head whose runs existed. After a round, an unresolved thread holds
 the loop at `fixing`, from a person or from a bot. A bot's own thread, review bots included, is
 counted apart under `botThreads` (#383, round 15 ruling 7). This reverses part of #219, which
-left bot threads out. #219 still holds by its second option: the report names each bot thread,
-and `/workstreams:review` replies on it and resolves it. A plain comment is never counted at
+left bot threads out. #219 still holds by its second option: the report names each bot thread.
+`/workstreams:review` replies on and resolves each one that a round settled, and each mermaid
+preview thread. It names each other bot thread for the person. A plain comment is never counted at
 all: the enterprise coverage bot posts a comment on every pull request, and nobody resolves a
 comment.
 

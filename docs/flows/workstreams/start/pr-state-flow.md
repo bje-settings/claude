@@ -83,7 +83,8 @@ With no ruleset, the list from the head also leaves out a pending check with no 
 (#383): a commit status at `PENDING` or `EXPECTED`, or a check run that no workflow made, with no
 conclusion. Nothing on the head waits for it. Once it concludes, it counts. A check with a run,
 and each name a ruleset requires, still counts while it is pending. When a check with a run
-reports the same name, that check answers for it.
+reports the same name, that check answers for it. When only checks with no run report it, a newer
+pending one still answers, such as a re-run of an app's check.
 
 A workflow can skip a job on a draft (#365). GitHub skips a matrix job before the matrix expands,
 so the check keeps the expression, such as `Analyze (${{ matrix.language }})`. On a draft, a
@@ -98,8 +99,9 @@ workflow file is read. This is a heuristic: a skipped check with a broad name, s
 
 A bot's own thread, a review bot such as Copilot included, is named apart, under `botThreads`.
 After a round, it gives `fixing`, as a person's thread does (#383, round 15 ruling 7). This
-reverses part of #219. #219 still holds by its second option: the report names each bot thread,
-and the review skill replies on it and resolves it. A plain comment never blocks `done`.
+reverses part of #219. #219 still holds by its second option: the report names each bot thread.
+The review skill replies on and resolves each one that a round settled, and each mermaid preview
+thread. It names each other bot thread for the person. A plain comment never blocks `done`.
 
 State `awaiting-pr` means GitHub itself named the number NOT_FOUND. Every other reason leaves no
 state at all. A malformed reply is one such reason. A repository gh could not resolve is
