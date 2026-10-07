@@ -519,10 +519,9 @@ const pullLines = (
   } else if (tracked.seeded) {
     quiet = true
     // The caller does not say how a seeded head concluded. A draft that
-    // has draft-skipped contexts now concluded without them (#365).
-    if (tracked.concluded !== null && pull.draft && split.draftSkipped.length > 0) {
-      tracked.concluded = 'draft'
-    }
+    // has draft-skipped contexts now concluded without them (#365). Only
+    // a draft has such contexts.
+    if (tracked.concluded !== null && split.draftSkipped.length > 0) tracked.concluded = 'draft'
   }
   tracked.seeded = false
 

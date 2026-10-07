@@ -1710,6 +1710,28 @@ describe('a draft and the checks that skip drafts (#365)', () => {
     expect(lines).toEqual([`#259 aaaaaaa ${SCRIPTS}: SUCCESS`, `#259 aaaaaaa ${ACTIONS}: SUCCESS`])
   })
 
+  it('does not conclude a head from --concluded again when its draft left nothing out', async () => {
+    const { context, lines } = watchOver([
+      { heads: heads(head({ checks })) },
+      { heads: heads(head({ checks, draft: false })) },
+    ])
+
+    await runWatch(['--ticks', '2', '--concluded', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([])
+  })
+
+  it('concludes a draft head from --since-head on the other contexts', async () => {
+    const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
+
+    await runWatch(['--ticks', '1', '--since-head', `259=${SHA_A}`], context)
+
+    expect(lines).toEqual([
+      '#259 aaaaaaa CONCLUDED: 3/3 required reported, all passed; ' +
+        `runs after ready for review: ${ACTIONS}, ${SCRIPTS}`,
+    ])
+  })
+
   it('does not conclude a draft head from --concluded again while it stays a draft', async () => {
     const { context, lines } = watchOver([{ heads: heads(head({ checks })), required }])
 
