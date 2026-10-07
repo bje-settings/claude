@@ -43,6 +43,17 @@ On a collision:
    request of another round, or one that no round opened, gets no comment: name it in the
    ruling. End it with the round's `_Recorded by <effort>, <date>._` line.
 
+To rebase one stream onto the other, in a gap (no agent writes to either stream):
+
+1. `git -C <upper worktree> rebase <lower branch>`, then
+   `git -C <upper worktree> push --force-with-lease`.
+2. `(cd <upper worktree> && gh stack link <lower PR> <upper PR>)`. It sets the upper base
+   on GitHub, and puts both pull requests in one stack.
+3. The upper worktree's local `gh stack` tracking still names its old base. From then on,
+   push from that worktree with `git push` only, and add a layer to it with `gh stack
+   link` ([the stream brief](../stream/brief.md), "Your pull request"). Never run
+   `gh stack submit`, `push` or `rebase` there.
+
 ## 4. Do the next action for each pull request
 
 | State | Next action |
@@ -52,7 +63,7 @@ On a collision:
 | `closed` | Closed with no merge. Report it, never a review. Read the `Mid-round ruling` comments on the layer's issues: `gh issue view <number> --json comments`. One about this layer is the answer: do not ask again. With no answer, ask one [question](#a-decision-mid-round), once: drop this layer and each layer above it from the round, reopen it, or replan. Record the answer on each of the layer's issues. Drop: the round can end, and the round end lists the dropped layers. Reopen: the person reopens it, and its state acts on the next wake. Replan: stop. |
 | `no-run` | Invoke `/workstreams:review`. It closes and reopens the pull request. A second `no-run` on the same head is a stop. |
 | `review-1`, `review-2`, `rot-check` | Nothing while an agent works on this pull request, the layer agent or a round agent. `pr-state` sees no agent. It gives `review-1` as soon as the head has a run, while the layer agent can still build. CI can still run, or be red: the round reads it. Otherwise, in a stack, switch the worktree to this layer's branch first: `git -C <worktree> switch <branch>`. `intersect` names the worktree under the layer of the stack that has it checked out. Switch only when no agent works in it and its `clean` is `true`. A switch carries uncommitted work to the other branch. Then invoke `/workstreams:review` with the number and the markers' flags, `--round-1-head` included. For `review-2`, also give it round 1's return. |
-| `fixing` | Nothing while a round agent works on this pull request: its return is the next wake. A person who resolves a thread is a wake too. With no agent at work and a `red` `verdict`, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`. A pull request from a person, with no agent: report it, and stop. With a `pending` `verdict`, the watch names each check as it reports. |
+| `fixing` | Nothing while a round agent works on this pull request: its return is the next wake. A person who resolves a thread is a wake too. With no agent at work and a `red` `verdict`, the agent that pushed the head fixes it. If it returned with red on a file it did not touch, run `gh run rerun <its run id> --failed`, once. Otherwise resume it with `SendMessage`. A pull request from a person, with no agent: report it, and stop. With a `pending` `verdict`, the watch names each check as it reports. With no agent at work, a `green` `verdict` and `botThreads` above 0, invoke `/workstreams:review`: it settles the bot threads that no round settled. |
 | `done` | This layer is finished. Step 3 of `SKILL.md` writes the next layer. |
 
 Ten wakes on one state, with no agent at work on that pull request, is a stop. A watch
@@ -70,8 +81,12 @@ line about a check of its head that reports is not one of the ten. CI can still 
   Resume that layer's agent with `SendMessage`. Tell it to commit on its own branch, then
   to run `(cd <worktree> && gh stack rebase --upstack)`, a full type check, and
   `(cd <worktree> && gh stack push)`. `gh stack` acts on the current directory, so the
-  subshell is the only safe form (the stream brief, rule 12). Then check each
-  head of the stack again. Outside a gap, keep the finding for the round-end report.
+  subshell is the only safe form (the stream brief, rule 12). This holds only when the
+  worktree's local tracking matches GitHub: in `(cd <worktree> && gh stack view)`, the
+  branch below each pull request is its `baseRefName` in `gh pr view <n> --json
+  baseRefName`. When one differs, as after a restack (step 3), rebase with
+  `git -C <worktree> rebase` and push with `git push` instead. Then check each head of the stack again. Outside a gap, keep
+  the finding for the round-end report.
 
 ## 6. End the turn
 

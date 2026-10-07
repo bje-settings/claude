@@ -40,9 +40,13 @@ flowchart TD
     M -->|No| M3[Fast-forward the default branch itself] --> M2
     M2[Remove ignored leftovers under plugins/] --> N
     N{a local hook runs a full suite?}
-    N -->|No| P[Note any open pull request that shares files]
-    N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> P
-    N -->|Yes, records silent| O2([Ask: disable it, per-push cost stated]):::pause --> P
+    N -->|No| W
+    N -->|Yes, records say CI is the boundary| O1[Propose core.hooksPath at empty,<br/>human present, restore at close] --> W
+    N -->|Yes, records silent| O2([Ask: disable it, per-push cost stated]):::pause --> W
+    W{an upper layer's base that no<br/>pull_request CI filter matches?}
+    W -->|No, or a GitHub stack runs it| P
+    W -->|Yes| W1[Comment on each issue: name the layer;<br/>merge the layer below, retarget, then CI runs] --> P
+    P[Note any open pull request that shares files]
 
     P --> Q([Report: what was asked, what was ruled,<br/>the two comments, housekeeping])
 

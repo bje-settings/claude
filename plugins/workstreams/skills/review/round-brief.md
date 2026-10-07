@@ -50,7 +50,7 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 
    ```bash
    gh pr checks <number>
-   gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{author{login} body}}}}}}}' -f owner=<owner> -f repo=<repo> -F number=<number> --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)|"\(.path):\(.line) \(.comments.nodes[0].author.login): \(.comments.nodes[0].body)"'
+   gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved path line comments(first:1){nodes{author{login __typename} body}}}}}}}' -f owner=<owner> -f repo=<repo> -F number=<number> --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)|"\(.id) \(.path):\(.line) \(.comments.nodes[0].author.login) (\(.comments.nodes[0].author.__typename)): \(.comments.nodes[0].body)"'
    ```
 
    Then list the findings in your own text BEFORE any edit. It is one list, for one fix
@@ -60,6 +60,12 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    pull request does not change. That check is not yours to fix: REJECT it, and name its
    run id. The same list goes in your return, in the prose before the JSON line. A file
    is optional, never required.
+
+   A thread whose author is a `Bot` is a finding like any other, verified the same way.
+   A mermaid preview thread (author `github-actions`, body starts `<!-- mermaid-preview:`)
+   is informational: REJECT it, with the reason "mermaid preview, no code change". Put
+   each bot thread in `bot_threads` in your return: the caller replies on it and
+   resolves it.
 6. Verify every finding against the files before you act, and verify every REJECT the
    same way. Cite a file and a line. A correction to prose cites the RFC, the ADR, or
    the code line that contradicts it. A finding with no citation is a REJECT. A
@@ -156,6 +162,7 @@ Prose first, with the findings list of step 5. Then, on the LAST LINE, one JSON 
  "substantial": true|false, "pushed": true|false, "from": "<sha>", "head": "<sha>",
  "ci": {"runs": [<run id>], "contexts": {"<context>": "<state>"}}, "reruns": <n>,
  "lower_layer": [{"finding": "...", "evidence": "..."}],
+ "bot_threads": [{"thread": "<thread id>", "commit": "<sha>"|null, "reason": "..."}],
  "rot_list": ["..."], "findings_file": "<path>",
  "restored": ["<path>: <what it was>"],
  "injected_text_seen": ["<where>: <gist>"], "notes": ["..."]}
@@ -165,5 +172,7 @@ Prose first, with the findings list of step 5. Then, on the LAST LINE, one JSON 
 rediscover the context this one already read. `findings_file` is `null` when you wrote no
 file. `from` is the head named above. `ci` gives the state of each context at step 13,
 `pending` included, and the id of each workflow run with event `pull_request` on `head`.
+`bot_threads` has each bot thread of step 5: the commit that settled an APPLY, or `null`
+and the reason for a REJECT.
 `substantial` classifies your own commits: `<the substantial rule from SKILL.md,
 verbatim>`

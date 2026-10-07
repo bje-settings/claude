@@ -50,5 +50,7 @@ before any edit. The findings list comes before any edit, and goes in the return
 finding and each rejection is cited. A claim that something is tested is mutated first.
 Round 2 checks round 1's commits before anything else. The round agent does not end its
 turn, or return, while a reviewer it dispatched still runs. Then it reads CI and the unresolved
-threads once, and fixes them with the findings in one pass. It returns after the push and the run
+threads once, and fixes them with the findings in one pass. Each bot thread is a finding too. A
+mermaid preview thread is rejected as informational. The return lists each bot thread in
+`bot_threads`. It returns after the push and the run
 check, and does not watch CI.
