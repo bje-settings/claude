@@ -45,20 +45,21 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
    reviewers still at work, and cost a resume.
 5. When every reviewer has returned, read the head's CI once, and its unresolved review
    threads, from people and from bots. Do not use `--watch`. `gh pr checks` exits 8
-   while a check is pending, and 1 when a check failed. Both are answers:
+   while a check is pending, and 1 when a check failed. Both are answers. `<owner>` and
+   `<repo>` are the two parts of `<owner/repo>`:
 
    ```bash
    gh pr checks <number>
-   gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{author{login} body}}}}}}}' -F owner=<owner> -F repo=<repo> -F number=<number> --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)|"\(.path):\(.line) \(.comments.nodes[0].author.login): \(.comments.nodes[0].body)"'
+   gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{author{login} body}}}}}}}' -f owner=<owner> -f repo=<repo> -F number=<number> --jq '.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved|not)|"\(.path):\(.line) \(.comments.nodes[0].author.login): \(.comments.nodes[0].body)"'
    ```
 
    Then list the findings in your own text BEFORE any edit. It is one list, for one fix
    pass: each reviewer finding, each failed check with its run id, and each unresolved
    thread. Give each one its source (the reviewer, the check, or the thread's author),
-   your verdict (APPLY or REJECT), and the evidence. A check that failed in a file this
-   pull request does not change is not yours to fix: REJECT it, and name its run id. The
-   same list goes in your return, in the prose before the JSON line. A file is optional,
-   never required.
+   your verdict (APPLY or REJECT), and the evidence. A check can fail in a file this
+   pull request does not change. That check is not yours to fix: REJECT it, and name its
+   run id. The same list goes in your return, in the prose before the JSON line. A file
+   is optional, never required.
 6. Verify every finding against the files before you act, and verify every REJECT the
    same way. Cite a file and a line. A correction to prose cites the RFC, the ADR, or
    the code line that contradicts it. A finding with no citation is a REJECT. A
@@ -106,9 +107,13 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
     Never use `?head_sha=`: it once answered nothing for a head whose runs existed,
     and cost a close-and-reopen and a whole CI run. If nothing appears after two
     minutes, run `gh pr close <number> && gh pr reopen <number>`.
-13. Read the new head's CI once, with `gh pr checks <number>`, for the `ci` field
-    of your return. Do not wait for CI. The caller reads it, and resumes you with
-    `SendMessage` when it goes red.
+13. Read the new head's CI once, for the `ci` field of your return. The run id is the
+    number after `/runs/` in each `link`. Do not wait for CI. The caller reads it, and
+    resumes you with `SendMessage` when it goes red.
+
+    ```bash
+    gh pr checks <number> --json name,state,link
+    ```
 14. Run `git status --porcelain` in BOTH checkouts again.
 
 ## What you never do
@@ -122,8 +127,8 @@ brief, the rulings comment, whichever exist. Name the file or the comment id.>`
 - Never run a command in the background. Re-run in the foreground, with an explicit
   timeout of at most 590000 ms, any command the harness moves to the background.
 - Never watch CI, and never wait for it. Never return saying you are still waiting.
-- Never end your turn or return before step 14. Never do either
-  while a reviewer you dispatched still runs (step 4).
+- Never end your turn or return before step 14, or while a reviewer you dispatched
+  still runs (step 4).
 - Never run the full suite. Run only the tests that reach the files you change:
   `<the repository's related-tests command>`, or the named test files. Also run the type
   check, the linter and the validators, one at a time. CI's full suite is the coverage gate.

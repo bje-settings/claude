@@ -152,7 +152,7 @@ return can be checked against them one for one.
 - **After every push, check the run:**
 
   ```bash
-  gh api "repos/<owner/repo>/actions/runs?branch=<your branch>" --jq '.workflow_runs[]|select(.event=="pull_request")|"\(.head_sha[0:7]) \(.name) \(.status)"'
+  gh api "repos/<owner/repo>/actions/runs?branch=<your branch>" --jq '.workflow_runs[]|select(.event=="pull_request")|"\(.id) \(.head_sha[0:7]) \(.name) \(.status)"'
   ```
 
   Never use `?head_sha=`: it has answered nothing for a head whose runs existed. If
