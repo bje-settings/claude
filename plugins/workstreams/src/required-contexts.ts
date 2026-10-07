@@ -232,8 +232,9 @@ export interface DraftSplit {
  * On a draft, a required context is draft-skipped when all of these are
  * true:
  *
- *   - Nothing reported under its name. A name that reported keeps its own
- *     verdict, also when it failed.
+ *   - No check on the head has its name, also not a check from a
+ *     superseded cancelled run. A name that reported keeps its own
+ *     verdict, also when it failed or still runs.
  *   - A check on the head came from a check suite that concluded
  *     `SKIPPED`. A suite that has not concluded, or that concluded in any
  *     other way, does not count.
@@ -252,10 +253,15 @@ export const splitDraftSkipped = (
   const patterns = checks
     .filter((check) => check.run?.conclusion === 'SKIPPED')
     .map((check) => wildcardOf(check.name))
+  // Every check on the head, also one from a superseded cancelled run.
+  // Such a name reads as not reported while its newer run works, and a
+  // draft must still wait for it.
+  const anyCheck = new Set(checks.map((check) => check.name))
   const skipped = new Set(
     contexts
       .filter(
-        (context) => !context.reported && patterns.some((pattern) => pattern.test(context.name)),
+        (context) =>
+          !anyCheck.has(context.name) && patterns.some((pattern) => pattern.test(context.name)),
       )
       .map((context) => context.name),
   )

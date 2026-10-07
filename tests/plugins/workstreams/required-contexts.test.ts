@@ -483,6 +483,37 @@ describe('splitDraftSkipped (#365, round 15 ruling 5)', () => {
     ])
   })
 
+  for (const [what, conclusion, verdict] of [
+    ['passed', 'SUCCESS', 'success'],
+    ['still runs', null, 'pending'],
+  ] as const) {
+    it(`keeps the verdict of a name that ${what}, also one a wildcard matches`, () => {
+      const checks = [check(ACTIONS, conclusion), skippedCheck(MATRIX)]
+
+      const answer = split([ACTIONS], checks)
+
+      expect(answer.draftSkipped).toEqual([])
+      expect(answer.counted).toEqual([{ name: ACTIONS, reported: true, conclusion, verdict }])
+    })
+  }
+
+  it('waits for a name that only a superseded cancelled run reported', () => {
+    // The newer run of the same workflow has made another check, but not
+    // this one yet. The name reads as not reported, and is still a gate.
+    const checks = [
+      fromRun(check(ACTIONS, 'FAILURE'), 1, OLD, 'CANCELLED'),
+      fromRun(check('vitest', null), 2, NEW, null),
+      skippedCheck(MATRIX),
+    ]
+
+    const answer = split([ACTIONS], checks)
+
+    expect(answer.draftSkipped).toEqual([])
+    expect(answer.counted).toEqual([
+      { name: ACTIONS, reported: false, conclusion: null, verdict: 'pending' },
+    ])
+  })
+
   it('does not read a plain-named skipped check as a wildcard', () => {
     const answer = split(['CodeQL'], [skippedCheck('CodeQL (all)')])
 
@@ -495,6 +526,8 @@ describe('splitDraftSkipped (#365, round 15 ruling 5)', () => {
     'Analyze ()',
     'Analyze (actions) (more)',
     'Analyze (a(b)c)',
+    'Analyze (a(b)',
+    'Analyze (a)b)',
   ]) {
     it(`matches the whole name only, and no span holds a parenthesis: ${name}`, () => {
       expect(split([name], [skippedCheck(MATRIX)]).draftSkipped).toEqual([])

@@ -572,6 +572,7 @@ describe('the verdict over the required contexts', () => {
       ],
       true,
       true,
+      [],
     )
 
     expect(verdict).toBe('red')
@@ -584,9 +585,10 @@ describe('the verdict over the required contexts', () => {
       { name: 'a', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
     ] as const
 
-    expect(verdictOf(settled, true, true)).toBe('green')
-    expect(verdictOf(settled, true, false)).toBe('pending')
-    expect(verdictOf([], true, true)).toBe('pending')
+    expect(verdictOf(settled, true, true, [])).toBe('green')
+    expect(verdictOf(settled, true, false, [])).toBe('pending')
+    expect(verdictOf([], true, true, [])).toBe('pending')
+    expect(verdictOf([], true, true, ['Analyze (actions)'])).toBe('green')
   })
 
   for (const [what, rows] of [

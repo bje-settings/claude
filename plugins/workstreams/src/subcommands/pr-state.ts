@@ -96,8 +96,8 @@ A name the newer run has not reported yet is pending, not failed. When no
 ruleset covers the base, the head list also leaves out a name that contains
 \${{, an unexpanded matrix job.
 
-On a draft, a required context that has not reported is left out of the
-verdict when a check on the head, from a check suite that concluded SKIPPED,
+On a draft, a required context that no check on the head names is left out
+of the verdict when a check on the head, from a check suite that concluded SKIPPED,
 has a name with \${{ ... }} that matches it. Each \${{ ... }} matches one or
 more characters that are not ( or ). Such a context runs after ready for
 review. "draftSkipped" names each one, and is empty when the pull request is
@@ -264,7 +264,7 @@ export const verdictOf = (
   contexts: readonly ReportedContext[],
   hasRun: boolean,
   namesFinal: boolean,
-  draftSkipped: readonly string[] = [],
+  draftSkipped: readonly string[],
 ): Verdict => {
   if (!hasRun) return 'no-run'
   if (contexts.some((context) => context.verdict === 'failed')) return 'red'

@@ -41,7 +41,7 @@ flowchart TD
     K -->|Yes| K3[Drop each check of a cancelled run<br/>that a newer run of its workflow follows,<br/>with or without a check yet]
     K3 --> L[Contexts: the ruleset's list, or the checks<br/>on the head, less unexpanded matrix names,<br/>when no ruleset names any]
     L --> L2{Draft?}
-    L2 -->|Yes| L3[Leave out each context that has not reported<br/>and that a check from a SKIPPED suite with<br/>an unexpanded matrix name matches]
+    L2 -->|Yes| L3[Leave out each context that no check names<br/>and that a check from a SKIPPED suite with<br/>an unexpanded matrix name matches]
     L2 -->|No| V
     L3 --> V[Verdict: red if one failed; pending if one has not<br/>concluded, or the list is empty or not settled; else green]
     V --> Q{Review rounds completed?}
@@ -80,12 +80,14 @@ contains `${{`, a matrix job that did not expand.
 
 A workflow can skip a job on a draft (#365). GitHub skips a matrix job before the matrix expands,
 so the check keeps the expression, such as `Analyze (${{ matrix.language }})`. On a draft, a
-required context that has not reported is `draftSkipped` when a check on the head, from a check
-suite that concluded `SKIPPED`, has a `${{ ... }}` name that matches it. Each `${{ ... }}` matches
-one or more characters that are not `(` or `)`, and the rest matches literally. The verdict
-leaves these contexts out, and the text says each one "runs after ready for review". A context
-that reported keeps its own verdict. When the pull request is not a draft, `draftSkipped` is
-empty. No workflow file is read.
+required context that no check on the head names is `draftSkipped` when a check on the head,
+from a check suite that concluded `SKIPPED`, has a `${{ ... }}` name that matches it. Each
+`${{ ... }}` matches one or more characters that are not `(` or `)`, and the rest matches
+literally. The verdict leaves these contexts out, and the text says each one "runs after ready
+for review". A context that a check names keeps its own verdict. This includes a check from a
+superseded cancelled run. When the pull request is not a draft, `draftSkipped` is empty. No
+workflow file is read. This is a heuristic: a skipped check with a broad name, such as
+`${{ matrix.os }}`, matches each name with no parenthesis.
 
 A bot's own thread, a review bot such as Copilot included, is named apart. It does not block
 `done`, and neither does a plain comment (#219). A review bot's own finding is named, but the
