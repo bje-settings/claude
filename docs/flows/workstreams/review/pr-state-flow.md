@@ -82,7 +82,8 @@ contains `${{`, a matrix job that did not expand.
 With no ruleset, the list from the head also leaves out a pending check with no workflow run
 (#383): a commit status at `PENDING` or `EXPECTED`, or a check run that no workflow made, with no
 conclusion. Nothing on the head waits for it. Once it concludes, it counts. A check with a run,
-and each name a ruleset requires, still counts while it is pending.
+and each name a ruleset requires, still counts while it is pending. When a check with a run
+reports the same name, that check answers for it.
 
 A workflow can skip a job on a draft (#365). GitHub skips a matrix job before the matrix expands,
 so the check keeps the expression, such as `Analyze (${{ matrix.language }})`. On a draft, a

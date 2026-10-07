@@ -402,6 +402,12 @@ describe('namesOrHead', () => {
       expect(namesOrHead([], [ended])).toEqual({ names: ['gitStream.cm'], from: 'head' })
     })
 
+    it('keeps a check with no run whose conclusion is an empty string', () => {
+      const blank = { ...pendingStatus, conclusion: '' }
+
+      expect(namesOrHead([], [blank])).toEqual({ names: ['gitStream.cm'], from: 'head' })
+    })
+
     it('keeps a pending check that has a run', () => {
       const running = fromRun(check('lint', null, OLD), 1, OLD, null)
 

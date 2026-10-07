@@ -2151,6 +2151,12 @@ describe('a bot thread holds fixing after a round (#383)', () => {
     expect(report.state).toBe('fixing')
   })
 
+  it('is fixing for a bot thread at round 1 with --substantial, not review-2', async () => {
+    const report = await reportOf(['178', '--round', '1', '--substantial'], withThreads([BOT]))
+
+    expect(report.state).toBe('fixing')
+  })
+
   it('is review-1 at round 0 with a bot thread and red CI', async () => {
     const red: CheckContext[] = [
       { name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: null },
@@ -2209,6 +2215,8 @@ describe('a pending check with no workflow run, when no ruleset covers the base 
     ['a QUEUED app check run', appCheck('gitStream.cm', 'QUEUED', null)],
     ['an IN_PROGRESS app check run', appCheck('gitStream.cm', 'IN_PROGRESS', null)],
     ['a WAITING app check run', appCheck('gitStream.cm', 'WAITING', null)],
+    ['a PENDING app check run', appCheck('gitStream.cm', 'PENDING', null)],
+    ['a REQUESTED app check run', appCheck('gitStream.cm', 'REQUESTED', null)],
   ] as const) {
     it(`leaves out ${what}, so the verdict is green when all else passed`, async () => {
       const report = await reportOf(['178', '--round', '1'], onTopicBase([vitest, check]))
@@ -2219,6 +2227,45 @@ describe('a pending check with no workflow run, when no ruleset covers the base 
       expect(report.state).toBe('rot-check')
     })
   }
+
+  it('lets the check with a run answer for a name that a newer pending status also has', async () => {
+    const later = { ...status('vitest', null), startedAt: '2026-09-22T06:40:00Z' }
+    const report = await reportOf(['178', '--round', '1'], onTopicBase([vitest, later]))
+
+    expect(report.contexts).toEqual([
+      { name: 'vitest', reported: true, conclusion: 'SUCCESS', verdict: 'success' },
+    ])
+    expect(report.verdict).toBe('green')
+  })
+
+  it('lets a newer pending status answer for its name under a ruleset', async () => {
+    const later = { ...status('vitest', null), startedAt: '2026-09-22T06:40:00Z' }
+    const report = await reportOf(['178', '--round', '1'], onTopicBase([vitest, later], ['vitest']))
+
+    expect(report.verdict).toBe('pending')
+  })
+
+  it('waits for a head run that has not completed, when its check came back with no run', async () => {
+    const short = appCheck('types', 'IN_PROGRESS', null)
+    const report = await reportOf(
+      ['178', '--round', '1'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ base: 'wktr-130-ws-sweep', checks: [vitest, short] }),
+          unavailable: null,
+          missing: false,
+        },
+        requiredContexts: { contexts: [], unavailable: null },
+        listWorkflowRuns: {
+          rows: [run({ status: 'in_progress', conclusion: null })],
+          unavailable: null,
+        },
+      }),
+    )
+
+    expect(report.contexts.map((context) => context.name)).toEqual(['vitest'])
+    expect(report.verdict).toBe('pending')
+  })
 
   it('still counts a concluded commit status with no run', async () => {
     const report = await reportOf(['178'], onTopicBase([vitest, status('preview', 'FAILURE')]))

@@ -109,7 +109,8 @@ const isSuperseded = (run: CheckContext['run'], runs: readonly RunStamp[]): bool
  *
  * A run is superseded when it was cancelled, and a newer run of the same
  * workflow exists on the head. A check with no run, such as a commit
- * status, always counts. A check from a cancelled run that no newer run
+ * status, is never superseded. (With no ruleset, `pr-state` also leaves
+ * out a pending one: {@link isPendingWithoutRun}.) A check from a cancelled run that no newer run
  * follows also counts. That run is still the answer, and it is red.
  *
  * The newer run is visible in two ways. Its own checks show it. When it
@@ -277,12 +278,18 @@ export const splitDraftSkipped = (
  * `lib/gh.ts` reads both kinds of check with no `run`. A commit status
  * has no run. Its `PENDING` and `EXPECTED` states read as a null
  * `conclusion`. A check run that no workflow made, such as one from an
- * app, also has no run. Its `QUEUED`, `IN_PROGRESS` and `WAITING` states
- * have a null `conclusion` too. So a null `conclusion` and an absent `run`
- * are the whole test. A check of either kind that has concluded is not
+ * app, also has no run. Each `CheckStatusState` other than `COMPLETED`
+ * (`REQUESTED`, `QUEUED`, `IN_PROGRESS`, `WAITING`, `PENDING`) has a
+ * null `conclusion` too. So a null `conclusion` and an absent `run` are
+ * the whole test. A check of either kind that has concluded is not
  * pending, and is never left out by this rule.
+ *
+ * `lib/gh.ts` also reads a workflow run that lacks a field as no run. So
+ * this rule also leaves out a pending Actions check whose run came back
+ * short. The verdict still waits for that run: `pr-state` reads the
+ * head's runs, and its head list is not final until each run completed.
  */
-const isPendingWithoutRun = (check: CheckContext): boolean =>
+export const isPendingWithoutRun = (check: CheckContext): boolean =>
   check.run === undefined && check.conclusion === null
 
 /** The names a head must pass, and where they came from. */
@@ -310,7 +317,10 @@ export interface ContextNames<From extends string> {
  * One such check, from an app that never concluded it, held a stacked
  * pull request at `pending`. When it concludes, its name counts again,
  * with its conclusion. A check with a run is not changed by this rule.
- * Under a ruleset, nothing is left out: a required name always counts.
+ * When a check with a run reports the same name, that check answers for
+ * it: `pr-state` gives {@link reportContexts} the checks less the pending
+ * ones with no run. Under a ruleset, nothing is left out: a required name
+ * always counts.
  */
 export const namesOrHead = (
   required: readonly string[],

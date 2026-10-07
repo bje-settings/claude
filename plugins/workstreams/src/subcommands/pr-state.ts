@@ -40,6 +40,7 @@ import type {
   WorkflowRun,
 } from '../lib/gh.ts'
 import {
+  isPendingWithoutRun,
   namesOrHead,
   type ReportedContext,
   reportContexts,
@@ -99,7 +100,9 @@ A check from a cancelled workflow run does not count when a newer run of the
 same workflow exists on the head, also when that run has made no check yet and has not completed.
 A name the newer run has not reported yet is pending, not failed. When no
 ruleset covers the base, the head list also leaves out a name that contains
-\${{, an unexpanded matrix job.
+\${{, an unexpanded matrix job. It also leaves out a check that has not
+concluded and has no workflow run, such as a pending commit status (#383).
+Such a check does not answer for a name that a check with a run reports.
 
 On a draft, a required context that no check on the head names is left out
 of the verdict when a check on the head, from a check suite that concluded
@@ -738,8 +741,11 @@ export const runPrState = async (
   const fromRuleset = list.from === 'ruleset'
   // On a draft, a context that a skipped matrix check stands for is not
   // part of the verdict (#365, round 15 ruling 5).
+  // With no ruleset, a pending check with no run does not answer for a
+  // name that a check with a run also reports (#383, round 15 ruling 7).
+  const answering = fromRuleset ? checks : checks.filter((check) => !isPendingWithoutRun(check))
   const split = splitDraftSkipped(
-    reportContexts(checks, list.names, runsForHead),
+    reportContexts(answering, list.names, runsForHead),
     checks,
     detail?.draft === true,
   )
@@ -792,7 +798,7 @@ export const runPrState = async (
       pullRequestState: detail === null ? null : detail.state,
       verdict,
       // A person's thread and a bot's both hold the loop (#383).
-      unresolvedThreads: threadsOf(detail).people.length + threadsOf(detail).bots.length,
+      unresolvedThreads: detail === null ? 0 : detail.unresolvedThreads.length,
       round,
       substantial,
       // When the command reads no compare, the fact is false and the state

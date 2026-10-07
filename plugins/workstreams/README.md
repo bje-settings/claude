@@ -508,9 +508,10 @@ supersede, since it will make none. The list from the head also leaves out a nam
 
 With no ruleset, the list from the head also leaves out a pending check with no workflow run
 behind it (#383): a commit status at `PENDING` or `EXPECTED`, or a check run that no workflow
-made, with no conclusion. Nothing on the head waits for it, so it would hold the verdict at
-`pending` forever. Once it concludes, it counts. A check with a run, and each name a ruleset
-requires, still counts while it is pending.
+made, with no conclusion. Nothing on the head waits for it, so it could hold the verdict at
+`pending` with no end. Once it concludes, it counts. A check with a run, and each name a ruleset
+requires, still counts while it is pending. When a check with a run reports the same name, that
+check answers for it.
 
 A workflow can skip a job on a draft, and run it after the pull request is ready for review
 (#365). GitHub skips a matrix job before the matrix expands, so its check keeps the
