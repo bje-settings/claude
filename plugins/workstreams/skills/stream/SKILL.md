@@ -42,9 +42,9 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    notification.
 
    The layer opens its own draft pull request with `gh stack submit`, and with
-   `gh pr create` only where stacks are not enabled. A stack that is not a stack in the GitHub UI cannot be told apart from
-   five unrelated drafts by a reviewer, and is harder to recover. [brief.md](brief.md)
-   carries the commands and what follows them.
+   `gh pr create` only where stacks are not enabled. A stack that is not a stack in the
+   GitHub UI cannot be told apart from five unrelated drafts by a reviewer, and is harder
+   to recover. [brief.md](brief.md) carries the commands and what follows them.
 
 3. Read the layer's return. Act on each of `constraints_checked`, `brief_vs_code`,
    `outside_set`, `lower_layer`, and `injected_text_seen`. A `brief_vs_code` entry

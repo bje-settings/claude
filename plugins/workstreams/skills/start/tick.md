@@ -85,8 +85,8 @@ line about a check of its head that reports is not one of the ten. CI can still 
   subshell is the only safe form (the stream brief, rule 12). This holds only when the
   worktree's local tracking matches GitHub: in `(cd <worktree> && gh stack view)`, the
   branch below each pull request is its `baseRefName` in `gh pr view <n> --json
-  baseRefName`. When one differs, as after a restack (step 3), rebase each branch above
-  with `git -C <worktree> rebase <branch below> <branch>`, and push it with
+  baseRefName`. When one differs, as after a restack (step 3), rebase each branch above,
+  from the lowest up, with `git -C <worktree> rebase <branch below> <branch>`, and push it with
   `git -C <worktree> push --force-with-lease`. Then check each head of the stack again.
   Outside a gap, keep the finding for the round-end report.
 
