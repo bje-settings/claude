@@ -62,12 +62,12 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 0. Called with a round agent's JSON return: check its `substantial` against
    `git -C <worktree> diff <from> <head>`. The diff decides the marker. Post that
    round's marker, with its `Head` line for round 1, name any disagreement. A marker
-   that did not post is a stop. Say so. Then settle each entry of the return's
-   `bot_threads`: reply with its `commit`, or its `reason` when `commit` is `null`, then
-   resolve the thread. Then return.
+   that did not post is a stop: say so, and settle no thread. Then settle each entry of
+   the return's `bot_threads`. Reply `Fixed in <commit>.`, or `Not changed: <reason>.`
+   when `commit` is `null`. Then resolve the thread, and return.
 
    ```bash
-   gh api graphql -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{id}}}' -f id=<thread id> -f body="<Fixed in <sha>. or Not changed: <reason>.>"
+   gh api graphql -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{id}}}' -f id=<thread id> -f body='<reply>'
    gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<thread id>
    ```
 
@@ -102,7 +102,7 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    | `merged`, `closed` | Nothing. The pull request already finished. Report the state, then return. |
    | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`. |
    | `review-1`, `review-2` | Step 3. CI can still run, or be red, at `review-1`: the round reads it. |
-   | `fixing` | CI is not green, or a review thread is unresolved, from a person or a bot (`botThreads`, review bots such as Copilot included). Name the contexts that failed. A bot thread that no round settled, such as one a push opened after the round, is yours: read the threads with the query of [round-brief.md](round-brief.md) step 5. Settle each mermaid preview thread by its rule there, with the two calls of step 0. Name each other bot thread with its id, for the next round or the person. |
+   | `fixing` | CI is not green, or a review thread is unresolved, from a person or a bot (`botThreads`, review bots such as Copilot included). Name the contexts that failed. A bot thread that no round settled, such as one a push opened after the round, is yours: read the threads with the query of [round-brief.md](round-brief.md) step 5. Settle each mermaid preview thread by its rule there, with the two calls of step 0. No round can run while this state holds. So name each other bot thread with its id, for the person, and stop. |
    | `rot-check` | Step 4. |
    | `done` | Step 5. |
 

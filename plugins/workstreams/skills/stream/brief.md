@@ -51,8 +51,9 @@ Two cases differ:
   branch> --title "<title>" --body-file <file>`. Without `--title`, `gh pr create`
   prompts.
 - Your layer joins a GitHub stack that this worktree did not initialise: run
-  `(cd <worktree> && gh stack link <stack number or lower PR> <your branch>)`, then
-  `gh pr ready --undo <n>`, so that the pull request is a draft.
+  `(cd <worktree> && gh stack link <stack number or lower PR> <your branch>)`. It pushes
+  the branch and opens its pull request. Then run the `gh pr edit` above on it, and
+  `gh pr ready --undo <n>` if it is not a draft.
 
 A permission check can refuse any of these commands. Then stop, and return the exact
 command for the person.

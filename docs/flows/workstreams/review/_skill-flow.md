@@ -32,7 +32,7 @@ flowchart TD
     E -->|awaiting-pr| E1([Return: GitHub said this number does not exist]):::stop
     E -->|merged or closed| E1b([Return: the pull request already finished]):::stop
     E -->|no-run| F([Close and reopen the pull request, then return])
-    E -->|fixing| G2([Return: name the contexts that failed; settle each<br/>mermaid preview thread no round settled; name each other bot thread])
+    E -->|fixing| G2([Return: name the contexts that failed; settle each<br/>mermaid preview thread no round settled; name each other<br/>bot thread for the person, and stop])
 
     E -->|review-1, any CI verdict,<br/>or review-2| M{the plan or the caller names a review model?}
     M -->|Yes| I

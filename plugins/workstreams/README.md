@@ -211,7 +211,7 @@ commits changed code logic, or logic landed after the head that round 1 reviewed
 | `merged`, `closed` | The pull request already finished. Report it, and dispatch no round. |
 | `no-run` | No workflow run with event `pull_request` for the head: close and reopen, once. |
 | `review-1`, `review-2` | Dispatch a round. Round 1 does not wait for CI (#384). It reads CI when its reviewers return, and fixes a failed check in the same pass. |
-| `fixing` | CI is not green after a round, or a review thread is unresolved, from a person or a bot (#383). The round settles each bot thread as a finding, and the skill replies on it and resolves it. A mermaid preview thread is rejected as informational. |
+| `fixing` | CI is not green after a round, or a review thread is unresolved, from a person or a bot (#383). The round settles each bot thread as a finding, and the skill replies on it and resolves it. A mermaid preview thread is rejected as informational. Another bot thread that no round settled goes to the person. |
 | `rot-check` | Check the title and body against the final diff. |
 | `done` | Two rounds at most, CI green, no unresolved thread, the body true. |
 
