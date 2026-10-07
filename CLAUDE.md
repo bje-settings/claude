@@ -162,6 +162,8 @@ you change a child server, change `.claude/lsp-merge.json`, not `enabledPlugins`
 
 `.claude/settings.json` also enables each other plugin in this marketplace: `gh`, `workstreams`,
 `mermaid` and `audit`. When you add a plugin to the marketplace, add it to `enabledPlugins` too.
+`extraKnownMarketplaces` names this repository as the `bje` source. A new machine or a cloud
+session then installs each enabled `@bje` plugin.
 
 Otherwise `.claude/settings.json` matches SurveyMonkey/skills' settings: it turns off auto memory
 (`autoMemoryEnabled`) and strips the attribution trailer (`attribution`).

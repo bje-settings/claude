@@ -1,5 +1,13 @@
 {
   "autoMemoryEnabled": false,
+  "extraKnownMarketplaces": {
+    "bje": {
+      "source": {
+        "source": "github",
+        "repo": "bje-settings/claude"
+      }
+    }
+  },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": false,
     "typescript7-lsp@bje": false,
