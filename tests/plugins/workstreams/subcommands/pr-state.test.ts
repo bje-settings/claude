@@ -445,7 +445,7 @@ describe('the verdict over the required contexts', () => {
 
     expect(report.contexts[0]?.verdict).toBe('failed')
     expect(report.verdict).toBe('red')
-    expect(report.state).toBe('red')
+    expect(report.state).toBe('review-1')
   })
 
   it('is pending when a required context has not reported at all', async () => {
@@ -471,7 +471,7 @@ describe('the verdict over the required contexts', () => {
       verdict: 'pending',
     })
     expect(report.verdict).toBe('pending')
-    expect(report.state).toBe('ci-pending')
+    expect(report.state).toBe('review-1')
   })
 
   it('is pending when a required context has reported and not concluded', async () => {
@@ -561,7 +561,7 @@ describe('the verdict over the required contexts', () => {
     )
 
     expect(report.verdict).toBe('green')
-    expect(report.state).not.toBe('red')
+    expect(report.state).toBe('review-1')
   })
 
   it('names a failure over a pending context, because the failure is what to act on', () => {
@@ -672,7 +672,7 @@ describe('a base branch no ruleset covers', () => {
     expect(report.hasPullRequestRun).toBe(true)
     expect(report.contexts).toEqual([])
     expect(report.verdict).toBe('pending')
-    expect(report.state).toBe('ci-pending')
+    expect(report.state).toBe('review-1')
   })
 
   it('is pending while one workflow has finished and another is still running', async () => {
@@ -833,14 +833,14 @@ describe('a cancelled run that a newer run supersedes (#364)', () => {
 
     expect(report.contexts.map((context) => context.verdict)).toEqual(['pending', 'pending'])
     expect(report.verdict).toBe('pending')
-    expect(report.state).toBe('ci-pending')
+    expect(report.state).toBe('review-1')
   })
 
   it('stays red when no newer run of the workflow follows the cancelled one', async () => {
     const report = await reportOf(['178'], onHead(SUPERSEDED.slice(1)))
 
     expect(report.verdict).toBe('red')
-    expect(report.state).toBe('red')
+    expect(report.state).toBe('review-1')
   })
 
   it('drops a matrix placeholder from the head list even with no newer run', async () => {
@@ -891,7 +891,7 @@ describe('a cancelled run that a started run supersedes (#370)', () => {
 
     expect(report.contexts.map((context) => context.verdict)).toEqual(['pending', 'pending'])
     expect(report.verdict).toBe('pending')
-    expect(report.state).toBe('ci-pending')
+    expect(report.state).toBe('review-1')
   })
 
   it('reads pending when no ruleset covers the base and the head list is not settled', async () => {
@@ -913,7 +913,7 @@ describe('a cancelled run that a started run supersedes (#370)', () => {
       const report = await reportOf(['178'], onHead([...rows], ['vitest', 'types']))
 
       expect(report.verdict).toBe('red')
-      expect(report.state).toBe('red')
+      expect(report.state).toBe('review-1')
     })
   }
 })
@@ -1203,6 +1203,116 @@ describe('the state the facts add up to', () => {
     expect(report.substantial).toBe(true)
     expect(report.rotChecked).toBe(true)
     expect(report.state).toBe('review-2')
+  })
+})
+
+describe('review round 1 starts when the pull request opens (#384)', () => {
+  const open = {
+    missing: false,
+    pullRequestState: 'OPEN',
+    verdict: 'green',
+    unresolvedThreads: 0,
+    round: 0,
+    substantial: false,
+    logicSinceRound1: false,
+    rotChecked: false,
+  } as const
+  const VERDICTS = ['green', 'pending', 'red', 'no-run', 'unavailable'] as const
+
+  // Round 0, every verdict, every state the pull request itself can be in.
+  // `null` is a pull request state this check could not read: every rule
+  // below it still applies.
+  for (const [pullRequestState, byVerdict] of [
+    ['OPEN', { green: 'review-1', pending: 'review-1', red: 'review-1', 'no-run': 'no-run' }],
+    [null, { green: 'review-1', pending: 'review-1', red: 'review-1', 'no-run': 'no-run' }],
+    [
+      'MERGED',
+      {
+        green: 'merged',
+        pending: 'merged',
+        red: 'merged',
+        'no-run': 'merged',
+        unavailable: 'merged',
+      },
+    ],
+    [
+      'CLOSED',
+      {
+        green: 'closed',
+        pending: 'closed',
+        red: 'closed',
+        'no-run': 'closed',
+        unavailable: 'closed',
+      },
+    ],
+  ] as const) {
+    for (const verdict of VERDICTS) {
+      const expected = (byVerdict as Partial<Record<string, LoopState>>)[verdict] ?? null
+      it(`is ${expected} at round 0, pull request state ${pullRequestState}, ${verdict} CI`, () => {
+        expect(deriveState({ ...open, pullRequestState, verdict })).toBe(expected)
+      })
+    }
+  }
+
+  it('is review-1 at round 0 while CI is pending', () => {
+    expect(deriveState({ ...open, verdict: 'pending' })).toBe('review-1')
+  })
+
+  it('is review-1 at round 0 when CI is red', () => {
+    expect(deriveState({ ...open, verdict: 'red' })).toBe('review-1')
+  })
+
+  it('is no-run at round 0 when no run exists for the head', () => {
+    expect(deriveState({ ...open, verdict: 'no-run' })).toBe('no-run')
+  })
+
+  it('is awaiting-pr at round 0 whatever the verdict, when the number does not exist', () => {
+    for (const verdict of VERDICTS) {
+      expect(deriveState({ ...open, missing: true, verdict })).toBe('awaiting-pr')
+    }
+  })
+
+  for (const round of [1, 2]) {
+    it(`is fixing at round ${round} while CI is pending`, () => {
+      expect(deriveState({ ...open, round, verdict: 'pending' })).toBe('fixing')
+    })
+
+    it(`is fixing at round ${round} when CI is red`, () => {
+      expect(deriveState({ ...open, round, verdict: 'red' })).toBe('fixing')
+    })
+  }
+
+  for (const round of [0, 1, 2]) {
+    for (const verdict of ['pending', 'red', 'no-run', 'unavailable'] as const) {
+      it(`never gives done at round ${round} with ${verdict} CI, every other fact in its favour`, () => {
+        expect(
+          deriveState({ ...open, round, verdict, substantial: false, rotChecked: true }),
+        ).not.toBe('done')
+      })
+    }
+  }
+
+  it('gives done with green CI and the same facts, so the tests above can fail', () => {
+    expect(deriveState({ ...open, round: 1, rotChecked: true })).toBe('done')
+    expect(deriveState({ ...open, round: 2, rotChecked: true })).toBe('done')
+  })
+
+  it('reads review-1 from a real report while a required context has not reported', async () => {
+    const report = await reportOf(
+      ['178'],
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({
+            checks: [{ name: 'vitest', status: 'IN_PROGRESS', conclusion: null, startedAt: null }],
+          }),
+          unavailable: null,
+          missing: false,
+        },
+      }),
+    )
+
+    expect(report.verdict).toBe('pending')
+    expect(report.state).toBe('review-1')
   })
 })
 
@@ -1894,7 +2004,7 @@ describe('a draft and the checks that skip drafts (#365)', () => {
     const report = await reportOf(['178'], facts(FIELD, false))
 
     expect(report.verdict).toBe('pending')
-    expect(report.state).toBe('ci-pending')
+    expect(report.state).toBe('review-1')
     expect(report.draftSkipped).toEqual([])
     expect(report.contexts.map((context) => context.name)).toEqual(REQUIRED)
   })
