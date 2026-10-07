@@ -250,9 +250,11 @@ interface Tracked {
    *  the very next poll (ruling 5, #296). A different answer on the next
    *  poll drops it with no line, and starts the count over. */
   pending: string | null
-  /** True when this head concluded as a draft with a draft-skipped
+  /** True when the last CONCLUDED was on a draft with a draft-skipped
    *  context (#365). Those contexts count once the pull request is ready,
-   *  on the same head, so the head can then conclude again. */
+   *  on the same head, so the head can then conclude again. Each CONCLUDED
+   *  sets it. A new head starts with `concluded` false, so a stale value
+   *  changes nothing. */
   concludedAsDraft: boolean
 }
 

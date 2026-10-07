@@ -97,11 +97,12 @@ ruleset covers the base, the head list also leaves out a name that contains
 \${{, an unexpanded matrix job.
 
 On a draft, a required context that no check on the head names is left out
-of the verdict when a check on the head, from a check suite that concluded SKIPPED,
-has a name with \${{ ... }} that matches it. Each \${{ ... }} matches one or
-more characters that are not ( or ). Such a context runs after ready for
-review. "draftSkipped" names each one, and is empty when the pull request is
-not a draft. A draft whose only missing contexts are draft-skipped is green.
+of the verdict when a check on the head, from a check suite that concluded
+SKIPPED, has a name with \${{ ... }} that matches it. Each \${{ ... }}
+matches one or more characters that are not ( or ). Such a context runs
+after ready for review. "draftSkipped" names each one, and is empty when the
+pull request is not a draft. A draft whose only missing contexts are
+draft-skipped is green.
 
 State awaiting-pr means GitHub said this pull request number does not exist.
 A read that failed for any other reason leaves state null instead. The
