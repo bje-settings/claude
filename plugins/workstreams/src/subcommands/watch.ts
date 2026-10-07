@@ -683,11 +683,16 @@ export const runWatch = async (
               `#${pull.number} workflow runs could not be read: ${runsReason}; ` +
                 'the pull request is unread this poll',
             )
+            // Delete first, so the Map orders the reasons by when each last
+            // changed, and the heartbeat's last one is the latest.
+            runReasons.delete(pull.number)
+            runReasons.set(pull.number, runsReason)
           }
-          runReasons.set(pull.number, runsReason)
           continue
         }
-        if (runReasons.delete(pull.number)) {
+        // Only a poll that read the runs again says so. A poll that did not
+        // need them drops the reason without a line.
+        if (runReasons.delete(pull.number) && runs.has(pull.number)) {
           lines.push(`#${pull.number} workflow runs read again`)
         }
         lines.push(...pullLines(pull, list.names, memory, runs.get(pull.number) ?? []))

@@ -409,8 +409,8 @@ const VITEST_VERB = /(^|[\\/])vitest(\.cmd)?$/i
  *  git command's own `-C`. */
 export interface VitestTarget {
   readonly directory: string | null
-  /** True when a quote in the segment never closes. The directory is then
-   *  not known, so the guard reports it and allows the run. */
+  /** True when the directory could not be read: a quote never closes, or one
+   *  is left in the value. The guard then reports it and allows the run. */
   readonly unclosedQuote?: true
 }
 
@@ -517,18 +517,38 @@ const readVitestTarget = (tokens: readonly string[]): VitestTarget | undefined =
  *  swallows the rest of the segment, also the subcommand. When that quote
  *  opens a `pnpm` directory value, the guard cannot read the directory, and
  *  it says so ({@link VitestTarget.unclosedQuote}). Any other unclosed quote
- *  reads as the plain whitespace split did, so a typo elsewhere in the
- *  command still finds the run. */
+ *  is read from the tokens, and when they hold no run, as the plain
+ *  whitespace split did, so a typo elsewhere in the command still finds the
+ *  run. */
 const readVitestSegment = (segment: string): VitestTarget | undefined => {
   const { tokens, closed } = tokenize(segment)
   if (closed) return readVitestTarget(tokens)
-  const verb = tokens.find((token) => !OPENERS.includes(token) && !ASSIGNMENT.test(token)) ?? ''
-  const previous = at(tokens, tokens.length - 2)
+  const start = tokens.findIndex((token) => !OPENERS.includes(token) && !ASSIGNMENT.test(token))
+  const verb = at(tokens, start)
+  // The open quote is the last token. It is a pnpm directory value only when
+  // every token before it is a complete pnpm directory option, as in
+  // `readVitestTarget`. An option after the subcommand is the tool's own.
+  const end = tokens.length - 1
+  let cursor = start + 1
+  while (cursor < end) {
+    const token = at(tokens, cursor)
+    if (token === '-C' || token === '--dir') {
+      if (cursor + 1 === end) break
+      cursor += 2
+    } else if (/^(-C|--dir)=/.test(token)) {
+      cursor += 1
+    } else {
+      break
+    }
+  }
+  const token = at(tokens, cursor)
   const value =
-    previous === '-C' || previous === '--dir' || /^(-C|--dir)=/.test(at(tokens, tokens.length - 1))
+    cursor === end
+      ? /^(-C|--dir)=/.test(token)
+      : cursor === end - 1 && (token === '-C' || token === '--dir')
   return PNPM_VERB.test(verb) && value
     ? { directory: null, unclosedQuote: true }
-    : readVitestTarget(segment.trim().split(/\s+/))
+    : (readVitestTarget(tokens) ?? readVitestTarget(segment.trim().split(/\s+/)))
 }
 
 /** What a `vitest` run in `command` would act on, or `undefined` when no
@@ -537,7 +557,14 @@ const readVitestSegment = (segment: string): VitestTarget | undefined => {
 export const vitestTarget = (command: string): VitestTarget | undefined => {
   for (const segment of command.split(SEGMENTS)) {
     const target = readVitestSegment(segment)
-    if (target !== undefined) return target
+    if (target === undefined) continue
+    // A quote mark kept inside a token, as in `/w/"a b"`, means the value was
+    // not read whole. A `"` in a path, or a `'` span with a space in it, is
+    // not a path to trust. A lone `'`, as in `it's`, is a real name.
+    // The guard says so and allows, as for an unclosed quote.
+    return target.directory !== null && /"|'[^']*\s[^']*'/.test(target.directory)
+      ? { directory: null, unclosedQuote: true }
+      : target
   }
   return undefined
 }
@@ -612,8 +639,8 @@ const secondSuite = async (
   if (target === undefined) return undefined
   if (target.unclosedQuote) {
     context.output.err.write(
-      'workstreams guard: a quote in a pnpm directory value does not close, so the directory ' +
-        'could not be read and a second vitest run could not be checked; allowing it.\n',
+      'workstreams guard: a quote in a pnpm directory value does not close or does not match, so ' +
+        'the directory could not be read and a second vitest run could not be checked; allowing it.\n',
     )
     return undefined
   }

@@ -74,6 +74,8 @@ export interface RunStamp {
   readonly id: number
   readonly workflowId: number
   readonly createdAt: string
+  /** A row of `actions/runs` carries its `status`. A check's run does not. */
+  readonly status?: string
 }
 
 /**
@@ -109,7 +111,8 @@ const isSuperseded = (run: CheckContext['run'], runs: readonly RunStamp[]): bool
  *
  * The newer run is visible in two ways. Its own checks show it. When it
  * has made no check yet, only the head's workflow runs show it. The caller
- * passes those as `headRuns`. Without them, the cancelled run's checks
+ * passes those as `headRuns`. A head run that has completed counts only
+ * through its checks, since it will make no more. Without `headRuns`, the cancelled run's checks
  * still count until the newer run makes a first check. After that, a name
  * the newer run has not made yet has no check that counts. That name reads
  * as not reported, so it is pending, not failed.
@@ -122,7 +125,10 @@ export const currentChecks = (
   checks: readonly CheckContext[],
   headRuns: readonly RunStamp[] = [],
 ): CheckContext[] => {
-  const runs = [...checkRuns(checks), ...headRuns]
+  // A head run that has completed and made no check never will. It ended
+  // before any job ran, as `startup_failure` or a cancel does. It must not
+  // hide the cancelled run's red checks.
+  const runs = [...checkRuns(checks), ...headRuns.filter((run) => run.status !== 'completed')]
   return checks.filter((check) => !isSuperseded(check.run, runs))
 }
 
