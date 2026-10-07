@@ -13,8 +13,8 @@ What `/workstreams:start` does to a round or to one pull request, and every way 
 
 ```mermaid
 flowchart TD
-    A0[Read the argument: milestone, issues, pr, free words, or none;<br/>judge other words, and ask if two readings stay] --> A
-    A{argument?} -->|free words| FW[Resolve them to an issue list with gh issue list:<br/>search, label or issue type; show the set]
+    A0[Read the argument: milestone, issues, pr, free words, or none;<br/>judge other words and a bare number that names no milestone;<br/>ask if two readings stay] --> A
+    A{argument?} -->|free words| FW[Resolve them to an issue list with gh issue list:<br/>key words, label or issue type; show the set]
     FW --> FW1{set empty?}
     FW1 -->|Yes| FW2([Stop: no issue matches]):::stop
     FW1 -->|No| B

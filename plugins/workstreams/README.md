@@ -58,7 +58,7 @@ Runs a round, or continues one, to reviewed draft pull requests. Nothing merges.
 | --- | --- |
 | `/workstreams:start milestone 4` (an example milestone; a bare `4` works too) | The sweep and the question phase, if the round has no plan yet. Then a layer at a time, each reviewed to `done`, then the round end. |
 | `/workstreams:start issues 12 13` (example issues) | The same, for those issues alone. |
-| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to an issue list with `gh issue list` (`--search`, `--label` or `--type`), and shows the set. Then it runs the `issues` scope on that set. An empty set is a stop. |
+| `/workstreams:start any LSP related issue` (an example focus) | `start` resolves the words to an issue list with `gh issue list`. It filters with key words, `--label` or `--type`, and shows the set. Then it runs the `issues` scope on that set. An empty set is a stop. |
 | `/workstreams:start` | The same, over every milestone with open issues. With a round in flight, it asks first: continue that round, or start a new one. |
 | `/workstreams:start pr 260` (an example number) | The review loop on that one pull request, to `done`. No sweep and no plan. |
 
@@ -71,9 +71,10 @@ and whether the rot check is done. `/workstreams:review` posts a marker comment 
 request for each one, and `start` reads the markers back. So a new conversation needs no
 question. A merged pull request is final for its layer, with no markers.
 
-Its `argument-hint` invites an optional focus in free words, as `/compact` does. Other
-words are judged: `start` checks each number against the issues, the pull requests
-and the milestones, and asks when two readings stay possible.
+The `argument-hint` of `start` invites an optional focus in free words, as `/compact` does.
+Other words, and a bare number that names no milestone, are judged. `start` checks each
+number against the issues, the pull requests and the milestones. It asks when two readings
+stay possible.
 
 A round is its issue set. Each issue is in the round of its newest plan comment, and in
 no other. `start` runs `rounds` with its scope to find the round in flight. A round is in

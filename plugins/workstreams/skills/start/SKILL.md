@@ -7,18 +7,20 @@ allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(
 
 Scope: $ARGUMENTS.
 
-- `milestone <n>` or a bare number: that milestone.
+- `milestone <n>`, or a bare number that names a milestone: that milestone.
 - `issues <n> <n>`: those issues.
 - `pr <n>`: that one pull request, with no sweep and no plan.
 - Nothing: every milestone with open issues.
-- Free words, such as `any LSP related issue` or `all bugs`: resolve them to an issue list
-  with `gh issue list --search "<words>" --json number,title`, `--label <label>` or
-  `--type <issue type>`. Show the set. Then run the `issues` scope on its numbers. An empty
-  set is a stop.
+- Free words, such as `any LSP related issue` or `all bugs`: an issue list. Get it with
+  `gh issue list --limit 1000 --json number,title` and a filter:
+  `--search "<key words>"`, `--label <label>` or `--type <issue type>`. Search with the key
+  words only: GitHub matches every word. Show the set. Then run the `issues` scope on its
+  numbers. An empty set is a stop.
 
-For other words, judge what the person asked. Check each number with `gh issue view`,
-`gh pr view` or the milestones that `sweep` reports. If two readings stay possible, ask one
-`AskUserQuestion`.
+For other words, and a bare number that names no milestone, judge what the person asked.
+Check each number with `gh issue view`, `gh pr view` or the milestones that `sweep`
+reports. A number that names only an issue gives the `issues` scope. If two readings stay
+possible, ask one `AskUserQuestion`.
 
 A round is its issue set. Each issue is in the round of its newest plan comment, and in no
 other. Another round in this repository holds other issues. Act and comment only on the
