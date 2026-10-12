@@ -16,7 +16,7 @@ directory conventions.
 | `@bje-devices/`        | Home automation and hardware (no repos yet)                                                     |
 | `@tacoma-fyi/`         | Tacoma community sites (no repos yet)                                                           |
 | `@bje-actions/`        | Public reusable Actions/workflows (`conflict-label`)                                            |
-| `@bork-ltd/`           | `shippo-packing-slips`                                                                          |
+| `@bork-ltd/`           | `shippo-packing-slips`, `prusa-connect-auto-ready` (archived)                                   |
 | `@arsenalamerica/`     | Arsenal America; its `.envrc` adds `VERCEL_TEAM_ID` (stowed from `dotfiles-private`)            |
 
 A `bje-bots` org is planned, but does not exist yet. `REPO-MIGRATION.md` maps which

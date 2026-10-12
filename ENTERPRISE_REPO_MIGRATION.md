@@ -56,7 +56,7 @@ move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<or
 | `next-build-cache`              | `bje-actions`                |                                                                         |
 | `create-issue-for-cve`          | `bje-actions`                | Private today; becomes public                                           |
 | `bork`                          | `bork-ltd`                   | Stays private                                                           |
-| `prusa-connect-auto-ready`      | `bork-ltd`                   |                                                                         |
+| `prusa-connect-auto-ready`      | `bork-ltd`, archived (done)  | No Vercel deploy after 2026-01-03                                       |
 | `3d-printer-profiles`           | `bork-ltd`                   | Docs-only; see prerequisites                                            |
 | `skills`                        | `bje-settings/claude`        | Merge plugins into the bje marketplace, then archive                    |
 | `settings`                      | archive                      | Likely replaced by `bje-sync`                                           |
