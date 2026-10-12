@@ -8,11 +8,9 @@ move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<or
 
 ## Prerequisites for every move
 
-- **Full coverage.** The enterprise Code Coverage ruleset requires 95% on every repo, so a repo
-  reaches full coverage before it transfers.
-- **Docs-only repos are untested against the ruleset.** Nobody knows yet whether the ruleset
-  blocks or passes a repo that never uploads a coverage report. Move `speaking-contexts` first,
-  and confirm the result before you move `home-assistant-config`.
+- **Coverage.** The enterprise Code Coverage ruleset requires 95%, but it blocks a pull request
+  only when CI reports coverage. A repo with no coverage report, docs-only or not, passes. A repo
+  can transfer first, and must reach 95% before its CI reports coverage.
 - **Update references.** GitHub redirects transferred repos, but the redirect breaks if a repo of
   the same name is later created under `brianespinosa`. Update `uses:` refs, `_extends`, remotes,
   and doc links instead. Do not rely on the redirect.
@@ -40,13 +38,13 @@ move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<or
 | `career`                        | `bje-co`                     | career.bje.co                                                           |
 | `resume`                        | `bje-co`                     | resume.bje.co                                                           |
 | `portable-hooks`                | `bje-co`                     | portable-hooks.bje.co                                                   |
-| `speaking-contexts`             | `bje-co`                     | First docs-only move; tests the coverage ruleset                        |
+| `speaking-contexts`             | `bje-co`                     |                                                                         |
 | `kandb.co`                      | `bje-web`                    |                                                                         |
 | `zacharyscorner`                | `bje-web`                    |                                                                         |
 | `MenuRemote`                    | `bje-apps`                   |                                                                         |
 | `Theme`                         | `bje-apps`                   | FigJam widget                                                           |
 | `google-calendar-health-report` | `bje-apps`                   | Apps Script with Slack alerts                                           |
-| `home-assistant-config`         | `bje-devices`                | Docs-only; see prerequisites                                            |
+| `home-assistant-config`         | `bje-devices`                | Docs-only                                                               |
 | `vu1-claude-token-usage`        | `bje-devices`                |                                                                         |
 | `tacoma.fyi`                    | `tacoma-fyi`                 |                                                                         |
 | `tacomawedge`                   | `tacoma-fyi`                 |                                                                         |
@@ -55,7 +53,7 @@ move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<or
 | `job-root-cache`                | `bje-actions`                |                                                                         |
 | `next-build-cache`              | `bje-actions`                |                                                                         |
 | `create-issue-for-cve`          | `bje-actions`                | Private today; becomes public                                           |
-| `bork`                          | `bork-ltd`                   | Stays private                                                           |
+| `bork`                          | `bork-ltd`                   | Stays private; its Medusa POC moved to `bork-ltd/store`                 |
 | `prusa-connect-auto-ready`      | `bork-ltd`, archived (done)  | No Vercel deploy after 2026-01-03                                       |
 | `3d-printer-profiles`           | `bork-ltd`, archived (done)  | Docs-only                                                               |
 | `skills`                        | `bje-settings/claude`        | Merge plugins into the bje marketplace, then archive                    |
