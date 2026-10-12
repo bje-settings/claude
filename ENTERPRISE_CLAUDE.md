@@ -6,18 +6,18 @@ directory conventions.
 
 ## Orgs
 
-| Org directory          | Notes                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `@bje-settings/`       | Enterprise configuration and Claude plugin marketplace (`claude`, `containers`, `github`, `terraform`) |
-| `@bje-sync-providers/` | `bje-sync` providers (`github`, `receiver`, `vercel`)                                           |
-| `@bje-co/`             | Primary org; anything on the bje.co domain (`blocks`, `bje.co`, `cm`, `.github`)                |
-| `@bje-web/`            | Web sites with no other org home (no repos yet)                                                 |
-| `@bje-apps/`           | Standalone apps and tools (no repos yet)                                                        |
-| `@bje-devices/`        | Home automation and hardware (no repos yet)                                                     |
-| `@tacoma-fyi/`         | Tacoma community sites (no repos yet)                                                           |
-| `@bje-actions/`        | Public reusable Actions/workflows (`conflict-label`)                                            |
-| `@bork-ltd/`           | `shippo-packing-slips`, `store`; archived: `prusa-connect-auto-ready`, `3d-printer-profiles`    |
-| `@arsenalamerica/`     | Arsenal America; its `.envrc` adds `VERCEL_TEAM_ID` (stowed from `dotfiles-private`)            |
+| Org directory          | Notes                                                                                                           |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `@bje-settings/`       | Enterprise configuration and Claude plugin marketplace (`claude`, `containers`, `github`, `terraform`)          |
+| `@bje-sync-providers/` | `bje-sync` providers (`github`, `receiver`, `vercel`)                                                           |
+| `@bje-co/`             | Primary org; anything on the bje.co domain (`blocks`, `bje.co`, `cm`, `.github`)                                |
+| `@bje-web/`            | Web sites with no other org home (no repos yet)                                                                 |
+| `@bje-apps/`           | Standalone apps and tools (no repos yet)                                                                        |
+| `@bje-devices/`        | Home automation and hardware (no repos yet)                                                                     |
+| `@tacoma-fyi/`         | Tacoma community sites (no repos yet)                                                                           |
+| `@bje-actions/`        | Public reusable Actions/workflows (`conflict-label`)                                                            |
+| `@bork-ltd/`           | `catalog`, `farm`, `shippo-packing-slips`, `store`; archived: `prusa-connect-auto-ready`, `3d-printer-profiles` |
+| `@arsenalamerica/`     | Arsenal America; its `.envrc` adds `VERCEL_TEAM_ID` (stowed from `dotfiles-private`)                            |
 
 A `bje-bots` org is planned, but does not exist yet. `REPO-MIGRATION.md` maps which
 `@brianespinosa` repos move to which org. When a repo transfers, move the local checkout to
