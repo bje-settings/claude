@@ -10,7 +10,7 @@ directory conventions.
 | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `@bje-settings/`       | Enterprise configuration and Claude plugin marketplace (`claude`, `containers`, `github`, `terraform`)          |
 | `@bje-sync-providers/` | `bje-sync` providers (`github`, `receiver`, `vercel`)                                                           |
-| `@bje-co/`             | Primary org; anything on the bje.co domain (`blocks`, `bje.co`, `cm`, `.github`)                                |
+| `@bje-co/` | Primary org; anything on the bje.co domain (`blocks`, `bje.co`, `.github`)       |
 | `@bje-web/`            | Web sites with no other org home (no repos yet)                                                                 |
 | `@bje-apps/`           | Standalone apps and tools (no repos yet)                                                                        |
 | `@bje-devices/`        | Home automation and hardware (no repos yet)                                                                     |
