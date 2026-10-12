@@ -12,7 +12,7 @@ move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<or
   reaches full coverage before it transfers.
 - **Docs-only repos are untested against the ruleset.** Nobody knows yet whether the ruleset
   blocks or passes a repo that never uploads a coverage report. Move `speaking-contexts` first,
-  and confirm the result before you move `home-assistant-config` or `3d-printer-profiles`.
+  and confirm the result before you move `home-assistant-config`.
 - **Update references.** GitHub redirects transferred repos, but the redirect breaks if a repo of
   the same name is later created under `brianespinosa`. Update `uses:` refs, `_extends`, remotes,
   and doc links instead. Do not rely on the redirect.
@@ -56,8 +56,8 @@ move the local checkout from `~/Code/@brianespinosa/<repo>` to `~/Code/@bje/@<or
 | `next-build-cache`              | `bje-actions`                |                                                                         |
 | `create-issue-for-cve`          | `bje-actions`                | Private today; becomes public                                           |
 | `bork`                          | `bork-ltd`                   | Stays private                                                           |
-| `prusa-connect-auto-ready`      | `bork-ltd`                   |                                                                         |
-| `3d-printer-profiles`           | `bork-ltd`                   | Docs-only; see prerequisites                                            |
+| `prusa-connect-auto-ready`      | `bork-ltd`, archived (done)  | No Vercel deploy after 2026-01-03                                       |
+| `3d-printer-profiles`           | `bork-ltd`, archived (done)  | Docs-only                                                               |
 | `skills`                        | `bje-settings/claude`        | Merge plugins into the bje marketplace, then archive                    |
 | `settings`                      | archive                      | Likely replaced by `bje-sync`                                           |
 | `.vscode`                       | archive                      | Git submodule syncing is in doubt                                       |
