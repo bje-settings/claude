@@ -102,10 +102,11 @@ flowchart TD
     N7 -->|Yes| X
     N7 -->|No| NL{review-1, and layerReturned false?}
     NL -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
-    NL -->|Yes, no layer agent from this conversation,<br/>and the plan names no branch for it| NLM{a layer status written<br/>on its head?}
+    NL -->|Yes, in a planned round: no layer agent from this<br/>conversation, and the plan names no branch for it| NLM{a layer status written<br/>on its head?}
     NLM -->|Yes| N6
     NLM -->|No| NLS([Stop: name it]):::stop
-    NL -->|Yes, any other case: dispatch no round| N3
+    NL -->|Yes, any other case: dispatch no round| NLP([Report it once for each head: a lost return<br/>holds round 1; mark layer releases it]):::pause
+    NLP --> X
     N -->|merged| NM[Report it; never a review] --> R
     N -->|closed| NC{a Mid-round ruling on the layer's issues<br/>that answers for it?}
     NC -->|No| NC1([Report it; ask once: drop the layer and those above,<br/>reopen it, or replan]):::pause

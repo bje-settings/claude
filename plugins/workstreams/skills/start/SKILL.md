@@ -88,9 +88,10 @@ Derive it on each call. Write nothing to disk.
    Then invoke `/workstreams:question` with the same scope. Its plan mode is the approval.
    With no approved plan, stop.
 2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or
-   `closed` is a stop. Report it, and dispatch no round. With `layerReturned: false`, no
-   layer agent's return was read. Ask one `AskUserQuestion`: mark it returned and review
-   it now, or wait. A pull request that a person opened has no layer agent. To mark it:
+   `closed` is a stop. Report it, and dispatch no round. At `review-1` with
+   `layerReturned: false`, no layer agent's return was read. Ask one `AskUserQuestion`,
+   once: mark it returned and review it now, or wait. A pull request that a person opened
+   has no layer agent. To mark it:
 
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> layer
