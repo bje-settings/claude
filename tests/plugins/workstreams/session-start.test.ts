@@ -138,8 +138,9 @@ it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when
   const command = config.hooks.SessionStart[0]?.hooks[0]?.command ?? ''
   const started = Date.now()
 
-  // A sync spawn blocks vitest's own timeout. So this bound stops a hook
-  // that a regression holds, and the test then fails, not hangs.
+  // A sync spawn blocks vitest's own timeout. So this bound ends the wait
+  // for a hook that a regression holds, and the test fails, not hangs. It
+  // kills only the shell: the node process under it can stay.
   const result = spawnSync('sh', ['-c', command], {
     env,
     encoding: 'utf8',
