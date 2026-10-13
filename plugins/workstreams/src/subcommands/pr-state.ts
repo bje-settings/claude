@@ -3,9 +3,10 @@
 //
 // **Nothing is remembered.** Round 8 ruling 8, and CLAUDE.md's "derive what
 // a plugin needs each time it runs": there is no state file. Every fact
-// here is read again each tick. That includes the four review facts: how
+// here is read again each tick. That includes the five review facts: how
 // many review rounds have completed, whether the first one was substantial,
-// the head the first one reviewed, and whether the rot check is done.
+// the head the first one reviewed, whether the rot check is done, and
+// whether the layer agent has returned (#396).
 // `workstreams mark` writes each one as a `workstreams/<name>` commit
 // status, and this command reads them from the pull request's commits
 // (#377). A flag can still give each fact, and a flag that is given wins
@@ -77,7 +78,7 @@ recent runs have taken, and reports the state the review loop is in.
 The review statuses are the workstreams/<name> commit statuses that
 "workstreams.ts mark" writes, read from the first 100 commits of the pull
 request and from the head that each of the first 100 force-pushes
-replaced. They give four facts:
+replaced. They give five facts:
 
   round        2 with a workstreams/review-2 status on any commit, 1 with a
                workstreams/review-1 status, else 0: the review rounds that
@@ -88,6 +89,11 @@ replaced. They give four facts:
                time (#395). A second review-1 status, as after a resumed
                round, does not move it.
   rotChecked   a workstreams/rot-check status on any commit
+  layerReturned
+               a workstreams/layer status on any commit, or round 1 or
+               more: a reviewed layer has returned (#396). The state does
+               not read it. The skills do not start round 1 while it is
+               false.
 
 Only a status with state success counts. "mark" writes no other state.
 
@@ -96,7 +102,9 @@ status read: --round, --substantial, --round-1-head and --rot-checked. A
 pull request whose rounds ran before the statuses has marker comments and
 no statuses, so its caller gives the flags. A status read that fell short
 is listed under "unavailable", and the state is null unless --round is
-given. Then the flags alone are the facts.
+given. Then the flags alone are the facts. layerReturned is then false,
+unless --round is 1 or more. With --round 0 the state is review-1, and
+the false holds round 1.
 
 A force-push, as in a restack, takes its commits out of the pull request.
 The read still reads the head it replaced, but not a commit below that
@@ -308,6 +316,10 @@ export interface PrStateReport {
    *  not read it, or could not (then `unavailable` says why). */
   readonly sinceRound1: SinceRound1 | null
   readonly rotChecked: boolean
+  /** True from a `success` `workstreams/layer` status, or round 1 or more
+   *  (#396, mid-round ruling 16). A short status read gives false, unless
+   *  `--round` is 1 or more. No state reads it. */
+  readonly layerReturned: boolean
   readonly state: LoopState | null
   /** Every reason this report is short. Empty is the only value that means
    *  every fact in it was read. */
@@ -425,12 +437,13 @@ export const deriveState = (facts: {
   return facts.rotChecked ? 'done' : 'rot-check'
 }
 
-/** The four review facts. */
+/** The five review facts. */
 export interface ReviewFacts {
   readonly round: number
   readonly substantial: boolean
   readonly round1Head: string | null
   readonly rotChecked: boolean
+  readonly layerReturned: boolean
 }
 
 /** The context of one review status that `workstreams mark` writes. */
@@ -449,6 +462,10 @@ const loopStatus = (name: string): string => `${LOOP_STATUS_PREFIX}${name}`
  *
  * Only a status with state `success` is a finished step: `mark` writes no
  * other state (mid-round ruling 14).
+ *
+ * A review status also says the layer returned (mid-round ruling 16): a
+ * round reviews only a layer whose agent returned. A restack can drop the
+ * `layer` status with its commit, and a review status keeps the fact.
  */
 export const reviewFactsOf = (rows: readonly CommitStatus[]): ReviewFacts => {
   const statuses = rows.filter((status) => status.state === 'success')
@@ -459,11 +476,13 @@ export const reviewFactsOf = (rows: readonly CommitStatus[]): ReviewFacts => {
   }
   const has = (name: string): boolean =>
     statuses.some((status) => status.context === loopStatus(name))
+  const round = has('review-2') ? 2 : first === undefined ? 0 : 1
   return {
-    round: has('review-2') ? 2 : first === undefined ? 0 : 1,
+    round,
     substantial: first?.description === 'substantial',
     round1Head: first === undefined ? null : first.commit,
     rotChecked: has('rot-check'),
+    layerReturned: has('layer') || round > 0,
   }
 }
 
@@ -481,15 +500,27 @@ export interface ReviewFlags {
  * (mid-round ruling 14). `read` is null when the status read fell short.
  * Then only a `--round` flag gives facts, and the flags alone give them.
  * With neither, the facts are null, and no state is named.
+ *
+ * `--round` 1 or more gives `layerReturned` too (mid-round ruling 16). A
+ * `--round 0` does not take away a `layer` status: it counts rounds, and
+ * says nothing about the layer agent.
  */
 export const reviewFacts = (flags: ReviewFlags, read: ReviewFacts | null): ReviewFacts | null => {
   if (read === null && flags.round === '') return null
-  const statuses = read ?? { round: 0, substantial: false, round1Head: null, rotChecked: false }
+  const statuses = read ?? {
+    round: 0,
+    substantial: false,
+    round1Head: null,
+    rotChecked: false,
+    layerReturned: false,
+  }
+  const round = flags.round === '' ? statuses.round : Number(flags.round)
   return {
-    round: flags.round === '' ? statuses.round : Number(flags.round),
+    round,
     substantial: flags.substantial || statuses.substantial,
     round1Head: flags.round1Head === '' ? statuses.round1Head : flags.round1Head,
     rotChecked: flags.rotChecked || statuses.rotChecked,
+    layerReturned: statuses.layerReturned || round > 0,
   }
 }
 
@@ -634,6 +665,7 @@ export const renderReport = (report: PrStateReport): string => {
   lines.push(`#${report.pullRequest}  ${report.title === null ? '(unread)' : report.title}`)
   lines.push(`  state    ${state}`)
   lines.push(`  verdict  ${report.verdict}`)
+  lines.push(`  layer    ${report.layerReturned ? 'returned' : 'not returned'}`)
   if (report.head !== null) {
     const draft = report.draft === true ? 'draft' : 'ready'
     lines.push(`  head     ${report.head} at ${report.headSha} (${draft}, ${report.mergeable})`)
@@ -983,6 +1015,8 @@ export const runPrState = async (
     round1Head: facts === null ? null : facts.round1Head,
     sinceRound1,
     rotChecked: facts?.rotChecked === true,
+    // No state reads it (mid-round ruling 16). The skills hold round 1 on it.
+    layerReturned: facts?.layerReturned === true,
     state: deriveState({
       missing: viewed.missing,
       pullRequestState: detail === null ? null : detail.state,

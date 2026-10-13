@@ -64,11 +64,11 @@ Each call derives where the round stands from the tracker, and writes no file. T
 is the comment whose first line reads `<round> plan, approved <time>.`, with the approval
 time to the minute in UTC. The pull requests
 are the ones that close the round's issues, in the order `gh stack view` gives. Each pull
-request has three review facts. They are the rounds done, whether round 1 was substantial,
-and whether the rot check is done. `/workstreams:review` records each one as a
-`workstreams/<name>` commit status with `mark`, and `pr-state` reads the statuses back. So a
-new conversation needs no question. A merged pull request is final for its layer, with no
-statuses.
+request has five review facts: the rounds done, whether round 1 was substantial, the round 1
+head, whether the rot check is done, and whether the layer agent returned. The skills record
+them as `workstreams/<name>` commit statuses with `mark`, and `pr-state` reads the statuses
+back. So a new conversation needs no question. A merged pull request is final for its layer,
+with no statuses.
 
 The `argument-hint` of `start` invites an optional focus in free words, as `/compact` does.
 Other words, and a bare number that names no milestone, are judged. `start` checks each
@@ -90,6 +90,14 @@ GitHub is the state of review. `start` writes the next layer only when `pr-state
 done. The person can explicitly ask to skip the review of a layer in `review-1`. Then
 `start` posts a ruling comment that quotes the request. It also records the round 1 and rot
 check statuses with `mark`, each with a link to that comment as the description.
+
+Round 1 starts only when `pr-state` gives `layerReturned: true` (#396). `pr-state` gives
+`review-1` as soon as the head has a run, while a layer agent can still build. The status that
+`/workstreams:stream` writes when it reads the return closes that gap, also in a new
+conversation. A pull request that the plan names no branch for has no layer agent, so the tick
+marks it, then reviews it. Otherwise the tick reports the held layer once for each head, and
+names `mark <number> layer` for a lost return. `start pr <n>` with `layerReturned: false` asks
+one question: mark it returned and review it now, or wait.
 
 A layer that closed with no merge is a question, asked once: drop it and the layers above
 it, reopen it, or replan. `start` records the answer on the layer's issues. A dropped layer
@@ -297,6 +305,11 @@ mismatched one. A second one from the same layer is a stop (#375).
 
 Each call takes one step, and returns. It writes the next layer's brief and dispatches its
 agent, or it reads a layer's return. It never waits.
+
+When it reads a return, and the read-back matches or the return claims no body edit, it
+records the return as a `workstreams/layer` status. It runs `mark <number> layer --head <head>`
+on the head of the return (#396). `pr-state` then gives `layerReturned: true`, and round 1 can start. A `mark` that failed
+is a stop.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it once a plan is approved.
 
@@ -571,7 +584,7 @@ preview thread. It names each other bot thread for the person. A plain comment i
 all: the enterprise coverage bot posts a comment on every pull request, and nobody resolves a
 comment.
 
-The four review facts come from the `workstreams/<name>` commit statuses that
+The five review facts come from the `workstreams/<name>` commit statuses that
 [`mark`](#mark) writes, on the first 100 commits of the pull request and on the head that each of
 the first 100 force-pushes replaced (#377):
 
@@ -581,8 +594,17 @@ the first 100 force-pushes replaced (#377):
 | `substantial` | the first `review-1` status has the description `substantial` | `--substantial` |
 | `round1Head` | the commit of the first `review-1` status, by its time | `--round-1-head` |
 | `rotChecked` | a `rot-check` status on any commit | `--rot-checked` |
+| `layerReturned` | a `layer` status on any commit, or a `review-1` or `review-2` status | `--round 1` or `--round 2` |
 
 Only a status with state `success` counts. `mark` writes no other state.
+
+`layerReturned` says that the layer agent returned (#396, mid-round ruling 16). No state reads
+it. `/workstreams:start` and `/workstreams:review` start no round 1 while it is `false`. A round
+reviews only a layer that returned, so a review status gives it too. A restack can drop the
+`layer` status with its commit, and the review status then keeps the fact. `--round 0` does not
+take it away. A status read that fell short gives `false`, unless `--round` is 1 or more. With
+no `--round`, the state is then null. With `--round 0`, the state is `review-1`, and the `false`
+holds round 1.
 
 The FIRST `review-1` status gives the round 1 head (#395). A round agent resumed after its
 return gets a second one on its fix head. The first one keeps the head that round 1 reviewed, so
@@ -629,9 +651,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> <name> [--desc
 
 Writes the commit status `workstreams/<name>`, with state `success`, on the head of the pull
 request, or on `--head` (#377, mid-round ruling 14). `<name>` is `review-1`, `review-2`,
-`rot-check` or `layer`. [`pr-state`](#pr-state) reads the first three. Nothing reads `layer`
-yet (#396). The write goes through the dispatcher, because each skill that writes a status
-already may run it.
+`rot-check` or `layer`. [`pr-state`](#pr-state) reads each one: `layer` gives its
+`layerReturned` (#396). `/workstreams:stream` writes `layer` when it reads a layer's return.
+`/workstreams:start` writes it for a pull request that no layer agent builds. The write goes
+through the dispatcher, because each skill that writes a status already may run it.
 
 `--description` is 140 characters at most. For `review-1`, `substantial` says that round 1
 changed logic, and any other description is minor. `--head` takes a full 40-character sha. With

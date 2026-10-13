@@ -88,7 +88,17 @@ Derive it on each call. Write nothing to disk.
    Then invoke `/workstreams:question` with the same scope. Its plan mode is the approval.
    With no approved plan, stop.
 2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or
-   `closed` is a stop. Report it, and dispatch no round. Otherwise go to step 4.
+   `closed` is a stop. Report it, and dispatch no round. At `review-1` with
+   `layerReturned: false`, no layer agent's return was read. Ask one `AskUserQuestion`,
+   once: mark it returned and review it now, or wait. A pull request that a person opened
+   has no layer agent. To mark it:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> layer
+   ```
+
+   A `mark` that failed is a stop. To wait, the tick dispatches no round 1 until
+   `layerReturned` is `true`. Then go to step 4.
    `/workstreams:review` chooses the review model when no plan names one.
 3. Invoke `/workstreams:stream` with the next layer's issues only when there is no layer
    below, or `pr-state` for the layer below gives `done` or `merged`. Any other state runs

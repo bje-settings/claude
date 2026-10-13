@@ -11,7 +11,9 @@ generated:
 
 `node scripts/workstreams.ts mark` records one finished step of the review loop as a commit
 status. `/workstreams:review` runs it after each round and after the rot check.
-`/workstreams:start` runs it when the person asks to skip the review of a layer.
+`/workstreams:stream` runs it with `layer` when it reads a layer's return. `/workstreams:start`
+runs it when the person asks to skip the review of a layer, and with `layer` when the person
+marks a pull request returned.
 
 ```mermaid
 flowchart TD
@@ -44,5 +46,5 @@ pull request that ran past one page does not stop the write, because the head is
 
 A status cannot be deleted. A later push leaves it on an older commit of the pull request, where
 `pr-state` still reads it. A force-push takes that commit out of the pull request. Then
-`pr-state` reads it only when it was the head the force-push replaced. `pr-state` reads
-`review-1`, `review-2` and `rot-check`. Nothing reads `layer` yet (#396).
+`pr-state` reads it only when it was the head the force-push replaced. `pr-state` reads each
+name. `layer` gives its `layerReturned` (#396).
