@@ -38,10 +38,10 @@ head of the pull request, or on --head when it is given. <name> is one of:
   layer      the layer agent returned
 
 "workstreams.ts pr-state" reads each name from the commits of the pull
-request. layer gives its layerReturned. A status cannot be deleted. A later push leaves
-it on an older commit of the pull request, where pr-state still reads it. A
-force-push takes that commit out of the pull request. Then pr-state reads it
-only when it was the head the force-push replaced.
+request. layer gives its layerReturned. A status cannot be deleted. A later
+push leaves it on an older commit of the pull request, where pr-state still
+reads it. A force-push takes that commit out of the pull request. Then
+pr-state reads it only when it was the head the force-push replaced.
 
 --description is ${DESCRIPTION_LIMIT} characters at most. --head is a full 40-character
 commit sha. With --head, the pull request is not read.

@@ -126,7 +126,8 @@ that a force-push replaced included (#396). Round 1 or more, from a status or fr
 also gives `true`: a round reviews only a layer that returned. A restack can drop the `layer`
 status with its commit, and a review status then keeps the fact. No state reads it. The skills
 start no round 1 while it is `false`. A status read that fell short gives `false`, unless
-`--round` is 1 or more. The state is then null, so no round starts.
+`--round` is 1 or more. With no `--round`, the state is then null. With `--round 0`, the state is
+`review-1`, and the `false` holds round 1.
 
 A `workstreams/` status is never a context. It is not in the head list, and not in the verdict,
 also when a ruleset names it.

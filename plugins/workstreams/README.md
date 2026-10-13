@@ -64,11 +64,11 @@ Each call derives where the round stands from the tracker, and writes no file. T
 is the comment whose first line reads `<round> plan, approved <time>.`, with the approval
 time to the minute in UTC. The pull requests
 are the ones that close the round's issues, in the order `gh stack view` gives. Each pull
-request has three review facts. They are the rounds done, whether round 1 was substantial,
-and whether the rot check is done. `/workstreams:review` records each one as a
-`workstreams/<name>` commit status with `mark`, and `pr-state` reads the statuses back. So a
-new conversation needs no question. A merged pull request is final for its layer, with no
-statuses.
+request has five review facts: the rounds done, whether round 1 was substantial, the round 1
+head, whether the rot check is done, and whether the layer agent returned. The skills record
+them as `workstreams/<name>` commit statuses with `mark`, and `pr-state` reads the statuses
+back. So a new conversation needs no question. A merged pull request is final for its layer,
+with no statuses.
 
 The `argument-hint` of `start` invites an optional focus in free words, as `/compact` does.
 Other words, and a bare number that names no milestone, are judged. `start` checks each
@@ -305,9 +305,9 @@ mismatched one. A second one from the same layer is a stop (#375).
 Each call takes one step, and returns. It writes the next layer's brief and dispatches its
 agent, or it reads a layer's return. It never waits.
 
-When it reads a return, and the read-back matches, it records the return as a
-`workstreams/layer` status, with `mark <number> layer --head <head>` on the head of the return
-(#396). `pr-state` then gives `layerReturned: true`, and round 1 can start. A `mark` that failed
+When it reads a return, and the read-back matches or the return claims no body edit, it
+records the return as a `workstreams/layer` status. It runs `mark <number> layer --head <head>`
+on the head of the return (#396). `pr-state` then gives `layerReturned: true`, and round 1 can start. A `mark` that failed
 is a stop.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it once a plan is approved.
@@ -601,8 +601,9 @@ Only a status with state `success` counts. `mark` writes no other state.
 it. `/workstreams:start` and `/workstreams:review` start no round 1 while it is `false`. A round
 reviews only a layer that returned, so a review status gives it too. A restack can drop the
 `layer` status with its commit, and the review status then keeps the fact. `--round 0` does not
-take it away. A status read that fell short gives `false`, unless `--round` is 1 or more. The
-state is then null, so no round starts.
+take it away. A status read that fell short gives `false`, unless `--round` is 1 or more. With
+no `--round`, the state is then null. With `--round 0`, the state is `review-1`, and the `false`
+holds round 1.
 
 The FIRST `review-1` status gives the round 1 head (#395). A round agent resumed after its
 return gets a second one on its fix head. The first one keeps the head that round 1 reviewed, so
@@ -650,8 +651,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> <name> [--desc
 Writes the commit status `workstreams/<name>`, with state `success`, on the head of the pull
 request, or on `--head` (#377, mid-round ruling 14). `<name>` is `review-1`, `review-2`,
 `rot-check` or `layer`. [`pr-state`](#pr-state) reads each one: `layer` gives its
-`layerReturned` (#396). `/workstreams:stream` writes `layer` when it reads a layer's return. The write goes through the dispatcher, because each skill that writes a status
-already may run it.
+`layerReturned` (#396). `/workstreams:stream` writes `layer` when it reads a layer's return.
+`/workstreams:start` writes it for a pull request that no layer agent builds. The write goes
+through the dispatcher, because each skill that writes a status already may run it.
 
 `--description` is 140 characters at most. For `review-1`, `substantial` says that round 1
 changed logic, and any other description is minor. `--head` takes a full 40-character sha. With

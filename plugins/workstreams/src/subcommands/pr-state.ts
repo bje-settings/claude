@@ -103,8 +103,8 @@ pull request whose rounds ran before the statuses has marker comments and
 no statuses, so its caller gives the flags. A status read that fell short
 is listed under "unavailable", and the state is null unless --round is
 given. Then the flags alone are the facts. layerReturned is then false,
-unless --round is 1 or more: a null state starts no round, and false is
-the side that waits.
+unless --round is 1 or more. With --round 0 the state is review-1, and
+the false holds round 1.
 
 A force-push, as in a restack, takes its commits out of the pull request.
 The read still reads the head it replaced, but not a commit below that
@@ -316,9 +316,9 @@ export interface PrStateReport {
    *  not read it, or could not (then `unavailable` says why). */
   readonly sinceRound1: SinceRound1 | null
   readonly rotChecked: boolean
-  /** A `workstreams/layer` status, or round 1 or more (#396, mid-round
-   *  ruling 16). False when the status read fell short and no `--round` of
-   *  1 or more was given. No state reads it. */
+  /** True from a `success` `workstreams/layer` status, or round 1 or more
+   *  (#396, mid-round ruling 16). A short status read gives false, unless
+   *  `--round` is 1 or more. No state reads it. */
   readonly layerReturned: boolean
   readonly state: LoopState | null
   /** Every reason this report is short. Empty is the only value that means
