@@ -3053,6 +3053,14 @@ describe('the layer return (#396, mid-round ruling 16)', () => {
 
       expect(report.layerReturned).toBe(true)
     })
+
+    it('is false with --round 0, where the state is review-1 from the flag alone', async () => {
+      // Here a state is named, so false is what holds round 1.
+      const report = await reportOf(['178', '--round', '0'], short([status('layer', RETURNED)]))
+
+      expect(report.state).toBe('review-1')
+      expect(report.layerReturned).toBe(false)
+    })
   })
 
   describe('the text report', () => {
