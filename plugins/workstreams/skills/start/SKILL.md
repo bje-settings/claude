@@ -2,7 +2,7 @@
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. A round is a milestone or a set of issues. With `pr <n>`, take one pull request through review to done. The one entry to the workstreams primitives.
 argument-hint: "[optional focus, in your own words]"
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage Monitor TaskStop
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(git -C * rebase *) Bash(git -C * push *) Bash(gh pr edit *) Bash(gh stack link *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage Monitor TaskStop
 ---
 
 Scope: $ARGUMENTS.

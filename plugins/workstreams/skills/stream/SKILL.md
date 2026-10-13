@@ -1,7 +1,7 @@
 ---
 name: stream
 description: Take one step of a stream. Write the next layer's brief and dispatch its agent, or read a layer's return.
-allowed-tools: Bash(gh issue view *) Bash(git worktree add *) Read Grep Glob Agent
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh pr view *) Bash(git worktree add *) Read Grep Glob Agent SendMessage
 user-invocable: false
 ---
 
