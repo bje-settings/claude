@@ -21,7 +21,13 @@ flowchart TD
     A -->|pr n| P1[That pull request is the whole round]
     P1 --> P0{its state: merged or closed?}
     P0 -->|Yes| P0a([Stop: report the state]):::stop
-    P0 -->|No| W
+    P0 -->|No| PL{layerReturned?}
+    PL -->|Yes| W
+    PL -->|No| PQ([Ask one question: mark it returned<br/>and review it now, or wait]):::pause
+    PQ -->|mark| PM{a layer status written<br/>on its head?}
+    PM -->|No| PM1([Stop: name it]):::stop
+    PM -->|Yes| W
+    PQ -->|wait: no round 1 until it is true| W
     A -->|milestone, issue numbers, or none| B[rounds: the rounds in flight<br/>that hold the scope]
     B --> B0{a fact unread?}
     B0 -->|Yes| B0a([Stop: name it]):::stop
@@ -94,7 +100,12 @@ flowchart TD
     N4 -->|No agent: a person's pull request| S4([Stop: report red CI]):::stop
     N -->|review-1 with any CI verdict,<br/>review-2, rot-check| N7{an agent at work on it,<br/>the layer agent or a round agent?}
     N7 -->|Yes| X
-    N7 -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
+    N7 -->|No| NL{review-1, and layerReturned false?}
+    NL -->|No| N6[Switch the clean worktree to the layer's branch;<br/>invoke /workstreams:review] --> X
+    NL -->|Yes, no layer agent from this conversation,<br/>and the plan names no branch for it| NLM{a layer status written<br/>on its head?}
+    NLM -->|Yes| N6
+    NLM -->|No| NLS([Stop: name it]):::stop
+    NL -->|Yes, any other case: dispatch no round| N3
     N -->|merged| NM[Report it; never a review] --> R
     N -->|closed| NC{a Mid-round ruling on the layer's issues<br/>that answers for it?}
     NC -->|No| NC1([Report it; ask once: drop the layer and those above,<br/>reopen it, or replan]):::pause
@@ -124,7 +135,9 @@ A layer's return goes to `/workstreams:stream` to read. A round agent's return g
 layer or above it. Otherwise the finding waits for the round-end report.
 
 A layer agent returns after its push and the run check, with CI still able to run. `pr-state`
-gives `review-1` while CI runs, so the tick waits only for that agent's return.
+gives `review-1` while CI runs. `/workstreams:stream` marks the return with a `layer` status,
+and round 1 starts only when `pr-state` gives `layerReturned: true` (#396). So a new
+conversation does not review a layer that its agent still builds.
 
 Only `pr-state` marks a layer done. A message from the person in chat changes no state. An
 explicit request to skip the review of a layer in `review-1` becomes a ruling comment and

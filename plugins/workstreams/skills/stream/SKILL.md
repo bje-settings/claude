@@ -56,6 +56,16 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    the heading that differs, and end the step. A second missing or mismatched read-back
    from the same layer is a stop instead: name it for the caller.
 
+   When the read-back matches, or the return claims no body edit, record the return on
+   GitHub. `<head>` is the full `head` of the return, never a later head:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> layer --head <head>
+   ```
+
+   Until this status exists, `pr-state` gives `layerReturned: false`, and no review round
+   starts. A `mark` that failed is a stop: name it for the caller, with gh's own words.
+
    Report the pull request, its head, its run, the CI state at return, and what the layer
    returned under the five fields. CI need not be green: the review can start at once.
    The caller's next action is step 2 of its tick, in `skills/start/tick.md`, never the

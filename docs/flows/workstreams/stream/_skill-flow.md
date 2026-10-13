@@ -4,7 +4,7 @@ description: What the /workstreams:stream skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-07
+  at: 2026-10-13
 ---
 
 # /workstreams:stream skill flow
@@ -23,7 +23,9 @@ flowchart TD
     S0 -->|No| S2[Send it back to the layer with SendMessage;<br/>name the heading that differs] --> S3{second missing or mismatched<br/>read-back from this layer?}
     S3 -->|Yes| S4([Stop: name it for the caller]):::stop
     S3 -->|No| X1([End the step; the layer returns again])
-    S0 -->|Yes, or no claim| S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
+    S0 -->|Yes, or no claim| SM{mark the return: a layer status<br/>on the return's own head; written?}
+    SM -->|No| SM1([Stop: name it for the caller, with gh's own words]):::stop
+    SM -->|Yes| S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
 
     R -->|No| D{worktree for the stream exists?}
     D -->|No| D1[Create it once, from the planned tip;<br/>install from the lock file there] --> E
@@ -36,3 +38,6 @@ flowchart TD
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+Until the `layer` status exists, `pr-state` gives `layerReturned: false`, and no review round
+starts (#396). The status goes on the head of the return, never on a later head.

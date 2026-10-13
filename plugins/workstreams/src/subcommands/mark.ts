@@ -14,7 +14,8 @@ import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import type { GhClient, GhError } from '../lib/gh.ts'
 import { LOOP_STATUS_PREFIX } from '../required-contexts.ts'
 
-/** The names `mark` writes. `layer` is #396's, and has no reader yet. */
+/** The names `mark` writes. `layer` is #396's: `pr-state` reads it as
+ *  `layerReturned`. */
 export const MARK_NAMES = ['review-1', 'review-2', 'rot-check', 'layer'] as const
 
 /** The longest description `mark` sends. The round 16 brief for #377 names
@@ -36,8 +37,8 @@ head of the pull request, or on --head when it is given. <name> is one of:
   rot-check  the title and body were checked against the final diff
   layer      the layer agent returned
 
-"workstreams.ts pr-state" reads review-1, review-2 and rot-check from the
-commits of the pull request. A status cannot be deleted. A later push leaves
+"workstreams.ts pr-state" reads each name from the commits of the pull
+request. layer gives its layerReturned. A status cannot be deleted. A later push leaves
 it on an older commit of the pull request, where pr-state still reads it. A
 force-push takes that commit out of the pull request. Then pr-state reads it
 only when it was the head the force-push replaced.

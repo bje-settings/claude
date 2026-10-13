@@ -34,7 +34,8 @@ flowchart TD
     E -->|no-run| F([Close and reopen the pull request, then return])
     E -->|fixing| G2([Return: name the contexts that failed; settle each<br/>mermaid preview thread no round settled; name each other<br/>bot thread for the person, and stop])
 
-    E -->|review-1, any CI verdict,<br/>or review-2| M{the plan or the caller names a review model?}
+    E -->|review-1, and layerReturned false| EL([Return: the layer agent has not returned;<br/>dispatch no round]):::stop
+    E -->|review-1 with the layer returned,<br/>any CI verdict, or review-2| M{the plan or the caller names a review model?}
     M -->|Yes| I
     M -->|No, never a question| M1[Choose one: opus for round 2, logic,<br/>or new behaviour at the top of a stream;<br/>sonnet for any other round 1] --> I
     I[Brief from the round template;<br/>round 2 adds its own rules and round 1's findings,<br/>from the return the caller passes]

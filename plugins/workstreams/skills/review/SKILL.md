@@ -95,7 +95,7 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    | `awaiting-pr` | Nothing. GitHub said this pull request number does not exist. A read gh refused for another reason gives `state: null` instead. |
    | `merged`, `closed` | Nothing. The pull request already finished. Report the state, then return. |
    | `no-run` | No workflow run for this head. `gh pr close <n> && gh pr reopen <n>`. |
-   | `review-1`, `review-2` | Step 3. CI can still run, or be red, at `review-1`: the round reads it. |
+   | `review-1`, `review-2` | Step 3. CI can still run, or be red, at `review-1`: the round reads it. At `review-1` with `layerReturned: false`, the layer agent has not returned: dispatch no round. Report it, then return. |
    | `fixing` | CI is not green, or a review thread is unresolved, from a person or a bot (`botThreads`, review bots such as Copilot included). Name the contexts that failed. A bot thread that no round settled, such as one a push opened after the round, is yours: read the threads with the query of [round-brief.md](round-brief.md) step 5. Settle each mermaid preview thread by its rule there, with the two calls of step 0. No round can run while this state holds. So name each other bot thread with its id, for the person, and stop. |
    | `rot-check` | Step 4. |
    | `done` | Step 5. |

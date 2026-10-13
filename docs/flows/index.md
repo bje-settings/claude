@@ -31,5 +31,6 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [workstreams/start/rounds-flow.md](workstreams/start/rounds-flow.md) | How `workstreams.ts rounds` finds the rounds in flight from their plan comments, scopes them, and when its answer is short. |
 | [workstreams/start/watch-flow.md](workstreams/start/watch-flow.md) | How `workstreams.ts watch` polls each open pull request and writes one line for each event, and each way it stops or goes quiet. |
 | [workstreams/stream/_skill-flow.md](workstreams/stream/_skill-flow.md) | What the /workstreams:stream skill does in one step, and every way it declines to act. |
+| [workstreams/stream/mark-flow.md](workstreams/stream/mark-flow.md) | How `workstreams.ts mark` checks its arguments, finds the head, and writes one `workstreams/<name>` commit status, and each way it stops. |
 | [workstreams/sweep/_skill-flow.md](workstreams/sweep/_skill-flow.md) | What the /workstreams:sweep skill does, and every way it declines to act. |
 | [workstreams/sweep/sweep-flow.md](workstreams/sweep/sweep-flow.md) | How `workstreams.ts sweep` reads the tracker, puts each open issue in a tier, and when its report is short or empty. |
