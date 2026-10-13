@@ -3312,6 +3312,21 @@ describe('the review statuses', () => {
       expect(result.unavailable).toBeNull()
     })
 
+    it('counts an unreadable commit that is both a replaced head and a commit once', async () => {
+      const short = [status({ createdAt: null })]
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, short)], false, undefined, [pushed(commit(SHA, short))]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toEqual([])
+      expect(result.unavailable).toBe(
+        'the statuses of 1 commit(s) of pull request 178 could not be read',
+      )
+    })
+
     it('counts a replaced head that GitHub no longer gives as unreadable', async () => {
       const { gh } = clientAnsweringEach([
         REPO,
