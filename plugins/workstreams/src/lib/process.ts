@@ -402,10 +402,17 @@ export interface FlushableStream {
   write(text: string, done: () => void): boolean
 }
 
+/** Whether `resources`, the names `process.getActiveResourcesInfo()`
+ *  gives, hold a filesystem request that has not answered. node names one
+ *  `FSReqPromise` or `FSReqCallback` (measured on node 24). */
+export const readPending = (resources: readonly string[]): boolean =>
+  resources.some((name) => name.startsWith('FSReq'))
+
 /**
- * Once each of `streams` has flushed, give this process `graceMs` to end
- * by itself. If something still holds it then, call `end`. A hook entry
- * passes a `SIGKILL` of itself as `end`.
+ * Once each of `streams` has flushed, wait `graceMs`. If a filesystem
+ * request still holds this process then, call `end`. A hook entry passes a
+ * `SIGKILL` of itself as `end`, and `process.getActiveResourcesInfo` as
+ * `resources`.
  *
  * A read that hangs on a slow filesystem holds a worker thread. node waits
  * for that thread on every exit path, `process.exit` too (measured on node
@@ -415,19 +422,25 @@ export interface FlushableStream {
  * output must leave first, and then the process must end. `hooks.json`'s
  * `; exit 0` turns the signal into exit 0 (#267).
  *
- * The timer does not hold the process. A process that nothing holds ends
- * before the timer fires, and `end` never runs.
+ * Only a pending read is a reason. A child that the deadline killed can
+ * take longer than `graceMs` to close, and it ends by itself (the gh hook's
+ * hung fetch test on Linux CI, run 38409820735). The timer does not hold
+ * the process either: a process that nothing holds ends before it fires.
  */
 export const endOnceWritten = (
   streams: readonly FlushableStream[],
   graceMs: number,
   end: () => void,
+  resources: () => readonly string[],
 ): void => {
   let waiting = streams.length
   for (const stream of streams) {
     stream.write('', () => {
       waiting -= 1
-      if (waiting === 0) setTimeout(end, graceMs).unref()
+      if (waiting > 0) return
+      setTimeout(() => {
+        if (readPending(resources())) end()
+      }, graceMs).unref()
     })
   }
 }

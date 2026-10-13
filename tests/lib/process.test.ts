@@ -30,7 +30,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createSandbox } from '#harness/sandbox.ts'
-import { endOnceWritten, killGroup, run } from '#lib/process.ts'
+import { endOnceWritten, killGroup, readPending, run } from '#lib/process.ts'
 
 const HARNESS_FIXTURES = `${import.meta.dirname}/../harness/fixtures`
 const FIXTURES = `${import.meta.dirname}/fixtures`
@@ -327,13 +327,27 @@ it('reports a bounded command that is not there as a start failure, not as a tim
 
 // --- endOnceWritten: a hook that a hung read still holds (#267) -------------
 
-it('ends a process that something still holds, once its output has left', async () => {
-  const result = await node(`${FIXTURES}/end-once-written.ts`, ['50', 'held'], {
+it('ends a process that a read still holds, once its output has left', async () => {
+  const sandbox = createSandbox()
+  const fifo = sandbox.join('fifo')
+  execFileSync('mkfifo', [fifo])
+
+  const result = await node(`${FIXTURES}/end-once-written.ts`, ['50', 'read', fifo], {
     timeoutMs: GENEROUS_MS,
   })
 
   expect(result.stdout).toBe('written\nended\n')
-  expect(result.status).toBe(3)
+  expect(result.signal).toBe('SIGKILL')
+  expect(result.timedOut).toBe(false)
+})
+
+it('leaves a process that only a timer holds to end by itself', async () => {
+  const result = await node(`${FIXTURES}/end-once-written.ts`, ['50', 'timer'], {
+    timeoutMs: GENEROUS_MS,
+  })
+
+  expect(result.stdout).toBe('written\n')
+  expect(result.status).toBe(0)
 })
 
 it('leaves a process that nothing holds to end by itself, with no wait for the grace', async () => {
@@ -346,7 +360,7 @@ it('leaves a process that nothing holds to end by itself, with no wait for the g
   expect(result.timedOut).toBe(false)
 })
 
-it('does not end the process until every stream has called back', async () => {
+it('waits for every stream, then ends only for a pending filesystem request', async () => {
   const ended: string[] = []
   const flushed = {
     write: (_text: string, done: () => void) => {
@@ -355,10 +369,24 @@ it('does not end the process until every stream has called back', async () => {
     },
   }
   const stuck = { write: () => true }
+  const reading = () => ['PipeWrap', 'FSReqPromise']
 
-  endOnceWritten([flushed, stuck], 0, () => ended.push('stuck'))
-  endOnceWritten([flushed, flushed], 0, () => ended.push('flushed'))
+  endOnceWritten([flushed, stuck], 0, () => ended.push('stuck'), reading)
+  endOnceWritten([flushed, flushed], 0, () => ended.push('reading'), reading)
+  endOnceWritten(
+    [flushed, flushed],
+    0,
+    () => ended.push('closing'),
+    () => ['ProcessWrap'],
+  )
   await new Promise((resolve) => setTimeout(resolve, 50))
 
-  expect(ended).toEqual(['flushed'])
+  expect(ended).toEqual(['reading'])
+})
+
+it('reads FSReqPromise and FSReqCallback as a pending read, and nothing else', () => {
+  expect(readPending(['FSReqPromise'])).toBe(true)
+  expect(readPending(['Timeout', 'FSReqCallback'])).toBe(true)
+  expect(readPending(['PipeWrap', 'ProcessWrap', 'Timeout'])).toBe(false)
+  expect(readPending([])).toBe(false)
 })

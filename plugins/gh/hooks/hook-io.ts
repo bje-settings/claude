@@ -21,7 +21,7 @@
 // **A read that hangs cannot hold this process (#267).** The command
 // answers by its deadline, but a hung read still holds a worker thread,
 // and node waits for that thread on every exit path. So once the output
-// has left, `endOnceWritten` ends a process that is still held, with
+// has left, `endOnceWritten` ends a process that a read still holds, with
 // `SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0 too.
 //
 // **Below the floor, this writes one line and exits 0 (#245).** A
@@ -59,8 +59,11 @@ if (meetsNodeFloor(process.version)) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
     process.exitCode = 0
   }
-  endOnceWritten([process.stdout, process.stderr], END_GRACE_MS, () =>
-    process.kill(process.pid, 'SIGKILL'),
+  endOnceWritten(
+    [process.stdout, process.stderr],
+    END_GRACE_MS,
+    () => process.kill(process.pid, 'SIGKILL'),
+    () => process.getActiveResourcesInfo(),
   )
 } else {
   // A closed reader makes this write fail asynchronously, as an `error`
