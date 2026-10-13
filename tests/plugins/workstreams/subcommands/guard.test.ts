@@ -13,9 +13,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { createGitFixtures, type GitFixtures } from '#harness/git.ts'
+import { captureOutput } from '#harness/output.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
 import { gitOut } from '#workstreams/lib/git.ts'
-import type { Output, Writer } from '#workstreams/lib/streams.ts'
 import {
   decide,
   denial,
@@ -32,38 +32,6 @@ import {
   type Verdict,
   vitestTarget,
 } from '#workstreams/subcommands/guard.ts'
-
-const collector = (): Writer & { text: () => string } => {
-  const chunks: string[] = []
-  let silenced = false
-  return {
-    write: (text: string) => {
-      chunks.push(text)
-    },
-    silence: () => {
-      silenced = true
-    },
-    get silenced() {
-      return silenced
-    },
-    text: () => chunks.join(''),
-  }
-}
-
-const createOutputPair = (): Output & { stdout: () => string; stderr: () => string } => {
-  const out = collector()
-  const err = collector()
-  return {
-    out,
-    err,
-    silence: () => {
-      out.silence()
-      err.silence()
-    },
-    stdout: out.text,
-    stderr: err.text,
-  }
-}
 
 /** The real reader, with the sandbox's environment so that a developer's own
  *  git configuration cannot change what a fixture is. */
@@ -610,7 +578,7 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
 
 describe('the main thread and the tools this never reads', () => {
   it('allows a main-thread call in silence, whatever it asks for', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(
       call({ agentId: null, agentType: null, background: true, command: 'git restore .' }),
@@ -627,7 +595,7 @@ describe('the main thread and the tools this never reads', () => {
   })
 
   it('reads a PowerShell call, which is the only shell Windows may register', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ toolName: 'PowerShell', background: true }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -640,7 +608,7 @@ describe('the main thread and the tools this never reads', () => {
 
   for (const toolName of ['Read', null]) {
     it(`allows a ${toolName ?? 'nameless'} tool call without reading a command`, async () => {
-      const output = createOutputPair()
+      const output = captureOutput()
 
       const verdict = await decide(call({ toolName, background: true }), {
         git: () => Promise.reject(new Error('git must not be asked')),
@@ -653,7 +621,7 @@ describe('the main thread and the tools this never reads', () => {
   }
 
   it('allows a shell call carrying no command at all', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -667,7 +635,7 @@ describe('the main thread and the tools this never reads', () => {
 
 describe('run_in_background', () => {
   it('refuses it for a subagent, naming the agent and the remedy', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ background: true, command: 'pnpm test' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -686,7 +654,7 @@ describe('run_in_background', () => {
   })
 
   it('names a subagent whose type the payload did not carry', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ agentType: null, background: true }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -698,7 +666,7 @@ describe('run_in_background', () => {
   })
 
   it('is asked before the command is read, so a background call with no command is still refused', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ background: true, command: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -710,7 +678,7 @@ describe('run_in_background', () => {
   })
 
   it('allows a foreground command a subagent asked for', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm exec vitest run' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -738,7 +706,7 @@ describe('a second vitest suite', () => {
     'pnpm run test',
   ]) {
     it(`refuses ${JSON.stringify(command)} while one already runs in the same worktree`, async () => {
-      const output = createOutputPair()
+      const output = captureOutput()
 
       const verdict = await decide(call({ command, cwd: '/w' }), {
         git: () => Promise.reject(new Error('git must not be asked')),
@@ -756,7 +724,7 @@ describe('a second vitest suite', () => {
   }
 
   it('allows the main thread, whatever else runs, and never asks for the process list', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(
       call({ agentId: null, agentType: null, command: 'pnpm test', cwd: '/w' }),
@@ -771,7 +739,7 @@ describe('a second vitest suite', () => {
   })
 
   it('allows it when the other vitest runs in a different worktree', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -784,7 +752,7 @@ describe('a second vitest suite', () => {
   })
 
   it('allows an ordinary command, and never asks for the process list at all', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm build', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -796,7 +764,7 @@ describe('a second vitest suite', () => {
   })
 
   it('allows, with a line on stderr, when the payload names no cwd at all', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test', cwd: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -809,7 +777,7 @@ describe('a second vitest suite', () => {
   })
 
   it('allows, with a line on stderr, when the process list could not be read', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -822,7 +790,7 @@ describe('a second vitest suite', () => {
   })
 
   it('allows it past a process whose own cwd the guard could not read', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -835,7 +803,7 @@ describe('a second vitest suite', () => {
   })
 
   it('matches the second entry of several, when only it names the same worktree', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -851,7 +819,7 @@ describe('a second vitest suite', () => {
   })
 
   it('refuses a pnpm -C <dir> run against the directory it names, not the call’s own cwd', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm -C /w test', cwd: '/root' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -865,7 +833,7 @@ describe('a second vitest suite', () => {
   })
 
   it('allows a pnpm -C <dir> run when only a different directory has one running', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm -C /w test', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -877,7 +845,7 @@ describe('a second vitest suite', () => {
   })
 
   it('matches a directory that differs from the process cwd only by a trailing slash', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test', cwd: '/w/' }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -895,7 +863,7 @@ describe('a second vitest suite', () => {
         const verdict = await decide(call({ command, cwd: '/root' }), {
           git: () => Promise.reject(new Error('git must not be asked')),
           processes: running([{ pid: 4242, cwd: '/a b' }]),
-          output: createOutputPair(),
+          output: captureOutput(),
         })
 
         expect(verdict.decision).toBe('deny')
@@ -904,7 +872,7 @@ describe('a second vitest suite', () => {
     }
 
     it('reports an unclosed quote on stderr, and allows', async () => {
-      const output = createOutputPair()
+      const output = captureOutput()
 
       const verdict = await decide(call({ command: 'pnpm -C "/a b test', cwd: '/root' }), {
         git: () => Promise.reject(new Error('git must not be asked')),
@@ -920,7 +888,7 @@ describe('a second vitest suite', () => {
   describe('a pnpm -C directory, resolved before it is compared', () => {
     const idle = (): Pick<Parameters<typeof decide>[1], 'git' | 'output'> => ({
       git: () => Promise.reject(new Error('git must not be asked')),
-      output: createOutputPair(),
+      output: captureOutput(),
     })
     const toReal = (path: string): Promise<string> =>
       Promise.resolve(path.replace('/link', '/real'))
@@ -989,7 +957,7 @@ describe('a second vitest suite', () => {
     })
 
     it('allows, with a line on stderr, a relative -C when the payload has no cwd', async () => {
-      const output = createOutputPair()
+      const output = captureOutput()
       const verdict = await decide(call({ command: 'pnpm -C sub test', cwd: null }), {
         git: () => Promise.reject(new Error('git must not be asked')),
         output,
@@ -1002,7 +970,7 @@ describe('a second vitest suite', () => {
     })
 
     it('allows, with a line on stderr, a relative -C when the payload cwd is empty', async () => {
-      const output = createOutputPair()
+      const output = captureOutput()
       const verdict = await decide(call({ command: 'pnpm -C sub test', cwd: '' }), {
         git: () => Promise.reject(new Error('git must not be asked')),
         output,
@@ -1023,7 +991,7 @@ describe('a second vitest suite', () => {
     })
 
     it('passes resolve through runGuard', async () => {
-      const output = createOutputPair()
+      const output = captureOutput()
       const stdin = JSON.stringify({
         agent_id: 'a',
         tool_name: 'Bash',
@@ -1048,7 +1016,7 @@ describe('a second vitest suite', () => {
   // says the second-suite check runs first; the `git` reader here throws
   // if it is ever asked, so this fails unless that ordering holds.
   it('denies a compound vitest-and-destructive-git command on the vitest rule first', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'pnpm test && git restore .', cwd: '/w' }), {
       git: () => Promise.reject(new Error('git must not be asked: the vitest check decides first')),
@@ -1067,7 +1035,7 @@ describe('a second vitest suite after a leading cd (#397)', () => {
     command: string,
     cwd: string | null,
     processes: readonly { pid: number; cwd: string | null }[],
-    output = createOutputPair(),
+    output = captureOutput(),
   ): Promise<Verdict> =>
     decide(call({ command, cwd }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -1148,7 +1116,7 @@ describe('a second vitest suite after a leading cd (#397)', () => {
   })
 
   it('allows, with a line on stderr, a relative cd when the payload has no cwd', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await refuse('cd sub && pnpm test', null, [{ pid: 4242, cwd: '/sub' }], output)
 
@@ -1163,7 +1131,7 @@ describe('a second vitest suite after a leading cd (#397)', () => {
   })
 
   it('reports a stray quote in the cd directory on stderr, and allows', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await refuse(
       `cd /a/"b c" && pnpm test`,
@@ -1183,7 +1151,7 @@ describe('git checkout and git restore, against real repositories', () => {
     const git = createGitFixtures(sandbox)
     const work = git.create(sandbox.join('r'))
     git.dirty(work)
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'git checkout -- .', cwd: work }), {
       git: readerFor(sandbox),
@@ -1206,7 +1174,7 @@ describe('git checkout and git restore, against real repositories', () => {
     trackSecondFile(git, work)
     git.dirty(work)
     git.dirty(work, 'two.txt')
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'git restore .', cwd: work }), {
       git: readerFor(sandbox),
@@ -1230,7 +1198,7 @@ describe('git checkout and git restore, against real repositories', () => {
       const git = createGitFixtures(sandbox)
       const work = git.create(sandbox.join('r'))
       git.dirty(work)
-      const output = createOutputPair()
+      const output = captureOutput()
 
       const verdict = await decide(call({ command, cwd: work }), {
         git: readerFor(sandbox),
@@ -1277,7 +1245,7 @@ describe('git checkout and git restore, against real repositories', () => {
       const work = git.create(sandbox.join('r'))
       trackSecondFile(git, work)
       git.dirty(work)
-      const output = createOutputPair()
+      const output = captureOutput()
 
       const verdict = await decide(call({ command, cwd: work }), {
         git: readerFor(sandbox),
@@ -1307,7 +1275,7 @@ describe('git checkout and git restore, against real repositories', () => {
       const git = createGitFixtures(sandbox)
       const work = git.create(sandbox.join('r'))
       git.dirty(work)
-      const output = createOutputPair()
+      const output = captureOutput()
 
       const verdict = await decide(call({ command, cwd: work }), {
         git: readerFor(sandbox),
@@ -1330,7 +1298,7 @@ describe('git checkout and git restore, against real repositories', () => {
     const dirty = git.createAt(sandbox.join('trees'), 'dirty')
     const clean = git.createAt(sandbox.join('trees'), 'clean')
     git.dirty(dirty)
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const denied = await decide(
       call({ command: `git -C ${dirty} checkout file.txt`, cwd: clean }),
@@ -1358,7 +1326,7 @@ describe('git checkout and git restore, against real repositories', () => {
     const sandbox = createSandbox()
     const git = createGitFixtures(sandbox)
     const work = git.create(sandbox.join('r'))
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'git restore .', cwd: work }), {
       git: readerFor(sandbox),
@@ -1375,7 +1343,7 @@ describe('git checkout and git restore, against real repositories', () => {
     const git = createGitFixtures(sandbox)
     const work = git.create(sandbox.join('r'))
     git.untracked(work)
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'git checkout -- .', cwd: work }), {
       git: readerFor(sandbox),
@@ -1387,7 +1355,7 @@ describe('git checkout and git restore, against real repositories', () => {
   })
 
   it('would not count an ignored file either, if the probe ever asked for one', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     // A porcelain real git does not produce here: `!!` lines appear only under
     // `--ignored`, which `decide` never passes. The reader is injected so the
@@ -1408,7 +1376,7 @@ describe('git checkout and git restore, against real repositories', () => {
     const dirty = git.createAt(sandbox.join('trees'), 'dirty')
     const clean = git.createAt(sandbox.join('trees'), 'clean')
     git.dirty(dirty)
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const denied = await decide(call({ command: `git -C ${dirty} restore .`, cwd: clean }), {
       git: readerFor(sandbox),
@@ -1427,7 +1395,7 @@ describe('git checkout and git restore, against real repositories', () => {
 
   it('allows, with a line on stderr, where git cannot report the tree at all', async () => {
     const sandbox = createSandbox()
-    const output = createOutputPair()
+    const output = captureOutput()
     const outside = sandbox.join('not-a-repository')
     mkdirSync(outside, { recursive: true })
 
@@ -1445,7 +1413,7 @@ describe('git checkout and git restore, against real repositories', () => {
   })
 
   it('allows, with a line on stderr, when the payload names no tree at all', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await decide(call({ command: 'git restore .', cwd: null }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -1470,7 +1438,7 @@ describe('what the hook writes', () => {
   })
 
   it('writes the denial to stdout and exits 0', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const status = await runGuard({
       stdin: () =>
@@ -1497,7 +1465,7 @@ describe('what the hook writes', () => {
   })
 
   it('writes nothing at all on an allow, so the permission rules still decide', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const status = await runGuard({
       stdin: () => Promise.resolve(JSON.stringify({ tool_name: 'Bash', tool_input: {} })),
@@ -1512,7 +1480,7 @@ describe('what the hook writes', () => {
   })
 
   it('says what it could not read, allows, and still exits 0', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const status = await runGuard({
       stdin: () => Promise.resolve(''),
@@ -1531,7 +1499,7 @@ describe('what the hook writes', () => {
     const git = createGitFixtures(sandbox)
     const work = git.create(sandbox.join('r'))
     git.dirty(work)
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const status = await runGuard({
       stdin: () =>

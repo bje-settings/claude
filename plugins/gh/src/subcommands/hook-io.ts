@@ -22,10 +22,9 @@
 // so nothing here can stop a session. `status [dir]` writes the bare line,
 // for a person who debugs the hook by hand. Anything else writes the usage
 // line to stderr and exits 2. `hooks.json`'s `; exit 0` absorbs that status.
-import { accessSync, constants, statSync } from 'node:fs'
-import path from 'node:path'
+import { statSync } from 'node:fs'
 import { discoverRepos } from '../discover.ts'
-import { absentDependencies, type Dependency } from '../lib/dependencies.ts'
+import { absentDependencies, type Dependency, which } from '../lib/dependencies.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
 import { emit as libEmit } from '../lib/hook-output.ts'
@@ -260,31 +259,6 @@ const isDirectory = (target: string): boolean => {
   } catch {
     return false
   }
-}
-
-/**
- * The path of `tool` on `env.PATH`, or `null`. This is a PATH walk, not a
- * run, so a `git` that is not executable is not on PATH.
- *
- * A directory is not a match. The executable bit on a directory is its
- * traverse bit, so a PATH entry that holds a directory named `git` would
- * otherwise pass. An empty PATH is no PATH at all. Without that check, the
- * empty string splits into one empty entry, which resolves against the
- * process's own directory.
- */
-export const which = (tool: string, env: NodeJS.ProcessEnv): string | null => {
-  const listed = env.PATH ?? ''
-  if (listed === '') return null
-  for (const directory of listed.split(path.delimiter)) {
-    const candidate = path.join(directory, tool)
-    try {
-      accessSync(candidate, constants.X_OK)
-      if (!statSync(candidate).isDirectory()) return candidate
-    } catch {
-      // Not here, or not executable. Check the next directory.
-    }
-  }
-  return null
 }
 
 /** Everything the hook reads that is not a file and not git. */

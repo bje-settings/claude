@@ -7,10 +7,10 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-
+import { captureOutput } from '#harness/output.ts'
+import { runResult, tableRunner } from '#harness/runner.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
 import type { Runner, RunResult } from '#workstreams/lib/process.ts'
-import type { Output, Writer } from '#workstreams/lib/streams.ts'
 import {
   DEADLINE_MS,
   installPathsFor,
@@ -18,71 +18,6 @@ import {
   registryPath,
   runSessionStart,
 } from '#workstreams/subcommands/session-start.ts'
-
-const collector = (): Writer & { text: () => string } => {
-  const chunks: string[] = []
-  let silenced = false
-  return {
-    write: (text: string) => {
-      chunks.push(text)
-    },
-    silence: () => {
-      silenced = true
-    },
-    get silenced() {
-      return silenced
-    },
-    text: () => chunks.join(''),
-  }
-}
-
-const createOutputPair = (): Output & { stdout: () => string; stderr: () => string } => {
-  const out = collector()
-  const err = collector()
-  return {
-    out,
-    err,
-    silence: () => {
-      out.silence()
-      err.silence()
-    },
-    stdout: out.text,
-    stderr: err.text,
-  }
-}
-
-/** What a child that ran and said this would report. */
-const result = (reply: Partial<RunResult> = {}): RunResult => ({
-  status: 0,
-  signal: null,
-  stdout: '',
-  stderr: '',
-  combined: '',
-  timedOut: false,
-  elapsedMs: 0,
-  startFailure: null,
-  streamErrors: [],
-  ...reply,
-})
-
-/** A runner that answers each command from a table keyed by
- *  `<command> <args>`, and records the options it was asked with. A call
- *  with no entry answers as a child that succeeded and said nothing. */
-const runnerFor = (
-  table: Record<string, Partial<RunResult>>,
-  asked: { key: string; options: unknown }[] = [],
-): Runner & { asked: { key: string; options: unknown }[] } => {
-  const runner = async (
-    command: string,
-    args: readonly string[] = [],
-    options: unknown = {},
-  ): Promise<RunResult> => {
-    const key = `${command} ${args.join(' ')}`.trim()
-    asked.push({ key, options })
-    return result(table[key] ?? {})
-  }
-  return Object.assign(runner, { asked })
-}
 
 /** A sandbox with a registry file written into the `HOME` inside it. */
 const withRegistry = (sandbox: Sandbox, contents: string): NodeJS.ProcessEnv => {
@@ -143,8 +78,8 @@ const run = async (
   table: Record<string, Partial<RunResult>> = HEALTHY,
   procPresent = true,
 ): Promise<{ status: number; stdout: string; raw: string; stderr: string; asked: string[] }> => {
-  const output = createOutputPair()
-  const runner = runnerFor(table)
+  const output = captureOutput()
+  const runner = tableRunner(table)
   const status = await runSessionStart({
     env,
     output,
@@ -443,13 +378,13 @@ describe('the deadline', () => {
   it('passes the given deadline through to every child it may start', async () => {
     const { env } = healthySandbox()
     const asked: { key: string; options: { timeoutMs?: number } }[] = []
-    const output = createOutputPair()
+    const output = captureOutput()
     const runner: Runner = async (command, args = [], options = {}) => {
       asked.push({
         key: `${command} ${args.join(' ')}`.trim(),
         options: options as { timeoutMs?: number },
       })
-      return result(HEALTHY[`${command} ${args.join(' ')}`.trim()] ?? {})
+      return runResult(HEALTHY[`${command} ${args.join(' ')}`.trim()] ?? {})
     }
 
     await runSessionStart({ env, output, run: runner, deadlineMs: 1_234, procPresent: true })
@@ -466,8 +401,8 @@ describe('the deadline', () => {
     // checks.
     const { sandbox, env } = healthySandbox()
     chmodSync(registryPath(env), 0o000)
-    const output = createOutputPair()
-    const runner = runnerFor({
+    const output = captureOutput()
+    const runner = tableRunner({
       ...HEALTHY,
       'claude plugin list --json': {
         stdout: JSON.stringify([
@@ -491,7 +426,7 @@ describe('concurrency', () => {
     // to sequential `await`s inside `Promise.all` would fail the overlap
     // check below, whatever the machine's own speed.
     const { env } = healthySandbox()
-    const output = createOutputPair()
+    const output = captureOutput()
     const DELAY_MS = 150
     const windows: { key: string; start: number; end: number }[] = []
     const runner: Runner = async (command, args = []) => {
@@ -499,7 +434,7 @@ describe('concurrency', () => {
       const start = Date.now()
       await new Promise((resolve) => setTimeout(resolve, DELAY_MS))
       windows.push({ key, start, end: Date.now() })
-      return result(HEALTHY[key] ?? {})
+      return runResult(HEALTHY[key] ?? {})
     }
 
     await runSessionStart({ env, output, run: runner, deadlineMs: DEADLINE_MS, procPresent: true })
@@ -647,6 +582,53 @@ describe('gh on a PATH entry that is a directory named gh', () => {
     const ran = await run(env)
 
     expect(ran.stdout).toContain('workstreams: ⚠️ the GitHub CLI (gh) is absent')
+  })
+})
+
+describe('gh on PATH: the walk past entries that do not count', () => {
+  const ABSENT = 'workstreams: ⚠️ the GitHub CLI (gh) is absent'
+  const stubbed = (sandbox: Sandbox, name: string, mode: number): string => {
+    const dir = sandbox.join(name)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\nexit 0\n', { mode })
+    return dir
+  }
+
+  it('reads a file that is not executable as absent', async () => {
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    env.PATH = stubbed(sandbox, 'plain', 0o644)
+
+    expect((await run(env)).stdout).toContain(ABSENT)
+  })
+
+  it('walks past a directory and a plain file to a later executable', async () => {
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    mkdirSync(sandbox.join('dir', 'gh'), { recursive: true })
+    const listed = [
+      sandbox.join('dir'),
+      stubbed(sandbox, 'plain', 0o644),
+      stubbed(sandbox, 'real', 0o755),
+      sandbox.join('nowhere'),
+    ]
+    env.PATH = listed.join(path.delimiter)
+
+    expect((await run(env)).stdout).not.toContain(ABSENT)
+  })
+
+  it('reads an empty PATH entry as the cwd', async () => {
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    const bin = stubbed(sandbox, 'cwd', 0o755)
+    env.PATH = `${path.delimiter}${sandbox.join('nowhere')}`
+    const before = process.cwd()
+    process.chdir(bin)
+    try {
+      expect((await run(env)).stdout).not.toContain(ABSENT)
+    } finally {
+      process.chdir(before)
+    }
   })
 })
 

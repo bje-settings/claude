@@ -12,9 +12,9 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import type { Output, Writer } from '#gh/lib/streams.ts'
 import { HELP, runDiscover } from '#gh/subcommands/discover.ts'
 import { createGitFixtures } from '#harness/git.ts'
+import { captureOutput } from '#harness/output.ts'
 import { pluginFile } from '#harness/paths.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
@@ -46,38 +46,6 @@ const divergences = JSON.parse(
   readFileSync(path.join(FIXTURES, 'divergences-discover.json'), 'utf8'),
 ) as Divergences
 
-const collector = (): Writer & { text: () => string } => {
-  const chunks: string[] = []
-  let silenced = false
-  return {
-    write: (text: string) => {
-      chunks.push(text)
-    },
-    silence: () => {
-      silenced = true
-    },
-    get silenced() {
-      return silenced
-    },
-    text: () => chunks.join(''),
-  }
-}
-
-const createOutputPair = (): Output & { stdout: () => string; stderr: () => string } => {
-  const out = collector()
-  const err = collector()
-  return {
-    out,
-    err,
-    silence: () => {
-      out.silence()
-      err.silence()
-    },
-    stdout: out.text,
-    stderr: err.text,
-  }
-}
-
 /** The capture replaced the sandbox path it ran in with `<sandbox>`, in both
  *  its logical and its resolved spelling. Discovery answers with the path
  *  git reports. On macOS, the temp directory sits behind a `/private`
@@ -96,7 +64,7 @@ const runIn = async (
   argv: readonly string[],
   cwd = sandbox.path,
 ): Promise<Ran> => {
-  const output = createOutputPair()
+  const output = captureOutput()
   const status = await runDiscover(argv, { cwd, env: sandbox.env, output })
   return {
     status,
@@ -203,7 +171,7 @@ it('reports missing git rather than an answer with nothing in it, and exits 1', 
   const git = createGitFixtures(sandbox)
   const work = git.create(sandbox.join('r'))
   const withoutGit = { ...sandbox.env, PATH: sandbox.pathWithout('git') }
-  const output = createOutputPair()
+  const output = captureOutput()
 
   const status = await runDiscover([work], { cwd: sandbox.path, env: withoutGit, output })
 

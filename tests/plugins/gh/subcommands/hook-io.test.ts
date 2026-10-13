@@ -6,8 +6,7 @@
 // The #230 acceptance test is the table at the end. For every state it
 // builds, `systemMessage` holds at most one status line, then one problem
 // line for each kind of failure, and there is no `additionalContext`.
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import { mkdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import {
   DEADLINE_MS,
@@ -16,7 +15,6 @@ import {
   payloadCwd,
   scrubRepositoryEnv,
   USAGE,
-  which,
 } from '#gh/subcommands/hook-io.ts'
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
 import {
@@ -208,37 +206,6 @@ it('reads a count only where git answered with one', () => {
   expect(parseCount('-1')).toBeNull()
   expect(parseCount('two')).toBeNull()
   expect(parseCount('1 2')).toBeNull()
-})
-
-it('finds a tool on PATH, and refuses a directory named after one', () => {
-  const rig = createRig()
-  const bin = rig.sandbox.join('bin')
-  mkdirSync(path.join(bin, 'git'), { recursive: true })
-
-  // A directory has the traverse bit, which passes an executable check.
-  expect(which('git', { PATH: bin })).toBeNull()
-  expect(which('git', {})).toBeNull()
-  expect(which('git', rig.sandbox.env)).not.toBeNull()
-})
-
-it('reads a PATH set to nothing as no PATH, and an empty entry as the cwd', () => {
-  const rig = createRig()
-  const bin = rig.sandbox.join('bin')
-  mkdirSync(bin, { recursive: true })
-  const tool = path.join(bin, 'git')
-  writeFileSync(tool, '#!/bin/sh\nexit 0\n')
-  chmodSync(tool, 0o755)
-  // An empty PATH entry resolves against the process's own directory. The
-  // change and the restore are in one synchronous block, so no other test
-  // in this file runs between them.
-  const before = process.cwd()
-  process.chdir(bin)
-  try {
-    expect(which('git', { PATH: '' })).toBeNull()
-    expect(which('git', { PATH: `${path.delimiter}${rig.sandbox.join('nowhere')}` })).toBe('git')
-  } finally {
-    process.chdir(before)
-  }
 })
 
 it('removes only the variables that displace the repository a call names', () => {

@@ -17,6 +17,8 @@ than node built-ins. It uses `vitest` only for one cleanup hook.
 | `git.ts` | Real repositories with real (local, bare) origins, in the states the commands must handle. `importTree` commits a fixture directory into one repository. |
 | `packages.ts` | A real pnpm project inside one of those repositories, and the three ways origin can move its lock file. |
 | `spawn.ts` | One `scripts/` or `hooks/` entry point, run as its own process. `runScript` gives argv in, and status and streams out. `startScript` starts the process with its pipes open, so a test can take the reader. |
+| `output.ts` | `captureOutput` gives an `Output` over the real `createOutput`. `stdout()` and `stderr()` give the text that each stream got. |
+| `runner.ts` | `runResult` makes a `RunResult` for a child that did nothing wrong. `tableRunner` makes a `Runner` that answers from a table and records each call. |
 | `paths.ts` | `ROOT` and `pluginFile`: the path to a plugin's script or hook, for a test that runs it as a process. |
 
 Each module's claims are asserted in `tests/harness/<module>.test.ts`. The tiny programs that
@@ -368,6 +370,18 @@ is still real. A test reaches everything else by calling the command function wi
 clients. The child runs under `process.execPath`. So a run on the 22.18 floor leg genuinely tests
 22.18. A child that could not start at all throws an error. It does not hand back a result full of
 empty strings.
+
+## The output capture and the table runner
+
+```ts
+const output = captureOutput() // pass it as the command's `output`
+output.stdout() // text written to stdout
+const run = tableRunner({ 'gh auth token': { stdout: 'token\n' } })
+run.asked // [{ key: 'gh auth token', options }, ...]
+```
+
+Use these for a command function that a test runs in process. A call that the table does not name
+answers as a child that exited 0 and wrote nothing. `runResult(reply)` makes one such answer.
 
 ## Running
 
