@@ -108,12 +108,12 @@ would otherwise cover.
 
 - `vitest`, `vitest-floor`, `types`, `biome`, and `eslint` in `ci.yml`, plus `plugin-validate` in
   its own workflow, are required checks on the default branch. The ruleset matches each name
-  exactly.
+  exactly. Each `ci.yml` check is a leg of one matrix job, named by its `check` value.
 - If you rename one, it silently blocks every pull request forever, because the required check
   never reports again. Put descriptive text in step names instead.
-- If you add or remove a required job, update the branch ruleset in the same pull request. Add
-  the new job only after it has reported on `main` once. Remove a job before the pull request
-  that drops it merges.
+- If you add or remove a required check, update the branch ruleset in the same pull request. Add
+  the new check only after it has reported on `main` once. Remove a check before the pull
+  request that drops it merges.
 - Manifest validation is its own workflow, `.github/workflows/plugin-validate.yml`. A bad
   manifest then reads as its own check, not as a failure inside `ci.yml`. It runs `claude plugin
   validate --strict` over the marketplace manifest and every directory under `plugins/`, on a
