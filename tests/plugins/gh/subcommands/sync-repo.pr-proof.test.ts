@@ -181,6 +181,34 @@ describe('a stacked pull request', () => {
     expect(f.git.sha(f.repo, 'bare')).toBe(tip)
   })
 
+  it('keeps a branch behind a head that merged into a parent that never landed', async () => {
+    // The head is at another commit, so the merge commit guard must refuse
+    // the row before the patch-equal proof can run.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'child')
+    f.git.git(f.repo, 'push', '-q', 'origin', 'child')
+    const tip = f.git.sha(f.repo, 'child')
+    const at = remoteSide(f)
+    f.git.git(at, 'checkout', '-q', 'child')
+    f.git.commit(at, 'update child', 'update.txt', 'update')
+    const head = f.git.sha(at, 'HEAD')
+    f.git.git(at, 'push', '-q', 'origin', 'HEAD:refs/pull/2/head')
+    f.git.git(at, 'checkout', '-q', '-b', 'parent', 'main')
+    f.git.git(at, 'merge', '-q', '--squash', head)
+    f.git.git(at, 'commit', '-qm', 'squash child into parent')
+    f.git.git(at, 'push', '-q', 'origin', 'parent')
+    const into = f.git.sha(at, 'parent')
+    const prs = [pr('child', head, 'parent', false, { number: 2, mergeCommit: into })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain('kept child (no merge proof)')
+    expect(f.git.sha(f.repo, 'child')).toBe(tip)
+    // The fixture's claim: the sync fetch brought the merge commit here, so
+    // the ancestry probe, not the local probe, refused the row.
+    expect(holds(f, into)).toBe(true)
+  })
+
   it('keeps the branch when git cannot answer the merge commit probe', async () => {
     const f = fixture()
     const { landed, row } = rebasedByRemote(f, 'rebased', 4)
@@ -277,6 +305,39 @@ describe('a merged pull request at another commit', () => {
     const result = await run(f, [f.repo], {
       gh: ghDouble({ prs: [row] }),
       env: shimmed(f, 'rev-list --merges'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps the branch when git cannot count the commits of the range', async () => {
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: shimmed(f, 'rev-list --count'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('reports a failed git probe over a row that names the branch at another commit', async () => {
+    // One row gives `moved`, and git cannot compare the other. The failure
+    // outranks `moved`: "none at this commit" was never checked for it.
+    const f = fixture()
+    const { landed, row } = rebasedByRemote(f, 'rebased', 4)
+    const prs = [pr('rebased', 'othersha', 'main', false, { number: 1, mergeCommit: landed }), row]
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs }),
+      env: shimmed(f, 'cherry'),
     })
 
     expect(result.stdout).toContain(
