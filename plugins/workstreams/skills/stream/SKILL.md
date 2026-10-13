@@ -64,7 +64,7 @@ return is in view and not yet read, do step 3. Otherwise do steps 1 and 2.
    ```
 
    Until this status exists, `pr-state` gives `layerReturned: false`, and no review round
-   starts. A `mark` that failed is a stop: name it for the caller, with gh's own words.
+   starts. A `mark` that exits non-zero is a stop: name it for the caller, with its own words.
 
    Report the pull request, its head, its run, the CI state at return, and what the layer
    returned under the five fields. CI need not be green: the review can start at once.

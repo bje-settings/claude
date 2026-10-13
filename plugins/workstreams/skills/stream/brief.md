@@ -220,7 +220,7 @@ Prose first. Cover:
 Then, on the LAST LINE, one JSON object:
 
 ```
-{"pr": <number>, "head": "<sha>", "ci": "pending|green|red", "runs": [<run id>], "reruns": <n>,
+{"pr": <number>, "head": "<full 40-character sha>", "ci": "pending|green|red", "runs": [<run id>], "reruns": <n>,
  "constraints_checked": [{"rule": 1, "how": "..."}, ... one entry per numbered rule],
  "outside_set": ["<path>: <why>"],
  "brief_vs_code": ["<the brief's claim>: <what the code or the documentation says>"],

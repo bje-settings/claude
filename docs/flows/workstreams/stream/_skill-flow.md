@@ -24,7 +24,7 @@ flowchart TD
     S3 -->|Yes| S4([Stop: name it for the caller]):::stop
     S3 -->|No| X1([End the step; the layer returns again])
     S0 -->|Yes, or no claim| SM{mark the return: a layer status<br/>on the return's own head; written?}
-    SM -->|No| SM1([Stop: name it for the caller, with gh's own words]):::stop
+    SM -->|No| SM1([Stop: name it for the caller, with its own words]):::stop
     SM -->|Yes| S1([Report: pull request, head, its run, CI state at return,<br/>and the five fields; the review can start at once;<br/>the caller's tick step 2 is next])
 
     R -->|No| D{worktree for the stream exists?}
