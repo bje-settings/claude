@@ -14,7 +14,8 @@
 // **Positive assertions only.** These files are prose and get reworded. A
 // test that fails on a rewording is a test that gets deleted. This file
 // checks only that each document still names the mechanism it is
-// responsible for.
+// responsible for. The one exception is a mechanism this repository
+// removed on purpose (#346): a test then pins that it stays gone.
 //
 // Every assertion is scoped with `section`, which fails loudly when a
 // marker it slices on has moved. A bare split would do the opposite of
@@ -111,6 +112,43 @@ it('does not re-read a blocked entry that names a cause', () => {
   for (const named of ['BLOCKED', 'DIRTY', 'BEHIND', 'reviewDecision']) {
     expect(step).toContain(named)
   }
+})
+
+it('names no recreate action in the agent', () => {
+  // Shepherd resolves a Dependabot conflict like any other (#346).
+  expect(read(AGENT)).not.toContain('recreate')
+})
+
+it('resolves a conflict by merging the base, and forbids force', () => {
+  const fix = section(AGENT, '5. Fix in a worktree', '## Report')
+  const hardRules = section(AGENT, '## Hard rules', '## The loop')
+
+  expect(fix).toContain('git merge origin/<base>')
+  expect(fix).toContain('plain `git push`')
+  expect(fix).toContain('Never use `--force`')
+  expect(hardRules).toContain('never force')
+})
+
+it('aborts the merge and removes the fix worktree when a fix does not land', () => {
+  const fix = section(AGENT, '5. Fix in a worktree', '## Report')
+
+  expect(fix).toContain('git merge --abort')
+  expect(fix).toContain('On every path, run `git worktree remove`')
+})
+
+it('reports the conflicted files and how each was resolved', () => {
+  const report = section(AGENT, '## Report')
+
+  // Once in the merged example, once in the skipped example.
+  expect(occurrences(report, '"conflicts": [{"file"')).toBe(2)
+  expect(report).toContain('had conflicts carries `conflicts`')
+})
+
+it('does not list conflict resolution among what the skill never does', () => {
+  const never = section(SKILL, '## What this skill never does')
+
+  expect(never).not.toContain('conflict')
+  expect(never).toContain('force-push')
 })
 
 it('draws the settle branch in the shepherd diagram', () => {

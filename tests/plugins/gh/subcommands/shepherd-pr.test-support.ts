@@ -94,9 +94,6 @@ export const divergence = (
 /** What `gh repo view` answered with in the capture. */
 export const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
 
-/** What the stub printed for a comment it posted. */
-export const COMMENT_URL = 'https://github.com/acme/widgets/pull/1#issuecomment-1\n'
-
 /** What `gh pr update-branch` prints when GitHub accepted the request. */
 export const UPDATED = '✓ Pull request #1 branch has been updated\n'
 
@@ -240,35 +237,21 @@ export const shepherdEnv = (sandbox: Sandbox, env: Record<string, string>): Node
 })
 
 /**
- * A server that records what each write actually sends.
+ * A server that records what the one write, the branch update, sends.
+ *
+ * The write this command makes is its whole reason to exist. A captured
+ * run cannot show its arguments. The capture records what the Python's
+ * stub `gh` received, while this port reaches `gh` through the injected
+ * client instead. So this test asserts the request here, in full, the way
+ * `shepherd-status.test.ts` asserts the two listings it sends.
  */
-
-/**
- * The three writes this command makes are its whole reason to exist. A
- * captured run cannot show their arguments. The capture records what the
- * Python's stub `gh` received, while this port reaches `gh` through the
- * injected client instead. So this test asserts the request here, in full,
- * the way `shepherd-status.test.ts` asserts the two listings it sends. The
- * assertion checks what the action posted, never how many times. The Python
- * asserted the posted text positively in seven of its own examples
- * (`test_shepherd_pr.py:371`, `:402`, `:417`, `:466`, `:483`, `:1011`,
- * `:1162`).
- */
-export const recording = (
-  options: GhServerOptions,
-): { gh: GhClient; comments: unknown[]; updates: unknown[] } => {
+export const recording = (options: GhServerOptions): { gh: GhClient; updates: unknown[] } => {
   const server = createGhServer(options)
-  const comments: unknown[] = []
   const updates: unknown[] = []
   return {
-    comments,
     updates,
     gh: {
       ...server,
-      addComment: async (comment) => {
-        comments.push(comment)
-        return server.addComment(comment)
-      },
       updateBranch: async (pull) => {
         updates.push(pull)
         return server.updateBranch(pull)
@@ -322,13 +305,6 @@ export const ARRANGEMENTS: Record<string, GhServerOptions> = {
         'GraphQL: merge conflict between base and head (updatePullRequestBranch)',
       ),
     },
-  },
-  recreate_gives_up_when_the_head_never_moves: { replies: { addComment: COMMENT_URL } },
-  recreate_polls_at_least_once_when_the_ci_estimate_is_zero: {
-    replies: { addComment: COMMENT_URL },
-  },
-  recreate_reports_a_comment_it_could_not_post: {
-    replies: { addComment: ghFails('HTTP 403: Resource not accessible by integration') },
   },
   wait_reports_pending_when_its_bound_is_hit: { replies: { watchChecks: WATCH_BOUND } },
   wait_clamps_the_bound_to_the_maximum: { replies: { watchChecks: WATCH_PENDING } },
@@ -453,14 +429,6 @@ export const replay = async (name: string): Promise<void> => {
     expect(normalise(result.stderr, result.sandbox)).toBe(expected.stderr)
   }
 }
-
-// --- recreate ----------------------------------------------------------------------
-
-export const recreateEnv = (sandbox: Sandbox): NodeJS.ProcessEnv => ({
-  ...sandbox.env,
-  SHEPHERD_CI_SECONDS: '4',
-  SHEPHERD_POLL_SECONDS: '1',
-})
 
 // --- settle -------------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 {
   "name": "gh",
-  "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed. /gh:shepherd merges every auto-merge-enabled pull request one at a time, optionally by one label, rebasing and waiting on CI, and skips anything that needs a logic change. gh:issues files, links and triages issues with duplicate checks, relationship fields, milestone, type and priority.",
-  "version": "0.10.1",
+  "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed. /gh:shepherd merges every auto-merge-enabled pull request one at a time, optionally by one label, rebasing, merging the base branch to resolve conflicts, and waiting on CI, and skips what it cannot explain or verify. gh:issues files, links and triages issues with duplicate checks, relationship fields, milestone, type and priority.",
+  "version": "0.11.0",
   "license": "MIT",
   "homepage": "https://github.com/bje-settings/claude",
   "repository": "https://github.com/bje-settings/claude",

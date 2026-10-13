@@ -1,10 +1,10 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result.
+description: How `gh.ts shepherd-pr` checks its arguments, then runs one of five steps on one pull request. It reports every result.
 stale_after: 2027-03-25
 generated:
   by: claude-sonnet
-  at: 2026-09-25
+  at: 2026-10-13
 ---
 
 # shepherd-pr flow
@@ -28,21 +28,13 @@ flowchart TD
     R -->|state| S([ok true: the pull request, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
-    subgraph writes [rebase and recreate: the only writes]
+    subgraph writes [rebase: the only write]
         R -->|rebase| RB{Open?}
         RB -->|No| RF([ok false: refused, exit 0]):::stop
         RB -->|Yes| RB2{gh accepted the update?}
         RB2 -->|Yes| RB3([ok true: rebased, head unmoved,<br/>or re-read failed, exit 0])
-        R -->|recreate| RC{Authored by Dependabot, and open?}
-        RC -->|No| RF
-        RC -->|Yes| RC2{Recreate comment posted?}
-        RC2 -->|Yes| RC3{Poll to the bound:<br/>what changed first?}
-        RC3 -->|Head moved| RC4([ok true: recreated, exit 0])
-        RC3 -->|Closed or merged, head unmoved| RC5([ok true: result closed<br/>or merged, exit 0])
     end
     RB2 -->|No| OF([ok false: gh failed, or the<br/>step did not land, exit 0]):::stop
-    RC2 -->|No| OF
-    RC3 -->|Other state, no read,<br/>or bound passed| OF
 
     subgraph reads [wait and settle: read only]
         R -->|wait| W{Merged, or no checks?}

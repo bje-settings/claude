@@ -2,8 +2,9 @@
 name: shepherd
 description: >
   Merge every open, non-draft pull request that has auto-merge set, one at a time. An optional
-  argument narrows this to one label. Rebase each, wait for CI, and fix mechanical failures. This
-  applies to any pull request, whether a human or a bot authored it. Let auto-merge land each one
+  argument narrows this to one label. Rebase each, resolve its conflicts by merging the base
+  branch into it, wait for CI, and fix failures that the base caused. This applies to any pull
+  request, whether a human or a bot authored it. Let auto-merge land each one
   before you move to the next. Scope comes from the working directory. Inside a git repo, it
   shepherds that repo. Outside one, it shepherds every immediate subdirectory that is a git repo,
   one subagent per repo, in parallel. It never merges by hand, never enables auto-merge, and
@@ -70,9 +71,9 @@ Collate the agents' JSON into one table per repo:
 
 | PR | Outcome | Detail |
 | --- | --- | --- |
-| #n | merged `sha` | rebases: 1; `merged_as` when the version differs from the title |
+| #n | merged `sha` | rebases: 1; each conflicted file and how it was resolved |
 | #n | closed | reason |
-| #n | skipped | reason; `hypothesis` when present |
+| #n | skipped | reason; `hypothesis` when present; the conflicted files, when there were any |
 
 Then list the `ci_seconds` each agent measured.
 
@@ -86,7 +87,7 @@ Never:
 - enable or disable auto-merge
 - merge a pull request by hand
 - bypass or re-run a required check
-- resolve conflicts on a branch a human authored
+- force-push
 - change a repository's merge method
 
 Those are the human's decisions. The report tells them where each one is needed.

@@ -542,9 +542,9 @@ export type GhEndpoint = keyof GhResults
 /**
  * A comment's text.
  *
- * `#216` removed the `skip` action, `shepherd-pr`'s only caller that posted
- * from a file. `recreate` posts `@dependabot recreate` as a string
- * (`gh-shepherd-pr.py:533`), and it is the one caller left.
+ * `#216` removed the `skip` action, which posted from a file. #346 removed
+ * `recreate`, the last caller that posted a string. No plugin posts a
+ * comment now.
  */
 export type CommentText = { readonly body: string }
 

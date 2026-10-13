@@ -40,11 +40,11 @@ import type { Output } from './lib/streams.ts'
  *
  * This is the counterpart of `CommandContext` in `subcommands/sync-repo.ts`.
  * It is a type of its own for three reasons that command does not share.
- * `createGh` takes a repository as well as a directory, because seven of
- * the nine `gh` calls these commands make name the repository with `--repo`
+ * `createGh` takes a repository as well as a directory, because six of
+ * the eight `gh` calls these commands make name the repository with `--repo`
  * (`gh-shepherd-pr.py:399` and on), while the first call resolves the
  * repository from the checkout. `now` and `sleep` are here because
- * `recreate` polls, `wait` has a bound, and `settle` polls until a bound. A
+ * `wait` has a bound, and `settle` polls until a bound. A
  * test that passed a real timer would have to wait out a real bound
  * instead. The answer is an exit status, not an `Envelope<string>`, because
  * these commands have a fourth status: 3, an internal error. `lib/envelope.ts`
@@ -295,10 +295,9 @@ const authorLogin = (pull: unknown): string => asText(field(field(pull, 'author'
 /**
  * Whether Dependabot itself authored this pull request.
  *
- * One bot answers `@dependabot recreate`, and every other bot ignores it.
- * So this check is deliberately a login match, not the general bot flag.
- * renovate and github-actions are bots whose pull requests a recreate
- * comment would only litter.
+ * This check is deliberately a login match, not the general bot flag.
+ * renovate and github-actions are bots too, and the report tells them
+ * apart from Dependabot. No action branches on it.
  */
 export const isDependabot = (pull: unknown): boolean =>
   DEPENDABOT_LOGINS.includes(authorLogin(pull))
@@ -309,8 +308,7 @@ export const isDependabot = (pull: unknown): boolean =>
  * gh reports `author.is_bot`, but this function checks the login too. A
  * GraphQL answer that omits the flag still names the actor. An app appears
  * as `app/<name>` from `gh pr view`, and as `<name>[bot]` elsewhere. This
- * is the flag the report carries. `recreate` acts on `isDependabot`
- * instead.
+ * is the flag the report carries.
  */
 export const isBot = (pull: unknown): boolean => {
   // `is True`, an identity check in the Python. A truthy value that is
