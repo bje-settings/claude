@@ -334,13 +334,19 @@ describe('the end of a round', () => {
     })
 
     it('does not end the round on a heading for another round', async () => {
-      const rows = [issue(28, [TRIAGE, '## Round end: Component showcase'])]
+      const rows = [issue(28, [TRIAGE, '## Round end: Docs refresh'])]
 
       expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
     })
 
     it('does not end the round on a heading for a longer name', async () => {
       const rows = [issue(28, [TRIAGE, '## Round end: Triage pass two'])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
+    })
+
+    it('does not end the round on a heading that does not start the line', async () => {
+      const rows = [issue(28, [TRIAGE, 'Note: ## Round end: Triage pass'])]
 
       expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
     })
