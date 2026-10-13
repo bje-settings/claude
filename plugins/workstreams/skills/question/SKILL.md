@@ -1,8 +1,7 @@
 ---
 name: question
 description: Turn a sweep report into an approved plan, one question at a time.
-argument-hint: [milestone]
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob AskUserQuestion EnterPlanMode ExitPlanMode
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob EnterPlanMode ExitPlanMode
 user-invocable: false
 ---
 

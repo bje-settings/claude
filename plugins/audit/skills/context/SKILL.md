@@ -5,7 +5,7 @@ description: >
   is a reference that no longer resolves, a statement whose condition has
   ended, or a duplicate claim. The audit runs fully without a key. Repository
   text reaches TypeSafe only when TYPESAFE_API_KEY is set.
-allowed-tools: Bash
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/audit.ts" *)
 disable-model-invocation: true
 ---
 

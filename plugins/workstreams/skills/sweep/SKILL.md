@@ -1,7 +1,6 @@
 ---
 name: sweep
 description: Find the work a round can start on, and say how it should be sequenced.
-argument-hint: [milestone | issue numbers] [leave out: issue numbers]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue view *) Bash(gh issue comment *) Read Grep Glob
 user-invocable: false
 ---

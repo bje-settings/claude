@@ -4,6 +4,7 @@
   "description": "Round primitives for issue-tracker work. /workstreams:start is the one entry: it runs a round, or continues one, from the sweep to reviewed draft pull requests, and ends with the merge sequence and the cost. It arms a watch with the Monitor tool, which wakes it on each new head, required check and merge. /workstreams:start pr <n> takes one pull request through review to done. The four primitives it invokes: /workstreams:sweep reports the unblocked set, maps the files each issue touches, and sequences the issues into streams, stacks, or one pull request. /workstreams:question turns a sweep report into an approved plan, one question at a time. /workstreams:stream writes each layer's brief and dispatches a sized agent for it, one layer for each call. /workstreams:review takes one step of the verified review loop on one draft pull request for each call.",
   "version": "0.15.0",
   "license": "MIT",
+  "homepage": "https://github.com/bje-settings/claude",
   "repository": "https://github.com/bje-settings/claude",
   "author": {
     "name": "Brian Espinosa",

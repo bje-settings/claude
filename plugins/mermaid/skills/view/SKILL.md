@@ -3,7 +3,7 @@ name: view
 description: >
   Share a preview link whenever a Mermaid diagram is written, edited, or
   reviewed. Builds the link from a script; never construct the URL by hand.
-allowed-tools: Bash
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/mermaid.ts" *)
 ---
 
 Pipe the diagram source into the script and post the link it prints.

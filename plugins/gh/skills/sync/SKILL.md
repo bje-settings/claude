@@ -6,7 +6,7 @@ description: >
   directory. Inside a git repo, it syncs that repo. Outside one, it syncs every
   immediate subdirectory that is a git repo. It never clones, and it skips any
   repo with uncommitted changes.
-allowed-tools: Bash
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" *)
 disable-model-invocation: true
 ---
 

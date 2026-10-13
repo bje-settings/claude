@@ -8,7 +8,7 @@ description: >
   shepherds that repo. Outside one, it shepherds every immediate subdirectory that is a git repo,
   one subagent per repo, in parallel. It never merges by hand, never enables auto-merge, and
   never bypasses a check.
-allowed-tools: Bash, Agent
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" *) Agent
 argument-hint: "[label] [--dry-run]"
 disable-model-invocation: true
 ---

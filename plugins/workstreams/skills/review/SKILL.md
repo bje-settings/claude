@@ -1,7 +1,6 @@
 ---
 name: review
 description: Take one step of the review loop on one draft pull request, from its state. Dispatch a review round, record a finished one, reopen for a missing run, do the rot check, or report.
-argument-hint: [pr-number] [--round 0|1|2] [--substantial] [--round-1-head <sha>] [--rot-checked] [round return]
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh pr close *) Bash(gh pr reopen *) Bash(gh pr diff *) Bash(gh pr view *) Bash(gh pr edit *) Bash(gh pr comment *) Bash(gh issue view *) Bash(gh api graphql *) Bash(git worktree list *) Bash(git -C * diff *) Read Grep Glob Agent
 user-invocable: false
 ---
