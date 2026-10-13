@@ -4,7 +4,7 @@ description: What the /gh:sync skill does, and every way it declines to act.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-10-13
 ---
 
 # /gh:sync skill flow
@@ -39,11 +39,12 @@ flowchart TD
     L --> M
 
     M --> N{Merge proof?}
-    N -->|Merged PR at this commit| O[Delete branch]
+    N -->|Merged PR with its merge commit on the default branch,<br/>at this commit or with each commit in its head<br/>and a merge into its head that changes nothing| O[Delete branch]
     N -->|Ancestor of default branch| O
-    N -->|Name matched, other commit| P([Keep: not this commit]):::stop
+    N -->|Name matched, a commit or a change not in its head| P([Keep: not this commit]):::stop
+    N -->|A fetch or a git probe failed| Q2([Keep: unproven, not disproven]):::stop
     N -->|Lookup failed| Q([Keep: never checked]):::stop
-    N -->|Nothing found| R([Keep: no proof]):::stop
+    N -->|Nothing found, or no merge commit on the default branch| R([Keep: no proof]):::stop
 
     O --> S{Branch has a worktree?}
     S -->|Clean| T[Remove worktree, then delete]
@@ -53,7 +54,7 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-Every path that keeps a branch says which of the four reasons applied. The distinction matters.
+Every path that keeps a branch says which reason applied. The distinction matters.
 "Never checked" is not "no proof". If it reports one as the other, that asserts something the
 command did not establish.
 

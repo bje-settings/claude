@@ -286,7 +286,8 @@ export const SCENARIOS: Record<string, Scenario> = {
     f.git.branchWithWork(f.repo, 'squashed')
     const sha = f.git.sha(f.repo, 'squashed')
     f.git.mergeSquash(f.repo, 'squashed')
-    return { argv: [f.repo], gh: ghDouble({ prs: [pr('squashed', sha)] }) }
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    return { argv: [f.repo], gh: ghDouble({ prs: [pr('squashed', sha, 'main', false, landed)] }) }
   },
   keep_a_branch_whose_tip_has_moved: (f) => {
     f.git.branchWithWork(f.repo, 'reused')
@@ -295,7 +296,8 @@ export const SCENARIOS: Record<string, Scenario> = {
     f.git.git(f.repo, 'checkout', '-q', 'reused')
     f.git.commit(f.repo, 'unpushed work', 'danger.txt', 'secret')
     f.git.git(f.repo, 'checkout', '-q', 'main')
-    return { argv: [f.repo], gh: ghDouble({ prs: [pr('reused', merged)] }) }
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    return { argv: [f.repo], gh: ghDouble({ prs: [pr('reused', merged, 'main', false, landed)] }) }
   },
   ignore_a_fork_pull_request: (f) => {
     f.git.branchWithWork(f.repo, 'patch-1')
@@ -305,7 +307,13 @@ export const SCENARIOS: Record<string, Scenario> = {
   ignore_another_base: (f) => {
     f.git.branchWithWork(f.repo, 'for-release')
     const sha = f.git.sha(f.repo, 'for-release')
-    return { argv: [f.repo], gh: ghDouble({ prs: [pr('for-release', sha, 'release')] }) }
+    // The merge commit is the branch's own tip. It is not on origin/main, so
+    // the guard refuses it.
+    const merged = { number: 1, mergeCommit: sha }
+    return {
+      argv: [f.repo],
+      gh: ghDouble({ prs: [pr('for-release', sha, 'release', false, merged)] }),
+    }
   },
   keep_a_branch_on_the_tip: (f) => {
     f.git.branch(f.repo, 'fresh')
@@ -397,7 +405,10 @@ export const SCENARIOS: Record<string, Scenario> = {
   past_the_bulk_window: (f) => {
     f.git.branchWithWork(f.repo, 'landed')
     const sha = f.git.sha(f.repo, 'landed')
-    return { argv: [f.repo], gh: ghDouble({ prs: manyPrs(200, pr('landed', sha)) }) }
+    f.git.mergeSquash(f.repo, 'landed')
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(200, pr('landed', sha, 'main', false, landed))
+    return { argv: [f.repo], gh: ghDouble({ prs }) }
   },
   per_branch_query_failed: (f) => {
     f.git.branchWithWork(f.repo, 'first')
@@ -415,6 +426,10 @@ export const SCENARIOS: Record<string, Scenario> = {
     f.git.git(f.repo, 'checkout', '-q', 'moved')
     f.git.commit(f.repo, 'work after the merge', 'after.txt', 'after')
     f.git.git(f.repo, 'checkout', '-q', 'main')
-    return { argv: [f.repo], gh: ghDouble({ prs: manyPrs(200, pr('moved', merged)) }) }
+    // Any commit on main passes the merge-commit guard. The local commit
+    // after the merge is what keeps the branch.
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(200, pr('moved', merged, 'main', false, landed))
+    return { argv: [f.repo], gh: ghDouble({ prs }) }
   },
 }

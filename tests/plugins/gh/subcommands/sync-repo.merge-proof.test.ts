@@ -159,7 +159,7 @@ describe('merge proof', () => {
     expect(f.git.branches(f.repo)).toContain('patch-1')
   })
 
-  it('ignores a pull request merged into another base', async () => {
+  it('keeps a branch whose merge commit is not on main', async () => {
     const f = fixture()
     const built = SCENARIOS.ignore_another_base?.(f)
 
@@ -379,8 +379,9 @@ describe('merge proof', () => {
     const sha = f.git.sha(f.repo, 'squashed')
     f.git.mergeSquash(f.repo, 'squashed')
 
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
     const result = await run(f, [f.repo], {
-      gh: ghDouble({ prs: [pr('squashed', sha)] }),
+      gh: ghDouble({ prs: [pr('squashed', sha, 'main', false, landed)] }),
       env: shimmed(f, 'branch --merged'),
     })
 
@@ -430,7 +431,10 @@ describe('the per-branch fallback', () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'landed')
     const sha = f.git.sha(f.repo, 'landed')
-    const prs = manyPrs(199, pr('landed', sha), pr('spare', 'zzz'))
+    // Any commit on main passes the merge-commit guard; the row's head is
+    // this very tip.
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(199, pr('landed', sha, 'main', false, landed), pr('spare', 'zzz'))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs, fail: 'head' }) })
 
@@ -459,18 +463,21 @@ describe('the per-branch fallback', () => {
     expect(f.git.branches(f.repo)).toContain('busy')
   })
 
-  it('ignores another base in the per-branch query', async () => {
+  it('keeps a branch whose merge commit is not on main, in the per-branch query', async () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'for-release-2')
     const sha = f.git.sha(f.repo, 'for-release-2')
-    const prs = manyPrs(200, pr('for-release-2', sha, 'release'))
+    // The merge commit is the branch's own tip. It is not on origin/main, so
+    // the guard refuses it.
+    const merged = { number: 1, mergeCommit: sha }
+    const prs = manyPrs(200, pr('for-release-2', sha, 'release', false, merged))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
 
     expect(result.stdout).toContain('kept for-release-2 (no merge proof)')
   })
 
-  it('still requires the commit to match in the fallback', async () => {
+  it('still keeps a local commit the head lacks, in the fallback', async () => {
     // The fallback must not be a weaker signal than the bulk lookup.
     const f = fixture()
     const built = SCENARIOS.per_branch_tip_moved?.(f)
@@ -499,7 +506,8 @@ describe('the per-branch fallback', () => {
     // checked" would throw away a real answer.
     const f = fixture()
     f.git.branchWithWork(f.repo, 'reused')
-    const prs = manyPrs(199, pr('reused', 'othersha'))
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(199, pr('reused', 'othersha', 'main', false, landed))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs, fail: 'head' }) })
 
@@ -516,7 +524,8 @@ describe('the per-branch fallback', () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'aaa')
     f.git.branchWithWork(f.repo, 'zzz-reused')
-    const prs = manyPrs(199, pr('zzz-reused', 'othersha'))
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(199, pr('zzz-reused', 'othersha', 'main', false, landed))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs, fail: 'head' }) })
 

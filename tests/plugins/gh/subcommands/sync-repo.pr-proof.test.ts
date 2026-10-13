@@ -1,0 +1,615 @@
+// sync-repo, part of its tests: a merge proof for stacked, rebased and moved branches.
+// The file is one of several so that vitest can run them at the same time (#205).
+// `sync-repo.test-support.ts` holds the helpers and the header that says what the tests prove.
+//
+// Each test builds the remote side of a pull request in a second clone of the
+// origin. A pull request head that the remote rebased is then a commit that the
+// checkout under test does not have, as in the field cases of #450.
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { manyPrs, pr } from '#harness/pulls.ts'
+import {
+  type Fixture,
+  fixture,
+  ghDouble,
+  run,
+  shimmed,
+  silenced,
+} from './sync-repo.test-support.ts'
+
+/** The bare origin of the fixture. */
+const originOf = (f: Fixture): string => f.git.git(f.repo, 'remote', 'get-url', 'origin')
+
+/** A second clone of the origin, where the remote side of a pull request
+ *  happens: a rebase, an update of the branch, or the squash merge. */
+function remoteSide(f: Fixture): string {
+  const at = f.sandbox.join('remote')
+  f.git.git(f.sandbox.path, 'clone', '-q', originOf(f), at)
+  f.git.git(at, 'config', 'gc.auto', '0')
+  return at
+}
+
+/** Squash `head` onto `main` in `at`, push it, and give the merge commit. */
+function squashOnRemote(f: Fixture, at: string, head: string): string {
+  f.git.git(at, 'checkout', '-q', 'main')
+  f.git.git(at, 'merge', '-q', '--squash', head)
+  f.git.git(at, 'commit', '-qm', `squash ${head}`)
+  f.git.git(at, 'push', '-q', 'origin', 'main')
+  return f.git.sha(at, 'main')
+}
+
+/** A local branch with two commits, pushed. The remote then rebases it onto a
+ *  newer `main`, keeps the result at `refs/pull/<number>/head`, and squashes
+ *  it. This is the shape of #432, #435 and #437. */
+function rebasedByRemote(f: Fixture, branch: string, number: number) {
+  f.git.git(f.repo, 'checkout', '-q', '-b', branch)
+  f.git.commit(f.repo, 'one', 'one.txt', 'one')
+  f.git.commit(f.repo, 'two', 'two.txt', 'two')
+  f.git.git(f.repo, 'checkout', '-q', 'main')
+  f.git.git(f.repo, 'push', '-q', 'origin', branch)
+  const at = remoteSide(f)
+  f.git.commit(at, 'main moves on', 'main.txt', 'newer')
+  f.git.git(at, 'push', '-q', 'origin', 'main')
+  f.git.git(at, 'checkout', '-q', '-b', branch, `origin/${branch}`)
+  f.git.git(at, 'rebase', '-q', 'main')
+  const head = f.git.sha(at, 'HEAD')
+  f.git.git(at, 'push', '-q', 'origin', `HEAD:refs/pull/${number}/head`)
+  const landed = squashOnRemote(f, at, head)
+  return { head, landed, row: pr(branch, head, 'main', false, { number, mergeCommit: landed }) }
+}
+
+/** A PATH whose git ends each call that starts with `prefix` with status 128,
+ *  the status of a git that could not answer. The harness shim refuses with
+ *  status 1. The probes of `merge-base --is-ancestor` and of
+ *  `rev-parse --verify --quiet` read status 1 as "no". */
+function crashing(f: Fixture, prefix: string): NodeJS.ProcessEnv {
+  const real = execFileSync('sh', ['-c', 'command -v git'], { env: f.env }).toString().trim()
+  const directory = mkdtempSync(f.sandbox.join('crash-'))
+  writeFileSync(
+    path.join(directory, 'git'),
+    `#!/bin/sh\ncase "$*" in\n  '${prefix}'*) exit 128 ;;\nesac\nexec '${real}' "$@"\n`,
+    { mode: 0o755 },
+  )
+  return { ...f.env, PATH: `${directory}${path.delimiter}${f.env.PATH ?? ''}` }
+}
+
+/** Whether the checkout under test holds the commit `oid`. */
+const holds = (f: Fixture, oid: string): boolean => {
+  try {
+    f.git.git(f.repo, 'cat-file', '-e', `${oid}^{commit}`)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const ABSENT = 'f'.repeat(40)
+
+// --- #348: a stacked pull request ------------------------------------------------
+
+describe('a stacked pull request', () => {
+  it('prunes a branch merged into a parent base when its merge commit is on main', async () => {
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'parent')
+    f.git.git(f.repo, 'checkout', '-q', '-b', 'child', 'parent')
+    f.git.commit(f.repo, 'work on child', 'child.txt', 'child')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const child = f.git.sha(f.repo, 'child')
+    f.git.mergeSquash(f.repo, 'child')
+    const landed = f.git.sha(f.repo, 'main')
+    const prs = [pr('child', child, 'parent', false, { number: 2, mergeCommit: landed })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toMatch(/deleted child \([0-9a-f]+, merged PR\)/)
+    expect(f.git.branches(f.repo)).not.toContain('child')
+  })
+
+  it('keeps a branch merged into a parent that never landed (pinning test)', async () => {
+    // This was green on e955762 too: the old query never saw the row. It
+    // pins the guard that replaces the `--base` filter.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'parent')
+    f.git.git(f.repo, 'checkout', '-q', '-b', 'child', 'parent')
+    f.git.commit(f.repo, 'work on child', 'child.txt', 'child')
+    const child = f.git.sha(f.repo, 'child')
+    f.git.git(f.repo, 'checkout', '-q', 'parent')
+    f.git.git(f.repo, 'merge', '-q', '--squash', 'child')
+    f.git.git(f.repo, 'commit', '-qm', 'squash child into parent')
+    f.git.git(f.repo, 'push', '-q', 'origin', 'parent')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const into = f.git.sha(f.repo, 'parent')
+    const prs = [pr('child', child, 'parent', false, { number: 2, mergeCommit: into })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain('kept child (no merge proof)')
+    expect(f.git.sha(f.repo, 'child')).toBe(child)
+  })
+
+  it('does not fetch a merge commit that is not here, and keeps the branch (ruling 11)', async () => {
+    // The merge commit sits under a ref the clone does not fetch. The origin
+    // would serve it by its SHA. The probe is local, so the commit stays
+    // absent, and the branch has no merge proof.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'child')
+    const child = f.git.sha(f.repo, 'child')
+    const at = remoteSide(f)
+    f.git.git(at, 'fetch', '-q', 'origin', 'main')
+    f.git.git(at, 'checkout', '-q', '-b', 'parent')
+    f.git.commit(at, 'the merge into the parent', 'parent.txt', 'parent')
+    const into = f.git.sha(at, 'HEAD')
+    f.git.git(at, 'push', '-q', 'origin', 'HEAD:refs/merges/2')
+    f.git.git(originOf(f), 'config', 'uploadpack.allowAnySHA1InWant', 'true')
+    const prs = [pr('child', child, 'main', false, { number: 2, mergeCommit: into })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain('kept child (no merge proof)')
+    expect(f.git.sha(f.repo, 'child')).toBe(child)
+    expect(holds(f, into)).toBe(false)
+  })
+
+  it('keeps the branch when git cannot answer the local merge commit probe', async () => {
+    // Status 1 is "not here". Any other status proves nothing either way.
+    const f = fixture()
+    const { landed, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: crashing(f, `rev-parse --verify --quiet ${landed}^{commit}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps a branch whose row at this commit has no merge commit', async () => {
+    // Before #348, a row at the tip was proof alone. Now a row must show
+    // where it landed.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'bare')
+    const tip = f.git.sha(f.repo, 'bare')
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [pr('bare', tip)] }) })
+
+    expect(result.stdout).toContain('kept bare (no merge proof)')
+    expect(f.git.sha(f.repo, 'bare')).toBe(tip)
+  })
+
+  it('keeps a branch behind a head that merged into a parent that never landed', async () => {
+    // The head is at another commit, so the merge commit guard must refuse
+    // the row before the patch-equal proof can run.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'child')
+    f.git.git(f.repo, 'push', '-q', 'origin', 'child')
+    const tip = f.git.sha(f.repo, 'child')
+    const at = remoteSide(f)
+    f.git.git(at, 'checkout', '-q', 'child')
+    f.git.commit(at, 'update child', 'update.txt', 'update')
+    const head = f.git.sha(at, 'HEAD')
+    f.git.git(at, 'push', '-q', 'origin', 'HEAD:refs/pull/2/head')
+    f.git.git(at, 'checkout', '-q', '-b', 'parent', 'main')
+    f.git.git(at, 'merge', '-q', '--squash', head)
+    f.git.git(at, 'commit', '-qm', 'squash child into parent')
+    f.git.git(at, 'push', '-q', 'origin', 'parent')
+    const into = f.git.sha(at, 'parent')
+    const prs = [pr('child', head, 'parent', false, { number: 2, mergeCommit: into })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain('kept child (no merge proof)')
+    expect(f.git.sha(f.repo, 'child')).toBe(tip)
+    // The fixture's claim: the sync fetch brought the merge commit here, so
+    // the ancestry probe, not the local probe, refused the row.
+    expect(holds(f, into)).toBe(true)
+  })
+
+  it('keeps the branch when git cannot answer the merge commit probe', async () => {
+    const f = fixture()
+    const { landed, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: crashing(f, `merge-base --is-ancestor ${landed}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+})
+
+// --- #351 and #450: a pull request head at another commit -----------------------
+
+describe('a merged pull request at another commit', () => {
+  it('prunes a local tip that is behind the merged head (#351)', async () => {
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'behind')
+    f.git.git(f.repo, 'push', '-q', 'origin', 'behind')
+    const at = remoteSide(f)
+    f.git.git(at, 'checkout', '-q', 'behind')
+    f.git.commit(at, 'update branch', 'update.txt', 'update')
+    const head = f.git.sha(at, 'HEAD')
+    f.git.git(at, 'push', '-q', 'origin', 'HEAD:refs/pull/3/head')
+    const landed = squashOnRemote(f, at, head)
+    const prs = [pr('behind', head, 'main', false, { number: 3, mergeCommit: landed })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toMatch(/deleted behind \([0-9a-f]+, merged PR\)/)
+    expect(f.git.branches(f.repo)).not.toContain('behind')
+  })
+
+  it('prunes a local tip whose commits the remote rebased, and removes its worktree (#450)', async () => {
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+    const worktree = f.sandbox.join('wt')
+    f.git.worktree(f.repo, worktree, 'rebased')
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [row] }) })
+
+    expect(result.stdout).toContain('removed worktree')
+    expect(result.stdout).toMatch(/deleted rebased \([0-9a-f]+, merged PR\)/)
+    expect(f.git.branches(f.repo)).not.toContain('rebased')
+    expect(existsSync(worktree)).toBe(false)
+  })
+
+  it('keeps a local tip with one commit more than the rebased head (pinning test)', async () => {
+    // This was green on e955762 too, with the same note. It pins the refusal
+    // of the patch-equal proof: one commit with no match in the head.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'extra', 5)
+    f.git.git(f.repo, 'checkout', '-q', 'extra')
+    f.git.commit(f.repo, 'not in the pull request', 'extra.txt', 'extra')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const tip = f.git.sha(f.repo, 'extra')
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [row] }) })
+
+    expect(result.stdout).toContain('kept extra (merged PRs used this name; none at this commit)')
+    expect(f.git.sha(f.repo, 'extra')).toBe(tip)
+  })
+
+  it('keeps a local tip with a merge commit that the head does not hold', async () => {
+    // `git cherry` skips merge commits, so it finds no `+` line here. The
+    // merge carries a change of its own, and a force delete would lose it.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'merged-in', 7)
+    f.git.git(f.repo, 'fetch', '-q', 'origin')
+    f.git.git(f.repo, 'checkout', '-q', 'merged-in')
+    f.git.git(f.repo, 'merge', '-q', '--no-ff', '--no-commit', 'origin/main~1')
+    writeFileSync(path.join(f.repo, 'fix.txt'), 'a conflict fix\n')
+    f.git.git(f.repo, 'add', 'fix.txt')
+    f.git.git(f.repo, 'commit', '-qm', 'merge main, with a fix')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const tip = f.git.sha(f.repo, 'merged-in')
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [row] }) })
+
+    expect(result.stdout).toContain(
+      'kept merged-in (merged PRs used this name; none at this commit)',
+    )
+    expect(f.git.sha(f.repo, 'merged-in')).toBe(tip)
+  })
+
+  it('keeps the branch when git cannot list the merge commits', async () => {
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: shimmed(f, 'rev-list --merges'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps the branch when git cannot count the commits of the range', async () => {
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: shimmed(f, 'rev-list --count'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('reports a failed git probe over a row that names the branch at another commit', async () => {
+    // One row gives `moved`, and git cannot compare the other. The failure
+    // outranks `moved`: "none at this commit" was never checked for it.
+    const f = fixture()
+    const { landed, row } = rebasedByRemote(f, 'rebased', 4)
+    const prs = [pr('rebased', 'othersha', 'main', false, { number: 1, mergeCommit: landed }), row]
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs }),
+      env: shimmed(f, 'cherry'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps the branch when git cherry answers with nothing', async () => {
+    // An answer with no lines has no `+` line either. The count of the
+    // range shows that the answer is short.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'extra', 5)
+    f.git.git(f.repo, 'checkout', '-q', 'extra')
+    f.git.commit(f.repo, 'not in the pull request', 'extra.txt', 'extra')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const tip = f.git.sha(f.repo, 'extra')
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: silenced(f, 'cherry'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept extra (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.sha(f.repo, 'extra')).toBe(tip)
+  })
+
+  it('prunes a rebased tip that only the per-branch query finds', async () => {
+    // The row is past the bulk window, so only the second query names it.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: manyPrs(200, row) }) })
+
+    expect(result.stdout).toMatch(/deleted rebased \([0-9a-f]+, merged PR\)/)
+    expect(f.git.branches(f.repo)).not.toContain('rebased')
+  })
+
+  it('keeps the branch when git cannot compare the commits', async () => {
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: shimmed(f, 'cherry'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+})
+
+// --- ruling 10: a change that only a merge can see -------------------------------
+
+/** A remote-rebased branch whose last local commit differs from the head only
+ *  in whitespace. `git cherry` reads each local commit as patch-equal. */
+function reindented(f: Fixture, branch: string, number: number) {
+  const built = rebasedByRemote(f, branch, number)
+  f.git.git(f.repo, 'checkout', '-q', branch)
+  writeFileSync(path.join(f.repo, 'two.txt'), '    two\n')
+  f.git.git(f.repo, 'commit', '-qa', '--amend', '--no-edit')
+  f.git.git(f.repo, 'checkout', '-q', 'main')
+  return { ...built, tip: f.git.sha(f.repo, branch) }
+}
+
+describe('a change that git cherry cannot see', () => {
+  it('keeps a local commit that differs from the head only in whitespace', async () => {
+    const f = fixture()
+    const { head, row, tip } = reindented(f, 'spaced', 8)
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [row] }) })
+
+    expect(result.stdout).toContain('kept spaced (merged PRs used this name; none at this commit)')
+    expect(f.git.sha(f.repo, 'spaced')).toBe(tip)
+    // The fixture's claim: each local commit is patch-equal in the head, so
+    // only the merge check can keep this branch.
+    const cherry = f.git.git(f.repo, 'cherry', head, tip).split('\n')
+    expect(cherry).toHaveLength(2)
+    expect(cherry.every((line) => line.startsWith('- '))).toBe(true)
+  })
+
+  it('keeps the branch when git cannot merge the tip into the head', async () => {
+    // A git older than 2.38 refuses `--write-tree`.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: crashing(f, 'merge-tree'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps the branch when the merged tree is not the tree of the head', async () => {
+    // The merge works, but the tree it gives is compared with an answer
+    // that git lost. Only an equal tree proves the branch.
+    const f = fixture()
+    const { head, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: silenced(f, `rev-parse --verify --quiet ${head}^{tree}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps the branch when the merge and the tree of the head answer with nothing', async () => {
+    const f = fixture()
+    const { head, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: silenced(f, 'merge-tree', `rev-parse --verify --quiet ${head}^{tree}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+})
+
+// --- a fetch that fails ----------------------------------------------------------
+
+describe('a fetch that fails', () => {
+  it('keeps the branch when the merged head cannot be fetched', async () => {
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'gone')
+    const landed = f.git.sha(f.repo, 'main')
+    const prs = [pr('gone', ABSENT, 'main', false, { number: 9, mergeCommit: landed })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain(
+      "kept gone (could not fetch a merged PR's commits; unproven, not disproven)",
+    )
+    expect(f.git.branches(f.repo)).toContain('gone')
+  })
+
+  it('keeps the branch, with no merge proof, when the merge commit is not here', async () => {
+    // The row names the branch at this very commit. Before #348 that alone
+    // was proof, and this branch was deleted. The merge commit is on no
+    // remote, so a fetch could only fail. There is no fetch (ruling 11), so
+    // nothing failed.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'unlanded')
+    const tip = f.git.sha(f.repo, 'unlanded')
+    const prs = [pr('unlanded', tip, 'main', false, { number: 9, mergeCommit: ABSENT })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain('kept unlanded (no merge proof)')
+    expect(f.git.sha(f.repo, 'unlanded')).toBe(tip)
+  })
+
+  it('keeps the branch when the pull ref holds another commit than the head', async () => {
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'other')
+    const landed = f.git.sha(f.repo, 'main')
+    f.git.git(f.repo, 'push', '-q', 'origin', 'main:refs/pull/6/head')
+    const prs = [pr('other', ABSENT, 'main', false, { number: 6, mergeCommit: landed })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain("kept other (could not fetch a merged PR's commits")
+    expect(f.git.branches(f.repo)).toContain('other')
+  })
+
+  it('keeps the branch when the row has no number to fetch the head by', async () => {
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'nameless')
+    const landed = f.git.sha(f.repo, 'main')
+    const prs = [pr('nameless', ABSENT, 'main', false, { mergeCommit: landed })]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain("kept nameless (could not fetch a merged PR's commits")
+    expect(f.git.branches(f.repo)).toContain('nameless')
+  })
+
+  it('keeps the branch when the bulk and per-branch rows both name a head it cannot fetch', async () => {
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'gone')
+    const landed = f.git.sha(f.repo, 'main')
+    const row = pr('gone', ABSENT, 'main', false, { number: 9, mergeCommit: landed })
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: manyPrs(199, row) }) })
+
+    expect(result.stdout).toContain("kept gone (could not fetch a merged PR's commits")
+    expect(f.git.branches(f.repo)).toContain('gone')
+  })
+
+  it('reports a failed fetch over a row that names the branch at another commit', async () => {
+    // One row gives `moved`, and the other cannot be fetched. The failure
+    // outranks `moved`: "none at this commit" was never checked for it.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'mixed')
+    const landed = f.git.sha(f.repo, 'main')
+    const prs = [
+      pr('mixed', 'othersha', 'main', false, { number: 1, mergeCommit: landed }),
+      pr('mixed', ABSENT, 'main', false, { mergeCommit: landed }),
+    ]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain("kept mixed (could not fetch a merged PR's commits")
+    expect(f.git.branches(f.repo)).toContain('mixed')
+  })
+})
+
+// --- #248: ancestry at the tip prune read ----------------------------------------
+
+describe('ancestry at the tip', () => {
+  it('keeps a branch, and its worktree, that gets a commit after the ancestry read', async () => {
+    // `aaa` sorts first. The bulk window is full, so `aaa` gets its own gh
+    // call, after the ancestry read and before the prune loop reads `zzz`.
+    // The commit lands on `zzz` in that window. The name `zzz` is still in
+    // the ancestry list, but its new tip is not on main.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'aaa')
+    f.git.branchWithWork(f.repo, 'zzz')
+    f.git.mergeCommit(f.repo, 'zzz')
+    const worktree = f.sandbox.join('wt')
+    f.git.worktree(f.repo, worktree, 'zzz')
+
+    const base = ghDouble({ prs: manyPrs(200) })
+    let late = ''
+    const gh = {
+      ...base,
+      listMergedPullRequests: async (query: Parameters<typeof base.listMergedPullRequests>[0]) => {
+        if (query.head === 'aaa' && late === '') {
+          writeFileSync(path.join(worktree, '.gitignore'), '*.ignoreme\n')
+          f.git.git(worktree, 'add', '.gitignore')
+          f.git.git(worktree, 'commit', '-qm', 'late work')
+          writeFileSync(path.join(worktree, 'secret.ignoreme'), 'secret\n')
+          late = f.git.sha(worktree, 'HEAD')
+        }
+        return base.listMergedPullRequests(query)
+      },
+    }
+
+    const result = await run(f, [f.repo], { gh })
+
+    expect(result.stdout).toContain('kept zzz (no merge proof)')
+    expect(f.git.sha(f.repo, 'zzz')).toBe(late)
+    expect(existsSync(path.join(worktree, 'secret.ignoreme'))).toBe(true)
+  })
+
+  it('keeps the branch when git cannot answer the ancestry probe', async () => {
+    // A probe that fails proves nothing: not "merged", and not "not merged".
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'landed')
+    f.git.mergeCommit(f.repo, 'landed')
+    const tip = f.git.sha(f.repo, 'landed')
+
+    const result = await run(f, [f.repo], { env: crashing(f, `merge-base --is-ancestor ${tip}`) })
+
+    expect(result.stdout).toContain(
+      'kept landed (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.sha(f.repo, 'landed')).toBe(tip)
+  })
+})

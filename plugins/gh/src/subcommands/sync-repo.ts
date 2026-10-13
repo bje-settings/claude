@@ -52,7 +52,14 @@ import {
   runGit,
 } from '../lib/git.ts'
 import type { Output, Writer } from '../lib/streams.ts'
-import { hasMatch, isPullRequestRow, namesBranch, ownRows, type PullRequestRow } from '../prs.ts'
+import {
+  isOid,
+  isPullRequestRow,
+  mergeCommitOf,
+  ownRows,
+  type PullRequestRow,
+  pullRefOf,
+} from '../prs.ts'
 
 /** The bulk lookup: one API call covers every branch in the repository. When
  *  a window this size comes back full, it is a window, not an answer. This
@@ -208,11 +215,32 @@ type Asked<T> = { readonly value: T } | { readonly reason: string }
 /** Merged pull requests, or the reason they could not be read. */
 type Listed = { readonly rows: PullRequestRow[] } | { readonly reason: string }
 
-/** What a per-branch query established. The last three states are all
- *  reasons to keep a branch, but each is a different statement, and the
- *  report says which one applies. A failed query reported as "none" would
- *  wrongly assert an absence that the code never checked. */
-type ProofState = 'match' | 'moved' | 'none' | 'crowded' | 'error'
+/** What the proof established. Every state but `match` is a reason to keep
+ *  a branch, but each is a different statement, and the report says which
+ *  one applies. A failed query reported as "none" would wrongly assert an
+ *  absence that the code never checked. `unfetched` and `unprobed` are the
+ *  git failures: a fetch that failed, and a probe that could not answer. */
+type ProofState = 'match' | 'moved' | 'none' | 'crowded' | 'error' | 'unfetched' | 'unprobed'
+
+/** The order in which one state outranks another. A state can only be
+ *  raised, never reset, so a fact that one signal found survives the
+ *  failure of the next. `error` replaces only `none`: a "moved" verdict is
+ *  a fact that a failed query does not undo. A git failure outranks
+ *  `moved`, because "none at this commit" is a claim that the failed probe
+ *  never checked. */
+const RANK: Record<ProofState, number> = {
+  none: 0,
+  error: 1,
+  moved: 2,
+  unfetched: 3,
+  unprobed: 3,
+  crowded: 4,
+  match: 5,
+}
+
+/** The state that outranks the other. On a tie, the first stays. */
+const stronger = (held: ProofState, found: ProofState): ProofState =>
+  RANK[found] > RANK[held] ? found : held
 
 /** What {@link SyncRepoRun.advance} did. This is a union, not a triple, so a
  *  caller that reads `target` has already confirmed there is one. */
@@ -249,11 +277,13 @@ class SyncRepoRun {
   private readonly worktrees = new Map<string, string>()
   /** Pull-request state, all of it "unknown" until the bulk lookup runs. */
   private prLookupOk = false
-  private prRows: PullRequestRow[] = []
   private prOwn: PullRequestRow[] = []
   private prBulkSaturated = false
   private prFallbackOff = false
   private prUnchecked = 0
+  /** Each fetch the proof made, by ref. The per-branch query can name a row
+   *  that the bulk window already named, and a ref is fetched only once. */
+  private readonly fetches = new Map<string, Promise<boolean>>()
 
   constructor(options: SyncRepoOptions) {
     this.repo = options.repo
@@ -480,12 +510,12 @@ class SyncRepoRun {
     }
   }
 
-  /** Merged pull requests into the default branch, or the reason they could
-   *  not be read. */
+  /** Merged pull requests into any base, or the reason they could not be
+   *  read. There is no base filter (#348): a stacked pull request keeps its
+   *  parent branch as its base after it merges. Each row's merge commit
+   *  proves where it landed instead ({@link rowProof}). */
   private async prList(limit: number, head?: string): Promise<Listed> {
-    const asked = await this.ask(() =>
-      this.gh.listMergedPullRequests({ base: this.defaultBranch, limit, head }),
-    )
+    const asked = await this.ask(() => this.gh.listMergedPullRequests({ limit, head }))
     if ('reason' in asked) return asked
     // Every reader below asks a row for a field. A payload that is a list of
     // something else is not an answer about merged pull requests. It takes
@@ -640,14 +670,17 @@ class SyncRepoRun {
 
   /** The bulk pull-request window and the ancestry set. This answers with
    *  the ancestry list, or `null` when it could not be read. A failure of
-   *  one signal is reported, and the other carries on. */
+   *  one signal is reported, and the other carries on.
+   *
+   *  The ancestry list holds names, read minutes before the prune loop. It
+   *  only selects the branches to probe. {@link proofFor} proves ancestry
+   *  for the SHA that the prune loop read (#248). */
   private async readMergeProof(): Promise<string[] | null> {
     const listed = await this.prList(PR_LIMIT)
     if ('reason' in listed) {
       this.note(`could not read merged pull requests (${listed.reason}); using ancestry alone`)
     } else {
       this.prLookupOk = true
-      this.prRows = listed.rows
       // A saturated window is a window, not an answer. A repository with
       // more merged pull requests than the limit drops the oldest rows. So
       // a branch merged before that point is absent from the list, even
@@ -689,13 +722,141 @@ class SyncRepoRun {
       return { proved: false, state: state === 'none' ? 'error' : state }
     }
     const own = ownRows(listed.rows)
-    if (own.length > 0 && hasMatch(own, branch, sha)) return { proved: true, state: 'match' }
+    const here = await this.rowsProof(own, branch, sha, true)
+    const found =
+      here === 'match' ? here : stronger(here, await this.rowsProof(own, branch, sha, false))
+    if (found === 'match') return { proved: true, state: 'match' }
     // A saturated result is a window, not an answer. To conclude "none at
     // this commit" from a truncated list is the mistake this guard exists
     // to fix.
     if (listed.rows.length >= PR_BRANCH_LIMIT) return { proved: false, state: 'crowded' }
-    if (own.length > 0) return { proved: false, state: 'moved' }
-    return { proved: false, state }
+    return { proved: false, state: stronger(state, found) }
+  }
+
+  /**
+   * What the rows that name this branch prove. `atTip` selects the rows at
+   * this commit, or the rows at another commit. {@link proofFor} asks for
+   * the first set before the ancestry probe, and for the second set after
+   * it. {@link prProofForBranch} asks for both sets. Only the second set can
+   * need a fetch, of a pull request head.
+   */
+  private async rowsProof(
+    rows: readonly PullRequestRow[],
+    branch: string,
+    sha: string,
+    atTip: boolean,
+  ): Promise<ProofState> {
+    let found: ProofState = 'none'
+    for (const row of rows) {
+      if (row.headRefName !== branch || (row.headRefOid === sha) !== atTip) continue
+      const proof = await this.rowProof(row, sha)
+      if (proof === 'match') return proof
+      found = stronger(found, proof)
+    }
+    return found
+  }
+
+  /**
+   * What one merged row proves about the commit `sha`.
+   *
+   * The row's merge commit must be on `origin/<default>` (#348). A row that
+   * fails it proves nothing. This also refuses a merge into a parent branch
+   * that never landed.
+   *
+   * A head at another commit can prove the branch (#351, #450). `git
+   * cherry` must find a patch-equal commit in the head for each commit of
+   * the branch. A tip behind the head has no commit outside the head, so
+   * `git cherry` lists none. A tip that the remote rebased finds each one.
+   * A local commit with no match gives a `+` line, and the branch stays.
+   * The lines must also match the count of commits in the range. So an
+   * answer that lost its lines is never read as a proof. Last, a merge of
+   * the tip into the head must change nothing ({@link addsNothing}).
+   *
+   * `git cherry` skips merge commits. A local merge that the head does not
+   * hold can carry its own changes, a conflict fix for example. So such a
+   * merge keeps the branch before `git cherry` runs.
+   */
+  private async rowProof(row: PullRequestRow, sha: string): Promise<ProofState> {
+    const merge = mergeCommitOf(row)
+    if (merge === null) return 'none'
+    const local = await this.isLocal(merge)
+    if (local !== 'match') return local
+    const landed = await this.isAncestor(merge)
+    if (landed !== 'match' || row.headRefOid === sha) return landed
+    const head = row.headRefOid
+    // A head that is not a SHA cannot go into a git argv. The row still
+    // names the branch at another commit, which is what `moved` says.
+    if (!isOid(head)) return 'moved'
+    if (!(await this.have(head, pullRefOf(row)))) return 'unfetched'
+    const merges = await gitOut(['rev-list', '--merges', '-n', '1', `${head}..${sha}`], this.here)
+    if (merges === null) return 'unprobed'
+    if (merges !== '') return 'moved'
+    const unmatched = await gitLines(['cherry', head, sha], this.here)
+    if (unmatched === null) return 'unprobed'
+    if (unmatched.some((line) => line.startsWith('+'))) return 'moved'
+    // `git cherry` prints one line for each commit of the range that is not
+    // a merge, and the check above leaves no merge in it. An answer with
+    // another count of lines did not compare every commit, so it proves
+    // nothing.
+    const count = await gitOut(['rev-list', '--count', `${head}..${sha}`], this.here)
+    if (count !== String(unmatched.length)) return 'unprobed'
+    return this.addsNothing(head, sha)
+  }
+
+  /**
+   * Whether a merge of `sha` into `head` gives the tree of `head` (ruling
+   * 10). A patch id ignores whitespace, so `git cherry` cannot see a local
+   * commit that differs from the head only in whitespace. The merge sees
+   * it.
+   *
+   * Both commits are here, so status 1 is a conflict: the tip holds a
+   * change that the head does not. Any other answer that is not the tree
+   * of the head proves nothing. `--write-tree` needs git 2.38 or later. An
+   * older git refuses the option, and the branch stays.
+   */
+  private async addsNothing(head: string, sha: string): Promise<ProofState> {
+    const tree = await gitOut(['rev-parse', '--verify', '--quiet', `${head}^{tree}`], this.here)
+    const merged = await runGit(['merge-tree', '--write-tree', head, sha], this.here)
+    if (merged.status === 1) return 'moved'
+    const written = merged.stdout.split('\n')[0]
+    return isOid(written) && written === tree ? 'match' : 'unprobed'
+  }
+
+  /** Whether the merge commit `oid` is here. There is no fetch (ruling 11).
+   *  {@link fetch} fetched `origin` before the prune loop, and a failed
+   *  fetch stops the run before it. So a merge commit that is not here
+   *  cannot be on the local `origin/<default>`.
+   *  git answers 1 for "not here". Any other failure is a probe that could
+   *  not answer. `cat-file -e` is not used, because it answers 128 both
+   *  for a missing object and for a broken git. */
+  private async isLocal(oid: string): Promise<ProofState> {
+    const probe = await runGit(['rev-parse', '--verify', '--quiet', `${oid}^{commit}`], this.here)
+    if (probe.status === 0) return 'match'
+    return probe.status === 1 ? 'none' : 'unprobed'
+  }
+
+  /** Whether `commit` is on `origin/<default>`. git answers 1 for "no". Any
+   *  other failure is a probe that could not answer, and never a "no". */
+  private async isAncestor(commit: string): Promise<ProofState> {
+    const probe = await runGit(
+      ['merge-base', '--is-ancestor', commit, `refs/remotes/origin/${this.defaultBranch}`],
+      this.here,
+    )
+    if (probe.status === 0) return 'match'
+    return probe.status === 1 ? 'none' : 'unprobed'
+  }
+
+  /** Whether the pull request head `oid` is here, after one fetch of `ref`
+   *  when it was not (ruling 6). A ref of `null` cannot be fetched. */
+  private async have(oid: string, ref: string | null): Promise<boolean> {
+    if (await gitOk(['cat-file', '-e', `${oid}^{commit}`], this.here)) return true
+    if (ref === null) return false
+    let fetched = this.fetches.get(ref)
+    if (fetched === undefined) {
+      fetched = gitOk(['fetch', '--quiet', 'origin', ref], this.here)
+      this.fetches.set(ref, fetched)
+    }
+    return (await fetched) && gitOk(['cat-file', '-e', `${oid}^{commit}`], this.here)
   }
 
   // ------------------------------------------------------------- prune ---
@@ -789,23 +950,29 @@ class SyncRepoRun {
   ): Promise<string | null> {
     // This resets per branch, instead of relying on the arms below to
     // always run. A verdict can then never carry over from the previous
-    // iteration.
-    let state: ProofState = 'none'
-    if (this.prLookupOk && this.prRows.length > 0 && hasMatch(this.prOwn, branch, sha)) {
-      return 'merged PR'
-    }
+    // iteration. An empty list stands for a lookup that failed: no row
+    // then proves anything.
+    const rows = this.prLookupOk ? this.prOwn : []
+    let state = await this.rowsProof(rows, branch, sha, true)
+    if (state === 'match') return 'merged PR'
     // This uses `?.`, not a null check. An ancestry that could not be
     // read, and one that does not name this branch, are the same answer
     // here. The Python's `if ancestry and branch in ancestry` says the
-    // same thing.
-    if (ancestry?.includes(branch)) return `merged into ${this.defaultBranch}`
-
-    // The bulk list can already show this name at another commit. This
-    // code reports that without a second call. The per-branch query below
-    // can only raise this state further.
-    if (this.prLookupOk && this.prOwn.length > 0 && namesBranch(this.prOwn, branch)) {
-      state = 'moved'
+    // same thing. The name only selects the probe. The probe proves the
+    // SHA that this loop read, so a commit added since the list was read
+    // is never deleted on the old answer (#248).
+    if (ancestry?.includes(branch)) {
+      const merged = await this.isAncestor(sha)
+      if (merged === 'match') return `merged into ${this.defaultBranch}`
+      state = stronger(state, merged)
     }
+
+    // The bulk list can show this name at another commit. This code
+    // proves or reports that without a second call. The per-branch query
+    // below can only raise this state further.
+    const moved = await this.rowsProof(rows, branch, sha, false)
+    if (moved === 'match') return 'merged PR'
+    state = stronger(state, moved)
     // This code only asks when the bulk window filled up. An unsaturated
     // window already listed every merged pull request, so a second call
     // cannot find one it missed. To ask anyway would cost one API call per
@@ -816,7 +983,7 @@ class SyncRepoRun {
         // very unlikely to be branch-specific. A rate limit only gets
         // worse with more requests. So this code stops here and reports
         // these branches as never checked.
-        if (state === 'none') state = 'error'
+        state = stronger(state, 'error')
       } else {
         const answer = await this.prProofForBranch(branch, sha, state)
         if (answer.proved) return 'merged PR'
@@ -832,6 +999,10 @@ class SyncRepoRun {
     } else if (state === 'error') {
       this.prUnchecked += 1
       this.bad(`kept ${branch} (could not ask about this branch; unproven, not disproven)`)
+    } else if (state === 'unfetched') {
+      this.bad(`kept ${branch} (could not fetch a merged PR's commits; unproven, not disproven)`)
+    } else if (state === 'unprobed') {
+      this.bad(`kept ${branch} (git could not compare its commits; unproven, not disproven)`)
     } else {
       this.note(`kept ${branch} (no merge proof)`)
     }

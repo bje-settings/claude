@@ -42,6 +42,13 @@ it('takes the base branch and the fork flag when the caller names them', () => {
   expect(row.isCrossRepository).toBe(true)
 })
 
+it('adds the number and the merge commit in the shape gh answers them', () => {
+  const row = pr('feature-a', 'abc123', 'main', false, { number: 7, mergeCommit: 'def456' })
+
+  expect(row.number).toBe(7)
+  expect(row.mergeCommit).toEqual({ oid: 'def456' })
+})
+
 it('collects the rows it was given, and no rows at all for no_prs', () => {
   expect(writePrs(pr('a', '1'), pr('b', '2'))).toHaveLength(2)
   expect(noPrs()).toEqual([])
@@ -186,6 +193,16 @@ it('filters a listing by base branch and truncates at the limit', async () => {
   const rows = (await gh.listMergedPullRequests({ base: 'main', limit: 1 })) as PullRequestRow[]
 
   expect(rows.map((row) => row.headRefName)).toEqual(['a'])
+})
+
+it('answers a merged listing that names no base with every base', async () => {
+  // #348: `sync-repo` sends no base, so a stacked pull request is in the
+  // window too.
+  const gh = createGhServer({ prs: [pr('a', '1'), pr('b', '2', 'a')] })
+
+  const rows = (await gh.listMergedPullRequests({ limit: 10 })) as PullRequestRow[]
+
+  expect(rows.map((row) => row.headRefName)).toEqual(['a', 'b'])
 })
 
 it('filters a merged listing by head, which is the per-branch question', async () => {

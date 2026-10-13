@@ -56,19 +56,33 @@ export interface PullRequestRow {
   readonly [field: string]: unknown
 }
 
+/** The two fields `sync-repo` reads for a merge proof (#348, #450).
+ *  `number` names the ref to fetch the head by, and `mergeCommit` proves
+ *  the merge. gh answers `mergeCommit` as `{ oid }`. */
+export interface MergedKeys {
+  readonly number?: number
+  /** The merge commit's SHA. */
+  readonly mergeCommit?: string
+}
+
 /** One merged pull request, to compose a canned set. This is the port of
- *  `conftest.py`'s `pr`, used by the sync layer's merged-window queries. */
+ *  `conftest.py`'s `pr`, used by the sync layer's merged-window queries.
+ *  A row without `merged` has no `number` and no `mergeCommit`. Such a row
+ *  proves no merge to `sync-repo`, and it never makes the command fetch. */
 export const pr = (
   headRefName: string,
   headRefOid: string,
   baseRefName = 'main',
   isCrossRepository = false,
+  merged: MergedKeys = {},
 ): PullRequestRow => ({
   headRefName,
   headRefOid,
   baseRefName,
   isCrossRepository,
   state: 'MERGED',
+  ...(merged.number === undefined ? {} : { number: merged.number }),
+  ...(merged.mergeCommit === undefined ? {} : { mergeCommit: { oid: merged.mergeCommit } }),
 })
 
 /** The canned set, from the rows given. This is the port of `write_prs`,

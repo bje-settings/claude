@@ -60,9 +60,10 @@ Exit 2 means the command refused the arguments, as with any command here.
 
 The command deletes a branch only with positive proof, from either of two independent signals:
 
-- **A merged pull request.** It must meet three conditions. It merged into the default branch.
-  It came from this repository, not a fork. Its head commit is exactly where your local branch
-  still points.
+- **A merged pull request.** It must meet three conditions. Its merge commit is on the default
+  branch, whatever its base, so a stacked pull request counts. It came from this repository, not
+  a fork. Each commit of your local branch is in its head: the same commit, or a patch-equal one
+  after a rebase on GitHub. A merge of your tip into its head must also change nothing.
 
   That last condition is what makes it evidence about your commits, not about a branch name. A
   name someone reused, or a branch you committed to after the merge landed, no longer matches.
@@ -73,25 +74,27 @@ The command deletes a branch only with positive proof, from either of two indepe
   hide older ones. So, for any branch the first call could not account for, the command makes a
   second call. That second call asks about that branch alone. The fallback call means pruning
   does not quietly stop for a busy repository.
-- **Ancestry**, via `git branch --merged origin/<default>`. This is what catches a branch merged
-  locally and pushed with no pull request at all.
+- **Ancestry**, via `git merge-base --is-ancestor` on the tip that the prune step read. This is
+  what catches a branch merged locally and pushed with no pull request at all.
 
 Either one is sufficient. Neither one alone is complete. The command keeps a branch with no
 proof. The report says what it actually established, rather than a guess at a cause:
 
 | Report | What it means |
 | --- | --- |
-| `no merge proof` | No merged pull request from this repository used this name, and it is not an ancestor of the default branch. |
-| `merged PRs used this name; none at this commit` | Something merged under this name, but not this commit. Either someone rebased the branch before it merged, or the name got reused for unrelated work. The two are indistinguishable here. The command keeps the branch. |
+| `no merge proof` | No merged pull request from this repository used this name with its merge commit on the default branch, and the tip is not an ancestor of the default branch. |
+| `merged PRs used this name; none at this commit` | Something merged under this name, but your branch holds a commit or a change that its head does not. The name got reused, or you committed after the merge. The command keeps the branch. |
 | `too many merged PRs used this name to tell` | The per-branch lookup filled up, so the command could not establish "none at this commit". |
 | `could not ask about this branch` | The lookup did not complete. The command established nothing either way. |
+| `could not fetch a merged PR's commits; unproven, not disproven` | The head of a merged pull request is not here, and one fetch did not bring it. |
+| `git could not compare its commits; unproven, not disproven` | A git probe of the proof failed. The command established nothing either way. |
 
 After the first failed lookup, the command asks no more. The cause is rarely branch-specific, and
 a rate limit only gets worse if the command continues. The report lists remaining branches the
 same way. The run closes with a count of how many it never checked, so nobody mistakes a partial
 run for a complete one.
 
-The last three are all reasons to keep a branch, but they are different statements. A report that
+The last five are all reasons to keep a branch, but they are different statements. A report that
 collapsed them would assert things it had not checked. The command never treats a `gone` upstream
 as proof on its own. A pruned remote branch can equally mean someone abandoned the work.
 
