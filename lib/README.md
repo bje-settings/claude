@@ -15,9 +15,9 @@ below point to what they held at `cd0d515`. Each reference stays because it says
 from. Nothing here changed with the deletion.
 
 Everything here **ships**. Each file takes no dependency. Each file imports nothing outside this
-directory except node's own built-in modules. Today that means `node:util` in `args.ts` and
-`node:child_process` in `process.ts`. `dependencies.ts` imports `node:fs` and `node:path`. `node-floor.ts`, `hook-output.ts`,
-`envelope.ts`, and `streams.ts` import nothing at all. `git.ts` and `gh.ts` reach node only
+directory except node's own built-in modules. Today that means `node:util` in `args.ts`,
+`node:child_process` in `process.ts`, and `node:fs` and `node:path` in `dependencies.ts`.
+`node-floor.ts`, `hook-output.ts`, `envelope.ts`, and `streams.ts` import nothing at all. `git.ts` and `gh.ts` reach node only
 through `process.ts`.
 
 Each file stays inside the erasable subset that node's type stripping handles: no `enum`, no
