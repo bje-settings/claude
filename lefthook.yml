@@ -106,6 +106,14 @@ pre-commit:
           printf '!! CI enforces it on the pull request. Install locally with:\n!!   pnpm install\n\n' >&2
         fi
 
+    # `scripts/sync-lib.ts --check` runs when a file in lib/, or a copy of
+    # one in a plugin, is staged (ADR 006). It reads the working tree, the
+    # same way `tsc` does. It fails when a copy differs from lib/, so a
+    # commit cannot change lib/ and leave a copy behind. It needs node only.
+    sync-lib:
+      glob: '{lib/*.ts,plugins/*/src/lib/*.ts}'
+      run: node scripts/sync-lib.ts --check
+
     # `vitest related` resolves the module graph and runs only the tests
     # that reach a staged file. So the hook scales with the diff, rather
     # than with the repository (ADR 002). `--coverage.enabled=false`:

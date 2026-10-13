@@ -1,18 +1,13 @@
 # lib
 
-This directory holds the code shared between plugins. One copy lives at the repository root. A
-plugin reaches it through a committed symlink at `plugins/<plugin>/src/lib -> ../../../lib`
-(ADR 001, RFC 001 decision 4).
+This directory holds the code shared between plugins. It is the one place to edit that code.
+Each plugin holds copies of the files it imports, and of the files that those import, in
+`plugins/<plugin>/src/lib/` (ADR 006). After an edit here, run `node scripts/sync-lib.ts` to
+write the copies. `node scripts/sync-lib.ts --check` fails when a copy differs from this
+directory, and `tests/repo/sync-lib.test.ts` runs it. Never edit a copy.
 
-The Claude Code [plugins reference](https://code.claude.com/docs/en/plugins-reference) sorts a
-symlink into three groups when it installs a plugin. A symlink with a target inside the plugin
-stays as a symlink. A symlink with a target elsewhere in the same marketplace turns into a real
-file in the cache copy. A symlink with a target outside the marketplace does not install at all.
-
-This link is the second case. An installed plugin holds a real copy of these files. It needs
-nothing at run time that the marketplace did not ship. The test `tests/repo/repo-layout.test.ts` checks
-the link target as the exact string `../../../lib`, not as a resolved path. A different spelling of
-the target could resolve to the same place. It could still install a different way.
+A copy is byte-equal to its source here. So an installed plugin needs nothing at run time that
+the plugin did not ship, whatever the install method.
 
 **The Python code this directory ports was deleted at #127.** `plugins/gh/scripts/*.py`, its
 `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree. The file and line references
@@ -26,9 +21,10 @@ directory except node's own built-in modules. Today that means `node:util` in `a
 through `process.ts`.
 
 Each file stays inside the erasable subset that node's type stripping handles: no `enum`, no
-parameter properties, and no namespaces. The tests live in `tests/lib/`, not here, because every
-plugin ships this directory through its `src/lib` symlink (ADR 004). `lib/**/*.ts` is measured at
-100 percent on lines, branches, functions, and statements.
+parameter properties, and no namespaces. The tests live in `tests/lib/`, not here, because each
+plugin ships copies of these files (ADR 004). `lib/**/*.ts` is measured at 100 percent on lines,
+branches, functions, and statements. The copies are not measured: in a test run,
+`vitest.config.ts` sends each import of a copy here.
 
 `tests/lib/fixtures/` holds the tiny programs that `tests/lib/process.test.ts` runs as real child
 processes. One child sleeps. One child starts a child process of its own. One child exits before
@@ -251,9 +247,9 @@ command quotes `detail`, not `message`, in a one-line reason. The ordinary refus
 of stderr ("gh: API rate limit exceeded"), so tailing `message` would put the whole argv inside the
 report.
 
-Every member of `GhError` is public. `lib/` is reachable under two paths, through the `src/lib`
-symlink. A `private` or `protected` member would make the class nominal per declaration, and the
-two identities would no longer be assignable to each other.
+Every member of `GhError` is public. `tsc` sees each file here under two paths: its own, and the
+copy in `plugins/<p>/src/lib/`. A `private` or `protected` member would make the class nominal
+per declaration, and the two identities would no longer be assignable to each other.
 
 Three inputs are required, where an optional one would let back in a defect this layer exists to
 close. `watchChecks`'s `boundMs` is one (round 5's handoff fact 1). `listMergedPullRequests`'s
@@ -623,8 +619,8 @@ to a thrown `JevError`. That covers a server's error body, a foreign `Error#mess
 to echo a request header, and a malformed body that happens to contain the key. `JevError` carries
 `status` (0 for a transport failure that never got a response) and `body`. Like `GhError`, it has no
 private member: `tsc` sees a class exported from `lib/` under two identities, its real path and
-`plugins/<p>/src/lib/typesafe.ts` through the committed symlink, and a `private` or `protected`
-field would make the two identities no longer assignable to each other.
+the copy at `plugins/<p>/src/lib/typesafe.ts`, and a `private` or `protected` field would make
+the two identities no longer assignable to each other.
 
 **`jev.ts`.** `JevClient` wraps `typesafe.ts`'s `ask` with the five per-unit judgments (`kind`,
 `volatile`, `self_contained`, `evidence`, `multi_assertion`), the pair check, and the evidence
