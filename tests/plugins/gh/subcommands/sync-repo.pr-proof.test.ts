@@ -378,6 +378,23 @@ describe('a change that git cherry cannot see', () => {
     expect(f.git.branches(f.repo)).toContain('rebased')
   })
 
+  it('keeps the branch when the merged tree is not the tree of the head', async () => {
+    // The merge works, but the tree it gives is compared with an answer
+    // that git lost. Only an equal tree proves the branch.
+    const f = fixture()
+    const { head, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: silenced(f, `rev-parse --verify --quiet ${head}^{tree}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
   it('keeps the branch when the merge and the tree of the head answer with nothing', async () => {
     const f = fixture()
     const { head, row } = rebasedByRemote(f, 'rebased', 4)
