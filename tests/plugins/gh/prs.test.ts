@@ -62,6 +62,7 @@ describe('isOid', () => {
     expect(isOid(`-${SHA1}`)).toBe(false)
     expect(isOid(`${SHA1}\n`)).toBe(false)
     expect(isOid(40)).toBe(false)
+    expect(isOid([SHA1])).toBe(false)
   })
 })
 
