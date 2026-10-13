@@ -602,7 +602,7 @@ describe('gh on PATH: the walk past entries that do not count', () => {
     expect((await run(env)).stdout).toContain(ABSENT)
   })
 
-  it('walks past a directory and a plain file to a later executable, and takes the first', async () => {
+  it('walks past a directory and a plain file to a later executable', async () => {
     const sandbox = createSandbox()
     const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
     mkdirSync(sandbox.join('dir', 'gh'), { recursive: true })
