@@ -192,6 +192,18 @@ describe('the plugin boundary', () => {
     expect(crossPluginImports(plugins)).toEqual([])
   })
 
+  it('reads the copies too, and refuses an import out of one', () => {
+    // A lib/ file whose import leaves lib/ works in the checkout. Its copy
+    // in a plugin then imports a path that the installed plugin lacks.
+    const plugins = build({
+      plugins: ['a'],
+      files: { 'a/src/lib/bad.ts': "import { x } from '../../../elsewhere.ts'\n" },
+    })
+    expect(crossPluginImports(plugins)).toEqual([
+      'a/src/lib/bad.ts: imports ../../../elsewhere.ts, which resolves outside the plugin',
+    ])
+  })
+
   it('refuses a relative import into another plugin', () => {
     const plugins = build({
       plugins: ['a', 'b'],
