@@ -409,6 +409,10 @@ const VITEST_VERB = /(^|[\\/])vitest(\.cmd)?$/i
  *  git command's own `-C`. */
 export interface VitestTarget {
   readonly directory: string | null
+  /** The directory of a leading `cd <dir> &&` that this run follows
+   *  ({@link vitestTarget}), as typed. A relative `directory` also joins to
+   *  it. Absent when no such `cd` applies. */
+  readonly base?: string
   /** True when the directory could not be read: a quote never closes, or one
    *  is left in the value. The guard then reports it and allows the run. */
   readonly unclosedQuote?: true
@@ -468,10 +472,11 @@ const readDirectoryValue = (value: string): string | null => {
  *  -C=<dir> test` runs the script in `<dir>`, the same as `pnpm -C <dir>
  *  test`; the attached form with no `=`, `-C<dir>`, is not a pnpm spelling
  *  at all). The worktree workflow's own rule is "every command names its
- *  directory by absolute path. Never `cd`."
- *  (`plugins/workstreams/skills/stream/brief.md`), which makes this the
- *  ordinary spelling a subagent uses to test one worktree, not an edge
- *  case. A directory value wrapped in one matching pair of quote marks has
+ *  directory by absolute path. Never `cd`", with two exceptions, `gh stack`
+ *  and the scratchpad real exercise (rule 12 of
+ *  `plugins/workstreams/skills/stream/brief.md`). So this is the ordinary
+ *  spelling a subagent uses to test one worktree, not an edge case.
+ *  {@link vitestTarget} reads the leading `cd` of the two exceptions. A directory value wrapped in one matching pair of quote marks has
  *  them stripped. The tokens keep a quoted span whole, so a path with a
  *  space is one value (#371); an empty value, from either form, reads
  *  as no directory named, the meaning {@link Destructive.directory} also
@@ -551,20 +556,80 @@ const readVitestSegment = (segment: string): VitestTarget | undefined => {
     : (readVitestTarget(tokens) ?? readVitestTarget(segment.trim().split(/\s+/)))
 }
 
-/** What a `vitest` run in `command` would act on, or `undefined` when no
- *  segment starts one, cut at the same shell operators {@link
- *  destructiveGit} cuts at. */
+/** The segments of a command and the operator after each: the same cuts as
+ *  {@link SEGMENTS}, with the operators kept. Even indexes are segments, odd
+ *  ones operators. */
+const WITH_OPERATORS = /([;\n]|&&|\|\|?)/
+
+/** A directory that could not be read whole: a quote mark left in the value
+ *  (`/w/"a b"`), or a `'` span with a space in it. The guard says so and
+ *  allows, as for an unclosed quote. A lone `'`, as in `it's`, is a real
+ *  name. */
+const hasStrayQuote = (directory: string): boolean => /"|'[^']*\s[^']*'/.test(directory)
+
+/** A segment as a run reads it: `(pnpm test)` is `pnpm test`. A subshell
+ *  parenthesis joined to the first or the last word hid the verb (`(cd /x`,
+ *  `test)`), so the run was not found (#397). */
+const unwrapped = (segment: string): string =>
+  segment
+    .trim()
+    .replace(/^\(+\s*/, '')
+    .replace(/\)+$/, '')
+
+/** The directory of a segment that is `cd <dir>` and nothing else, or `null`.
+ *  A directory that depends on the shell (`-`, `~`, a variable or a
+ *  substitution), an option, or a second word is not read, so the run
+ *  after it keeps the payload cwd, as it did before #397. */
+const cdDirectory = (segment: string): string | null => {
+  const { tokens, closed } = tokenize(unwrapped(segment))
+  if (!closed || tokens.length !== 2 || tokens[0] !== 'cd') return null
+  const directory = readDirectoryValue(at(tokens, 1))
+  return directory === null || /^[-~]|[$`]/.test(directory) ? null : directory
+}
+
+/**
+ * What a `vitest` run in `command` would act on, or `undefined` when no
+ * segment starts one, cut at the same shell operators {@link
+ * destructiveGit} cuts at.
+ *
+ * A leading `cd <dir> &&` names the directory of the run that follows
+ * (#397, round 16 ruling 6). It covers two forms, `cd <dir> && pnpm test`
+ * and `(cd <dir> && pnpm test)`. The rule is the narrowest that covers
+ * them:
+ *
+ *   - The `cd` is the first segment of the command, with `&&` after it. A
+ *     `;`, a `||` or a `|` after it does not qualify: the run may not follow
+ *     a `cd` that worked, or may run in a pipeline's own subshell. A `cd`
+ *     later in the command is not read as a leading one.
+ *   - Its scope ends at a second `cd`, and, for the subshell form, at the
+ *     segment that closes the parenthesis. A run after that keeps the
+ *     payload cwd, as before #397.
+ *   - A `cd` after the run changes nothing, because the loop returns at the
+ *     first run.
+ *   - A `pnpm -C` of the run's own wins over the `cd`. A relative one joins
+ *     to the `cd` directory, as the shell would.
+ */
 export const vitestTarget = (command: string): VitestTarget | undefined => {
-  for (const segment of command.split(SEGMENTS)) {
-    const target = readVitestSegment(segment)
-    if (target === undefined) continue
+  const parts = command.split(WITH_OPERATORS)
+  const first = parts[0] as string
+  const leading = parts[1] === '&&' ? cdDirectory(first) : null
+  let base: { readonly directory: string; readonly subshell: boolean } | null =
+    leading === null ? null : { directory: leading, subshell: /^\s*\(/.test(first) }
+
+  for (let index = leading === null ? 0 : 2; index < parts.length; index += 2) {
+    const segment = parts[index] as string
+    if (/^\s*\(*\s*cd(\s|$)/.test(segment)) base = null
+    const target = readVitestSegment(unwrapped(segment))
+    if (target === undefined) {
+      if (base?.subshell && segment.trim().endsWith(')')) base = null
+      continue
+    }
+    const named = base === null ? target : { ...target, base: base.directory }
     // A quote mark kept inside a token, as in `/w/"a b"`, means the value was
-    // not read whole. A `"` in a path, or a `'` span with a space in it, is
-    // not a path to trust. A lone `'`, as in `it's`, is a real name.
-    // The guard says so and allows, as for an unclosed quote.
-    return target.directory !== null && /"|'[^']*\s[^']*'/.test(target.directory)
+    // not read whole.
+    return [named.directory, named.base].some((value) => value != null && hasStrayQuote(value))
       ? { directory: null, unclosedQuote: true }
-      : target
+      : named
   }
   return undefined
 }
@@ -645,8 +710,12 @@ const secondSuite = async (
     return undefined
   }
 
+  // A leading `cd` moves the run's base from the payload cwd to its own
+  // directory (#397). A relative `pnpm -C` then joins to that base.
+  const base =
+    target.base === undefined ? call.cwd : await namedDirectory(target.base, call.cwd, context)
   const directory =
-    target.directory === null ? call.cwd : await namedDirectory(target.directory, call.cwd, context)
+    target.directory === null ? base : await namedDirectory(target.directory, base, context)
   if (directory === null) {
     context.output.err.write(
       'workstreams guard: the payload carries no cwd, so a second vitest run could not be ' +

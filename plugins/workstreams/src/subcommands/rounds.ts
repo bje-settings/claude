@@ -5,7 +5,8 @@
 // its newest plan comment, and to no other. So a lookup by one round's
 // issues cannot reach a round that holds other issues. A milestone can hold
 // the issues of more than one round. A round is in flight while one of its
-// issues is open, until a comment after its plan starts with `<round> end,`.
+// issues is open, until a comment after its plan ends it. That comment
+// starts with `<round> end,`, or is the older heading `## Round end: <round>`.
 //
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
@@ -24,7 +25,8 @@ time is the approval to the minute, in UTC. The round's name starts with a
 letter or a digit. Each open issue belongs to the round of its newest plan
 comment. A round is in flight while one of its issues is open, until a
 comment after its plan, on any of its open issues, starts with
-"<round> end,". For each round in flight, the report gives:
+"<round> end," or is the older heading "## Round end: <round>", where the
+round's name may differ in case. For each round in flight, the report gives:
 
   name        the round's name, from the plan's first line
   plan        the plan's whole first line, which is the round's identity
@@ -72,6 +74,12 @@ const SPEC = {
  *  starts with a letter or a digit, so a Markdown heading or a quote is not
  *  a plan line. */
 const PLAN_LINE = /^([A-Za-z0-9].*?) plan, approved \S+\.$/
+
+/** The older round end: a first line that is a heading, `## Round end:`, then
+ *  the round's name. #405: bje-settings/shadcn posted this form before the
+ *  `<round> end,` form was fixed. `place` compares the name with case folded,
+ *  because the heading was typed by hand. */
+const OLD_END_HEADING = /^## Round end: (.*)$/i
 
 /** The words the search matches. A first line that holds them and is not a
  *  plan line is a plan that did not parse. */
@@ -127,6 +135,13 @@ interface Placed {
   readonly unparsed: boolean
 }
 
+/** Whether a first line ends the round `name`, in either form. */
+const endsRound = (firstLine: string, name: string): boolean => {
+  if (firstLine.startsWith(`${name} end,`)) return true
+  const old = OLD_END_HEADING.exec(firstLine)
+  return old !== null && (old[1] as string).trim().toLowerCase() === name.toLowerCase()
+}
+
 /** The round of an issue's newest plan comment, and what else its comments
  *  say about it. */
 export const place = (issue: IssueComments): Placed => {
@@ -141,7 +156,7 @@ export const place = (issue: IssueComments): Placed => {
       unparsed = false
     } else if (comment.firstLine.includes(PLAN_WORDS)) {
       unparsed = true
-    } else if (newest !== null && comment.firstLine.startsWith(`${newest.name} end,`)) {
+    } else if (newest !== null && endsRound(comment.firstLine, newest.name)) {
       ended = true
     }
   }

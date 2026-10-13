@@ -77,6 +77,7 @@ stay possible.
 A round is its issue set. Each issue is in the round of its newest plan comment, and in
 no other. `start` runs `rounds` with its scope to find the round in flight. A round is in
 flight while one of its issues is open, until a `<round> end,` record follows its plan.
+The older `## Round end: <round>` heading ends a round too (#405).
 A scope that is part in a round and part in none is a stop. `question` checks the issues
 once more before it posts a plan. So two rounds in one repository, on two issue sets,
 never act or comment on each other's issues and pull requests. Each round's watch takes
@@ -470,7 +471,8 @@ Names the rounds in flight, each with its name, its plan line, when it was plann
 its open issues. It searches the open issues with a `plan, approved` comment, newest
 update first. Each open issue is in the round of its newest plan comment. A round with a
 `<round> end,` comment after its plan, on any of its open issues, has ended, and is left
-out. A round with no open issue is left out too, so the rounds that ended before #368
+out. So has a round with the older `## Round end: <round>` heading there, where the name
+may differ in case (#405). A round with no open issue is left out too, so the rounds that ended before #368
 added the end record do not stay in flight. Issues group by the whole plan line, which
 carries the approval time, so two rounds of one name stay apart (#379). A plan line starts
 with a letter or a digit.
