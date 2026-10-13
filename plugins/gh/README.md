@@ -114,8 +114,9 @@ worktree and its branch alone, and reports them.
 
 Merges every open, non-draft pull request that has auto-merge set, one at a time. An optional
 argument narrows this to one label. It rebases each one if it is behind. It waits on CI once per
-cycle. It fixes mechanical failures, on any pull request whether a human or a bot authored it. It
-skips anything that needs a logic change. Auto-merge does the actual merge. The skill only gets
+cycle. It resolves conflicts by merging the base branch into the pull request, and fixes the
+failures that the merge caused, on any pull request whether a human or a bot authored it.
+Auto-merge does the actual merge. The skill only gets
 each pull request to green, and confirms it landed before it starts the next one.
 
 Serial is the point. A strict up-to-date rule puts every other open pull request behind after
@@ -152,20 +153,15 @@ high), oldest first within a band.
 | State | Action |
 | --- | --- |
 | Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. |
-| Conflicts, Dependabot branch | Comment `@dependabot recreate`, wait for the head to move, then wait for CI. Dependabot sometimes closes the pull request while the skill waits, when another pull request already shipped the same or a newer version. When that happens, `recreate` returns early, and the report marks it closed, not skipped. |
-| Conflicts, human branch | Skipped: a human or a larger model decides. The skill never resolves it. |
+| Conflicts | In a throwaway worktree, `git merge origin/<base>` into the head branch, for any author. Regenerate a lockfile with the repository's own package manager. Keep the keys of both sides in a manifest. Keep both intents in code. Verify locally, commit, and run a plain `git push`. Then wait for CI. Never rebase, and never force-push. |
 | Checks in progress | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
 | Checks green, auto-merge fired | Record it with the merge commit. Continue. |
 | Checks green, still open | `settle`: read the pull request until GitHub decides. Record `merged` as merged, and `closed` as closed. A `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is skipped. The reason names that field. `BEHIND` or `DIRTY` sends the loop back to decide again. If the bound passes with nothing reported, that itself is the reason. Never merge it by hand. |
-| Checks failed, mechanical | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, or a snapshot whose diff is only the dependency's own output. A second failure is a skip. |
-| Checks failed, not mechanical | Skipped: this covers anything that touches program logic, a test's expected behaviour, configuration meaning, or a CI workflow. |
-| Checks failed, unclear | Skipped, with a `hypothesis` when the worker has one. |
-| Checks failed, mechanical but unverifiable locally | For example, a failure that reproduces only with CI-only secrets. Skipped, with the hypothesis. Never push on a guess: a push would stop Dependabot's maintenance of the branch, and the one-fix cap would turn a wrong guess into a skip. |
+| Checks failed, caused by the merge | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot refresh, or a configuration move that the new base requires (an override from `package.json` to `pnpm-workspace.yaml` for pnpm 12). A pull request that had conflicts gets one merge push and one fix. A second failure is a skip that names both attempts and the conflicted files. |
+| Checks failed, already failing | Skipped: the check failed on the pull request's own head before the skill touched it. The reason names the check, the files, and why. |
+| Checks failed, unexplained or unverifiable locally | For example, a failure that reproduces only with CI-only secrets. Skipped, with a `hypothesis` when the worker has one. Never push on a guess: the one-fix cap would turn a wrong guess into a skip. |
 
-`@dependabot recreate` re-resolves the version. It does not reuse the original bump. So a pull
-request opened as `x.y.z → x.y.z+1` can merge as `x.y.z → x.y.z+2`, if a newer release landed
-while it waited. This is expected Dependabot behaviour. The report's `merged_as` column says so
-when it happens.
+The report lists each conflicted file of a fixed pull request, and how the skill resolved it.
 
 The default worker is Sonnet, at medium effort. A rebase, a check read, and a failure
 classification are all small-model work.
@@ -219,7 +215,6 @@ Never:
 - enable or disable auto-merge
 - bypass or re-run a required check
 - edit labels
-- resolve conflicts on a human's branch
 - force-push
 - commit with `--no-verify`
 
@@ -229,25 +224,15 @@ The deterministic parts are two commands. The agent only decides between their r
 
 ```bash
 node <plugin>/scripts/gh.ts shepherd-status <path> [label]        # the work list, as JSON
-node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|recreate|wait|settle|merged
+node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|wait|settle|merged
 ```
 
-`shepherd-status` changes nothing. `shepherd-pr` writes only through two actions: `rebase` (the
-branch update), and `recreate` (one comment). It refuses each of those when its precondition does
-not hold:
-- a pull request that is not open
-- a `recreate` on a branch Dependabot did not author
+`shepherd-status` changes nothing. `shepherd-pr` writes only through one action: `rebase` (the
+branch update). It refuses that when its precondition does not hold: the pull request is not
+open.
 
 Every action prints one JSON object, with `ok` and `detail`, and exits 0 whether or not it acted.
 So a refusal is data for the agent, not a crash.
-
-`recreate` also re-reads the pull request on every poll. A moved head is `recreated`. A pull
-request closed or merged with its head unmoved returns early, with `ok: true` and
-`result: "closed"` or `"merged"`. It does not wait out the bound. A poll that cannot read the pull
-request is counted as such, never mistaken for "the head did not move". If no poll succeeded, the
-detail says so, and carries gh's last error. `recreate` is for Dependabot's own pull requests. The
-summary's `is_bot` says whether any bot opened it. `is_dependabot` is what the refusal turns on,
-because `@dependabot recreate` on a renovate branch is a comment nothing will answer.
 
 Nothing here reports a silence as a fact. When gh could not answer a read, the report carries
 gh's own words. When an answer lacks a field the loop decides from, the command refuses it. It
@@ -265,7 +250,7 @@ wait out a bound on a question nobody asked. A pull request that has already mer
 answer instead of a refusal, because that answer is exactly what `settle` is asked for.
 
 `node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs
-(`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_POLL_SECONDS`, `SHEPHERD_LOG_LINES`,
+(`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_LOG_LINES`,
 `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`).
 
 Repository discovery is shared with `/gh:sync`. Both skills resolve their scope by the same rule.

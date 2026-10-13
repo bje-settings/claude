@@ -113,6 +113,32 @@ it('does not re-read a blocked entry that names a cause', () => {
   }
 })
 
+it('names no recreate action in the agent', () => {
+  // Shepherd resolves a Dependabot conflict like any other (#346).
+  expect(read(AGENT)).not.toContain('recreate')
+})
+
+it('resolves a conflict by merging the base, and forbids force', () => {
+  const body = read(AGENT)
+  const hardRules = section(AGENT, '## Hard rules', '## The loop')
+
+  expect(body).toContain('git merge origin/<base>')
+  expect(body).toContain('plain `git push`')
+  expect(body).toContain('Never use `--force`')
+  expect(hardRules).toContain('never force')
+})
+
+it('reports the conflicted files and how each was resolved', () => {
+  expect(section(AGENT, '## Report')).toContain('conflicts')
+})
+
+it('does not list conflict resolution among what the skill never does', () => {
+  const never = section(SKILL, '## What this skill never does')
+
+  expect(never).not.toContain('conflict')
+  expect(never).toContain('force-push')
+})
+
 it('draws the settle branch in the shepherd diagram', () => {
   const body = section(FLOW, '```mermaid', '```')
 

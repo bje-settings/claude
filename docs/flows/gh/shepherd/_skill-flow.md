@@ -32,12 +32,8 @@ flowchart TD
         T -->|Already merged or closed| S
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
         T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
-        T -->|Conflicts, Dependabot branch| RC[Ask Dependabot to recreate]
-        RC -->|Head moved| W
-        RC -->|Closed, head unmoved: usually superseded by another PR| CS([Closed, terminal]):::stop --> S
-        RC -->|Merged, head unmoved| S
-        RC -->|Head never moved, comment failed, or PR unreadable| BR([Skipped: recreate did not land]):::stop --> S
-        T -->|Conflicts, human branch| E([Skipped: needs a human or larger model]):::stop --> S
+        T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W
+        MG -->|Cannot resolve or verify| E([Skipped: names the conflicted files]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
         W -->|Checks green| P[Settle: read until GitHub decides]
@@ -45,13 +41,13 @@ flowchart TD
         P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Skipped: reason names only what was read]):::stop --> S
         P -->|Bound passed, nothing reported against it| BL
         P -->|Base moved: BEHIND or DIRTY| T
-        P -->|Closed while settle runs| CS
+        P -->|Closed while settle runs| CS([Closed, terminal]):::stop --> S
         W -->|Still in progress| W
         W -->|Still in progress after three waits, head unchanged| BP([Skipped: checks did not finish]):::stop --> S
-        W -->|Checks failed| K{Fix is mechanical?}
-        K -->|Yes, first attempt, any author| F[Fix in a throwaway worktree, push] --> W
-        K -->|No: touches logic, tests, or config meaning| SK([Skipped: not mechanical]):::stop --> S
-        K -->|Cannot tell, or mechanical but unverifiable locally| E
+        W -->|Checks failed| K{Cause of the failure?}
+        K -->|Caused by the merge, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
+        K -->|Already failing on the PR's own head| SK([Skipped: failed before the merge]):::stop --> S
+        K -->|Cannot explain, or unverifiable locally| E
     end
 
     C --> D[Collate worker reports]
