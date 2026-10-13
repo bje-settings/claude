@@ -4,7 +4,7 @@ description: What the /gh:sync skill does, and every way it declines to act.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-25
+  at: 2026-10-13
 ---
 
 # /gh:sync skill flow
