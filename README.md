@@ -3,6 +3,17 @@
 A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) for the
 `bje` enterprise, defined in `.claude-plugin/marketplace.json`.
 
+## Install
+
+Add the marketplace, then install each plugin you want:
+
+```text
+/plugin marketplace add bje-settings/claude
+/plugin install <plugin>@bje
+```
+
+`/plugin install` opens the plugin's details in the `/plugin` panel, where you install it.
+
 ## Plugins
 
 Each plugin is one domain of work, and you install it on its own. The lists below are an index.
@@ -35,7 +46,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Hooks</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: one status line on start, resume and clear. It shows commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem gets a line of its own, such as a failed fetch or a missing git. Never changes a branch, worktree, or working tree.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: one status line on start, resume, clear and compact. It shows commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem gets a line of its own, such as a failed fetch or a missing git. It fetches, but never changes a branch, worktree, or working tree.</li>
       </ul>
     </td>
   </tr>
@@ -43,21 +54,19 @@ The plugin's own README has the detail, including the scripts the skills and hoo
 
 ### [`workstreams`](plugins/workstreams)
 
-> The round primitives are the pieces a round of issue-tracker work runs on. The team rebuilds
-> this plugin from scratch, under [#111](https://github.com/bje-settings/claude/issues/111).
-> All five primitives exist. `/workstreams:start`, the orchestrator, is the one entry. The
-> sweep, the question phase, the stream, and the review loop are model-only: it invokes them.
+> Round primitives for issue-tracker work. `/workstreams:start` is the one entry that you run.
+> Claude starts the other four.
 
 <table>
   <tr>
     <th scope="row">Skills</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstart"><code>/workstreams:start</code></a>: run a round, or continue one. It invokes the sweep and the question phase, then builds a layer at a time and reviews each to done. It arms a watch with the Monitor tool, which wakes it on each new head, required check and merge. On each wake it checks each new head and looks for a collision between streams. At the round end it posts the merge sequence and the cost. Nothing merges. With <code>#&lt;pr&gt;</code>, it takes one pull request through review to done. <em>Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamssweep"><code>/workstreams:sweep</code></a> (model-only): find what a round could start on. It reports the unblocked set, and the rest with their open blockers. Then it reads the issue bodies and the decision records. It maps the files each issue touches, and sizes each one. Then it sequences them into parallel streams, a stack, or one pull request. <em>Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsreview"><code>/workstreams:review</code></a> (model-only): take one step of the review loop on one draft pull request. A round runs the <code>pr-review-toolkit</code> reviewers over the pull request's own diff. It verifies every finding and every rejection against the code. It applies what holds, then pushes and watches CI. The loop runs at most two rounds. Then it checks the title and body against the final diff. <em>Scope: one pull request, in its own worktree.</em></li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>/workstreams:stream</code></a> (model-only): build one issue, or one stack of them, in one worktree, a step for each call. It writes each layer's brief from the template, and dispatches one sized agent per layer. The layer opens its own draft pull request. It reads each layer's return. <em>Scope: one worktree, one branch per layer.</em></li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsquestion"><code>/workstreams:question</code></a> (model-only): turn a sweep report into an approved plan. It explores every open item before it asks. It asks one question at a time, with a recommendation and the argument against it. It records the rulings that are cheap to reverse instead. It enters plan mode itself. Then it posts the plan comment on every issue in the round, once the human approves it. <em>Scope: the round the sweep named.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstart"><code>/workstreams:start</code></a>: run a round, or continue one. It invokes the sweep and the question phase, then builds a layer at a time and reviews each to done. It arms a watch with the Monitor tool, which wakes it on each new head, required check and merge. On each wake it checks each new head and looks for a collision between streams. At the round end it reports the merge sequence and the cost. Nothing merges. With <code>pr &lt;n&gt;</code>, it takes one pull request through review to done. <em>Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamssweep"><code>workstreams:sweep</code></a>: find what a round could start on. It reports the unblocked set and the number of blocked issues. Then it reads the issue bodies and the decision records. It maps the files each issue touches, and sizes each one. Then it sequences them into parallel streams, a stack, or one pull request. <em>Claude starts it for <code>/workstreams:start</code>. It has no slash command. Scope: the repository <code>gh</code> resolves from <code>cwd</code>.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsreview"><code>workstreams:review</code></a>: take one step of the review loop on one draft pull request. A round runs the <code>pr-review-toolkit</code> reviewers over the pull request's own diff. It verifies every finding and every rejection against the code. It applies what holds, then pushes. It reads CI once and never waits for it. The loop runs at most two rounds. Then it checks the title and body against the final diff. <em>Claude starts it for <code>/workstreams:start</code>. It has no slash command. Scope: one pull request, in its own worktree.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>workstreams:stream</code></a>: build one issue, or one stack of them, in one worktree, a step for each call. It writes each layer's brief from the template, and dispatches one sized agent per layer. The layer opens its own draft pull request. It reads each layer's return. <em>Claude starts it for <code>/workstreams:start</code>. It has no slash command. Scope: one worktree, one branch per layer.</em></li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsquestion"><code>workstreams:question</code></a>: turn a sweep report into an approved plan. It explores every open item before it asks. It asks one question at a time, with a recommendation and the argument against it. It records the rulings that are cheap to reverse instead. It enters plan mode itself. Then it posts the plan comment on every issue in the round, once the human approves it. <em>Claude starts it for <code>/workstreams:start</code>. It has no slash command. Scope: the round the sweep named.</em></li>
       </ul>
     </td>
   </tr>
@@ -73,7 +82,8 @@ The plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Hooks</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#the-guard-hook">Pre tool use</a>: refuses a background command, and refuses <code>git checkout</code> with a pathspec or <code>git restore</code>, on a tree with uncommitted work. It does this to subagents only. The main conversation is never denied.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#the-guard-hook">Pre tool use</a>: refuses a background command, a git command that would overwrite uncommitted work in a tracked file, and a <code>vitest</code> or <code>pnpm test</code> run while one already runs in the same worktree. It does this to subagents only. The main conversation is never denied.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#sessionstart-hook">Session start</a>: checks the plugin's requirements when a session starts, resumes, clears or compacts. It writes nothing when all are present. It writes one line for each absent item.</li>
       </ul>
     </td>
   </tr>
@@ -88,7 +98,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Skills</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/mermaid#mermaidview"><code>/mermaid:view</code></a>: share a mermaid.live or mermaid.ink preview link, built by a script rather than by hand. Do this whenever a Mermaid diagram is written, edited, or reviewed.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/mermaid#mermaidview"><code>/mermaid:view</code></a>: share a mermaid.live or mermaid.ink preview link, built by a script rather than by hand. Claude shares it whenever a Mermaid diagram is written, edited, or reviewed.</li>
       </ul>
     </td>
   </tr>

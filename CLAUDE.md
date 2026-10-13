@@ -158,13 +158,6 @@ session then installs each enabled `@bje` plugin.
 Otherwise `.claude/settings.json` matches SurveyMonkey/skills' settings: it turns off auto memory
 (`autoMemoryEnabled`) and strips the attribution trailer (`attribution`).
 
-## Enterprise CLAUDE.md
-
-`ENTERPRISE_CLAUDE.md` is the `CLAUDE.md` for the `~/Code/@bje/` directory itself. It is
-symlinked there, so enterprise-wide context lives here instead of in the personal dotfiles
-repository. `ENTERPRISE_REPO_MIGRATION.md` is symlinked alongside it as
-`~/Code/@bje/REPO-MIGRATION.md`: the plan for which `brianespinosa` repos move into which bje org.
-
 ## Records
 
 Decisions live in `docs/rfc/` and `docs/adr/`, under `.claude/rules/path-docs.md` and its
