@@ -11,8 +11,10 @@ import {
   type GhReplies,
   ghFails,
   type PullRequestDetail,
+  type PullRequestHead,
   type WorkflowRun,
 } from '#harness/gh.ts'
+import { MAX_STACK_DEPTH } from '#workstreams/required-contexts.ts'
 import {
   deriveState,
   isLogicPath,
@@ -58,7 +60,7 @@ const run = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
 /** Every read, answered, with whichever of them a case is about replaced. */
 const replies = (overrides: GhReplies = {}): GhReplies => ({
   viewPullRequestDetail: { pullRequest: detail(), unavailable: null, missing: false },
-  listOpenPullRequests: { rows: [], unavailable: null },
+  listOpenPullRequestHeads: { rows: [], unavailable: null },
   requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
   listWorkflowRuns: { rows: [run()], unavailable: null },
   ...overrides,
@@ -306,13 +308,21 @@ describe('the facts it reads', () => {
 })
 
 describe('a stacked pull request reads the stack bottom’s rules (#398)', () => {
-  /** An open pull request, as the list of open pull requests gives it. */
-  const open = (number: number, headBranch: string, base: string) => ({
+  /** An open pull request, as the list of open pull request heads gives it. */
+  const open = (
+    number: number,
+    headBranch: string,
+    base: string,
+    crossRepository = false,
+  ): PullRequestHead => ({
     number,
     title: `pull request ${number}`,
     head: headBranch,
+    headSha: '9b13a20',
     base,
     draft: true,
+    crossRepository,
+    checks: [],
   })
 
   /** The chain of a stack: layer 1 on main, layer 2 on layer 1, and so on. */
@@ -336,7 +346,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
           unavailable: null,
           missing: false,
         },
-        listOpenPullRequests: { rows, unavailable: null },
+        listOpenPullRequestHeads: { rows, unavailable: null },
       }),
     )
     const answer = await runPrState(['--json', '178'], {
@@ -397,7 +407,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
           unavailable: null,
           missing: false,
         },
-        listOpenPullRequests: { rows: chain(1), unavailable: null },
+        listOpenPullRequestHeads: { rows: chain(1), unavailable: null },
       }),
     )
 
@@ -424,7 +434,9 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
 
     expect(asked).toEqual([])
     expect(report.verdict).toBe('unavailable')
-    expect(report.unavailable.join(' ')).toContain('is longer than 50 pull requests')
+    expect(report.unavailable.join(' ')).toContain(
+      `is longer than ${MAX_STACK_DEPTH} pull requests`,
+    )
   })
 
   it('reads nothing as required when two pull requests share a head', async () => {
@@ -435,6 +447,31 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
     expect(report.unavailable.join(' ')).toContain(
       'more than one open pull request has the head wktr-1',
     )
+  })
+
+  it('does not take a fork’s pull request from its own main as a layer under main', async () => {
+    // A fork's pull request from its `main` into `main` is the usual shape
+    // in a public repository. As a link, it made a loop at `main`.
+    const report = await reportOf(
+      ['178'],
+      replies({
+        listOpenPullRequestHeads: {
+          rows: [open(190, 'main', 'main', true), open(191, 'main', 'release', true)],
+          unavailable: null,
+        },
+      }),
+    )
+
+    expect(report.verdict).not.toBe('unavailable')
+    expect(report.rulesBranch).toBe('main')
+    expect(report.contextsFrom).toBe('ruleset')
+  })
+
+  it('does not take a fork’s branch of the same name as a lower layer', async () => {
+    const { report, asked } = await stacked([open(190, 'wktr-1', 'release', true)])
+
+    expect(asked).toEqual(['wktr-1'])
+    expect(report.rulesBranch).toBe('wktr-1')
   })
 
   it('is unavailable, not green, when the bottom’s rules cannot be read', async () => {
@@ -450,7 +487,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
     // A lower layer could hide in the part not read.
     const report = await reportOf(
       ['178'],
-      replies({ listOpenPullRequests: { rows: [], unavailable: 'gh: HTTP 502' } }),
+      replies({ listOpenPullRequestHeads: { rows: [], unavailable: 'gh: HTTP 502' } }),
     )
 
     expect(report.verdict).toBe('unavailable')

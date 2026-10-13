@@ -520,10 +520,10 @@ The required contexts come from the rules of the base of the pull request's stac
 stack from the bottom pull request's base. From the base of the pull request, the command
 follows the chain: a base that is the head of an open pull request moves on to that pull
 request's base, and the first base that is the head of no open pull request is the one it
-reads. A pull request in no stack reads its own base. `rulesBranch` names the branch that it
-read. A chain that loops, that is longer than 50 pull requests, or that has two open pull
-requests with one head has no bottom. A list of open pull requests that could not be read
-hides the chain too. Each of these makes the verdict `unavailable`.
+reads. A pull request in no stack reads its own base. A pull request from a fork is not a
+link. `rulesBranch` names the branch that it read. A chain that loops, that is longer than
+50 pull requests, or that has two open pull requests with one head has no bottom. A list of
+open pull requests that could not be read hides the chain too. Each of these makes the verdict `unavailable`.
 
 A branch no ruleset covers requires nothing. A verdict over an empty list would be green
 before a single check had run. Where the bottom's base has no ruleset, the command takes

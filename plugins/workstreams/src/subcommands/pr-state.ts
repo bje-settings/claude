@@ -655,18 +655,23 @@ const pullRequestFields = (
  *  read of that list gives no answer, because a missing pull request could
  *  hide a lower layer. A chain with no bottom gives no answer either
  *  ({@link stackBottom}). Both read as unavailable, never as "nothing
- *  required". A pull request from a fork that shares a branch name with
- *  one here is not told apart, because `listOpenPullRequests` carries no
- *  fork flag. The wrong chain is rare, and ends at a base with no ruleset
- *  in the worst case. */
+ *  required". The list is `listOpenPullRequestHeads`, because only it
+ *  carries the fork flag. A fork's branch name says nothing about a branch
+ *  here, so a fork's pull request is not a link. A fork's pull request
+ *  from its own `main` into `main` would otherwise make a loop at `main`,
+ *  and every pull request on `main` would be unavailable. `intersect`
+ *  skips forks in its stack walk for the same reason. */
 const readStackRules = async (
   gh: GhClient,
   base: string,
 ): Promise<{ contexts: readonly string[]; unavailable: string | null; branch: string | null }> => {
-  const open = await gh.listOpenPullRequests()
+  const open = await gh.listOpenPullRequestHeads()
   if (open.unavailable !== null)
     return { contexts: [], unavailable: open.unavailable, branch: null }
-  const bottom = stackBottom(base, open.rows)
+  const bottom = stackBottom(
+    base,
+    open.rows.filter((pull) => !pull.crossRepository),
+  )
   if (bottom.branch === null) return { contexts: [], unavailable: bottom.unavailable, branch: null }
   const read = await gh.requiredContexts({ branch: bottom.branch })
   return { ...read, branch: read.unavailable === null ? bottom.branch : null }
