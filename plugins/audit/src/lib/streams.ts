@@ -84,8 +84,7 @@ export const streamFailures = (error: NodeJS.ErrnoException): readonly StreamFai
  * satisfies it with a plain object. It is an interface, not a class,
  * because `tsc` sees each type in `lib/` under two identities: `lib/` and
  * each copy in `plugins/<p>/src/lib/` (ADR 006). Only a structural type
- * survives that (round 5's rule,
- * reproduced on #156).
+ * survives that (round 5's rule, reproduced on #156).
  */
 export interface OutputStream {
   write(text: string): boolean

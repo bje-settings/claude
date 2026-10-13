@@ -94,8 +94,8 @@ pre-commit:
         fi
 
     # Not staged-only (ADR 002): `tsc -p tsconfig.json` checks the whole
-    # project. A type error that a staged file causes is
-    # usually in a file that was not staged. `*.ts` here matches a nested
+    # project. A type error that a staged file causes is usually in a file
+    # that was not staged. `*.ts` here matches a nested
     # staged file too (no leading `**` needed), the same way the `biome` glob
     # above does.
     types:
