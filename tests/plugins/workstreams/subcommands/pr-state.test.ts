@@ -2553,7 +2553,8 @@ describe('the review statuses (#377, #395)', () => {
     commit: string,
     createdAt: string,
     description: string | null = null,
-  ): CommitStatus => ({ commit, context: `workstreams/${name}`, description, createdAt })
+    state: CommitStatus['state'] = 'success',
+  ): CommitStatus => ({ commit, context: `workstreams/${name}`, state, description, createdAt })
 
   /** Every read answered, with `statuses` as the review statuses, and a
    *  compare that answers only for `base`...the head, with `files`. */
@@ -2724,6 +2725,21 @@ describe('the review statuses (#377, #395)', () => {
   for (const description of [null, 'skipped: https://github.com/o/r/issues/1#c', 'Substantial']) {
     it(`reads round 1 as minor from the description ${JSON.stringify(description)}`, () => {
       expect(reviewFactsOf([mark('review-1', ROUND_1, T1, description)]).substantial).toBe(false)
+    })
+  }
+
+  // `mark` writes only `success`. Another state on the context is no
+  // finished step, from whoever wrote it.
+  for (const state of ['error', 'expected', 'failure', 'pending'] as const) {
+    it(`reads a ${state} status as no review fact`, () => {
+      expect(
+        reviewFactsOf([
+          mark('review-1', FIX, T1, 'substantial', state),
+          mark('review-1', ROUND_1, T2, 'minor'),
+          mark('review-2', FIX, T2, null, state),
+          mark('rot-check', FIX, T3, null, state),
+        ]),
+      ).toEqual({ round: 1, substantial: false, round1Head: ROUND_1, rotChecked: false })
     })
   }
 

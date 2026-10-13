@@ -3174,6 +3174,7 @@ describe('the review statuses', () => {
   /** One status as `Status.contexts` answers it. */
   const status = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     context: 'workstreams/review-1',
+    state: 'SUCCESS',
     description: 'minor',
     createdAt: '2026-10-13T10:00:00Z',
     ...overrides,
@@ -3231,11 +3232,11 @@ describe('the review statuses', () => {
       expect(query).toContain('pullRequest(number: $number)')
       expect(query).toContain('commits(first: 100)')
       expect(query).toContain(
-        'nodes { commit { oid status { contexts { context description createdAt } } } }',
+        'nodes { commit { oid status { contexts { context state description createdAt } } } }',
       )
       expect(query).toContain('timelineItems(first: 100, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT])')
       expect(query).toContain(
-        'nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context description createdAt } } } } }',
+        'nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context state description createdAt } } } } }',
       )
       // The read carries only what the caller needs: no check rollup.
       expect(query).not.toContain('statusCheckRollup')
@@ -3261,12 +3262,14 @@ describe('the review statuses', () => {
           {
             commit: 'a'.repeat(40),
             context: 'workstreams/review-1',
+            state: 'success',
             description: 'minor',
             createdAt: '2026-10-13T10:00:00Z',
           },
           {
             commit: 'c'.repeat(40),
             context: 'workstreams/rot-check',
+            state: 'success',
             description: null,
             createdAt: '2026-10-13T10:00:00Z',
           },
@@ -3352,6 +3355,19 @@ describe('the review statuses', () => {
       )
     })
 
+    for (const state of ['ERROR', 'EXPECTED', 'FAILURE', 'PENDING'] as const) {
+      it(`reads the state ${state} in lower case`, async () => {
+        const { gh } = clientAnsweringEach([REPO, statusReply([commit(SHA, [status({ state })])])])
+
+        const result = await gh.listPullRequestStatuses({
+          pullRequest: 178,
+          prefix: 'workstreams/',
+        })
+
+        expect(result.rows.map((row) => row.state)).toEqual([state.toLowerCase()])
+      })
+    }
+
     it('does not read a status of another prefix past its context', async () => {
       // Another system's status of a shape this read does not know must not
       // cost the review statuses.
@@ -3372,6 +3388,9 @@ describe('the review statuses', () => {
       ['a context that is not text', commit(SHA, [status({ context: 5 })])],
       ['a status of the prefix with no createdAt', commit(SHA, [status({ createdAt: null })])],
       ['a description that is not text', commit(SHA, [status({ description: 5 })])],
+      ['a state GraphQL does not name', commit(SHA, [status({ state: 'DONE' })])],
+      ['a state in lower case', commit(SHA, [status({ state: 'success' })])],
+      ['no state', commit(SHA, [status({ state: null })])],
     ] as const) {
       it(`counts a commit with ${what} as unreadable, and keeps the other commits`, async () => {
         const { gh } = clientAnsweringEach([

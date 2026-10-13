@@ -167,6 +167,7 @@ it('answers every endpoint it declares', async () => {
         {
           commit: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
           context: 'workstreams/review-1',
+          state: 'success',
           description: 'minor',
           createdAt: '2026-10-13T10:00:00Z',
         },

@@ -408,6 +408,9 @@ export interface CommitStatus {
   /** The full oid of the commit that carries the status. */
   readonly commit: string
   readonly context: string
+  /** In lower case. `expected` is GraphQL's own: a context that a rule
+   *  requires and that nothing has reported yet. */
+  readonly state: CommitStatusState | 'expected'
   /** Null when the status has no description. */
   readonly description: string | null
   readonly createdAt: string
@@ -752,8 +755,8 @@ export interface GhClient {
   /**
    * The commit statuses whose context starts with `prefix`, on the first 100
    * commits of one pull request, oldest commit first (#377). Each row
-   * carries its commit, context, description and `createdAt`, and nothing
-   * else.
+   * carries its commit, context, state, description and `createdAt`, and
+   * nothing else.
    *
    * It also reads the head that each of the first 100 force-pushes
    * replaced, before the commits. A force-push takes its commits out of the
@@ -1457,11 +1460,11 @@ const PULL_REQUEST_STATUSES_QUERY = `query($owner: String!, $name: String!, $num
     pullRequest(number: $number) {
       commits(first: ${SWEEP_PAGE}) {
         pageInfo { hasNextPage }
-        nodes { commit { oid status { contexts { context description createdAt } } } }
+        nodes { commit { oid status { contexts { context state description createdAt } } } }
       }
       timelineItems(first: ${SWEEP_PAGE}, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
         pageInfo { hasNextPage }
-        nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context description createdAt } } } } }
+        nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context state description createdAt } } } } }
       }
     }
   }
@@ -2012,8 +2015,17 @@ const readComparison = (value: unknown, range: string): GhResults['compareCommit
  * status with another prefix is not read past its context, so its shape
  * cannot cost the read. One of this prefix that is short costs the whole
  * commit, on {@link requiredContextsOf}' grounds: a review status dropped
- * in silence reads as a round that did not run.
+ * in silence reads as a round that did not run. GraphQL gives the state in
+ * upper case, as `StatusState`.
  */
+const STATUS_STATES: readonly CommitStatus['state'][] = [
+  'error',
+  'expected',
+  'failure',
+  'pending',
+  'success',
+]
+
 const readCommitStatuses = (value: unknown, prefix: string): CommitStatus[] | null => {
   const commit = asRecord(value)
   const oid = asText(commit?.oid)
@@ -2029,9 +2041,10 @@ const readCommitStatuses = (value: unknown, prefix: string): CommitStatus[] | nu
     if (!context.startsWith(prefix)) continue
     const createdAt = asText(status?.createdAt)
     const description = status?.description
-    if (createdAt === null) return null
+    const state = STATUS_STATES.find((known) => known.toUpperCase() === status?.state)
+    if (createdAt === null || state === undefined) return null
     if (description !== null && typeof description !== 'string') return null
-    statuses.push({ commit: oid, context, description, createdAt })
+    statuses.push({ commit: oid, context, state, description, createdAt })
   }
   return statuses
 }

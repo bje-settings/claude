@@ -604,7 +604,7 @@ GitHub refused, such as one for an unknown commit, quotes GitHub's `message`.
 
 ```ts
 const { rows } = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
-// rows[0] -> { commit, context: 'workstreams/review-1', description: 'minor', createdAt }
+// rows[0] -> { commit, context: 'workstreams/review-1', state: 'success', description: 'minor', createdAt }
 await gh.createCommitStatus({ sha, context: 'workstreams/review-1', state: 'success' })
 ```
 
@@ -612,8 +612,8 @@ These are the review statuses of #377. `workstreams mark` writes one, and `works
 reads them.
 
 `listPullRequestStatuses` is a GraphQL read of the first 100 commits of one pull request, oldest
-first. Each row carries the commit, the context, the description and `createdAt`, and nothing
-else. It is its own query. A wider detail query would add a read to each tick of `watch` and
+first. Each row carries the commit, the context, the state in lower case, the description and
+`createdAt`, and nothing else. It is its own query. A wider detail query would add a read to each tick of `watch` and
 `pr-state`, for a question that only `pr-state` asks.
 
 - `Status.contexts` gives only the newest status of each context on one commit. Measured on

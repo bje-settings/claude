@@ -89,6 +89,8 @@ facts:
                round, does not move it.
   rotChecked   a workstreams/rot-check status on any commit
 
+Only a status with state success counts. "mark" writes no other state.
+
 Each flag gives one of these facts, and a flag that is given wins over the
 status read: --round, --substantial, --round-1-head and --rot-checked. A
 pull request whose rounds ran before the statuses has marker comments and
@@ -442,8 +444,12 @@ const loopStatus = (name: string): string => `${LOOP_STATUS_PREFIX}${name}`
  * so logic in the fix still gives `review-2`. On a tie, the older commit
  * wins: the rows come oldest commit first. GitHub gives only the newest
  * status of a context on one commit, so two on one commit read as one.
+ *
+ * Only a status with state `success` is a finished step: `mark` writes no
+ * other state (mid-round ruling 14).
  */
-export const reviewFactsOf = (statuses: readonly CommitStatus[]): ReviewFacts => {
+export const reviewFactsOf = (rows: readonly CommitStatus[]): ReviewFacts => {
+  const statuses = rows.filter((status) => status.state === 'success')
   let first: CommitStatus | undefined
   for (const status of statuses) {
     if (status.context !== loopStatus('review-1')) continue

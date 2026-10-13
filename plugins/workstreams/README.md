@@ -582,6 +582,8 @@ force-push replaced (#377):
 | `round1Head` | the commit of the first `review-1` status, by its time | `--round-1-head` |
 | `rotChecked` | a `rot-check` status on any commit | `--rot-checked` |
 
+Only a status with state `success` counts. `mark` writes no other state.
+
 The FIRST `review-1` status gives the round 1 head (#395). A round agent resumed after its
 return gets a second one on its fix head. The first one keeps the head that round 1 reviewed, so
 logic in the fix still gives `review-2`. GitHub gives only the newest status of one context on
