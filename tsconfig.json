@@ -25,10 +25,10 @@
     "noImplicitOverride": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    // Only node's own types. Every plugin's shipped TypeScript reaches
-    // outside its own tree only through the root lib (RFC 001 decision 12,
-    // ADR 001). Anything else in scope here would be a type that no shipped
-    // file may reach for.
+    // Only node's own types. Every plugin's shipped TypeScript stays in its
+    // own tree, with its copies of lib/ (RFC 001 decision 12, ADR 006).
+    // Anything else in scope here would be a type that no shipped file may
+    // reach for.
     "types": ["node"]
   },
   // The gate's inputs are named here. The `types` job in

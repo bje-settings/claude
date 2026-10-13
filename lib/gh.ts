@@ -730,8 +730,8 @@ export interface GhClient {
  * class needs no new field per question.
  *
  * Every member is public. `tsc` sees a class exported from `lib/` under two
- * identities, its real path and `plugins/<p>/src/lib/gh.ts` through the
- * committed symlink. A `private` or `protected` member would make it nominal
+ * identities: its real path, and the copy at `plugins/<p>/src/lib/gh.ts`
+ * (ADR 006). A `private` or `protected` member would make it nominal
  * per declaration, so the two identities would no longer be assignable to
  * each other (round 5's rule, reproduced on #156). `cause` is `Error`'s own public
  * property, and is set through `super`.

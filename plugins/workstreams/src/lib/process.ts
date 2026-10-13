@@ -157,9 +157,9 @@ export interface RunResult {
 /** The shape of {@link run}, for a caller that takes it as an injected
  *  seam. This caller reaches it instead of an import
  *  (`lib/gh.ts` `GhClientOptions.run`). This is an interface, not a class.
- *  Every type that crosses the `src/lib` symlink is seen by `tsc` under two
- *  identities. Only a structural type survives that (round 5's rule,
- *  reproduced on #156). */
+ *  `tsc` sees each type in `lib/` under two identities: `lib/` and each
+ *  copy in `plugins/<p>/src/lib/` (ADR 006). Only a structural type
+ *  survives that (round 5's rule, reproduced on #156). */
 export type Runner = (
   command: string,
   args?: readonly string[],

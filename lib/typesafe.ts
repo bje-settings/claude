@@ -105,8 +105,8 @@ export function choice<const T extends string>(
  * back out through `JSON.stringify(error)`.
  *
  * Both members are public, like `GhError` (`lib/gh.ts`). `tsc` sees a class
- * exported from `lib/` under two identities: its real path, and
- * `plugins/<p>/src/lib/typesafe.ts` through the committed symlink. A
+ * exported from `lib/` under two identities: its real path, and the copy
+ * at `plugins/<p>/src/lib/typesafe.ts` (ADR 006). A
  * `private` or `protected` member would make the class nominal per
  * declaration. Then the two identities would no longer be assignable to
  * each other.
