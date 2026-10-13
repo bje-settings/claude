@@ -26,9 +26,10 @@
 #
 # pre-commit runs only the gates that are staged-scoped and stay fast. Biome
 # checks the staged JSON, .mjs, and .ts files. ESLint lints the staged
-# files. `vitest related` runs the tests the staged files reach. `claude
-# plugin validate --strict` runs when a plugin or the marketplace manifest
-# is touched.
+# Markdown and JSON. `sync-lib` runs when a .ts file in lib/ or in a plugin
+# is staged. `vitest related` runs the tests the staged files reach.
+# `claude plugin validate --strict` runs when a plugin or the marketplace
+# manifest is touched.
 #
 # `tsc -p` and `sync-lib` are the two steps that are NOT staged-only. `tsc`
 # type-checks the whole project, and `sync-lib` compares each plugin's copies
@@ -113,8 +114,8 @@ pre-commit:
     # lib/, so it can change the copies the plugin needs. The check fails
     # when a copy in the working tree differs from lib/. It reads the working
     # tree, the same way `tsc` does, and not the index. So stage the copies
-    # with lib/. CI runs the same check on the pull request. It needs node
-    # only.
+    # with lib/. In CI, `tests/repo/sync-lib.test.ts` runs the same check.
+    # It needs node 22.18 or newer, and no node_modules.
     sync-lib:
       glob: '{lib/*.ts,plugins/*.ts}'
       run: node scripts/sync-lib.ts --check
