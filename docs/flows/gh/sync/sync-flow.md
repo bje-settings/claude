@@ -4,7 +4,7 @@ description: How `gh.ts sync` finds its checkouts, syncs each one in process, an
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-09-26
+  at: 2026-10-13
 ---
 
 # sync flow

@@ -307,7 +307,12 @@ export const SCENARIOS: Record<string, Scenario> = {
   ignore_another_base: (f) => {
     f.git.branchWithWork(f.repo, 'for-release')
     const sha = f.git.sha(f.repo, 'for-release')
-    return { argv: [f.repo], gh: ghDouble({ prs: [pr('for-release', sha, 'release')] }) }
+    // The merge commit is on `release`, not on main, so the guard refuses it.
+    const merged = { number: 1, mergeCommit: sha }
+    return {
+      argv: [f.repo],
+      gh: ghDouble({ prs: [pr('for-release', sha, 'release', false, merged)] }),
+    }
   },
   keep_a_branch_on_the_tip: (f) => {
     f.git.branch(f.repo, 'fresh')

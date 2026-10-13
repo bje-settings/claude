@@ -768,6 +768,10 @@ class SyncRepoRun {
    * #450). A tip behind the head has no such commit to find, and a tip
    * that the remote rebased finds each one. A local commit with no match
    * gives a `+` line, and the branch stays.
+   *
+   * `git cherry` skips merge commits. A local merge that the head does not
+   * hold can carry its own changes, a conflict fix for example. So such a
+   * merge keeps the branch before `git cherry` runs.
    */
   private async rowProof(row: PullRequestRow, sha: string): Promise<ProofState> {
     const merge = mergeCommitOf(row)
@@ -780,6 +784,9 @@ class SyncRepoRun {
     // names the branch at another commit, which is what `moved` says.
     if (!isOid(head)) return 'moved'
     if (!(await this.have(head, pullRefOf(row)))) return 'unfetched'
+    const merges = await gitOut(['rev-list', '--merges', '-n', '1', `${head}..${sha}`], this.here)
+    if (merges === null) return 'unprobed'
+    if (merges !== '') return 'moved'
     const unmatched = await gitLines(['cherry', head, sha], this.here)
     if (unmatched === null) return 'unprobed'
     return unmatched.some((line) => line.startsWith('+')) ? 'moved' : 'match'

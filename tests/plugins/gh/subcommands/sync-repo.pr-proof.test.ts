@@ -184,6 +184,43 @@ describe('a merged pull request at another commit', () => {
     expect(f.git.sha(f.repo, 'extra')).toBe(tip)
   })
 
+  it('keeps a local tip with a merge commit that the head does not hold', async () => {
+    // `git cherry` skips merge commits, so it finds no `+` line here. The
+    // merge carries a change of its own, and a force delete would lose it.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'merged-in', 7)
+    f.git.git(f.repo, 'fetch', '-q', 'origin')
+    f.git.git(f.repo, 'checkout', '-q', 'merged-in')
+    f.git.git(f.repo, 'merge', '-q', '--no-ff', '--no-commit', 'origin/main~1')
+    writeFileSync(path.join(f.repo, 'fix.txt'), 'a conflict fix\n')
+    f.git.git(f.repo, 'add', 'fix.txt')
+    f.git.git(f.repo, 'commit', '-qm', 'merge main, with a fix')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const tip = f.git.sha(f.repo, 'merged-in')
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [row] }) })
+
+    expect(result.stdout).toContain(
+      'kept merged-in (merged PRs used this name; none at this commit)',
+    )
+    expect(f.git.sha(f.repo, 'merged-in')).toBe(tip)
+  })
+
+  it('keeps the branch when git cannot list the merge commits', async () => {
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: shimmed(f, 'rev-list --merges'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
   it('keeps the branch when git cannot compare the commits', async () => {
     const f = fixture()
     const { row } = rebasedByRemote(f, 'rebased', 4)
