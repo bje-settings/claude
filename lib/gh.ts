@@ -754,15 +754,15 @@ export interface GhClient {
   }): Promise<GhResults['compareCommits']>
   /**
    * The commit statuses whose context starts with `prefix`, on the first 100
-   * commits of one pull request, oldest commit first (#377). Each row
-   * carries its commit, context, state, description and `createdAt`, and
-   * nothing else.
+   * commits of one pull request (#377). Each row carries its commit,
+   * context, state, description and `createdAt`, and nothing else.
    *
    * It also reads the head that each of the first 100 force-pushes
-   * replaced, before the commits. A force-push takes its commits out of the
-   * pull request's commits, and their statuses with them. Only the replaced
-   * head is read: a commit below it that the force-push also replaced is
-   * not.
+   * replaced. A force-push takes its commits out of the pull request's
+   * commits, and their statuses with them. Only the replaced head is read:
+   * a commit below it that the force-push also replaced is not. The rows
+   * come in read order: the replaced heads by force-push, then the commits,
+   * oldest first.
    *
    * GitHub gives only the newest status of each context on one commit
    * (`Status.contexts`, measured on 2026-10-13). A pull request with more
@@ -2006,6 +2006,15 @@ const readComparison = (value: unknown, range: string): GhResults['compareCommit
   }
 }
 
+/** GraphQL's `StatusState` values, in lower case. */
+const STATUS_STATES: readonly CommitStatus['state'][] = [
+  'error',
+  'expected',
+  'failure',
+  'pending',
+  'success',
+]
+
 /**
  * The statuses on one commit whose context starts with `prefix`, or null
  * when the commit is not the shape asked for. A null commit, such as a
@@ -2018,14 +2027,6 @@ const readComparison = (value: unknown, range: string): GhResults['compareCommit
  * in silence reads as a round that did not run. GraphQL gives the state in
  * upper case, as `StatusState`.
  */
-const STATUS_STATES: readonly CommitStatus['state'][] = [
-  'error',
-  'expected',
-  'failure',
-  'pending',
-  'success',
-]
-
 const readCommitStatuses = (value: unknown, prefix: string): CommitStatus[] | null => {
   const commit = asRecord(value)
   const oid = asText(commit?.oid)

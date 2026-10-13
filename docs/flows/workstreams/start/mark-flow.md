@@ -43,5 +43,6 @@ Every refusal comes before any read, except the pull request that does not exist
 pull request that ran past one page does not stop the write, because the head is still read.
 
 A status cannot be deleted. A later push leaves it on an older commit of the pull request, where
-`pr-state` still reads it. `pr-state` reads `review-1`, `review-2` and `rot-check`. Nothing
-reads `layer` yet (#396).
+`pr-state` still reads it. A force-push takes that commit out of the pull request. Then
+`pr-state` reads it only when it was the head the force-push replaced. `pr-state` reads
+`review-1`, `review-2` and `rot-check`. Nothing reads `layer` yet (#396).

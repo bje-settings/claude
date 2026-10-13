@@ -572,8 +572,8 @@ all: the enterprise coverage bot posts a comment on every pull request, and nobo
 comment.
 
 The four review facts come from the `workstreams/<name>` commit statuses that
-[`mark`](#mark) writes, on the first 100 commits of the pull request and on each head that a
-force-push replaced (#377):
+[`mark`](#mark) writes, on the first 100 commits of the pull request and on the head that each of
+the first 100 force-pushes replaced (#377):
 
 | Fact | Status | Flag |
 | --- | --- | --- |
@@ -601,7 +601,8 @@ fix pushed on top of it is such a commit. Then the round can read lower than it 
 loop reviews again.
 
 A `workstreams/` status is never a required context. It is not in the head list, and not in the
-verdict, also when a ruleset names it. `watch` leaves it out of `CONCLUDED` the same way.
+verdict, also when a ruleset names it. `requiredContexts` still lists each name the ruleset
+gives. `watch` leaves it out of `CONCLUDED` the same way.
 
 As a flag, `--round-1-head` holds only with `--round 1` (#380). At round 1 that was not
 substantial, the command reads the compare of the round 1 head to the current head (#356). It compares commits, not times, because a
@@ -637,7 +638,8 @@ changed logic, and any other description is minor. `--head` takes a full 40-char
 `--head`, the pull request is not read.
 
 A status cannot be deleted. A later push leaves it on an older commit of the pull request,
-where `pr-state` still reads it.
+where `pr-state` still reads it. A force-push takes that commit out of the pull request. Then
+`pr-state` reads it only when it was the head the force-push replaced.
 
 Exit code 2 means a usage error, or a pull request that GitHub says does not exist. Exit code 1
 means the pull request could not be read, or the write failed. The reason is gh's own words.

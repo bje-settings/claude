@@ -111,10 +111,10 @@ another. A read gh refused outright is a third. A NOT_FOUND for a field nested u
 request, rather than the pull request itself, is a fourth: that field is gone, not the number.
 
 The review facts come from the `workstreams/<name>` commit statuses that `workstreams.ts mark`
-writes, on the first 100 commits of the pull request and on each head a force-push replaced
-(#377). A `review-2` status gives round 2, a `review-1` status round 1, and none round 0. The
-FIRST `review-1` status, by its time, gives the round 1 head and whether round 1 was substantial
-(#395). A second one, after a resumed round, does not move the head. A `rot-check` status gives
+writes, on the first 100 commits of the pull request and on the head each of the first 100
+force-pushes replaced (#377). A `review-2` status gives round 2, a `review-1` status round 1,
+and none round 0. The FIRST `review-1` status, by its time, gives the round 1 head and whether
+round 1 was substantial (#395). A second one, after a resumed round, does not move the head. A `rot-check` status gives
 the rot check. Only a status with state `success` counts. Each flag that is given wins over its
 status (mid-round ruling 14). A status read that fell short gives no state
 unless `--round` is given, and then the flags alone are the facts. A force-push, as in a

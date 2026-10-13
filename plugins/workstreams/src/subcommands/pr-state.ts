@@ -76,8 +76,8 @@ recent runs have taken, and reports the state the review loop is in.
 
 The review statuses are the workstreams/<name> commit statuses that
 "workstreams.ts mark" writes, read from the first 100 commits of the pull
-request and from the head that each force-push replaced. They give four
-facts:
+request and from the head that each of the first 100 force-pushes
+replaced. They give four facts:
 
   round        2 with a workstreams/review-2 status on any commit, 1 with a
                workstreams/review-1 status, else 0: the review rounds that
@@ -170,7 +170,8 @@ runs right after awaiting-pr, before every other rule. No CI result,
 thread, or review status changes it.
 
 A workstreams/<name> status is never a required context. It is not part of
-the verdict or of the head list, also when a ruleset names it.
+the verdict or of the head list, also when a ruleset names it. The required
+contexts line still lists each name the ruleset gives.
 
 Nothing here throws. Every read that fell short is listed under "unavailable",
 and a verdict of "unavailable" means the sets below it are not an answer.
@@ -441,9 +442,10 @@ const loopStatus = (name: string): string => `${LOOP_STATUS_PREFIX}${name}`
  * The round 1 status is the FIRST `workstreams/review-1` status, by
  * `createdAt` (#395). A round agent resumed after its return gets a second
  * one on its fix head. The first one keeps the head that round 1 reviewed,
- * so logic in the fix still gives `review-2`. On a tie, the older commit
- * wins: the rows come oldest commit first. GitHub gives only the newest
- * status of a context on one commit, so two on one commit read as one.
+ * so logic in the fix still gives `review-2`. On a tie, the row read first
+ * wins: the replaced heads come before the commits, so a replaced head can
+ * win over an older commit. GitHub gives only the newest status of a
+ * context on one commit, so two on one commit read as one.
  *
  * Only a status with state `success` is a finished step: `mark` writes no
  * other state (mid-round ruling 14).
