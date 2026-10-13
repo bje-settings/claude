@@ -45,25 +45,40 @@ const LIB = {
 } as const
 
 describe('the closure of a plugin', () => {
-  it('holds each direct import and each transitive one, from src, scripts and hooks', () => {
+  it('holds each direct import and each transitive one, from each .ts file in the plugin', () => {
     const root = build({
       ...LIB,
       // A specifier that leaves lib/ is not a lib/ file.
       'lib/d.ts': "import { x } from '../elsewhere.ts'\n",
+      'lib/e.ts': 'export const e = 1\n',
+      'lib/f.ts': 'export const f = 1\n',
       'plugins/p/src/x.ts': "import { a } from './lib/a.ts'\nimport { y } from './y.ts'\n",
       'plugins/p/src/y.ts': "import { readFileSync } from 'node:fs'\n",
       'plugins/p/src/subcommands/z.ts': "import { b } from '../lib/b.ts'\n",
       'plugins/p/scripts/p.ts': "await import('../src/lib/d.ts')\n",
-      'plugins/p/hooks/h.ts': "import { a } from '../src/lib/a.ts'\n",
+      // A file outside src/ and scripts/ counts too.
+      'plugins/p/hooks/h.ts': "import { e } from '../src/lib/e.ts'\n",
+      'plugins/p/skills/s/tool.ts': "import { f } from '../../src/lib/f.ts'\n",
+      // A file that is not .ts is not read.
       'plugins/p/README.md': "import { u } from './src/lib/unused.ts'\n",
-      // A stale copy is not read. Else it would keep itself, and what it
-      // imports, alive.
-      'plugins/p/src/lib/unused.ts': "import { c } from './c.ts'\n",
+      'plugins/p/src/notes.md': "import { u } from './lib/unused.ts'\n",
+      // A stale copy is not read. Else it would keep itself alive.
+      'plugins/p/src/lib/unused.ts': "import { u } from './unused.ts'\n",
     })
     expect(libClosure(root, 'p')).toEqual({
       outcome: 'ok',
-      value: ['a.ts', 'b.ts', 'c.ts', 'd.ts'],
+      value: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts'],
     })
+  })
+
+  it('holds the imports of a plugin that has no src directory yet', () => {
+    const root = build({
+      ...LIB,
+      'plugins/p/scripts/p.ts': "import { c } from '../src/lib/c.ts'\n",
+    })
+    expect(renderText(syncLib(['--check'], root)).stderr).toBe(
+      'plugins/p/src/lib/c.ts: missing, lib/c.ts is imported',
+    )
   })
 
   it('is empty for a plugin that imports no lib file', () => {
@@ -98,7 +113,7 @@ describe('the write', () => {
         'plugins/copied/src/lib/c.ts: differs from lib/c.ts',
         'plugins/copied/src/lib/deep/old.ts: extra, no file in the plugin imports it',
         'plugins/copied/src/lib/unused.ts: extra, no file in the plugin imports it',
-        'plugins/linked/src/lib: a symlink, not a directory of copies',
+        'plugins/linked/src/lib: not a directory of copies',
         'plugins/linked/src/lib/a.ts: missing, lib/a.ts is imported',
         'plugins/linked/src/lib/b.ts: missing, lib/b.ts is imported',
         'plugins/linked/src/lib/c.ts: missing, lib/c.ts is imported',
@@ -119,6 +134,33 @@ describe('the write', () => {
     // A second run finds nothing to do, and says nothing.
     expect(renderText(syncLib([], root))).toEqual({ stdout: '', stderr: '', exitCode: 0 })
     expect(renderText(syncLib(['--check'], root))).toEqual({ stdout: '', stderr: '', exitCode: 0 })
+  })
+
+  it('removes a src/lib that is a file, then writes the copies', () => {
+    const root = build({
+      ...LIB,
+      'plugins/p/src/x.ts': "import { c } from './lib/c.ts'\n",
+      'plugins/p/src/lib': 'not a directory\n',
+    })
+    expect(renderText(syncLib([], root))).toEqual({
+      stdout: [
+        'plugins/p/src/lib: not a directory of copies',
+        'plugins/p/src/lib/c.ts: missing, lib/c.ts is imported',
+      ].join('\n'),
+      stderr: '',
+      exitCode: 0,
+    })
+    expect(read(root, 'plugins/p/src/lib/c.ts')).toBe(LIB['lib/c.ts'])
+  })
+
+  it('writes nothing when one plugin refuses, not even for a plugin before it', () => {
+    const root = build({
+      ...LIB,
+      'plugins/a/src/lib/unused.ts': '',
+      'plugins/b/src/x.ts': "import { z } from './lib/gone.ts'\n",
+    })
+    expect(renderText(syncLib([], root)).exitCode).toBe(2)
+    expect(read(root, 'plugins/a/src/lib/unused.ts')).toBe('')
   })
 
   it('asks nothing of a plugin with no src, or of a file in plugins/', () => {
@@ -176,8 +218,15 @@ describe('the check', () => {
     )
   })
 
-  it('refuses a flag it does not know', () => {
-    expect(renderText(syncLib(['--fix'], tree())).exitCode).toBe(2)
+  it('refuses a flag it does not know, and writes nothing', () => {
+    const root = tree()
+    rmSync(path.join(root, 'plugins/p/src/lib/c.ts'))
+    const result = renderText(syncLib(['--fix'], root))
+    expect(result.exitCode).toBe(2)
+    expect(result.stderr).not.toBe('')
+    expect(
+      lstatSync(path.join(root, 'plugins/p/src/lib/c.ts'), { throwIfNoEntry: false }),
+    ).toBeUndefined()
   })
 })
 
@@ -198,6 +247,16 @@ describe('the entry', () => {
     const h = host()
     entry(false, ['--check'], build({ ...LIB, 'plugins/p/src/lib/stale.ts': '' }), h)
     expect([h.out, h.err, h.exitCode]).toEqual(['', '', undefined])
+  })
+
+  it('refuses on a node with no import.meta.main, in place of a silent pass', () => {
+    const h = host()
+    entry(undefined, ['--check'], build({ ...LIB, 'plugins/p/src/lib/stale.ts': '' }), h)
+    expect([h.out, h.err, h.exitCode]).toEqual([
+      '',
+      'sync-lib: this node has no import.meta.main; run it on node 22.18 or newer\n',
+      2,
+    ])
   })
 
   it('writes the lines of a failure to stderr, and sets the status', () => {
