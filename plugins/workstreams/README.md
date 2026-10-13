@@ -77,6 +77,7 @@ stay possible.
 A round is its issue set. Each issue is in the round of its newest plan comment, and in
 no other. `start` runs `rounds` with its scope to find the round in flight. A round is in
 flight while one of its issues is open, until a `<round> end,` record follows its plan.
+The older `## Round end: <round>` heading ends a round too (#405).
 A scope that is part in a round and part in none is a stop. `question` checks the issues
 once more before it posts a plan. So two rounds in one repository, on two issue sets,
 never act or comment on each other's issues and pull requests. Each round's watch takes
@@ -348,8 +349,18 @@ The third row covers a direct `vitest` run, and `pnpm exec vitest`. A third spel
 the check compares, rather than the tool call's own `cwd`: the worktree workflow's rule is
 "never `cd`; name the absolute path in every command", and this is the spelling that follows
 from it. A quoted value stays one argument, so `pnpm -C "/a b" test` and `pnpm --dir='/a b'
-test` name `/a b` (#371). A quote that does not close in a `pnpm -C` value, or a quote left inside the value, leaves the
-directory unread. The guard then writes a line on stderr and allows the command.
+test` name `/a b` (#371). A quote that does not close in a `pnpm -C` value, or a quote left
+inside the value, leaves the directory unread. The guard then writes a line on stderr and
+allows the command.
+
+The rule has two exceptions, `gh stack` and the real exercise, in the form `(cd <dir> &&
+<command>)`. So a leading `cd <dir> &&` names the directory of the run after it, in the
+subshell form and in the bare form `cd <dir> && pnpm test` (#397). The `cd` must be the
+first segment, with `&&` after it. Its scope ends at a second `cd`. In the subshell form,
+it also ends at the `)` that closes the subshell of the `cd`. A `cd` after the run, a `cd`
+with `;`, `||`, `|` or a new line after it, and a `cd` to `-`, `~`, an option or a variable
+are not read. The run then keeps the payload `cwd`, as before. A `pnpm -C` of the run's own
+wins over the `cd`. A quote left inside the `cd` directory gets the stderr line and an allow.
 
 The guard lists the `vitest` processes on the machine, through `pgrep`, and reads
 each one's cwd, through `/proc` or `lsof`. The guard resolves symbolic links in the payload
@@ -357,10 +368,11 @@ each one's cwd, through `/proc` or `lsof`. The guard resolves symbolic links in 
 one directory still match. A match on that directory is a denial. It names the pid, and asks
 the subagent to wait rather than start a second suite.
 
-The guard joins a relative `-C` or `--dir` directory to the payload `cwd`. It resolves the
-links in that directory the same way. If it cannot resolve a directory, it compares the
-joined path. It does not expand `~` or `$VAR`. With no payload `cwd`, it cannot check a
-relative directory. It allows the command and writes a line on stderr.
+The guard joins a relative `cd` directory to the payload `cwd`, and a relative `-C` or
+`--dir` directory to the `cd` directory, or to the payload `cwd` when there is no `cd`. It
+resolves the links in that directory the same way. If it cannot resolve a directory, it
+compares the joined path. It does not expand `~` or `$VAR`. With no payload `cwd`, it
+cannot check a relative directory. It allows the command and writes a line on stderr.
 
 **The main conversation is never denied.** The test is `agent_id`. The input carries this
 field "only when the hook fires inside a subagent"
@@ -470,10 +482,11 @@ Names the rounds in flight, each with its name, its plan line, when it was plann
 its open issues. It searches the open issues with a `plan, approved` comment, newest
 update first. Each open issue is in the round of its newest plan comment. A round with a
 `<round> end,` comment after its plan, on any of its open issues, has ended, and is left
-out. A round with no open issue is left out too, so the rounds that ended before #368
-added the end record do not stay in flight. Issues group by the whole plan line, which
-carries the approval time, so two rounds of one name stay apart (#379). A plan line starts
-with a letter or a digit.
+out. A round with the older `## Round end: <round>` heading after its plan has ended too.
+The name in that heading can differ in case (#405). A round with no open issue is left out
+too, so the rounds that ended before #368 added the end record do not stay in flight.
+Issues group by the whole plan line, which carries the approval time, so two rounds of one
+name stay apart (#379). A plan line starts with a letter or a digit.
 
 The cost of the open-issue rule: a round whose issues all closed before its round end ran
 is not in flight. `start` with that round's issues finds it under `unended`, and runs its

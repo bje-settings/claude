@@ -303,6 +303,61 @@ describe('the end of a round', () => {
     expect(plans(await reportOf([], ghOver(rows)))).toEqual([PLAN_A])
   })
 
+  describe('in the older heading form (#405)', () => {
+    const TRIAGE = 'Triage pass plan, approved 2026-10-01T09:00Z.'
+
+    it('ends the round on a "## Round end: <round>" heading after its plan', async () => {
+      const rows = [issue(28, [TRIAGE, '## Round end: Triage pass'])]
+
+      expect(plans(await reportOf(['--issues', '28'], ghOver(rows)))).toEqual([])
+      expect(place(rows[0] as IssueComments).plan?.ended).toBe(true)
+    })
+
+    it('ends the round when the name differs only in case', async () => {
+      const rows = [issue(28, [TRIAGE, '## Round end: triage PASS'])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([])
+    })
+
+    it('ends the round when the heading words differ in case, or a space is added', async () => {
+      const cased = [issue(28, [TRIAGE, '## round END: Triage pass'])]
+      const spaced = [issue(28, [TRIAGE, '## Round end:  Triage pass'])]
+
+      expect(plans(await reportOf([], ghOver(cased)))).toEqual([])
+      expect(plans(await reportOf([], ghOver(spaced)))).toEqual([])
+    })
+
+    it('still ends the round on the current "<round> end," form', async () => {
+      const rows = [issue(28, [TRIAGE, 'Triage pass end, 2026-10-03.'])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([])
+    })
+
+    it('does not end the round on a heading for another round', async () => {
+      const rows = [issue(28, [TRIAGE, '## Round end: Docs refresh'])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
+    })
+
+    it('does not end the round on a heading for a longer name', async () => {
+      const rows = [issue(28, [TRIAGE, '## Round end: Triage pass two'])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
+    })
+
+    it('does not end the round on a heading that does not start the line', async () => {
+      const rows = [issue(28, [TRIAGE, 'Note: ## Round end: Triage pass'])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
+    })
+
+    it('does not end the round on a heading from before its plan', async () => {
+      const rows = [issue(28, ['## Round end: Triage pass', TRIAGE])]
+
+      expect(plans(await reportOf([], ghOver(rows)))).toEqual([TRIAGE])
+    })
+  })
+
   it('reads a new plan after an end record as a round in flight again', async () => {
     const again = 'Round 3 plan, approved 2026-10-05T10:00Z.'
     const rows = [issue(12, [PLAN_A, 'Round 3 end, 2026-10-04.', again])]

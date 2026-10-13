@@ -29,6 +29,7 @@ import {
   runGuard,
   runsVitest,
   type ToolCall,
+  type Verdict,
   vitestTarget,
 } from '#workstreams/subcommands/guard.ts'
 
@@ -493,6 +494,120 @@ describe('the directory a vitest run names', () => {
   }
 })
 
+describe('a leading cd names the directory of a vitest run (#397)', () => {
+  for (const [command, base] of [
+    ['(cd /w && pnpm test)', '/w'],
+    ['(cd /w && pnpm test )', '/w'],
+    ['( cd /w && pnpm test )', '/w'],
+    ['cd /w && pnpm test', '/w'],
+    ['cd /w && pnpm build && pnpm test', '/w'],
+    ['cd /w/sub && pnpm exec vitest run', '/w/sub'],
+    ['cd sub && pnpm test', 'sub'],
+    ['cd "/a b" && pnpm test', '/a b'],
+    ["(cd '/a b' && pnpm test)", '/a b'],
+    ['cd /w/my-app && pnpm test', '/w/my-app'],
+    ['cd /w/a~b && pnpm test', '/w/a~b'],
+    ['(cd /w && pnpm test) 2>&1 | tail', '/w'],
+    ['(cd /w && pnpm test) > out', '/w'],
+    ['(cd /w && pnpm test) &>log', '/w'],
+  ] as const) {
+    it(`names ${base} for ${JSON.stringify(command)}`, () => {
+      expect(vitestTarget(command)).toEqual({ directory: null, base })
+    })
+  }
+
+  it('finds a run in a subshell with no cd, and a closing parenthesis on its last word', () => {
+    expect(vitestTarget('(pnpm test)')).toEqual({ directory: null })
+    expect(vitestTarget('(pnpm -C /w test)')).toEqual({ directory: '/w' })
+    expect(vitestTarget('(pnpm test) > out')).toEqual({ directory: null })
+    expect(vitestTarget('pnpm build && (pnpm test)')).toEqual({ directory: null })
+  })
+
+  it('keeps the pnpm -C of the run beside the cd', () => {
+    expect(vitestTarget('cd /w && pnpm -C /v test')).toEqual({
+      directory: '/v',
+      base: '/w',
+    })
+  })
+
+  for (const command of [
+    // No `&&`: the run may not follow a `cd` that worked, or runs in a pipe.
+    'cd /w; pnpm test',
+    'cd /w || pnpm test',
+    'cd /w | pnpm test',
+    'cd /w\npnpm test',
+    // The cd is not the first segment.
+    'pnpm build && cd /w && pnpm test',
+    // The cd comes after the run.
+    'pnpm test && cd /w',
+    'pnpm test; cd /w && pnpm build',
+    // The cd names a directory that only a shell can read, or more than one word.
+    'cd - && pnpm test',
+    'cd ~ && pnpm test',
+    'cd $HOME && pnpm test',
+    'cd "$(pwd)" && pnpm test',
+    'cd -P /w && pnpm test',
+    'cd && pnpm test',
+    'cd /a /b && pnpm test',
+    'cd /a/$X && pnpm test',
+    'cd `pwd` && pnpm test',
+    // The subshell of the cd closes before the run.
+    '(cd /w) && pnpm test',
+    '(cd /w && pnpm build) > out && pnpm test',
+    '(cd /w && pnpm build) 2>&1 && pnpm test',
+    // The cd sits in an inner subshell that closes before the run.
+    '((cd /w) && pnpm test)',
+    '((cd /w && pnpm build) && pnpm test)',
+    ' (cd /w) && pnpm test',
+  ]) {
+    it(`leaves the payload cwd for ${JSON.stringify(command)}`, () => {
+      expect(vitestTarget(command)).toEqual({ directory: null })
+    })
+  }
+
+  it('ends the cd at a second cd', () => {
+    expect(vitestTarget('cd /w && cd /v && pnpm test')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && (cd /v && pnpm test)')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && ( cd /v && pnpm test)')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && cd && pnpm test')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && cd&& pnpm test')).toEqual({ directory: null })
+  })
+
+  it('reads a cd whose quote never closes as no cd', () => {
+    expect(vitestTarget('cd "/a b && pnpm test')).toEqual({ directory: null })
+  })
+
+  it('keeps a subshell cd across a nested parenthesis', () => {
+    expect(vitestTarget('(cd /w && (pnpm build) && pnpm test)')).toEqual({
+      directory: null,
+      base: '/w',
+    })
+    expect(vitestTarget('((cd /w && pnpm test))')).toEqual({ directory: null, base: '/w' })
+  })
+
+  it('ends a subshell cd at the segment that closes the parenthesis', () => {
+    expect(vitestTarget('(cd /w && pnpm build) && pnpm test')).toEqual({ directory: null })
+    expect(vitestTarget('(cd /w && pnpm build && pnpm test)')).toEqual({
+      directory: null,
+      base: '/w',
+    })
+  })
+
+  it('keeps a bare cd for a run after a closing parenthesis it never opened', () => {
+    expect(vitestTarget('cd /w && echo x) && pnpm test')).toEqual({
+      directory: null,
+      base: '/w',
+    })
+  })
+
+  it('flags a stray quote in the cd directory', () => {
+    expect(vitestTarget(`cd /w/"a b" && pnpm test`)).toEqual({
+      directory: null,
+      unclosedQuote: true,
+    })
+  })
+})
+
 describe('the main thread and the tools this never reads', () => {
   it('allows a main-thread call in silence, whatever it asks for', async () => {
     const output = createOutputPair()
@@ -944,6 +1059,121 @@ describe('a second vitest suite', () => {
     expect(verdict.decision).toBe('deny')
     expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
     expect(verdict).toMatchObject({ reason: expect.stringContaining('wait for it to finish') })
+  })
+})
+
+describe('a second vitest suite after a leading cd (#397)', () => {
+  const refuse = async (
+    command: string,
+    cwd: string | null,
+    processes: readonly { pid: number; cwd: string | null }[],
+    output = createOutputPair(),
+  ): Promise<Verdict> =>
+    decide(call({ command, cwd }), {
+      git: () => Promise.reject(new Error('git must not be asked')),
+      processes: running(processes),
+      output,
+    })
+
+  for (const command of ['(cd /a && pnpm test)', 'cd /a && pnpm test']) {
+    it(`refuses ${JSON.stringify(command)} while a suite runs in /a`, async () => {
+      const verdict = await refuse(command, '/root', [{ pid: 4242, cwd: '/a' }])
+
+      expect(verdict.decision).toBe('deny')
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('pid 4242') })
+      expect(verdict).toMatchObject({ reason: expect.stringContaining('/a') })
+    })
+
+    it(`allows ${JSON.stringify(command)} while a suite runs only in the payload cwd`, async () => {
+      const verdict = await refuse(command, '/root', [{ pid: 4242, cwd: '/root' }])
+
+      expect(verdict).toEqual({ decision: 'allow' })
+    })
+
+    it(`allows ${JSON.stringify(command)} while a suite runs in another directory`, async () => {
+      const verdict = await refuse(command, '/root', [{ pid: 4242, cwd: '/b' }])
+
+      expect(verdict).toEqual({ decision: 'allow' })
+    })
+  }
+
+  it('refuses a subshell cd run with a redirect after the parenthesis', async () => {
+    const verdict = await refuse('(cd /a && pnpm test) 2>&1 | tail -5', '/root', [
+      { pid: 4242, cwd: '/a' },
+    ])
+
+    expect(verdict.decision).toBe('deny')
+  })
+
+  it('joins a relative cd directory to the payload cwd', async () => {
+    const verdict = await refuse('cd sub && pnpm test', '/root', [{ pid: 4242, cwd: '/root/sub' }])
+
+    expect(verdict.decision).toBe('deny')
+  })
+
+  it('reads a quoted cd directory with a space', async () => {
+    const verdict = await refuse('(cd "/a b" && pnpm test)', '/root', [{ pid: 4242, cwd: '/a b' }])
+
+    expect(verdict.decision).toBe('deny')
+  })
+
+  it('refuses the payload cwd for a cd with no &&, which it does not read', async () => {
+    const same = await refuse('cd /a; pnpm test', '/root', [{ pid: 4242, cwd: '/root' }])
+    const other = await refuse('cd /a; pnpm test', '/root', [{ pid: 4242, cwd: '/a' }])
+
+    expect(same.decision).toBe('deny')
+    expect(other).toEqual({ decision: 'allow' })
+  })
+
+  it('refuses the payload cwd for a cd after the run', async () => {
+    const verdict = await refuse('pnpm test && cd /a', '/root', [{ pid: 4242, cwd: '/root' }])
+
+    expect(verdict.decision).toBe('deny')
+  })
+
+  it('joins a relative pnpm -C to the cd directory', async () => {
+    const verdict = await refuse('cd /a && pnpm -C sub test', '/root', [
+      { pid: 4242, cwd: '/a/sub' },
+    ])
+
+    expect(verdict.decision).toBe('deny')
+  })
+
+  it('lets an absolute pnpm -C win over the cd', async () => {
+    const onC = await refuse('cd /a && pnpm -C /c test', '/root', [{ pid: 4242, cwd: '/c' }])
+    const onCd = await refuse('cd /a && pnpm -C /c test', '/root', [{ pid: 4242, cwd: '/a' }])
+
+    expect(onC.decision).toBe('deny')
+    expect(onCd).toEqual({ decision: 'allow' })
+  })
+
+  it('allows, with a line on stderr, a relative cd when the payload has no cwd', async () => {
+    const output = createOutputPair()
+
+    const verdict = await refuse('cd sub && pnpm test', null, [{ pid: 4242, cwd: '/sub' }], output)
+
+    expect(verdict).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toContain('the payload carries no cwd')
+  })
+
+  it('still compares an absolute cd when the payload has no cwd', async () => {
+    const verdict = await refuse('cd /a && pnpm test', null, [{ pid: 4242, cwd: '/a' }])
+
+    expect(verdict.decision).toBe('deny')
+  })
+
+  it('reports a stray quote in the cd directory on stderr, and allows', async () => {
+    const output = createOutputPair()
+
+    const verdict = await refuse(
+      `cd /a/"b c" && pnpm test`,
+      '/root',
+      [{ pid: 4242, cwd: '/root' }],
+      output,
+    )
+
+    expect(verdict).toEqual({ decision: 'allow' })
+    expect(output.stderr()).toContain('does not close')
   })
 })
 
