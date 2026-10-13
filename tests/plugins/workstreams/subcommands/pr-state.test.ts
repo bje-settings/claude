@@ -2650,6 +2650,21 @@ describe('the review statuses (#377, #395)', () => {
     expect(report.state).toBe('rot-check')
   })
 
+  it('reads no compare at round 2, also after a minor round 1', async () => {
+    // The compare answers for no base here, so a read would list a reason.
+    const report = await reportWith(
+      withStatuses(
+        [mark('review-1', ROUND_1, T1, 'minor'), mark('review-2', FIX, T2)],
+        [],
+        'never asked',
+      ),
+    )
+
+    expect(report.state).toBe('rot-check')
+    expect(report.sinceRound1).toBeNull()
+    expect(report.unavailable).toEqual([])
+  })
+
   it('gives done from a rot-check status after round 2', async () => {
     const report = await reportWith(
       withStatuses([
