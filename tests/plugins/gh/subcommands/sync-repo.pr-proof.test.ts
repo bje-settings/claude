@@ -333,6 +333,67 @@ describe('a merged pull request at another commit', () => {
   })
 })
 
+// --- ruling 10: a change that only a merge can see -------------------------------
+
+/** A remote-rebased branch whose last local commit differs from the head only
+ *  in whitespace. `git cherry` reads each local commit as patch-equal. */
+function reindented(f: Fixture, branch: string, number: number) {
+  const built = rebasedByRemote(f, branch, number)
+  f.git.git(f.repo, 'checkout', '-q', branch)
+  writeFileSync(path.join(f.repo, 'two.txt'), '    two\n')
+  f.git.git(f.repo, 'commit', '-qa', '--amend', '--no-edit')
+  f.git.git(f.repo, 'checkout', '-q', 'main')
+  return { ...built, tip: f.git.sha(f.repo, branch) }
+}
+
+describe('a change that git cherry cannot see', () => {
+  it('keeps a local commit that differs from the head only in whitespace', async () => {
+    const f = fixture()
+    const { head, row, tip } = reindented(f, 'spaced', 8)
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [row] }) })
+
+    expect(result.stdout).toContain('kept spaced (merged PRs used this name; none at this commit)')
+    expect(f.git.sha(f.repo, 'spaced')).toBe(tip)
+    // The fixture's claim: each local commit is patch-equal in the head, so
+    // only the merge check can keep this branch.
+    const cherry = f.git.git(f.repo, 'cherry', head, tip).split('\n')
+    expect(cherry).toHaveLength(2)
+    expect(cherry.every((line) => line.startsWith('- '))).toBe(true)
+  })
+
+  it('keeps the branch when git cannot merge the tip into the head', async () => {
+    // A git older than 2.38 refuses `--write-tree`.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: crashing(f, 'merge-tree'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+
+  it('keeps the branch when the merge and the tree of the head answer with nothing', async () => {
+    const f = fixture()
+    const { head, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: silenced(f, 'merge-tree', `rev-parse --verify --quiet ${head}^{tree}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
+})
+
 // --- a fetch that fails ----------------------------------------------------------
 
 describe('a fetch that fails', () => {

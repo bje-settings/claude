@@ -763,16 +763,14 @@ class SyncRepoRun {
    * fails it proves nothing. This also refuses a merge into a parent branch
    * that never landed.
    *
-   * A head at another commit proves the branch when `git cherry` finds a
-   * patch-equal commit in the head for each commit of the branch (#351,
-   * #450). A tip behind the head has no commit outside the head, so
+   * A head at another commit can prove the branch (#351, #450). `git
+   * cherry` must find a patch-equal commit in the head for each commit of
+   * the branch. A tip behind the head has no commit outside the head, so
    * `git cherry` lists none. A tip that the remote rebased finds each one.
    * A local commit with no match gives a `+` line, and the branch stays.
    * The lines must also match the count of commits in the range. So an
-   * answer that lost its lines is never read as a proof.
-   *
-   * A patch id ignores whitespace. So a local commit that differs from the
-   * head only in whitespace counts as patch-equal.
+   * answer that lost its lines is never read as a proof. Last, a merge of
+   * the tip into the head must change nothing ({@link addsNothing}).
    *
    * `git cherry` skips merge commits. A local merge that the head does not
    * hold can carry its own changes, a conflict fix for example. So such a
@@ -801,7 +799,27 @@ class SyncRepoRun {
     // another count of lines did not compare every commit, so it proves
     // nothing.
     const count = await gitOut(['rev-list', '--count', `${head}..${sha}`], this.here)
-    return count === String(unmatched.length) ? 'match' : 'unprobed'
+    if (count !== String(unmatched.length)) return 'unprobed'
+    return this.addsNothing(head, sha)
+  }
+
+  /**
+   * Whether a merge of `sha` into `head` gives the tree of `head` (ruling
+   * 10). A patch id ignores whitespace, so `git cherry` cannot see a local
+   * commit that differs from the head only in whitespace. The merge sees
+   * it.
+   *
+   * Both commits are here, so status 1 is a conflict: the tip holds a
+   * change that the head does not. Any other answer that is not the tree
+   * of the head proves nothing. `--write-tree` needs git 2.38 or later. An
+   * older git refuses the option, and the branch stays.
+   */
+  private async addsNothing(head: string, sha: string): Promise<ProofState> {
+    const tree = await gitOut(['rev-parse', '--verify', '--quiet', `${head}^{tree}`], this.here)
+    const merged = await runGit(['merge-tree', '--write-tree', head, sha], this.here)
+    if (merged.status === 1) return 'moved'
+    const written = merged.stdout.split('\n')[0]
+    return isOid(written) && written === tree ? 'match' : 'unprobed'
   }
 
   /** Whether the merge commit `oid` is here. There is no fetch (ruling 11).
