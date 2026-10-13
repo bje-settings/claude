@@ -40,12 +40,6 @@ VS Code, set it in your user settings:
 
 Or set `ESLINT_FLAGS=unstable_native_nodejs_ts_config` in the environment of your editor.
 
-## Language server
-
-This marketplace's `lsp-merge` runs the TypeScript 7 and Biome language servers from this
-repository's own `node_modules` (`.claude/lsp-merge.json`). Add the marketplace, install
-`lsp-merge@bje`, and run `pnpm install` before you start a session.
-
 ## Git hooks
 
 ```bash

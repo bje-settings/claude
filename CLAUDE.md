@@ -152,16 +152,11 @@ marketplace. `docs/eslint-plugin-claude-rules.md` lists the rules to come. Each 
 `packages/eslint-plugin-claude/docs/rules/`. Run `pnpm lint .`; `CONTRIBUTING.md` has the editor
 setup.
 
-## Language server
+## Claude settings
 
-`.claude/settings.json` enables this marketplace's `lsp-merge` (#316, ADR 006). It turns off
-`typescript-lsp@claude-plugins-official` (#193), `typescript7-lsp` and `biome-lsp`.
-`.claude/lsp-merge.json` runs `typescript7` and `biome` as children of `lsp-merge`. So both report
-on `.ts`, and `tsc`, `biome` and their language servers run the same pinned `node_modules`. When
-you change a child server, change `.claude/lsp-merge.json`, not `enabledPlugins`.
-
-`.claude/settings.json` also enables each other plugin in this marketplace: `gh`, `workstreams`,
-`mermaid` and `audit`. When you add a plugin to the marketplace, add it to `enabledPlugins` too.
+`.claude/settings.json` enables each plugin in this marketplace: `gh`, `workstreams`,
+`mermaid` and `audit`. It turns off `typescript-lsp@claude-plugins-official` (#193). When you
+add a plugin to the marketplace, add it to `enabledPlugins` too.
 `extraKnownMarketplaces` names this repository as the `bje` source. A new machine or a cloud
 session then installs each enabled `@bje` plugin.
 

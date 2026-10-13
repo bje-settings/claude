@@ -10,9 +10,6 @@
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": false,
-    "typescript7-lsp@bje": false,
-    "biome-lsp@bje": false,
-    "lsp-merge@bje": true,
     "gh@bje": true,
     "workstreams@bje": true,
     "mermaid@bje": true,

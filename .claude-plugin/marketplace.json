@@ -28,24 +28,6 @@
       "source": "./plugins/audit",
       "description": "/audit:context audits a repository's CLAUDE.md, README.md and .claude/**/*.md for rot: references that no longer resolve, statements whose named condition has ended, duplicated claims.",
       "category": "development"
-    },
-    {
-      "name": "typescript7-lsp",
-      "source": "./plugins/typescript7-lsp",
-      "description": "TypeScript 7's native language server (tsc --lsp --stdio) from the project's own TypeScript. Replaces typescript-lsp, which needs the tsserver TypeScript 7 no longer ships.",
-      "category": "development"
-    },
-    {
-      "name": "biome-lsp",
-      "source": "./plugins/biome-lsp",
-      "description": "Biome's language server (biome lsp-proxy) from the project's own Biome. Gives Biome's lint diagnostics for .json.",
-      "category": "development"
-    },
-    {
-      "name": "lsp-merge",
-      "source": "./plugins/lsp-merge",
-      "description": "One language server slot for several servers. Runs the servers in .claude/lsp-merge.json and merges their diagnostics, so a type checker and a linter both report on the same file.",
-      "category": "development"
     }
   ]
 }

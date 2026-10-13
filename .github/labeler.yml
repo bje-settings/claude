@@ -9,10 +9,6 @@
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/audit/**"
 
-"plugin:biome-lsp":
-  - changed-files:
-      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/biome-lsp/**"
-
 "plugin:field-test":
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/field-test/**"
@@ -21,17 +17,9 @@
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/gh/**"
 
-"plugin:lsp-merge":
-  - changed-files:
-      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/lsp-merge/**"
-
 "plugin:mermaid":
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/mermaid/**"
-
-"plugin:typescript7-lsp":
-  - changed-files:
-      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/typescript7-lsp/**"
 
 "plugin:workstreams":
   - changed-files:
