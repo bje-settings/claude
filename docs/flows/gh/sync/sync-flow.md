@@ -73,7 +73,9 @@ flowchart TD
 The merge proof uses the tip that the prune loop read, not the branch name (#248). The query
 for merged pull requests has no base filter, so a stacked pull request is in it (#348). A row
 proves a merge only when its merge commit is on the origin default. A row at another commit
-proves the branch when `git cherry` finds each local commit in the head (#351, #450). The proof
+proves the branch when `git cherry` finds each local commit in the head (#351, #450).
+`git cherry` skips merge commits, so a local merge commit that the head does not hold keeps the
+branch. The proof
 fetches a merge commit or a head that is not local, one time. Two notes keep a branch on a git
 failure: `could not fetch a merged PR's commits` and `git could not compare its commits`. Each
 ends `unproven, not disproven`.
