@@ -1035,7 +1035,7 @@ describe('a second vitest suite after a leading cd (#397)', () => {
     command: string,
     cwd: string | null,
     processes: readonly { pid: number; cwd: string | null }[],
-    output = createOutputPair(),
+    output = captureOutput(),
   ): Promise<Verdict> =>
     decide(call({ command, cwd }), {
       git: () => Promise.reject(new Error('git must not be asked')),
@@ -1116,7 +1116,7 @@ describe('a second vitest suite after a leading cd (#397)', () => {
   })
 
   it('allows, with a line on stderr, a relative cd when the payload has no cwd', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await refuse('cd sub && pnpm test', null, [{ pid: 4242, cwd: '/sub' }], output)
 
@@ -1131,7 +1131,7 @@ describe('a second vitest suite after a leading cd (#397)', () => {
   })
 
   it('reports a stray quote in the cd directory on stderr, and allows', async () => {
-    const output = createOutputPair()
+    const output = captureOutput()
 
     const verdict = await refuse(
       `cd /a/"b c" && pnpm test`,
