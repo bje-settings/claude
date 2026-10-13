@@ -30,7 +30,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { createSandbox } from '#harness/sandbox.ts'
-import { killGroup, run } from '#lib/process.ts'
+import { endOnceWritten, killGroup, run } from '#lib/process.ts'
 
 const HARNESS_FIXTURES = `${import.meta.dirname}/../harness/fixtures`
 const FIXTURES = `${import.meta.dirname}/fixtures`
@@ -323,4 +323,42 @@ it('reports a bounded command that is not there as a start failure, not as a tim
   expect(result.status).toBe(127)
   expect(result.timedOut).toBe(false)
   expect(result.signal).toBeNull()
+})
+
+// --- endOnceWritten: a hook that a hung read still holds (#267) -------------
+
+it('ends a process that something still holds, once its output has left', async () => {
+  const result = await node(`${FIXTURES}/end-once-written.ts`, ['50', 'held'], {
+    timeoutMs: GENEROUS_MS,
+  })
+
+  expect(result.stdout).toBe('written\nended\n')
+  expect(result.status).toBe(3)
+})
+
+it('leaves a process that nothing holds to end by itself, with no wait for the grace', async () => {
+  // The grace is far longer than the bound. So a timer that held the
+  // process open would make the bound fire.
+  const result = await node(`${FIXTURES}/end-once-written.ts`, ['60000'], { timeoutMs: 20_000 })
+
+  expect(result.stdout).toBe('written\n')
+  expect(result.status).toBe(0)
+  expect(result.timedOut).toBe(false)
+})
+
+it('does not end the process until every stream has called back', async () => {
+  const ended: string[] = []
+  const flushed = {
+    write: (_text: string, done: () => void) => {
+      done()
+      return true
+    },
+  }
+  const stuck = { write: () => true }
+
+  endOnceWritten([flushed, stuck], 0, () => ended.push('stuck'))
+  endOnceWritten([flushed, flushed], 0, () => ended.push('flushed'))
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  expect(ended).toEqual(['flushed'])
 })

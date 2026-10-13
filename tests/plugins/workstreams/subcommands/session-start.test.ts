@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { captureOutput } from '#harness/output.ts'
 import { runResult, tableRunner } from '#harness/runner.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
+import { type FileReads, nodeFileReads } from '#workstreams/lib/dependencies.ts'
 import type { Runner, RunResult } from '#workstreams/lib/process.ts'
 import {
   DEADLINE_MS,
@@ -77,6 +78,8 @@ const run = async (
   env: NodeJS.ProcessEnv,
   table: Record<string, Partial<RunResult>> = HEALTHY,
   procPresent = true,
+  files: FileReads = nodeFileReads,
+  deadlineMs = DEADLINE_MS,
 ): Promise<{ status: number; stdout: string; raw: string; stderr: string; asked: string[] }> => {
   const output = captureOutput()
   const runner = tableRunner(table)
@@ -84,7 +87,8 @@ const run = async (
     env,
     output,
     run: runner,
-    deadlineMs: DEADLINE_MS,
+    files,
+    deadlineMs,
     procPresent,
   })
   const raw = output.stdout()
@@ -387,10 +391,22 @@ describe('the deadline', () => {
       return runResult(HEALTHY[`${command} ${args.join(' ')}`.trim()] ?? {})
     }
 
-    await runSessionStart({ env, output, run: runner, deadlineMs: 1_234, procPresent: true })
+    await runSessionStart({
+      env,
+      output,
+      run: runner,
+      files: nodeFileReads,
+      deadlineMs: 1_234,
+      procPresent: true,
+    })
 
+    // Each child gets the time left of the one deadline: no more than it,
+    // and no less than what is left after a few local reads.
     expect(asked.length).toBeGreaterThan(0)
-    for (const call of asked) expect(call.options.timeoutMs).toBe(1_234)
+    for (const call of asked) {
+      expect(call.options.timeoutMs).toBeLessThanOrEqual(1_234)
+      expect(call.options.timeoutMs).toBeGreaterThan(1_034)
+    }
   })
 
   it('passes the given deadline to the claude plugin list --json fallback too', async () => {
@@ -411,11 +427,20 @@ describe('the deadline', () => {
       },
     })
 
-    await runSessionStart({ env, output, run: runner, deadlineMs: 4_321, procPresent: true })
+    await runSessionStart({
+      env,
+      output,
+      run: runner,
+      files: nodeFileReads,
+      deadlineMs: 4_321,
+      procPresent: true,
+    })
 
     const fallback = runner.asked.find((call) => call.key === 'claude plugin list --json')
     expect(fallback).toBeDefined()
-    expect((fallback?.options as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(4_321)
+    const bound = (fallback?.options as { timeoutMs?: number } | undefined)?.timeoutMs
+    expect(bound).toBeLessThanOrEqual(4_321)
+    expect(bound).toBeGreaterThan(4_121)
   })
 })
 
@@ -437,7 +462,14 @@ describe('concurrency', () => {
       return runResult(HEALTHY[key] ?? {})
     }
 
-    await runSessionStart({ env, output, run: runner, deadlineMs: DEADLINE_MS, procPresent: true })
+    await runSessionStart({
+      env,
+      output,
+      run: runner,
+      files: nodeFileReads,
+      deadlineMs: DEADLINE_MS,
+      procPresent: true,
+    })
 
     expect(windows.length).toBe(2)
     const [first, second] = windows
@@ -715,5 +747,83 @@ describe('a claude plugin list --json that cannot be read as an answer', () => {
     })
 
     expect(ran.stdout).toBe('')
+  })
+})
+
+// --- #267: a read that hangs ----------------------------------------------------
+
+describe('a filesystem read that never answers', () => {
+  /** A read on a filesystem that hangs. */
+  const never = <T>(): Promise<T> => new Promise<T>(() => {})
+  /** Short, so each test waits for it. Long enough for a real read. */
+  const DEADLINE = 300
+
+  /** Run with `files`, and say how long the run took. */
+  const timed = async (env: NodeJS.ProcessEnv, files: FileReads) => {
+    const started = performance.now()
+    const ran = await run(env, HEALTHY, true, files, DEADLINE)
+    return { ...ran, tookMs: performance.now() - started }
+  }
+
+  it('reports a registry read that never answers as could not be read, by the deadline', async () => {
+    const { env } = healthySandbox()
+
+    const ran = await timed(env, { ...nodeFileReads, readText: () => never() })
+
+    expect(ran.status).toBe(0)
+    expect(ran.tookMs).toBeLessThan(DEADLINE + 200)
+    expect(ran.stdout).toBe('\nworkstreams: ⚠️ the installed plugins file could not be read')
+    // The deadline is gone, so no fallback starts.
+    expect(ran.asked).not.toContain('claude plugin list --json')
+  })
+
+  it('reports a PATH walk that never answers as could not be checked, never as absent', async () => {
+    const { env } = healthySandbox()
+
+    const ran = await timed(env, { ...nodeFileReads, canRun: () => never() })
+
+    expect(ran.status).toBe(0)
+    expect(ran.tookMs).toBeLessThan(DEADLINE + 200)
+    expect(ran.stdout).toBe(
+      [
+        '',
+        'workstreams: ⚠️ the GitHub CLI (gh) could not be checked',
+        'workstreams: ⚠️ pgrep could not be checked',
+      ].join('\n'),
+    )
+    // With no answer about gh, nothing asks gh about a login.
+    expect(ran.asked).toEqual([])
+  })
+
+  it('reports an lsof walk that never answers as could not be checked', async () => {
+    const { sandbox, env } = healthySandbox()
+    const lsof = path.join(sandbox.join('bin'), 'lsof')
+    const files: FileReads = {
+      ...nodeFileReads,
+      canRun: (target) => (target === lsof ? never() : nodeFileReads.canRun(target)),
+    }
+
+    const started = performance.now()
+    const ran = await run(env, HEALTHY, false, files, DEADLINE)
+
+    expect(performance.now() - started).toBeLessThan(DEADLINE + 200)
+    expect(ran.stdout).toBe('\nworkstreams: ⚠️ lsof could not be checked')
+  })
+
+  it('reports reviewer reads that never answer as no copy that could be checked', async () => {
+    const { sandbox, env } = healthySandbox()
+    const cache = sandbox.join('cache')
+    const files: FileReads = {
+      ...nodeFileReads,
+      kindOf: (target) => (target.startsWith(cache) ? never() : nodeFileReads.kindOf(target)),
+    }
+
+    const ran = await timed(env, files)
+
+    expect(ran.status).toBe(0)
+    expect(ran.tookMs).toBeLessThan(DEADLINE + 200)
+    expect(ran.stdout).toBe(
+      '\nworkstreams: ⚠️ no installed copy of pr-review-toolkit could be checked for its reviewer agents',
+    )
   })
 })

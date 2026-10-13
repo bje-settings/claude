@@ -395,3 +395,39 @@ export const run: Runner = (command, args = [], options = {}) =>
       })
     })
   })
+
+/** A stream {@link endOnceWritten} can wait on: `write` calls back once
+ *  the text, and all text before it, has left this process. */
+export interface FlushableStream {
+  write(text: string, done: () => void): boolean
+}
+
+/**
+ * Once each of `streams` has flushed, give this process `graceMs` to end
+ * by itself. If something still holds it then, call `end`. A hook entry
+ * passes a `SIGKILL` of itself as `end`.
+ *
+ * A read that hangs on a slow filesystem holds a worker thread. node waits
+ * for that thread on every exit path, `process.exit` too (measured on node
+ * 24 with a read of a FIFO that no process writes to). So only a signal
+ * ends it. Claude Code drops all output of a hook that passes its
+ * `timeout` (https://code.claude.com/docs/en/hooks, "Timeouts"). So the
+ * output must leave first, and then the process must end. `hooks.json`'s
+ * `; exit 0` turns the signal into exit 0 (#267).
+ *
+ * The timer does not hold the process. A process that nothing holds ends
+ * before the timer fires, and `end` never runs.
+ */
+export const endOnceWritten = (
+  streams: readonly FlushableStream[],
+  graceMs: number,
+  end: () => void,
+): void => {
+  let waiting = streams.length
+  for (const stream of streams) {
+    stream.write('', () => {
+      waiting -= 1
+      if (waiting === 0) setTimeout(end, graceMs).unref()
+    })
+  }
+}

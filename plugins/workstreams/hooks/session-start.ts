@@ -19,6 +19,12 @@
 // itself. Neither writes to stdout, and `hooks.json`'s `; exit 0` absorbs
 // both statuses.
 //
+// **A read that hangs cannot hold this process (#267).** The command
+// answers by its deadline, but a hung read still holds a worker thread,
+// and node waits for that thread on every exit path. So once the output
+// has left, `endOnceWritten` ends a process that is still held, with
+// `SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0 too.
+//
 // **Below the floor, this writes one line and exits 0.** A `SessionStart`
 // hook runs once, not on every tool call. So it may say so, where a
 // per-tool-call hook must stay silent. `belowFloorMessage` builds the
@@ -29,9 +35,12 @@ import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
   const { createOutput } = await import('../src/lib/streams.ts')
-  const { run } = await import('../src/lib/process.ts')
+  const { endOnceWritten, run } = await import('../src/lib/process.ts')
+  const { nodeFileReads } = await import('../src/lib/dependencies.ts')
   const { existsSync } = await import('node:fs')
-  const { DEADLINE_MS, runSessionStart } = await import('../src/subcommands/session-start.ts')
+  const { DEADLINE_MS, END_GRACE_MS, runSessionStart } = await import(
+    '../src/subcommands/session-start.ts'
+  )
 
   // This file guards both streams here, not at each write. A reader that closes
   // the pipe makes a later write fail as an `error` event, and with no
@@ -44,6 +53,7 @@ if (meetsNodeFloor(process.version)) {
       env: process.env,
       output,
       run,
+      files: nodeFileReads,
       deadlineMs: DEADLINE_MS,
       procPresent: existsSync('/proc'),
     })
@@ -51,6 +61,9 @@ if (meetsNodeFloor(process.version)) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
     process.exitCode = 0
   }
+  endOnceWritten([process.stdout, process.stderr], END_GRACE_MS, () =>
+    process.kill(process.pid, 'SIGKILL'),
+  )
 } else {
   // A closed reader makes this write fail asynchronously, as an `error`
   // event. This is the same failure `lib/streams.ts` guards on every

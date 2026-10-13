@@ -8,6 +8,7 @@
 // line for each kind of failure, and there is no `additionalContext`.
 import { mkdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
+import { type FileReads, nodeFileReads } from '#gh/lib/dependencies.ts'
 import {
   DEADLINE_MS,
   emit,
@@ -109,6 +110,77 @@ it('falls back to its own directory when the payload names none it can use', asy
       '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
     ])
   }
+})
+
+// --- #267: a read that hangs ----------------------------------------------------
+
+/** A read on a filesystem that hangs. */
+const never = <T>(): Promise<T> => new Promise<T>(() => {})
+
+/** Short, so each test waits for it. Long enough for a real read. */
+const SHORT_DEADLINE_MS = 300
+
+it('reports a PATH walk that never answers as could not be checked, with no additionalContext', async () => {
+  const rig = createRig()
+  const started = performance.now()
+
+  const ran = await runHook(rig, ['session-start'], createGhMock(), {
+    files: { ...nodeFileReads, canRun: () => never() },
+    deadlineMs: SHORT_DEADLINE_MS,
+  })
+
+  expect(performance.now() - started).toBeLessThan(SHORT_DEADLINE_MS + 200)
+  expect(ran).toEqual({
+    status: 0,
+    stdout: emit('gh: ⚠️ git could not be checked\ngh: ⚠️ GitHub CLI (gh) could not be checked'),
+    stderr: 'git could not be checked\nGitHub CLI (gh) could not be checked\n',
+  })
+})
+
+it('names only the absent tool in additionalContext when another walk never answers', async () => {
+  const rig = createRig()
+  const files: FileReads = {
+    ...nodeFileReads,
+    canRun: (target) => (target.endsWith('/gh') ? never() : nodeFileReads.canRun(target)),
+  }
+
+  const ran = await runHook(rig, ['session-start'], createGhMock(), {
+    env: { ...rig.sandbox.env, PATH: rig.sandbox.pathWithout('git') },
+    files,
+    deadlineMs: SHORT_DEADLINE_MS,
+  })
+
+  expect(ran.status).toBe(0)
+  expect(ran.stdout).toBe(
+    emit(
+      'gh: ⚠️ git not found on PATH\ngh: ⚠️ GitHub CLI (gh) could not be checked',
+      'git is absent. The gh plugin cannot run.',
+    ),
+  )
+})
+
+it('reports a payload directory that never answers as a folder that could not be read', async () => {
+  // The hook's own directory throws if asked. So a run that fell back to
+  // it would reject, not answer.
+  const rig = createRig()
+  const stated = rig.sandbox.join('slow')
+  const started = performance.now()
+
+  const ran = await runHook(rig, ['session-start'], createGhMock(), {
+    stdin: () => Promise.resolve(JSON.stringify({ cwd: stated })),
+    cwd: () => {
+      throw new Error('the hook asked for its own directory')
+    },
+    files: { ...nodeFileReads, kindOf: () => never() },
+    deadlineMs: SHORT_DEADLINE_MS,
+  })
+
+  expect(performance.now() - started).toBeLessThan(SHORT_DEADLINE_MS + 200)
+  expect(ran).toEqual({
+    status: 0,
+    stdout: emit('gh: ⚠️ folder could not be read'),
+    stderr: `${stated}: did not finish in ${SHORT_DEADLINE_MS} ms\n`,
+  })
 })
 
 it('prefers the payload directory over its own directory', async () => {

@@ -6,6 +6,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect } from 'vitest'
+import { nodeFileReads } from '#gh/lib/dependencies.ts'
 import { type HookEdges, runHookIo } from '#gh/subcommands/hook-io.ts'
 import type { GhClient } from '#harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '#harness/git.ts'
@@ -110,6 +111,7 @@ export const runHook = async (
     stdin: () => Promise.resolve(''),
     output,
     createGh: () => gh,
+    files: nodeFileReads,
     // Far above the 5 s the hook gets in a session. A whole suite of real
     // git at once is slow, and only the deadline tests mean to reach it.
     deadlineMs: 20_000,

@@ -5,6 +5,7 @@
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
+import { nodeFileReads } from '#gh/lib/dependencies.ts'
 import { GhError } from '#gh/lib/gh.ts'
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
 import { findOnPath } from '#harness/sandbox.ts'
@@ -262,8 +263,13 @@ it('warns, and asks nothing more, when discovery does not finish in time', async
   // `/private/var/...` on macOS only once this test already is.
   const work = realpathSync(githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets'))
 
-  // Discovery runs git, which takes longer than 1 ms.
-  const ran = await statusOf(rig, work, createGhMock(), { deadlineMs: 1 })
+  // Discovery runs git, which takes longer than 1 ms. The `PATH` walk
+  // counts against the same deadline (#267), so here it answers at once:
+  // every tool is there.
+  const ran = await statusOf(rig, work, createGhMock(), {
+    deadlineMs: 1,
+    files: { ...nodeFileReads, canRun: async () => {}, kindOf: async () => 'other' },
+  })
 
   expect(ran).toEqual({
     status: 0,
