@@ -44,6 +44,9 @@ Step 4 runs the rot check with neither flag. `pr-state` reads the statuses back.
 `review-1` status gives the round 1 head, so a second one, after a resumed round, does not move
 it.
 
+After a `mark`, a comment on the pull request tells a person what the round did
+([comment.md](comment.md)). `pr-state` reads only the statuses, never a comment.
+
 Round 1 is substantial only when its own commits changed logic under `src/`, `lib/`,
 `scripts/` or `hooks/`. Logic is a new or changed branch, state, output line or contract.
 A rename, comment, type, message text or one-line guard is minor. Prose, tests and
@@ -56,8 +59,9 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 0. Called with a round agent's JSON return: check its `substantial` against
    `git -C <worktree> diff <from> <head>`. The diff decides the description. Record that
    round's status with `mark` and its `head`, and name any disagreement. A `mark` that
-   failed is a stop: say so, and settle no thread. Then settle each entry of
-   the return's `bot_threads`. Reply `Fixed in <commit>.`, or `Not changed: <reason>.`
+   failed is a stop: say so, and settle no thread. Then post the round comment. A comment
+   that did not post is no stop: the status is the state. Name it in the return and in step 5.
+   Then settle each entry of the return's `bot_threads`. Reply `Fixed in <commit>.`, or `Not changed: <reason>.`
    when `commit` is `null`. Then resolve the thread, and return.
 
    ```bash
@@ -129,6 +133,9 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> rot-check
    ```
 
-5. Report five things: the state reached, what each round applied and rejected with its
+   Then post the rot check comment, as step 0 does for a round.
+
+5. Report five things, with the URL of each comment posted, and each comment that did not
+   post: the state reached, what each round applied and rejected with its
    reason, the rot check's corrections, anything returned under `lower_layer`, and each
    bot thread the caller settled, with its reply.

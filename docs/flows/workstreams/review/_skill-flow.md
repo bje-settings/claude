@@ -17,7 +17,8 @@ flowchart TD
     R0{called with a round agent's JSON return?}
     R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in the pull request's worktree: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
     RS --> R2{record the round's status on the round's head<br/>with mark: written?}
-    R2 -->|Yes| BT{reply on each bot thread the round settled,<br/>then resolve it: each call worked?}
+    R2 -->|Yes| CM[Post the round comment for people:<br/>summary, then findings in a collapsed block;<br/>a failed post is reported, not a stop]
+    CM --> BT{reply on each bot thread the round settled,<br/>then resolve it: each call worked?}
     R2 -->|No| R3([Stop: say so]):::stop
     BT -->|Yes| R1([Return])
     BT -->|No| BT1([Stop: name the thread]):::stop
@@ -42,7 +43,7 @@ flowchart TD
     I --> J[Reviewers from what the diff changes]
     J --> K([Dispatch one round agent, then return with the model and the reason;<br/>its return goes to the caller])
 
-    E -->|rot-check| Q([Title and body against the final diff;<br/>record the rot-check status, then return])
+    E -->|rot-check| Q([Title and body against the final diff;<br/>record the rot-check status, post the rot check comment,<br/>then return])
     E -->|done| S([Report: state, applied, rejected,<br/>corrections, lower_layer, bot threads settled])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

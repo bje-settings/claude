@@ -84,10 +84,10 @@ out: each one is in another round.
 
    Check every hidden dependency against the code before you post the comment.
 
-   End the comment with a line that names the effort and the date:
+   End the comment with a line that names the primitive and the date:
 
    ```
-   _Recorded by <effort name>, <date>._
+   _Recorded by `workstreams:sweep` <date>._
    ```
 
 7. Report four things:
