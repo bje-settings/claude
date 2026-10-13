@@ -39,12 +39,12 @@ flowchart TD
     L --> M
 
     M --> N{Merge proof?}
-    N -->|Merged PR with its merge commit on the default branch,<br/>at this commit or with each commit in its head| O[Delete branch]
+    N -->|Merged PR with its merge commit on the default branch,<br/>at this commit or with each commit in its head<br/>and a merge into its head that changes nothing| O[Delete branch]
     N -->|Ancestor of default branch| O
-    N -->|Name matched, a commit not in its head| P([Keep: not this commit]):::stop
+    N -->|Name matched, a commit or a change not in its head| P([Keep: not this commit]):::stop
     N -->|A fetch or a git probe failed| Q2([Keep: unproven, not disproven]):::stop
     N -->|Lookup failed| Q([Keep: never checked]):::stop
-    N -->|Nothing found| R([Keep: no proof]):::stop
+    N -->|Nothing found, or no merge commit on the default branch| R([Keep: no proof]):::stop
 
     O --> S{Branch has a worktree?}
     S -->|Clean| T[Remove worktree, then delete]

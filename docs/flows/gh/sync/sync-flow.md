@@ -55,7 +55,7 @@ flowchart TD
         R7 -->|Neither| RP([No branch pruned: no merge proof can be read]):::stop
         R7 -->|Yes| R8{Worktrees and branches listable,<br/>and no linked worktree mid-operation now?}
         R8 -->|No| RS
-        R8 -->|Yes| R9{Merge proof for the tip read now? A merged PR<br/>with its merge commit on the origin default, at this tip<br/>or with each commit patch-equal in its head;<br/>or this tip on the origin default}
+        R8 -->|Yes| R9{Merge proof for the tip read now? A merged PR<br/>with its merge commit on the origin default, at this tip<br/>or with each commit patch-equal in its head<br/>and a merge into its head that changes nothing;<br/>or this tip on the origin default}
         R9 -->|No, or a fetch or probe failed| RK([Keep the branch, say why]):::stop
         R9 -->|Yes| R10{A clean or no worktree on the same branch still,<br/>and a tip not at the origin default?}
         R10 -->|No| RK
@@ -74,12 +74,13 @@ The merge proof uses the tip that the prune loop read, not the branch name (#248
 for merged pull requests has no base filter, so a stacked pull request is in it (#348). A row
 proves a merge only when its merge commit is on the origin default. A row at another commit
 proves the branch when `git cherry` finds each local commit in the head (#351, #450). Its
-lines must match the count of commits in the range. `git cherry` skips merge commits, so a local
-merge commit that the head does not hold keeps the branch. A patch id ignores whitespace, so a
-local commit that differs from the head only in whitespace counts as found. The proof fetches a
-merge commit or a head that is not local, one time. Two notes keep a branch on a git
-failure: `could not fetch a merged PR's commits` and `git could not compare its commits`. Each
-ends `unproven, not disproven`.
+lines must match the count of commits in the range. `git cherry` skips merge commits, so a
+separate check keeps a branch with a local merge commit that the head does not hold. A patch id
+ignores whitespace. So `git merge-tree --write-tree` must also give the tree of the head, and a
+conflict keeps the branch. This needs git 2.38 or later. The merge commit must be local, with no
+fetch: the sync fetch ran first. The proof fetches a head that is not local, one time. Two notes
+keep a branch on a git failure: `could not fetch a merged PR's commits` and `git could not
+compare its commits`. Each ends `unproven, not disproven`.
 
 A skipped repository is a normal outcome. So is a kept branch. The job answers nothing either
 way. Only a throw makes `sync` exit 1. The report is on stdout before the verdict.
