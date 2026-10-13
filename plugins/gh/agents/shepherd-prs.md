@@ -2,10 +2,10 @@
 name: shepherd-prs
 description: >
   Merge one repository's given pull requests one at a time. Rebase each, or merge the base
-  branch into it to resolve conflicts. Wait for CI, and fix each failure that the merge caused.
-  Record only a failure that you cannot explain, verify, or tie to the merge as skipped, and
-  report the result. Dispatched by /gh:shepherd with a repository path, the ordered pull request numbers,
-  and ci_seconds. Do not invoke it directly.
+  branch into it to resolve conflicts. Wait for CI, and fix each failure that the base caused.
+  Record as skipped a pull request whose conflict you cannot resolve, or whose failure you
+  cannot explain or verify, and report the result. Dispatched by /gh:shepherd with a repository
+  path, the ordered pull request numbers, and ci_seconds. Do not invoke it directly.
 model: sonnet
 effort: medium
 tools: Bash, Read, Edit
@@ -40,7 +40,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   that is the request to wait on these checks.
 - **Push to a branch only for a conflict resolution or a fix** (both in step 5). Do this on any
   pull request, whether a human or a bot authored it. Push only from a fix worktree you create,
-  with a plain `git push`. Never rewrite a branch's history, and never force.
+  with a plain `git push`. Never rebase or amend in a fix worktree, and never force.
 - **A diagnosis worktree is allowed for read-only investigation**: checkout, install, a local
   build, or test. Name it `.claude/worktrees/wktr-pr<n>-shepherd-diag`, so nobody confuses it with
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
@@ -115,12 +115,15 @@ number, in the order given:
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone
    does not settle it, you may first reproduce the failure in a diagnosis worktree (see Hard
-   rules). Then:
+   rules). To tell who caused a failure, use `pr.checks.state` from your first `state` read of
+   this pull request, before you moved the head. `passed` there and `failed` now means that the
+   base caused it, through your `rebase` or merge push. `failed` there means that it was already
+   failing. Any other state there gives no answer, so decide from the log. Then:
    - **Fix it** (step 5), then `wait`. Two kinds qualify. One is a mechanical failure: a lockfile
      to regenerate, a formatter or import-order check, a second pin that must move in step, or a
-     snapshot refresh. The other is a logic, test, or configuration failure that the merge with
-     the base caused. Example: the base moved to pnpm 12, which reads overrides only from
-     `pnpm-workspace.yaml`, so an override in `package.json` `pnpm.overrides` must move there.
+     snapshot refresh. The other is a logic, test, or configuration failure that the base caused.
+     Example: the base moved to pnpm 12, which reads overrides only from `pnpm-workspace.yaml`, so
+     an override in `package.json` `pnpm.overrides` must move there.
    - **Already failing**: a logic, test, or configuration check failed on the pull request's own
      head before you touched it. Record it as skipped. The reason names the failing check and the
      files, and says why the failure predates your work.
@@ -129,27 +132,33 @@ number, in the order given:
      `hypothesis`. Never push on a guess: the fix cap turns a wrong guess into a skip.
 
    Fix cap. A pull request that had conflicts gets one merge push, and one more fix if CI then
-   fails because of the merge. Any other pull request gets one fix. The next `failed` is a skip.
-   The reason names both attempts and the conflicted files.
+   fails because of the merge. Any other pull request gets one fix. The next `failed`, or a
+   second `DIRTY` after your merge push, is a skip. The reason names both attempts and the
+   conflicted files.
 5. Fix in a worktree, for a conflict and for a failure alike:
    ```bash
    git -C <path> worktree add .claude/worktrees/wktr-pr<n>-shepherd
    gh pr checkout <n> --repo <owner/name>   # run inside that worktree
    ```
-   For a conflict, run `git fetch origin <base>` and `git merge origin/<base>` there, where `<base>` is the `baseRefName` from
-   `gh pr view <n> --repo <owner/name> --json baseRefName`. Resolve each conflicted file:
+   For a conflict, run `git fetch origin <base>` and `git merge origin/<base>` there. `<base>` is
+   the `baseRefName` from `gh pr view <n> --repo <owner/name> --json baseRefName`. Resolve each
+   conflicted file:
    - A lockfile: do not merge its text. Resolve the manifest first. Then regenerate the lockfile
      with the package manager that the repository's own lock file names.
    - A manifest or an overrides block: keep the keys of both sides.
    - Code: keep the intent of both sides.
 
-   If you cannot resolve a file, or the local check fails, do not push. Record the pull request as
-   skipped, with `conflicts` naming each file, and continue.
+   Verify locally: install, and run the build or tests that the change reaches. Commit with a
+   Conventional Commits message that says what was resolved or fixed. Run a plain `git push`.
+   Never use `--force`. Never use `--no-verify`.
 
-   Verify locally: install, and run the build or tests that the conflict reaches. Commit with a
-   Conventional Commits message that says what was resolved or fixed. Run a plain `git push`,
-   then remove the directory with `git worktree remove`. Never use `--force`. Never use
-   `--no-verify`.
+   If any command in this step fails, or you cannot resolve a file, or you have no local check to
+   run, do not push. Run `git merge --abort` if a merge is open. Record the pull request as
+   skipped, with the command's error, and with `conflicts` after a conflict. Then continue.
+   Never retry a rejected push.
+
+   On every path, run `git worktree remove` on the fix worktree before you move on. If it refuses
+   because of local changes, leave the worktree, and name its path in the reason.
 6. After a merge, the next target is BEHIND. That is expected, and step 2 handles it.
 
 ## Report
@@ -172,9 +181,10 @@ merge pushes. The orchestrator uses this count to confirm the serial argument; t
 number is one per pull request. `closed` entries carry a `reason`. It is "already closed" from
 step 1, or the detail from `settle`.
 
-A `merged` entry for a pull request that you fixed carries `conflicts`: one object per conflicted
-file, with its `file` and the `resolution` you chose. A `skipped` entry after a conflict carries
-the same field. Omit `conflicts` when there was no conflict.
+A `merged` or `skipped` entry for a pull request that had conflicts carries `conflicts`: one
+object per conflicted file, with its `file` and the `resolution` you chose. For a file you could
+not resolve, the `resolution` is "unresolved", with the cause. Omit `conflicts` when there was no
+conflict.
 
 Every pull request that did not merge or close is one `skipped` entry, with a `reason`. It also
 carries `mergeStateStatus`, `reviewDecision`, `autoMerge`, and `waited`, whichever of them came
@@ -183,7 +193,7 @@ from a read that named them. Omit a field you did not read.
 This one entry replaces three former lists:
 - a conflict that you could not resolve
 - a check that GitHub itself blocked
-- a failure that you could not explain, verify, or tie to the merge
+- a failure that was already failing, or that you could not explain or verify
 
 Nothing here posts a comment.
 

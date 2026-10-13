@@ -3,7 +3,7 @@ name: shepherd
 description: >
   Merge every open, non-draft pull request that has auto-merge set, one at a time. An optional
   argument narrows this to one label. Rebase each, resolve its conflicts by merging the base
-  branch into it, wait for CI, and fix failures that the merge caused. This applies to any pull
+  branch into it, wait for CI, and fix failures that the base caused. This applies to any pull
   request, whether a human or a bot authored it. Let auto-merge land each one
   before you move to the next. Scope comes from the working directory. Inside a git repo, it
   shepherds that repo. Outside one, it shepherds every immediate subdirectory that is a git repo,

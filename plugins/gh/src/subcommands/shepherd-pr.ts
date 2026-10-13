@@ -798,7 +798,7 @@ const shepherdPr = async (
     return refuse(HELP, 2)
   }
 
-  // This call resolves from the checkout. It is the one call of the six
+  // This call resolves from the checkout. It is the one call of the five
   // that names no repository, because it answers what the repository is.
   let view: Record<string, unknown>
   try {

@@ -115,9 +115,9 @@ worktree and its branch alone, and reports them.
 Merges every open, non-draft pull request that has auto-merge set, one at a time. An optional
 argument narrows this to one label. It rebases each one if it is behind. It waits on CI once per
 cycle. It resolves conflicts by merging the base branch into the pull request, and fixes the
-failures that the merge caused, on any pull request whether a human or a bot authored it.
-Auto-merge does the actual merge. The skill only gets
-each pull request to green, and confirms it landed before it starts the next one.
+failures that the base caused, on any pull request whether a human or a bot authored it.
+Auto-merge does the actual merge. The skill only gets each pull request to green, and confirms
+it landed before it starts the next one.
 
 Serial is the point. A strict up-to-date rule puts every other open pull request behind after
 each merge. If you shepherd them in parallel, each merge costs a CI run per pull request. One at
@@ -157,11 +157,12 @@ high), oldest first within a band.
 | Checks in progress | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
 | Checks green, auto-merge fired | Record it with the merge commit. Continue. |
 | Checks green, still open | `settle`: read the pull request until GitHub decides. Record `merged` as merged, and `closed` as closed. A `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is skipped. The reason names that field. `BEHIND` or `DIRTY` sends the loop back to decide again. If the bound passes with nothing reported, that itself is the reason. Never merge it by hand. |
-| Checks failed, mechanical or caused by the merge | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot refresh, or a configuration move that the new base requires (an override from `package.json` to `pnpm-workspace.yaml` for pnpm 12). A pull request that had conflicts gets one merge push and one fix. A second failure is a skip that names both attempts and the conflicted files. |
+| Checks failed, mechanical or caused by the base | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot refresh, or a configuration move that the new base requires (an override from `package.json` to `pnpm-workspace.yaml` for pnpm 12). A pull request that had conflicts gets one merge push and one fix. A second failure is a skip that names both attempts and the conflicted files. |
 | Checks failed, already failing | Skipped: the check failed on the pull request's own head before the skill touched it. The reason names the check, the files, and why. |
 | Checks failed, unexplained or unverifiable locally | For example, a failure that reproduces only with CI-only secrets. Skipped, with a `hypothesis` when the worker has one. Never push on a guess: the one-fix cap would turn a wrong guess into a skip. |
 
-The report lists each conflicted file of a fixed pull request, and how the skill resolved it.
+The report lists each conflicted file of a pull request that had conflicts, and how the skill
+resolved it.
 
 The default worker is Sonnet, at medium effort. A rebase, a check read, and a failure
 classification are all small-model work.

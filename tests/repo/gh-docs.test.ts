@@ -14,7 +14,8 @@
 // **Positive assertions only.** These files are prose and get reworded. A
 // test that fails on a rewording is a test that gets deleted. This file
 // checks only that each document still names the mechanism it is
-// responsible for.
+// responsible for. The one exception is a mechanism this repository
+// removed on purpose (#346): a test then pins that it stays gone.
 //
 // Every assertion is scoped with `section`, which fails loudly when a
 // marker it slices on has moved. A bare split would do the opposite of
@@ -119,17 +120,28 @@ it('names no recreate action in the agent', () => {
 })
 
 it('resolves a conflict by merging the base, and forbids force', () => {
-  const body = read(AGENT)
+  const fix = section(AGENT, '5. Fix in a worktree', '## Report')
   const hardRules = section(AGENT, '## Hard rules', '## The loop')
 
-  expect(body).toContain('git merge origin/<base>')
-  expect(body).toContain('plain `git push`')
-  expect(body).toContain('Never use `--force`')
+  expect(fix).toContain('git merge origin/<base>')
+  expect(fix).toContain('plain `git push`')
+  expect(fix).toContain('Never use `--force`')
   expect(hardRules).toContain('never force')
 })
 
+it('aborts the merge and removes the fix worktree when a fix does not land', () => {
+  const fix = section(AGENT, '5. Fix in a worktree', '## Report')
+
+  expect(fix).toContain('git merge --abort')
+  expect(fix).toContain('On every path, run `git worktree remove`')
+})
+
 it('reports the conflicted files and how each was resolved', () => {
-  expect(section(AGENT, '## Report')).toContain('conflicts')
+  const report = section(AGENT, '## Report')
+
+  // Once in the merged example, once in the skipped example.
+  expect(occurrences(report, '"conflicts": [{"file"')).toBe(2)
+  expect(report).toContain('had conflicts carries `conflicts`')
 })
 
 it('does not list conflict resolution among what the skill never does', () => {

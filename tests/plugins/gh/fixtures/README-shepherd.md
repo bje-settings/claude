@@ -74,7 +74,7 @@ The capture records `waited` (both `wait` and `settle`) and `settle`'s `reads_ok
 capture ran on. For example, `settle_reports_open_when_auto_merge_never_fires` reads
 `"waited": 3`, because there a 3 second bound with a 1 second poll took 3 seconds of real time. A
 loaded machine would have written 4 instead. `wait`'s `watcher_rc`, where the bound fired (the
-Python's own 124 for a killed watcher), are the same kind of number.
+Python's own 124 for a killed watcher), is the same kind of number.
 
 The capture does NOT skip them, and there is no separate list of them for the parity test to keep
 in step. The port takes its clock and its sleep as arguments, and the tests pass it a fake clock

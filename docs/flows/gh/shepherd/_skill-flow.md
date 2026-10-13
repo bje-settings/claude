@@ -45,7 +45,7 @@ flowchart TD
         W -->|Still in progress| W
         W -->|Still in progress after three waits, head unchanged| BP([Skipped: checks did not finish]):::stop --> S
         W -->|Checks failed| K{Cause of the failure?}
-        K -->|Mechanical, or caused by the merge, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
+        K -->|Mechanical, or caused by the base, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
         K -->|Logic or config check already failing on the PR's own head| SK([Skipped: failed before shepherd]):::stop --> S
         K -->|Cannot explain, or unverifiable locally| E
     end
