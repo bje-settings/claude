@@ -165,7 +165,7 @@ Prose first, with the findings list of step 5. Then, on the LAST LINE, one JSON 
 {"pr": <number>, "round": <round>,
  "applied": [{"finding": "...", "source": "<reviewer>", "verified": "<file:line>", "change": "..."}],
  "rejected": [{"finding": "...", "source": "<reviewer>", "why": "<file:line>"}],
- "substantial": true|false, "pushed": true|false, "from": "<sha>", "head": "<sha>",
+ "substantial": true|false, "pushed": true|false, "from": "<full 40-character sha>", "head": "<full 40-character sha>",
  "ci": {"runs": [<run id>], "contexts": {"<context>": "<state>"}}, "reruns": <n>,
  "lower_layer": [{"finding": "...", "evidence": "..."}],
  "bot_threads": [{"thread": "<thread id>", "commit": "<sha>"|null, "reason": "..."}],
