@@ -41,7 +41,7 @@ On a collision:
    other, or hold one until the other merges.
 3. Record the ruling as one comment on the issue of each stream of this round. A pull
    request of another round, or one that no round opened, gets no comment: name it in the
-   ruling. End it with the round's `_Recorded by <effort>, <date>._` line.
+   ruling. End it with the ``_Recorded by `workstreams:start` <date>._`` line.
 
 To rebase one stream onto the other, in a gap (no agent writes to either stream):
 
@@ -107,7 +107,7 @@ A decision that the plan does not answer is a ruling when all three are true:
 For a ruling, apply the recommended option, and go on. Post one comment on each issue it
 touches. Its first line is `Mid-round ruling <n> (<round>, cheap to reverse):`, with `<n>`
 after the round's last ruling number. Give what you chose, the argument for, the argument
-against, and how to reverse it. End it with the round's `_Recorded by <effort>, <date>._`
+against, and how to reverse it. End it with the ``_Recorded by `workstreams:start` <date>._``
 line.
 
 Any other decision is a question: one `AskUserQuestion`, with a recommended option first if
