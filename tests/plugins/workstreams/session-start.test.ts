@@ -7,12 +7,13 @@
 // fixtures (`tests/plugins/gh/fixtures/`) by path, rather than a copy of
 // its own: `runScript` and `startScript` take a file to spawn, and
 // neither fixture names anything specific to the gh plugin.
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { pluginFile } from '#harness/paths.ts'
-import { createSandbox } from '#harness/sandbox.ts'
+import { createSandbox, findOnPath } from '#harness/sandbox.ts'
 import { runScript, startScript } from '#harness/spawn.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -109,6 +110,57 @@ it('writes a problem line when a dependency is absent, well under the deadline',
   expect(result.stdout).toContain('workstreams:')
   expect(result.stdout).toContain('the GitHub CLI (gh) is absent')
   expect(result.stderr).toContain('the GitHub CLI (gh) is absent')
+})
+
+it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when gh never exits and the registry never answers (#269, #267)', () => {
+  // The stub `gh` never exits by itself, so only the child time limit
+  // in `lib/process.ts` ends it. The registry is a FIFO that no process
+  // writes to, so its read never answers. That read holds a worker
+  // thread, so only `endOnceWritten` ends the hook. The hook runs as
+  // Claude Code runs it: the `hooks.json` command, through a shell.
+  const sandbox = createSandbox()
+  const bin = sandbox.stubPath(sandbox.join('bin'))
+  const sleep = findOnPath('sleep', sandbox.env.PATH) ?? 'sleep'
+  writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec '${sleep}' 30\n`, { mode: 0o755 })
+  for (const tool of ['pgrep', 'lsof']) {
+    writeFileSync(path.join(bin, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  }
+  const registry = sandbox.join('installed_plugins.json')
+  execFileSync('mkfifo', [registry])
+  const env = {
+    ...sandbox.env,
+    WORKSTREAMS_INSTALLED_PLUGINS: registry,
+    CLAUDE_PLUGIN_ROOT: path.dirname(path.dirname(HOOK)),
+  }
+  const config = JSON.parse(readFileSync(HOOKS_JSON, 'utf8')) as {
+    hooks: { SessionStart: { hooks: { command: string }[] }[] }
+  }
+  const command = config.hooks.SessionStart[0]?.hooks[0]?.command ?? ''
+  const started = Date.now()
+
+  // A sync spawn blocks vitest's own timeout. So this bound ends the wait
+  // for a hook that a regression holds, and the test fails, not hangs. It
+  // kills only the shell: the node process under it can stay.
+  const result = spawnSync('sh', ['-c', command], {
+    env,
+    encoding: 'utf8',
+    timeout: 10_000,
+    killSignal: 'SIGKILL',
+  })
+
+  expect(result.error).toBeUndefined()
+  expect(Date.now() - started).toBeLessThan(3_000)
+  expect(result.status).toBe(0)
+  const message = (JSON.parse(result.stdout) as { systemMessage: string }).systemMessage
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips the SGR codes colour() writes.
+  expect(message.replace(/\u001b\[[0-9;]*m/g, '')).toBe(
+    [
+      '',
+      'workstreams: ⚠️ a gh login could not be checked',
+      'workstreams: ⚠️ the gh stack extension could not be checked',
+      'workstreams: ⚠️ the installed plugins file could not be read',
+    ].join('\n'),
+  )
 })
 
 // --- the wiring hooks.json carries -------------------------------------------

@@ -22,9 +22,20 @@
 // so nothing here can stop a session. `status [dir]` writes the bare line,
 // for a person who debugs the hook by hand. Anything else writes the usage
 // line to stderr and exits 2. `hooks.json`'s `; exit 0` absorbs that status.
-import { statSync } from 'node:fs'
+//
+// The deadline starts when the hook starts. The `PATH` walk and the read
+// of the payload's directory are async, and each has a time limit from the
+// same clock (#267). A read that did not finish in time gives a problem
+// line, never "not found" and never another directory.
 import { discoverRepos } from '../discover.ts'
-import { absentDependencies, type Dependency, which } from '../lib/dependencies.ts'
+import {
+  absentDependencies,
+  type Dependency,
+  deadlineClock,
+  type FileReads,
+  onPath,
+  withinDeadline,
+} from '../lib/dependencies.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
 import { emit as libEmit } from '../lib/hook-output.ts'
@@ -35,6 +46,12 @@ import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
  *  the hook 3 seconds (`.claude/rules/_design-principles.md`), and this
  *  stays well under it, so the line still arrives when the check runs out. */
 export const DEADLINE_MS = 2_500
+
+/** How long the entry waits, once its output has left, before it ends a
+ *  process that a hung read still holds (`lib/process.ts`
+ *  `endOnceWritten`). The deadline, this, and the start of node together
+ *  stay under the 3 s that `hooks.json` gives. */
+export const END_GRACE_MS = 20
 
 export const USAGE = 'usage: hook-io.ts {session-start|status [dir]}\n'
 
@@ -251,16 +268,6 @@ export const payloadCwd = (text: string): string => {
   return typeof value === 'string' ? value : ''
 }
 
-/** Whether `target` is a directory. Every reason it is not gives the same
- *  answer. */
-const isDirectory = (target: string): boolean => {
-  try {
-    return statSync(target).isDirectory()
-  } catch {
-    return false
-  }
-}
-
 /** Everything the hook reads that is not a file and not git. */
 export interface HookEdges {
   /** This process's own directory. It is a call, because `process.cwd()`
@@ -274,6 +281,8 @@ export interface HookEdges {
   readonly output: Output
   /** Makes the `gh` client, from the environment the hook cleaned. */
   readonly createGh: (env: NodeJS.ProcessEnv) => GhClient
+  /** The `PATH` walk and the read of the payload's directory. */
+  readonly files: FileReads
   /** The time the whole check may take, in milliseconds. */
   readonly deadlineMs: number
 }
@@ -610,21 +619,32 @@ interface Status {
  * {@link Status} for `target`, or `null` when there is nothing to show: the
  * status line, then one problem line for each kind of failure. Each failure
  * also goes to stderr, one line each. A missing tool stops every check, and
- * each missing tool gets a problem line of its own instead.
+ * each missing tool gets a problem line of its own instead. So does a tool
+ * whose `PATH` walk did not finish in time.
  */
-const checkStatus = async (target: string, edges: HookEdges): Promise<Status | null> => {
-  const absent = absentDependencies(DEPENDENCIES, (tool) => which(tool, edges.env) !== null)
-  if (absent.length > 0) {
-    const problems = absent.map((dependency) => `${dependency.label} not found on PATH`)
+const checkStatus = async (
+  target: string,
+  edges: HookEdges,
+  timeoutMs: () => number,
+): Promise<Status | null> => {
+  const found = await Promise.all(
+    DEPENDENCIES.map((dependency) => onPath(dependency.tool, edges.env, edges.files, timeoutMs())),
+  )
+  const presence = new Map(DEPENDENCIES.map((dependency, index) => [dependency.tool, found[index]]))
+  // A walk that did not finish is not an absent tool. It gets a line of
+  // its own, and no `additionalContext`: the tool may well be there.
+  const absent = absentDependencies(DEPENDENCIES, (tool) => presence.get(tool) !== false)
+  const unchecked = DEPENDENCIES.filter((dependency) => presence.get(dependency.tool) === null)
+  if (absent.length > 0 || unchecked.length > 0) {
+    const problems = [
+      ...absent.map((dependency) => `${dependency.label} not found on PATH`),
+      ...unchecked.map((dependency) => `${dependency.label} could not be checked`),
+    ]
     for (const problem of problems) edges.output.err.write(`${problem}\n`)
-    return {
-      line: problems.map(problemLine).join('\n'),
-      additionalContext: dependencyContext(absent),
-    }
+    const line = problems.map(problemLine).join('\n')
+    return absent.length > 0 ? { line, additionalContext: dependencyContext(absent) } : { line }
   }
   const env = scrubRepositoryEnv(edges.env)
-  const started = Date.now()
-  const timeoutMs = (): number => Math.max(1, edges.deadlineMs - (Date.now() - started))
   const failures: Failure[] = []
   const failed: Failed = (kind, line, cause) => {
     failures.push({ kind, line, cause: cause ?? null })
@@ -636,7 +656,7 @@ const checkStatus = async (target: string, edges: HookEdges): Promise<Status | n
   let timer: NodeJS.Timeout | undefined
   const late = Symbol('late')
   const deadline = new Promise<typeof late>((resolve) => {
-    timer = setTimeout(resolve, edges.deadlineMs, late)
+    timer = setTimeout(resolve, timeoutMs(), late)
   })
   /** What `task` answers, or `null` and a failure when it throws or does
    *  not finish before the deadline. */
@@ -717,18 +737,44 @@ const readPayload = async (edges: HookEdges): Promise<string> => {
   }
 }
 
+/**
+ * Whether `target` is a directory, or `null` when the read did not finish
+ * within `ms`. Every other reason it is not gives `false`.
+ */
+const isDirectory = (files: FileReads, target: string, ms: number): Promise<boolean | null> =>
+  withinDeadline(
+    files.kindOf(target).then(
+      (kind) => kind === 'directory',
+      () => false,
+    ),
+    ms,
+    null,
+  )
+
+/** The status for a payload directory whose read did not finish in time.
+ *  This hook does not then check its own directory instead: that is most
+ *  often the same directory, on the same slow filesystem. */
+const unreadFolder = (target: string, edges: HookEdges): Status => {
+  edges.output.err.write(`${target}: did not finish in ${edges.deadlineMs} ms\n`)
+  return { line: problemLine(KINDS.unreadable.words) }
+}
+
 /** The hook: argv in, an exit status out. */
 export const runHookIo = async (argv: readonly string[], edges: HookEdges): Promise<number> => {
   const [mode, dir] = argv
+  const remaining = deadlineClock(edges.deadlineMs)
   if (mode === 'session-start' && argv.length === 1) {
     const stated = payloadCwd(await readPayload(edges))
-    const cwd = stated !== '' && isDirectory(stated) ? stated : edges.cwd()
-    const status = await checkStatus(cwd, edges)
+    const named = stated === '' ? false : await isDirectory(edges.files, stated, remaining())
+    const status =
+      named === null
+        ? unreadFolder(stated, edges)
+        : await checkStatus(named ? stated : edges.cwd(), edges, remaining)
     if (status !== null) edges.output.out.write(emit(status.line, status.additionalContext))
     return 0
   }
   if (mode === 'status' && argv.length <= 2) {
-    const status = await checkStatus(dir ?? edges.cwd(), edges)
+    const status = await checkStatus(dir ?? edges.cwd(), edges, remaining)
     if (status !== null) edges.output.out.write(`${status.line}\n`)
     return 0
   }

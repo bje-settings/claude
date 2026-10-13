@@ -357,10 +357,12 @@ reads the local refs. One GraphQL query reads the GitHub items for each group of
 repositories. The queries and the fetches run at the same time.
 
 The whole check has 2.5 seconds, well under the hook's own 3 second ceiling
-(`.claude/rules/_design-principles.md`). A part that fails, or does not finish in that time, gives
-no count. It gives a `gh: ⚠️` line instead, one line for each kind of problem, never one for each
-repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In a folder of
-repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1 repo`.
+(`.claude/rules/_design-principles.md`). The time starts when the hook starts. So the read of the
+session's directory and the `PATH` walk count against it too. A part that fails, or does not finish
+in that time, gives no count. It gives a `gh: ⚠️` line instead, one line for each kind of problem,
+never one for each repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In
+a folder of repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1
+repo`.
 
 A short cause follows when the failure came with a message. It is the first line of the first
 failure's message, up to its first sentence end, at most 80 characters.
@@ -380,6 +382,19 @@ The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for ea
 hook also writes `hookSpecificOutput.additionalContext`. It states which tools are absent and
 that the plugin cannot run. The model then does not start work that will fail. With every tool
 present, there is no `additionalContext` at all.
+
+A `PATH` walk that does not finish in time is not a missing tool. That tool gets
+`gh: ⚠️ git could not be checked` or `gh: ⚠️ GitHub CLI (gh) could not be checked`, and the hook
+checks nothing else. `additionalContext` names only the tools that are absent. A read of the
+session's directory that does not finish in time gives `gh: ⚠️ folder could not be read`. The
+hook then does not check its own directory instead, because that directory is most often on the
+same slow filesystem.
+
+Every read of the filesystem here is async (#267). A read that hangs then holds a worker thread, not
+the hook, and the deadline still fires. node waits for that thread before the process can exit. So
+when a read still holds the process 20 ms after the output has left, the hook ends itself with
+`SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`, the shell may add a
+`Killed` line.
 
 The hook never changes a branch, worktree, or working tree. The fetch changes only
 remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.

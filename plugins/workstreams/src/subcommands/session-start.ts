@@ -27,10 +27,21 @@
 // `preflight.ts`'s `OPTIONAL_PLUGINS` row for `gh` goes with it.
 // `question/SKILL.md` now reads its own skill listing for `/gh:sync`. It
 // no longer asks this hook about the `gh` plugin.
-import { existsSync, readFileSync } from 'node:fs'
+//
+// Every filesystem read is async, and has a time limit from one clock
+// (#267). A read that did not finish in time reads as "could not be
+// checked" or "could not be read", never as absent.
 import path from 'node:path'
 
-import { absentDependencies, type Dependency, which } from '../lib/dependencies.ts'
+import {
+  absentDependencies,
+  type Dependency,
+  deadlineClock,
+  exists,
+  type FileReads,
+  onPath,
+  withinDeadline,
+} from '../lib/dependencies.ts'
 import { emit } from '../lib/hook-output.ts'
 import type { Runner } from '../lib/process.ts'
 import type { Output } from '../lib/streams.ts'
@@ -39,6 +50,12 @@ import type { Output } from '../lib/streams.ts'
  *  the hook 3 seconds (`.claude/rules/_design-principles.md`), and this
  *  stays well under it, the way the gh hook's own `DEADLINE_MS` does. */
 export const DEADLINE_MS = 2_500
+
+/** How long the entry waits, once its output has left, before it ends a
+ *  process that a hung read still holds (`lib/process.ts`
+ *  `endOnceWritten`). The deadline, this, and the start of node together
+ *  stay under the 3 s that `hooks.json` gives. */
+export const END_GRACE_MS = 20
 
 /** The plugin prefix `lib/hook-output.ts` colours, with no trailing
  *  colon (`.claude/rules/path-hooks.md`). */
@@ -134,33 +151,44 @@ const listInstalledPlugins = async (
  *  when it cannot be read. A file that is not there yet is a session
  *  with nothing installed from this marketplace. That is not a
  *  failure. It answers as an empty plugins object, with no fallback
- *  call. */
+ *  call.
+ *
+ *  A read that does not finish in time answers `null`, with no fallback
+ *  call: the deadline is then gone, so a fallback could not finish
+ *  either. */
 const readRegistry = async (
   env: NodeJS.ProcessEnv,
   run: Runner,
-  deadlineMs: number,
+  files: FileReads,
+  remaining: () => number,
 ): Promise<Plugins> => {
   const file = registryPath(env)
-  if (file === '') return listInstalledPlugins(run, env, deadlineMs)
-  let text: string
-  try {
-    text = readFileSync(file, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-    return listInstalledPlugins(run, env, deadlineMs)
+  if (file === '') return listInstalledPlugins(run, env, remaining())
+  const read = await withinDeadline(
+    files.readText(file).then(
+      (text) => ({ text }),
+      (error: unknown) => ({ error: error as NodeJS.ErrnoException }),
+    ),
+    remaining(),
+    null,
+  )
+  if (read === null) return null
+  if ('error' in read) {
+    if (read.error.code === 'ENOENT') return {}
+    return listInstalledPlugins(run, env, remaining())
   }
   let document: unknown
   try {
-    document = JSON.parse(text)
+    document = JSON.parse(read.text)
   } catch {
-    return listInstalledPlugins(run, env, deadlineMs)
+    return listInstalledPlugins(run, env, remaining())
   }
   const plugins =
     typeof document === 'object' && document !== null
       ? (document as Record<string, unknown>).plugins
       : undefined
   if (typeof plugins !== 'object' || plugins === null || Array.isArray(plugins)) {
-    return listInstalledPlugins(run, env, deadlineMs)
+    return listInstalledPlugins(run, env, remaining())
   }
   return plugins as Record<string, unknown>
 }
@@ -211,19 +239,14 @@ const ghStackInstalled = async (
   return result.stdout.split('\n').some((line) => line.trim().startsWith('gh stack'))
 }
 
-/** The install paths `plugins` records for `pr-review-toolkit` that a
- *  copy is actually at, right now. The registry keeps an entry per
- *  project that installed it. A stale one goes on an update or a
- *  reinstall. */
-const reachableReviewerPaths = (plugins: Record<string, unknown>): string[] =>
-  installPathsFor(plugins, REVIEWER_PLUGIN).filter((root) => existsSync(root))
-
 /** The edges this command reads: no process, no `gh` on the machine, no
  *  `claude` on it either. */
 export interface SessionStartEdges {
   readonly env: NodeJS.ProcessEnv
   readonly output: Output
   readonly run: Runner
+  /** Every filesystem read this command makes. */
+  readonly files: FileReads
   readonly deadlineMs: number
   /** Whether this machine has `/proc`. The guard reads a process cwd
    *  there first, and asks `lsof` only when `/proc` is absent. */
@@ -240,18 +263,67 @@ interface Row extends Dependency {
   readonly present: boolean
 }
 
+/** A row for each reviewer agent, or `null` when no recorded install path
+ *  of `pr-review-toolkit` is there to check. The registry keeps an entry
+ *  per project that installed it. A stale one goes on an update or a
+ *  reinstall. */
+const reviewerRows = async (
+  plugins: Record<string, unknown>,
+  files: FileReads,
+): Promise<Row[] | null> => {
+  const roots = installPathsFor(plugins, REVIEWER_PLUGIN)
+  const there = await Promise.all(roots.map((root) => exists(files, root)))
+  const reachable = roots.filter((_, index) => there[index])
+  if (reachable.length === 0) return null
+  return Promise.all(
+    REQUIRED_REVIEWERS.map(async (reviewer) => {
+      const copies = await Promise.all(
+        reachable.map((root) => exists(files, path.join(root, 'agents', `${reviewer}.md`))),
+      )
+      return {
+        tool: `reviewer:${reviewer}`,
+        label: `pr-review-toolkit's ${reviewer} agent`,
+        present: copies.includes(true),
+      }
+    }),
+  )
+}
+
 /** Check the workstreams plugin's dependency table, and answer the exit
  *  status: always 0, so nothing here can stop a session
  *  (`.claude/rules/_design-principles.md`). When everything is present,
  *  this writes nothing at all. */
 export const runSessionStart = async (edges: SessionStartEdges): Promise<number> => {
-  const { env, run, output, deadlineMs, procPresent } = edges
-  const ghPresent = which('gh', env) !== null
+  const { env, run, output, files, deadlineMs, procPresent } = edges
+  // One clock for every step. A step that starts late gets only the time
+  // that is left, so the whole check ends inside `deadlineMs`.
+  const remaining = deadlineClock(deadlineMs)
+  const lookUp = (tool: string): Promise<boolean | null> => onPath(tool, env, files, remaining())
 
-  const [ghLogin, ghStack, plugins] = await Promise.all([
-    ghPresent ? ghLoggedIn(run, env, deadlineMs) : Promise.resolve(true),
-    ghPresent ? ghStackInstalled(run, env, deadlineMs) : Promise.resolve(true),
-    readRegistry(env, run, deadlineMs),
+  // The guard (`hooks/guard.ts`) lists vitest processes with `pgrep`. It
+  // reads each cwd from `/proc`, or from `lsof` when `/proc` is absent.
+  // `lib/dependencies.ts` has no "one of" row, so this asks for `lsof`
+  // only on a machine with no `/proc`.
+  //
+  // The reviewer reads follow the registry read at once. They do not wait
+  // for the `PATH` walks, so a slow walk does not take their time.
+  const registry = readRegistry(env, run, files, remaining).then(async (plugins) => ({
+    plugins,
+    reviewers:
+      plugins !== null && hasPlugin(plugins, REVIEWER_PLUGIN)
+        ? await withinDeadline(reviewerRows(plugins, files), remaining(), null)
+        : null,
+  }))
+  const [ghPresent, pgrepPresent, lsofPresent] = await Promise.all([
+    lookUp('gh'),
+    lookUp('pgrep'),
+    procPresent ? Promise.resolve(undefined) : lookUp('lsof'),
+  ])
+
+  const [ghLogin, ghStack, { plugins, reviewers }] = await Promise.all([
+    ghPresent === true ? ghLoggedIn(run, env, remaining()) : Promise.resolve(true),
+    ghPresent === true ? ghStackInstalled(run, env, remaining()) : Promise.resolve(true),
+    registry,
   ])
 
   // A check that timed out, or a `gh` that could not run, gets a
@@ -259,21 +331,21 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   // `absentDependencies` reads as "absent". The fix for a check that
   // could not run differs from the fix for a real absence. This code
   // cannot tell which one is true.
-  const rows: Row[] = [{ tool: 'gh', label: 'the GitHub CLI (gh)', present: ghPresent }]
+  const rows: Row[] = []
   const problems: string[] = []
-  if (ghPresent) {
+  const onPathRow = (tool: string, label: string, present: boolean | null): void => {
+    if (present === null) problems.push(`${label} could not be checked`)
+    else rows.push({ tool, label, present })
+  }
+  onPathRow('gh', 'the GitHub CLI (gh)', ghPresent)
+  if (ghPresent === true) {
     if (ghLogin === null) problems.push('a gh login could not be checked')
     else rows.push({ tool: 'gh-login', label: 'a gh login', present: ghLogin })
     if (ghStack === null) problems.push('the gh stack extension could not be checked')
     else rows.push({ tool: 'gh-stack', label: 'the gh stack extension', present: ghStack })
   }
-
-  // The guard (`hooks/guard.ts`) lists vitest processes with `pgrep`. It
-  // reads each cwd from `/proc`, or from `lsof` when `/proc` is absent.
-  // `lib/dependencies.ts` has no "one of" row, so this builds the rows
-  // for this machine.
-  rows.push({ tool: 'pgrep', label: 'pgrep', present: which('pgrep', env) !== null })
-  if (!procPresent) rows.push({ tool: 'lsof', label: 'lsof', present: which('lsof', env) !== null })
+  onPathRow('pgrep', 'pgrep', pgrepPresent)
+  if (lsofPresent !== undefined) onPathRow('lsof', 'lsof', lsofPresent)
 
   // A registry, or its fallback, that this code could not read at all is
   // a problem line of its own. It is never five missing plugins. The fix
@@ -289,25 +361,17 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
       present: reviewerPluginPresent,
     })
     if (reviewerPluginPresent) {
-      const reachable = reachableReviewerPaths(plugins)
-      if (reachable.length === 0) {
-        // Every recorded install path is gone, or none was recorded at
-        // all. Either way this cannot check a single reviewer agent. So
-        // it says that, rather than name five agents that may well be
-        // there in a copy this cannot find.
+      if (reviewers === null) {
+        // Every recorded install path is gone, none was recorded at all,
+        // or the reads did not finish in time. Either way this cannot
+        // check a single reviewer agent. So it says that, rather than
+        // name five agents that may well be there in a copy this cannot
+        // find.
         problems.push(
           'no installed copy of pr-review-toolkit could be checked for its reviewer agents',
         )
       } else {
-        for (const reviewer of REQUIRED_REVIEWERS) {
-          rows.push({
-            tool: `reviewer:${reviewer}`,
-            label: `pr-review-toolkit's ${reviewer} agent`,
-            present: reachable.some((root) =>
-              existsSync(path.join(root, 'agents', `${reviewer}.md`)),
-            ),
-          })
-        }
+        rows.push(...reviewers)
       }
     }
   }
