@@ -147,7 +147,7 @@ describe('argv', () => {
     ])
   })
 
-  it('asks gh pr list for the merged window with the fields prs.py reads', async () => {
+  it('asks gh pr list for the merged window with the fields sync-repo reads', async () => {
     // `gh-sync-repo.py:292`, plus `number` and `mergeCommit` (#348, #450).
     // A caller that names a base gets it filtered server-side.
     const { gh, calls } = clientAnswering({ stdout: '[]' })

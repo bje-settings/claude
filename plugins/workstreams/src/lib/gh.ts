@@ -946,8 +946,8 @@ export interface GhClientOptions {
  * pull-request query both ask for exactly this list.
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
- * request's head by its number, and proves the merge reached the default
- * branch by its merge commit (#348, #450). `REPOSITORY_FIELDS` and
+ * request's head by its number (#450). Its merge commit proves that the
+ * merge reached the default branch (#348). `REPOSITORY_FIELDS` and
  * `RUN_FIELDS` match `gh-shepherd-status.py`'s repository and run queries.
  * The run list adds the run's identity and outcome to the two timestamps
  * that script reads, because a run row with no id cannot be followed to

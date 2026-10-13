@@ -159,7 +159,7 @@ describe('merge proof', () => {
     expect(f.git.branches(f.repo)).toContain('patch-1')
   })
 
-  it('ignores a pull request merged into another base', async () => {
+  it('keeps a branch whose merge commit is not on main', async () => {
     const f = fixture()
     const built = SCENARIOS.ignore_another_base?.(f)
 
@@ -463,7 +463,7 @@ describe('the per-branch fallback', () => {
     expect(f.git.branches(f.repo)).toContain('busy')
   })
 
-  it('ignores another base in the per-branch query', async () => {
+  it('keeps a branch whose merge commit is not on main, in the per-branch query', async () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'for-release-2')
     const sha = f.git.sha(f.repo, 'for-release-2')
@@ -477,7 +477,7 @@ describe('the per-branch fallback', () => {
     expect(result.stdout).toContain('kept for-release-2 (no merge proof)')
   })
 
-  it('still requires the commit to match in the fallback', async () => {
+  it('still keeps a local commit the head lacks, in the fallback', async () => {
     // The fallback must not be a weaker signal than the bulk lookup.
     const f = fixture()
     const built = SCENARIOS.per_branch_tip_moved?.(f)

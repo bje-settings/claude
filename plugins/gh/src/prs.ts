@@ -17,13 +17,14 @@
 //     reused, or had a commit added after the merge, does not count as
 //     landed
 //
-// Neither merged-pull-request query filters by base. {@link ownRows} drops
-// forks, not the query. This keeps the row count real. The caller checks
-// that count against the lookup limit. It stays the true number of pull
-// requests the window returned. The first and last conditions need git, so `sync-repo` checks
-// them. This file only reads the fields they need. `hook-io` counts with
-// {@link hasMatch}, which checks the name and the tip only. So its count can
-// be higher than what `sync-repo` prunes.
+// The bulk and per-branch queries of `sync-repo` ask for every base.
+// {@link ownRows} drops forks, not the query. This keeps the row count
+// real. The caller checks that count against the lookup limit. It stays
+// the true number of pull requests the window returned. The first and
+// last conditions need git, so `sync-repo` checks them. This file only
+// reads the fields they need. `hook-io` counts with {@link hasMatch}, which
+// checks the name and the tip only. So its count can differ from what
+// `sync-repo` prunes, higher or lower.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from
@@ -50,8 +51,8 @@ export interface PullRequestRow {
 }
 
 /** A full commit SHA, SHA-1 or SHA-256. A field from gh goes into a git argv
- *  only through this check, so an answer that starts with `-` can never
- *  read as a flag. */
+ *  only through this check or {@link pullRefOf}, so an answer that starts
+ *  with `-` can never read as a flag. */
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/
 
 /** Whether `value` is a full commit SHA. */
