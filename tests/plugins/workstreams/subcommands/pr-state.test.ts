@@ -2720,7 +2720,13 @@ describe('the review statuses (#377, #395)', () => {
       mark('review-1', FIX, T2, 'substantial'),
     ])
 
-    expect(facts).toEqual({ round: 1, substantial: false, round1Head: ROUND_1, rotChecked: false })
+    expect(facts).toEqual({
+      round: 1,
+      substantial: false,
+      round1Head: ROUND_1,
+      rotChecked: false,
+      layerReturned: true,
+    })
   })
 
   it('takes the older commit for two review-1 statuses made at one time', () => {
@@ -2732,12 +2738,13 @@ describe('the review statuses (#377, #395)', () => {
     expect(facts.round1Head).toBe(ROUND_1)
   })
 
-  it('reads a layer status as no review fact', () => {
+  it('reads a layer status as the layer returned, and as no other fact', () => {
     expect(reviewFactsOf([mark('layer', ROUND_1, T1)])).toEqual({
       round: 0,
       substantial: false,
       round1Head: null,
       rotChecked: false,
+      layerReturned: true,
     })
   })
 
@@ -2760,7 +2767,13 @@ describe('the review statuses (#377, #395)', () => {
           mark('review-2', FIX, T2, null, state),
           mark('rot-check', FIX, T3, null, state),
         ]),
-      ).toEqual({ round: 1, substantial: false, round1Head: ROUND_1, rotChecked: false })
+      ).toEqual({
+        round: 1,
+        substantial: false,
+        round1Head: ROUND_1,
+        rotChecked: false,
+        layerReturned: true,
+      })
     })
   }
 
@@ -2770,6 +2783,7 @@ describe('the review statuses (#377, #395)', () => {
       substantial: false,
       round1Head: null,
       rotChecked: false,
+      layerReturned: true,
     })
   })
 
@@ -2779,6 +2793,7 @@ describe('the review statuses (#377, #395)', () => {
       substantial: false,
       round1Head: null,
       rotChecked: true,
+      layerReturned: false,
     })
   })
 
@@ -2904,6 +2919,155 @@ describe('the review statuses (#377, #395)', () => {
 
       expect(report.verdict).toBe('green')
       expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'types'])
+    })
+  })
+})
+
+describe('the layer return (#396, mid-round ruling 16)', () => {
+  const RETURNED = 'c'.repeat(40)
+  const REPLACED = 'd'.repeat(40)
+  const T1 = '2026-10-13T10:00:00Z'
+
+  const status = (
+    name: string,
+    commit: string,
+    state: CommitStatus['state'] = 'success',
+    description: string | null = null,
+  ): CommitStatus => ({ commit, context: `workstreams/${name}`, state, description, createdAt: T1 })
+
+  /** Every read answered, with `rows` as the review statuses of #178 only.
+   *  Any other query reads as a short read. */
+  const withRows = (rows: readonly CommitStatus[]) => ({
+    ...createGhMock(replies()),
+    listPullRequestStatuses: async (query: {
+      readonly pullRequest: number
+      readonly prefix: string
+    }) =>
+      query.pullRequest === 178 && query.prefix === 'workstreams/'
+        ? { rows, unavailable: null }
+        : { rows: [], unavailable: `asked for #${query.pullRequest} ${query.prefix}` },
+  })
+
+  const layerOf = async (
+    rows: readonly CommitStatus[],
+    argv: readonly string[] = [],
+  ): Promise<PrStateReport> => {
+    const answer = await runPrState(['--json', '178', ...argv], { gh: withRows(rows) })
+    if (answer.outcome !== 'ok') throw new Error(`expected a report, got ${answer.error}`)
+    return JSON.parse(answer.value) as PrStateReport
+  }
+
+  it('is true from a layer status alone, and the state stays review-1', async () => {
+    const report = await layerOf([status('layer', RETURNED)])
+
+    expect(report.layerReturned).toBe(true)
+    expect(report.round).toBe(0)
+    expect(report.state).toBe('review-1')
+  })
+
+  it('is false with no status, and the state is still review-1', async () => {
+    const report = await layerOf([])
+
+    expect(report.layerReturned).toBe(false)
+    expect(report.state).toBe('review-1')
+  })
+
+  it('is true from a layer status on a head that a force-push replaced', async () => {
+    // The status read returns a replaced head beside the pull request's own
+    // commits (ruling 15). Its row carries that head as its commit.
+    const report = await layerOf([status('layer', REPLACED)])
+
+    expect(report.layerReturned).toBe(true)
+  })
+
+  it('is true from a review-1 status with no layer status, as after a restack', async () => {
+    // A fix pushed on the returned head, then a restack, drops the layer
+    // status with its commit. The round 1 status still says the layer returned.
+    // A substantial round 1 reads no compare.
+    const report = await layerOf([status('review-1', RETURNED, 'success', 'substantial')])
+
+    expect(report.layerReturned).toBe(true)
+  })
+
+  it('is true from a review-2 status alone', async () => {
+    const report = await layerOf([status('review-2', RETURNED)])
+
+    expect(report.layerReturned).toBe(true)
+  })
+
+  it('is false from a rot-check status alone, which is no round', async () => {
+    const report = await layerOf([status('rot-check', RETURNED)])
+
+    expect(report.layerReturned).toBe(false)
+  })
+
+  for (const round of ['1', '2'] as const) {
+    it(`is true from --round ${round} with no status`, async () => {
+      const report = await layerOf([], ['--round', round])
+
+      expect(report.layerReturned).toBe(true)
+    })
+  }
+
+  it('stays false with --round 0 and no status', async () => {
+    const report = await layerOf([], ['--round', '0'])
+
+    expect(report.layerReturned).toBe(false)
+  })
+
+  it('keeps a layer status under --round 0, which counts rounds only', async () => {
+    const report = await layerOf([status('layer', RETURNED)], ['--round', '0'])
+
+    expect(report.layerReturned).toBe(true)
+    expect(report.state).toBe('review-1')
+  })
+
+  for (const state of ['error', 'expected', 'failure', 'pending'] as const) {
+    it(`is false from a ${state} layer status`, async () => {
+      const report = await layerOf([status('layer', RETURNED, state)])
+
+      expect(report.layerReturned).toBe(false)
+    })
+  }
+
+  describe('a status read that fell short', () => {
+    const short = (rows: readonly CommitStatus[]) =>
+      replies({
+        listPullRequestStatuses: {
+          rows,
+          unavailable: 'pull request 178 has more than the 100 commits this reads',
+        },
+      })
+
+    it('is false, also with a layer status in the rows it did read', async () => {
+      // The state is null, so no round starts either way. False is the side
+      // that waits, as the round read takes no fact from a short read.
+      const report = await reportOf(['178'], short([status('layer', RETURNED)]))
+
+      expect(report.layerReturned).toBe(false)
+      expect(report.state).toBeNull()
+    })
+
+    it('is true from --round 1, which gives the facts alone', async () => {
+      const report = await reportOf(['178', '--round', '1'], short([]))
+
+      expect(report.layerReturned).toBe(true)
+    })
+  })
+
+  describe('the text report', () => {
+    const textOf = async (rows: readonly CommitStatus[]): Promise<string> => {
+      const answer = await runPrState(['178'], { gh: withRows(rows) })
+      if (answer.outcome !== 'ok') throw new Error(`expected a report, got ${answer.error}`)
+      return answer.value
+    }
+
+    it('says returned', async () => {
+      expect(await textOf([status('layer', RETURNED)])).toContain('\n  layer    returned\n')
+    })
+
+    it('says not returned', async () => {
+      expect(await textOf([])).toContain('\n  layer    not returned\n')
     })
   })
 })
