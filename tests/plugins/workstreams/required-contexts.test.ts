@@ -704,6 +704,15 @@ describe('stackBottom (#398)', () => {
       branch: null,
       unavailable: 'the chain of bases under x loops back to x',
     })
+    // A loop the walk enters below its start: only the branches it passed
+    // on the way show it.
+    expect(
+      stackBottom('x', [
+        { head: 'x', base: 'a' },
+        { head: 'a', base: 'b' },
+        { head: 'b', base: 'a' },
+      ]),
+    ).toEqual({ branch: null, unavailable: 'the chain of bases under x loops back to a' })
   })
 
   it('refuses a branch that two open pull requests have as their head', () => {
@@ -716,6 +725,11 @@ describe('stackBottom (#398)', () => {
       branch: null,
       unavailable:
         'more than one open pull request has the head a, so the stack under a has no one bottom',
+    })
+    expect(stackBottom('top', [{ head: 'top', base: 'a' }, ...open])).toEqual({
+      branch: null,
+      unavailable:
+        'more than one open pull request has the head a, so the stack under top has no one bottom',
     })
   })
 })

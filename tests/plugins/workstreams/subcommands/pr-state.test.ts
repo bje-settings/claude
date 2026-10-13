@@ -418,6 +418,26 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
     )
   })
 
+  it('names the bottom’s base, not its own, when no ruleset covers it', async () => {
+    const gh = createGhMock(
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ base: 'wktr-1' }),
+          unavailable: null,
+          missing: false,
+        },
+        listOpenPullRequestHeads: { rows: chain(1), unavailable: null },
+        requiredContexts: { contexts: [], unavailable: null },
+      }),
+    )
+
+    const answer = await runPrState(['178'], { gh })
+
+    expect(answer.outcome === 'ok' && answer.value).toContain(
+      'no ruleset requires a status check of main, so the verdict below is over',
+    )
+  })
+
   it('reads nothing as required when the chain loops, and says so', async () => {
     const loop = [open(171, 'wktr-1', 'wktr-2'), open(172, 'wktr-2', 'wktr-1')]
     const { report, asked } = await stacked(loop, { main: ['vitest'] })
@@ -2049,6 +2069,7 @@ describe('the report a person reads', () => {
     expect(answer.outcome === 'ok' && answer.value).toContain(
       'the 2 context(s) that have reported on the head instead',
     )
+    expect(answer.outcome === 'ok' && answer.value).not.toContain('read from the rules of')
     expect(answer.outcome === 'ok' && answer.value).not.toMatch(/^INCOMPLETE:/)
   })
 
