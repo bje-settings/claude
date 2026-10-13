@@ -27,14 +27,14 @@ flowchart TD
     F -->|Yes| G{Anything at all read?}
     G -->|No| G1[poll failed, once for each new reason]
     G -->|Yes| G2[poll read again, after a failure]
-    G2 --> G3{A base's required contexts<br/>could not be read this poll?}
+    G2 --> G3{A base's required contexts<br/>could not be read this poll, or its<br/>chain of bases has no bottom?}
     G3 -->|Yes| G4[Say so once per reason;<br/>its pull requests go unread]
     G3 -->|No| G3R{This base just read<br/>again, after a failure?}
     G3R -->|Yes| G4R[Say so once]
     G3R -->|No| G5
     G4 --> G5[For each pull request that left the list:<br/>merged or closed, from its own state]
     G4R --> G5
-    G5 --> I1{This head's own base<br/>read this poll?}
+    G5 --> I1{This head's base list<br/>read this poll?}
     I1 -->|No| L
     I1 -->|Yes| I2{No ruleset on this base,<br/>and the default branch failed<br/>to read this poll?}
     I2 -->|Yes| L
@@ -59,8 +59,9 @@ flowchart TD
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
 
-The required contexts come from the rules of the base branch. When no ruleset covers the base,
-they come from the rules of the default branch. Each stack layer above the first is such a case.
+The required contexts come from the rules of the stack bottom's base (#398). A base that is the
+head of an open pull request moves the read down to that pull request's base. When no ruleset
+covers the bottom's base, they come from the rules of the default branch.
 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). The watch then writes no failure line for it, and the head is not

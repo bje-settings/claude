@@ -1740,3 +1740,111 @@ describe('a draft and the checks that skip drafts (#365)', () => {
     expect(lines).toEqual([])
   })
 })
+
+describe('a stacked pull request reads the stack bottom’s rules (#398)', () => {
+  // Layer 1 is based on `release`, layer 2 on layer 1, layer 3 on layer 2.
+  // Only `release` has a ruleset, so a layer above the first needs the
+  // stack bottom to find `release-check`. The default branch's list is
+  // `REQUIRED`, which none of these heads has reported.
+  const layer = (number: number, base: string, overrides: Partial<PullRequestHead> = {}) =>
+    head({
+      number,
+      head: `wktr-${number}`,
+      headSha: SHA_A,
+      base,
+      checks: [done('release-check')],
+      ...overrides,
+    })
+  const one = layer(301, 'release')
+  const two = layer(302, 'wktr-301')
+  const three = layer(303, 'wktr-302')
+  const rules = { main: REQUIRED, release: ['release-check'] }
+
+  it('concludes an upper layer on the bottom base’s contexts, not the default branch’s', async () => {
+    const { context, lines } = watchOver([{ heads: heads(one, two), required: rules }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain('#302 aaaaaaa CONCLUDED: 1/1 required reported, all passed')
+  })
+
+  it('follows a chain of three', async () => {
+    const { context, lines } = watchOver([{ heads: heads(one, two, three), required: rules }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain('#303 aaaaaaa CONCLUDED: 1/1 required reported, all passed')
+  })
+
+  it('falls back to the default branch when the bottom’s base has no ruleset', async () => {
+    const { context, lines } = watchOver([{ heads: heads(one, two), required: { main: REQUIRED } }])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain(
+      `#302 open: wktr-302 -> wktr-301, head ${SHA_A}, draft, required 0/3 reported`,
+    )
+  })
+
+  it('keeps a lower layer that --heads leaves out in the chain', async () => {
+    const { context, lines } = watchOver([{ heads: heads(one, two), required: rules }])
+
+    await runWatch(['--ticks', '1', '--heads', 'wktr-302'], context)
+
+    expect(lines).toContain('#302 aaaaaaa CONCLUDED: 1/1 required reported, all passed')
+    expect(lines.some((line) => line.startsWith('#301'))).toBe(false)
+  })
+
+  it('does not take a fork’s branch of the same name as a lower layer', async () => {
+    const fork = layer(399, 'main', { head: 'wktr-301', crossRepository: true })
+    const { context, lines } = watchOver([
+      { heads: heads(two, fork), required: { main: REQUIRED, 'wktr-301': ['release-check'] } },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    // The upper layer's base `wktr-301` is the bottom, because the fork's
+    // pull request is not a pull request of this repository.
+    expect(lines).toContain('#302 aaaaaaa CONCLUDED: 1/1 required reported, all passed')
+  })
+
+  it('leaves unread, and does not fail the poll for, a base whose chain loops', async () => {
+    const around = layer(311, 'wktr-312')
+    const back = layer(312, 'wktr-311')
+    const { context, lines } = watchOver([
+      { heads: heads(around, back, head({ number: 320, head: 'wktr-320' })), required: rules },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain(
+      'required contexts for wktr-312 could not be read: ' +
+        'the chain of bases under wktr-312 loops back to wktr-312; its pull requests are unread',
+    )
+    // A base outside the loop still reads, so the poll goes on (#265).
+    expect(lines.some((line) => line.startsWith('#320 open'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('poll failed'))).toBe(false)
+    expect(lines.some((line) => line.startsWith('#311') || line.startsWith('#312'))).toBe(false)
+  })
+
+  it('leaves unread, and does not fail the poll for, a layer whose bottom cannot be read', async () => {
+    const { context, lines } = watchOver([
+      {
+        heads: heads(one, two, head({ number: 320, head: 'wktr-320' })),
+        required: { main: REQUIRED, release: ghFails('gh: HTTP 500') },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toContain(
+      'required contexts for release could not be read: gh: HTTP 500; its pull requests are unread',
+    )
+    expect(lines).toContain(
+      'required contexts for wktr-301 could not be read: gh: HTTP 500; its pull requests are unread',
+    )
+    expect(lines.some((line) => line.startsWith('#320 open'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('poll failed'))).toBe(false)
+    expect(lines.some((line) => line.startsWith('#302'))).toBe(false)
+  })
+})

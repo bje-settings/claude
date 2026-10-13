@@ -4,8 +4,13 @@
 // satisfies one.
 //
 // A ruleset on a topic branch is rare. No ruleset covers the base of a stack
-// layer above the first, so the list for that base is empty. The two callers
-// want different fallbacks for that case:
+// layer above the first, so the list for that base is empty. So both callers
+// read the rules of the stack BOTTOM's base instead ({@link stackBottom},
+// #398). GitHub takes the merge requirements of every pull request in a
+// stack from the base of the bottom pull request
+// (https://docs.github.com/en/pull-requests/get-started/about-stacked-prs).
+// A pull request in no chain has its own base as the bottom. The two
+// callers want different fallbacks when that bottom has no ruleset:
 //
 //   - `pr-state` falls back to the names that reported on the head. It also
 //     reads the workflow runs, so it can tell when that list is settled.
@@ -378,4 +383,73 @@ export const namesOrDefault = (
   if (required.length > 0) return { names: required, from: 'ruleset' }
   if (defaultRequired === null) return { names: [], from: 'unread' }
   return { names: defaultRequired, from: 'default' }
+}
+
+/** The most hops {@link stackBottom} follows. A stack is a few layers deep.
+ *  A chain this long is more likely a loop that the cycle check missed, or a
+ *  mistake, than a stack. */
+export const MAX_STACK_DEPTH = 50
+
+/** The part of an open pull request that the walk reads. */
+export interface StackLink {
+  readonly head: string
+  readonly base: string
+}
+
+/** The branch whose rules a pull request answers to, or why none is known. */
+export type StackBottom =
+  | { readonly branch: string; readonly unavailable: null }
+  | { readonly branch: null; readonly unavailable: string }
+
+/**
+ * The base of the stack bottom, found from the chain of bases (round 16
+ * ruling 7, #398).
+ *
+ * From `base`, a base that is the head of an open pull request moves on to
+ * that pull request's base. The walk stops at the first base that is the
+ * head of no open pull request. That branch is the answer, and it is
+ * `base` itself for a pull request in no chain. A chain that a person made
+ * by hand, and not with `gh stack`, gets the same answer. Merges go down
+ * that chain too, so its bottom's rules are the right ones.
+ *
+ * The answer depends on `base` alone, so a caller that holds many pull
+ * requests asks once for each distinct base.
+ *
+ * Three cases have no bottom, and each gives a reason and no branch. A
+ * caller reads that as an unreadable list, not as "nothing required":
+ *
+ *   - The chain loops back to a branch it has passed.
+ *   - The chain is longer than {@link MAX_STACK_DEPTH}.
+ *   - Two open pull requests have the same head, so the next hop is not
+ *     one branch.
+ *
+ * `open` holds only pull requests whose head is a branch of this
+ * repository. A fork's branch name says nothing about a branch here.
+ */
+export const stackBottom = (base: string, open: readonly StackLink[]): StackBottom => {
+  const passed = new Set([base])
+  let branch = base
+  for (let hops = 0; hops <= MAX_STACK_DEPTH; hops++) {
+    const below = open.filter((pull) => pull.head === branch)
+    const next = below[0]
+    if (next === undefined) return { branch, unavailable: null }
+    if (below.length > 1) {
+      return {
+        branch: null,
+        unavailable: `more than one open pull request has the head ${branch}, so the stack under ${base} has no one bottom`,
+      }
+    }
+    if (passed.has(next.base)) {
+      return {
+        branch: null,
+        unavailable: `the chain of bases under ${base} loops back to ${next.base}`,
+      }
+    }
+    passed.add(next.base)
+    branch = next.base
+  }
+  return {
+    branch: null,
+    unavailable: `the chain of bases under ${base} is longer than ${MAX_STACK_DEPTH} pull requests`,
+  }
 }

@@ -239,6 +239,24 @@ export interface PullRequestHead {
 }
 
 /**
+ * One open pull request as a link of a stack: its head, its base, and
+ * whether the head is in a fork.
+ *
+ * This is a row of its own for the reason {@link PullRequestHead} gives,
+ * and it carries no checks. A walk down a stack needs only the branch
+ * names. A row with more checks than one page holds would make its whole
+ * read short, for a fact the walk does not use (#398).
+ */
+export interface PullRequestLink {
+  readonly number: number
+  readonly head: string
+  readonly base: string
+  /** Whether the head branch is in a fork. A fork's branch name says
+   *  nothing about a branch of this repository with the same name. */
+  readonly crossRepository: boolean
+}
+
+/**
  * One status check reported on a commit, whichever of the two kinds GitHub
  * reports it as.
  *
@@ -463,6 +481,8 @@ export interface GhResults {
   listOpenPullRequests: PagedResult<PullRequestSummary>
   /** Open pull requests with their head commits and the checks on them. */
   listOpenPullRequestHeads: PagedResult<PullRequestHead>
+  /** Open pull requests as stack links: head, base, and the fork flag. */
+  listOpenPullRequestLinks: PagedResult<PullRequestLink>
   /** The status-check contexts a branch's rulesets require. An empty list is
    *  an answer: it means no ruleset requires anything of that branch. */
   requiredContexts: {
@@ -633,6 +653,14 @@ export interface GhClient {
    * Never throws, for {@link PagedResult}'s reason.
    */
   listOpenPullRequestHeads(): Promise<GhResults['listOpenPullRequestHeads']>
+  /**
+   * Every open pull request as a stack link: number, head, base, and
+   * whether the head is in a fork. It reads no checks, so only a row of
+   * the wrong shape makes it short.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listOpenPullRequestLinks(): Promise<GhResults['listOpenPullRequestLinks']>
   /**
    * The status-check contexts every ruleset that applies to `branch`
    * requires, unioned, and in the order the rules name them.
@@ -1289,6 +1317,17 @@ const PULL_REQUEST_HEADS_QUERY = `query($owner: String!, $name: String!, $cursor
   }
 }`
 
+/** Every open pull request's head and base, and whether the head is in a
+ *  fork. No checks: see {@link PullRequestLink}. */
+const PULL_REQUEST_LINKS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number headRefName baseRefName isCrossRepository }
+    }
+  }
+}`
+
 /**
  * One pull request's whole state, in one round trip.
  *
@@ -1544,6 +1583,18 @@ const readPullRequestHead = (node: unknown): PullRequestHead | null => {
   return { ...summary, headSha, crossRepository, checks }
 }
 
+/** One pull request link node, or null when it is not the shape asked for. */
+const readPullRequestLink = (node: unknown): PullRequestLink | null => {
+  const record = asRecord(node)
+  const number = asInteger(record?.number)
+  const head = asText(record?.headRefName)
+  const base = asText(record?.baseRefName)
+  const crossRepository = record?.isCrossRepository
+  if (number === null || head === null || base === null) return null
+  if (typeof crossRepository !== 'boolean') return null
+  return { number, head, base, crossRepository }
+}
+
 /** Whether a connection said it has a page after the one that was read. */
 const truncated = (value: unknown): boolean =>
   asRecord(asRecord(value)?.pageInfo)?.hasNextPage === true
@@ -1746,6 +1797,44 @@ const readWorkflowRun = (node: unknown): WorkflowRun | null => {
     startedAt,
     updatedAt,
   }
+}
+
+/** The words GitHub answers with when a plan does not include rulesets
+ *  (#414, seen on a private repository of a free organization). */
+const PLAN_LIMIT_MESSAGE =
+  'Upgrade to GitHub Pro or make this repository public to enable this feature'
+
+/**
+ * Whether a branch-rules answer is GitHub's plan-limit refusal.
+ *
+ * The match is narrow on purpose: the body must be an error body with a
+ * status of 403 and the plan-limit words in its message. gh prints the
+ * status of a 4xx body as a string (read from a real 404 on 2026-10-13).
+ * It is safe to read this as "no rulesets" because the plan lacks the
+ * feature. A repository that cannot have rulesets has none that require a
+ * check. Any other refusal, such as a 403 for a missing token scope or a
+ * rate limit, does not carry these words and stays unavailable (#414).
+ */
+const isPlanLimit = (value: unknown): boolean => {
+  const body = asRecord(value)
+  return (
+    String(body?.status) === '403' &&
+    typeof body?.message === 'string' &&
+    body.message.includes(PLAN_LIMIT_MESSAGE)
+  )
+}
+
+/** What a non-list answer says of itself, as a suffix: its status and
+ *  message when it is an error body, or nothing (#414). gh prints the
+ *  error body of a 4xx to stdout, with `status` as a string. */
+const errorBodyOf = (value: unknown): string => {
+  const body = asRecord(value)
+  const message = asText(body?.message)
+  if (message === null) return ''
+  const status = body?.status
+  return typeof status === 'string' || typeof status === 'number'
+    ? ` (${status}: ${message})`
+    : ` (${message})`
 }
 
 /**
@@ -2572,6 +2661,14 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         readPullRequestHead,
       ),
 
+    listOpenPullRequestLinks: async () =>
+      collect(
+        { kind: 'repository', field: 'pullRequests' },
+        PULL_REQUEST_LINKS_QUERY,
+        [],
+        readPullRequestLink,
+      ),
+
     // The branch is percent-encoded into the path, because a branch name
     // may carry a `/` (`spike/context-audit`). An unencoded one would name
     // a path segment that is not the branch, and answer 404 for a branch
@@ -2579,10 +2676,11 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     requiredContexts: async (query) => {
       const answer = await restJson(`rules/branches/${encodeURIComponent(query.branch)}`)
       if (answer.unavailable !== null) return { contexts: [], unavailable: answer.unavailable }
+      if (isPlanLimit(answer.value)) return { contexts: [], unavailable: null }
       if (!Array.isArray(answer.value)) {
         return {
           contexts: [],
-          unavailable: `the rules for ${query.branch} were not a list of rules`,
+          unavailable: `the rules for ${query.branch} were not a list of rules${errorBodyOf(answer.value)}`,
         }
       }
       const contexts = requiredContextsOf(answer.value)

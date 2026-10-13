@@ -1177,6 +1177,7 @@ it("defaults to the root lib's own process runner", () => {
     'listMergedPullRequests',
     'listMilestones',
     'listOpenPullRequestHeads',
+    'listOpenPullRequestLinks',
     'listOpenPullRequests',
     'listPullRequests',
     'listRuns',
@@ -1530,6 +1531,51 @@ describe('milestones, issues and pull requests', () => {
 
     expect(result.rows).toHaveLength(1)
     expect(result.unavailable).toBe('5 pullRequests row(s) could not be read')
+  })
+
+  it('asks for every open pull request as a link, with the fork flag and no checks', async () => {
+    const linkNode = {
+      number: 177,
+      headRefName: 'wktr-171-audit-split',
+      baseRefName: 'main',
+      isCrossRepository: true,
+    }
+    const { gh, calls } = clientAnsweringEach([REPO, page('pullRequests', [linkNode])])
+
+    const result = await gh.listOpenPullRequestLinks()
+
+    expect(calls[1]?.args[7]).toContain(
+      'nodes { number headRefName baseRefName isCrossRepository }',
+    )
+    expect(calls[1]?.args[7]).not.toContain('statusCheckRollup')
+    expect(result).toEqual({
+      rows: [{ number: 177, head: 'wktr-171-audit-split', base: 'main', crossRepository: true }],
+      unavailable: null,
+    })
+  })
+
+  it('counts a link row that is not the shape the query asked for, one field at a time', async () => {
+    const linkNode = {
+      number: 177,
+      headRefName: 'wktr-171-audit-split',
+      baseRefName: 'main',
+      isCrossRepository: false,
+    }
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('pullRequests', [
+        { ...linkNode, number: null },
+        { ...linkNode, headRefName: null },
+        { ...linkNode, baseRefName: null },
+        { ...linkNode, isCrossRepository: 'no' },
+        linkNode,
+      ]),
+    ])
+
+    const result = await gh.listOpenPullRequestLinks()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('4 pullRequests row(s) could not be read')
   })
 
   it('reports an answer that is not JSON, without throwing', async () => {
@@ -1976,14 +2022,132 @@ describe('the review loop reads', () => {
       })
     })
 
-    it('reports a reply that is not a list of rules, rather than reading it as none', async () => {
+    const PLAN_LIMIT =
+      'Upgrade to GitHub Pro or make this repository public to enable this feature.'
+
+    // The body gh prints to stdout for a refusal, with a non-zero exit. A
+    // real 404 was read from gh on 2026-10-13 and has this shape; the
+    // 403 body is the message #414 records.
+    const refusal = (body: unknown) => ({
+      status: 1,
+      stdout: JSON.stringify(body),
+      stderr: 'gh: refused\n',
+    })
+
+    it('reads the plan-limit 403 as a branch with no rulesets, which is an answer', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        refusal({
+          message: PLAN_LIMIT,
+          documentation_url: 'https://docs.github.com',
+          status: '403',
+        }),
+      ])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: null,
+      })
+    })
+
+    it('keeps the plan-limit message unavailable when the body has no status', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: `the rules for main were not a list of rules (${PLAN_LIMIT})`,
+      })
+    })
+
+    it('reads a numeric 403 status with the plan-limit message the same way', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT, status: 403 })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: null,
+      })
+    })
+
+    it('keeps any other 403 unavailable, and names its status and message', async () => {
+      // A missing token scope or a rate limit is not a plan limit. To read
+      // it as "no rulesets" would report green a pull request that a
+      // ruleset refuses.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        refusal({ message: 'Resource not accessible by personal access token', status: '403' }),
+      ])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable:
+          'the rules for main were not a list of rules (403: Resource not accessible by personal access token)',
+      })
+    })
+
+    it('keeps the plan-limit message unavailable under a status other than 403', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT, status: '404' })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: `the rules for main were not a list of rules (404: ${PLAN_LIMIT})`,
+      })
+    })
+
+    it('keeps a 404 unavailable, and names its status and message', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: 'Not Found', status: '404' })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'the rules for main were not a list of rules (404: Not Found)',
+      })
+    })
+
+    it('names a numeric status with its message', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: 'Not Found', status: 404 })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'the rules for main were not a list of rules (404: Not Found)',
+      })
+    })
+
+    for (const [what, body] of [
+      ['no message', { status: '403' }],
+      ['a message that is not a string', { status: '403', message: 5 }],
+    ] as const) {
+      it(`keeps a 403 with ${what} unavailable, and does not throw`, async () => {
+        const { gh } = clientAnsweringEach([REPO, refusal(body)])
+
+        await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+          contexts: [],
+          unavailable: 'the rules for main were not a list of rules',
+        })
+      })
+    }
+
+    it('names a message that has no status', async () => {
       const { gh } = clientAnsweringEach([REPO, { stdout: '{"message":"Not Found"}' }])
 
       await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
         contexts: [],
-        unavailable: 'the rules for main were not a list of rules',
+        unavailable: 'the rules for main were not a list of rules (Not Found)',
       })
     })
+
+    for (const [what, stdout] of [
+      ['an object with no message', '{"rules":[]}'],
+      ['a bare string', '"nope"'],
+      ['null', 'null'],
+    ] as const) {
+      it(`keeps ${what} unavailable, with no status or message to name`, async () => {
+        const { gh } = clientAnsweringEach([REPO, { stdout }])
+
+        await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+          contexts: [],
+          unavailable: 'the rules for main were not a list of rules',
+        })
+      })
+    }
 
     for (const [what, rule] of [
       ['whose check list is not a list', { required_status_checks: 'vitest' }],

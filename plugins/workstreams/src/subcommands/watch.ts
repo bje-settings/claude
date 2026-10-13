@@ -25,11 +25,13 @@
 // leaves nothing pending.
 //
 // **A head concludes only when every required context has reported**
-// (ruling P9). The list comes from the base branch's rules, and from the
-// DEFAULT branch's rules when no ruleset covers the base. That is the case
-// for each stack layer above the first. In round 5, a watch concluded on
-// the checks that had reported on the head. Those were seven CodeQL checks,
-// and none of the required ones.
+// (ruling P9). The list comes from the rules of the base of the pull
+// request's stack bottom (#398). A base that is the head of an open pull
+// request moves the read down to that pull request's base, until a base is
+// the head of none. A pull request in no stack reads its own base. The
+// list comes from the DEFAULT branch's rules when no ruleset covers that
+// branch. In round 5, a watch concluded on the checks that had reported on
+// the head. Those were seven CodeQL checks, and none of the required ones.
 //
 // **A value that could not be read is reported as itself.** A poll that
 // read no pull request writes a "poll failed" line and changes nothing. The
@@ -41,7 +43,8 @@
 // reported as closed: only its own state names that.
 //
 // **Each base reads its required contexts on its own.** A base whose read
-// fails leaves unread only the pull requests that need its list. Every
+// fails, or whose chain has no bottom (a loop, or too long a chain), leaves
+// unread only the pull requests that need its list. Every
 // other pull request still reads, and can still conclude. The failure
 // writes one line for each new reason, and a line when that base reads
 // again. A failed default branch leaves unread every pull request that
@@ -88,6 +91,7 @@ import {
   type ReportedContext,
   reportContexts,
   splitDraftSkipped,
+  stackBottom,
 } from '../required-contexts.ts'
 
 export const HELP = `Every open pull request's head and required checks, as one line per event.
@@ -360,10 +364,26 @@ const readPoll = async (gh: GhClient, heads: ReadonlySet<string>): Promise<PollO
   // Each base reads on its own. A base whose read fails leaves only its own
   // pull requests unread this poll. It does not fail the poll for the rest
   // (#265).
+  // The key is the base the pull requests name. The read is of the base of
+  // that base's stack bottom (#398). The chain comes from every open pull
+  // request of this repository, not only those `--heads` keeps: a lower
+  // layer outside the filter still sets the rules. A short list can hide a
+  // lower layer. Then the read falls back to a higher base, as it did
+  // before #398, and the "poll incomplete" line says the list fell short.
   const required = new Map<string, readonly string[]>()
   const baseFailed = new Map<string, string>()
+  const links = open.rows.filter((pull) => !pull.crossRepository)
+  const bottomReads = new Map<string, Awaited<ReturnType<GhClient['requiredContexts']>>>()
   for (const branch of new Set([defaultBranch, ...pulls.map((pull) => pull.base)])) {
-    const answer = await gh.requiredContexts({ branch })
+    const bottom = stackBottom(branch, links)
+    if (bottom.branch === null) {
+      baseFailed.set(branch, bottom.unavailable)
+      continue
+    }
+    // Two bases can share a bottom. The read is made once.
+    const answer =
+      bottomReads.get(bottom.branch) ?? (await gh.requiredContexts({ branch: bottom.branch }))
+    bottomReads.set(bottom.branch, answer)
     if (answer.unavailable !== null) {
       baseFailed.set(branch, answer.unavailable)
       continue
@@ -695,7 +715,7 @@ export const runWatch = async (
           knownOpen.delete(number)
         }
       }
-      // A pull request is unread this poll when its own base's read failed.
+      // A pull request is unread this poll when the read for its base failed.
       // It is also unread when its base falls back to a default branch
       // whose read failed (#265). It is left as this watch last knew it,
       // and read again once the base it needs reads. It still counts as
