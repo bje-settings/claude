@@ -155,7 +155,9 @@ cache copy when it finds a `package.json` and an npm or bun lockfile together, w
 installing a plugin into a network fetch on a user's machine at the moment they wanted a tool.
 Dependencies are declared once, at the repository root, where they are dev and CI dependencies
 only. What a plugin ships at run time is its own tree plus the root `lib/` the installer
-dereferenced into it, and nothing else.
+dereferenced into it, and nothing else. **Superseded
+([#417](https://github.com/bje-settings/claude/issues/417)):** a plugin ships its own tree, with
+its copies of the `lib/` files it imports ([ADR 006](006-plugins-hold-copies-of-lib.md)).
 
 ## Consequences
 

@@ -3,8 +3,8 @@
 This directory holds the code shared between plugins. It is the one place to edit that code.
 Each plugin holds copies of the files it imports, and of the files that those import, in
 `plugins/<plugin>/src/lib/` (ADR 006). After an edit here, run `node scripts/sync-lib.ts` to
-write the copies. `node scripts/sync-lib.ts --check` fails when a copy differs from this
-directory, and `tests/repo/sync-lib.test.ts` runs it. Never edit a copy.
+write the copies. `node scripts/sync-lib.ts --check` fails when a copy is missing, extra or
+different, and `tests/repo/sync-lib.test.ts` runs it. Never edit a copy.
 
 Each copy is a real file, not a link. So an installed plugin needs nothing at run time that the
 plugin did not ship, whatever the install method.

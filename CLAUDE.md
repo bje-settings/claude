@@ -67,7 +67,7 @@ Every skill has a flow directory, `docs/flows/<plugin>/<skill>/`, with `_skill-f
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 
 Not everything here is a plugin. A root `scripts/` script, in TypeScript, is this repository's
-own tooling. `.claude/skills/` holds the skill that drives one. Nobody installs either one.
+own tooling. A skill in `.claude/skills/` would drive one. Nobody installs either one.
 Neither appears in the marketplace manifest. `claude plugin validate` never sees either one. The
 convention still holds them to the same standard, because they can change other repositories.
 `scripts/sync-lib.ts` is the one root script. It copies `lib/` into each plugin, and
