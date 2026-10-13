@@ -59,10 +59,10 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 0. Called with a round agent's JSON return: check its `substantial` against
    `git -C <worktree> diff <from> <head>`. The diff decides the description. Record that
    round's status with `mark` and its `head`, and name any disagreement. A `mark` that
-   failed is a stop: say so, and settle no thread. Then post the round comment. A comment
-   that did not post is no stop: the status is the state. Name it in the return and in step 5.
-   Then settle each entry of the return's `bot_threads`. Reply `Fixed in <commit>.`, or `Not changed: <reason>.`
-   when `commit` is `null`. Then resolve the thread, and return.
+   failed is a stop: say so, post no comment, and settle no thread. Then post the round
+   comment. A comment that did not post is no stop: the status is the state. Name it in the
+   return. Then settle each entry of the return's `bot_threads`. Reply `Fixed in <commit>.`,
+   or `Not changed: <reason>.` when `commit` is `null`. Then resolve the thread, and return.
 
    ```bash
    gh api graphql -f query='mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{id}}}' -f id=<thread id> -f body='<reply>'
@@ -133,7 +133,8 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> rot-check
    ```
 
-   Then post the rot check comment, as step 0 does for a round.
+   Then post the rot check comment, as step 0 does for a round. A comment that did not post
+   is no stop: step 5 names it.
 
 5. Report five things, with the URL of each comment posted, and each comment that did not
    post: the state reached, what each round applied and rejected with its

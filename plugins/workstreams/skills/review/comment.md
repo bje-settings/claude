@@ -10,14 +10,14 @@ the backticks. The date is today's.
 gh pr comment <number> --body-file - <<'EOF_COMMENT'
 Review round <1|2> done.
 
-Head <sha>. Model: <model>. Reviewers: <list>. Applied <n>, rejected <n>. <Substantial|Minor>.
+Head <sha>. Model: <model>. Reviewers: <list>. Applied <n>, rejected <n>. <Round 1 only: Substantial|Minor>.
 
 <details>
 <summary>Findings</summary>
 
 **Applied**
 
-- R<round>.1 <finding>. Source: <reviewer>. Verified: <what the round ran or read>.
+- R<round>.1 <finding>. Source: <reviewer>. Verified: <file:line>.
 
 **Rejected**
 
@@ -36,8 +36,9 @@ EOF_COMMENT
 - Line 1 is exactly `Review round 1 done.` or `Review round 2 done.`.
 - Number the findings `R<round>.<n>`: applied first, then rejected, one sequence for each
   round.
-- Take each source, `verified` and `why` from the round agent's return.
-- Name the classification in the summary for round 1 and round 2 alike.
+- Take each source, `verified` and `why` from the round agent's return. Take the model and
+  the reviewers from the dispatch, and the Verified block from the return's prose.
+- Name the classification in the summary for round 1 only. Round 2 has no classification.
 
 ## Rot check comment
 

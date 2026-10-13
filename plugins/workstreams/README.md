@@ -250,7 +250,7 @@ rot check, the skill runs [`mark`](#mark): a `workstreams/review-1`, `workstream
 and round 1's description is `substantial` or `minor`. `pr-state` reads the statuses back,
 so no caller parses a comment (#377). Beside each status, the skill posts one comment on the
 pull request for people: the round, a short summary, and the findings numbered `R1.1`, `R2.1`
-and so on, in a collapsed block. Its footer names `workstreams:review`. `pr-state` does not
+and so on, in a collapsed block. The comment footer names `workstreams:review`. `pr-state` does not
 read it.
 
 It is `user-invocable: false`. `/workstreams:start` invokes it, one step for each call.
