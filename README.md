@@ -109,58 +109,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
-### [`typescript7-lsp`](plugins/typescript7-lsp)
-
-> The TypeScript 7 language server.
-
-<table>
-  <tr>
-    <th scope="row">LSP servers</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/typescript7-lsp"><code>typescript7</code></a>: TypeScript 7's native language server from the project's <code>node_modules/typescript</code>. It replaces <code>typescript-lsp@claude-plugins-official</code>.</li>
-      </ul>
-    </td>
-  </tr>
-</table>
-
-### [`biome-lsp`](plugins/biome-lsp)
-
-> The Biome language server.
-
-<table>
-  <tr>
-    <th scope="row">LSP servers</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/biome-lsp"><code>biome</code></a>: Biome's language server from the project's <code>node_modules/@biomejs/biome</code>. It covers <code>.json</code>.</li>
-      </ul>
-    </td>
-  </tr>
-</table>
-
-### [`lsp-merge`](plugins/lsp-merge)
-
-> One language server that runs several, so a type checker and a linter both report on a file.
-
-<table>
-  <tr>
-    <th scope="row">Hooks</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/lsp-merge#failure-modes">Session start</a>: says when <code>.claude/lsp-merge.json</code> is missing or not valid, or when another enabled plugin runs a language server. Writes nothing when all is well.</li>
-      </ul>
-    </td>
-  </tr>
-  <tr>
-    <th scope="row">LSP servers</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/lsp-merge"><code>lsp-merge</code></a>: runs the servers in <code>.claude/lsp-merge.json</code>. Requests go to the first server that claims the file. Diagnostics from all of them are merged, with pulls for servers that only answer pulls, such as TypeScript 7.</li>
-      </ul>
-    </td>
-  </tr>
-</table>
+The language server plugins live in the [`lsps` marketplace](https://github.com/SurveyMonkey/lsps).
 
 ## Contributing
 

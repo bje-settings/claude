@@ -42,9 +42,10 @@ Or set `ESLINT_FLAGS=unstable_native_nodejs_ts_config` in the environment of you
 
 ## Language server
 
-This marketplace's `lsp-merge` runs the TypeScript 7 and Biome language servers from this
-repository's own `node_modules` (`.claude/lsp-merge.json`). Add the marketplace, install
-`lsp-merge@bje`, and run `pnpm install` before you start a session.
+The `lsp-merge` plugin from the `lsps` marketplace (`SurveyMonkey/lsps`) runs the TypeScript 7
+and Biome language servers from this repository's own `node_modules` (`.claude/lsp-merge.json`).
+Add the `lsps` marketplace, install `lsp-merge@lsps`, and run `pnpm install` before you start a
+session.
 
 ## Git hooks
 
