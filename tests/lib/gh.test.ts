@@ -1177,6 +1177,7 @@ it("defaults to the root lib's own process runner", () => {
     'listMergedPullRequests',
     'listMilestones',
     'listOpenPullRequestHeads',
+    'listOpenPullRequestLinks',
     'listOpenPullRequests',
     'listPullRequests',
     'listRuns',
@@ -1530,6 +1531,51 @@ describe('milestones, issues and pull requests', () => {
 
     expect(result.rows).toHaveLength(1)
     expect(result.unavailable).toBe('5 pullRequests row(s) could not be read')
+  })
+
+  it('asks for every open pull request as a link, with the fork flag and no checks', async () => {
+    const linkNode = {
+      number: 177,
+      headRefName: 'wktr-171-audit-split',
+      baseRefName: 'main',
+      isCrossRepository: true,
+    }
+    const { gh, calls } = clientAnsweringEach([REPO, page('pullRequests', [linkNode])])
+
+    const result = await gh.listOpenPullRequestLinks()
+
+    expect(calls[1]?.args[7]).toContain(
+      'nodes { number headRefName baseRefName isCrossRepository }',
+    )
+    expect(calls[1]?.args[7]).not.toContain('statusCheckRollup')
+    expect(result).toEqual({
+      rows: [{ number: 177, head: 'wktr-171-audit-split', base: 'main', crossRepository: true }],
+      unavailable: null,
+    })
+  })
+
+  it('counts a link row that is not the shape the query asked for, one field at a time', async () => {
+    const linkNode = {
+      number: 177,
+      headRefName: 'wktr-171-audit-split',
+      baseRefName: 'main',
+      isCrossRepository: false,
+    }
+    const { gh } = clientAnsweringEach([
+      REPO,
+      page('pullRequests', [
+        { ...linkNode, number: null },
+        { ...linkNode, headRefName: null },
+        { ...linkNode, baseRefName: null },
+        { ...linkNode, isCrossRepository: 'no' },
+        linkNode,
+      ]),
+    ])
+
+    const result = await gh.listOpenPullRequestLinks()
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('4 pullRequests row(s) could not be read')
   })
 
   it('reports an answer that is not JSON, without throwing', async () => {

@@ -29,6 +29,7 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['listIssues', (client) => client.listIssues({ milestone: '4' })],
   ['listOpenPullRequests', (client) => client.listOpenPullRequests()],
   ['listOpenPullRequestHeads', (client) => client.listOpenPullRequestHeads()],
+  ['listOpenPullRequestLinks', (client) => client.listOpenPullRequestLinks()],
   ['requiredContexts', (client) => client.requiredContexts({ branch: 'main' })],
   ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
@@ -102,6 +103,10 @@ it('answers every endpoint it declares', async () => {
           checks: [{ name: 'vitest', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: null }],
         },
       ],
+      unavailable: null,
+    },
+    listOpenPullRequestLinks: {
+      rows: [{ number: 177, head: 'wktr-171-audit-split', base: 'main', crossRepository: false }],
       unavailable: null,
     },
     requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },

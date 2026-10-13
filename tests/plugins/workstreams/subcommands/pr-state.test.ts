@@ -11,7 +11,7 @@ import {
   type GhReplies,
   ghFails,
   type PullRequestDetail,
-  type PullRequestHead,
+  type PullRequestLink,
   type WorkflowRun,
 } from '#harness/gh.ts'
 import { MAX_STACK_DEPTH } from '#workstreams/required-contexts.ts'
@@ -60,7 +60,7 @@ const run = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
 /** Every read, answered, with whichever of them a case is about replaced. */
 const replies = (overrides: GhReplies = {}): GhReplies => ({
   viewPullRequestDetail: { pullRequest: detail(), unavailable: null, missing: false },
-  listOpenPullRequestHeads: { rows: [], unavailable: null },
+  listOpenPullRequestLinks: { rows: [], unavailable: null },
   requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
   listWorkflowRuns: { rows: [run()], unavailable: null },
   ...overrides,
@@ -308,22 +308,13 @@ describe('the facts it reads', () => {
 })
 
 describe('a stacked pull request reads the stack bottom’s rules (#398)', () => {
-  /** An open pull request, as the list of open pull request heads gives it. */
+  /** An open pull request, as the list of open pull request links gives it. */
   const open = (
     number: number,
     headBranch: string,
     base: string,
     crossRepository = false,
-  ): PullRequestHead => ({
-    number,
-    title: `pull request ${number}`,
-    head: headBranch,
-    headSha: '9b13a20',
-    base,
-    draft: true,
-    crossRepository,
-    checks: [],
-  })
+  ): PullRequestLink => ({ number, head: headBranch, base, crossRepository })
 
   /** The chain of a stack: layer 1 on main, layer 2 on layer 1, and so on. */
   const chain = (layers: number) =>
@@ -346,7 +337,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
           unavailable: null,
           missing: false,
         },
-        listOpenPullRequestHeads: { rows, unavailable: null },
+        listOpenPullRequestLinks: { rows, unavailable: null },
       }),
     )
     const answer = await runPrState(['--json', '178'], {
@@ -407,7 +398,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
           unavailable: null,
           missing: false,
         },
-        listOpenPullRequestHeads: { rows: chain(1), unavailable: null },
+        listOpenPullRequestLinks: { rows: chain(1), unavailable: null },
       }),
     )
 
@@ -426,7 +417,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
           unavailable: null,
           missing: false,
         },
-        listOpenPullRequestHeads: { rows: chain(1), unavailable: null },
+        listOpenPullRequestLinks: { rows: chain(1), unavailable: null },
         requiredContexts: { contexts: [], unavailable: null },
       }),
     )
@@ -475,7 +466,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
     const report = await reportOf(
       ['178'],
       replies({
-        listOpenPullRequestHeads: {
+        listOpenPullRequestLinks: {
           rows: [open(190, 'main', 'main', true), open(191, 'main', 'release', true)],
           unavailable: null,
         },
@@ -507,7 +498,7 @@ describe('a stacked pull request reads the stack bottom’s rules (#398)', () =>
     // A lower layer could hide in the part not read.
     const report = await reportOf(
       ['178'],
-      replies({ listOpenPullRequestHeads: { rows: [], unavailable: 'gh: HTTP 502' } }),
+      replies({ listOpenPullRequestLinks: { rows: [], unavailable: 'gh: HTTP 502' } }),
     )
 
     expect(report.verdict).toBe('unavailable')

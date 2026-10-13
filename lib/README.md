@@ -466,6 +466,18 @@ A check list longer than the 100 the query asks for makes its row unreadable. `u
 it with the other rows that could not be read. A check list cut short could leave out the one
 required context that failed. A watch would then conclude a head that did not pass.
 
+### `listOpenPullRequestLinks`
+
+```ts
+const links = await gh.listOpenPullRequestLinks()
+// links.rows[0] -> { number, head, base, crossRepository }
+```
+
+Every open pull request as a link of a stack: its head, its base, and whether the head is in a
+fork. `pr-state` walks these links down to the stack bottom (#398). The read has no checks. So
+another pull request's long check list cannot make this read short. Only a row of the wrong shape
+does.
+
 ### `requiredContexts`, `viewPullRequestDetail` and `listWorkflowRuns`
 
 ```ts
