@@ -613,8 +613,8 @@ reads them.
 
 `listPullRequestStatuses` is a GraphQL read of the first 100 commits of one pull request, oldest
 first. Each row carries the commit, the context, the state in lower case, the description and
-`createdAt`, and nothing else. It is its own query. A wider detail query would add a read to each tick of `watch` and
-`pr-state`, for a question that only `pr-state` asks.
+`createdAt`, and nothing else. It is its own query. A wider detail query would add a read to
+each tick of `watch` and `pr-state`, for a question that only `pr-state` asks.
 
 - `Status.contexts` gives only the newest status of each context on one commit. Measured on
   2026-10-13: the REST list of one commit gave two statuses of one context, and GraphQL gave one.

@@ -99,9 +99,9 @@ is listed under "unavailable", and the state is null unless --round is
 given. Then the flags alone are the facts.
 
 A force-push, as in a restack, takes its commits out of the pull request.
-The read still reads the head it replaced, where "mark" wrote the status
-of a round. A status on a commit below that head is not read. Then the
-round can read lower than it was, so the loop reviews again.
+The read still reads the head it replaced, but not a commit below that
+head. A round 1 status with a fix pushed on top of it is such a commit.
+Then the round can read lower than it was, so the loop reviews again.
 
 --substantial and --rot-checked describe a round that has finished, so
 neither is accepted with --round 0.

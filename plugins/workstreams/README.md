@@ -596,9 +596,9 @@ commits. Then the state and `round` are null, unless `--round` is given: then th
 are the facts.
 
 A force-push, as in a restack, takes its commits out of the pull request. The read still reads
-the head that the force-push replaced, where `mark` wrote the status of a round. A status on a
-commit below that head is not read. Then the round can read lower than it was, and the loop
-reviews again.
+the head that the force-push replaced, but not a commit below that head. A round 1 status with a
+fix pushed on top of it is such a commit. Then the round can read lower than it was, and the
+loop reviews again.
 
 A `workstreams/` status is never a required context. It is not in the head list, and not in the
 verdict, also when a ruleset names it. `watch` leaves it out of `CONCLUDED` the same way.
