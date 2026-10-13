@@ -15,9 +15,9 @@ Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 `/plugin install <plugin-name>@bje`. `claude --plugin-dir plugins/<plugin-name>` also works. It
 loads the plugin in place, so the `src/lib` symlink resolves (retest on Claude Code 2.1.284; see
 [Share files within a marketplace with symlinks](https://code.claude.com/docs/en/plugins/host-marketplace#share-files-within-a-marketplace-with-symlinks)).
-Two other install methods keep only the symlinks that
-resolve inside a plugin's own directory: a local path install, and a `command` source in copy
-mode. Each one drops the plugin's `src/lib` symlink, so its commands fail at import.
+Two other install methods keep only the symlinks that resolve inside a plugin's own directory: a
+local path install, and a `command` source in copy mode. Each one drops the plugin's `src/lib`
+symlink, so its commands fail at import.
 
 ### Plugins
 
@@ -108,8 +108,9 @@ would otherwise cover.
 
 #### CI required checks
 
-- `vitest`, `vitest-floor`, `types`, `biome`, and `eslint` in `ci.yml`, plus `plugin-validate` in its own
-  workflow, are required checks on the default branch. The ruleset matches each name exactly.
+- `vitest`, `vitest-floor`, `types`, `biome`, and `eslint` in `ci.yml`, plus `plugin-validate` in
+  its own workflow, are required checks on the default branch. The ruleset matches each name
+  exactly.
 - If you rename one, it silently blocks every pull request forever, because the required check
   never reports again. Put descriptive text in step names instead.
 - If you add or remove a required job, update the branch ruleset in the same pull request. Add
