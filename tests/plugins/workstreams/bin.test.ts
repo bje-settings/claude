@@ -34,6 +34,7 @@ it('prints the command list with no arguments at all, and exits 0', () => {
   expect(result.stdout).toContain('sweep [--milestone 4,5]')
   expect(result.stdout).toContain('rounds [--issues 12,13]')
   expect(result.stdout).toContain('pr-state <number> [--round 0|1|2]')
+  expect(result.stdout).toContain('mark <number> <name>')
   expect(result.stdout).toContain('intersect [--json]')
   expect(result.stdout).toContain('watch [--interval 60] [--ticks 0]')
   expect(result.stderr).toBe('')
@@ -145,6 +146,24 @@ it('refuses a pr-state round outside the three the loop has', () => {
   expect(result.status).toBe(2)
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('--round must be one of 0, 1, 2')
+})
+
+it('prints mark’s own usage for its --help', () => {
+  const result = runScript(BIN, { args: ['mark', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toMatch(/^Record one finished step of the review loop/)
+  expect(result.stderr).toBe('')
+})
+
+it('refuses a mark name the loop does not write, before reaching gh', () => {
+  const result = runScript(BIN, { args: ['mark', '178', 'review-3'], env: env() })
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(
+    'mark takes one of review-1, review-2, rot-check, layer, not "review-3"\n',
+  )
 })
 
 it('prints intersect’s own usage for its --help', () => {

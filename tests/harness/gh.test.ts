@@ -34,6 +34,20 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
   ['compareCommits', (client) => client.compareCommits({ base: 'dda20bc', head: 'a51ef71' })],
+  [
+    'listPullRequestStatuses',
+    (client) => client.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' }),
+  ],
+  [
+    'createCommitStatus',
+    (client) =>
+      client.createCommitStatus({
+        sha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
+        context: 'workstreams/review-1',
+        state: 'success',
+        description: 'minor',
+      }),
+  ],
   ['repositoryStatus', (client) => client.repositoryStatus(['acme/widgets'], { boundMs: 1_000 })],
 ]
 
@@ -148,6 +162,19 @@ it('answers every endpoint it declares', async () => {
       comparison: { status: 'ahead', files: ['lib/gh.ts'], filesAtLimit: false },
       unavailable: null,
     },
+    listPullRequestStatuses: {
+      rows: [
+        {
+          commit: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe',
+          context: 'workstreams/review-1',
+          state: 'success',
+          description: 'minor',
+          createdAt: '2026-10-13T10:00:00Z',
+        },
+      ],
+      unavailable: null,
+    },
+    createCommitStatus: { id: 1, context: 'workstreams/review-1', state: 'success' },
     repositoryStatus: {
       repositories: {
         'acme/widgets': { alerts: 1, dependencies: 2, mergedPullRequests: [] },

@@ -1172,6 +1172,7 @@ it("defaults to the root lib's own process runner", () => {
   expect(endpoints).toEqual([
     'addComment',
     'compareCommits',
+    'createCommitStatus',
     'issueStates',
     'listIssues',
     'listMergedPullRequests',
@@ -1179,6 +1180,7 @@ it("defaults to the root lib's own process runner", () => {
     'listOpenPullRequestHeads',
     'listOpenPullRequestLinks',
     'listOpenPullRequests',
+    'listPullRequestStatuses',
     'listPullRequests',
     'listRuns',
     'listWorkflowRuns',
@@ -3157,6 +3159,400 @@ describe('the review loop reads', () => {
         comparison: null,
         unavailable: 'gh did not answer in 5000 ms',
       })
+    })
+  })
+})
+
+// --- the review statuses (#377) ----------------------------------------------
+//
+// One repository resolution, then one call: a GraphQL read of the statuses on
+// a pull request's commits, or a REST write of one status.
+describe('the review statuses', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+  const SHA = '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe'
+
+  /** One status as `Status.contexts` answers it. */
+  const status = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    context: 'workstreams/review-1',
+    state: 'SUCCESS',
+    description: 'minor',
+    createdAt: '2026-10-13T10:00:00Z',
+    ...overrides,
+  })
+
+  /** One commit node, with `status` as its status field. */
+  const commit = (oid: string, contexts: unknown): Record<string, unknown> => ({
+    commit: { oid, status: contexts === null ? null : { contexts } },
+  })
+
+  /** One force-push event, with `before` as the head it replaced. */
+  const pushed = (before: Record<string, unknown>): Record<string, unknown> => ({
+    beforeCommit: before.commit,
+  })
+
+  /** The status query's reply, with `nodes` as the commits and `events` as
+   *  the force-pushes. `timeline` replaces the whole timeline field. */
+  const statusReply = (
+    nodes: readonly unknown[],
+    more = false,
+    errors?: readonly unknown[],
+    events: readonly unknown[] = [],
+    timeline: unknown = { pageInfo: { hasNextPage: false }, nodes: events },
+  ): Reply => ({
+    stdout: JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            commits: { pageInfo: { hasNextPage: more }, nodes },
+            timelineItems: timeline,
+          },
+        },
+      },
+      ...(errors === undefined ? {} : { errors }),
+    }),
+  })
+
+  describe('listPullRequestStatuses', () => {
+    it('asks for the statuses on the first 100 commits, with the number as an Int', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, statusReply([])])
+
+      await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(calls[1]?.args.slice(0, 8)).toEqual([
+        'api',
+        'graphql',
+        '-f',
+        'owner=acme',
+        '-f',
+        'name=widgets',
+        '-F',
+        'number=178',
+      ])
+      const query = calls[1]?.args[9] ?? ''
+      expect(query).toContain('pullRequest(number: $number)')
+      expect(query).toContain('commits(first: 100)')
+      expect(query).toContain(
+        'nodes { commit { oid status { contexts { context state description createdAt } } } }',
+      )
+      expect(query).toContain('timelineItems(first: 100, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT])')
+      expect(query).toContain(
+        'nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context state description createdAt } } } } }',
+      )
+      // The read carries only what the caller needs: no check rollup.
+      expect(query).not.toContain('statusCheckRollup')
+    })
+
+    it('reads each status of the prefix, with its commit, oldest commit first', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([
+          commit('a'.repeat(40), [
+            status(),
+            status({ context: 'Vercel', description: 'Deployed' }),
+          ]),
+          commit('b'.repeat(40), null),
+          commit('c'.repeat(40), [status({ context: 'workstreams/rot-check', description: null })]),
+        ]),
+      ])
+
+      await expect(
+        gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' }),
+      ).resolves.toEqual({
+        rows: [
+          {
+            commit: 'a'.repeat(40),
+            context: 'workstreams/review-1',
+            state: 'success',
+            description: 'minor',
+            createdAt: '2026-10-13T10:00:00Z',
+          },
+          {
+            commit: 'c'.repeat(40),
+            context: 'workstreams/rot-check',
+            state: 'success',
+            description: null,
+            createdAt: '2026-10-13T10:00:00Z',
+          },
+        ],
+        unavailable: null,
+      })
+    })
+
+    it('reads the head a force-push replaced, before the commits (#377)', async () => {
+      // A restack takes the reviewed head out of the commits. Its status is
+      // still on it, and the force-push event still names it.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply(
+          [commit('c'.repeat(40), [status({ context: 'workstreams/rot-check' })])],
+          false,
+          undefined,
+          [pushed(commit('a'.repeat(40), [status()]))],
+        ),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows.map((row) => [row.commit, row.context])).toEqual([
+        ['a'.repeat(40), 'workstreams/review-1'],
+        ['c'.repeat(40), 'workstreams/rot-check'],
+      ])
+      expect(result.unavailable).toBeNull()
+    })
+
+    it('reads a commit that is both a replaced head and a commit once', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, undefined, [pushed(commit(SHA, [status()]))]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBeNull()
+    })
+
+    it('counts an unreadable commit that is both a replaced head and a commit once', async () => {
+      const short = [status({ createdAt: null })]
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, short)], false, undefined, [pushed(commit(SHA, short))]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toEqual([])
+      expect(result.unavailable).toBe(
+        'the statuses of 1 commit(s) of pull request 178 could not be read',
+      )
+    })
+
+    it('counts a replaced head that GitHub no longer gives as unreadable', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, undefined, [{ beforeCommit: null }]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe(
+        'the statuses of 1 commit(s) of pull request 178 could not be read',
+      )
+    })
+
+    it('says so when the force-pushes could not be read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, undefined, [], null),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe('the force-pushes of pull request 178 could not be read')
+    })
+
+    it('keeps the replaced heads read, and says a later force-push is not read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([], false, undefined, [], {
+          pageInfo: { hasNextPage: true },
+          nodes: [pushed(commit(SHA, [status()]))],
+        }),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe(
+        'pull request 178 has more than the 100 force-pushes this reads, so a status on a head a later one replaced is not read',
+      )
+    })
+
+    for (const state of ['ERROR', 'EXPECTED', 'FAILURE', 'PENDING'] as const) {
+      it(`reads the state ${state} in lower case`, async () => {
+        const { gh } = clientAnsweringEach([REPO, statusReply([commit(SHA, [status({ state })])])])
+
+        const result = await gh.listPullRequestStatuses({
+          pullRequest: 178,
+          prefix: 'workstreams/',
+        })
+
+        expect(result.rows.map((row) => row.state)).toEqual([state.toLowerCase()])
+      })
+    }
+
+    it('does not read a status of another prefix past its context', async () => {
+      // Another system's status of a shape this read does not know must not
+      // cost the review statuses.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status({ context: 'Vercel', createdAt: 5, description: 5 })])]),
+      ])
+
+      await expect(
+        gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' }),
+      ).resolves.toEqual({ rows: [], unavailable: null })
+    })
+
+    for (const [what, node] of [
+      ['no oid', { commit: { status: null } }],
+      ['no commit', {}],
+      ['a status with no contexts list', { commit: { oid: SHA, status: {} } }],
+      ['a context that is not text', commit(SHA, [status({ context: 5 })])],
+      ['a status of the prefix with no createdAt', commit(SHA, [status({ createdAt: null })])],
+      ['a description that is not text', commit(SHA, [status({ description: 5 })])],
+      ['a state GraphQL does not name', commit(SHA, [status({ state: 'DONE' })])],
+      ['a state in lower case', commit(SHA, [status({ state: 'success' })])],
+      ['no state', commit(SHA, [status({ state: null })])],
+    ] as const) {
+      it(`counts a commit with ${what} as unreadable, and keeps the other commits`, async () => {
+        const { gh } = clientAnsweringEach([
+          REPO,
+          statusReply([node, commit('c'.repeat(40), [status()])]),
+        ])
+
+        const result = await gh.listPullRequestStatuses({
+          pullRequest: 178,
+          prefix: 'workstreams/',
+        })
+
+        expect(result.rows.map((row) => row.commit)).toEqual(['c'.repeat(40)])
+        expect(result.unavailable).toBe(
+          'the statuses of 1 commit(s) of pull request 178 could not be read',
+        )
+      })
+    }
+
+    it('keeps the rows of the first 100 commits, and says a later commit is not read', async () => {
+      const { gh } = clientAnsweringEach([REPO, statusReply([commit(SHA, [status()])], true)])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe(
+        'pull request 178 has more than the 100 commits this reads, so a status on a later commit is not read',
+      )
+    })
+
+    it('reports a pull request with no commits list, with what GraphQL said', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: JSON.stringify({
+            data: { repository: { pullRequest: null } },
+            errors: [{ type: 'NOT_FOUND', path: ['repository', 'pullRequest'], message: 'gone' }],
+          }),
+        },
+      ])
+
+      await expect(
+        gh.listPullRequestStatuses({ pullRequest: 99999, prefix: 'workstreams/' }),
+      ).resolves.toEqual({
+        rows: [],
+        unavailable:
+          'the commits of pull request 99999 could not be read; ' +
+          'the force-pushes of pull request 99999 could not be read; gone',
+      })
+    })
+
+    it('keeps the rows of a reply that also carried an error, and reports the error', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, [{ message: 'something partial' }]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe('something partial')
+    })
+
+    it('reports a reply that could not be read at all, and does not throw', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '', stderr: 'gh: API rate limit exceeded\n' },
+      ])
+
+      await expect(
+        gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' }),
+      ).resolves.toEqual({ rows: [], unavailable: 'gh: API rate limit exceeded' })
+    })
+  })
+
+  describe('createCommitStatus', () => {
+    it('posts one status on the sha, with each field as a string', async () => {
+      const { gh, calls } = clientAnsweringEach([
+        REPO,
+        { stdout: '{"id":1,"context":"workstreams/review-1","state":"success"}' },
+      ])
+
+      const created = await gh.createCommitStatus({
+        sha: SHA,
+        context: 'workstreams/review-1',
+        state: 'success',
+        description: 'substantial',
+      })
+
+      expect(calls[1]?.args).toEqual([
+        'api',
+        '--method',
+        'POST',
+        `repos/acme/widgets/statuses/${SHA}`,
+        '-f',
+        'state=success',
+        '-f',
+        'context=workstreams/review-1',
+        '-f',
+        'description=substantial',
+      ])
+      expect(created).toEqual({ id: 1, context: 'workstreams/review-1', state: 'success' })
+    })
+
+    it('sends no description when it was given none', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '{"id":1}' }])
+
+      await gh.createCommitStatus({ sha: SHA, context: 'workstreams/rot-check', state: 'success' })
+
+      expect(calls[1]?.args.slice(4)).toEqual([
+        '-f',
+        'state=success',
+        '-f',
+        'context=workstreams/rot-check',
+      ])
+    })
+
+    it('keeps a sha with a path character inside its own path segment', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '{"id":1}' }])
+
+      await gh.createCommitStatus({ sha: 'a/../b', context: 'workstreams/layer', state: 'success' })
+
+      expect(calls[1]?.args[3]).toBe('repos/acme/widgets/statuses/a%2F..%2Fb')
+    })
+
+    it("throws gh's own words and its status when the write failed", async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stderr: 'gh: No commit found for SHA: 9b13a20 (HTTP 422)\n' },
+      ])
+
+      const error = await gh
+        .createCommitStatus({ sha: '9b13a20', context: 'workstreams/layer', state: 'success' })
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(GhError)
+      expect((error as GhError).status).toBe(1)
+      expect((error as GhError).detail).toBe('gh: No commit found for SHA: 9b13a20 (HTTP 422)')
+    })
+
+    it('throws when the repository could not be read', async () => {
+      const { gh } = clientAnsweringEach([{ status: 1, stderr: 'gh: not a git repository\n' }])
+
+      await expect(
+        gh.createCommitStatus({ sha: SHA, context: 'workstreams/layer', state: 'success' }),
+      ).rejects.toThrow('gh: not a git repository')
     })
   })
 })

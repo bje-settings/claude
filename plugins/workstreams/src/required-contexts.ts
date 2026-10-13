@@ -28,6 +28,10 @@
 // Both callers also leave the same contexts out on a draft (#365): those
 // that a skipped matrix check stands for ({@link splitDraftSkipped}).
 //
+// A status of the review loop itself, `workstreams/<name>`, is never a
+// context ({@link isLoopStatus}, #377, mid-round ruling 14). It records a
+// review round, not a check of the head.
+//
 // This file ships. It imports only a type from `lib/`.
 import type { CheckContext } from './lib/gh.ts'
 
@@ -178,15 +182,27 @@ const reportedAs = (checks: readonly CheckContext[], name: string): ReportedCont
   }
 }
 
+/** The context prefix of the statuses that `workstreams mark` writes. */
+export const LOOP_STATUS_PREFIX = 'workstreams/'
+
+/** Whether a name is a status of the review loop, which `mark` writes
+ *  (#377). Such a status records a round. It is not a check, so it is never
+ *  a context of the verdict, also when a ruleset names it. Then it cannot
+ *  hold `pending` before a round, or give `green` after one. */
+export const isLoopStatus = (name: string): boolean => name.startsWith(LOOP_STATUS_PREFIX)
+
 /** Each name once, in the order given, with what reported under it. Only
- *  the checks that still count answer ({@link currentChecks}). */
+ *  the checks that still count answer ({@link currentChecks}). A name of
+ *  the review loop is left out ({@link isLoopStatus}). */
 export const reportContexts = (
   checks: readonly CheckContext[],
   names: readonly string[],
   headRuns: readonly RunStamp[] = [],
 ): ReportedContext[] => {
   const current = currentChecks(checks, headRuns)
-  return [...new Set(names)].map((name) => reportedAs(current, name))
+  return [...new Set(names)]
+    .filter((name) => !isLoopStatus(name))
+    .map((name) => reportedAs(current, name))
 }
 
 /** What an unexpanded matrix job's name holds: a GitHub expression that
@@ -344,7 +360,11 @@ export interface ContextNames<From extends string> {
  * with its conclusion. A check with a run is not changed by this rule.
  * When a check with a run has the same name, that check answers for it.
  * `pr-state` gives {@link reportContexts} the {@link answeringChecks}.
- * Under a ruleset, nothing is left out: a required name always counts.
+ * Under a ruleset, nothing is left out here: a required name always counts.
+ *
+ * The head list also leaves out each status of the review loop
+ * ({@link isLoopStatus}). Without that, a `workstreams/review-1` status
+ * would join the list of a stacked pull request once a round ends.
  */
 export const namesOrHead = (
   required: readonly string[],
@@ -357,7 +377,7 @@ export const namesOrHead = (
         names: currentChecks(checks, headRuns)
           .filter((check) => !isPendingWithoutRun(check))
           .map((check) => check.name)
-          .filter((name) => !name.includes(MATRIX_PLACEHOLDER)),
+          .filter((name) => !name.includes(MATRIX_PLACEHOLDER) && !isLoopStatus(name)),
         from: 'head',
       }
 

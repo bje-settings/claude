@@ -127,10 +127,13 @@ one line for each of these events:
   #<n> workflow runs    the first poll that read them again.
     read again
 
-The required contexts come from the rules of the base branch. When no ruleset
-covers the base, as for each stack layer above the first, they come from the
-rules of the default branch. A head is CONCLUDED only when every one of them
-has reported. A check that no ruleset requires never concludes a head.
+The required contexts come from the rules of the base of the pull request's
+stack bottom (#398). A pull request in no stack reads its own base. When no
+ruleset covers that branch, they come from the rules of the default branch.
+A head is CONCLUDED only when every one of them
+has reported. A check that no ruleset requires never concludes a head. A
+workstreams/<name> status of the review loop is never a required context,
+also when a ruleset names it (#377).
 
 On a draft head, a required context that no check on the head names does
 not hold CONCLUDED when a check on the head, from a check suite that

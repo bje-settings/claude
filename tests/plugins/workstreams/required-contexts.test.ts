@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { CheckContext } from '#harness/gh.ts'
 import {
   answeringChecks,
+  isLoopStatus,
   MAX_STACK_DEPTH,
   namesOrDefault,
   namesOrHead,
@@ -423,6 +424,38 @@ describe('namesOrHead', () => {
         from: 'ruleset',
       })
     })
+  })
+})
+
+describe('a status of the review loop (#377, mid-round ruling 14)', () => {
+  // A commit status, as `lib/gh.ts` reads one: no run, no status.
+  const loop = (name: string): CheckContext => ({
+    name,
+    status: null,
+    conclusion: 'SUCCESS',
+    startedAt: '2026-10-13T10:00:00Z',
+  })
+
+  it('names only a context under workstreams/ as one', () => {
+    expect(isLoopStatus('workstreams/review-1')).toBe(true)
+    expect(isLoopStatus('workstreams/layer')).toBe(true)
+    expect(isLoopStatus('workstreams')).toBe(false)
+    expect(isLoopStatus('ci/workstreams/review-1')).toBe(false)
+  })
+
+  it('leaves a loop status out of the head list', () => {
+    const list = namesOrHead([], [check('vitest', 'SUCCESS'), loop('workstreams/review-1')])
+
+    expect(list).toEqual({ names: ['vitest'], from: 'head' })
+  })
+
+  it('leaves a name of the loop out of the report, also when a ruleset names it', () => {
+    const contexts = reportContexts(
+      [check('vitest', 'SUCCESS')],
+      ['vitest', 'workstreams/review-1', 'workstreams/rot-check'],
+    )
+
+    expect(contexts.map((context) => context.name)).toEqual(['vitest'])
   })
 })
 

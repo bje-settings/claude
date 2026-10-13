@@ -10,7 +10,7 @@ One section per primitive:
 3. The review loop per layer, with its review model and reviewers. A plan with no review
    model for a layer is not ready for approval. State no count of review rounds. The
    review state machine sets the count: round 2 runs only when the substantial rule in
-   `skills/review/SKILL.md` (Markers) says so. The done condition is `done` by that state
+   `skills/review/SKILL.md` (Statuses) says so. The done condition is `done` by that state
    machine.
 4. An estimate, with two figures for the reviews: the cost of one review round for each
    layer, and of two.

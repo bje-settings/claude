@@ -4,7 +4,7 @@ description: What the /workstreams:review skill does in one step, and every way 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-07
+  at: 2026-10-13
 ---
 
 # /workstreams:review skill flow
@@ -16,14 +16,14 @@ act. Each call takes one step and returns. The caller waits between calls.
 flowchart TD
     R0{called with a round agent's JSON return?}
     R0 -->|Yes| RS[Check substantial against the round's own diff,<br/>in the pull request's worktree: only changed logic<br/>under src, lib, scripts or hooks counts; the diff decides]
-    RS --> R2{post the round's marker, with a Head line<br/>for round 1: posted?}
+    RS --> R2{record the round's status on the round's head<br/>with mark: written?}
     R2 -->|Yes| BT{reply on each bot thread the round settled,<br/>then resolve it: each call worked?}
     R2 -->|No| R3([Stop: say so]):::stop
     BT -->|Yes| R1([Return])
     BT -->|No| BT1([Stop: name the thread]):::stop
     R0 -->|No| W{exactly one worktree matches the head branch?}
     W -->|No| W1([Stop: say which is absent; never guess]):::stop
-    W -->|Yes| C[Read the pull request's state once;<br/>the round 1 head flag goes with --round 1 only]
+    W -->|Yes| C[Read the pull request's state once;<br/>pr-state reads the review statuses,<br/>and a flag from the caller wins]
 
     C --> D{could every fact be read?}
     D -->|No, no state at all| D1([Return: say which fact nobody could see]):::stop
@@ -41,7 +41,7 @@ flowchart TD
     I --> J[Reviewers from what the diff changes]
     J --> K([Dispatch one round agent, then return with the model and the reason;<br/>its return goes to the caller])
 
-    E -->|rot-check| Q([Title and body against the final diff;<br/>post the rot check marker, then return])
+    E -->|rot-check| Q([Title and body against the final diff;<br/>record the rot-check status, then return])
     E -->|done| S([Report: state, applied, rejected,<br/>corrections, lower_layer, bot threads settled])
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

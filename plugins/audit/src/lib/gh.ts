@@ -401,6 +401,25 @@ export interface CommitComparison {
   readonly filesAtLimit: boolean
 }
 
+/** One commit status on a commit of a pull request, as
+ *  `listPullRequestStatuses` reads it. GitHub gives only the newest status
+ *  of each context on one commit. */
+export interface CommitStatus {
+  /** The full oid of the commit that carries the status. */
+  readonly commit: string
+  readonly context: string
+  /** In lower case. `expected` is GraphQL's own: a context that a rule
+   *  requires and that nothing has reported yet. */
+  readonly state: CommitStatusState | 'expected'
+  /** Null when the status has no description. */
+  readonly description: string | null
+  readonly createdAt: string
+}
+
+/** The four states a commit status can have (REST, "Create a commit
+ *  status"). */
+export type CommitStatusState = 'error' | 'failure' | 'pending' | 'success'
+
 /**
  * What a paginated GraphQL read answers with: the rows it could read, and the
  * reason it could not read more. This is the shape {@link
@@ -506,6 +525,10 @@ export interface GhResults {
     readonly comparison: CommitComparison | null
     readonly unavailable: string | null
   }
+  /** The statuses with one context prefix on a pull request's commits. */
+  listPullRequestStatuses: PagedResult<CommitStatus>
+  /** The status GitHub created, as its JSON object. */
+  createCommitStatus: Record<string, unknown>
   /** Each repository GitHub answered for, by `owner/name`. A repository with
    *  no answer at all is left out, and the reason goes into `unavailable`. */
   repositoryStatus: {
@@ -729,6 +752,45 @@ export interface GhClient {
     readonly base: string
     readonly head: string
   }): Promise<GhResults['compareCommits']>
+  /**
+   * The commit statuses whose context starts with `prefix`, on the first 100
+   * commits of one pull request (#377). Each row carries its commit,
+   * context, state, description and `createdAt`, and nothing else.
+   *
+   * It also reads the head that each of the first 100 force-pushes
+   * replaced. A force-push takes its commits out of the pull request's
+   * commits, and their statuses with them. Only the replaced head is read:
+   * a commit below it that the force-push also replaced is not. The rows
+   * come in read order: the replaced heads by force-push, then the commits,
+   * oldest first.
+   *
+   * GitHub gives only the newest status of each context on one commit
+   * (`Status.contexts`, measured on 2026-10-13). A pull request with more
+   * than 100 commits, or force-pushes, keeps the rows read, and
+   * `unavailable` says what was not read. A commit whose status does not
+   * have the shape asked for is counted in `unavailable`, never dropped. So
+   * is a replaced head that GitHub no longer gives.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listPullRequestStatuses(query: {
+    readonly pullRequest: number
+    readonly prefix: string
+  }): Promise<GhResults['listPullRequestStatuses']>
+  /**
+   * Write one commit status on `sha`, through REST
+   * (`POST repos/{owner}/{name}/statuses/{sha}`). A status cannot be
+   * deleted. GitHub keeps 1000 statuses at most for one sha and context.
+   *
+   * Throws a {@link GhError} when gh fails, as the other writes here do.
+   */
+  createCommitStatus(status: {
+    readonly sha: string
+    readonly context: string
+    readonly state: CommitStatusState
+    /** Left out, the status has no description. */
+    readonly description?: string
+  }): Promise<GhResults['createCommitStatus']>
   /**
    * Open Dependabot alerts, open Dependabot pull requests, and the last
    * 100 merged pull requests, for each `owner/name` in `repos`.
@@ -1385,6 +1447,29 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
   }
 }`
 
+/**
+ * The commit statuses on a pull request's commits (#377). Its own query, not
+ * a wider {@link PULL_REQUEST_DETAIL_QUERY}: that query reads only the head
+ * commit, and two callers read it on every tick. `first` gives the oldest
+ * commits. `Status.contexts` is a list, not a connection, so it has no page
+ * to bound. `beforeCommit` is the head a force-push replaced, which the
+ * commits no longer hold.
+ */
+const PULL_REQUEST_STATUSES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      commits(first: ${SWEEP_PAGE}) {
+        pageInfo { hasNextPage }
+        nodes { commit { oid status { contexts { context state description createdAt } } } }
+      }
+      timelineItems(first: ${SWEEP_PAGE}, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
+        pageInfo { hasNextPage }
+        nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context state description createdAt } } } } }
+      }
+    }
+  }
+}`
+
 /** An integer, or null for anything else. GraphQL answers a count and a
  *  number as JSON numbers. A value that is not one is a reply this file
  *  does not recognise, not a zero to carry on with. */
@@ -1919,6 +2004,50 @@ const readComparison = (value: unknown, range: string): GhResults['compareCommit
     comparison: { status, files, filesAtLimit: entries.length >= COMPARE_FILE_LIMIT },
     unavailable: null,
   }
+}
+
+/** GraphQL's `StatusState` values, in lower case. */
+const STATUS_STATES: readonly CommitStatus['state'][] = [
+  'error',
+  'expected',
+  'failure',
+  'pending',
+  'success',
+]
+
+/**
+ * The statuses on one commit whose context starts with `prefix`, or null
+ * when the commit is not the shape asked for. A null commit, such as a
+ * replaced head that GitHub no longer gives, is not that shape.
+ *
+ * A null `status` is a commit with no status at all: an empty list. A
+ * status with another prefix is not read past its context, so its shape
+ * cannot cost the read. One of this prefix that is short costs the whole
+ * commit, on {@link requiredContextsOf}' grounds: a review status dropped
+ * in silence reads as a round that did not run. GraphQL gives the state in
+ * upper case, as `StatusState`.
+ */
+const readCommitStatuses = (value: unknown, prefix: string): CommitStatus[] | null => {
+  const commit = asRecord(value)
+  const oid = asText(commit?.oid)
+  if (oid === null) return null
+  if (commit?.status === null) return []
+  const contexts = asRecord(commit?.status)?.contexts
+  if (!Array.isArray(contexts)) return null
+  const statuses: CommitStatus[] = []
+  for (const entry of contexts) {
+    const status = asRecord(entry)
+    const context = asText(status?.context)
+    if (context === null) return null
+    if (!context.startsWith(prefix)) continue
+    const createdAt = asText(status?.createdAt)
+    const description = status?.description
+    const state = STATUS_STATES.find((known) => known.toUpperCase() === status?.state)
+    if (createdAt === null || state === undefined) return null
+    if (description !== null && typeof description !== 'string') return null
+    statuses.push({ commit: oid, context, state, description, createdAt })
+  }
+  return statuses
 }
 
 /** What one page of a paginated read yielded. */
@@ -2768,6 +2897,85 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const answer = await restJson(`compare/${path}?per_page=1`)
       if (answer.unavailable !== null) return { comparison: null, unavailable: answer.unavailable }
       return readComparison(answer.value, range)
+    },
+
+    listPullRequestStatuses: async (query) => {
+      const answer = await queryOnce(
+        PULL_REQUEST_STATUSES_QUERY,
+        // `-F`: `number` is an `Int!`, as in `viewPullRequestDetail`.
+        ['-F', `number=${query.pullRequest}`],
+        'pullRequest',
+      )
+      if (answer.data === null) return { rows: [], unavailable: answer.unavailable }
+      const pullRequest = asRecord(answer.data.pullRequest)
+      const commits = asRecord(pullRequest?.commits)
+      const nodes = nodesOf(commits)
+      const pushes = asRecord(pullRequest?.timelineItems)
+      const events = nodesOf(pushes)
+      const reasons: string[] = []
+      if (nodes === null) {
+        reasons.push(`the commits of pull request ${query.pullRequest} could not be read`)
+      }
+      if (events === null) {
+        reasons.push(`the force-pushes of pull request ${query.pullRequest} could not be read`)
+      }
+      // The replaced heads first: each one is older than the commits that
+      // replaced it. A commit read once is not read again.
+      const read = new Set<string>()
+      const rows: CommitStatus[] = []
+      let unreadable = 0
+      for (const commit of [
+        ...(events ?? []).map((event) => asRecord(event)?.beforeCommit),
+        ...(nodes ?? []).map((node) => asRecord(node)?.commit),
+      ]) {
+        const oid = asText(asRecord(commit)?.oid)
+        if (oid !== null && read.has(oid)) continue
+        const statuses = readCommitStatuses(commit, query.prefix)
+        if (statuses === null) unreadable += 1
+        else rows.push(...statuses)
+        if (oid !== null) read.add(oid)
+      }
+      if (unreadable > 0) {
+        reasons.push(
+          `the statuses of ${unreadable} commit(s) of pull request ${query.pullRequest} could not be read`,
+        )
+      }
+      // The rows read stay. A status on a later commit is not among them,
+      // so a caller must not read the rows as the whole answer.
+      if (truncated(commits)) {
+        reasons.push(
+          `pull request ${query.pullRequest} has more than the ${SWEEP_PAGE} commits this reads, ` +
+            'so a status on a later commit is not read',
+        )
+      }
+      if (truncated(pushes)) {
+        reasons.push(
+          `pull request ${query.pullRequest} has more than the ${SWEEP_PAGE} force-pushes this reads, ` +
+            'so a status on a head a later one replaced is not read',
+        )
+      }
+      if (answer.unavailable !== null) reasons.push(answer.unavailable)
+      return { rows, unavailable: joinedReasons(reasons) }
+    },
+
+    // A write, so it throws a `GhError` as `addComment` does. `-f` sends
+    // each field as a string, which is what each field is.
+    createCommitStatus: async (status) => {
+      const repositoryName = String((await client.viewRepository()).nameWithOwner)
+      return record(
+        await succeeded([
+          'api',
+          '--method',
+          'POST',
+          `repos/${repositoryName}/statuses/${encodeURIComponent(status.sha)}`,
+          '-f',
+          `state=${status.state}`,
+          '-f',
+          `context=${status.context}`,
+          ...(status.description === undefined ? [] : ['-f', `description=${status.description}`]),
+        ]),
+        'gh api statuses',
+      )
     },
 
     // Never throws (the interface's own contract). One batch that failed

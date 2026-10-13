@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type CheckContext,
   type CommitComparison,
+  type CommitStatus,
   createGhMock,
   type GhReplies,
   ghFails,
@@ -20,6 +21,7 @@ import {
   isLogicPath,
   type LoopState,
   type PrStateReport,
+  reviewFactsOf,
   runPrState,
   verdictOf,
   waitHintFrom,
@@ -63,6 +65,7 @@ const replies = (overrides: GhReplies = {}): GhReplies => ({
   listOpenPullRequestLinks: { rows: [], unavailable: null },
   requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
   listWorkflowRuns: { rows: [run()], unavailable: null },
+  listPullRequestStatuses: { rows: [], unavailable: null },
   ...overrides,
 })
 
@@ -1400,6 +1403,18 @@ describe('the state the facts add up to', () => {
     expect(facts({ ...green, pullRequestState: 'CLOSED', verdict: 'unavailable' })).toBe('closed')
   })
 
+  // A status read that fell short gives a null round (#377). A mutation that
+  // moved the null-round rule above these arms left every other test green.
+  for (const [expected, overrides] of [
+    ['merged', { pullRequestState: 'MERGED' }],
+    ['closed', { pullRequestState: 'CLOSED' }],
+    ['no-run', { verdict: 'no-run' }],
+  ] as const) {
+    it(`names ${expected} before the null-round rule`, () => {
+      expect(facts({ ...green, ...overrides, round: null })).toBe(expected as LoopState)
+    })
+  }
+
   it('carries the caller’s three inputs into the report', async () => {
     const report = await reportOf(['178', '--round', '1', '--substantial', '--rot-checked'])
 
@@ -1737,7 +1752,7 @@ describe('logic after the round 1 head (#356)', () => {
     })
   }
 
-  it('refuses --round-1-head with no --round, which is round 0', async () => {
+  it('refuses --round-1-head with no --round: the flag names its round too', async () => {
     const answer = await ran(['178', '--round-1-head', ROUND_1_HEAD], {})
 
     expect(answer.outcome).toBe('refused')
@@ -2536,5 +2551,359 @@ describe('a pending check with no workflow run, when no ruleset covers the base 
     expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'gitStream.cm'])
     expect(report.verdict).toBe('pending')
     expect(report.state).toBe('fixing')
+  })
+})
+
+describe('the review statuses (#377, #395)', () => {
+  const ROUND_1 = 'a'.repeat(40)
+  const FIX = 'b'.repeat(40)
+  const HEAD = '9b13a20'
+
+  /** One `workstreams/<name>` status. */
+  const mark = (
+    name: string,
+    commit: string,
+    createdAt: string,
+    description: string | null = null,
+    state: CommitStatus['state'] = 'success',
+  ): CommitStatus => ({ commit, context: `workstreams/${name}`, state, description, createdAt })
+
+  /** Every read answered, with `statuses` as the review statuses, and a
+   *  compare that answers only for `base`...the head, with `files`. */
+  const withStatuses = (
+    statuses: readonly CommitStatus[],
+    files: readonly string[] = [],
+    base = ROUND_1,
+    status: CommitComparison['status'] = 'ahead',
+  ) => {
+    const mock = createGhMock(
+      replies({ listPullRequestStatuses: { rows: statuses, unavailable: null } }),
+    )
+    return {
+      ...mock,
+      // The rows answer only the pull request asked about, with the loop's
+      // prefix. Any other query reads as a short read, so it names no round.
+      listPullRequestStatuses: async (query: {
+        readonly pullRequest: number
+        readonly prefix: string
+      }) =>
+        query.pullRequest === 178 && query.prefix === 'workstreams/'
+          ? { rows: statuses, unavailable: null }
+          : { rows: [], unavailable: `asked for #${query.pullRequest} ${query.prefix}` },
+      compareCommits: async (query: { readonly base: string; readonly head: string }) =>
+        query.base === base && query.head === HEAD
+          ? { comparison: { status, files, filesAtLimit: false }, unavailable: null }
+          : { comparison: null, unavailable: `asked for ${query.base}...${query.head}` },
+    }
+  }
+
+  const reportWith = async (
+    gh: ReturnType<typeof withStatuses>,
+    argv: readonly string[] = [],
+  ): Promise<PrStateReport> => {
+    const answer = await runPrState(['--json', '178', ...argv], { gh })
+    if (answer.outcome !== 'ok') throw new Error(`expected a report, got ${answer.error}`)
+    return JSON.parse(answer.value) as PrStateReport
+  }
+
+  const T1 = '2026-10-13T10:00:00Z'
+  const T2 = '2026-10-13T11:00:00Z'
+  const T3 = '2026-10-13T12:00:00Z'
+
+  it('gives round 0 with no status, the same as --round 0', async () => {
+    const read = await reportWith(withStatuses([]))
+    const flagged = await reportOf(['178', '--round', '0'])
+
+    expect(read.state).toBe('review-1')
+    expect(read.round).toBe(0)
+    expect(read.round1Head).toBeNull()
+    expect(flagged.state).toBe(read.state)
+  })
+
+  it('gives round 1 from a minor review-1 status, with its commit as the round 1 head', async () => {
+    const report = await reportWith(withStatuses([mark('review-1', ROUND_1, T1, 'minor')]))
+
+    expect(report.round).toBe(1)
+    expect(report.substantial).toBe(false)
+    expect(report.round1Head).toBe(ROUND_1)
+    expect(report.sinceRound1).toEqual({
+      logic: false,
+      reason: 'no logic changed under src/, lib/, scripts/ or hooks/',
+    })
+    expect(report.state).toBe('rot-check')
+  })
+
+  it('gives review-2 from a substantial review-1 status, and reads no compare', async () => {
+    const report = await reportWith(
+      withStatuses([mark('review-1', ROUND_1, T1, 'substantial')], [], 'never asked'),
+    )
+
+    expect(report.substantial).toBe(true)
+    expect(report.state).toBe('review-2')
+    expect(report.sinceRound1).toBeNull()
+    expect(report.unavailable).toEqual([])
+  })
+
+  it('gives review-2 for logic after a minor round 1 head', async () => {
+    const report = await reportWith(
+      withStatuses([mark('review-1', ROUND_1, T1, 'minor')], ['plugins/x/src/a.ts']),
+    )
+
+    expect(report.state).toBe('review-2')
+  })
+
+  it('gives review-2 when the round 1 head is not an ancestor of the head', async () => {
+    const report = await reportWith(
+      withStatuses([mark('review-1', ROUND_1, T1, 'minor')], [], ROUND_1, 'diverged'),
+    )
+
+    expect(report.state).toBe('review-2')
+    expect(report.sinceRound1?.reason).toBe(
+      'the round 1 head is not an ancestor of the head (diverged)',
+    )
+  })
+
+  it('gives round 2 from a review-2 status on any commit', async () => {
+    const report = await reportWith(
+      withStatuses([mark('review-1', ROUND_1, T1, 'substantial'), mark('review-2', FIX, T2)]),
+    )
+
+    expect(report.round).toBe(2)
+    expect(report.state).toBe('rot-check')
+  })
+
+  it('reads no compare at round 2, also after a minor round 1', async () => {
+    // The compare answers for no base here, so a read would list a reason.
+    const report = await reportWith(
+      withStatuses(
+        [mark('review-1', ROUND_1, T1, 'minor'), mark('review-2', FIX, T2)],
+        [],
+        'never asked',
+      ),
+    )
+
+    expect(report.state).toBe('rot-check')
+    expect(report.sinceRound1).toBeNull()
+    expect(report.unavailable).toEqual([])
+  })
+
+  it('gives done from a rot-check status after round 2', async () => {
+    const report = await reportWith(
+      withStatuses([
+        mark('review-1', ROUND_1, T1, 'substantial'),
+        mark('review-2', FIX, T2),
+        mark('rot-check', FIX, T3),
+      ]),
+    )
+
+    expect(report.rotChecked).toBe(true)
+    expect(report.state).toBe('done')
+  })
+
+  it('keeps the FIRST review-1 head when a resumed round adds a second one (#395)', async () => {
+    // The second status sits on the fix head, which is first in the list
+    // here, so only the time can pick the first one.
+    const report = await reportWith(
+      withStatuses(
+        [mark('review-1', FIX, T2, 'minor'), mark('review-1', ROUND_1, T1, 'minor')],
+        ['plugins/x/src/a.ts'],
+      ),
+    )
+
+    expect(report.round1Head).toBe(ROUND_1)
+    expect(report.state).toBe('review-2')
+  })
+
+  it('reads substantial from the first review-1 status, not a later one', () => {
+    const facts = reviewFactsOf([
+      mark('review-1', ROUND_1, T1, 'minor'),
+      mark('review-1', FIX, T2, 'substantial'),
+    ])
+
+    expect(facts).toEqual({ round: 1, substantial: false, round1Head: ROUND_1, rotChecked: false })
+  })
+
+  it('takes the older commit for two review-1 statuses made at one time', () => {
+    const facts = reviewFactsOf([
+      mark('review-1', ROUND_1, T1, 'minor'),
+      mark('review-1', FIX, T1, 'minor'),
+    ])
+
+    expect(facts.round1Head).toBe(ROUND_1)
+  })
+
+  it('reads a layer status as no review fact', () => {
+    expect(reviewFactsOf([mark('layer', ROUND_1, T1)])).toEqual({
+      round: 0,
+      substantial: false,
+      round1Head: null,
+      rotChecked: false,
+    })
+  })
+
+  // Only the word "substantial" makes round 1 substantial. A skip-review
+  // status carries a URL, and a `mark` with no --description carries none.
+  for (const description of [null, 'skipped: https://github.com/o/r/issues/1#c', 'Substantial']) {
+    it(`reads round 1 as minor from the description ${JSON.stringify(description)}`, () => {
+      expect(reviewFactsOf([mark('review-1', ROUND_1, T1, description)]).substantial).toBe(false)
+    })
+  }
+
+  // `mark` writes only `success`. Another state on the context is no
+  // finished step, from whoever wrote it.
+  for (const state of ['error', 'expected', 'failure', 'pending'] as const) {
+    it(`reads a ${state} status as no review fact`, () => {
+      expect(
+        reviewFactsOf([
+          mark('review-1', FIX, T1, 'substantial', state),
+          mark('review-1', ROUND_1, T2, 'minor'),
+          mark('review-2', FIX, T2, null, state),
+          mark('rot-check', FIX, T3, null, state),
+        ]),
+      ).toEqual({ round: 1, substantial: false, round1Head: ROUND_1, rotChecked: false })
+    })
+  }
+
+  it('gives round 2 from a review-2 status alone', () => {
+    expect(reviewFactsOf([mark('review-2', FIX, T2)])).toEqual({
+      round: 2,
+      substantial: false,
+      round1Head: null,
+      rotChecked: false,
+    })
+  })
+
+  it('reads a rot-check status alone as rot-checked, at round 0', () => {
+    expect(reviewFactsOf([mark('rot-check', FIX, T2)])).toEqual({
+      round: 0,
+      substantial: false,
+      round1Head: null,
+      rotChecked: true,
+    })
+  })
+
+  describe('a flag that is given wins over the statuses', () => {
+    it('--round 0 wins over a review-1 status', async () => {
+      const report = await reportWith(withStatuses([mark('review-1', ROUND_1, T1, 'minor')]), [
+        '--round',
+        '0',
+      ])
+
+      expect(report.round).toBe(0)
+      expect(report.state).toBe('review-1')
+    })
+
+    it('--round-1-head wins over the commit of the review-1 status', async () => {
+      const report = await reportWith(
+        withStatuses([mark('review-1', ROUND_1, T1, 'minor')], ['lib/a.ts'], FIX),
+        ['--round', '1', '--round-1-head', FIX],
+      )
+
+      expect(report.round1Head).toBe(FIX)
+      expect(report.state).toBe('review-2')
+    })
+
+    it('--round 1 alone keeps the round 1 head of the status', async () => {
+      const report = await reportWith(
+        withStatuses([mark('review-1', ROUND_1, T1, 'minor')], ['lib/a.ts']),
+        ['--round', '1'],
+      )
+
+      expect(report.round1Head).toBe(ROUND_1)
+      expect(report.state).toBe('review-2')
+    })
+
+    it('--substantial wins over a minor review-1 status', async () => {
+      const report = await reportWith(withStatuses([mark('review-1', ROUND_1, T1, 'minor')]), [
+        '--substantial',
+      ])
+
+      expect(report.state).toBe('review-2')
+    })
+
+    it('--rot-checked gives done with no rot-check status', async () => {
+      const report = await reportWith(
+        withStatuses([mark('review-1', ROUND_1, T1, 'substantial'), mark('review-2', FIX, T2)]),
+        ['--rot-checked'],
+      )
+
+      expect(report.state).toBe('done')
+    })
+  })
+
+  describe('a status read that fell short', () => {
+    const short = (rows: readonly CommitStatus[]) =>
+      replies({
+        listPullRequestStatuses: {
+          rows,
+          unavailable: 'pull request 178 has more than the 100 commits this reads',
+        },
+      })
+
+    it('names no state, never round 0, and says why', async () => {
+      const report = await reportOf(['178'], short([]))
+
+      expect(report.state).toBeNull()
+      expect(report.round).toBeNull()
+      expect(report.verdict).toBe('green')
+      expect(report.unavailable).toEqual([
+        'pull request 178 has more than the 100 commits this reads',
+      ])
+    })
+
+    it('reads no fact from the rows a short read did get', async () => {
+      const report = await reportOf(['178'], short([mark('review-2', FIX, T2)]))
+
+      expect(report.round).toBeNull()
+      expect(report.state).toBeNull()
+    })
+
+    it('takes the flags alone when --round is given', async () => {
+      const report = await reportOf(['178', '--round', '2', '--rot-checked'], short([]))
+
+      expect(report.state).toBe('done')
+      expect(report.unavailable).toHaveLength(1)
+    })
+  })
+
+  describe('a workstreams status is never a context (mid-round ruling 14)', () => {
+    const loopStatus: CheckContext = {
+      name: 'workstreams/review-1',
+      status: null,
+      conclusion: 'SUCCESS',
+      startedAt: T1,
+    }
+
+    it('stays out of the head list when no ruleset covers the base', async () => {
+      const report = await reportOf(
+        ['178'],
+        replies({
+          requiredContexts: { contexts: [], unavailable: null },
+          viewPullRequestDetail: {
+            pullRequest: detail({ checks: [...detail().checks, loopStatus] }),
+            unavailable: null,
+            missing: false,
+          },
+        }),
+      )
+
+      expect(report.contextsFrom).toBe('head')
+      expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'types'])
+    })
+
+    it('stays out of the verdict when a ruleset names it, before a round wrote it', async () => {
+      const report = await reportOf(
+        ['178'],
+        replies({
+          requiredContexts: {
+            contexts: ['vitest', 'types', 'workstreams/review-1'],
+            unavailable: null,
+          },
+        }),
+      )
+
+      expect(report.verdict).toBe('green')
+      expect(report.contexts.map((context) => context.name)).toEqual(['vitest', 'types'])
+    })
   })
 })

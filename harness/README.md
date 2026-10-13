@@ -87,7 +87,8 @@ change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullReque
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
 `watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
-`viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `repositoryStatus`.
+`viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `listPullRequestStatuses`,
+`createCommitStatus`, `repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
@@ -104,7 +105,8 @@ with a null pull request for one it could not read. `listWorkflowRuns` answers
 `{ rows, unavailable }`. So does `listOpenPullRequestHeads`, the one read the watch and the
 intersect make for every open head. So does `listOpenPullRequestLinks`, the read of the stack
 links. `compareCommits` answers `{ comparison, unavailable }`, with a null comparison for one it
-could not read.
+could not read. `listPullRequestStatuses` answers `{ rows, unavailable }`. `createCommitStatus` is a
+write, and throws on a failure, as `addComment` does.
 
 `repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The
 SessionStart hook reads it (#230).
@@ -138,7 +140,7 @@ does this with its captured replies.
 `GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`,
 `WatchResult`, and `IssueState` live in `lib/gh.ts`. The result shapes that the sweep and the
 review loop read also live there: `MilestoneSummary`, `IssueSummary`, `PullRequestSummary`,
-`PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`. The first of them moved there
+`PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`, `CommitStatus`. The first of them moved there
 at [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written
 against them. The status line reads `RepositoryStatus` and `MergedHead`, which also live there.
 
