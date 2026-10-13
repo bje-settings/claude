@@ -1,6 +1,6 @@
 ---
 type: ADR
-description: Deprecated. The plugins moved to SurveyMonkey/lsps. The lsp-merge plugin is one language server that runs the servers in a repository's .claude/lsp-merge.json and joins them. Requests go to one primary child for each file. Diagnostics from all children are merged, with pulls for children that only answer pulls. It is the first plugin here that runs as a long-lived process.
+description: Deprecated. The plugins moved to SurveyMonkey/lsps. The lsp-merge plugin was one language server that ran the servers in a repository's .claude/lsp-merge.json and joins them. Requests go to one primary child for each file. Diagnostics from all children are merged, with pulls for children that only answer pulls. It was the first plugin here that ran as a long-lived process.
 status: deprecated
 created: 2026-09-29
 owner: brianespinosa
@@ -9,7 +9,7 @@ related_issues: [316, 315, 313]
 
 # ADR 006: lsp-merge, one language server that runs several
 
-The plugins moved to `SurveyMonkey/lsps`. [ADR 002 there](https://github.com/SurveyMonkey/lsps/blob/main/docs/adr/002-lsp-merge-proxy.md) is the record in force.
+The plugins moved to `SurveyMonkey/lsps`. Its [ADR 002](https://github.com/SurveyMonkey/lsps/blob/main/docs/adr/002-lsp-merge-proxy.md) is the current record. This text describes the plugins as they were here.
 
 ## Context
 
