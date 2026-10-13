@@ -558,6 +558,7 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
     expect(vitestTarget('cd /w && cd /v && pnpm test')).toEqual({ directory: null })
     expect(vitestTarget('cd /w && (cd /v && pnpm test)')).toEqual({ directory: null })
     expect(vitestTarget('cd /w && cd && pnpm test')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && cd&& pnpm test')).toEqual({ directory: null })
   })
 
   it('reads a cd whose quote never closes as no cd', () => {
