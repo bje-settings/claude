@@ -241,7 +241,7 @@ export const shepherdEnv = (sandbox: Sandbox, env: Record<string, string>): Node
  */
 
 /**
- * The three writes this command makes are its whole reason to exist. A
+ * The write this command makes is its whole reason to exist. A
  * captured run cannot show their arguments. The capture records what the
  * Python's stub `gh` received, while this port reaches `gh` through the
  * injected client instead. So this test asserts the request here, in full,
@@ -251,21 +251,13 @@ export const shepherdEnv = (sandbox: Sandbox, env: Record<string, string>): Node
  * (`test_shepherd_pr.py:371`, `:402`, `:417`, `:466`, `:483`, `:1011`,
  * `:1162`).
  */
-export const recording = (
-  options: GhServerOptions,
-): { gh: GhClient; comments: unknown[]; updates: unknown[] } => {
+export const recording = (options: GhServerOptions): { gh: GhClient; updates: unknown[] } => {
   const server = createGhServer(options)
-  const comments: unknown[] = []
   const updates: unknown[] = []
   return {
-    comments,
     updates,
     gh: {
       ...server,
-      addComment: async (comment) => {
-        comments.push(comment)
-        return server.addComment(comment)
-      },
       updateBranch: async (pull) => {
         updates.push(pull)
         return server.updateBranch(pull)
