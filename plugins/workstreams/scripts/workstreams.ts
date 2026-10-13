@@ -21,8 +21,8 @@
 // command nobody asked for is never loaded. A new command changes no other
 // line here.
 //
-// Every arm answers with an envelope. For `sweep`, `rounds`, `pr-state` and
-// `intersect`, the whole output is one payload a caller either gets or
+// Every arm answers with an envelope. For `sweep`, `rounds`, `pr-state`,
+// `mark` and `intersect`, the whole output is one payload a caller either gets or
 // does not (`lib/envelope.ts`). `watch` writes a line for each event while
 // it runs. Its envelope is only the end. That is empty, or the one line
 // that says there is nothing to watch. A third
@@ -49,8 +49,11 @@ commands:
   pr-state <number> [--round 0|1|2]  where the review loop is on one pull
     [--substantial] [--rot-checked]  request: its required contexts, its
     [--round-1-head <sha>] [--json]  checks, its unresolved threads, the
-                                     logic since round 1 and the state they
-                                     add up to
+                                     logic since round 1, the review
+                                     statuses and the state they add up to
+  mark <number> <name>               write the workstreams/<name> commit
+    [--description <text>]           status on the pull request's head:
+    [--head <sha>]                   review-1, review-2, rot-check or layer
   intersect [--json]                 every open pull request's head against
                                      the default branch and against each
                                      other: merge base, changed files and
@@ -102,6 +105,12 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
     const { runPrState } = await import('../src/subcommands/pr-state.ts')
     return write(
       await runPrState(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
+    )
+  }
+  if (name === 'mark') {
+    const { runMark } = await import('../src/subcommands/mark.ts')
+    return write(
+      await runMark(argv, { gh: createGhClient({ cwd: process.cwd(), env: process.env }) }),
     )
   }
   if (name === 'intersect') {

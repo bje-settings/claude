@@ -234,6 +234,25 @@ describe('a watch over the open pull requests', () => {
     ])
   })
 
+  it('concludes without a workstreams status, also one a ruleset names (#377)', async () => {
+    // A review status records a round, so it neither holds CONCLUDED before
+    // a round nor counts in the tally after one (mid-round ruling 14).
+    const loop = { ...done('workstreams/review-1'), status: null }
+    const { context, lines } = watchOver([
+      {
+        heads: heads(head({ checks: [done('vitest'), loop] })),
+        required: { main: ['vitest', 'workstreams/review-1'] },
+      },
+    ])
+
+    await runWatch(['--ticks', '1'], context)
+
+    expect(lines).toEqual([
+      `#259 open: wktr-219-pr-sweep -> main, head ${SHA_A}, draft, required 1/1 reported`,
+      '#259 aaaaaaa CONCLUDED: 1/1 required reported, all passed',
+    ])
+  })
+
   it('does not conclude on seven checks that no ruleset requires (round 5)', async () => {
     const codeql = Array.from({ length: 7 }, (_, index) => done(`CodeQL ${index}`))
     const { context, lines } = watchOver([{ heads: heads(head({ checks: codeql })) }])

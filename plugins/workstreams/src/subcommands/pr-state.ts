@@ -3,12 +3,15 @@
 //
 // **Nothing is remembered.** Round 8 ruling 8, and CLAUDE.md's "derive what
 // a plugin needs each time it runs": there is no state file. Every fact
-// here is read again each tick. The only facts the caller carries are the
-// four it alone knows: how many review rounds it has completed, whether
-// the first one was substantial, the head the first one reviewed, and
-// whether the rot check is done. A file
-// would be the copy that goes stale, and a loop resumed from one would
-// review a head that had already moved.
+// here is read again each tick. That includes the four review facts: how
+// many review rounds have completed, whether the first one was substantial,
+// the head the first one reviewed, and whether the rot check is done.
+// `workstreams mark` writes each one as a `workstreams/<name>` commit
+// status, and this command reads them from the pull request's commits
+// (#377). A flag can still give each fact, and a flag that is given wins
+// (mid-round ruling 14): a round in flight can hold marker comments and no
+// statuses. A file would be the copy that goes stale, and a loop resumed
+// from one would review a head that had already moved.
 //
 // **Nothing is hard-coded about the repository either.** The required
 // status-check contexts come from the rules for the base of the pull
@@ -38,6 +41,7 @@ import { parseCommandLine } from '../lib/args.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import type {
   CommitComparison,
+  CommitStatus,
   GhClient,
   IssueState,
   PullRequestDetail,
@@ -45,6 +49,7 @@ import type {
 } from '../lib/gh.ts'
 import {
   answeringChecks,
+  LOOP_STATUS_PREFIX,
   namesOrHead,
   type ReportedContext,
   reportContexts,
@@ -66,19 +71,39 @@ Usage:
 Reads the status-check contexts that the base of the pull request's stack bottom
 requires (its own base, when it is in no stack), the head commit and what has
 reported on it, whether a workflow run for the head exists with event
-pull_request, the unresolved review threads, and how long recent runs have
-taken, and reports the state the review loop is in.
+pull_request, the unresolved review threads, the review statuses, and how long
+recent runs have taken, and reports the state the review loop is in.
 
---round is how many review rounds have COMPLETED, which is the one thing this
-command cannot read; --substantial says round 1 changed something substantial,
-and --rot-checked says the title and body have been checked against the final
-diff. Together they are what separates review-2 from rot-check from done. Both
-flags describe a round that has finished, so neither is accepted with
---round 0.
+The review statuses are the workstreams/<name> commit statuses that
+"workstreams.ts mark" writes, read from the first 100 commits of the pull
+request. They give four facts:
 
---round-1-head is line 2 of the round 1 marker: the head that round 1
-reviewed. It holds only with --round 1. Without --substantial, the command
-reads the compare of that head to the current head. The state is review-2,
+  round        2 with a workstreams/review-2 status on any commit, 1 with a
+               workstreams/review-1 status, else 0: the review rounds that
+               have COMPLETED
+  substantial  the first workstreams/review-1 status has the description
+               "substantial"
+  round1Head   the commit of the first workstreams/review-1 status, by its
+               time (#395). A second review-1 status, as after a resumed
+               round, does not move it.
+  rotChecked   a workstreams/rot-check status on any commit
+
+Each flag gives one of these facts, and a flag that is given wins over the
+status read: --round, --substantial, --round-1-head and --rot-checked. A
+pull request whose rounds ran before the statuses has marker comments and
+no statuses, so its caller gives the flags. A status read that fell short
+is listed under "unavailable", and the state is null unless --round is
+given. Then the flags alone are the facts.
+
+A force-push that drops a commit from the pull request drops its statuses
+from the read too. Give the flags for such a pull request.
+
+--substantial and --rot-checked describe a round that has finished, so
+neither is accepted with --round 0.
+
+--round-1-head is the head that round 1 reviewed. As a flag, it holds only
+with --round 1. At round 1 that was not substantial, the command reads the
+compare of the round 1 head to the current head. The state is review-2,
 not rot-check or done, when one of these is true:
 
   the round 1 head is not an ancestor of the head, as after a rebase
@@ -137,7 +162,10 @@ reason then appears under "unavailable".
 
 State merged or closed means the pull request itself finished. This check
 runs right after awaiting-pr, before every other rule. No CI result,
-thread, or marker changes it.
+thread, or review status changes it.
+
+A workstreams/<name> status is never a required context. It is not part of
+the verdict or of the head list, also when a ruleset names it.
 
 Nothing here throws. Every read that fell short is listed under "unavailable",
 and a verdict of "unavailable" means the sets below it are not an answer.
@@ -149,8 +177,11 @@ Exits 2 on a usage error, and 1 only when nothing at all could be read.`
 // answers `never` at the call site. A test verified this: it removed
 // `round`'s default and watched `tsc` refuse it, with and without a
 // `satisfies` clause.
+// `--round` has no `choices`, because its default is the empty string,
+// which means "not given": the statuses then give the round. A `choices`
+// list would have to hold that empty string, and its refusal would name it.
 const SPEC = {
-  round: { type: 'string', default: '0', choices: ['0', '1', '2'] },
+  round: { type: 'string', default: '' },
   substantial: { type: 'boolean' },
   'round-1-head': { type: 'string', default: '' },
   'rot-checked': { type: 'boolean' },
@@ -260,9 +291,12 @@ export interface PrStateReport {
   readonly comments: number
   readonly commentAuthors: readonly string[]
   readonly waitHint: WaitHint | null
-  readonly round: number
+  /** The review rounds completed: the flag, or the statuses. Null when the
+   *  status read fell short and no `--round` was given. */
+  readonly round: number | null
   readonly substantial: boolean
-  /** The `--round-1-head` the caller named, or null for none. */
+  /** The head round 1 reviewed: the flag, or the commit of the first
+   *  `workstreams/review-1` status. Null for none. */
   readonly round1Head: string | null
   /** The compare of the round 1 head to the head. Null when the command did
    *  not read it, or could not (then `unavailable` says why). */
@@ -307,7 +341,7 @@ export const verdictOf = (
 }
 
 /**
- * Where the loop is, from the facts plus the three the caller carries.
+ * Where the loop is, from the facts and the review facts.
  *
  * `null`, rather than a guess, when the verdict is `unavailable`. A state
  * is an instruction to the caller. To name one from facts that could not
@@ -344,7 +378,9 @@ export const deriveState = (facts: {
   readonly pullRequestState: IssueState | null
   readonly verdict: Verdict
   readonly unresolvedThreads: number
-  readonly round: number
+  /** Null when no source gave the review rounds: the status read fell
+   *  short, and no flag gave them. Then no state is named from round 0 on. */
+  readonly round: number | null
   readonly substantial: boolean
   /** True when logic landed after the head that round 1 reviewed. False
    *  when it did not, or when the caller named no such head. Null when
@@ -357,6 +393,9 @@ export const deriveState = (facts: {
   if (facts.pullRequestState === 'CLOSED') return 'closed'
   if (facts.verdict === 'unavailable') return null
   if (facts.verdict === 'no-run') return 'no-run'
+  // A round count nobody could read names no state. Round 0 would send a
+  // reviewed pull request to review again.
+  if (facts.round === null) return null
   // #384: round 1 starts when the pull request opens, with a run on its
   // head. It does not wait for CI. The round reads CI once its reviewers
   // return, and fixes a failed check in the same pass.
@@ -371,13 +410,76 @@ export const deriveState = (facts: {
   // now reads "substantial" narrowly: a logic change under src/, lib/,
   // scripts/ or hooks/. Two rounds is still the limit.
   if (facts.round === 1 && facts.substantial) return 'review-2'
-  // #356: a commit after the round 1 marker had no review. Logic in it
+  // #356: a commit after the round 1 head had no review. Logic in it
   // earns round 2, by the path part of the substantial rule. A compare
   // nobody could read names no state, because a guess here can skip a
   // review.
   if (facts.round === 1 && facts.logicSinceRound1 === null) return null
   if (facts.round === 1 && facts.logicSinceRound1) return 'review-2'
   return facts.rotChecked ? 'done' : 'rot-check'
+}
+
+/** The four review facts. */
+export interface ReviewFacts {
+  readonly round: number
+  readonly substantial: boolean
+  readonly round1Head: string | null
+  readonly rotChecked: boolean
+}
+
+/** The context of one review status that `workstreams mark` writes. */
+const loopStatus = (name: string): string => `${LOOP_STATUS_PREFIX}${name}`
+
+/**
+ * The review facts that the statuses give (#377).
+ *
+ * The round 1 status is the FIRST `workstreams/review-1` status, by
+ * `createdAt` (#395). A round agent resumed after its return gets a second
+ * one on its fix head. The first one keeps the head that round 1 reviewed,
+ * so logic in the fix still gives `review-2`. On a tie, the older commit
+ * wins: the rows come oldest commit first. GitHub gives only the newest
+ * status of a context on one commit, so two on one commit read as one.
+ */
+export const reviewFactsOf = (statuses: readonly CommitStatus[]): ReviewFacts => {
+  let first: CommitStatus | undefined
+  for (const status of statuses) {
+    if (status.context !== loopStatus('review-1')) continue
+    if (first === undefined || status.createdAt < first.createdAt) first = status
+  }
+  const has = (name: string): boolean =>
+    statuses.some((status) => status.context === loopStatus(name))
+  return {
+    round: has('review-2') ? 2 : first === undefined ? 0 : 1,
+    substantial: first?.description === 'substantial',
+    round1Head: first === undefined ? null : first.commit,
+    rotChecked: has('rot-check'),
+  }
+}
+
+/** The four flags as the command line gave them. An empty string is a
+ *  flag not given, and `false` is a boolean flag not given. */
+export interface ReviewFlags {
+  readonly round: string
+  readonly substantial: boolean
+  readonly round1Head: string
+  readonly rotChecked: boolean
+}
+
+/**
+ * The review facts: each flag that was given, else the statuses
+ * (mid-round ruling 14). `read` is null when the status read fell short.
+ * Then only a `--round` flag gives facts, and the flags alone give them.
+ * With neither, the facts are null, and no state is named.
+ */
+export const reviewFacts = (flags: ReviewFlags, read: ReviewFacts | null): ReviewFacts | null => {
+  if (read === null && flags.round === '') return null
+  const statuses = read ?? { round: 0, substantial: false, round1Head: null, rotChecked: false }
+  return {
+    round: flags.round === '' ? statuses.round : Number(flags.round),
+    substantial: flags.substantial || statuses.substantial,
+    round1Head: flags.round1Head === '' ? statuses.round1Head : flags.round1Head,
+    rotChecked: flags.rotChecked || statuses.rotChecked,
+  }
 }
 
 /** The directories whose files hold logic, as the substantial rule in
@@ -681,11 +783,12 @@ const readStackRules = async (
 /**
  * Read the pull request and answer with its state.
  *
- * Five reads. Each one answers, or says why it could not; none of them
- * throws. They cover the pull request itself, the open pull requests that
- * show its stack, the contexts its stack bottom's base requires, the
- * workflow runs on its head branch, and a sample of recent runs for the
- * wait hint. A read that failed costs its own fact
+ * Six reads, and the compare at round 1. Each one answers, or says why it
+ * could not; none of them throws. They cover the pull request itself, the
+ * open pull requests that show its stack, the contexts its stack bottom's
+ * base requires, the workflow runs on its head branch, the review
+ * statuses on its commits, and a sample of recent runs for the wait hint.
+ * A read that failed costs its own fact
  * and nothing else. That is why a wait hint that could not be measured
  * does not stop the verdict.
  */
@@ -698,10 +801,15 @@ export const runPrState = async (
   if (parsed.value.options.help) return ok(HELP)
   const requested = requestedPullRequest(parsed.value.positionals)
   if (requested.outcome !== 'ok') return requested
-  const round = Number(parsed.value.options.round)
-  const substantial = parsed.value.options.substantial
-  const rotChecked = parsed.value.options['rot-checked']
-  const round1Head = parsed.value.options['round-1-head']
+  const flags: ReviewFlags = {
+    round: parsed.value.options.round,
+    substantial: parsed.value.options.substantial,
+    round1Head: parsed.value.options['round-1-head'],
+    rotChecked: parsed.value.options['rot-checked'],
+  }
+  if (!['', '0', '1', '2'].includes(flags.round)) {
+    return refused(`--round must be one of 0, 1, 2, not "${flags.round}"`)
+  }
   // Both flags say something about a round that has finished, so at round
   // 0 neither can be true of anything. `deriveState` returns from its
   // round-0 arms before it reads either. Without this check, they would be
@@ -709,14 +817,16 @@ export const runPrState = async (
   // rounds would be told nothing. `--round 2` without `--substantial` is
   // NOT refused: substantial describes round 1, and no longer matters once
   // round 2 has run.
-  if (round === 0 && (substantial || rotChecked)) {
+  if (flags.round === '0' && (flags.substantial || flags.rotChecked)) {
     return refused(
       '--substantial and --rot-checked describe a completed round, so neither holds with --round 0',
     )
   }
   // The round 1 head says what round 1 reviewed. With round 0 there is no
-  // such head. With round 2, round 2 reviewed every commit after it.
-  if (round1Head !== '' && round !== 1) {
+  // such head. With round 2, round 2 reviewed every commit after it. The
+  // rule is about the flag: a caller that names the head names the round.
+  const round1Head = flags.round1Head
+  if (round1Head !== '' && flags.round !== '1') {
     return refused(
       '--round-1-head names the head round 1 reviewed, so it holds only with --round 1',
     )
@@ -749,11 +859,32 @@ export const runPrState = async (
       : await context.gh.listWorkflowRuns({ branch: detail.head })
   note(runs.unavailable)
 
-  // A substantial round 1 gives round 2 already, so the compare is not read.
-  const compared =
-    round1Head === '' || substantial || detail === null
+  // The review statuses (#377). A read that fell short gives no facts from
+  // it, also when it read some rows: a status on a commit it did not read
+  // could be the one that moves the round.
+  const marks =
+    detail === null
       ? null
-      : await context.gh.compareCommits({ base: round1Head, head: detail.headSha })
+      : await context.gh.listPullRequestStatuses({
+          pullRequest: requested.value,
+          prefix: LOOP_STATUS_PREFIX,
+        })
+  note(marks === null ? null : marks.unavailable)
+  const facts = reviewFacts(
+    flags,
+    marks === null || marks.unavailable !== null ? null : reviewFactsOf(marks.rows),
+  )
+
+  // The compare is read only at round 1, with a head to compare from. A
+  // substantial round 1 gives round 2 already, so the compare is not read.
+  const compared =
+    facts === null ||
+    facts.round !== 1 ||
+    facts.round1Head === null ||
+    facts.substantial ||
+    detail === null
+      ? null
+      : await context.gh.compareCommits({ base: facts.round1Head, head: detail.headSha })
   note(compared === null ? null : compared.unavailable)
   const sinceRound1 =
     compared === null || compared.comparison === null ? null : sinceRound1Of(compared.comparison)
@@ -836,23 +967,23 @@ export const runPrState = async (
       sample.rows,
       runsForHead.map((run) => run.name),
     ),
-    round,
-    substantial,
-    round1Head: round1Head === '' ? null : round1Head,
+    round: facts === null ? null : facts.round,
+    substantial: facts?.substantial === true,
+    round1Head: facts === null ? null : facts.round1Head,
     sinceRound1,
-    rotChecked,
+    rotChecked: facts?.rotChecked === true,
     state: deriveState({
       missing: viewed.missing,
       pullRequestState: detail === null ? null : detail.state,
       verdict,
       // A person's thread and a bot's both hold the loop (#383).
       unresolvedThreads: detail === null ? 0 : detail.unresolvedThreads.length,
-      round,
-      substantial,
+      round: facts === null ? null : facts.round,
+      substantial: facts?.substantial === true,
       // When the command reads no compare, the fact is false and the state
       // ignores it.
       logicSinceRound1: compared === null ? false : (sinceRound1?.logic ?? null),
-      rotChecked,
+      rotChecked: facts?.rotChecked === true,
     }),
     unavailable,
   }
