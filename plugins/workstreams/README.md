@@ -95,8 +95,9 @@ Round 1 starts only when `pr-state` gives `layerReturned: true` (#396). `pr-stat
 `review-1` as soon as the head has a run, while a layer agent can still build. The status that
 `/workstreams:stream` writes when it reads the return closes that gap, also in a new
 conversation. A pull request that the plan names no branch for has no layer agent, so the tick
-marks it, then reviews it. `start pr <n>` with `layerReturned: false` asks one question: mark
-it returned and review it now, or wait.
+marks it, then reviews it. Otherwise the tick reports the held layer once for each head, and
+names `mark <number> layer` for a lost return. `start pr <n>` with `layerReturned: false` asks
+one question: mark it returned and review it now, or wait.
 
 A layer that closed with no merge is a question, asked once: drop it and the layers above
 it, reopen it, or replan. `start` records the answer on the layer's issues. A dropped layer
