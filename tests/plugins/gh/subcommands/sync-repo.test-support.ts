@@ -307,7 +307,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   ignore_another_base: (f) => {
     f.git.branchWithWork(f.repo, 'for-release')
     const sha = f.git.sha(f.repo, 'for-release')
-    // The merge commit is on `release`, not on main, so the guard refuses it.
+    // The merge commit is the branch's own tip. It is not on origin/main, so
+    // the guard refuses it.
     const merged = { number: 1, mergeCommit: sha }
     return {
       argv: [f.repo],

@@ -54,7 +54,7 @@ export interface PullRequestQuery {
 }
 
 /**
- * The merged-pull-request window `gh-sync-repo.py:292` asks for.
+ * The merged-pull-request window, ported from `gh-sync-repo.py:292`.
  *
  * `base` is optional. `sync-repo` sends none (#348): a stacked pull request
  * keeps its parent branch as its base after it merges, so a base filter
@@ -947,8 +947,8 @@ export interface GhClientOptions {
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
  * request's head by its number, and proves the merge reached the default
- * branch by its merge commit (#348, #450). `REPOSITORY_FIELDS` and `RUN_FIELDS` match `gh-shepherd-status.py`'s
- * repository and run queries. The run list adds the run's identity and
+ * branch by its merge commit (#348, #450). `REPOSITORY_FIELDS` and
+ * `RUN_FIELDS` match `gh-shepherd-status.py`'s repository and run queries. The run list adds the run's identity and
  * outcome to the two timestamps that script reads, because a run row with no
  * id cannot be followed to `readFailedRunLog`, the next endpoint in this
  * same interface.

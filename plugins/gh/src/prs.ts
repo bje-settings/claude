@@ -17,11 +17,14 @@
 //     reused, or had a commit added after the merge, does not count as
 //     landed
 //
-// The query asks for every base. {@link ownRows} drops forks, not the query.
+// Neither merged-pull-request query filters by base. {@link ownRows} drops
+// forks, not the query.
 // This keeps the row count real. The caller checks that count against the
 // lookup limit. It stays the true number of pull requests the window
 // returned. The first and last conditions need git, so `sync-repo` checks
-// them. This file only reads the fields they need.
+// them. This file only reads the fields they need. `hook-io` counts with
+// {@link hasMatch}, which checks the name and the tip only. So its count can
+// be higher than what `sync-repo` prunes.
 //
 // **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
 // its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from

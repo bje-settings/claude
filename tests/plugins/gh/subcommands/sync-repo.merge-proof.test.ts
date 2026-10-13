@@ -467,7 +467,8 @@ describe('the per-branch fallback', () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'for-release-2')
     const sha = f.git.sha(f.repo, 'for-release-2')
-    // The merge commit is on `release`, not on main, so the guard refuses it.
+    // The merge commit is the branch's own tip. It is not on origin/main, so
+    // the guard refuses it.
     const merged = { number: 1, mergeCommit: sha }
     const prs = manyPrs(200, pr('for-release-2', sha, 'release', false, merged))
 

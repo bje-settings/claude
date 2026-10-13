@@ -56,8 +56,9 @@ export interface PullRequestRow {
   readonly [field: string]: unknown
 }
 
-/** The two fields `sync-repo` reads to prove a merge (#348, #450). gh
- *  answers `mergeCommit` as `{ oid }`. */
+/** The two fields `sync-repo` reads for a merge proof (#348, #450).
+ *  `number` names the ref to fetch the head by, and `mergeCommit` proves
+ *  the merge. gh answers `mergeCommit` as `{ oid }`. */
 export interface MergedKeys {
   readonly number?: number
   /** The merge commit's SHA. */
