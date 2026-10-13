@@ -1403,6 +1403,18 @@ describe('the state the facts add up to', () => {
     expect(facts({ ...green, pullRequestState: 'CLOSED', verdict: 'unavailable' })).toBe('closed')
   })
 
+  // A status read that fell short gives a null round (#377). A mutation that
+  // moved the null-round rule above these arms left every other test green.
+  for (const [expected, overrides] of [
+    ['merged', { pullRequestState: 'MERGED' }],
+    ['closed', { pullRequestState: 'CLOSED' }],
+    ['no-run', { verdict: 'no-run' }],
+  ] as const) {
+    it(`names ${expected} before the null-round rule`, () => {
+      expect(facts({ ...green, ...overrides, round: null })).toBe(expected as LoopState)
+    })
+  }
+
   it('carries the caller’s three inputs into the report', async () => {
     const report = await reportOf(['178', '--round', '1', '--substantial', '--rot-checked'])
 
@@ -2569,6 +2581,15 @@ describe('the review statuses (#377, #395)', () => {
     )
     return {
       ...mock,
+      // The rows answer only the pull request asked about, with the loop's
+      // prefix. Any other query reads as a short read, so it names no round.
+      listPullRequestStatuses: async (query: {
+        readonly pullRequest: number
+        readonly prefix: string
+      }) =>
+        query.pullRequest === 178 && query.prefix === 'workstreams/'
+          ? { rows: statuses, unavailable: null }
+          : { rows: [], unavailable: `asked for #${query.pullRequest} ${query.prefix}` },
       compareCommits: async (query: { readonly base: string; readonly head: string }) =>
         query.base === base && query.head === HEAD
           ? { comparison: { status, files, filesAtLimit: false }, unavailable: null }
