@@ -15,6 +15,7 @@
     {
       "name": "workstreams",
       "source": "./plugins/workstreams",
+      "description": "Rounds of issue-tracker work. /workstreams:start runs or continues a round, from the sweep to reviewed draft pull requests, and ends with the merge sequence and the cost.",
       "category": "development"
     },
     {

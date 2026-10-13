@@ -13,11 +13,12 @@ Add the marketplace, then install each plugin you want:
 ```
 
 `/plugin install` opens the plugin's details in the `/plugin` panel, where you install it.
+`workstreams` needs more tools; its [Requirements](plugins/workstreams#requirements) list them.
 
 ## Plugins
 
 Each plugin is one domain of work, and you install it on its own. The lists below are an index.
-The plugin's own README has the detail, including the scripts the skills and hooks run.
+The plugin's own README has the detail, with the scripts the skills and hooks run.
 
 ### [`gh`](plugins/gh)
 
@@ -74,7 +75,7 @@ The plugin's own README has the detail, including the scripts the skills and hoo
     <th scope="row">Agents</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>stream</code></a>: builds one layer from one brief. <code>/workstreams:stream</code> dispatches it, with the model chosen per call. Effort is the session's own.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/workstreams#workstreamsstream"><code>stream</code></a>: builds one layer from one brief. The <code>workstreams:stream</code> skill dispatches it, with the model chosen per call. Effort is the session's own.</li>
       </ul>
     </td>
   </tr>
