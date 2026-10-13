@@ -265,9 +265,9 @@ describe('the facts it reads', () => {
     expect(report.state).toBe('fixing')
   })
 
-  it('asks the rules about the pull request’s OWN base branch', async () => {
-    // A stacked pull request is based on a topic branch, and the default
-    // branch's nine contexts are not what its ruleset requires.
+  it('asks the rules of the stack bottom’s base, which is its own base outside a stack', async () => {
+    // With no open pull request below it, this pull request's own base is
+    // the bottom. A pull request in a stack reads further down (#398).
     const asked: string[] = []
     const gh = createGhMock(replies())
     const answer = await runPrState(['--json', '178'], {

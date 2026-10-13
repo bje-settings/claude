@@ -490,7 +490,7 @@ requests a stack is made of. An EMPTY list is therefore an answer, not a failure
 contexts and no `unavailable` (#414). The message is "Upgrade to GitHub Pro or make this
 repository public to enable this feature." A private repository of a free organization gets
 it, and a plan that lacks rulesets has none that require a check. The match needs those
-words, and a status of 403 when the body has one. Any other answer that is not a list stays
+words and a status of 403. Any other answer that is not a list stays
 `unavailable`, with the body's status and message in the sentence, such as
 `(403: Resource not accessible by personal access token)`. `gh api` prints that body to
 stdout and exits non-zero, which `restJson` reads on purpose.

@@ -2004,12 +2004,12 @@ describe('the review loop reads', () => {
       })
     })
 
-    it('reads the plan-limit message with no status field the same way', async () => {
+    it('keeps the plan-limit message unavailable when the body has no status', async () => {
       const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT })])
 
       await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
         contexts: [],
-        unavailable: null,
+        unavailable: `the rules for main were not a list of rules (${PLAN_LIMIT})`,
       })
     })
 

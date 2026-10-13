@@ -1756,8 +1756,9 @@ const PLAN_LIMIT_MESSAGE =
 /**
  * Whether a branch-rules answer is GitHub's plan-limit refusal.
  *
- * The match is narrow on purpose: the body must be an error body that says
- * the plan-limit words, and a status, when the body has one, must be 403.
+ * The match is narrow on purpose: the body must be an error body with a
+ * status of 403 and the plan-limit words in its message. gh prints the
+ * status of a 4xx body as a string (read from a real 404 on 2026-10-13).
  * It is safe to read this as "no rulesets" because the plan lacks the
  * feature. A repository that cannot have rulesets has none that require a
  * check. Any other refusal, such as a 403 for a missing token scope or a
@@ -1765,11 +1766,10 @@ const PLAN_LIMIT_MESSAGE =
  */
 const isPlanLimit = (value: unknown): boolean => {
   const body = asRecord(value)
-  const status = body?.status
   return (
+    String(body?.status) === '403' &&
     typeof body?.message === 'string' &&
-    body.message.includes(PLAN_LIMIT_MESSAGE) &&
-    (status === undefined || String(status) === '403')
+    body.message.includes(PLAN_LIMIT_MESSAGE)
   )
 }
 
