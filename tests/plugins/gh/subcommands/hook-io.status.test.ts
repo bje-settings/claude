@@ -5,7 +5,7 @@
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, it } from 'vitest'
-import { nodeFileReads } from '#gh/lib/dependencies.ts'
+import { type FileReads, nodeFileReads } from '#gh/lib/dependencies.ts'
 import { GhError } from '#gh/lib/gh.ts'
 import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
 import { findOnPath } from '#harness/sandbox.ts'
@@ -275,6 +275,37 @@ it('warns, and asks nothing more, when discovery does not finish in time', async
     status: 0,
     stdout: 'gh: ⚠️ timed out\n',
     stderr: `${work}: did not finish in 1 ms\n`,
+  })
+})
+
+it('counts the PATH walk against the one deadline, so discovery gets only the time left', async () => {
+  const rig = createRig()
+  const work = realpathSync(githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets'))
+  // A git that never answers in time, so discovery runs to the deadline.
+  const sleep = findOnPath('sleep', rig.sandbox.env.PATH) ?? 'sleep'
+  const bin = rig.sandbox.join('bin-slow')
+  mkdirSync(bin)
+  writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nexec '${sleep}' 2\n`, { mode: 0o755 })
+  // The walk takes 400 ms of the 600 ms deadline (#267).
+  const files: FileReads = {
+    ...nodeFileReads,
+    kindOf: (target) =>
+      new Promise((resolve) => setTimeout(resolve, 400)).then(() => nodeFileReads.kindOf(target)),
+  }
+  const started = performance.now()
+
+  const ran = await statusOf(rig, work, createGhMock(), {
+    env: { ...rig.sandbox.env, PATH: `${bin}${path.delimiter}${rig.sandbox.env.PATH}` },
+    files,
+    deadlineMs: 600,
+  })
+
+  // With a clock of its own, discovery would get a full 600 ms more.
+  expect(performance.now() - started).toBeLessThan(900)
+  expect(ran).toEqual({
+    status: 0,
+    stdout: 'gh: ⚠️ timed out\n',
+    stderr: `${work}: did not finish in 600 ms\n`,
   })
 })
 
