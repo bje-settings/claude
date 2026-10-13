@@ -6,44 +6,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect } from 'vitest'
-import type { Output, Writer } from '#gh/lib/streams.ts'
 import { type HookEdges, runHookIo } from '#gh/subcommands/hook-io.ts'
 import type { GhClient } from '#harness/gh.ts'
 import { createGitFixtures, type GitFixtures } from '#harness/git.ts'
+import { captureOutput } from '#harness/output.ts'
 import { createSandbox, findOnPath, type Sandbox } from '#harness/sandbox.ts'
-
-/** A writer that keeps whatever text it receives. */
-const collector = (): Writer & { text: () => string } => {
-  const chunks: string[] = []
-  let silenced = false
-  return {
-    write: (text: string) => {
-      chunks.push(text)
-    },
-    silence: () => {
-      silenced = true
-    },
-    get silenced() {
-      return silenced
-    },
-    text: () => chunks.join(''),
-  }
-}
-
-export const createOutputPair = (): Output & { stdout: () => string; stderr: () => string } => {
-  const out = collector()
-  const err = collector()
-  return {
-    out,
-    err,
-    silence: () => {
-      out.silence()
-      err.silence()
-    },
-    stdout: out.text,
-    stderr: err.text,
-  }
-}
 
 export interface Rig {
   readonly sandbox: Sandbox
@@ -136,7 +103,7 @@ export const runHook = async (
   gh: GhClient,
   overrides: Partial<HookEdges> = {},
 ): Promise<Ran> => {
-  const output = createOutputPair()
+  const output = captureOutput()
   const status = await runHookIo(argv, {
     cwd: () => rig.sandbox.path,
     env: rig.sandbox.env,

@@ -7,11 +7,8 @@
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-// PINNING (commit 1): the cases below run against the copy that is about to
-// move. The next commit repoints this import at the shared function.
-import { which } from '#gh/subcommands/hook-io.ts'
 import { createSandbox } from '#harness/sandbox.ts'
-import { absentDependencies, type Dependency } from '#lib/dependencies.ts'
+import { absentDependencies, type Dependency, which } from '#lib/dependencies.ts'
 
 const TABLE: readonly Dependency[] = [
   { tool: 'git', label: 'git' },
@@ -52,6 +49,7 @@ const binWith = (dir: string, tool: string, mode: number): string => {
   return file
 }
 
+// These cases pinned both plugin copies of `which` before they moved here.
 describe('which', () => {
   it('answers the path of an executable on PATH, and null when PATH is unset', () => {
     const sandbox = createSandbox()

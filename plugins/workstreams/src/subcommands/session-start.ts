@@ -27,10 +27,10 @@
 // `preflight.ts`'s `OPTIONAL_PLUGINS` row for `gh` goes with it.
 // `question/SKILL.md` now reads its own skill listing for `/gh:sync`. It
 // no longer asks this hook about the `gh` plugin.
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { absentDependencies, type Dependency } from '../lib/dependencies.ts'
+import { absentDependencies, type Dependency, which } from '../lib/dependencies.ts'
 import { emit } from '../lib/hook-output.ts'
 import type { Runner } from '../lib/process.ts'
 import type { Output } from '../lib/streams.ts'
@@ -165,25 +165,6 @@ const readRegistry = async (
   return plugins as Record<string, unknown>
 }
 
-/** Whether `tool` is on `env.PATH`. A PATH walk, not a run, so a `gh`
- *  that is not executable is not on PATH. Written in the shape
- *  `plugins/gh/src/subcommands/hook-io.ts`'s own `which` uses, since
- *  nothing crosses a plugin boundary but `lib/` (`.claude/rules/type-ts.md`). */
-const which = (tool: string, env: NodeJS.ProcessEnv): boolean => {
-  const listed = env.PATH ?? ''
-  if (listed === '') return false
-  for (const directory of listed.split(path.delimiter)) {
-    const candidate = path.join(directory, tool)
-    try {
-      accessSync(candidate, constants.X_OK)
-      if (!statSync(candidate).isDirectory()) return true
-    } catch {
-      // Not here, or not executable. Check the next directory.
-    }
-  }
-  return false
-}
-
 /** Whether `gh auth token` can answer, or `null` when the check itself
  *  could not run to a real answer.
  *
@@ -265,7 +246,7 @@ interface Row extends Dependency {
  *  this writes nothing at all. */
 export const runSessionStart = async (edges: SessionStartEdges): Promise<number> => {
   const { env, run, output, deadlineMs, procPresent } = edges
-  const ghPresent = which('gh', env)
+  const ghPresent = which('gh', env) !== null
 
   const [ghLogin, ghStack, plugins] = await Promise.all([
     ghPresent ? ghLoggedIn(run, env, deadlineMs) : Promise.resolve(true),
@@ -291,8 +272,8 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
   // reads each cwd from `/proc`, or from `lsof` when `/proc` is absent.
   // `lib/dependencies.ts` has no "one of" row, so this builds the rows
   // for this machine.
-  rows.push({ tool: 'pgrep', label: 'pgrep', present: which('pgrep', env) })
-  if (!procPresent) rows.push({ tool: 'lsof', label: 'lsof', present: which('lsof', env) })
+  rows.push({ tool: 'pgrep', label: 'pgrep', present: which('pgrep', env) !== null })
+  if (!procPresent) rows.push({ tool: 'lsof', label: 'lsof', present: which('lsof', env) !== null })
 
   // A registry, or its fallback, that this code could not read at all is
   // a problem line of its own. It is never five missing plugins. The fix
