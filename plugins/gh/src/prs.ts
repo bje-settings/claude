@@ -18,10 +18,9 @@
 //     landed
 //
 // Neither merged-pull-request query filters by base. {@link ownRows} drops
-// forks, not the query.
-// This keeps the row count real. The caller checks that count against the
-// lookup limit. It stays the true number of pull requests the window
-// returned. The first and last conditions need git, so `sync-repo` checks
+// forks, not the query. This keeps the row count real. The caller checks
+// that count against the lookup limit. It stays the true number of pull
+// requests the window returned. The first and last conditions need git, so `sync-repo` checks
 // them. This file only reads the fields they need. `hook-io` counts with
 // {@link hasMatch}, which checks the name and the tip only. So its count can
 // be higher than what `sync-repo` prunes.

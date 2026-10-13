@@ -948,10 +948,10 @@ export interface GhClientOptions {
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
  * request's head by its number, and proves the merge reached the default
  * branch by its merge commit (#348, #450). `REPOSITORY_FIELDS` and
- * `RUN_FIELDS` match `gh-shepherd-status.py`'s repository and run queries. The run list adds the run's identity and
- * outcome to the two timestamps that script reads, because a run row with no
- * id cannot be followed to `readFailedRunLog`, the next endpoint in this
- * same interface.
+ * `RUN_FIELDS` match `gh-shepherd-status.py`'s repository and run queries.
+ * The run list adds the run's identity and outcome to the two timestamps
+ * that script reads, because a run row with no id cannot be followed to
+ * `readFailedRunLog`, the next endpoint in this same interface.
  */
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +

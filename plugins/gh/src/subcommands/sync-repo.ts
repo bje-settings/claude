@@ -795,9 +795,10 @@ class SyncRepoRun {
     const unmatched = await gitLines(['cherry', head, sha], this.here)
     if (unmatched === null) return 'unprobed'
     if (unmatched.some((line) => line.startsWith('+'))) return 'moved'
-    // `git cherry` prints one line for each commit of the range. An answer
-    // with fewer lines than that count did not compare every commit, so it
-    // proves nothing.
+    // `git cherry` prints one line for each commit of the range that is not
+    // a merge, and the check above leaves no merge in it. An answer with
+    // another count of lines did not compare every commit, so it proves
+    // nothing.
     const count = await gitOut(['rev-list', '--count', `${head}..${sha}`], this.here)
     return count === String(unmatched.length) ? 'match' : 'unprobed'
   }
