@@ -55,9 +55,11 @@ flowchart TD
         R7 -->|Neither| RP([No branch pruned: no merge proof can be read]):::stop
         R7 -->|Yes| R8{Worktrees and branches listable,<br/>and no linked worktree mid-operation now?}
         R8 -->|No| RS
-        R8 -->|Yes| R9{Branch has merge proof, a clean or no worktree<br/>on the same branch still, and a tip not at the origin default?}
-        R9 -->|No| RK([Keep the branch, say why]):::stop
-        R9 -->|Yes| RD([Remove its worktree, delete the branch])
+        R8 -->|Yes| R9{Merge proof for the tip read now? A merged PR<br/>with its merge commit on the origin default, at this tip<br/>or with each commit patch-equal in its head;<br/>or this tip on the origin default}
+        R9 -->|No, or a fetch or probe failed| RK([Keep the branch, say why]):::stop
+        R9 -->|Yes| R10{A clean or no worktree on the same branch still,<br/>and a tip not at the origin default?}
+        R10 -->|No| RK
+        R10 -->|Yes| RD([Remove its worktree, delete the branch])
     end
 
     J -.-> R1
@@ -67,6 +69,14 @@ flowchart TD
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
 ```
+
+The merge proof uses the tip that the prune loop read, not the branch name (#248). The query
+for merged pull requests has no base filter, so a stacked pull request is in it (#348). A row
+proves a merge only when its merge commit is on the origin default. A row at another commit
+proves the branch when `git cherry` finds each local commit in the head (#351, #450). The proof
+fetches a merge commit or a head that is not local, one time. Two notes keep a branch on a git
+failure: `could not fetch a merged PR's commits` and `git could not compare its commits`. Each
+ends `unproven, not disproven`.
 
 A skipped repository is a normal outcome. So is a kept branch. The job answers nothing either
 way. Only a throw makes `sync` exit 1. The report is on stdout before the verdict.

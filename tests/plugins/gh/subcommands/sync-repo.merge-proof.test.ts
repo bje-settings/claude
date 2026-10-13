@@ -379,8 +379,9 @@ describe('merge proof', () => {
     const sha = f.git.sha(f.repo, 'squashed')
     f.git.mergeSquash(f.repo, 'squashed')
 
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
     const result = await run(f, [f.repo], {
-      gh: ghDouble({ prs: [pr('squashed', sha)] }),
+      gh: ghDouble({ prs: [pr('squashed', sha, 'main', false, landed)] }),
       env: shimmed(f, 'branch --merged'),
     })
 
@@ -430,7 +431,10 @@ describe('the per-branch fallback', () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'landed')
     const sha = f.git.sha(f.repo, 'landed')
-    const prs = manyPrs(199, pr('landed', sha), pr('spare', 'zzz'))
+    // Any commit on main passes the merge-commit guard; the row's head is
+    // this very tip.
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(199, pr('landed', sha, 'main', false, landed), pr('spare', 'zzz'))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs, fail: 'head' }) })
 
@@ -499,7 +503,8 @@ describe('the per-branch fallback', () => {
     // checked" would throw away a real answer.
     const f = fixture()
     f.git.branchWithWork(f.repo, 'reused')
-    const prs = manyPrs(199, pr('reused', 'othersha'))
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(199, pr('reused', 'othersha', 'main', false, landed))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs, fail: 'head' }) })
 
@@ -516,7 +521,8 @@ describe('the per-branch fallback', () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'aaa')
     f.git.branchWithWork(f.repo, 'zzz-reused')
-    const prs = manyPrs(199, pr('zzz-reused', 'othersha'))
+    const landed = { number: 1, mergeCommit: f.git.sha(f.repo, 'main') }
+    const prs = manyPrs(199, pr('zzz-reused', 'othersha', 'main', false, landed))
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs, fail: 'head' }) })
 
