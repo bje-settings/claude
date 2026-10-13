@@ -390,12 +390,11 @@ session's directory that does not finish in time gives `gh: ⚠️ folder could 
 hook then does not check its own directory instead, because that directory is most often on the
 same slow filesystem.
 
-Every read of the filesystem here is async (#267). A read that hangs then holds a worker thread,
-not the hook, and the deadline still fires. node waits for that thread before the process can
-exit. So when a read still holds the process 20 ms after the output has left, the hook ends
-itself with `SIGKILL`.
-`hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`, the shell adds a `Killed`
-line.
+Every read of the filesystem here is async (#267). A read that hangs then holds a worker thread, not
+the hook, and the deadline still fires. node waits for that thread before the process can exit. So
+when a read still holds the process 20 ms after the output has left, the hook ends itself with
+`SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`, the shell may add a
+`Killed` line.
 
 The hook never changes a branch, worktree, or working tree. The fetch changes only
 remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.

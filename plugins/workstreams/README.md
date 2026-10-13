@@ -734,11 +734,10 @@ workstreams: ⚠️ the installed plugins file could not be read
 workstreams: ⚠️ no installed copy of pr-review-toolkit could be checked for its reviewer agents
 ```
 
-A `gh` child that does not exit is killed at the deadline, with its process group. A read
-that hangs holds a worker thread, and node waits for that thread before the process can exit.
-So when a read still holds the process 20 ms after the output has left, the hook ends
-itself with `SIGKILL`. `hooks.json`'s
-`; exit 0` makes that exit 0. In `claude --debug`, the shell adds a `Killed` line.
+A `gh` child that does not exit is killed at the deadline, with its process group. A read that hangs
+holds a worker thread, and node waits for that thread before the process can exit. So when a read
+still holds the process 20 ms after the output has left, the hook ends itself with `SIGKILL`.
+`hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`, the shell may add a `Killed` line.
 
 The hook does not run `gh --version`. The two `gh` runs above already show a `gh` that cannot
 start, as "could not be checked". One more run measured 38 ms (median of 22, node 24, gh
