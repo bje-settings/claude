@@ -216,7 +216,7 @@ started. `readStdinText` is the third duty, on the way in.
 
 ```ts
 const gh = createGhClient({ repository: 'acme/widgets' }) // or { cwd } for a checkout
-const merged = await gh.listMergedPullRequests({ base: 'main', limit: 200 })
+const merged = await gh.listMergedPullRequests({ limit: 200 }) // every base; `base` is optional
 ```
 
 The endpoints are named after the operation, not after gh's own argv, so the interface still works

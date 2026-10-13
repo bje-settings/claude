@@ -148,9 +148,8 @@ describe('argv', () => {
   })
 
   it('asks gh pr list for the merged window with the fields prs.py reads', async () => {
-    // `gh-sync-repo.py:292`. The base is filtered server-side, because a
-    // pull request that merged into another branch is not proof that a
-    // local branch landed on the default one.
+    // `gh-sync-repo.py:292`, plus `number` and `mergeCommit` (#348, #450).
+    // A caller that names a base gets it filtered server-side.
     const { gh, calls } = clientAnswering({ stdout: '[]' })
     await gh.listMergedPullRequests({ base: 'main', limit: 200 })
     expect(calls[0]?.args).toEqual([
@@ -163,7 +162,7 @@ describe('argv', () => {
       '--limit',
       '200',
       '--json',
-      'headRefName,headRefOid,isCrossRepository',
+      'headRefName,headRefOid,isCrossRepository,number,mergeCommit',
     ])
   })
 
@@ -190,7 +189,24 @@ describe('argv', () => {
       '--limit',
       '100',
       '--json',
-      'headRefName,headRefOid,isCrossRepository',
+      'headRefName,headRefOid,isCrossRepository,number,mergeCommit',
+    ])
+  })
+
+  it('sends no --base when the merged window names no base', async () => {
+    // #348: a stacked pull request keeps its parent branch as its base after
+    // it merges. A base filter hides it, so `sync-repo` asks for every base.
+    const { gh, calls } = clientAnswering({ stdout: '[]' })
+    await gh.listMergedPullRequests({ limit: 200 })
+    expect(calls[0]?.args).toEqual([
+      'pr',
+      'list',
+      '--state',
+      'merged',
+      '--limit',
+      '200',
+      '--json',
+      'headRefName,headRefOid,isCrossRepository,number,mergeCommit',
     ])
   })
 
@@ -354,7 +370,7 @@ describe('argv', () => {
         '--limit',
         '200',
         '--json',
-        'headRefName,headRefOid,isCrossRepository',
+        'headRefName,headRefOid,isCrossRepository,number,mergeCommit',
       ],
       [
         'run',

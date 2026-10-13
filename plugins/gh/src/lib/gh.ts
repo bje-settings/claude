@@ -56,11 +56,11 @@ export interface PullRequestQuery {
 /**
  * The merged-pull-request window `gh-sync-repo.py:292` asks for.
  *
- * `base` is required, because the whole point of the query is to filter it
- * server-side. A pull request that merged into some other branch is not proof
- * that a local branch landed on the default one; `lib/prs.py` says so in its
- * header. `head` narrows the query to one branch, which is the single-branch
- * fallback at `gh-sync-repo.py:493`.
+ * `base` is optional. `sync-repo` sends none (#348): a stacked pull request
+ * keeps its parent branch as its base after it merges, so a base filter
+ * hides it. The caller proves each row on its own instead, with the row's
+ * `mergeCommit`. `head` narrows the query to one branch, which is the
+ * single-branch fallback at `gh-sync-repo.py:493`.
  *
  * `limit` is required for the same reason `watchChecks.boundMs` is (round 5's
  * handoff fact 1, one field over). It is the number the caller compares the
@@ -80,7 +80,7 @@ export interface PullRequestQuery {
  * Nothing here asks a caller for something it does not already have.
  */
 export interface MergedPullRequestQuery {
-  base: string
+  base?: string
   head?: string
   limit: number
 }
@@ -945,7 +945,9 @@ export interface GhClientOptions {
  * `PR_FIELDS`: `gh-shepherd-pr.py`'s `read_pr` and `gh-shepherd-status.py`'s
  * pull-request query both ask for exactly this list.
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
- * window. `REPOSITORY_FIELDS` and `RUN_FIELDS` match `gh-shepherd-status.py`'s
+ * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
+ * request's head by its number, and proves the merge reached the default
+ * branch by its merge commit (#348, #450). `REPOSITORY_FIELDS` and `RUN_FIELDS` match `gh-shepherd-status.py`'s
  * repository and run queries. The run list adds the run's identity and
  * outcome to the two timestamps that script reads, because a run row with no
  * id cannot be followed to `readFailedRunLog`, the next endpoint in this
@@ -954,7 +956,7 @@ export interface GhClientOptions {
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
   'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision'
-const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository'
+const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
 
@@ -2532,8 +2534,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
           ...repository,
           '--state',
           'merged',
-          '--base',
-          query.base,
+          ...filter('base', query.base),
           ...filter('head', query.head),
           ...filter('limit', query.limit),
           '--json',
