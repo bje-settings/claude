@@ -9,3 +9,6 @@ CLAUDE.local.md
 
 # node toolchain
 node_modules/
+
+# local Claude Code settings
+**/.claude/settings.local.json

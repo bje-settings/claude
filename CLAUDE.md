@@ -13,10 +13,11 @@ marketplace manifest lists each plugin as an entry in its `plugins` array. See
 
 Test locally with `/plugin marketplace add ./path/to/this/repo`, then
 `/plugin install <plugin-name>@bje`. `claude --plugin-dir plugins/<plugin-name>` also works. It
-loads the plugin in place, so the `src/lib` symlink resolves (retest on Claude Code 2.1.284,
-`docs/eslint-plugin-claude-rules.md`). Two other install methods keep only the symlinks that
-resolve inside a plugin's own directory: a local path install, and a `command` source in copy
-mode. Each one drops the plugin's `src/lib` symlink, so its commands fail at import.
+loads the plugin in place, so the `src/lib` symlink resolves (retest on Claude Code 2.1.284; see
+[Share files within a marketplace with symlinks](https://code.claude.com/docs/en/plugins/host-marketplace#share-files-within-a-marketplace-with-symlinks)).
+Two other install methods keep only the symlinks that resolve inside a plugin's own directory: a
+local path install, and a `command` source in copy mode. Each one drops the plugin's `src/lib`
+symlink, so its commands fail at import.
 
 ### Plugins
 
@@ -94,7 +95,6 @@ would otherwise cover.
   `tests/plugins/<plugin>/` mirrors `plugins/<plugin>/src/`, with fixtures at
   `tests/plugins/<plugin>/fixtures/`. `tests/lib/` and `tests/harness/` hold the tests of `lib/`
   and `harness/`, and `tests/repo/` holds this repository's own checks.
-  `tests/packages/<package>/` holds the tests of `packages/<package>/src/`.
 - A test imports plugin code through the `#<plugin>/*` aliases in the root `package.json`, and
   the harness through `#harness/*`. `harness/paths.ts` names a plugin's scripts and hooks for a
   test that runs them as a process.
@@ -108,9 +108,9 @@ would otherwise cover.
 
 #### CI required checks
 
-- `vitest`, `vitest-floor`, `types`, and `biome` in `ci.yml`, plus `plugin-validate` in its own
-  workflow, are required checks on the default branch. The ruleset matches each name exactly.
-  The `eslint` job joins them after it reports on `main` once.
+- `vitest`, `vitest-floor`, `types`, `biome`, and `eslint` in `ci.yml`, plus `plugin-validate` in
+  its own workflow, are required checks on the default branch. The ruleset matches each name
+  exactly.
 - If you rename one, it silently blocks every pull request forever, because the required check
   never reports again. Put descriptive text in step names instead.
 - If you add or remove a required job, update the branch ruleset in the same pull request. Add
@@ -144,13 +144,10 @@ would otherwise cover.
   sessions, both with and without it, then compare the results. Or use the official
   `skill-creator` plugin for evals.
 
-## ESLint plugin
+## ESLint
 
-`packages/eslint-plugin-claude/` is `@bje/eslint-plugin-claude`, which lints Claude Code
-configuration files (ADR 005). It is not a Claude Code plugin and does not ship in the
-marketplace. `docs/eslint-plugin-claude-rules.md` lists the rules to come. Each rule has a doc in
-`packages/eslint-plugin-claude/docs/rules/`. Run `pnpm lint .`; `CONTRIBUTING.md` has the editor
-setup.
+The `eslint-plugin-claude` npm package lints Claude Code configuration files. `eslint.config.ts`
+holds the rule overrides. Run `pnpm lint .`; `CONTRIBUTING.md` has the editor setup.
 
 ## Claude settings
 

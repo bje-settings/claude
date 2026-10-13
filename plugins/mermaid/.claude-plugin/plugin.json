@@ -3,6 +3,8 @@
   "description": "Mermaid diagram previews. /mermaid:view shares a mermaid.live or mermaid.ink link for a diagram whenever one is written, edited, or reviewed.",
   "version": "0.2.0",
   "license": "MIT",
+  "homepage": "https://github.com/bje-settings/claude",
+  "repository": "https://github.com/bje-settings/claude",
   "author": {
     "name": "Brian Espinosa",
     "email": "b@bje.co"

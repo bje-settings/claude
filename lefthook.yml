@@ -75,7 +75,7 @@ pre-commit:
           printf '!! CI enforces it on the pull request. Install locally with:\n!!   pnpm install\n\n' >&2
         fi
 
-    # ESLint over the staged Markdown and JSON (ADR 005). `pnpm lint` passes
+    # ESLint over the staged Markdown and JSON. `pnpm lint` passes
     # the flag that loads `eslint.config.ts` and `--max-warnings 0`.
     # `--no-warn-ignored` turns "no config matches this file" into silence,
     # since most staged Markdown and JSON is not Claude Code configuration.
