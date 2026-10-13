@@ -3396,6 +3396,14 @@ describe('the review statuses', () => {
       ])
     })
 
+    it('keeps a sha with a path character inside its own path segment', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '{"id":1}' }])
+
+      await gh.createCommitStatus({ sha: 'a/../b', context: 'workstreams/layer', state: 'success' })
+
+      expect(calls[1]?.args[3]).toBe('repos/acme/widgets/statuses/a%2F..%2Fb')
+    })
+
     it("throws gh's own words and its status when the write failed", async () => {
       const { gh } = clientAnsweringEach([
         REPO,

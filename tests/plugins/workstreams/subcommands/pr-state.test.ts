@@ -2719,6 +2719,32 @@ describe('the review statuses (#377, #395)', () => {
     })
   })
 
+  // Only the word "substantial" makes round 1 substantial. A skip-review
+  // status carries a URL, and a `mark` with no --description carries none.
+  for (const description of [null, 'skipped: https://github.com/o/r/issues/1#c', 'Substantial']) {
+    it(`reads round 1 as minor from the description ${JSON.stringify(description)}`, () => {
+      expect(reviewFactsOf([mark('review-1', ROUND_1, T1, description)]).substantial).toBe(false)
+    })
+  }
+
+  it('gives round 2 from a review-2 status alone', () => {
+    expect(reviewFactsOf([mark('review-2', FIX, T2)])).toEqual({
+      round: 2,
+      substantial: false,
+      round1Head: null,
+      rotChecked: false,
+    })
+  })
+
+  it('reads a rot-check status alone as rot-checked, at round 0', () => {
+    expect(reviewFactsOf([mark('rot-check', FIX, T2)])).toEqual({
+      round: 0,
+      substantial: false,
+      round1Head: null,
+      rotChecked: true,
+    })
+  })
+
   describe('a flag that is given wins over the statuses', () => {
     it('--round 0 wins over a review-1 status', async () => {
       const report = await reportWith(withStatuses([mark('review-1', ROUND_1, T1, 'minor')]), [
@@ -2737,6 +2763,16 @@ describe('the review statuses (#377, #395)', () => {
       )
 
       expect(report.round1Head).toBe(FIX)
+      expect(report.state).toBe('review-2')
+    })
+
+    it('--round 1 alone keeps the round 1 head of the status', async () => {
+      const report = await reportWith(
+        withStatuses([mark('review-1', ROUND_1, T1, 'minor')], ['lib/a.ts']),
+        ['--round', '1'],
+      )
+
+      expect(report.round1Head).toBe(ROUND_1)
       expect(report.state).toBe('review-2')
     })
 

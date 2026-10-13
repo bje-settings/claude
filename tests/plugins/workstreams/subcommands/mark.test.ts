@@ -71,6 +71,8 @@ describe('the command line', () => {
     ],
     ['a word for a number', ['main', 'review-1'], 'mark takes a pull request number, not "main"'],
     ['a zero', ['0', 'review-1'], 'mark takes a pull request number, not "0"'],
+    ['a number with a tail', ['178x', 'review-1'], 'mark takes a pull request number, not "178x"'],
+    ['a number with a head', ['x178', 'review-1'], 'mark takes a pull request number, not "x178"'],
     [
       'an unknown name',
       ['178', 'review-3'],
@@ -90,6 +92,21 @@ describe('the command line', () => {
       'a --head that is not hex',
       ['178', 'review-1', '--head', 'g'.repeat(40)],
       `--head takes a full 40-character commit sha, not "${'g'.repeat(40)}"`,
+    ],
+    [
+      'a --head of 41 characters',
+      ['178', 'review-1', '--head', `${OTHER}a`],
+      `--head takes a full 40-character commit sha, not "${OTHER}a"`,
+    ],
+    [
+      'a --head with a prefix',
+      ['178', 'review-1', '--head', `x${OTHER}`],
+      `--head takes a full 40-character commit sha, not "x${OTHER}"`,
+    ],
+    [
+      'a --head in capitals, which GitHub never gives',
+      ['178', 'review-1', '--head', 'A'.repeat(40)],
+      `--head takes a full 40-character commit sha, not "${'A'.repeat(40)}"`,
     ],
   ] as const) {
     it(`refuses ${what}, and reads and writes nothing`, async () => {
