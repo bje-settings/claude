@@ -2056,6 +2056,29 @@ describe('the review loop reads', () => {
       })
     })
 
+    it('names a numeric status with its message', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: 'Not Found', status: 404 })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'the rules for main were not a list of rules (404: Not Found)',
+      })
+    })
+
+    for (const [what, body] of [
+      ['no message', { status: '403' }],
+      ['a message that is not a string', { status: '403', message: 5 }],
+    ] as const) {
+      it(`keeps a 403 with ${what} unavailable, and does not throw`, async () => {
+        const { gh } = clientAnsweringEach([REPO, refusal(body)])
+
+        await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+          contexts: [],
+          unavailable: 'the rules for main were not a list of rules',
+        })
+      })
+    }
+
     it('names a message that has no status', async () => {
       const { gh } = clientAnsweringEach([REPO, { stdout: '{"message":"Not Found"}' }])
 
