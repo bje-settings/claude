@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { runScript } from '#harness/spawn.ts'
 import { renderText } from '../../lib/envelope.ts'
 import { entry, type Host, libClosure, ROOT, syncLib } from '../../scripts/sync-lib.ts'
 
@@ -86,6 +87,21 @@ describe('the closure of a plugin', () => {
     expect(libClosure(root, 'p')).toEqual({ outcome: 'ok', value: [] })
   })
 
+  it('holds each file of an import cycle in lib once', () => {
+    const root = build({
+      'lib/p.ts': "import { q } from './q.ts'\n",
+      'lib/q.ts': "import { p } from './p.ts'\n",
+      'plugins/x/src/x.ts': "import { p } from './lib/p.ts'\n",
+    })
+    expect(libClosure(root, 'x')).toEqual({ outcome: 'ok', value: ['p.ts', 'q.ts'] })
+  })
+
+  it('refuses an import of a name in lib that is not a file', () => {
+    const root = build({ ...LIB, 'plugins/p/src/x.ts': "import { z } from './lib/dir.ts'\n" })
+    mkdirSync(path.join(root, 'lib', 'dir.ts'))
+    expect(renderText(syncLib(['--check'], root)).exitCode).toBe(2)
+  })
+
   it('refuses an import of a file that lib does not hold', () => {
     const root = build({ ...LIB, 'plugins/p/src/x.ts': "import { z } from './lib/gone.ts'\n" })
     expect(renderText(syncLib(['--check'], root))).toEqual({
@@ -153,6 +169,22 @@ describe('the write', () => {
     expect(read(root, 'plugins/p/src/lib/c.ts')).toBe(LIB['lib/c.ts'])
   })
 
+  it('replaces a link in place of a copy, and does not write through it', () => {
+    const root = build({
+      ...LIB,
+      'plugins/p/src/x.ts': "import { c } from './lib/c.ts'\n",
+      'outside.ts': 'the target of the link\n',
+    })
+    mkdirSync(path.join(root, 'plugins/p/src/lib'))
+    symlinkSync(path.join(root, 'outside.ts'), path.join(root, 'plugins/p/src/lib/c.ts'))
+    expect(renderText(syncLib([], root)).stdout).toBe(
+      'plugins/p/src/lib/c.ts: differs from lib/c.ts',
+    )
+    expect(read(root, 'outside.ts')).toBe('the target of the link\n')
+    expect(lstatSync(path.join(root, 'plugins/p/src/lib/c.ts')).isSymbolicLink()).toBe(false)
+    expect(read(root, 'plugins/p/src/lib/c.ts')).toBe(LIB['lib/c.ts'])
+  })
+
   it('writes nothing when one plugin refuses, not even for a plugin before it', () => {
     const root = build({
       ...LIB,
@@ -164,7 +196,13 @@ describe('the write', () => {
   })
 
   it('asks nothing of a plugin with no src, or of a file in plugins/', () => {
-    const root = build({ ...LIB, 'plugins/bare/README.md': '', 'plugins/stray.md': '' })
+    // A `src` that is a file holds no `src/lib`.
+    const root = build({
+      ...LIB,
+      'plugins/bare/README.md': '',
+      'plugins/odd/src': '',
+      'plugins/stray.md': '',
+    })
     expect(renderText(syncLib(['--check'], root))).toEqual({ stdout: '', stderr: '', exitCode: 0 })
   })
 })
@@ -218,6 +256,35 @@ describe('the check', () => {
     )
   })
 
+  it('fails on a src/lib that is not a directory, and writes nothing', () => {
+    const root = build({
+      ...LIB,
+      'plugins/p/src/x.ts': "import { c } from './lib/c.ts'\n",
+      'plugins/p/src/lib': 'not a directory\n',
+    })
+    expect(renderText(syncLib(['--check'], root))).toEqual({
+      stdout: '',
+      stderr: [
+        'plugins/p/src/lib: not a directory of copies',
+        'plugins/p/src/lib/c.ts: missing, lib/c.ts is imported',
+      ].join('\n'),
+      exitCode: 1,
+    })
+    expect(read(root, 'plugins/p/src/lib')).toBe('not a directory\n')
+  })
+
+  it.each([[['stray']], [['--check', 'stray']]])(
+    'refuses a stray argument (%j), and writes nothing',
+    (argv) => {
+      const root = tree()
+      rmSync(path.join(root, 'plugins/p/src/lib/c.ts'))
+      expect(renderText(syncLib(argv, root)).exitCode).toBe(2)
+      expect(
+        lstatSync(path.join(root, 'plugins/p/src/lib/c.ts'), { throwIfNoEntry: false }),
+      ).toBeUndefined()
+    },
+  )
+
   it('refuses a flag it does not know, and writes nothing', () => {
     const root = tree()
     rmSync(path.join(root, 'plugins/p/src/lib/c.ts'))
@@ -254,7 +321,7 @@ describe('the entry', () => {
     entry(undefined, ['--check'], build({ ...LIB, 'plugins/p/src/lib/stale.ts': '' }), h)
     expect([h.out, h.err, h.exitCode]).toEqual([
       '',
-      'sync-lib: this node has no import.meta.main; run it on node 22.18 or newer\n',
+      'sync-lib: this node has no import.meta.main; run it on node 22.18 or newer on the 22 line, or on 24.2 or newer\n',
       2,
     ])
   })
@@ -282,6 +349,24 @@ describe('the entry', () => {
 
 it('names the repository root', () => {
   expect(lstatSync(path.join(ROOT, 'scripts', 'sync-lib.ts')).isFile()).toBe(true)
+})
+
+describe('the script, run by node', () => {
+  // The calls above skip the last line of the script, which wires the
+  // entry to `process`. These runs prove that line. Neither run writes.
+  const script = path.join(ROOT, 'scripts', 'sync-lib.ts')
+
+  it('passes, and prints nothing, on this repository', () => {
+    const run = runScript(script, { args: ['--check'] })
+    expect([run.status, run.stdout, run.stderr]).toEqual([0, '', ''])
+  })
+
+  it('refuses a flag it does not know, with exit 2 and a line on stderr', () => {
+    const run = runScript(script, { args: ['--fix'] })
+    expect(run.status).toBe(2)
+    expect(run.stdout).toBe('')
+    expect(run.stderr).not.toBe('')
+  })
 })
 
 it('finds each copy in this repository equal to lib', () => {

@@ -134,8 +134,12 @@ export const libDrift = (root: string): Envelope<Drift[]> => {
   for (const plugin of pluginNames(root)) {
     const closure = libClosure(root, plugin)
     if (closure.outcome !== 'ok') return closure
-    const copyDir = path.join(root, 'plugins', plugin, 'src', 'lib')
-    const stat = lstatSync(copyDir, { throwIfNoEntry: false })
+    const srcDir = path.join(root, 'plugins', plugin, 'src')
+    const copyDir = path.join(srcDir, 'lib')
+    // A `src` that is a file holds no `src/lib`. An lstat below a file
+    // throws ENOTDIR, which `throwIfNoEntry` does not catch.
+    const hasSrc = lstatSync(srcDir, { throwIfNoEntry: false })?.isDirectory() === true
+    const stat = hasSrc ? lstatSync(copyDir, { throwIfNoEntry: false }) : undefined
     if (stat !== undefined && !stat.isDirectory()) {
       drift.push({ kind: 'not-directory', plugin, file: '' })
     }
@@ -182,6 +186,9 @@ const applyDrift = (root: string, drift: Drift): void => {
     return
   }
   mkdirSync(path.dirname(copy), { recursive: true })
+  // Remove a link in place of the copy, so the write does not go through
+  // it to its target.
+  rmSync(copy, { force: true })
   writeFileSync(copy, readFileSync(path.join(root, 'lib', drift.file)))
 }
 
@@ -226,7 +233,7 @@ export const entry = (
   if (isMain === false) return
   if (isMain === undefined) {
     host.stderr.write(
-      'sync-lib: this node has no import.meta.main; run it on node 22.18 or newer\n',
+      'sync-lib: this node has no import.meta.main; run it on node 22.18 or newer on the 22 line, or on 24.2 or newer\n',
     )
     host.exitCode = 2
     return
