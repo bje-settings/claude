@@ -541,7 +541,13 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
     'cd "$(pwd)" && pnpm test',
     'cd -P /w && pnpm test',
     'cd && pnpm test',
-    'cd "/a b && pnpm test',
+    'cd /a /b && pnpm test',
+    'cd /a/$X && pnpm test',
+    'cd `pwd` && pnpm test',
+    // The subshell of the cd closes before the run.
+    '(cd /w) && pnpm test',
+    '(cd /w && pnpm build) > out && pnpm test',
+    '(cd /w && pnpm build) 2>&1 && pnpm test',
   ]) {
     it(`leaves the payload cwd for ${JSON.stringify(command)}`, () => {
       expect(vitestTarget(command)?.base).toBeUndefined()
@@ -550,6 +556,20 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
 
   it('ends the cd at a second cd', () => {
     expect(vitestTarget('cd /w && cd /v && pnpm test')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && (cd /v && pnpm test)')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && cd && pnpm test')).toEqual({ directory: null })
+  })
+
+  it('reads a cd whose quote never closes as no cd', () => {
+    expect(vitestTarget('cd "/a b && pnpm test')).toEqual({ directory: null })
+  })
+
+  it('keeps a subshell cd across a nested parenthesis', () => {
+    expect(vitestTarget('(cd /w && (pnpm build) && pnpm test)')).toEqual({
+      directory: null,
+      base: '/w',
+    })
+    expect(vitestTarget('((cd /w && pnpm test))')).toEqual({ directory: null, base: '/w' })
   })
 
   it('ends a subshell cd at the segment that closes the parenthesis', () => {

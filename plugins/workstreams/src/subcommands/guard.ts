@@ -476,8 +476,9 @@ const readDirectoryValue = (value: string): string | null => {
  *  and the scratchpad real exercise (rule 12 of
  *  `plugins/workstreams/skills/stream/brief.md`). So this is the ordinary
  *  spelling a subagent uses to test one worktree, not an edge case.
- *  {@link vitestTarget} reads the leading `cd` of the two exceptions. A directory value wrapped in one matching pair of quote marks has
- *  them stripped. The tokens keep a quoted span whole, so a path with a
+ *  {@link vitestTarget} reads the leading `cd` of the two exceptions. A
+ *  directory value wrapped in one matching pair of quote marks has them
+ *  stripped. The tokens keep a quoted span whole, so a path with a
  *  space is one value (#371); an empty value, from either form, reads
  *  as no directory named, the meaning {@link Destructive.directory} also
  *  gives an absent `-C`.
@@ -567,6 +568,11 @@ const WITH_OPERATORS = /([;\n]|&&|\|\|?)/
  *  name. */
 const hasStrayQuote = (directory: string): boolean => /"|'[^']*\s[^']*'/.test(directory)
 
+/** The `(` count less the `)` count. A parenthesis inside quotes counts
+ *  too: a guardrail reads the command as text. */
+const parenthesisDepth = (text: string): number =>
+  (text.match(/\(/g)?.length ?? 0) - (text.match(/\)/g)?.length ?? 0)
+
 /** A segment as a run reads it: `(pnpm test)` is `pnpm test`. A subshell
  *  parenthesis joined to the first or the last word hid the verb (`(cd /x`,
  *  `test)`), so the run was not found (#397). */
@@ -602,8 +608,10 @@ const cdDirectory = (segment: string): string | null => {
  *     a `cd` that worked, or may run in a pipeline's own subshell. A `cd`
  *     later in the command is not read as a leading one.
  *   - Its scope ends at a second `cd`, and, for the subshell form, at the
- *     segment that closes the parenthesis. A run after that keeps the
- *     payload cwd, as before #397.
+ *     segment that closes the parenthesis of the `cd`. The count of `(` and
+ *     `)` finds that segment, so `(cd /w) && pnpm test`, a redirect after
+ *     the `)`, and a nested `(pnpm build)` are read correctly. A run after
+ *     the scope keeps the payload cwd, as before #397.
  *   - A `cd` after the run changes nothing, because the loop returns at the
  *     first run.
  *   - A `pnpm -C` of the run's own wins over the `cd`. A relative one joins
@@ -612,19 +620,23 @@ const cdDirectory = (segment: string): string | null => {
 export const vitestTarget = (command: string): VitestTarget | undefined => {
   const parts = command.split(WITH_OPERATORS)
   const first = parts[0] as string
-  const leading = parts[1] === '&&' ? cdDirectory(first) : null
-  let base: { readonly directory: string; readonly subshell: boolean } | null =
-    leading === null ? null : { directory: leading, subshell: /^\s*\(/.test(first) }
+  const subshell = /^\s*\(/.test(first)
+  // The parentheses still open after the `cd` segment. A subshell form that
+  // closes in that segment, as in `(cd /w) && pnpm test`, ends the `cd` there.
+  let open = parenthesisDepth(first)
+  const leading = parts[1] === '&&' && !(subshell && open <= 0) ? cdDirectory(first) : null
+  let base: string | null = leading
 
   for (let index = leading === null ? 0 : 2; index < parts.length; index += 2) {
     const segment = parts[index] as string
     if (/^\s*\(*\s*cd(\s|$)/.test(segment)) base = null
     const target = readVitestSegment(unwrapped(segment))
     if (target === undefined) {
-      if (base?.subshell && segment.trim().endsWith(')')) base = null
+      open += parenthesisDepth(segment)
+      if (subshell && open <= 0) base = null
       continue
     }
-    const named = base === null ? target : { ...target, base: base.directory }
+    const named = base === null ? target : { ...target, base }
     // A quote mark kept inside a token, as in `/w/"a b"`, means the value was
     // not read whole.
     return [named.directory, named.base].some((value) => value != null && hasStrayQuote(value))
@@ -704,7 +716,7 @@ const secondSuite = async (
   if (target === undefined) return undefined
   if (target.unclosedQuote) {
     context.output.err.write(
-      'workstreams guard: a quote in a pnpm directory value does not close or does not match, so ' +
+      'workstreams guard: a quote in a pnpm or cd directory value does not close or does not match, so ' +
         'the directory could not be read and a second vitest run could not be checked; allowing it.\n',
     )
     return undefined
