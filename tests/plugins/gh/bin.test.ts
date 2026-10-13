@@ -129,7 +129,7 @@ it('prints shepherd-pr’s own usage for its --help, naming every action', () =>
   const result = runScript(BIN, { args: ['shepherd-pr', '--help'], env: env() })
 
   expect(result.status).toBe(0)
-  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'merged']) {
+  for (const action of ['state', 'rebase', 'wait', 'settle', 'merged']) {
     expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
   }
 })

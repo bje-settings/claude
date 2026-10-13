@@ -8,12 +8,11 @@
 // only does the step. It refuses a step whose preconditions do not hold.
 // A confused caller cannot make it act on the wrong pull request.
 //
-// **Time is an argument.** `recreate` polls until Dependabot moves the head,
-// `wait` is bounded, and `settle` polls until its own bound. The clock and
-// the sleep come in through `ShepherdContext`. This lets the tests drive
-// every bound to its end, with no real wait. The bounds themselves are the
-// Python's numbers, unchanged (#106 measures the settle bound and lands
-// after this port).
+// **Time is an argument.** `wait` is bounded, and `settle` polls until its
+// own bound. The clock and the sleep come in through `ShepherdContext`. This
+// lets the tests drive every bound to its end, with no real wait. The bounds
+// themselves are the Python's numbers, unchanged (#106 measures the settle
+// bound and lands after this port).
 //
 // The command function is the seam (ADR 001). Its inputs are the arguments,
 // the environment, an injected `gh`, the clock, the sleep, and the output
@@ -60,10 +59,6 @@ const DEFAULT_LOG_LINES = 60
  *  caller re-invokes `wait` when it returns `pending`. */
 const WAIT_BOUND_MIN = 120
 const WAIT_BOUND_MAX = 540
-
-/** The floor on the recreate poll interval when it was derived rather than
- *  given. */
-const POLL_FLOOR = 15
 
 // How long `settle` continues to read, when GitHub reports nothing either
 // way, and how often it reads. This is deliberately a constant, not
@@ -120,7 +115,6 @@ export const HELP = `The deterministic per-pull-request steps of /gh:shepherd.
 Usage:
   gh.ts shepherd-pr <path> <number> state
   gh.ts shepherd-pr <path> <number> rebase
-  gh.ts shepherd-pr <path> <number> recreate
   gh.ts shepherd-pr <path> <number> wait
   gh.ts shepherd-pr <path> <number> settle
   gh.ts shepherd-pr <path> <number> merged
@@ -133,11 +127,6 @@ cannot make it act on the wrong pull request.
   state     the pull request as \`summary\` shapes it (see src/shepherd.ts)
   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
             open. Reports the head SHA before and after.
-  recreate  comments \`@dependabot recreate\`, then polls until the head SHA
-            changes (\`recreated\`). If the pull request leaves OPEN with the
-            head unmoved, returns \`result: closed\` or \`merged\` at once; a
-            closed one was usually superseded by another pull request.
-            Refuses on a pull request Dependabot did not author.
   wait      gh pr checks --watch --fail-fast, bounded (see below). Result is
             one of passed, failed, pending, merged; \`failing\` lists the
             failed checks and \`log_tail\` carries the failed steps' log, with
@@ -164,17 +153,14 @@ cannot make it act on the wrong pull request.
   merged    whether the pull request is MERGED, and its merge commit.
 
 This command never merges, never enables or disables auto-merge, never edits a
-label, and never bypasses a check. The only writes are the rebase and the
-one comment, and nothing else.
+label, and never bypasses a check. The only write is the rebase, and nothing
+else.
 
 Environment:
   SHEPHERD_CI_SECONDS    typical CI wall time, from gh.ts shepherd-status
                          (default 300). The wait bound is twice this, clamped
                          to [120, 540] so it fits inside a ten-minute tool
                          call; the caller re-invokes \`wait\` on \`pending\`.
-  SHEPHERD_POLL_SECONDS  interval for the recreate head-SHA poll (default: a
-                         quarter of SHEPHERD_CI_SECONDS, no lower than 15; an
-                         explicit value is honoured down to 1).
   SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
@@ -217,29 +203,6 @@ const envInt = (
 
 const clamp = (value: number, low: number, high: number): number =>
   Math.max(low, Math.min(value, high))
-
-/**
- * Seconds between two recreate polls.
- *
- * When nobody gives an interval, this code derives one from the CI cycle
- * and floors it, so a fast repository is not polled every second. When an
- * interval is given, this code honours it even below that floor; the
- * tests rely on this. A value that is not a number at all falls back to
- * the floor, rather than failing the run.
- *
- * A zero interval would spin without ever reaching the bound. That is the
- * one way this loop could fail to stop. The shell version had that gap.
- * Nothing needs a zero interval, so this code floors it at one second
- * instead.
- */
-const pollInterval = (env: NodeJS.ProcessEnv, err: Writer, ciSeconds: number): number => {
-  const raw = env.SHEPHERD_POLL_SECONDS ?? ''
-  const interval =
-    raw === ''
-      ? Math.max(Math.floor(ciSeconds / 4), POLL_FLOOR)
-      : envInt(env, err, 'SHEPHERD_POLL_SECONDS', POLL_FLOOR)
-  return Math.max(interval, 1)
-}
 
 /** What a `gh` failure said, in one line. For anything else, this
  *  re-throws the error. This uses `GhError.detail`, never `message`: the
@@ -415,122 +378,6 @@ class Shepherd {
           'still queued, or the branch was already up to date'
         : 'rebased'
     this.emit(true, detail, { before, after, pr: fresh, output: out })
-  }
-
-  async recreate(): Promise<void> {
-    const first = await this.readPr()
-    if (first === null) return this.unreadable()
-    if (!first.is_dependabot) {
-      // Deliberately not `is_bot`: renovate and github-actions are bots too,
-      // and `@dependabot recreate` on one of their pull requests is a comment
-      // nothing will ever answer.
-      this.emit(
-        false,
-        `refused: #${this.options.number} was not authored by Dependabot; recreate only works ` +
-          'for its own pull requests',
-        { pr: first },
-      )
-      return
-    }
-    if (first.state !== 'OPEN') return this.refuseNotOpen(first)
-    const before = first.headRefOid
-    const [posted, out] = await this.ghText(
-      this.options.gh.addComment({
-        pullRequest: this.options.number,
-        body: '@dependabot recreate',
-      }),
-    )
-    if (!posted) {
-      this.emit(false, `could not post the recreate comment: ${out}`)
-      return
-    }
-
-    // Dependabot answers asynchronously and leaves no signal but a new head
-    // SHA. This code polls a few times per typical CI cycle, bounded by two
-    // cycles. It never polls less than once per interval. Otherwise a
-    // small SHEPHERD_CI_SECONDS would post the comment and then report a
-    // read that never happened.
-    const interval = pollInterval(
-      this.options.context.env,
-      this.options.context.output.err,
-      this.options.ciSeconds,
-    )
-    const bound = Math.max(this.options.ciSeconds * 2, interval)
-    let waited = 0
-    let readsOk = 0
-    let readsFailed = 0
-    let after: unknown = ''
-    // The last read, which is `null` when the last read failed: the Python
-    // reports `pr` from the same variable it assigns the failed read to.
-    let pull: PullSummary | null = first
-    while (waited < bound) {
-      await this.options.context.sleep(interval * 1000)
-      waited += interval
-      pull = await this.readPr()
-      // A poll that cannot read the pull request says nothing about it. Count
-      // it and keep going; it is reported below if no read ever succeeded.
-      if (pull === null) {
-        readsFailed += 1
-        continue
-      }
-      readsOk += 1
-      // Both are guaranteed by `missingField`, which refuses an empty one
-      // before `readPr` answers: the Python's `or ""` guarded a read this one
-      // has already refused.
-      after = pull.headRefOid
-      const state = String(pull.state)
-      // A moved head is the answer this action exists for. It wins over any
-      // state change seen in the same poll. A recreated branch that already
-      // went green and auto-merged is a success. It is not a sign that
-      // another pull request replaced it.
-      if (after !== before) {
-        this.emit(true, 'recreated', { before, after, pr: pull })
-        return
-      }
-      // The head never moved, but the pull request is no longer open.
-      // Dependabot closes a pull request rather than recreate it, when
-      // another pull request already shipped the same bump or a newer one.
-      // A human can also close or merge it. This code reports what it
-      // saw, and leaves the attribution to the caller.
-      if (state === 'OPEN') continue
-      if (state === 'MERGED') {
-        this.emit(true, 'pull request merged while waiting for recreate; the head did not move', {
-          result: 'merged',
-          before,
-          after,
-          pr: pull,
-        })
-        return
-      }
-      if (state === 'CLOSED') {
-        this.emit(
-          true,
-          'pull request closed while waiting for recreate; superseded by another pull ' +
-            'request is the usual cause',
-          { result: 'closed', before, after, pr: pull },
-        )
-        return
-      }
-      this.emit(false, `unexpected pull request state after recreate: '${String(state)}'`, {
-        before,
-        pr: pull,
-      })
-      return
-    }
-    if (readsOk === 0) {
-      this.emit(
-        false,
-        `recreate requested but the pull request could not be re-read in ${bound}s ` +
-          `(${readsFailed} attempts): ${this.readErr}`,
-        { before, read_failures: readsFailed },
-      )
-      return
-    }
-    this.emit(false, `recreate requested but the head did not change within ${bound}s`, {
-      before,
-      read_failures: readsFailed,
-      pr: pull,
-    })
   }
 
   async wait(): Promise<void> {
@@ -718,7 +565,7 @@ class Shepherd {
     }
     if (RECHECK_MERGE_STATES.includes(merge)) {
       // This is not a verdict. The base moved under the pull request while
-      // this ran. The caller decides again (a rebase, or a recreate). This
+      // this ran. The caller decides again (a rebase, or a merge of the base). This
       // avoids a block record that describes a state that no longer
       // holds.
       return ['changed', `mergeStateStatus is now ${merge}; the base moved while settling`]
@@ -849,7 +696,7 @@ class Shepherd {
       // knows about the pull request predates that bound. "Nothing was
       // reported against it" would then be a statement about a silence,
       // not about the pull request. This command refuses to do that
-      // anywhere else. `recreate` fails closed on the same shape.
+      // anywhere else.
       this.emit(
         false,
         `settle waited ${spent()}s but could not re-read the pull request (${readsFailed} of ` +
@@ -894,7 +741,6 @@ class Shepherd {
 const HANDLERS: Record<string, (worker: Shepherd) => Promise<void>> = {
   state: (worker) => worker.state(),
   rebase: (worker) => worker.rebase(),
-  recreate: (worker) => worker.recreate(),
   wait: (worker) => worker.wait(),
   settle: (worker) => worker.settle(),
   merged: (worker) => worker.merged(),

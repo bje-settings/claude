@@ -20,10 +20,9 @@
 //     all.
 //   - An endpoint is asked the same question again and again, and the
 //     answer changes each time. `settle` reads the pull request until
-//     GitHub decides. `recreate` polls the head SHA until Dependabot moves
-//     it. The Python arranges this by rewriting the canned file from a
-//     background thread. Here, a registered SEQUENCE of replies gives the
-//     same fact, with no race.
+//     GitHub decides. The Python arranges this by rewriting the canned file
+//     from a background thread. Here, a registered SEQUENCE of replies gives
+//     the same fact, with no race.
 //
 // Everything here stays a filter over registered data. Nothing in it
 // knows what a command decides. This is ADR 001's "the mock holds no

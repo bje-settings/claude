@@ -74,8 +74,7 @@ The capture records `waited` (both `wait` and `settle`) and `settle`'s `reads_ok
 capture ran on. For example, `settle_reports_open_when_auto_merge_never_fires` reads
 `"waited": 3`, because there a 3 second bound with a 1 second poll took 3 seconds of real time. A
 loaded machine would have written 4 instead. `wait`'s `watcher_rc`, where the bound fired (the
-Python's own 124 for a killed watcher), and `recreate`'s `read_failures`, are the same kind of
-number.
+Python's own 124 for a killed watcher), are the same kind of number.
 
 The capture does NOT skip them, and there is no separate list of them for the parity test to keep
 in step. The port takes its clock and its sleep as arguments, and the tests pass it a fake clock
@@ -354,28 +353,6 @@ PR_CASES = {
         {"GH_FIXTURE_REBASE_UPTODATE": "1"},
     ),
     "rebase_cannot_read_an_unknown_pull_request": lambda gh: ([gh.repo, 99, "rebase"], {}),
-    # --- recreate ---
-    "recreate_refuses_a_pull_request_dependabot_did_not_author": lambda gh: (
-        gh.write_prs(gh.dep_pr(1, merge="DIRTY", bot=False)) or [gh.repo, 1, "recreate"],
-        {},
-    ),
-    "recreate_refuses_a_pull_request_that_is_not_open": lambda gh: (
-        gh.write_prs(gh.dep_pr(1, state="CLOSED")) or [gh.repo, 1, "recreate"],
-        {},
-    ),
-    "recreate_reports_a_comment_it_could_not_post": lambda gh: (
-        gh.write_prs(gh.dep_pr(1, merge="DIRTY")) or [gh.repo, 1, "recreate"],
-        {"GH_FIXTURE_FAIL_COMMENT": "1"},
-    ),
-    "recreate_gives_up_when_the_head_never_moves": lambda gh: (
-        gh.write_prs(gh.dep_pr(1, merge="DIRTY")) or [gh.repo, 1, "recreate"],
-        {"SHEPHERD_CI_SECONDS": "1", "SHEPHERD_POLL_SECONDS": "1"},
-    ),
-    "recreate_polls_at_least_once_when_the_ci_estimate_is_zero": lambda gh: (
-        gh.write_prs(gh.dep_pr(1, merge="DIRTY")) or [gh.repo, 1, "recreate"],
-        {"SHEPHERD_CI_SECONDS": "0", "SHEPHERD_POLL_SECONDS": "1"},
-    ),
-    "recreate_cannot_read_an_unknown_pull_request": lambda gh: ([gh.repo, 99, "recreate"], {}),
     # --- wait ---
     "wait_answers_merged_without_watching": lambda gh: (
         gh.write_prs(gh.dep_pr(1, state="MERGED")) or [gh.repo, 1, "wait"],

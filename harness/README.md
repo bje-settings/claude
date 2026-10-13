@@ -225,8 +225,8 @@ simple. Both are things the stub `gh` in the Python suite gave it:
   `pr view <n>` against the same set, and fails a number that resolves to nothing, in gh's own
   words.
 - **The same question twice, with a changing answer.** `settle` reads the pull request until
-  GitHub decides, and `recreate` polls the head SHA until Dependabot moves it. The Python suite
-  arranged this by rewriting the canned file from a background thread, gated on the call log.
+  GitHub decides. The Python suite arranged this by rewriting the canned file from a background
+  thread, gated on the call log.
   `sequences` gives the same fact with no race: one entry per call, and the last entry repeats.
   So a poll that runs one read longer than the test expected still reads the settled answer,
   instead of falling off the end. An entry that is an `Error` throws, for that one call.

@@ -342,9 +342,8 @@ describe('isBot and isDependabot', () => {
   )
 
   it('calls another bot a bot and not Dependabot', () => {
-    // This is the distinction `recreate` depends on. Only one specific bot
-    // answers `@dependabot recreate`. Renovate also opens dependency pull
-    // requests.
+    // The report keeps the two flags apart. Renovate also opens dependency
+    // pull requests, and it is not Dependabot.
     const renovate = { author: { login: 'renovate[bot]', is_bot: true } }
 
     expect(isBot(renovate)).toBe(true)
@@ -361,8 +360,7 @@ describe('isBot and isDependabot', () => {
     expect(isBot({ author: { login: 7 } })).toBe(false)
     // The fold is `x or ""`, which keeps the value only when it is a
     // string. A `String()` call here would instead read `["dependabot"]` as
-    // the login Dependabot answers to. `recreate` posts a comment based on
-    // that login alone.
+    // the login of Dependabot.
     expect(isDependabot({ author: { login: ['dependabot'] } })).toBe(false)
     expect(isBot({ author: { login: ['x[bot]'] } })).toBe(false)
   })

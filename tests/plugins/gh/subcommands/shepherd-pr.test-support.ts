@@ -94,9 +94,6 @@ export const divergence = (
 /** What `gh repo view` answered with in the capture. */
 export const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'main' } }
 
-/** What the stub printed for a comment it posted. */
-export const COMMENT_URL = 'https://github.com/acme/widgets/pull/1#issuecomment-1\n'
-
 /** What `gh pr update-branch` prints when GitHub accepted the request. */
 export const UPDATED = '✓ Pull request #1 branch has been updated\n'
 
@@ -323,13 +320,6 @@ export const ARRANGEMENTS: Record<string, GhServerOptions> = {
       ),
     },
   },
-  recreate_gives_up_when_the_head_never_moves: { replies: { addComment: COMMENT_URL } },
-  recreate_polls_at_least_once_when_the_ci_estimate_is_zero: {
-    replies: { addComment: COMMENT_URL },
-  },
-  recreate_reports_a_comment_it_could_not_post: {
-    replies: { addComment: ghFails('HTTP 403: Resource not accessible by integration') },
-  },
   wait_reports_pending_when_its_bound_is_hit: { replies: { watchChecks: WATCH_BOUND } },
   wait_clamps_the_bound_to_the_maximum: { replies: { watchChecks: WATCH_PENDING } },
   wait_reports_the_rollup_once_the_watcher_returns: { replies: { watchChecks: WATCH_PENDING } },
@@ -453,14 +443,6 @@ export const replay = async (name: string): Promise<void> => {
     expect(normalise(result.stderr, result.sandbox)).toBe(expected.stderr)
   }
 }
-
-// --- recreate ----------------------------------------------------------------------
-
-export const recreateEnv = (sandbox: Sandbox): NodeJS.ProcessEnv => ({
-  ...sandbox.env,
-  SHEPHERD_CI_SECONDS: '4',
-  SHEPHERD_POLL_SECONDS: '1',
-})
 
 // --- settle -------------------------------------------------------------------------
 

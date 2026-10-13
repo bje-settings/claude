@@ -1,4 +1,4 @@
-// shepherd-pr, part of its tests: usage, the preflight, state, rebase, recreate and wait.
+// shepherd-pr, part of its tests: usage, the preflight, state, rebase and wait.
 // The file is one of several so that vitest can run them at the same time (#205).
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
 import { expect, it } from 'vitest'
@@ -7,12 +7,10 @@ import { ghFails } from '#harness/gh.ts'
 import { createGhServer, depPr } from '#harness/pulls.ts'
 import {
   CAPTURE,
-  COMMENT_URL,
   clients,
   drive,
   REPOSITORY,
   recording,
-  recreateEnv,
   UPDATED,
   WATCH_BOUND,
   WATCH_PENDING,
@@ -25,7 +23,7 @@ it('prints its own usage for --help, naming every action it accepts', async () =
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(`${HELP}\n`)
-  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'merged']) {
+  for (const action of ['state', 'rebase', 'wait', 'settle', 'merged']) {
     expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
   }
   expect(result.stderr).toBe('')
@@ -85,7 +83,7 @@ it('reads --help before the argument-count refusal, on an argv too short for it'
 it('accepts every action it advertises', async () => {
   // An action the command runs but does not advertise is one nobody calls.
   // One it advertises and rejects is worse.
-  for (const action of ['state', 'rebase', 'recreate', 'wait', 'settle', 'merged']) {
+  for (const action of ['state', 'rebase', 'wait', 'settle', 'merged']) {
     const result = await drive((_sandbox, repo) => ({
       argv: [repo, '1', action],
       gh: createGhServer({ prs: [], replies: { viewRepository: REPOSITORY } }),
@@ -107,6 +105,18 @@ it('refuses an unknown action before any gh call', async () => {
   expect(result.status).toBe(2)
   expect(result.stdout).toBe('')
   expect(result.stderr).toBe(`unknown action: dance\n${HELP}\n`)
+})
+
+it('refuses recreate, which is no longer an action, before any gh call', async () => {
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '1', 'recreate'],
+    gh: createGhServer({}),
+  }))
+
+  expect(result.status).toBe(2)
+  expect(result.stdout).toBe('')
+  expect(result.stderr).toBe(`unknown action: recreate\n${HELP}\n`)
+  expect(HELP).not.toContain('recreate')
 })
 
 it('refuses an action name inherited from Object.prototype, before any gh call', async () => {
@@ -231,271 +241,6 @@ it('asks for a rebase of the pull request it was given, and never a merge', asyn
 
   expect(record.updates).toEqual([{ pullRequest: 7, rebase: true }])
   expect(result.ghOptions).toEqual(clients(target))
-})
-
-it('comments and returns once the head moves', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: recreateEnv(sandbox),
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-      sequences: {
-        viewPullRequest: [
-          depPr(1, { merge: 'DIRTY' }),
-          depPr(1, { merge: 'DIRTY', head: 'recreated' }),
-        ],
-      },
-    }),
-  }))
-
-  expect(result.document.ok).toBe(true)
-  expect(result.document.detail).toBe('recreated')
-  expect(result.document.before).toBe('sha1')
-  expect(result.document.after).toBe('recreated')
-  // The snapshot reported is the one that gave the moved head, not the one
-  // the poll started with (`test_shepherd_pr.py:370`).
-  expect((result.document.pr as Record<string, unknown>).headRefOid).toBe('recreated')
-})
-
-it('posts the words Dependabot answers, on the pull request it was given', async () => {
-  // Only one bot answers `@dependabot recreate`. Any other text becomes a
-  // comment that sits on a stranger's pull request forever
-  // (`gh-shepherd-pr.py:533` to `:541`).
-  const record = recording({
-    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-    sequences: {
-      viewPullRequest: [depPr(7, { merge: 'DIRTY' }), depPr(7, { merge: 'DIRTY', head: 'new' })],
-    },
-  })
-
-  let target = ''
-  const result = await drive((sandbox, repo) => {
-    target = repo
-    return { argv: [repo, '7', 'recreate'], env: recreateEnv(sandbox), gh: record.gh }
-  })
-
-  expect(result.document.detail).toBe('recreated')
-  expect(record.comments).toEqual([{ pullRequest: 7, body: '@dependabot recreate' }])
-  expect(result.ghOptions).toEqual(clients(target))
-})
-
-it('refuses a bot that is not Dependabot, and posts nothing', async () => {
-  // `is_bot` still reports what it is, so the report can say why it stopped.
-  // The action itself turns on `is_dependabot`. The captured refusal has a
-  // HUMAN author. So nothing there tells `!is_dependabot` and `!is_bot`
-  // apart. Under `!is_bot`, this command would post `@dependabot recreate` on
-  // a renovate pull request. Nothing will ever answer that comment
-  // (`test_shepherd_pr.py:334`).
-  const record = recording({
-    prs: [{ ...depPr(1, { merge: 'DIRTY' }), author: { login: 'renovate[bot]', is_bot: true } }],
-    replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-  })
-
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: recreateEnv(sandbox),
-    gh: record.gh,
-  }))
-
-  expect(result.document.ok).toBe(false)
-  expect(result.document.detail).toContain('not authored by Dependabot')
-  const pull = result.document.pr as Record<string, unknown>
-  expect(pull.is_bot).toBe(true)
-  expect(pull.is_dependabot).toBe(false)
-  expect(record.comments).toEqual([])
-})
-
-it('reports a moved head as recreated even when the merge landed with it', async () => {
-  // The moved head must win over the state change: this is the success path.
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: recreateEnv(sandbox),
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-      sequences: {
-        viewPullRequest: [
-          depPr(1, { merge: 'DIRTY' }),
-          depPr(1, { merge: 'DIRTY', head: 'recreated', state: 'MERGED' }),
-        ],
-      },
-    }),
-  }))
-
-  expect(result.document.detail).toBe('recreated')
-  expect(result.document).not.toHaveProperty('result')
-})
-
-it.each([
-  ['CLOSED', 'closed', 'closed while waiting for recreate'],
-  ['MERGED', 'merged', 'merged while waiting for recreate'],
-])(
-  'returns early when the pull request is %s with the head unmoved',
-  async (state, result, detail) => {
-    const answer = await drive((sandbox, repo) => ({
-      argv: [repo, '1', 'recreate'],
-      env: recreateEnv(sandbox),
-      gh: createGhServer({
-        replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-        sequences: {
-          viewPullRequest: [depPr(1, { merge: 'DIRTY' }), depPr(1, { merge: 'DIRTY', state })],
-        },
-      }),
-    }))
-
-    expect(answer.document.ok).toBe(true)
-    expect(answer.document.result).toBe(result)
-    expect(answer.document.detail).toContain(detail)
-  },
-)
-
-it('refuses a state it does not recognise after recreate', async () => {
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: recreateEnv(sandbox),
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-      sequences: {
-        viewPullRequest: [
-          depPr(1, { merge: 'DIRTY' }),
-          depPr(1, { merge: 'DIRTY', state: 'ZOMBIE' }),
-        ],
-      },
-    }),
-  }))
-
-  expect(answer.document.ok).toBe(false)
-  expect(answer.document.detail).toBe("unexpected pull request state after recreate: 'ZOMBIE'")
-})
-
-it('keeps polling when gh cannot read the pull request for one poll', async () => {
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: recreateEnv(sandbox),
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-      sequences: {
-        viewPullRequest: [
-          depPr(1, { merge: 'DIRTY' }),
-          ghFails('HTTP 502: Bad gateway'),
-          depPr(1, { merge: 'DIRTY', state: 'CLOSED' }),
-        ],
-      },
-    }),
-  }))
-
-  expect(answer.document.result).toBe('closed')
-  // A poll that could not read the pull request says nothing about it. So
-  // the read that followed becomes the answer. The status is still `ok`,
-  // since the recreate comment already went out (`test_shepherd_pr.py:437`
-  // and `:439`).
-  expect(answer.document.ok).toBe(true)
-  expect((answer.document.pr as Record<string, unknown>).state).toBe('CLOSED')
-})
-
-it('says the pull request could not be re-read rather than that the head did not move', async () => {
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '1', SHEPHERD_POLL_SECONDS: '1' },
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-      sequences: {
-        viewPullRequest: [depPr(1, { merge: 'DIRTY' }), ghFails('HTTP 502: Bad gateway')],
-      },
-    }),
-  }))
-
-  expect(answer.document.ok).toBe(false)
-  expect(answer.document.detail).toBe(
-    'recreate requested but the pull request could not be re-read in 2s (2 attempts): ' +
-      'HTTP 502: Bad gateway',
-  )
-  expect(answer.document.read_failures).toBe(2)
-  expect(answer.document).not.toHaveProperty('pr')
-})
-
-it('reports the last read as null when the polling ended on a read that failed', async () => {
-  // The Python reports `pr` from the same variable it assigns the failed
-  // read to. So a run whose last poll failed carries a null pull request.
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '1', SHEPHERD_POLL_SECONDS: '1' },
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-      sequences: {
-        viewPullRequest: [
-          depPr(1, { merge: 'DIRTY' }),
-          depPr(1, { merge: 'DIRTY' }),
-          ghFails('HTTP 502: Bad gateway'),
-        ],
-      },
-    }),
-  }))
-
-  expect(answer.document.detail).toBe('recreate requested but the head did not change within 2s')
-  expect(answer.document.read_failures).toBe(1)
-  expect(answer.document.pr).toBeNull()
-})
-
-it('derives a poll interval from the CI cycle when nobody gave one', async () => {
-  // The interval is a quarter of the cycle, floored at 15 seconds. The bound
-  // is two cycles. With 400, the interval is 100 and the bound is 800. That
-  // gives eight polls, with no delay at all.
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '400' },
-    gh: createGhServer({
-      prs: [depPr(1, { merge: 'DIRTY' })],
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-    }),
-  }))
-
-  expect(answer.document.detail).toBe('recreate requested but the head did not change within 800s')
-  expect(answer.elapsed).toBe(800_000)
-})
-
-it('floors a derived poll interval, so a fast repository is not polled every second', async () => {
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '8' },
-    gh: createGhServer({
-      prs: [depPr(1, { merge: 'DIRTY' })],
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-    }),
-  }))
-
-  // A bound of 16 seconds with a floor of 15 buys two polls. The second poll
-  // runs past the bound. The loop is `while waited < bound`, exactly as the
-  // Python's is.
-  expect(answer.elapsed).toBe(30_000)
-})
-
-it('says so when a poll interval is not a number, and falls back to the floor', async () => {
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '400', SHEPHERD_POLL_SECONDS: 'soon' },
-    gh: createGhServer({
-      prs: [depPr(1, { merge: 'DIRTY' })],
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-    }),
-  }))
-
-  expect(answer.stderr).toBe('SHEPHERD_POLL_SECONDS=soon ignored; using 15\n')
-})
-
-it('honours a poll interval below the floor, and never a zero one', async () => {
-  // A zero value would spin and never reach the bound. The shell version did
-  // exactly that.
-  const answer = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'recreate'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '4', SHEPHERD_POLL_SECONDS: '0' },
-    gh: createGhServer({
-      prs: [depPr(1, { merge: 'DIRTY' })],
-      replies: { viewRepository: REPOSITORY, addComment: COMMENT_URL },
-    }),
-  }))
-
-  expect(answer.elapsed).toBe(8_000)
-  expect(answer.document.detail).toContain('within 8s')
 })
 
 // --- wait ---------------------------------------------------------------------------
