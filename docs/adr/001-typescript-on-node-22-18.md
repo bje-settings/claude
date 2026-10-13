@@ -96,7 +96,9 @@ copy identically, and `claude plugin validate --strict` passes on a plugin carry
 replacing the blanket symlink refusal it carries today.~~ **Deviation ([#128](https://github.com/bje-settings/claude/issues/128)):**
 `publish-plugin` was removed rather than ported once this repository's move to public was decided,
 so this half of the decision never took effect; the three-way classification governs the install
-path only.
+path only. **Superseded ([#417](https://github.com/bje-settings/claude/issues/417)):** each
+plugin now holds copies of the `lib/` files it imports, in place of the symlink; see
+[ADR 006](006-plugins-hold-copies-of-lib.md).
 
 **The symlink is the only path out of a plugin.** Nothing else imports across a plugin boundary,
 and the repository layout test is what enforces that, the way `tests/test_repo_layout.py` enforces
