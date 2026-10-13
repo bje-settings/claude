@@ -737,8 +737,8 @@ class SyncRepoRun {
    * What the rows that name this branch prove. `atTip` selects the rows at
    * this commit, or the rows at another commit. {@link proofFor} asks for
    * the first set before the ancestry probe, and for the second set after
-   * it. Only the second set can need a fetch of a pull request head. Either
-   * set can need a fetch of a merge commit.
+   * it. {@link prProofForBranch} asks for both sets. Only the second set can
+   * need a fetch, of a pull request head.
    */
   private async rowsProof(
     rows: readonly PullRequestRow[],
@@ -781,7 +781,8 @@ class SyncRepoRun {
   private async rowProof(row: PullRequestRow, sha: string): Promise<ProofState> {
     const merge = mergeCommitOf(row)
     if (merge === null) return 'none'
-    if (!(await this.have(merge, merge))) return 'unfetched'
+    const local = await this.isLocal(merge)
+    if (local !== 'match') return local
     const landed = await this.isAncestor(merge)
     if (landed !== 'match' || row.headRefOid === sha) return landed
     const head = row.headRefOid
@@ -803,6 +804,18 @@ class SyncRepoRun {
     return count === String(unmatched.length) ? 'match' : 'unprobed'
   }
 
+  /** Whether the merge commit `oid` is here. There is no fetch (ruling 11).
+   *  {@link advance} fetched `origin` before the prune loop. So a merge
+   *  commit that is not here cannot be on the local `origin/<default>`.
+   *  git answers 1 for "not here". Any other failure is a probe that could
+   *  not answer. `cat-file -e` is not used, because it answers 128 both
+   *  for a missing object and for a broken git. */
+  private async isLocal(oid: string): Promise<ProofState> {
+    const probe = await runGit(['rev-parse', '--verify', '--quiet', `${oid}^{commit}`], this.here)
+    if (probe.status === 0) return 'match'
+    return probe.status === 1 ? 'none' : 'unprobed'
+  }
+
   /** Whether `commit` is on `origin/<default>`. git answers 1 for "no". Any
    *  other failure is a probe that could not answer, and never a "no". */
   private async isAncestor(commit: string): Promise<ProofState> {
@@ -814,8 +827,8 @@ class SyncRepoRun {
     return probe.status === 1 ? 'none' : 'unprobed'
   }
 
-  /** Whether the commit `oid` is here, after one fetch of `ref` when it was
-   *  not. A ref of `null` cannot be fetched. */
+  /** Whether the pull request head `oid` is here, after one fetch of `ref`
+   *  when it was not (ruling 6). A ref of `null` cannot be fetched. */
   private async have(oid: string, ref: string | null): Promise<boolean> {
     if (await gitOk(['cat-file', '-e', `${oid}^{commit}`], this.here)) return true
     if (ref === null) return false

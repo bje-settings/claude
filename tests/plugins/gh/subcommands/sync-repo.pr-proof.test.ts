@@ -60,18 +60,29 @@ function rebasedByRemote(f: Fixture, branch: string, number: number) {
   return { head, landed, row: pr(branch, head, 'main', false, { number, mergeCommit: landed }) }
 }
 
-/** A PATH whose git ends `merge-base --is-ancestor <commit>` with status 128,
+/** A PATH whose git ends each call that starts with `prefix` with status 128,
  *  the status of a git that could not answer. The harness shim refuses with
- *  status 1, which this probe reads as "not an ancestor". */
-function crashing(f: Fixture, commit: string): NodeJS.ProcessEnv {
+ *  status 1. The probes of `merge-base --is-ancestor` and of
+ *  `rev-parse --verify --quiet` read status 1 as "no". */
+function crashing(f: Fixture, prefix: string): NodeJS.ProcessEnv {
   const real = execFileSync('sh', ['-c', 'command -v git'], { env: f.env }).toString().trim()
   const directory = mkdtempSync(f.sandbox.join('crash-'))
   writeFileSync(
     path.join(directory, 'git'),
-    `#!/bin/sh\ncase "$*" in\n  'merge-base --is-ancestor ${commit}'*) exit 128 ;;\nesac\nexec '${real}' "$@"\n`,
+    `#!/bin/sh\ncase "$*" in\n  '${prefix}'*) exit 128 ;;\nesac\nexec '${real}' "$@"\n`,
     { mode: 0o755 },
   )
   return { ...f.env, PATH: `${directory}${path.delimiter}${f.env.PATH ?? ''}` }
+}
+
+/** Whether the checkout under test holds the commit `oid`. */
+const holds = (f: Fixture, oid: string): boolean => {
+  try {
+    f.git.git(f.repo, 'cat-file', '-e', `${oid}^{commit}`)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const ABSENT = 'f'.repeat(40)
@@ -118,9 +129,10 @@ describe('a stacked pull request', () => {
     expect(f.git.sha(f.repo, 'child')).toBe(child)
   })
 
-  it('fetches a merge commit it does not have, and keeps the branch when it is not on main', async () => {
+  it('does not fetch a merge commit that is not here, and keeps the branch (ruling 11)', async () => {
     // The merge commit sits under a ref the clone does not fetch. The origin
-    // serves it by its SHA, so the fetch works, and the guard still refuses.
+    // would serve it by its SHA. The probe is local, so the commit stays
+    // absent, and the branch has no merge proof.
     const f = fixture()
     f.git.branchWithWork(f.repo, 'child')
     const child = f.git.sha(f.repo, 'child')
@@ -137,6 +149,23 @@ describe('a stacked pull request', () => {
 
     expect(result.stdout).toContain('kept child (no merge proof)')
     expect(f.git.sha(f.repo, 'child')).toBe(child)
+    expect(holds(f, into)).toBe(false)
+  })
+
+  it('keeps the branch when git cannot answer the local merge commit probe', async () => {
+    // Status 1 is "not here". Any other status proves nothing either way.
+    const f = fixture()
+    const { landed, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: crashing(f, `rev-parse --verify --quiet ${landed}^{commit}`),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
   })
 
   it('keeps a branch whose row at this commit has no merge commit', async () => {
@@ -158,7 +187,7 @@ describe('a stacked pull request', () => {
 
     const result = await run(f, [f.repo], {
       gh: ghDouble({ prs: [row] }),
-      env: crashing(f, landed),
+      env: crashing(f, `merge-base --is-ancestor ${landed}`),
     })
 
     expect(result.stdout).toContain(
@@ -321,9 +350,11 @@ describe('a fetch that fails', () => {
     expect(f.git.branches(f.repo)).toContain('gone')
   })
 
-  it('keeps the branch when the merge commit cannot be fetched', async () => {
+  it('keeps the branch, with no merge proof, when the merge commit is not here', async () => {
     // The row names the branch at this very commit. Before #348 that alone
-    // was proof, and this branch was deleted.
+    // was proof, and this branch was deleted. The merge commit is on no
+    // remote, so a fetch could only fail. There is no fetch (ruling 11), so
+    // nothing failed.
     const f = fixture()
     f.git.branchWithWork(f.repo, 'unlanded')
     const tip = f.git.sha(f.repo, 'unlanded')
@@ -331,9 +362,7 @@ describe('a fetch that fails', () => {
 
     const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
 
-    expect(result.stdout).toContain(
-      "kept unlanded (could not fetch a merged PR's commits; unproven, not disproven)",
-    )
+    expect(result.stdout).toContain('kept unlanded (no merge proof)')
     expect(f.git.sha(f.repo, 'unlanded')).toBe(tip)
   })
 
@@ -437,7 +466,7 @@ describe('ancestry at the tip', () => {
     f.git.mergeCommit(f.repo, 'landed')
     const tip = f.git.sha(f.repo, 'landed')
 
-    const result = await run(f, [f.repo], { env: crashing(f, tip) })
+    const result = await run(f, [f.repo], { env: crashing(f, `merge-base --is-ancestor ${tip}`) })
 
     expect(result.stdout).toContain(
       'kept landed (git could not compare its commits; unproven, not disproven)',
