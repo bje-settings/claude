@@ -11,6 +11,9 @@
 // All three callers want the same four answers. The Python code writes
 // that logic four times.
 //
+// It also holds `endOnceWritten`. A hook entry calls it last, to end its own
+// process when a hung read still holds it (#267).
+//
 // It is the port of three Python shapes at once:
 //
 //   - `subprocess.run(..., stdout=PIPE)` as `gh-sync-repo.py:76` and
