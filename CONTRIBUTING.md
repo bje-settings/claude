@@ -26,9 +26,8 @@ statements.
 
 ## ESLint
 
-`packages/eslint-plugin-claude/` holds the ESLint plugin for Claude Code configuration files
-(ADR 005). Its tests are in `tests/packages/eslint-plugin-claude/`. `eslint.config.ts` loads it
-with the `bje` config. ESLint lints only these files. Biome keeps TypeScript and JSON format.
+The `eslint-plugin-claude` npm package lints Claude Code configuration files. `eslint.config.ts`
+loads its `claude/recommended` config and holds the rule overrides. ESLint lints only these files. Biome keeps TypeScript and JSON format.
 
 `pnpm lint` passes `--flag unstable_native_nodejs_ts_config`, which ESLint needs to read
 `eslint.config.ts`, and `--max-warnings 0`. The ESLint editor extension needs the flag too. In

@@ -26,6 +26,9 @@ importers:
       eslint:
         specifier: 10.11.0
         version: 10.11.0
+      eslint-plugin-claude:
+        specifier: 0.9.1
+        version: 0.9.1(@eslint/json@2.1.0)(@eslint/markdown@8.0.3)(eslint@10.11.0)
       lefthook:
         specifier: 2.1.12
         version: 2.1.12
@@ -35,9 +38,6 @@ importers:
       vitest:
         specifier: 4.1.11
         version: 4.1.11(@types/node@22.20.2)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@22.20.2)(yaml@2.9.1))
-      yaml:
-        specifier: 2.9.1
-        version: 2.9.1
 
 packages:
 
@@ -593,6 +593,14 @@ packages:
   escape-string-regexp@5.0.0:
     resolution: {integrity: sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw==}
     engines: {node: '>=12'}
+
+  eslint-plugin-claude@0.9.1:
+    resolution: {integrity: sha512-f9jx8NOC1AugvYt7tIOXy06ZBefUGdB+o9kuTgeGB3bYryOrGJdedzRtkC4TfMxui/e/tmErBCnDErx+SKtS2w==}
+    engines: {node: ^22.13.0 || >=24}
+    peerDependencies:
+      '@eslint/json': ^2.0.0
+      '@eslint/markdown': ^8.0.0
+      eslint: ^10.0.0
 
   eslint-scope@9.1.2:
     resolution: {integrity: sha512-xS90H51cKw0jltxmvmHy2Iai1LIqrfbw57b79w/J7MfvDfkIkFZ+kj6zC3BjtUwh150HsSSdxXZcsuv72miDFQ==}
@@ -1723,6 +1731,13 @@ snapshots:
   escape-string-regexp@4.0.0: {}
 
   escape-string-regexp@5.0.0: {}
+
+  eslint-plugin-claude@0.9.1(@eslint/json@2.1.0)(@eslint/markdown@8.0.3)(eslint@10.11.0):
+    dependencies:
+      '@eslint/json': 2.1.0
+      '@eslint/markdown': 8.0.3
+      eslint: 10.11.0
+      yaml: 2.9.1
 
   eslint-scope@9.1.2:
     dependencies:

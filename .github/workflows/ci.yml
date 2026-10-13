@@ -118,7 +118,7 @@ jobs:
         run: |
           git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
             'plugins/*/src/*.ts' 'plugins/*/scripts/*.ts' 'plugins/*/hooks/*.ts' \
-            'packages/*/src/*.ts' 'eslint.config.ts' 'vitest.config.ts' | grep -q .
+            'eslint.config.ts' 'vitest.config.ts' | grep -q .
       # `noEmit` lives in `tsconfig.json` rather than on this line. The
       # same invocation then means the same thing from an editor or a
       # hook.
@@ -138,12 +138,11 @@ jobs:
       - name: Lint and format-check with Biome
         run: pnpm exec biome ci . --error-on-warnings
 
-  # ESLint over the Claude Code configuration files, with the plugin in
-  # packages/eslint-plugin-claude (ADR 005). No `--cache`: some rules read a
+  # ESLint over the Claude Code configuration files, with the
+  # eslint-plugin-claude npm package. No `--cache`: some rules read a
   # second file, and the cache does not see a change to that file. `pnpm
   # lint` passes `--max-warnings 0`, so a warning fails the job, the same as
-  # the biome job. This job joins the required checks only after it reports
-  # on main once.
+  # the biome job.
   eslint:
     name: eslint
     runs-on: ubuntu-latest

@@ -40,7 +40,6 @@ export default defineConfig({
         'lib/**/*.ts',
         'scripts/**/*.ts',
         'plugins/*/src/**/*.ts',
-        'packages/*/src/**/*.ts',
       ],
       // Test files are test code. If you measured them, an unused test
       // helper could move the number, even when no shipped or shared code
