@@ -31,6 +31,8 @@ export type {
   CommentLine,
   CommentText,
   CommitComparison,
+  CommitStatus,
+  CommitStatusState,
   CompareStatus,
   GhClient,
   GhEndpoint,
@@ -140,6 +142,8 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     viewPullRequestDetail: async () => answer(replies, 'viewPullRequestDetail'),
     listWorkflowRuns: async () => answer(replies, 'listWorkflowRuns'),
     compareCommits: async () => answer(replies, 'compareCommits'),
+    listPullRequestStatuses: async () => answer(replies, 'listPullRequestStatuses'),
+    createCommitStatus: async () => answer(replies, 'createCommitStatus'),
     repositoryStatus: async () => answer(replies, 'repositoryStatus'),
   }
 }

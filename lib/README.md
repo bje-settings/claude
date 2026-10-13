@@ -600,6 +600,36 @@ GitHub refused, such as one for an unknown commit, quotes GitHub's `message`.
 
 `workstreams pr-state` reads it for the commits after the round 1 head (#356).
 
+### `listPullRequestStatuses` and `createCommitStatus`
+
+```ts
+const { rows } = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+// rows[0] -> { commit, context: 'workstreams/review-1', description: 'minor', createdAt }
+await gh.createCommitStatus({ sha, context: 'workstreams/review-1', state: 'success' })
+```
+
+These are the review statuses of #377. `workstreams mark` writes one, and `workstreams pr-state`
+reads them.
+
+`listPullRequestStatuses` is a GraphQL read of the first 100 commits of one pull request, oldest
+first. Each row carries the commit, the context, the description and `createdAt`, and nothing
+else. It is its own query. A wider detail query would add a read to each tick of `watch` and
+`pr-state`, for a question that only `pr-state` asks.
+
+- `Status.contexts` gives only the newest status of each context on one commit. Measured on
+  2026-10-13: the REST list of one commit gave two statuses of one context, and GraphQL gave one.
+- A pull request with more than 100 commits keeps the rows read. `unavailable` says that a
+  status on a later commit is not read, so a caller does not read the rows as the whole answer.
+- A status of another prefix is not read past its context. So the shape of another system's
+  status cannot cost the read.
+- A commit whose status is not the shape asked for is counted in `unavailable`, never dropped.
+  A review status dropped in silence reads as a round that did not run.
+- A commit that a force-push removed from the pull request is not read. Its statuses go with it.
+
+`createCommitStatus` is a REST write (`POST repos/{owner}/{name}/statuses/{sha}`). It throws a
+`GhError`, as the other writes do. A status cannot be deleted, and GitHub keeps 1000 at most for
+one sha and context.
+
 ## The TypeSafe transport and the Jev client
 
 ```ts
