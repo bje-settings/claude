@@ -4,7 +4,7 @@ description: How `gh.ts shepherd-pr` checks its arguments, then runs one of five
 stale_after: 2027-03-25
 generated:
   by: claude-sonnet
-  at: 2026-09-25
+  at: 2026-10-13
 ---
 
 # shepherd-pr flow

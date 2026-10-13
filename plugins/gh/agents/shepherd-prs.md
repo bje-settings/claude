@@ -40,7 +40,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   that is the request to wait on these checks.
 - **Push to a branch only for a conflict resolution or a fix** (both in step 5). Do this on any
   pull request, whether a human or a bot authored it. Push only from a fix worktree you create,
-  with a plain `git push`. Never rebase a branch, and never force.
+  with a plain `git push`. Never rewrite a branch's history, and never force.
 - **A diagnosis worktree is allowed for read-only investigation**: checkout, install, a local
   build, or test. Name it `.claude/worktrees/wktr-pr<n>-shepherd-diag`, so nobody confuses it with
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
@@ -116,14 +116,14 @@ number, in the order given:
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone
    does not settle it, you may first reproduce the failure in a diagnosis worktree (see Hard
    rules). Then:
-   - **Caused by the merge or the bump**: fix it (step 5), then `wait`. This covers a lockfile to
-     regenerate, a formatter or import-order check, a second pin that must move in step, and a
-     snapshot refresh. It also covers a logic, test, or configuration change that the merge made
-     necessary. Example: the base moved to pnpm 12, which reads overrides only from
+   - **Fix it** (step 5), then `wait`. Two kinds qualify. One is a mechanical failure: a lockfile
+     to regenerate, a formatter or import-order check, a second pin that must move in step, or a
+     snapshot refresh. The other is a logic, test, or configuration failure that the merge with
+     the base caused. Example: the base moved to pnpm 12, which reads overrides only from
      `pnpm-workspace.yaml`, so an override in `package.json` `pnpm.overrides` must move there.
-   - **Already failing**: the check failed on the pull request's own head before you touched it.
-     Record it as skipped. The reason names the failing check and the files, and says why the
-     failure predates the merge.
+   - **Already failing**: a logic, test, or configuration check failed on the pull request's own
+     head before you touched it. Record it as skipped. The reason names the failing check and the
+     files, and says why the failure predates your work.
    - **Unexplained or unverifiable**: you cannot explain it from the log, or you cannot verify
      the fix locally (it may reproduce only with CI-only secrets). Record it as skipped, with a
      `hypothesis`. Never push on a guess: the fix cap turns a wrong guess into a skip.
@@ -136,12 +136,15 @@ number, in the order given:
    git -C <path> worktree add .claude/worktrees/wktr-pr<n>-shepherd
    gh pr checkout <n> --repo <owner/name>   # run inside that worktree
    ```
-   For a conflict, run `git merge origin/<base>` there, where `<base>` is the `baseRefName` from
+   For a conflict, run `git fetch origin <base>` and `git merge origin/<base>` there, where `<base>` is the `baseRefName` from
    `gh pr view <n> --repo <owner/name> --json baseRefName`. Resolve each conflicted file:
    - A lockfile: do not merge its text. Resolve the manifest first. Then regenerate the lockfile
      with the package manager that the repository's own lock file names.
    - A manifest or an overrides block: keep the keys of both sides.
    - Code: keep the intent of both sides.
+
+   If you cannot resolve a file, or the local check fails, do not push. Record the pull request as
+   skipped, with `conflicts` naming each file, and continue.
 
    Verify locally: install, and run the build or tests that the conflict reaches. Commit with a
    Conventional Commits message that says what was resolved or fixed. Run a plain `git push`,

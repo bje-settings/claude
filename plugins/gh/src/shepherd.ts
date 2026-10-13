@@ -41,7 +41,7 @@ import type { Output } from './lib/streams.ts'
  * This is the counterpart of `CommandContext` in `subcommands/sync-repo.ts`.
  * It is a type of its own for three reasons that command does not share.
  * `createGh` takes a repository as well as a directory, because seven of
- * the nine `gh` calls these commands make name the repository with `--repo`
+ * the eight `gh` calls these commands make name the repository with `--repo`
  * (`gh-shepherd-pr.py:399` and on), while the first call resolves the
  * repository from the checkout. `now` and `sleep` are here because
  * `wait` has a bound, and `settle` polls until a bound. A

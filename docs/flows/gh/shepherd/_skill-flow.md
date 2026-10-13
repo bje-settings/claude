@@ -4,7 +4,7 @@ description: What the /gh:shepherd skill does, and every way it declines to act,
 stale_after: 2027-03-25
 generated:
   by: claude-sonnet
-  at: 2026-09-25
+  at: 2026-10-13
 ---
 
 # /gh:shepherd skill flow
@@ -33,7 +33,7 @@ flowchart TD
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
         T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
         T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W
-        MG -->|Cannot resolve or verify| E([Skipped: names the conflicted files]):::stop --> S
+        MG -->|Cannot resolve or verify| E([Skipped: unresolved or unexplained, reason names the files and checks]):::stop --> S
         T -->|Checks running or already decided| W
         W -->|Merged by auto-merge| S
         W -->|Checks green| P[Settle: read until GitHub decides]
@@ -45,8 +45,8 @@ flowchart TD
         W -->|Still in progress| W
         W -->|Still in progress after three waits, head unchanged| BP([Skipped: checks did not finish]):::stop --> S
         W -->|Checks failed| K{Cause of the failure?}
-        K -->|Caused by the merge, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
-        K -->|Already failing on the PR's own head| SK([Skipped: failed before the merge]):::stop --> S
+        K -->|Mechanical, or caused by the merge, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
+        K -->|Logic or config check already failing on the PR's own head| SK([Skipped: failed before shepherd]):::stop --> S
         K -->|Cannot explain, or unverifiable locally| E
     end
 
