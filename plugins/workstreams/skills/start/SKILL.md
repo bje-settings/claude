@@ -73,29 +73,12 @@ Derive it on each call. Write nothing to disk.
    to an issue. Take each head from `intersect`, not from `gh stack view`: its local heads
    can be old.
 
-   A merged pull request is final for its layer. It needs no marker. A plan issue still
+   A merged pull request is final for its layer. It needs no review status. A plan issue still
    open after its pull request merged is an open item for the round end, not a round in
    flight.
-3. **The review facts.** `/workstreams:review` posts a marker comment after each round and
-   after the rot check. Read them for each pull request:
-
-   ```bash
-   gh pr view <number> --json comments --jq '.comments[].body | split("\n")[0]'
-   ```
-
-   A marker is a first line that is exactly one of the four `/workstreams:review` posts.
-   `Review round <n> done` gives `--round <n>`, the highest one. `Review round 1 done:
-   substantial.` gives `--substantial`. `Rot check done.` gives `--rot-checked`. No marker
-   gives `--round 0`. A set that `pr-state` refuses, or a round 2 with no round 1, is a
-   stop. Name the markers.
-
-   With `--round 1`, read line 2 of the newest round 1 marker:
-
-   ```bash
-   gh pr view <number> --json comments --jq '[.comments[].body | split("\n") | select(.[0] | startswith("Review round 1 done")) | .[1]] | last'
-   ```
-
-   A line `Head <sha>.` gives `--round-1-head <sha>`. Any other line gives no flag.
+3. **The review facts.** `pr-state` reads them from the review statuses on the pull
+   request's commits. A `pr-state` flag wins over a status. Give one only when the person
+   names it.
 
 ## Order
 
@@ -116,12 +99,17 @@ Derive it on each call. Write nothing to disk.
    in chat never changes the state, and never takes the place of a review round. The one
    exception is an explicit request from the person to skip the review of a layer in
    `review-1`. Post one ruling comment on the pull request that quotes the request, in the
-   form of [tick.md](tick.md) "A decision mid-round". Then post the `Review round 1 done.`
-   and `Rot check done.` markers, as `/workstreams:review` posts them. Put a link to the
-   ruling comment on the line after the marker, above the footer. In any other state, a
-   request to skip is a question. There, the two markers may not give `done`: CI that is
-   not green gives `fixing`. A substantial round 1, or logic after the round 1 head,
-   gives `review-2`.
+   form of [tick.md](tick.md) "A decision mid-round". Then record round 1 and the rot
+   check, each with the link to the ruling comment:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> review-1 --description "skipped: <ruling comment URL>"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> rot-check --description "skipped: <ruling comment URL>"
+   ```
+
+   In any other state, a request to skip is a question. There, the two statuses may not
+   give `done`: CI that is not green gives `fixing`. A substantial round 1, or logic after
+   the round 1 head, gives `review-2`.
 4. Wait for a wake. If no watch runs, arm it first ([Wakes](#wakes)). Then run the tick in
    [tick.md](tick.md), and wait again.
 5. When every layer is `done`, merged, or dropped, and the plan has no layer left, do
@@ -166,9 +154,6 @@ notification.
 ## The reads of each tick
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0|1|2> --json
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --json
 node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" intersect --json
 ```
-
-Add `--substantial` and `--rot-checked` to `pr-state` when the markers say so. Add
-`--round-1-head <sha>` only with `--round 1`: `pr-state` refuses it with any other round.

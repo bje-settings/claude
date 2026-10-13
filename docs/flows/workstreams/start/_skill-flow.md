@@ -4,7 +4,7 @@ description: What the /workstreams:start skill does on each call and each wake, 
 stale_after: 2027-03-27
 generated:
   by: claude-opus
-  at: 2026-10-07
+  at: 2026-10-13
 ---
 
 # /workstreams:start skill flow
@@ -41,10 +41,8 @@ flowchart TD
     D1 -->|Yes| E
     B1 -->|One, with a scope: the round is in flight| E0{the plan read?}
     E0 -->|No| E0a([Stop: name the issue]):::stop
-    E0 -->|Yes| E[Derive the round: plan, pull requests,<br/>stack order, review markers and, with round 1 only, the round 1 head;<br/>a merged pull request is final, with no markers]
-    E --> E1{markers a set pr-state takes?}
-    E1 -->|No| E2([Stop: name the markers]):::stop
-    E1 -->|Yes| R
+    E0 -->|Yes| E[Derive the round: plan, pull requests and stack order;<br/>pr-state reads the review statuses;<br/>a merged pull request is final]
+    E --> R
     F{a layer to write, and no layer below,<br/>or pr-state gives done or merged for it?}
     F -->|Yes| G[Invoke /workstreams:stream for the next layer]
     F -->|No, the layer below closed with no merge| NC
@@ -114,7 +112,7 @@ flowchart TD
     Z4 --> Z3([Post the round-end record on each issue,<br/>with what was done; nothing merges])
 
     X -->|a return that says it still waits| SS[Stopped short: SendMessage it back] --> X
-    X -->|the person explicitly asks to skip<br/>the review of a layer in review-1| SK[Ruling comment on the pull request that quotes it;<br/>round 1 and rot check markers that cite it] --> X
+    X -->|the person explicitly asks to skip<br/>the review of a layer in review-1| SK[Ruling comment on the pull request that quotes it;<br/>round 1 and rot check statuses that cite it] --> X
     X -->|any other message from the person in chat| X
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000
@@ -122,7 +120,7 @@ flowchart TD
 ```
 
 A layer's return goes to `/workstreams:stream` to read. A round agent's return goes to
-`/workstreams:review`, which posts the round's marker. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
+`/workstreams:review`, which records the round's status with `mark`. A `lower_layer` finding goes into its layer only in a gap. In a gap, no agent writes to that
 layer or above it. Otherwise the finding waits for the round-end report.
 
 A layer agent returns after its push and the run check, with CI still able to run. `pr-state`
@@ -130,7 +128,7 @@ gives `review-1` while CI runs, so the tick waits only for that agent's return.
 
 Only `pr-state` marks a layer done. A message from the person in chat changes no state. An
 explicit request to skip the review of a layer in `review-1` becomes a ruling comment and
-two markers on GitHub. In another state, a request to skip is a question.
+two review statuses on GitHub. In another state, a request to skip is a question.
 
 A layer that closed with no merge is one question, asked once and recorded on its issues.
 A dropped layer lets the round end, as an open item. The round end reports first, then

@@ -22,9 +22,11 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [workstreams/question/_skill-flow.md](workstreams/question/_skill-flow.md) | What the /workstreams:question skill does, and every way it declines to act. |
 | [workstreams/question/rounds-flow.md](workstreams/question/rounds-flow.md) | How `workstreams.ts rounds` finds the rounds in flight from their plan comments, scopes them, and when its answer is short. |
 | [workstreams/review/_skill-flow.md](workstreams/review/_skill-flow.md) | What the /workstreams:review skill does in one step, and every way it declines to act. |
+| [workstreams/review/mark-flow.md](workstreams/review/mark-flow.md) | How `workstreams.ts mark` checks its arguments, finds the head, and writes one `workstreams/<name>` commit status, and each way it stops. |
 | [workstreams/review/pr-state-flow.md](workstreams/review/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
 | [workstreams/start/_skill-flow.md](workstreams/start/_skill-flow.md) | What the /workstreams:start skill does on each call and each wake, and every way it stops. |
 | [workstreams/start/intersect-flow.md](workstreams/start/intersect-flow.md) | How `workstreams.ts intersect` reads each open pull request's head against the default branch and against the other heads, and each way it stops or reports a fact as unread. |
+| [workstreams/start/mark-flow.md](workstreams/start/mark-flow.md) | How `workstreams.ts mark` checks its arguments, finds the head, and writes one `workstreams/<name>` commit status, and each way it stops. |
 | [workstreams/start/pr-state-flow.md](workstreams/start/pr-state-flow.md) | How `workstreams.ts pr-state` reads one pull request and its checks into a verdict and a review-loop state, and each way it stops. |
 | [workstreams/start/rounds-flow.md](workstreams/start/rounds-flow.md) | How `workstreams.ts rounds` finds the rounds in flight from their plan comments, scopes them, and when its answer is short. |
 | [workstreams/start/watch-flow.md](workstreams/start/watch-flow.md) | How `workstreams.ts watch` polls each open pull request and writes one line for each event, and each way it stops or goes quiet. |

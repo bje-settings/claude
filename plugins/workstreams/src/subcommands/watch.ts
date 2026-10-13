@@ -130,7 +130,9 @@ one line for each of these events:
 The required contexts come from the rules of the base branch. When no ruleset
 covers the base, as for each stack layer above the first, they come from the
 rules of the default branch. A head is CONCLUDED only when every one of them
-has reported. A check that no ruleset requires never concludes a head.
+has reported. A check that no ruleset requires never concludes a head. A
+workstreams/<name> status of the review loop is never a required context,
+also when a ruleset names it (#377).
 
 On a draft head, a required context that no check on the head names does
 not hold CONCLUDED when a check on the head, from a check suite that

@@ -65,9 +65,10 @@ is the comment whose first line reads `<round> plan, approved <time>.`, with the
 time to the minute in UTC. The pull requests
 are the ones that close the round's issues, in the order `gh stack view` gives. Each pull
 request has three review facts. They are the rounds done, whether round 1 was substantial,
-and whether the rot check is done. `/workstreams:review` posts a marker comment on the pull
-request for each one, and `start` reads the markers back. So a new conversation needs no
-question. A merged pull request is final for its layer, with no markers.
+and whether the rot check is done. `/workstreams:review` records each one as a
+`workstreams/<name>` commit status with `mark`, and `pr-state` reads the statuses back. So a
+new conversation needs no question. A merged pull request is final for its layer, with no
+statuses.
 
 The `argument-hint` of `start` invites an optional focus in free words, as `/compact` does.
 Other words, and a bare number that names no milestone, are judged. `start` checks each
@@ -87,8 +88,8 @@ in the ruling, with no comment on the other round's issues (#376).
 GitHub is the state of review. `start` writes the next layer only when `pr-state` gives
 `done` or `merged` for the layer below. A person's message in chat never marks a layer
 done. The person can explicitly ask to skip the review of a layer in `review-1`. Then
-`start` posts a ruling comment that quotes the request. It also posts the round 1 and rot
-check markers, each with a link to that comment.
+`start` posts a ruling comment that quotes the request. It also records the round 1 and rot
+check statuses with `mark`, each with a link to that comment as the description.
 
 A layer that closed with no merge is a question, asked once: drop it and the layers above
 it, reopen it, or replan. `start` records the answer on the layer's issues. A dropped layer
@@ -236,11 +237,10 @@ logic under `src/`, `lib/`, `scripts/` or `hooks/`, and new behaviour at the top
 stream. `sonnet` reviews any other round 1.
 
 There is no state file. Everything is read again each tick. After each round and after the
-rot check, the skill posts a marker comment, such as `Review round 1 done: substantial.`
-Its `_Recorded by_` line goes in a `<sub>` tag. A round 1 marker has a second line,
-`Head <sha>.`, the head that round 1 reviewed. The first line stays exact, so every past
-marker still matches. The caller reads the markers back, and passes the four facts the
-command cannot read as flags.
+rot check, the skill runs [`mark`](#mark): a `workstreams/review-1`, `workstreams/review-2` or
+`workstreams/rot-check` commit status. A round's status goes on the head the round reviewed,
+and round 1's description is `substantial` or `minor`. `pr-state` reads the statuses back,
+so no caller parses a comment (#377).
 
 It is `user-invocable: false`. `/workstreams:start` invokes it, one step for each call.
 
@@ -513,7 +513,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0
 Reports one pull request's head, draft flag, base, and mergeability. It also reports the
 status-check contexts its STACK BOTTOM's base requires, what has reported against each of them,
 whether a workflow run with event `pull_request` exists for the head, its unresolved
-review threads and its comments, a wait hint, and the state the review loop is in.
+review threads and its comments, the review facts, a wait hint, and the state the review loop
+is in.
 
 The required contexts come from the rules of the base of the pull request's stack bottom
 (#398), never hard-coded. GitHub takes the merge requirements of every pull request in a
@@ -570,13 +571,33 @@ preview thread. It names each other bot thread for the person. A plain comment i
 all: the enterprise coverage bot posts a comment on every pull request, and nobody resolves a
 comment.
 
-`--round`, `--substantial`, `--round-1-head` and `--rot-checked` are the four facts the
-command cannot read. `/workstreams:start` reads them from the marker comments that
-`/workstreams:review` posts.
+The four review facts come from the `workstreams/<name>` commit statuses that
+[`mark`](#mark) writes, on the first 100 commits of the pull request (#377):
 
-`--round-1-head` holds only with `--round 1`, so `start` and `review` pass it with that
-round only (#380). Without `--substantial`, the command reads the
-compare of that head to the current head (#356). It compares commits, not times, because a
+| Fact | Status | Flag |
+| --- | --- | --- |
+| `round` | 2 with a `review-2` status on any commit, 1 with a `review-1` status, else 0 | `--round` |
+| `substantial` | the first `review-1` status has the description `substantial` | `--substantial` |
+| `round1Head` | the commit of the first `review-1` status, by its time | `--round-1-head` |
+| `rotChecked` | a `rot-check` status on any commit | `--rot-checked` |
+
+The FIRST `review-1` status gives the round 1 head (#395). A round agent resumed after its
+return gets a second one on its fix head. The first one keeps the head that round 1 reviewed, so
+logic in the fix still gives `review-2`. GitHub gives only the newest status of one context on
+one commit.
+
+A flag that is given wins over its status (mid-round ruling 14). A pull request whose rounds ran
+before the statuses has marker comments and no statuses, so its caller gives the flags. A status
+read that fell short, such as one on a pull request with more than 100 commits, is listed under
+`unavailable`. Then the state is null, unless `--round` is given: then the flags alone are the
+facts. A force-push that drops a commit from the pull request drops its statuses from the read
+too. Give the flags for such a pull request.
+
+A `workstreams/` status is never a required context. It is not in the head list, and not in the
+verdict, also when a ruleset names it. `watch` leaves it out of `CONCLUDED` the same way.
+
+As a flag, `--round-1-head` holds only with `--round 1` (#380). At round 1 that was not
+substantial, the command reads the compare of the round 1 head to the current head (#356). It compares commits, not times, because a
 rebase moves commit dates. These give `review-2`:
 
 - The round 1 head is not an ancestor of the head.
@@ -587,10 +608,32 @@ rebase moves commit dates. These give `review-2`:
 `sinceRound1` gives the reason. A compare that could not be read gives no state at that step.
 
 A merged or closed pull request gives state `merged` or `closed`. This check runs right
-after `awaiting-pr`, before every other rule. No CI result, thread, or marker changes it
+after `awaiting-pr`, before every other rule. No CI result, thread, or review status changes it
 (#277).
 
 Exit code 2 means a usage error. Exit code 1 means nothing at all could be read.
+
+### `mark`
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> <name> [--description <text>] [--head <sha>]
+```
+
+Writes the commit status `workstreams/<name>`, with state `success`, on the head of the pull
+request, or on `--head` (#377, mid-round ruling 14). `<name>` is `review-1`, `review-2`,
+`rot-check` or `layer`. [`pr-state`](#pr-state) reads the first three. Nothing reads `layer`
+yet (#396). The write goes through the dispatcher, because each skill that writes a status
+already may run it.
+
+`--description` is 140 characters at most. For `review-1`, `substantial` says that round 1
+changed logic, and any other description is minor. `--head` takes a full 40-character sha. With
+`--head`, the pull request is not read.
+
+A status cannot be deleted. A later push leaves it on an older commit of the pull request,
+where `pr-state` still reads it.
+
+Exit code 2 means a usage error, or a pull request that GitHub says does not exist. Exit code 1
+means the pull request could not be read, or the write failed. The reason is gh's own words.
 
 ### `intersect`
 
@@ -668,6 +711,8 @@ is the head of none. A pull request in no stack reads its own base. When no rule
 that branch, the list comes from the default branch (ruling P9). The chain uses every open
 pull request of the repository, also those that `--heads` leaves out. A base whose chain
 loops, or is longer than 50 pull requests, is unread like a base whose read failed (#265).
+A `workstreams/<name>` status from [`mark`](#mark) is never a required context, also when a
+ruleset names it (#377).
 In round 5, a watch concluded on the checks that had reported on the head. Those were seven
 CodeQL checks, and none of the required ones.
 

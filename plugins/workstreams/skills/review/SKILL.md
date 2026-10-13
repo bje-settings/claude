@@ -5,8 +5,8 @@ allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(
 user-invocable: false
 ---
 
-Pull request and review facts: $ARGUMENTS. The flags are the four facts `pr-state`
-cannot read. The caller reads them from the markers below.
+Pull request, and any `pr-state` flags: $ARGUMENTS. `pr-state` reads the review facts from
+the [statuses](#statuses). A flag from the caller wins over a status.
 
 Its worktree comes from `git worktree list`, matched against the pull request's head
 branch. The round's issues are the ones its body closes (`gh pr view <number>`), or
@@ -18,7 +18,7 @@ the caller. When neither names one, choose it by this rule. Do not ask, and do n
 
 - `opus` for round 2.
 - `opus` for round 1 when the diff changes logic under `src/`, `lib/`, `scripts/` or
-  `hooks/`, as in [Markers](#markers).
+  `hooks/`, as in [Statuses](#statuses).
 - `opus` for round 1 when the layer is new behaviour at the top of a stream.
 - `sonnet` for any other round 1: prose, tests, metadata or renames.
 
@@ -30,38 +30,32 @@ the pull request.
 
 Do one step for each call, then return. Never wait: the caller waits.
 
-## Markers
+## Statuses
 
-After each review round, and after the rot check, post one marker comment on the pull
-request. The effort is the name in the plan comment's last line, or the caller's. That
-line can have a `<sub>` tag or not. Take the name in both cases. The date is today's:
+After each review round, and after the rot check, record it as a commit status:
 
 ```bash
-gh pr comment <number> --body "<marker>
-Head <sha>.
-
-<sub>_Recorded by <effort>, <date>._</sub>"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> <name> [--description <text>] [--head <sha>]
 ```
 
-The marker is one of these, exactly: `Review round 1 done: substantial.`,
-`Review round 1 done.`, `Review round 2 done.`, `Rot check done.`
-
-A round 1 marker has a second line, `Head <sha>.`, with the full `head` of the round
-agent's return. Line 1 stays exact. Other markers have no `Head` line.
+`<name>` is `review-1`, `review-2` or `rot-check`. For a round, `--head` is the full `head`
+of the round agent's return. For `review-1`, `--description` is `substantial` or `minor`.
+The rot check takes neither flag. `pr-state` reads the statuses back. The first `review-1`
+status gives the round 1 head, so a second one, after a resumed round, does not move it.
 
 Round 1 is substantial only when its own commits changed logic under `src/`, `lib/`,
 `scripts/` or `hooks/`. Logic is a new or changed branch, state, output line or contract.
 A rename, comment, type, message text or one-line guard is minor. Prose, tests and
-metadata are never substantial. For the commits after the `Head` line, `pr-state` applies
+metadata are never substantial. For the commits after the round 1 head, `pr-state` applies
 the path part of this rule. Each changed file under those directories counts, except a
 test file, a file under a test directory, or a Markdown file. Then the state is `review-2`.
 
 ## Process
 
 0. Called with a round agent's JSON return: check its `substantial` against
-   `git -C <worktree> diff <from> <head>`. The diff decides the marker. Post that
-   round's marker, with its `Head` line for round 1, name any disagreement. A marker
-   that did not post is a stop: say so, and settle no thread. Then settle each entry of
+   `git -C <worktree> diff <from> <head>`. The diff decides the description. Record that
+   round's status with `mark` and its `head`, and name any disagreement. A `mark` that
+   failed is a stop: say so, and settle no thread. Then settle each entry of
    the return's `bot_threads`. Reply `Fixed in <commit>.`, or `Not changed: <reason>.`
    when `commit` is `null`. Then resolve the thread, and return.
 
@@ -75,24 +69,23 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
 1. Read the state once.
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --round <0|1|2> --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> --json
    ```
 
-   Add `--substantial` and `--rot-checked` when the caller passes them. Add
-   `--round-1-head <sha>` only with `--round 1`: `pr-state` refuses it with any other
-   round. `sinceRound1` says why the state is `review-2` after a round 1 that was not
-   substantial.
+   Add each flag the caller passes. `sinceRound1` says why the state is `review-2` after a
+   round 1 that was not substantial.
 
    A non-empty `unavailable` means a fact could not be read. Say which fact. Do not act
    on a `state` of `null`: no state at all means the command declines to name one from
    facts nobody has seen.
 
-   `contextsFrom: "head"` is different. It means the base branch is one no ruleset
-   covers, which every layer of a stack is, so the command takes the verdict over what
-   has reported on the head. Say so once, and say the rest of it too: that verdict
-   cannot see a check nobody has created. So `green` there means everything that
-   reported is satisfying, not that the pull request would pass the default branch's
-   ruleset. A layer is fully checked only once it is rebased onto a branch that has one.
+   `contextsFrom: "head"` is different. It means no ruleset covers `rulesBranch`, the
+   base of the stack bottom. An upper layer reads the rules of that base, so this is a
+   stack, or a pull request, on a branch with no ruleset. The command then takes the
+   verdict over what has reported on the head. Say so once, and say the rest of it too:
+   that verdict cannot see a check nobody has created. So `green` there means everything
+   that reported is satisfying, not that the pull request would pass a ruleset. A layer
+   is fully checked only once its stack is on a branch that has one.
 
 2. Act on the state, then return it.
 
@@ -129,7 +122,11 @@ test file, a file under a test directory, or a Markdown file. Then the state is 
    this round does not own.
 
 4. Rot check. Read [rot-check.md](rot-check.md) and do what it says with the rot lists the
-   rounds returned. Then post the `Rot check done.` marker.
+   rounds returned. Then record it:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> rot-check
+   ```
 
 5. Report five things: the state reached, what each round applied and rejected with its
    reason, the rot check's corrections, anything returned under `lower_layer`, and each

@@ -4,7 +4,7 @@ description: How `workstreams.ts pr-state` reads one pull request and its checks
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-03
+  at: 2026-10-13
 ---
 
 # pr-state flow
@@ -14,16 +14,16 @@ generated:
 
 ```mermaid
 flowchart TD
-    A[pr-state run] --> B{Flags known, --round 0, 1 or 2?}
+    A[pr-state run] --> B{Flags known, --round 0, 1, 2 or not given?}
     B -->|No| Z1([Refused, exit 2]):::stop
     B -->|--help or -h| H([Print usage, exit 0])
     B -->|Yes| C{Exactly one positive<br/>pull request number?}
     C -->|No| Z1
     C -->|Yes| D{--substantial or --rot-checked<br/>with round 0?}
     D -->|Yes| Z1
-    D -->|No| D2{--round-1-head with a round other<br/>than 1, or not a commit sha?}
+    D -->|No| D2{--round-1-head with no --round 1,<br/>or not a commit sha?}
     D2 -->|Yes| Z1
-    D2 -->|No| E[Read the pull request; if read, the open pull requests,<br/>the required contexts of its stack bottom's base,<br/>and the head branch's runs;<br/>with --round-1-head and no --substantial, the<br/>compare of the round 1 head to the head]
+    D2 -->|No| E[Read the pull request; if read, the open pull requests,<br/>the required contexts of its stack bottom's base,<br/>the head branch's runs and the review statuses;<br/>at round 1 with a round 1 head and not substantial,<br/>the compare of the round 1 head to the head]
     E --> F[Read recent runs for a wait hint]
     F --> G{Pull request unread, not<br/>NOT_FOUND, and recent runs<br/>also unread?}
     G -->|Yes| Z2([failed: read nothing, exit 1]):::stop
@@ -39,19 +39,21 @@ flowchart TD
     J -->|Yes| K{A pull_request run<br/>for the head commit?}
     K -->|No| S2([state no-run, exit 0])
     K -->|Yes| K3[Drop each check of a cancelled run<br/>that a newer run of its workflow follows,<br/>with or without a check yet]
-    K3 --> L[Contexts: the ruleset's list, or the checks<br/>on the head, less unexpanded matrix names and<br/>pending checks with no run, when no ruleset names any]
+    K3 --> L[Contexts: the ruleset's list, or the checks<br/>on the head, less unexpanded matrix names and<br/>pending checks with no run, when no ruleset names any;<br/>never a workstreams/ status]
     L --> L2{Draft?}
     L2 -->|Yes| L3[Leave out each context that no check names<br/>and that a check from a SKIPPED suite with<br/>an unexpanded matrix name matches]
     L2 -->|No| V
     L3 --> V[Verdict: red if one failed; pending if one has not<br/>concluded, or the list is empty or not settled; else green]
-    V --> Q{Review rounds completed?}
+    V --> RF{Status read short,<br/>and no --round flag?}
+    RF -->|Yes| S4([no state, reason listed, exit 0]):::stop
+    RF -->|No| Q{Review rounds completed: the flag, else<br/>a review-2 status, a review-1 status, or none?}
     Q -->|0: green, pending or red| T3([state review-1, exit 0])
     Q -->|1 or 2| Q1{Green, and no unresolved thread,<br/>from a person or a bot?}
     Q1 -->|No| T4([state fixing, exit 0])
-    Q1 -->|Yes| Q2{Round 1, and --substantial?}
+    Q1 -->|Yes| Q2{Round 1, and --substantial or a first<br/>review-1 status that says substantial?}
     Q2 -->|Yes| T5([state review-2, exit 0])
-    Q2 -->|No| R1{Round 1, and --round-1-head?}
-    R1 -->|No| Q3{--rot-checked?}
+    Q2 -->|No| R1{Round 1, with --round-1-head or<br/>the commit of the first review-1 status?}
+    R1 -->|No| Q3{--rot-checked, or a rot-check status?}
     R1 -->|Yes| R2{Compare read?}
     R2 -->|No| S3([no state, reason listed, exit 0]):::stop
     R2 -->|Yes| R3{Round 1 head not an ancestor, file list<br/>at GitHub's limit, or a logic file changed?}
@@ -108,7 +110,19 @@ state at all. A malformed reply is one such reason. A repository gh could not re
 another. A read gh refused outright is a third. A NOT_FOUND for a field nested under the pull
 request, rather than the pull request itself, is a fourth: that field is gone, not the number.
 
-`--round-1-head` is line 2 of the round 1 marker (#356). The compare compares commits, not
+The review facts come from the `workstreams/<name>` commit statuses that `workstreams.ts mark`
+writes, on the first 100 commits of the pull request (#377). A `review-2` status gives round 2,
+a `review-1` status round 1, and none round 0. The FIRST `review-1` status, by its time, gives
+the round 1 head and whether round 1 was substantial (#395). A second one, after a resumed
+round, does not move the head. A `rot-check` status gives the rot check. Each flag that is
+given wins over its status (mid-round ruling 14). A status read that fell short gives no state
+unless `--round` is given, and then the flags alone are the facts. A force-push that drops a
+commit drops its statuses from the read too.
+
+A `workstreams/` status is never a context. It is not in the head list, and not in the verdict,
+also when a ruleset names it.
+
+The round 1 head is what round 1 reviewed (#356). The compare compares commits, not
 times, because a rebase moves commit dates. A round 1 head that is not an ancestor of the head
 (`diverged` or `behind`) gives `review-2`. So does a file list at GitHub's limit of 300, which
 can be short. A logic file is under `src/`, `lib/`, `scripts/` or `hooks/` at any depth. A test
@@ -116,4 +130,4 @@ file, a file under a test directory, and a Markdown file are not logic. `sinceRo
 reason.
 
 A merged or closed pull request gives state `merged` or `closed`. This check runs right after
-`awaiting-pr`, before every other rule. CI, threads and markers do not change it.
+`awaiting-pr`, before every other rule. CI, threads and review statuses do not change it.
