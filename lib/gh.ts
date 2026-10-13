@@ -2958,7 +2958,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     },
 
     // A write, so it throws a `GhError` as `addComment` does. `-f` sends
-    // each field as a string, which is what each of the three is.
+    // each field as a string, which is what each field is.
     createCommitStatus: async (status) => {
       const repositoryName = String((await client.viewRepository()).nameWithOwner)
       return record(

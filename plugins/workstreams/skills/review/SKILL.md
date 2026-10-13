@@ -40,8 +40,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" mark <number> <name> [--desc
 
 `<name>` is `review-1`, `review-2` or `rot-check`. For a round, `--head` is the full `head`
 of the round agent's return. For `review-1`, `--description` is `substantial` or `minor`.
-The rot check takes neither flag. `pr-state` reads the statuses back. The first `review-1`
-status gives the round 1 head, so a second one, after a resumed round, does not move it.
+Step 4 runs the rot check with neither flag. `pr-state` reads the statuses back. The first
+`review-1` status gives the round 1 head, so a second one, after a resumed round, does not move
+it.
 
 Round 1 is substantial only when its own commits changed logic under `src/`, `lib/`,
 `scripts/` or `hooks/`. Logic is a new or changed branch, state, output line or contract.
