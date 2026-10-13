@@ -1,6 +1,6 @@
 ---
 type: ADR
-description: Plugin code runs on Node 22.18 or newer, executing erasable TypeScript directly with no build step and explicit `.ts` imports, sharing one root `lib/` through a committed symlink, with the command function as the test seam, tests co-located beside the code (superseded by ADR 004), and no plugin carrying its own `package.json`.
+description: Plugin code runs on Node 22.18 or newer, executing erasable TypeScript directly with no build step and explicit `.ts` imports, sharing one root `lib/` through a committed symlink (superseded by ADR 006), with the command function as the test seam, tests co-located beside the code (superseded by ADR 004), and no plugin carrying its own `package.json`.
 status: stable
 created: 2026-09-12
 owner: brianespinosa
@@ -103,7 +103,9 @@ plugin now holds copies of the `lib/` files it imports, in place of the symlink;
 **The symlink is the only path out of a plugin.** Nothing else imports across a plugin boundary,
 and the repository layout test is what enforces that, the way `tests/test_repo_layout.py` enforces
 the root-script rule today: a violation's failure mode is otherwise a confusing error in an
-unrelated plugin's tests.
+unrelated plugin's tests. **Superseded
+([#417](https://github.com/bje-settings/claude/issues/417)):** no import leaves a plugin; see
+[ADR 006](006-plugins-hold-copies-of-lib.md).
 
 **The command function is the test seam.** A command is an exported function taking parsed
 arguments and injected clients and returning an exit code and output. ~~`bin/`~~ **Deviation
@@ -169,6 +171,9 @@ dereferenced into it, and nothing else.
   There is no per-plugin visibility and no mechanism to give one, which makes review the only thing
   standing between the shared library and a helper only one plugin needs. The layout test enforces
   that the symlink is the only crossing; it cannot enforce that what crosses deserves to.
+  **Superseded ([#417](https://github.com/bje-settings/claude/issues/417)):** the root `lib/` is
+  still the one place to edit, and each plugin holds copies
+  ([ADR 006](006-plugins-hold-copies-of-lib.md)).
 - **Which side of a carve-out the local development flow falls on is unsettled.** The plugins
   reference states that for a plugin installed with `--plugin-dir`, from a local path, or from a
   `command` source in copy mode, only symlinks resolving inside the plugin's own directory are
@@ -179,6 +184,8 @@ dereferenced into it, and nothing else.
   settle it; [#127](https://github.com/bje-settings/claude/issues/127) does, on the first plugin
   that links the root lib. If it turns out to be the carve-out, the local flow needs a documented
   step in place of the dereference. Nothing about the installed or mirrored paths changes.
+  **Superseded ([#417](https://github.com/bje-settings/claude/issues/417)):** with no symlink,
+  each install method gets the same files ([ADR 006](006-plugins-hold-copies-of-lib.md)).
 - **Tests and fixtures ship inertly in the cache copy.** The installed plugin is larger than the
   plugin, permanently, because there is no exclusion mechanism to ask for. ~~The mirror filter keeps
   the downstream copy clean and is one more rule to keep in sync with the layout.~~ **Deviation
@@ -188,7 +195,9 @@ dereferenced into it, and nothing else.
   ([ADR 004](004-plugins-ship-runtime-files-only.md)).
 - **Symlink support becomes load-bearing for contributors.** A clone without git symlink support
   gets a text file where `plugins/<plugin>/src/lib` should be, and the symptom is an unresolved
-  import rather than a message naming the cause.
+  import rather than a message naming the cause. **Superseded
+  ([#417](https://github.com/bje-settings/claude/issues/417)):** no plugin holds a symlink
+  ([ADR 006](006-plugins-hold-copies-of-lib.md)).
 - **A type system is not a domain check.** Nothing here catches a fold that treats a cancelled
   check as pending. The test discipline that caught that, a test per decision arm and verification
   by mutation rather than by the coverage number, carries over from `.claude/rules/type-py.md` into

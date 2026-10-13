@@ -6,8 +6,8 @@ Each plugin holds copies of the files it imports, and of the files that those im
 write the copies. `node scripts/sync-lib.ts --check` fails when a copy differs from this
 directory, and `tests/repo/sync-lib.test.ts` runs it. Never edit a copy.
 
-A copy is byte-equal to its source here. So an installed plugin needs nothing at run time that
-the plugin did not ship, whatever the install method.
+Each copy is a real file, not a link. So an installed plugin needs nothing at run time that the
+plugin did not ship, whatever the install method.
 
 **The Python code this directory ports was deleted at #127.** `plugins/gh/scripts/*.py`, its
 `lib/`, and `plugins/gh/hooks/hook-io.py` are gone from the tree. The file and line references

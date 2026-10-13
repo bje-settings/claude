@@ -16,9 +16,9 @@ const COPY_SPECIFIER = /^#[^/]+\/lib\/(.+)$/
 // loads a copy and lib/ as two modules, each with its own classes. The
 // harness throws the `GhError` of lib/, and a plugin tests for its own copy
 // with `instanceof`. So in a test run, this plugin sends each import of a
-// copy to the file in lib/. Every module then sees one lib/, as node saw it
-// through the old symlink. `scripts/sync-lib.ts --check` proves that each
-// copy is equal to lib/, and the spawned tests run the copies as they ship.
+// copy to the file in lib/. Every module then sees one lib/.
+// `scripts/sync-lib.ts --check` proves that each copy is equal to lib/, and
+// the spawned tests run the copies as they ship.
 const oneLib: Plugin = {
   name: 'one-lib',
   enforce: 'pre',

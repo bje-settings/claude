@@ -112,7 +112,7 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
   resolve it. `tests/repo/repo-layout.test.ts` enforces this (`crossPluginImports`,
   `pluginSymlinks`, `packageImports`).
 - Edit `lib/`, never a copy. Then run `node scripts/sync-lib.ts`. `--check` fails when a copy
-  differs from `lib/`, and `tests/repo/sync-lib.test.ts` runs it.
+  is missing, extra or different, and `tests/repo/sync-lib.test.ts` runs it.
 - Never reach the root `lib/` around the copies. A `../../../lib` import from a plugin file
   resolves in this checkout only. It does not resolve for anyone who installed the plugin, so it
   is refused.

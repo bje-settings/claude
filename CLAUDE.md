@@ -66,15 +66,15 @@ Every skill has a flow directory, `docs/flows/<plugin>/<skill>/`, with `_skill-f
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 
-Not everything here is a plugin. A root `scripts/` script, in TypeScript, would be this
-repository's own tooling. `.claude/skills/` would hold the skill that drives it. Nobody would
-install either one. Neither would appear in the marketplace manifest. `claude plugin validate`
-never sees either one. The convention still holds them to the same standard, because they can
-change other repositories. `scripts/sync-lib.ts` is the one root script. It copies `lib/` into
-each plugin, and `tests/repo/sync-lib.test.ts` tests it. No repo-local skill exists: #128 deleted
-the only one, `/publish`.
+Not everything here is a plugin. A root `scripts/` script, in TypeScript, is this repository's
+own tooling. `.claude/skills/` holds the skill that drives one. Nobody installs either one.
+Neither appears in the marketplace manifest. `claude plugin validate` never sees either one. The
+convention still holds them to the same standard, because they can change other repositories.
+`scripts/sync-lib.ts` is the one root script. It copies `lib/` into each plugin, and
+`tests/repo/sync-lib.test.ts` tests it. No repo-local skill exists: #128 deleted the only one,
+`/publish`.
 
-Two things would differ from a plugin:
+Two things differ from a plugin:
 
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.
