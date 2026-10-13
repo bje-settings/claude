@@ -224,3 +224,8 @@ describe('the entry', () => {
 it('names the repository root', () => {
   expect(lstatSync(path.join(ROOT, 'scripts', 'sync-lib.ts')).isFile()).toBe(true)
 })
+
+it('finds each copy in this repository equal to lib', () => {
+  // The guard: the synthetic trees above prove the check, and this runs it.
+  expect(renderText(syncLib(['--check'], ROOT))).toEqual({ stdout: '', stderr: '', exitCode: 0 })
+})
