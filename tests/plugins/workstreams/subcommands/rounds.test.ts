@@ -319,6 +319,14 @@ describe('the end of a round', () => {
       expect(plans(await reportOf([], ghOver(rows)))).toEqual([])
     })
 
+    it('ends the round when the heading words differ in case, or a space is added', async () => {
+      const cased = [issue(28, [TRIAGE, '## round END: Triage pass'])]
+      const spaced = [issue(28, [TRIAGE, '## Round end:  Triage pass'])]
+
+      expect(plans(await reportOf([], ghOver(cased)))).toEqual([])
+      expect(plans(await reportOf([], ghOver(spaced)))).toEqual([])
+    })
+
     it('still ends the round on the current "<round> end," form', async () => {
       const rows = [issue(28, [TRIAGE, 'Triage pass end, 2026-10-03.'])]
 
