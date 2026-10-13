@@ -823,8 +823,9 @@ class SyncRepoRun {
   }
 
   /** Whether the merge commit `oid` is here. There is no fetch (ruling 11).
-   *  {@link advance} fetched `origin` before the prune loop. So a merge
-   *  commit that is not here cannot be on the local `origin/<default>`.
+   *  {@link fetch} fetched `origin` before the prune loop, and a failed
+   *  fetch stops the run before it. So a merge commit that is not here
+   *  cannot be on the local `origin/<default>`.
    *  git answers 1 for "not here". Any other failure is a probe that could
    *  not answer. `cat-file -e` is not used, because it answers 128 both
    *  for a missing object and for a broken git. */
