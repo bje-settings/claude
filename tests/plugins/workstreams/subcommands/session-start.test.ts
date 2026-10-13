@@ -650,6 +650,53 @@ describe('gh on a PATH entry that is a directory named gh', () => {
   })
 })
 
+describe('gh on PATH: the walk past entries that do not count', () => {
+  const ABSENT = 'workstreams: ⚠️ the GitHub CLI (gh) is absent'
+  const stubbed = (sandbox: Sandbox, name: string, mode: number): string => {
+    const dir = sandbox.join(name)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path.join(dir, 'gh'), '#!/bin/sh\nexit 0\n', { mode })
+    return dir
+  }
+
+  it('reads a file that is not executable as absent', async () => {
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    env.PATH = stubbed(sandbox, 'plain', 0o644)
+
+    expect((await run(env)).stdout).toContain(ABSENT)
+  })
+
+  it('walks past a directory and a plain file to a later executable, and takes the first', async () => {
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    mkdirSync(sandbox.join('dir', 'gh'), { recursive: true })
+    const listed = [
+      sandbox.join('dir'),
+      stubbed(sandbox, 'plain', 0o644),
+      stubbed(sandbox, 'real', 0o755),
+      sandbox.join('nowhere'),
+    ]
+    env.PATH = listed.join(path.delimiter)
+
+    expect((await run(env)).stdout).not.toContain(ABSENT)
+  })
+
+  it('reads an empty PATH entry as the cwd', async () => {
+    const sandbox = createSandbox()
+    const env = withRegistry(sandbox, installed([withReviewers(sandbox)]))
+    const bin = stubbed(sandbox, 'cwd', 0o755)
+    env.PATH = `${path.delimiter}${sandbox.join('nowhere')}`
+    const before = process.cwd()
+    process.chdir(bin)
+    try {
+      expect((await run(env)).stdout).not.toContain(ABSENT)
+    } finally {
+      process.chdir(before)
+    }
+  })
+})
+
 describe('HOME unset entirely', () => {
   it('falls back to claude plugin list --json, with no file to read at all', async () => {
     const sandbox = createSandbox()
