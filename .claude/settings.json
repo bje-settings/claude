@@ -6,17 +6,10 @@
         "source": "github",
         "repo": "bje-settings/claude"
       }
-    },
-    "lsps": {
-      "source": {
-        "source": "github",
-        "repo": "SurveyMonkey/lsps"
-      }
     }
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": false,
-    "lsp-merge@lsps": true,
     "gh@bje": true,
     "workstreams@bje": true,
     "mermaid@bje": true,

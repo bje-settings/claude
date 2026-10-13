@@ -29,10 +29,5 @@
       "description": "/audit:context audits a repository's CLAUDE.md, README.md and .claude/**/*.md for rot: references that no longer resolve, statements whose named condition has ended, duplicated claims.",
       "category": "development"
     }
-  ],
-  "renames": {
-    "lsp-merge": null,
-    "typescript7-lsp": null,
-    "biome-lsp": null
-  }
+  ]
 }

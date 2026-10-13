@@ -109,8 +109,6 @@ The plugin's own README has the detail, including the scripts the skills and hoo
   </tr>
 </table>
 
-The language server plugins live in the [`lsps` marketplace](https://github.com/SurveyMonkey/lsps).
-
 ## Contributing
 
 Run `pnpm test` for the test suite. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest, and for
