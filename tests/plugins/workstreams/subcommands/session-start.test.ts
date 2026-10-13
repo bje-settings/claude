@@ -379,7 +379,10 @@ describe('additionalContext', () => {
 })
 
 describe('the deadline', () => {
-  it('passes the given deadline through to every child it may start', async () => {
+  /** A wait of `ms`, so a read takes known time from the deadline. */
+  const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('gives every child it may start the time left of the one deadline', async () => {
     const { env } = healthySandbox()
     const asked: { key: string; options: { timeoutMs?: number } }[] = []
     const output = captureOutput()
@@ -395,21 +398,24 @@ describe('the deadline', () => {
       env,
       output,
       run: runner,
-      files: nodeFileReads,
+      // The gh children start only after the `PATH` walks. Each walk waits
+      // 200 ms here, so the full deadline is no longer left (#267).
+      files: {
+        ...nodeFileReads,
+        kindOf: (target) => delay(200).then(() => nodeFileReads.kindOf(target)),
+      },
       deadlineMs: 1_234,
       procPresent: true,
     })
 
-    // Each child gets the time left of the one deadline: no more than it,
-    // and no less than what is left after a few local reads.
     expect(asked.length).toBeGreaterThan(0)
     for (const call of asked) {
-      expect(call.options.timeoutMs).toBeLessThanOrEqual(1_234)
-      expect(call.options.timeoutMs).toBeGreaterThan(1_034)
+      expect(call.options.timeoutMs).toBeLessThanOrEqual(1_234 - 190)
+      expect(call.options.timeoutMs).toBeGreaterThan(1_234 - 800)
     }
   })
 
-  it('passes the given deadline to the claude plugin list --json fallback too', async () => {
+  it('gives the claude plugin list --json fallback the time left of the one deadline too', async () => {
     // The test above never triggers the fallback: `healthySandbox` writes
     // a readable registry, so `readRegistry` never calls `run` at all.
     // This one makes the registry unreadable first, so the only way to
@@ -431,7 +437,12 @@ describe('the deadline', () => {
       env,
       output,
       run: runner,
-      files: nodeFileReads,
+      // The fallback starts only after the registry read fails. That read
+      // waits 200 ms here, so the full deadline is no longer left (#267).
+      files: {
+        ...nodeFileReads,
+        readText: (file) => delay(200).then(() => nodeFileReads.readText(file)),
+      },
       deadlineMs: 4_321,
       procPresent: true,
     })
@@ -439,8 +450,8 @@ describe('the deadline', () => {
     const fallback = runner.asked.find((call) => call.key === 'claude plugin list --json')
     expect(fallback).toBeDefined()
     const bound = (fallback?.options as { timeoutMs?: number } | undefined)?.timeoutMs
-    expect(bound).toBeLessThanOrEqual(4_321)
-    expect(bound).toBeGreaterThan(4_121)
+    expect(bound).toBeLessThanOrEqual(4_321 - 190)
+    expect(bound).toBeGreaterThan(4_321 - 800)
   })
 })
 
