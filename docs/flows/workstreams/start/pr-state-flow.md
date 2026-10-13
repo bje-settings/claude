@@ -23,7 +23,7 @@ flowchart TD
     D -->|Yes| Z1
     D -->|No| D2{--round-1-head with a round other<br/>than 1, or not a commit sha?}
     D2 -->|Yes| Z1
-    D2 -->|No| E[Read the pull request; if read, the base branch's<br/>required contexts and the head branch's runs;<br/>with --round-1-head and no --substantial, the<br/>compare of the round 1 head to the head]
+    D2 -->|No| E[Read the pull request; if read, the open pull requests,<br/>the required contexts of its stack bottom's base,<br/>and the head branch's runs;<br/>with --round-1-head and no --substantial, the<br/>compare of the round 1 head to the head]
     E --> F[Read recent runs for a wait hint]
     F --> G{Pull request unread, not<br/>NOT_FOUND, and recent runs<br/>also unread?}
     G -->|Yes| Z2([failed: read nothing, exit 1]):::stop

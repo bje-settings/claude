@@ -1748,6 +1748,44 @@ const readWorkflowRun = (node: unknown): WorkflowRun | null => {
   }
 }
 
+/** The words GitHub answers with when a plan does not include rulesets
+ *  (#414, seen on a private repository of a free organization). */
+const PLAN_LIMIT_MESSAGE =
+  'Upgrade to GitHub Pro or make this repository public to enable this feature'
+
+/**
+ * Whether a branch-rules answer is GitHub's plan-limit refusal.
+ *
+ * The match is narrow on purpose: the body must be an error body that says
+ * the plan-limit words, and a status, when the body has one, must be 403.
+ * It is safe to read this as "no rulesets" because the plan lacks the
+ * feature. A repository that cannot have rulesets has none that require a
+ * check. Any other refusal, such as a 403 for a missing token scope or a
+ * rate limit, does not carry these words and stays unavailable (#414).
+ */
+const isPlanLimit = (value: unknown): boolean => {
+  const body = asRecord(value)
+  const status = body?.status
+  return (
+    typeof body?.message === 'string' &&
+    body.message.includes(PLAN_LIMIT_MESSAGE) &&
+    (status === undefined || String(status) === '403')
+  )
+}
+
+/** What a non-list answer says of itself, as a suffix: its status and
+ *  message when it is an error body, or nothing (#414). gh prints the
+ *  error body of a 4xx to stdout, with `status` as a string. */
+const errorBodyOf = (value: unknown): string => {
+  const body = asRecord(value)
+  const message = asText(body?.message)
+  if (message === null) return ''
+  const status = body?.status
+  return typeof status === 'string' || typeof status === 'number'
+    ? ` (${status}: ${message})`
+    : ` (${message})`
+}
+
 /**
  * Every context the branch rules require, unioned across the rules, or null
  * when a rule is not the shape the endpoint promises.
@@ -2579,10 +2617,11 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     requiredContexts: async (query) => {
       const answer = await restJson(`rules/branches/${encodeURIComponent(query.branch)}`)
       if (answer.unavailable !== null) return { contexts: [], unavailable: answer.unavailable }
+      if (isPlanLimit(answer.value)) return { contexts: [], unavailable: null }
       if (!Array.isArray(answer.value)) {
         return {
           contexts: [],
-          unavailable: `the rules for ${query.branch} were not a list of rules`,
+          unavailable: `the rules for ${query.branch} were not a list of rules${errorBodyOf(answer.value)}`,
         }
       }
       const contexts = requiredContextsOf(answer.value)

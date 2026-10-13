@@ -11,12 +11,16 @@
 // review a head that had already moved.
 //
 // **Nothing is hard-coded about the repository either.** The required
-// status-check contexts come from the rules for the pull request's OWN
-// base branch, read at run time. On this repository, a pull request based
-// on the default branch must pass nine contexts, and one based on a topic
-// branch, which is what every layer of a stack is, must pass none. A
-// command that carried either list in its source would report the wrong
-// answer for half the pull requests a stack is made of.
+// status-check contexts come from the rules for the base of the pull
+// request's stack BOTTOM, read at run time (#398). GitHub takes the merge
+// requirements of every pull request in a stack from the bottom pull
+// request's base. A base that is the head of an open pull request moves the
+// read down to that pull request's base, until a base is the head of none
+// ({@link stackBottom}). A pull request in no stack reads its own base. On
+// this repository, a pull request based on the default branch must pass
+// nine contexts, and every layer of a stack above it must pass the same
+// nine. A command that carried either list in its source would report the
+// wrong answer for half the pull requests a stack is made of.
 //
 // **A bot's thread holds the loop too** (#383, round 15 ruling 7). This
 // reverses the part of #219 that left bot threads out of `fixing`. #219's
@@ -45,6 +49,7 @@ import {
   type ReportedContext,
   reportContexts,
   splitDraftSkipped,
+  stackBottom,
 } from '../required-contexts.ts'
 
 // The derivation moved to `../required-contexts.ts` (round 10 ruling P6).
@@ -58,10 +63,11 @@ Usage:
   workstreams.ts pr-state <number> [--round 0|1|2] [--substantial]
     [--round-1-head <sha>] [--rot-checked] [--json]
 
-Reads the status-check contexts the pull request's base branch requires, the
-head commit and what has reported on it, whether a workflow run for the head
-exists with event pull_request, the unresolved review threads, and how long
-recent runs have taken, and reports the state the review loop is in.
+Reads the status-check contexts that the base of the pull request's stack bottom
+requires (its own base, when it is in no stack), the head commit and what has
+reported on it, whether a workflow run for the head exists with event
+pull_request, the unresolved review threads, and how long recent runs have
+taken, and reports the state the review loop is in.
 
 --round is how many review rounds have COMPLETED, which is the one thing this
 command cannot read; --substantial says round 1 changed something substantial,
@@ -209,6 +215,10 @@ export interface PrStateReport {
    *  requires anything of that branch, which is the ordinary case for a
    *  stacked pull request based on a topic branch. */
   readonly requiredContexts: readonly string[]
+  /** The branch whose rules `requiredContexts` came from: the base of the
+   *  stack bottom (#398). It is `base` for a pull request in no stack. Null
+   *  when no list was read. */
+  readonly rulesBranch: string | null
   /**
    * Where the names in `contexts` came from.
    *
@@ -518,9 +528,12 @@ export const renderReport = (report: PrStateReport): string => {
   }
 
   lines.push('', `required contexts (${report.requiredContexts.length})`)
+  if (report.rulesBranch !== null && report.rulesBranch !== report.base) {
+    lines.push(`  read from the rules of ${report.rulesBranch}, the base of the stack bottom`)
+  }
   if (report.contextsFrom === 'head') {
     lines.push(
-      `  no ruleset requires a status check of ${report.base}, so the verdict below is over`,
+      `  no ruleset requires a status check of ${report.rulesBranch ?? report.base}, so the verdict below is over`,
       `  the ${report.contexts.length} context(s) that have reported on the head instead,`,
       '  and cannot see a check that has not been created yet',
     )
@@ -636,13 +649,37 @@ const pullRequestFields = (
       }
 }
 
+/** The rules of the stack bottom's base, and the branch they came from.
+ *
+ *  The chain comes from the open pull requests, one read. A short or failed
+ *  read of that list gives no answer, because a missing pull request could
+ *  hide a lower layer. A chain with no bottom gives no answer either
+ *  ({@link stackBottom}). Both read as unavailable, never as "nothing
+ *  required". A pull request from a fork that shares a branch name with
+ *  one here is not told apart, because `listOpenPullRequests` carries no
+ *  fork flag. The wrong chain is rare, and ends at a base with no ruleset
+ *  in the worst case. */
+const readStackRules = async (
+  gh: GhClient,
+  base: string,
+): Promise<{ contexts: readonly string[]; unavailable: string | null; branch: string | null }> => {
+  const open = await gh.listOpenPullRequests()
+  if (open.unavailable !== null)
+    return { contexts: [], unavailable: open.unavailable, branch: null }
+  const bottom = stackBottom(base, open.rows)
+  if (bottom.branch === null) return { contexts: [], unavailable: bottom.unavailable, branch: null }
+  const read = await gh.requiredContexts({ branch: bottom.branch })
+  return { ...read, branch: read.unavailable === null ? bottom.branch : null }
+}
+
 /**
  * Read the pull request and answer with its state.
  *
- * Four reads. Each one answers, or says why it could not; none of them
- * throws. They cover the pull request itself, the contexts its base
- * branch requires, the workflow runs on its head branch, and a sample of
- * recent runs for the wait hint. A read that failed costs its own fact
+ * Five reads. Each one answers, or says why it could not; none of them
+ * throws. They cover the pull request itself, the open pull requests that
+ * show its stack, the contexts its stack bottom's base requires, the
+ * workflow runs on its head branch, and a sample of recent runs for the
+ * wait hint. A read that failed costs its own fact
  * and nothing else. That is why a wait hint that could not be measured
  * does not stop the verdict.
  */
@@ -691,13 +728,13 @@ export const runPrState = async (
   note(viewed.unavailable)
   const detail = viewed.pullRequest
 
-  // The base branch's own rules apply, not the default branch's: see the
-  // header. With no pull request read, there is no base to ask about. To
-  // ask about a guess would be worse than to ask nothing.
+  // The stack bottom's base rules apply: see the header. With no pull
+  // request read, there is no base to ask about. To ask about a guess would
+  // be worse than to ask nothing.
   const required =
     detail === null
-      ? { contexts: [], unavailable: null }
-      : await context.gh.requiredContexts({ branch: detail.base })
+      ? { contexts: [], unavailable: null, branch: null }
+      : await readStackRules(context.gh, detail.base)
   note(required.unavailable)
 
   const runs =
@@ -778,6 +815,7 @@ export const runPrState = async (
     pullRequest: requested.value,
     ...pullRequestFields(detail),
     requiredContexts: required.contexts,
+    rulesBranch: required.branch,
     contextsFrom: detail === null ? 'unread' : list.from,
     contexts,
     draftSkipped: split.draftSkipped,

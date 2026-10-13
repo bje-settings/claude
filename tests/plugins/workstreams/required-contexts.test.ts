@@ -6,11 +6,13 @@ import { describe, expect, it } from 'vitest'
 import type { CheckContext } from '#harness/gh.ts'
 import {
   answeringChecks,
+  MAX_STACK_DEPTH,
   namesOrDefault,
   namesOrHead,
   needsHeadRuns,
   reportContexts,
   splitDraftSkipped,
+  stackBottom,
 } from '#workstreams/required-contexts.ts'
 
 const check = (
@@ -657,5 +659,63 @@ describe('splitDraftSkipped (#365, round 15 ruling 5)', () => {
     expect(split(['build (ubuntu, 22)', 'build (ubuntu)'], checks).draftSkipped).toEqual([
       'build (ubuntu, 22)',
     ])
+  })
+})
+
+describe('stackBottom (#398)', () => {
+  /** `count` pull requests: layer 1 on main, layer 2 on layer 1, and so on. */
+  const chain = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      head: `l${index + 1}`,
+      base: index === 0 ? 'main' : `l${index}`,
+    }))
+
+  it('answers the base itself when no open pull request has it as its head', () => {
+    expect(stackBottom('main', chain(2))).toEqual({ branch: 'main', unavailable: null })
+  })
+
+  it('answers the base of the bottom pull request, however high the base sits', () => {
+    expect(stackBottom('l3', chain(3))).toEqual({ branch: 'main', unavailable: null })
+  })
+
+  it('follows a chain of exactly the depth bound, and refuses one pull request more', () => {
+    expect(stackBottom(`l${MAX_STACK_DEPTH}`, chain(MAX_STACK_DEPTH))).toEqual({
+      branch: 'main',
+      unavailable: null,
+    })
+    expect(stackBottom(`l${MAX_STACK_DEPTH + 1}`, chain(MAX_STACK_DEPTH + 1))).toEqual({
+      branch: null,
+      unavailable: `the chain of bases under l${MAX_STACK_DEPTH + 1} is longer than ${MAX_STACK_DEPTH} pull requests`,
+    })
+  })
+
+  it('stops at a loop, and at a pull request that is its own base', () => {
+    const loop = [
+      { head: 'a', base: 'b' },
+      { head: 'b', base: 'c' },
+      { head: 'c', base: 'a' },
+    ]
+
+    expect(stackBottom('a', loop)).toEqual({
+      branch: null,
+      unavailable: 'the chain of bases under a loops back to a',
+    })
+    expect(stackBottom('x', [...loop, { head: 'x', base: 'x' }])).toEqual({
+      branch: null,
+      unavailable: 'the chain of bases under x loops back to x',
+    })
+  })
+
+  it('refuses a branch that two open pull requests have as their head', () => {
+    const open = [
+      { head: 'a', base: 'main' },
+      { head: 'a', base: 'release' },
+    ]
+
+    expect(stackBottom('a', open)).toEqual({
+      branch: null,
+      unavailable:
+        'more than one open pull request has the head a, so the stack under a has no one bottom',
+    })
   })
 })

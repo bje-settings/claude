@@ -486,6 +486,15 @@ Verified against this repository on 2026-09-22: `main` must pass nine contexts, 
 caller that read the default branch's list would report the wrong answer for exactly the pull
 requests a stack is made of. An EMPTY list is therefore an answer, not a failure.
 
+`requiredContexts` reads a 403 that names the plan limit as a branch with no rulesets: no
+contexts and no `unavailable` (#414). The message is "Upgrade to GitHub Pro or make this
+repository public to enable this feature." A private repository of a free organization gets
+it, and a plan that lacks rulesets has none that require a check. The match needs those
+words, and a status of 403 when the body has one. Any other answer that is not a list stays
+`unavailable`, with the body's status and message in the sentence, such as
+`(403: Resource not accessible by personal access token)`. `gh api` prints that body to
+stdout and exits non-zero, which `restJson` reads on purpose.
+
 `requiredContexts` unions the contexts of every `required_status_checks` rule. One rule that could
 not be read costs the whole answer, not just its own context, because a required context dropped in
 silence is a pull request reported green that the ruleset would in fact refuse.

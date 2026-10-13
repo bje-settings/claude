@@ -1976,14 +1976,109 @@ describe('the review loop reads', () => {
       })
     })
 
-    it('reports a reply that is not a list of rules, rather than reading it as none', async () => {
+    const PLAN_LIMIT =
+      'Upgrade to GitHub Pro or make this repository public to enable this feature.'
+
+    // The body gh prints to stdout for a refusal, with a non-zero exit. A
+    // real 404 was read from gh on 2026-10-13 and has this shape; the
+    // 403 body is the message #414 records.
+    const refusal = (body: unknown) => ({
+      status: 1,
+      stdout: JSON.stringify(body),
+      stderr: 'gh: refused\n',
+    })
+
+    it('reads the plan-limit 403 as a branch with no rulesets, which is an answer', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        refusal({
+          message: PLAN_LIMIT,
+          documentation_url: 'https://docs.github.com',
+          status: '403',
+        }),
+      ])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: null,
+      })
+    })
+
+    it('reads the plan-limit message with no status field the same way', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: null,
+      })
+    })
+
+    it('reads a numeric 403 status with the plan-limit message the same way', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT, status: 403 })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: null,
+      })
+    })
+
+    it('keeps any other 403 unavailable, and names its status and message', async () => {
+      // A missing token scope or a rate limit is not a plan limit. To read
+      // it as "no rulesets" would report green a pull request that a
+      // ruleset refuses.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        refusal({ message: 'Resource not accessible by personal access token', status: '403' }),
+      ])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable:
+          'the rules for main were not a list of rules (403: Resource not accessible by personal access token)',
+      })
+    })
+
+    it('keeps the plan-limit message unavailable under a status other than 403', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: PLAN_LIMIT, status: '404' })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: `the rules for main were not a list of rules (404: ${PLAN_LIMIT})`,
+      })
+    })
+
+    it('keeps a 404 unavailable, and names its status and message', async () => {
+      const { gh } = clientAnsweringEach([REPO, refusal({ message: 'Not Found', status: '404' })])
+
+      await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+        contexts: [],
+        unavailable: 'the rules for main were not a list of rules (404: Not Found)',
+      })
+    })
+
+    it('names a message that has no status', async () => {
       const { gh } = clientAnsweringEach([REPO, { stdout: '{"message":"Not Found"}' }])
 
       await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
         contexts: [],
-        unavailable: 'the rules for main were not a list of rules',
+        unavailable: 'the rules for main were not a list of rules (Not Found)',
       })
     })
+
+    for (const [what, stdout] of [
+      ['an object with no message', '{"rules":[]}'],
+      ['a bare string', '"nope"'],
+      ['null', 'null'],
+    ] as const) {
+      it(`keeps ${what} unavailable, with no status or message to name`, async () => {
+        const { gh } = clientAnsweringEach([REPO, { stdout }])
+
+        await expect(gh.requiredContexts({ branch: 'main' })).resolves.toEqual({
+          contexts: [],
+          unavailable: 'the rules for main were not a list of rules',
+        })
+      })
+    }
 
     for (const [what, rule] of [
       ['whose check list is not a list', { required_status_checks: 'vitest' }],

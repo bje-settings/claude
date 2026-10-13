@@ -58,6 +58,7 @@ const run = (overrides: Partial<WorkflowRun> = {}): WorkflowRun => ({
 /** Every read, answered, with whichever of them a case is about replaced. */
 const replies = (overrides: GhReplies = {}): GhReplies => ({
   viewPullRequestDetail: { pullRequest: detail(), unavailable: null, missing: false },
+  listOpenPullRequests: { rows: [], unavailable: null },
   requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
   listWorkflowRuns: { rows: [run()], unavailable: null },
   ...overrides,
@@ -301,6 +302,160 @@ describe('the facts it reads', () => {
     expect(queries[0]).toEqual({ branch: 'wktr-130-ws-sweep' })
     // The second read is the wait-hint sample, which is not branch-scoped.
     expect(queries[1]).toEqual({ perPage: 30 })
+  })
+})
+
+describe('a stacked pull request reads the stack bottom’s rules (#398)', () => {
+  /** An open pull request, as the list of open pull requests gives it. */
+  const open = (number: number, headBranch: string, base: string) => ({
+    number,
+    title: `pull request ${number}`,
+    head: headBranch,
+    base,
+    draft: true,
+  })
+
+  /** The chain of a stack: layer 1 on main, layer 2 on layer 1, and so on. */
+  const chain = (layers: number) =>
+    Array.from({ length: layers }, (_, index) =>
+      open(170 + index, `wktr-${index + 1}`, index === 0 ? 'main' : `wktr-${index}`),
+    )
+
+  /** The report for the top layer of a stack, and the branches whose rules
+   *  were asked. Only `rules` can fail, by branch. */
+  const stacked = async (
+    rows: ReturnType<typeof chain>,
+    rules: Record<string, readonly string[] | Error> = { main: ['vitest', 'types'] },
+    top = rows.length + 1,
+  ) => {
+    const asked: string[] = []
+    const gh = createGhMock(
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ number: 178, head: `wktr-${top}`, base: `wktr-${top - 1}` }),
+          unavailable: null,
+          missing: false,
+        },
+        listOpenPullRequests: { rows, unavailable: null },
+      }),
+    )
+    const answer = await runPrState(['--json', '178'], {
+      gh: {
+        ...gh,
+        requiredContexts: async ({ branch }) => {
+          asked.push(branch)
+          const found = rules[branch] ?? []
+          return found instanceof Error
+            ? { contexts: [], unavailable: found.message }
+            : { contexts: found, unavailable: null }
+        },
+      },
+    })
+    if (answer.outcome !== 'ok') throw new Error(`expected a report, got ${answer.error}`)
+    return { report: JSON.parse(answer.value) as PrStateReport, asked }
+  }
+
+  it('gives an upper layer the default branch’s contexts, from the ruleset', async () => {
+    const { report, asked } = await stacked(chain(1), { main: ['vitest', 'types'] })
+
+    expect(report.base).toBe('wktr-1')
+    expect(asked).toEqual(['main'])
+    expect(report.contextsFrom).toBe('ruleset')
+    expect(report.requiredContexts).toEqual(['vitest', 'types'])
+    expect(report.rulesBranch).toBe('main')
+  })
+
+  it('follows a chain of three down to the first base that no pull request has as its head', async () => {
+    const { report, asked } = await stacked(chain(3))
+
+    expect(asked).toEqual(['main'])
+    expect(report.contextsFrom).toBe('ruleset')
+    expect(report.rulesBranch).toBe('main')
+  })
+
+  it('keeps the head list when the bottom’s base has no ruleset', async () => {
+    const { report, asked } = await stacked(chain(3), { main: [] })
+
+    expect(asked).toEqual(['main'])
+    expect(report.contextsFrom).toBe('head')
+    expect(report.requiredContexts).toEqual([])
+    expect(report.rulesBranch).toBe('main')
+  })
+
+  it('reads a pull request in no stack from its own base', async () => {
+    const report = await reportOf(['178'])
+
+    expect(report.rulesBranch).toBe('main')
+    expect(report.contextsFrom).toBe('ruleset')
+  })
+
+  it('says in the text report which branch the rules came from', async () => {
+    const gh = createGhMock(
+      replies({
+        viewPullRequestDetail: {
+          pullRequest: detail({ base: 'wktr-1' }),
+          unavailable: null,
+          missing: false,
+        },
+        listOpenPullRequests: { rows: chain(1), unavailable: null },
+      }),
+    )
+
+    const answer = await runPrState(['178'], { gh })
+
+    expect(answer.outcome === 'ok' && answer.value).toContain(
+      'read from the rules of main, the base of the stack bottom',
+    )
+  })
+
+  it('reads nothing as required when the chain loops, and says so', async () => {
+    const loop = [open(171, 'wktr-1', 'wktr-2'), open(172, 'wktr-2', 'wktr-1')]
+    const { report, asked } = await stacked(loop, { main: ['vitest'] })
+
+    expect(asked).toEqual([])
+    expect(report.verdict).toBe('unavailable')
+    expect(report.state).toBeNull()
+    expect(report.rulesBranch).toBeNull()
+    expect(report.unavailable).toEqual(['the chain of bases under wktr-2 loops back to wktr-2'])
+  })
+
+  it('stops at the depth bound, and reads nothing as required', async () => {
+    const { report, asked } = await stacked(chain(52))
+
+    expect(asked).toEqual([])
+    expect(report.verdict).toBe('unavailable')
+    expect(report.unavailable.join(' ')).toContain('is longer than 50 pull requests')
+  })
+
+  it('reads nothing as required when two pull requests share a head', async () => {
+    const { report, asked } = await stacked([...chain(1), open(190, 'wktr-1', 'release')], {}, 2)
+
+    expect(asked).toEqual([])
+    expect(report.verdict).toBe('unavailable')
+    expect(report.unavailable.join(' ')).toContain(
+      'more than one open pull request has the head wktr-1',
+    )
+  })
+
+  it('is unavailable, not green, when the bottom’s rules cannot be read', async () => {
+    const { report, asked } = await stacked(chain(3), { main: new Error('gh: HTTP 500') })
+
+    expect(asked).toEqual(['main'])
+    expect(report.verdict).toBe('unavailable')
+    expect(report.rulesBranch).toBeNull()
+    expect(report.unavailable).toContain('gh: HTTP 500')
+  })
+
+  it('is unavailable when the list of open pull requests cannot be read', async () => {
+    // A lower layer could hide in the part not read.
+    const report = await reportOf(
+      ['178'],
+      replies({ listOpenPullRequests: { rows: [], unavailable: 'gh: HTTP 502' } }),
+    )
+
+    expect(report.verdict).toBe('unavailable')
+    expect(report.rulesBranch).toBeNull()
+    expect(report.unavailable).toContain('gh: HTTP 502')
   })
 })
 

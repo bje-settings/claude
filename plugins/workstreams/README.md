@@ -511,18 +511,26 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" pr-state <number> [--round 0
 ```
 
 Reports one pull request's head, draft flag, base, and mergeability. It also reports the
-status-check contexts its BASE BRANCH requires, what has reported against each of them,
+status-check contexts its STACK BOTTOM's base requires, what has reported against each of them,
 whether a workflow run with event `pull_request` exists for the head, its unresolved
 review threads and its comments, a wait hint, and the state the review loop is in.
 
-The required contexts come from the rules for the pull request's own base branch, never
-hard-coded and never the default branch's rules. A pull request based on a topic branch,
-which is what every layer of a stack is, is typically required to pass nothing at all. A
-verdict over an empty list would be green before a single check had run. Where no
-ruleset requires anything, the command takes the verdict over the contexts that have
-actually reported on the head, and `contextsFrom` says `head`. That is a design fact, not
+The required contexts come from the rules of the base of the pull request's stack bottom
+(#398), never hard-coded. GitHub takes the merge requirements of every pull request in a
+stack from the bottom pull request's base. From the base of the pull request, the command
+follows the chain: a base that is the head of an open pull request moves on to that pull
+request's base, and the first base that is the head of no open pull request is the one it
+reads. A pull request in no stack reads its own base. `rulesBranch` names the branch that it
+read. A chain that loops, that is longer than 50 pull requests, or that has two open pull
+requests with one head has no bottom. A list of open pull requests that could not be read
+hides the chain too. Each of these makes the verdict `unavailable`.
+
+A branch no ruleset covers requires nothing. A verdict over an empty list would be green
+before a single check had run. Where the bottom's base has no ruleset, the command takes
+the verdict over the contexts that have actually reported on the head, and `contextsFrom`
+says `head`. That is a design fact, not
 a read that fell short, so it is a field of its own. A caller keys on `unavailable` to
-decide whether the report is an answer at all, and every layer of a stack is an answer.
+decide whether the report is an answer at all.
 
 A check from a cancelled workflow run does not count when a newer run of the same workflow has a
 check on the head (#364). Workflow concurrency cancels a run that way. `pr-state` also reads the
@@ -653,9 +661,13 @@ must answer again on the very next poll, or the watch drops it with no line. Onl
 second answer in a row moves the current head, and writes that line.
 
 A head is `CONCLUDED` only when every required context has reported. The list comes
-from the rules of the base branch. When no ruleset covers the base, the list comes from
-the default branch (ruling P9). Each stack layer above the first is such a case. In round
-5, a watch concluded on the checks that had reported on the head. Those were seven
+from the rules of the base of the pull request's stack bottom (#398). A base that is the
+head of an open pull request moves the read down to that pull request's base, until a base
+is the head of none. A pull request in no stack reads its own base. When no ruleset covers
+that branch, the list comes from the default branch (ruling P9). The chain uses every open
+pull request of the repository, also those that `--heads` leaves out. A base whose chain
+loops, or is longer than 50 pull requests, is unread like a base whose read failed (#265).
+In round 5, a watch concluded on the checks that had reported on the head. Those were seven
 CodeQL checks, and none of the required ones.
 
 On a draft head, `CONCLUDED` does not wait for a context in `pr-state`'s `draftSkipped`
