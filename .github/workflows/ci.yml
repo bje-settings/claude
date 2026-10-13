@@ -12,17 +12,17 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# THESE JOB NAMES ARE A CONTRACT: vitest, vitest-floor, types, and biome here,
-# plus plugin-validate in plugin-validate.yml, are required by the repo
-# ruleset Require CI (22359720), which matches them by exact string. If you
-# rename one, the build does not fail. The required check simply never
+# THESE CHECK NAMES ARE A CONTRACT: vitest, vitest-floor, types, biome, and
+# eslint here, plus plugin-validate in plugin-validate.yml, are required by
+# the repo ruleset Require CI (22359720), which matches them by exact string.
+# If you rename one, the build does not fail. The required check simply never
 # reports again, and every pull request waits forever for something that
 # will not arrive. Keep them short and stable. Put descriptive text in step
 # names instead, where it helps in logs but does not become load-bearing.
-# Each name is a matrix leg named by `name: ${{ matrix.check }}`, so a renamed
-# `check` value is a renamed required check.
+# Each name is a matrix leg. The line `name: ${{ matrix.check }}` sets it.
+# A renamed `check` value is a renamed required check.
 #
-# A new job name becomes a required check only after it has reported on
+# A new leg name becomes a required check only after it has reported on
 # main, for the same reason. Add it to the ruleset right after the pull
 # request that introduces it merges.
 #
@@ -38,9 +38,10 @@ jobs:
     permissions:
       contents: read
       code-quality: write
-    # pnpm reads this variable to choose the Node for `pnpm exec`, `pnpm run`,
-    # and the child processes of both. An empty value falls back to the
-    # use-node-version in `.npmrc`. Only vitest-floor sets a node value.
+    # pnpm reads this variable to choose the Node for every pnpm command in
+    # the job, including install, and for the child processes. An empty value
+    # falls back to the use-node-version in `.npmrc`. Only vitest-floor sets a
+    # node value.
     env:
       npm_config_use_node_version: ${{ matrix.node }}
     strategy:
@@ -118,15 +119,20 @@ jobs:
           if [[ -z "$expected" ]]; then
             expected="$(sed -n 's/^use-node-version=//p' .npmrc)"
           fi
-          # tail -n 1: on the first invocation pnpm downloads the pinned
-          # version and prints a "Fetching Node.js ..." progress line to
-          # stdout ahead of the actual `node --version` output, so the raw
-          # capture would compare against two lines instead of one.
+          # tail -n 1: on the first run, pnpm prints a "Fetching Node.js ..."
+          # line to stdout. That line comes before the `node --version`
+          # output. Keep only the last line.
           version="$(pnpm exec node --version | tail -n 1)"
           if [[ "$version" != "v$expected" ]]; then
             echo "expected pnpm exec node --version to print v$expected exactly, got $version" >&2
             exit 1
           fi
+
+      # The assertion above cannot see a floor leg that lost its node value,
+      # because it then expects the `.npmrc` pin. This step catches that.
+      - name: Refuse a floor leg with no Node pin
+        if: matrix.check == 'vitest-floor'
+        run: test -n "${{ matrix.node }}"
 
       # Never a bare install: frozen-lockfile fails if package.json and the
       # lockfile disagree, which is what makes the pins real.
