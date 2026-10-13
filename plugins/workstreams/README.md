@@ -721,6 +721,29 @@ The hook then says it could not check any copy. It does not name five reviewers 
 not there. That covers a path that is recorded and gone, which is what a stale entry from
 an update looks like, and also a path that was never recorded.
 
+The whole check has 2.5 seconds, well under the hook's own 3 second ceiling
+(`.claude/rules/_design-principles.md`). Every read of the filesystem is async, and each step
+gets only the time that is left (#267). A check that does not finish in that time is reported
+as itself, never as an absent item:
+
+```
+workstreams: ⚠️ the GitHub CLI (gh) could not be checked
+workstreams: ⚠️ a gh login could not be checked
+workstreams: ⚠️ the gh stack extension could not be checked
+workstreams: ⚠️ the installed plugins file could not be read
+workstreams: ⚠️ no installed copy of pr-review-toolkit could be checked for its reviewer agents
+```
+
+A `gh` child that does not exit is killed at the deadline, with its process group. A read
+that hangs holds a worker thread, and node waits for that thread before the process can exit.
+So when a read still holds the process 20 ms after the output has left, the hook ends
+itself with `SIGKILL`. `hooks.json`'s
+`; exit 0` makes that exit 0. In `claude --debug`, the shell adds a `Killed` line.
+
+The hook does not run `gh --version`. The two `gh` runs above already show a `gh` that cannot
+start, as "could not be checked". One more run measured 38 ms (median of 22, node 24, gh
+2.102.0).
+
 To see the lines by hand, run the hook with a payload on stdin:
 
 ```bash

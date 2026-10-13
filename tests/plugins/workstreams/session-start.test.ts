@@ -7,7 +7,7 @@
 // fixtures (`tests/plugins/gh/fixtures/`) by path, rather than a copy of
 // its own: `runScript` and `startScript` take a file to spawn, and
 // neither fixture names anything specific to the gh plugin.
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -132,9 +132,13 @@ it('ends inside its 3 s timeout, exits 0, and reports could not be checked, when
     WORKSTREAMS_INSTALLED_PLUGINS: registry,
     CLAUDE_PLUGIN_ROOT: path.dirname(path.dirname(HOOK)),
   }
+  const config = JSON.parse(readFileSync(HOOKS_JSON, 'utf8')) as {
+    hooks: { SessionStart: { hooks: { command: string }[] }[] }
+  }
+  const command = config.hooks.SessionStart[0]?.hooks[0]?.command ?? ''
   const started = Date.now()
 
-  const result = runScript(RUN_SHELL_COMMAND, { args: [HOOKS_JSON], env })
+  const result = spawnSync('sh', ['-c', command], { env, encoding: 'utf8' })
 
   expect(Date.now() - started).toBeLessThan(3_000)
   expect(result.status).toBe(0)

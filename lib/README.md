@@ -16,9 +16,9 @@ from. Nothing here changed with the deletion.
 
 Everything here **ships**. Each file takes no dependency. Each file imports nothing outside this
 directory except node's own built-in modules. Today that means `node:util` in `args.ts`,
-`node:child_process` in `process.ts`, and `node:fs` and `node:path` in `dependencies.ts`.
-`node-floor.ts`, `hook-output.ts`, `envelope.ts`, and `streams.ts` import nothing at all. `git.ts` and `gh.ts` reach node only
-through `process.ts`.
+`node:child_process` in `process.ts`, and `node:fs/promises` and `node:path` in `dependencies.ts`.
+`node-floor.ts`, `hook-output.ts`, `envelope.ts`, and `streams.ts` import nothing at all. `git.ts`
+and `gh.ts` reach node only through `process.ts`.
 
 Each file stays inside the erasable subset that node's type stripping handles: no `enum`, no
 parameter properties, and no namespaces. The tests live in `tests/lib/`, not here, because each
@@ -34,11 +34,11 @@ check them.
 | Module | What it gives a plugin |
 | --- | --- |
 | `node-floor.ts` | The Node 22.18 floor. `assertNodeFloor` checks it for an entry point. `meetsNodeFloor` checks it for a hook that must stay silent. `belowFloorMessage` is the line a `SessionStart` hook writes instead, since it runs once. Imports nothing. |
-| `dependencies.ts` | `absentDependencies` is a pure function over a plugin's declared table and a lookup. `which` is the lookup: a `PATH` walk that gives a path or `null`. So no plugin keeps its own copy of the check (`.claude/rules/_design-principles.md`). |
+| `dependencies.ts` | `absentDependencies` is a pure function over a plugin's declared table and a lookup. `which` is the lookup: an async `PATH` walk that gives a path or `null`. So no plugin keeps its own copy of the check (`.claude/rules/_design-principles.md`). `FileReads` is every filesystem read a `SessionStart` hook makes, async, so a test can give one that never answers. `withinDeadline`, `onPath` and `deadlineClock` keep each read inside the hook's one deadline (#267). A read that is late answers "could not be checked", never "absent". |
 | `hook-output.ts` | `emit` and `colour`, for a `SessionStart` hook's `systemMessage` and, when given one, `hookSpecificOutput.additionalContext`. The plugin prefix is a parameter, so more than one hook uses it. |
 | `args.ts` | `parseArguments`, built on `node:util`'s `parseArgs`. It takes a declared option set. It returns an envelope. |
 | `envelope.ts` | The answer a command gives back. Two renderers turn that answer into stdout, stderr, and an exit code. `failedOnThrow` turns a throw at an entry point into one stderr line and exit 1. |
-| `process.ts` | `run`. It starts one child process, with no shell, with a cwd, an env, stdin, and a time bound. Its answer tells apart "could not start" from "ran and failed". |
+| `process.ts` | `run`. It starts one child process, with no shell, with a cwd, an env, stdin, and a time bound. Its answer tells apart "could not start" from "ran and failed". `endOnceWritten` ends a hook process that a hung read still holds, after its output has left (#267). |
 | `git.ts` | The git calls the ported scripts make more than once, built on `process.ts`. Not a full git SDK. |
 | `streams.ts` | Writers that go quiet only on a broken pipe. Also UTF-8 stdin. |
 | `gh.ts` | `GhClient` and `createGhClient`. One method exists per operation. `gh` is the transport. A failure throws a `GhError`. |
