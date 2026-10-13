@@ -505,6 +505,11 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
     ['cd sub && pnpm test', 'sub'],
     ['cd "/a b" && pnpm test', '/a b'],
     ["(cd '/a b' && pnpm test)", '/a b'],
+    ['cd /w/my-app && pnpm test', '/w/my-app'],
+    ['cd /w/a~b && pnpm test', '/w/a~b'],
+    ['(cd /w && pnpm test) 2>&1 | tail', '/w'],
+    ['(cd /w && pnpm test) > out', '/w'],
+    ['(cd /w && pnpm test) &>log', '/w'],
   ] as const) {
     it(`names ${base} for ${JSON.stringify(command)}`, () => {
       expect(vitestTarget(command)).toEqual({ directory: null, base })
@@ -514,6 +519,8 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
   it('finds a run in a subshell with no cd, and a closing parenthesis on its last word', () => {
     expect(vitestTarget('(pnpm test)')).toEqual({ directory: null })
     expect(vitestTarget('(pnpm -C /w test)')).toEqual({ directory: '/w' })
+    expect(vitestTarget('(pnpm test) > out')).toEqual({ directory: null })
+    expect(vitestTarget('pnpm build && (pnpm test)')).toEqual({ directory: null })
   })
 
   it('keeps the pnpm -C of the run beside the cd', () => {
@@ -548,15 +555,20 @@ describe('a leading cd names the directory of a vitest run (#397)', () => {
     '(cd /w) && pnpm test',
     '(cd /w && pnpm build) > out && pnpm test',
     '(cd /w && pnpm build) 2>&1 && pnpm test',
+    // The cd sits in an inner subshell that closes before the run.
+    '((cd /w) && pnpm test)',
+    '((cd /w && pnpm build) && pnpm test)',
+    ' (cd /w) && pnpm test',
   ]) {
     it(`leaves the payload cwd for ${JSON.stringify(command)}`, () => {
-      expect(vitestTarget(command)?.base).toBeUndefined()
+      expect(vitestTarget(command)).toEqual({ directory: null })
     })
   }
 
   it('ends the cd at a second cd', () => {
     expect(vitestTarget('cd /w && cd /v && pnpm test')).toEqual({ directory: null })
     expect(vitestTarget('cd /w && (cd /v && pnpm test)')).toEqual({ directory: null })
+    expect(vitestTarget('cd /w && ( cd /v && pnpm test)')).toEqual({ directory: null })
     expect(vitestTarget('cd /w && cd && pnpm test')).toEqual({ directory: null })
     expect(vitestTarget('cd /w && cd&& pnpm test')).toEqual({ directory: null })
   })
@@ -1084,6 +1096,14 @@ describe('a second vitest suite after a leading cd (#397)', () => {
       expect(verdict).toEqual({ decision: 'allow' })
     })
   }
+
+  it('refuses a subshell cd run with a redirect after the parenthesis', async () => {
+    const verdict = await refuse('(cd /a && pnpm test) 2>&1 | tail -5', '/root', [
+      { pid: 4242, cwd: '/a' },
+    ])
+
+    expect(verdict.decision).toBe('deny')
+  })
 
   it('joins a relative cd directory to the payload cwd', async () => {
     const verdict = await refuse('cd sub && pnpm test', '/root', [{ pid: 4242, cwd: '/root/sub' }])

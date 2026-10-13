@@ -575,12 +575,13 @@ const parenthesisDepth = (text: string): number =>
 
 /** A segment as a run reads it: `(pnpm test)` is `pnpm test`. A subshell
  *  parenthesis joined to the first or the last word hid the verb (`(cd /x`,
- *  `test)`), so the run was not found (#397). */
+ *  `test)`), so the run was not found (#397). After a `)`, only a redirect
+ *  can follow in the segment, so `(pnpm test) 2>&1` is `pnpm test` too. */
 const unwrapped = (segment: string): string =>
   segment
     .trim()
     .replace(/^\(+\s*/, '')
-    .replace(/\)+$/, '')
+    .replace(/\)+\s*([\d&]*[<>].*)?$/, '')
 
 /** The directory of a segment that is `cd <dir>` and nothing else, or `null`.
  *  A directory that depends on the shell (`-`, `~`, a variable or a
@@ -620,11 +621,13 @@ const cdDirectory = (segment: string): string | null => {
 export const vitestTarget = (command: string): VitestTarget | undefined => {
   const parts = command.split(WITH_OPERATORS)
   const first = parts[0] as string
-  const subshell = /^\s*\(/.test(first)
-  // The parentheses still open after the `cd` segment. A subshell form that
-  // closes in that segment, as in `(cd /w) && pnpm test`, ends the `cd` there.
+  // The `(` marks in front of the `cd`. Its subshell closes when the count of
+  // open parentheses falls below them: in `(cd /w) && pnpm test` in the same
+  // segment, and in `((cd /w) && pnpm test)` too.
+  const depth = first.trimStart().length - first.trimStart().replace(/^\(+/, '').length
+  const subshell = depth > 0
   let open = parenthesisDepth(first)
-  const leading = parts[1] === '&&' && !(subshell && open <= 0) ? cdDirectory(first) : null
+  const leading = parts[1] === '&&' && !(subshell && open < depth) ? cdDirectory(first) : null
   let base: string | null = leading
 
   for (let index = leading === null ? 0 : 2; index < parts.length; index += 2) {
@@ -633,7 +636,7 @@ export const vitestTarget = (command: string): VitestTarget | undefined => {
     const target = readVitestSegment(unwrapped(segment))
     if (target === undefined) {
       open += parenthesisDepth(segment)
-      if (subshell && open <= 0) base = null
+      if (subshell && open < depth) base = null
       continue
     }
     const named = base === null ? target : { ...target, base }
