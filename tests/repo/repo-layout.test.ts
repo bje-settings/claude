@@ -9,9 +9,8 @@
 // deliberately NOT ported here. It parses Python with the `ast` module, to
 // prove that no root script calls `sys.path.insert` or `sys.path.append`.
 // Its subject (Python `scripts/`) went at #128, and the test itself at
-// #138. Its TypeScript successor is the pair of rules below, which #125
-// can state now that the root lib exists: the `src/lib` symlink is the
-// only path out of a plugin, and it is a symlink to exactly one place.
+// #138. Its TypeScript successor is the pair of rules below (ADR 006): no
+// import leaves a plugin, and no plugin holds a symlink.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -20,10 +19,9 @@ import {
   binDirectories,
   crossPluginImports,
   developmentFiles,
-  LIB_LINK_TARGET,
-  libLinkViolations,
   packageImports,
   pluginDirs,
+  pluginSymlinks,
   ROOT,
   rel,
   reservedDirectoryNames,
@@ -110,14 +108,6 @@ describe('pluginDirs filtering', () => {
     // false there, while existsSync follows it and finds the manifest.
     // Without the guard, the same plugin would be counted twice, once
     // under each name.
-    //
-    // So this function follows a link at `src`, but drops it here. That
-    // reads as a contradiction, and is not one. `pluginDirs` is
-    // pre-existing code that `tests/repo/skills.test.ts` also walks, and what
-    // a plugin *is* is not this layer's question. This layer asks a
-    // different question of every plugin the existing filter admits:
-    // does a plugin reach the shared library the one way the convention
-    // allows?
     scratch = mkdtempSync(path.join(tmpdir(), 'bje-plugins-'))
     writeFileSync(path.join(scratch, 'README.md'), 'not a plugin directory\n')
     mkdirSync(path.join(scratch, 'no-manifest'), { recursive: true })
@@ -130,14 +120,11 @@ describe('pluginDirs filtering', () => {
   })
 })
 
-// This is the rule ADR 001 states in prose, and RFC 001 decision 4
-// records: the `src/lib` symlink is the only path out of a plugin, and a
-// test file may additionally reach the shared harness. Every arm is
-// proven on a synthetic tree, in the `root`-parameter pattern `pluginDirs`
-// already uses. This is because no plugin in this repository carries the
-// symlink until #126, and a rule whose branches never run is a rule
-// nobody enforces. The real `plugins/` tree is then run through the same
-// two functions, which is what makes them a guard, not an exercise.
+// The rules of ADR 006: no import leaves a plugin, and no plugin holds a
+// symlink. Every arm is proven on a synthetic tree, in the `root`-parameter
+// pattern `pluginDirs` already uses, because a rule whose branches never run
+// is a rule nobody enforces. The real `plugins/` tree is then run through
+// the same functions, which is what makes them a guard, not an exercise.
 describe('the plugin boundary', () => {
   let scratch = ''
 
@@ -190,16 +177,31 @@ describe('the plugin boundary', () => {
     expect(crossPluginImports(plugins)).toEqual([])
   })
 
-  it('accepts the root lib reached through the symlink', () => {
-    // The whole convention in one example: the specifier stays inside the
-    // plugin, which is also what the installed copy sees once Claude Code has
-    // dereferenced the link into the cache.
+  it('accepts the copy of lib in the plugin, and the imports of that copy', () => {
+    // The whole convention in one example: each specifier stays inside the
+    // plugin, the same in the checkout and in the installed copy.
     const plugins = build({
       plugins: ['a'],
-      files: { 'a/scripts/a.ts': "import { assertNodeFloor } from '../src/lib/node-floor.ts'\n" },
-      links: { 'a/src/lib': LIB_LINK_TARGET },
+      files: {
+        'a/scripts/a.ts': "import { assertNodeFloor } from '../src/lib/node-floor.ts'\n",
+        'a/src/lib/node-floor.ts': '',
+        'a/src/lib/args.ts': "import { ok } from './envelope.ts'\n",
+        'a/src/lib/envelope.ts': '',
+      },
     })
     expect(crossPluginImports(plugins)).toEqual([])
+  })
+
+  it('reads the copies too, and refuses an import out of one', () => {
+    // A lib/ file whose import leaves lib/ works in the checkout. Its copy
+    // in a plugin then imports a path that the installed plugin lacks.
+    const plugins = build({
+      plugins: ['a'],
+      files: { 'a/src/lib/bad.ts': "import { x } from '../../../elsewhere.ts'\n" },
+    })
+    expect(crossPluginImports(plugins)).toEqual([
+      'a/src/lib/bad.ts: imports ../../../elsewhere.ts, which resolves outside the plugin',
+    ])
   })
 
   it('refuses a relative import into another plugin', () => {
@@ -215,7 +217,7 @@ describe('the plugin boundary', () => {
     ])
   })
 
-  it('refuses the root lib reached around the symlink', () => {
+  it('refuses the root lib reached around the copy', () => {
     // `../../../lib` resolves for a contributor who works in the
     // checkout, and for nobody who installed the plugin. The cache copy
     // has no repository root above it. A catch here is the difference
@@ -223,7 +225,6 @@ describe('the plugin boundary', () => {
     const plugins = build({
       plugins: ['a'],
       files: { 'a/src/url.ts': "import { ok } from '../../../lib/envelope.ts'\n" },
-      links: { 'a/src/lib': LIB_LINK_TARGET },
     })
     expect(crossPluginImports(plugins)).toEqual([
       'a/src/url.ts: imports ../../../lib/envelope.ts, which resolves outside the plugin',
@@ -309,23 +310,21 @@ describe('the plugin boundary', () => {
     ])
   })
 
-  it('reads only .ts files, and never walks into the symlink', () => {
-    // A walk into the link would report the root lib's own imports as
-    // the plugin's. `lib/gh.ts`'s import of `node:child_process` is not a
-    // boundary crossing.
+  it('reads only .ts files, and never walks into a symlink', () => {
+    // A walk into a link would read files that are not in the plugin.
+    // `pluginSymlinks` refuses the link itself.
     const plugins = build({
       plugins: ['a'],
       files: {
         'a/README.md': "import { anything } from '../../b/src/thing.ts'\n",
         'a/src/url.ts': '',
       },
-      links: { 'a/src/lib': LIB_LINK_TARGET },
+      links: { 'a/src/lib': path.join('..', '..', '..', 'lib') },
     })
     // Three levels up, not two. Walked as `plugins/a/src/lib/outward.ts`,
     // the specifier resolves to `plugins/elsewhere.ts`, outside the
     // plugin. So this arm goes red the moment the walk descends into the
-    // link. Two levels would land back inside `plugins/a` and pass either
-    // way, which would make the test an illustration, not a proof.
+    // link.
     writeFileSync(
       path.join(scratch, 'lib', 'outward.ts'),
       "import { x } from '../../../elsewhere.ts'\n",
@@ -333,63 +332,30 @@ describe('the plugin boundary', () => {
     expect(crossPluginImports(plugins)).toEqual([])
   })
 
-  it('accepts the committed symlink and nothing else in its place', () => {
-    // `equivalent` is the arm that says the target is compared as a string
-    // and not resolved: `../../../lib/` reaches the same directory from the
-    // same place, and is still a violation, because the string is what Claude
-    // Code's installer classifies.
+  it('refuses each symlink in a plugin, wherever it points', () => {
+    // A link out of the plugin is skipped by an install from a local path.
+    // A link inside the plugin, a link to nothing and a link to a file are
+    // refused too: a plugin holds real files only (ADR 006).
     const plugins = build({
-      plugins: ['linked', 'copied', 'misaimed', 'equivalent', 'plain'],
-      files: { 'copied/src/lib/gh.ts': '', 'plain/src/url.ts': '' },
+      plugins: ['linked', 'inside', 'dangling', 'deep', 'plain'],
+      files: {
+        'inside/src/real.ts': '',
+        'plain/src/url.ts': '',
+        'plain/src/lib/gh.ts': '',
+      },
       links: {
-        'linked/src/lib': LIB_LINK_TARGET,
-        'misaimed/src/lib': path.join('..', '..', 'lib'),
-        'equivalent/src/lib': `${LIB_LINK_TARGET}${path.sep}`,
+        'linked/src/lib': path.join('..', '..', '..', 'lib'),
+        'inside/src/alias.ts': 'real.ts',
+        'dangling/src/lib': path.join('..', 'nowhere'),
+        'deep/skills/s/SKILL.md': path.join('..', '..', '..', 'elsewhere.md'),
       },
     })
-    expect(libLinkViolations(plugins)).toEqual([
-      'copied/src/lib is not a symlink',
-      `equivalent/src/lib points at ${LIB_LINK_TARGET}${path.sep}, not ${LIB_LINK_TARGET}`,
-      `misaimed/src/lib points at ../../lib, not ${LIB_LINK_TARGET}`,
+    expect(pluginSymlinks(plugins)).toEqual([
+      'dangling/src/lib is a symlink',
+      'deep/skills/s/SKILL.md is a symlink',
+      'inside/src/alias.ts is a symlink',
+      'linked/src/lib is a symlink',
     ])
-  })
-
-  it('looks through a src that is itself a symlink', () => {
-    // A listing entry answers from lstat, so a linked `src` reports
-    // itself as neither a directory nor a file. A skip here would let a
-    // plugin hide a real copy of the shared library one link away from
-    // where the rule looks. That is the copy libLinkViolations exists to
-    // refuse.
-    const plugins = build({
-      plugins: ['behind'],
-      files: { 'elsewhere/lib/gh.ts': '' },
-      links: { 'behind/src': path.join('..', 'elsewhere') },
-    })
-    expect(libLinkViolations(plugins)).toEqual(['behind/src/lib is not a symlink'])
-  })
-
-  it('asks nothing of a plugin that has no src directory, or a file where it would be', () => {
-    const plugins = build({ plugins: ['bare', 'odd'], files: { 'odd/src': '' } })
-    expect(libLinkViolations(plugins)).toEqual([])
-  })
-
-  it('asks nothing of a src link that points at nothing, or at a file', () => {
-    // These are the two siblings of the case above, and the reason the
-    // probe follows the link, instead of a read of the listing entry.
-    // Both of these report themselves as neither a directory nor a file.
-    // So a rule that only skipped a plain file would hand `readdirSync` a
-    // path it cannot list, and die with ENOENT or ENOTDIR. A rule that
-    // aborts reports nothing, which is worse than the violation it was
-    // meant to find.
-    const plugins = build({
-      plugins: ['dangling', 'at-a-file'],
-      files: { 'afile.ts': '' },
-      links: {
-        'dangling/src': path.join('..', 'nowhere'),
-        'at-a-file/src': path.join('..', 'afile.ts'),
-      },
-    })
-    expect(libLinkViolations(plugins)).toEqual([])
   })
 
   it('refuses a top-level bin directory, by either route to one', () => {
@@ -424,7 +390,7 @@ it('holds all three rules over the real plugins tree', () => {
   // the one rule with no other way to turn red: claude.ai refuses `bin/`
   // at publish time, not anything here.
   expect(crossPluginImports()).toEqual([])
-  expect(libLinkViolations()).toEqual([])
+  expect(pluginSymlinks()).toEqual([])
   expect(binDirectories()).toEqual([])
 })
 
@@ -487,7 +453,7 @@ describe('what a plugin ships', () => {
     ])
   })
 
-  it('does not follow a symlink, so lib is reported once, at its real path', () => {
+  it('does not follow a symlink, so a file is reported once, at its real path', () => {
     const root = tree(['lib/gh.test.ts', 'plugins/a/src/'])
     symlinkSync(path.join('..', '..', '..', 'lib'), path.join(root, 'plugins', 'a', 'src', 'lib'))
     expect(developmentFiles([path.join(root, 'plugins')])).toEqual([])

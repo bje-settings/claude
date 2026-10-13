@@ -45,10 +45,8 @@ fast-forwards the default branch itself and continues. This is never a finding:
 ## Installing
 
 Install through a marketplace: `/plugin marketplace add <path-or-repo>`, then
-`/plugin install workstreams@bje`. For local work, `claude --plugin-dir` also works, because it
-loads the plugin in place. A plugin installed from a local path, or from a `command` source in
-copy mode, keeps only the symlinks that resolve inside the plugin's own directory. It skips the
-rest. `src/lib` is dropped, and every command fails at import.
+`/plugin install workstreams@bje`. For local work, `claude --plugin-dir` also works. The plugin
+holds no symlink, so each install method gets the same files.
 
 ## `/workstreams:start`
 

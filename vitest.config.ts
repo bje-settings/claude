@@ -3,13 +3,43 @@
 // holds every repository to a floor of 95, and this gate never goes below
 // that. Relief is exclusion by file name, with a stated reason. It is
 // never a lowered threshold.
-import { defineConfig } from 'vitest/config'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, type Plugin } from 'vitest/config'
+
+const ROOT = path.dirname(fileURLToPath(import.meta.url))
+const PLUGINS = path.join(ROOT, 'plugins')
+// A `#<plugin>/lib/<file>` specifier names a plugin's copy of a lib/ file.
+const COPY_SPECIFIER = /^#[^/]+\/lib\/(.+)$/
+
+// Each plugin holds copies of the lib/ files it imports (ADR 006). Node then
+// loads a copy and lib/ as two modules, each with its own classes. The
+// harness throws the `GhError` of lib/, and a plugin tests for its own copy
+// with `instanceof`. So in a test run, the `one-lib` Vite plugin below
+// sends each import of a copy to the file in lib/. Every module then sees
+// one lib/. `scripts/sync-lib.ts --check` proves that each copy is equal to
+// lib/. A test that starts a plugin script as a process
+// (`harness/spawn.ts`) runs the copies as they ship.
+const oneLib: Plugin = {
+  name: 'one-lib',
+  enforce: 'pre',
+  resolveId(source, importer) {
+    const named = COPY_SPECIFIER.exec(source)?.[1]
+    if (named !== undefined) return path.join(ROOT, 'lib', named)
+    if (!source.startsWith('.') || importer === undefined) return null
+    const target = path.resolve(path.dirname(importer), source)
+    const [plugin, src, lib, ...file] = path.relative(PLUGINS, target).split(path.sep)
+    const isCopy = plugin !== '..' && src === 'src' && lib === 'lib' && file.length > 0
+    return isCopy ? path.join(ROOT, 'lib', ...file) : null
+  },
+}
 
 export default defineConfig({
+  plugins: [oneLib],
   test: {
     // Every test lives under tests/, and no test lives in a plugin or in
-    // lib/ (ADR 004). Claude Code copies a plugin's whole directory, and the
-    // lib/ symlink, into each user's cache, so a test there would ship.
+    // lib/ (ADR 004). Claude Code copies a plugin's whole directory into
+    // each user's cache, so a test there would ship.
     // tests/repo/repo-layout.test.ts refuses a test file in any other place.
     include: ['tests/**/*.test.ts'],
     // .claude/worktrees/ holds checkouts of this same repository (see the
@@ -45,13 +75,11 @@ export default defineConfig({
       // helper could move the number, even when no shipped or shared code
       // changes.
       //
-      // No plugins/*/src/lib/** entry here.
-      // coverage-v8 keys itself by the canonical (realpath) module URL that
-      // node's ESM loader resolves a symlinked import to. So it already
-      // reports each lib/ file once, at its real path, with no duplicate
-      // entry to exclude. Confirmed on #126: the coverage summary was
-      // identical whether or not this entry existed.
-      exclude: ['**/*.test.ts', '**/fixtures/**'],
+      // plugins/*/src/lib/** holds copies of lib/ files (ADR 006). The
+      // `one-lib` plugin above sends each test import of a copy to lib/, so
+      // no test loads a copy, and each copy would show 0%. lib/ is measured
+      // once, at lib/. `scripts/sync-lib.ts --check` proves each copy equal.
+      exclude: ['**/*.test.ts', '**/fixtures/**', 'plugins/*/src/lib/**'],
       // vitest 4 dropped the `all` option. Now coverage-v8 includes every
       // file that matches `include`, whenever the whole suite runs. A
       // single-file rerun is the only case that narrows this. `all: true`

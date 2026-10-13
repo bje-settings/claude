@@ -12,12 +12,8 @@ marketplace manifest lists each plugin as an entry in its `plugins` array. See
 [plugins-reference docs](https://code.claude.com/docs/en/plugins-reference.md).
 
 Test locally with `/plugin marketplace add ./path/to/this/repo`, then
-`/plugin install <plugin-name>@bje`. `claude --plugin-dir plugins/<plugin-name>` also works. It
-loads the plugin in place, so the `src/lib` symlink resolves (retest on Claude Code 2.1.284; see
-[Share files within a marketplace with symlinks](https://code.claude.com/docs/en/plugins/host-marketplace#share-files-within-a-marketplace-with-symlinks)).
-Two other install methods keep only the symlinks that resolve inside a plugin's own directory: a
-local path install, and a `command` source in copy mode. Each one drops the plugin's `src/lib`
-symlink, so its commands fail at import.
+`/plugin install <plugin-name>@bje`. `claude --plugin-dir plugins/<plugin-name>` also works. A
+plugin holds no symlink, so each install method gets the same files (ADR 006).
 
 ### Plugins
 
@@ -30,8 +26,9 @@ Plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules
 has the rules. Each dispatcher subcommand is an exported function, the command function. It
 lives at `plugins/<plugin>/src/subcommands/<command>.ts`, behind one thin dispatcher at
 `plugins/<plugin>/scripts/<plugin>.ts`. A hook goes at `plugins/<plugin>/hooks/*.ts`. Code
-shared between plugins lives in the root `lib/`. Each plugin reaches it through the committed
-symlink `plugins/<plugin>/src/lib -> ../../../lib`, the only path out of a plugin.
+shared between plugins lives in the root `lib/`. Each plugin holds copies of the `lib/` files it
+imports in `plugins/<plugin>/src/lib/`. Edit `lib/`, then run `node scripts/sync-lib.ts`. No
+import leaves a plugin.
 
 Nothing under `plugins/` is bash. A plugin takes no dependency and carries no `package.json`.
 A command's exit codes and stdout are a contract with its callers.
@@ -69,14 +66,15 @@ Every skill has a flow directory, `docs/flows/<plugin>/<skill>/`, with `_skill-f
 
 ## Repo tooling: root `scripts/` and `.claude/skills/`
 
-Not everything here is a plugin. A root `scripts/` script, in TypeScript, would be this
-repository's own tooling. `.claude/skills/` would hold the skill that drives it. Nobody would
-install either one. Neither would appear in the marketplace manifest. `claude plugin validate`
-never sees either one. The convention still holds them to the same standard, because they can
-change other repositories. Neither exists today: #128 deleted the only ones there were,
-`publish-plugin.py` and the `/publish` skill.
+Not everything here is a plugin. A root `scripts/` script, in TypeScript, is this repository's
+own tooling. A skill in `.claude/skills/` would drive one. Nobody installs either one.
+Neither appears in the marketplace manifest. `claude plugin validate` never sees either one. The
+convention still holds them to the same standard, because they can change other repositories.
+`scripts/sync-lib.ts` is the one root script. It copies `lib/` into each plugin, and
+`tests/repo/sync-lib.test.ts` tests it. No repo-local skill exists: #128 deleted the only one,
+`/publish`.
 
-Two things would differ from a plugin:
+Two things differ from a plugin:
 
 - Repo-relative paths are correct in a root script rather than a defect.
 - Its tests may drive it in-process.

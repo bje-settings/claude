@@ -13,9 +13,6 @@ export default defineConfig([
     rules: {
       // This repository ships no legacy `commands/` plugin. A new one is an error.
       'claude/command-legacy-format': 'error',
-      // Off until #417. Each plugin reaches `lib/` through its `src/lib` symlink,
-      // which leaves the plugin directory on purpose.
-      'claude/plugin-symlink-escapes-plugin': 'off',
     },
   },
 ])

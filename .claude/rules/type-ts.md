@@ -18,11 +18,11 @@ decisions). `docs/adr/001-typescript-on-node-22-18.md` covers the runtime and th
 ## Shape
 
 ```
-lib/                           # shared across plugins; the only thing that crosses a boundary
+lib/                           # shared across plugins; the one place to edit it
 plugins/<plugin>/
   scripts/<plugin>.ts          # thin adapter: one dispatcher, one arm per command
   src/
-    lib -> ../../../lib        # committed symlink
+    lib/                       # copies of lib/ files; scripts/sync-lib.ts writes them
     subcommands/<command>.ts   # one exported function per subcommand: the seam
   hooks/*.ts
 tests/plugins/<plugin>/        # mirrors plugins/<plugin>/src/; outside the plugin, so never shipped
@@ -83,8 +83,9 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
   `plugins/<p>/src/subcommands/<command>.ts`. Fixtures go in `tests/plugins/<p>/fixtures/`.
   `.claude/rules/path-plugins.md` says why nothing test-only goes in a plugin.
 - A test imports plugin code as `#<p>/...` and the harness as `#harness/...`, from the `imports`
-  map in the root `package.json`. A plugin test reaches `lib/` as `#<p>/lib/...`, through the
-  plugin's symlink, so it sees the same module the plugin sees.
+  map in the root `package.json`. A plugin test reaches `lib/` as `#<p>/lib/...`. In a test
+  run, `vitest.config.ts` sends each import of a copy to `lib/`, so the test and the plugin see
+  the same module.
 - The shared harness is `harness/` at the repository root. `harness/README.md` has the rest of
   the test side.
 - A slow test file can be in parts, `<command>.<part>.test.ts`, so that vitest runs the parts at
@@ -106,14 +107,14 @@ A hook takes the other half. It runs on every tool call in a session. So it asks
 
 ## Boundaries
 
-- The committed symlink `plugins/<p>/src/lib -> ../../../lib` is the only path out of a plugin.
-  A `#` import is not a path out either: the installed plugin cannot resolve it.
-  `tests/repo/repo-layout.test.ts` enforces this (`crossPluginImports`, `libLinkViolations`,
-  `packageImports`).
-- The link target is compared as the exact string `../../../lib`, not resolved to a path. This
-  string is what Claude Code's installer classifies. A link elsewhere in the same marketplace is
-  dereferenced into the cache copy. But another spelling that resolves here installs differently.
-- Never reach the root `lib/` around the link. A `../../../lib` import from a plugin file
+- No import leaves a plugin, and no plugin holds a symlink (ADR 006). A plugin imports its own
+  copies in `src/lib/`. A `#` import is not a path out either: the installed plugin cannot
+  resolve it. `tests/repo/repo-layout.test.ts` enforces this (`crossPluginImports`,
+  `pluginSymlinks`, `packageImports`).
+- Edit `lib/`, never a copy. Then run `node scripts/sync-lib.ts`. `--check` fails when a copy
+  is missing, extra or different, or when `src/lib` is not a directory.
+  `tests/repo/sync-lib.test.ts` runs it.
+- Never reach the root `lib/` around the copies. A `../../../lib` import from a plugin file
   resolves in this checkout only. It does not resolve for anyone who installed the plugin, so it
   is refused.
 - Shipped code takes no dependency: node's own built-ins and its own tree, nothing else at run

@@ -1,9 +1,10 @@
 // Build a mermaid.live or mermaid.ink preview URL for a diagram read from
 // stdin. This is the TypeScript port of `scripts/mermaid-url.py` (#126). It
-// is the first plugin to carry the root `lib/` symlink. `scripts/mermaid.ts`
-// is the thin adapter (RFC 001 decision 3). This file has the command
-// function: the seam a test reaches without a process. Parsed arguments and
-// the stdin bytes go in; an envelope comes out.
+// was the first plugin to import the root `lib/`, now through its copies in
+// `src/lib/` (ADR 006). `scripts/mermaid.ts` is the thin adapter (RFC 001
+// decision 3). This file has the command function: the seam a test reaches
+// without a process. Parsed arguments and the stdin bytes go in; an envelope
+// comes out.
 //
 // **Parity ruling (maintainer, 2026-09-20): parity is of MEANING, not of the
 // URL string.** Python's `zlib.compress(..., 9)` and node's `deflateSync` at

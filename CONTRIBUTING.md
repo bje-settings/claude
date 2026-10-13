@@ -16,6 +16,9 @@ node (`.claude/rules/type-ts.md`).
 The git hooks' steps need `node_modules` and `claude` between them. Each step warns to stderr
 when it lacks the one it needs. It does not fail the commit.
 
+To change shared code, edit `lib/`, then run `node scripts/sync-lib.ts` to copy it into each
+plugin.
+
 Every test lives under `tests/`. `tests/plugins/<plugin>/` mirrors `plugins/<plugin>/src/`, with
 fixtures at `tests/plugins/<plugin>/fixtures/`. Nothing test-only goes in a plugin or in `lib/`,
 because both ship to each user (ADR 004). The shared harness is `harness/` at the repository
@@ -66,9 +69,11 @@ way.
 
 Either way, the worktree gains real hooks the moment it runs its own `pnpm install`.
 
-`pre-commit` runs Biome, ESLint, `tsc`, `vitest related`, and `claude plugin validate --strict`. Each one
-scopes to what is staged, except `tsc`, which checks the whole project. None of them runs a suite
-(ADR 002). `lefthook.yml` holds the exact steps.
+`pre-commit` runs Biome, ESLint, `tsc`, `scripts/sync-lib.ts --check`, `vitest related`, and
+`claude plugin validate --strict`. Each one scopes to what is staged, with two exceptions. `tsc`
+checks the whole project. The sync check compares the copies of each plugin with `lib/`. Both
+read the working tree, so stage the copies with `lib/`. None of them runs a suite (ADR 002).
+`lefthook.yml` holds the exact steps.
 
 There is no `pre-push` key, so a fresh `lefthook install` writes no pre-push hook file. A prior
 install may have written one, under an earlier `lefthook.yml` that had the key. The new install

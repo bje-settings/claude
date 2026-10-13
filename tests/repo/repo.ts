@@ -5,16 +5,15 @@
 // the two walking functions, not a hardcoded global. So a test can run the
 // filter against a synthetic temporary tree, as well as against the real
 // one.
-import { type Dirent, existsSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 export const ROOT = path.resolve(import.meta.dirname, '..', '..')
 export const PLUGINS = path.join(ROOT, 'plugins')
 export const LIB = path.join(ROOT, 'lib')
-// This repo's own tooling: a root script (none today, #128 removed the only
-// one) and the skills that drive it (none today either, #128 removed the
-// only one, /publish). The convention and this file's checks stay for when
-// either returns.
+// This repo's own tooling: a root script (`scripts/sync-lib.ts`) and the
+// skills that drive it (none today, #128 removed the only one, /publish).
+// The convention and this file's checks stay for when a skill returns.
 export const REPO_SKILLS = path.join(ROOT, '.claude', 'skills')
 export const SKILL_ROOTS = [PLUGINS, REPO_SKILLS] as const
 // The flow diagrams of every skill and of every subcommand a skill runs
@@ -119,15 +118,6 @@ export function rel(p: string): string {
   return path.relative(ROOT, p)
 }
 
-// The symlink every plugin that needs the root lib carries, written
-// exactly as it must appear: `plugins/<p>/src/lib -> ../../../lib` (ADR
-// 001, RFC 001 decision 4). This compares the target as a string, not
-// resolved, because Claude Code's installer classifies the string itself.
-// A link into the same marketplace is dereferenced into the cache copy,
-// and a link that resolves outside it is skipped. A second spelling that
-// happens to resolve to the same directory would install differently.
-export const LIB_LINK_TARGET = path.join('..', '..', '..', 'lib')
-
 // Relative import specifiers, read lexically, not parsed. Python's `ast`
 // gave test_repo_layout.py a real parse for free. Node has no parser in
 // its standard library, and the dependency rule says this repository's
@@ -166,9 +156,8 @@ function importsStartingWith(file: string, prefix: string): string[] {
 const relativeImports = (file: string): string[] => importsStartingWith(file, '.')
 
 // Every `.ts` file under `dir`, at any depth. This function neither
-// descends into a symlink nor collects it. `src/lib` is a directory of
-// the root lib's files, and a walk into it would report the shared
-// library's own imports as the plugin's.
+// descends into a symlink nor collects it. `pluginSymlinks` refuses each
+// link in a plugin, so the walk has no reason to follow one.
 function tsFilesUnder(dir: string): string[] {
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -186,34 +175,21 @@ function isInside(dir: string, target: string): boolean {
   return target.startsWith(dir + path.sep)
 }
 
-// The one entry named `name` directly inside `dir`, or undefined. This
-// reads from a directory listing, instead of a stat call on the path. So
-// a link whose target does not exist is still visible. A wrong symlink
-// target is exactly what this function checks for, and an existence test
-// would skip the very case it exists to catch.
-function childEntry(dir: string, name: string): Dirent | undefined {
-  return readdirSync(dir, { withFileTypes: true }).find((entry) => entry.name === name)
-}
-
 /**
  * Relative imports that leave the plugin they are written in.
  *
- * ADR 001: the `src/lib` symlink is the only path out of a plugin, and
- * nothing else imports across a plugin boundary. An import through
- * `src/lib` passes without a special case, because the link is a
- * directory inside the plugin, and the specifier resolves inside it. An
- * import that reaches the root `lib/` by `../../../lib` does not pass;
- * that is the point, since the installed copy of a plugin has no such
- * path.
+ * ADR 006: no import leaves a plugin. A plugin reaches `lib/` through its
+ * own copies in `src/lib/`, which `scripts/sync-lib.ts` writes. The walk
+ * reads those copies too, and their imports stay inside `src/lib/`. An
+ * import that reaches the root `lib/` by `../../../lib` does not pass,
+ * since the installed copy of a plugin has no such path.
  *
  * No file in a plugin may import `harness/`, a test file included. Tests
  * live under `tests/`, outside every plugin (ADR 004), and the harness
  * never ships.
  *
  * `root` is a parameter, defaulted to PLUGINS, so a test can run the rule
- * against synthetic trees, as well as against the real one. No plugin
- * carries the symlink until #126, so against this repository alone,
- * every branch below would stay unrun.
+ * against synthetic trees, as well as against the real one.
  */
 export function crossPluginImports(root: string = PLUGINS): string[] {
   const violations: string[] = []
@@ -239,7 +215,7 @@ export function crossPluginImports(root: string = PLUGINS): string[] {
  * the type check and every test that runs it. An installed plugin has no
  * `package.json` above it, so node refuses the import there (ADR 004).
  * This rule reads every `.ts` file under each root, `lib/` included,
- * because `lib/` ships through `src/lib`.
+ * because `lib/` ships as the copies in each plugin.
  *
  * `roots` is a parameter, so a test can run the rule against a synthetic
  * tree. Each report names the path relative to the parent of its root.
@@ -258,42 +234,21 @@ export function packageImports(roots: readonly string[] = [PLUGINS, LIB]): strin
 }
 
 /**
- * Every `plugins/<p>/src/lib` that is not the committed symlink.
+ * Every symlink in a plugin.
  *
- * A plugin with no `src/lib` is not a violation. A plugin needs the root
- * lib only when it imports it. A plugin that has one must reach it the way
- * the installer understands. A real directory there would be a second
- * copy of the shared library. Any other link target is the case the
- * three-way rule skips, rather than dereferences (ADR 001).
+ * A marketplace install copies the target of a link that stays in the
+ * marketplace. An install from a local path, or from a `command` source in
+ * copy mode, keeps only a link that resolves inside the plugin, and skips
+ * the others (ADR 006). So a plugin holds real files only. This rule does
+ * not read the target. A link inside the plugin is refused too, so no
+ * install method has a link to decide on.
  */
-export function libLinkViolations(root: string = PLUGINS): string[] {
+export function pluginSymlinks(root: string = PLUGINS): string[] {
   const violations: string[] = []
   for (const plugin of pluginDirs(root)) {
-    const where = path.relative(root, plugin)
-    // This call follows the link, instead of reading it from the listing.
-    // This is the one place in this file that wants `stat` semantics. A
-    // `src` that is itself a symlink must be followed through, since a
-    // skip would let a plugin hide a real copy of the shared library one
-    // link away from where the rule looks. A listing entry answers from
-    // `lstat`, and would report such a `src` as neither a directory nor a
-    // file.
-    //
-    // Once followed, anything that is not a directory, including a link
-    // that points at nothing or at a file, is the same "no src here" as a
-    // plugin that has none. A call to `readdirSync` on it would abort the
-    // whole rule with an fs error, instead of a clean report.
-    if (statSync(path.join(plugin, 'src'), { throwIfNoEntry: false })?.isDirectory() !== true) {
-      continue
-    }
-    const lib = childEntry(path.join(plugin, 'src'), 'lib')
-    if (lib === undefined) continue
-    if (!lib.isSymbolicLink()) {
-      violations.push(`${where}/src/lib is not a symlink`)
-      continue
-    }
-    const target = readlinkSync(path.join(plugin, 'src', 'lib'))
-    if (target !== LIB_LINK_TARGET) {
-      violations.push(`${where}/src/lib points at ${target}, not ${LIB_LINK_TARGET}`)
+    for (const file of filesUnder(plugin)) {
+      if (!lstatSync(path.join(plugin, file)).isSymbolicLink()) continue
+      violations.push(`${path.join(path.relative(root, plugin), file)} is a symlink`)
     }
   }
   return violations.sort()
@@ -313,11 +268,10 @@ export function libLinkViolations(root: string = PLUGINS): string[] {
  * A reintroduced `bin/` breaks nothing in this repository. It is refused
  * later, on a machine that is not this one, by a service no test can ask.
  *
- * This follows the link, instead of reading it from the listing, for the
- * reason `libLinkViolations` gives above. A link to a directory is
- * dereferenced into the cache copy and installs as a directory, so it is
- * the same violation. A link that points at nothing or at a file is not
- * one.
+ * This follows the link, instead of reading it from the listing. A link
+ * to a directory is dereferenced into the cache copy and installs as a
+ * directory, so it is the same violation. A link that points at nothing or
+ * at a file is not one.
  */
 export function binDirectories(root: string = PLUGINS): string[] {
   const violations: string[] = []
@@ -331,10 +285,9 @@ export function binDirectories(root: string = PLUGINS): string[] {
 }
 
 // Every directory under `dir`, at any depth, as a path relative to `dir`.
-// This walk does not go into a symlink. `src/lib` is the root `lib/`, and
-// the guards below check `lib/` at its real path. But the installer copies
-// a linked directory as a real one, so a symlink to a directory is in the
-// list by its own name. Then a guard can refuse a link named `fixtures` or
+// This walk does not go into a symlink. But the installer copies a linked
+// directory as a real one, so a symlink to a directory is in the list by
+// its own name. Then a guard can refuse a link named `fixtures` or
 // `commands`.
 function directoriesUnder(dir: string, prefix = ''): string[] {
   const found: string[] = []
@@ -370,8 +323,8 @@ function filesUnder(dir: string, prefix = ''): string[] {
  * Test files, test helpers and fixtures inside a plugin or inside `lib/`.
  *
  * Claude Code copies a plugin's whole directory into each user's cache at
- * install. It also copies `lib/`, through the `src/lib` symlink. It has no
- * way to leave a file out. So a file here ships to every user (ADR 004).
+ * install, with the copies of `lib/` in `src/lib/`. It has no way to leave
+ * a file out. So a file here ships to every user (ADR 004).
  * Tests, their helpers and their fixtures live under `tests/` instead.
  *
  * `roots` is a parameter, so a test can run the rule against a synthetic
