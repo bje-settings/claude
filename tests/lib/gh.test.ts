@@ -3184,16 +3184,27 @@ describe('the review statuses', () => {
     commit: { oid, status: contexts === null ? null : { contexts } },
   })
 
-  /** The status query's reply, with `nodes` as the commits. */
+  /** One force-push event, with `before` as the head it replaced. */
+  const pushed = (before: Record<string, unknown>): Record<string, unknown> => ({
+    beforeCommit: before.commit,
+  })
+
+  /** The status query's reply, with `nodes` as the commits and `events` as
+   *  the force-pushes. `timeline` replaces the whole timeline field. */
   const statusReply = (
     nodes: readonly unknown[],
     more = false,
     errors?: readonly unknown[],
+    events: readonly unknown[] = [],
+    timeline: unknown = { pageInfo: { hasNextPage: false }, nodes: events },
   ): Reply => ({
     stdout: JSON.stringify({
       data: {
         repository: {
-          pullRequest: { commits: { pageInfo: { hasNextPage: more }, nodes } },
+          pullRequest: {
+            commits: { pageInfo: { hasNextPage: more }, nodes },
+            timelineItems: timeline,
+          },
         },
       },
       ...(errors === undefined ? {} : { errors }),
@@ -3221,6 +3232,10 @@ describe('the review statuses', () => {
       expect(query).toContain('commits(first: 100)')
       expect(query).toContain(
         'nodes { commit { oid status { contexts { context description createdAt } } } }',
+      )
+      expect(query).toContain('timelineItems(first: 100, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT])')
+      expect(query).toContain(
+        'nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context description createdAt } } } } }',
       )
       // The read carries only what the caller needs: no check rollup.
       expect(query).not.toContain('statusCheckRollup')
@@ -3258,6 +3273,83 @@ describe('the review statuses', () => {
         ],
         unavailable: null,
       })
+    })
+
+    it('reads the head a force-push replaced, before the commits (#377)', async () => {
+      // A restack takes the reviewed head out of the commits. Its status is
+      // still on it, and the force-push event still names it.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply(
+          [commit('c'.repeat(40), [status({ context: 'workstreams/rot-check' })])],
+          false,
+          undefined,
+          [pushed(commit('a'.repeat(40), [status()]))],
+        ),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows.map((row) => [row.commit, row.context])).toEqual([
+        ['a'.repeat(40), 'workstreams/review-1'],
+        ['c'.repeat(40), 'workstreams/rot-check'],
+      ])
+      expect(result.unavailable).toBeNull()
+    })
+
+    it('reads a commit that is both a replaced head and a commit once', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, undefined, [pushed(commit(SHA, [status()]))]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBeNull()
+    })
+
+    it('counts a replaced head that GitHub no longer gives as unreadable', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, undefined, [{ beforeCommit: null }]),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe(
+        'the statuses of 1 commit(s) of pull request 178 could not be read',
+      )
+    })
+
+    it('says so when the force-pushes could not be read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([commit(SHA, [status()])], false, undefined, [], null),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe('the force-pushes of pull request 178 could not be read')
+    })
+
+    it('keeps the replaced heads read, and says a later force-push is not read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        statusReply([], false, undefined, [], {
+          pageInfo: { hasNextPage: true },
+          nodes: [pushed(commit(SHA, [status()]))],
+        }),
+      ])
+
+      const result = await gh.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' })
+
+      expect(result.rows).toHaveLength(1)
+      expect(result.unavailable).toBe(
+        'pull request 178 has more than the 100 force-pushes this reads, so a status on a head a later one replaced is not read',
+      )
     })
 
     it('does not read a status of another prefix past its context', async () => {
@@ -3326,7 +3418,9 @@ describe('the review statuses', () => {
         gh.listPullRequestStatuses({ pullRequest: 99999, prefix: 'workstreams/' }),
       ).resolves.toEqual({
         rows: [],
-        unavailable: 'the commits of pull request 99999 could not be read; gone',
+        unavailable:
+          'the commits of pull request 99999 could not be read; ' +
+          'the force-pushes of pull request 99999 could not be read; gone',
       })
     })
 

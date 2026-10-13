@@ -572,7 +572,8 @@ all: the enterprise coverage bot posts a comment on every pull request, and nobo
 comment.
 
 The four review facts come from the `workstreams/<name>` commit statuses that
-[`mark`](#mark) writes, on the first 100 commits of the pull request (#377):
+[`mark`](#mark) writes, on the first 100 commits of the pull request and on each head that a
+force-push replaced (#377):
 
 | Fact | Status | Flag |
 | --- | --- | --- |
@@ -588,10 +589,14 @@ one commit.
 
 A flag that is given wins over its status (mid-round ruling 14). A pull request whose rounds ran
 before the statuses has marker comments and no statuses, so its caller gives the flags. A status
-read that fell short, such as one on a pull request with more than 100 commits, is listed under
-`unavailable`. Then the state is null, unless `--round` is given: then the flags alone are the
-facts. A force-push that drops a commit from the pull request drops its statuses from the read
-too. Give the flags for such a pull request.
+read that fell short is listed under `unavailable`, as on a pull request with more than 100
+commits. Then the state and `round` are null, unless `--round` is given: then the flags alone
+are the facts.
+
+A force-push, as in a restack, takes its commits out of the pull request. The read still reads
+the head that the force-push replaced, where `mark` wrote the status of a round. A status on a
+commit below that head is not read. Then the round can read lower than it was, and the loop
+reviews again.
 
 A `workstreams/` status is never a required context. It is not in the head list, and not in the
 verdict, also when a ruleset names it. `watch` leaves it out of `CONCLUDED` the same way.

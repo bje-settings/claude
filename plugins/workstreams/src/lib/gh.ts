@@ -755,11 +755,18 @@ export interface GhClient {
    * carries its commit, context, description and `createdAt`, and nothing
    * else.
    *
+   * It also reads the head that each of the first 100 force-pushes
+   * replaced, before the commits. A force-push takes its commits out of the
+   * pull request's commits, and their statuses with them. Only the replaced
+   * head is read: a commit below it that the force-push also replaced is
+   * not.
+   *
    * GitHub gives only the newest status of each context on one commit
    * (`Status.contexts`, measured on 2026-10-13). A pull request with more
-   * than 100 commits keeps the rows read, and `unavailable` says that a
-   * later commit was not read. A commit whose status does not have the
-   * shape asked for is counted in `unavailable`, never dropped.
+   * than 100 commits, or force-pushes, keeps the rows read, and
+   * `unavailable` says what was not read. A commit whose status does not
+   * have the shape asked for is counted in `unavailable`, never dropped. So
+   * is a replaced head that GitHub no longer gives.
    *
    * Never throws, for {@link PagedResult}'s reason.
    */
@@ -1442,7 +1449,8 @@ const PULL_REQUEST_DETAIL_QUERY = `query($owner: String!, $name: String!, $numbe
  * a wider {@link PULL_REQUEST_DETAIL_QUERY}: that query reads only the head
  * commit, and two callers read it on every tick. `first` gives the oldest
  * commits. `Status.contexts` is a list, not a connection, so it has no page
- * to bound.
+ * to bound. `beforeCommit` is the head a force-push replaced, which the
+ * commits no longer hold.
  */
 const PULL_REQUEST_STATUSES_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
@@ -1450,6 +1458,10 @@ const PULL_REQUEST_STATUSES_QUERY = `query($owner: String!, $name: String!, $num
       commits(first: ${SWEEP_PAGE}) {
         pageInfo { hasNextPage }
         nodes { commit { oid status { contexts { context description createdAt } } } }
+      }
+      timelineItems(first: ${SWEEP_PAGE}, itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]) {
+        pageInfo { hasNextPage }
+        nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid status { contexts { context description createdAt } } } } }
       }
     }
   }
@@ -1992,8 +2004,9 @@ const readComparison = (value: unknown, range: string): GhResults['compareCommit
 }
 
 /**
- * The statuses on one commit node whose context starts with `prefix`, or
- * null when the node is not the shape asked for.
+ * The statuses on one commit whose context starts with `prefix`, or null
+ * when the commit is not the shape asked for. A null commit, such as a
+ * replaced head that GitHub no longer gives, is not that shape.
  *
  * A null `status` is a commit with no status at all: an empty list. A
  * status with another prefix is not read past its context, so its shape
@@ -2001,8 +2014,8 @@ const readComparison = (value: unknown, range: string): GhResults['compareCommit
  * commit, on {@link requiredContextsOf}' grounds: a review status dropped
  * in silence reads as a round that did not run.
  */
-const readCommitStatuses = (node: unknown, prefix: string): CommitStatus[] | null => {
-  const commit = asRecord(asRecord(node)?.commit)
+const readCommitStatuses = (value: unknown, prefix: string): CommitStatus[] | null => {
+  const commit = asRecord(value)
   const oid = asText(commit?.oid)
   if (oid === null) return null
   if (commit?.status === null) return []
@@ -2880,18 +2893,33 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         'pullRequest',
       )
       if (answer.data === null) return { rows: [], unavailable: answer.unavailable }
-      const commits = asRecord(asRecord(answer.data.pullRequest)?.commits)
+      const pullRequest = asRecord(answer.data.pullRequest)
+      const commits = asRecord(pullRequest?.commits)
       const nodes = nodesOf(commits)
+      const pushes = asRecord(pullRequest?.timelineItems)
+      const events = nodesOf(pushes)
       const reasons: string[] = []
       if (nodes === null) {
         reasons.push(`the commits of pull request ${query.pullRequest} could not be read`)
       }
+      if (events === null) {
+        reasons.push(`the force-pushes of pull request ${query.pullRequest} could not be read`)
+      }
+      // The replaced heads first: each one is older than the commits that
+      // replaced it. A commit read once is not read again.
+      const read = new Set<string>()
       const rows: CommitStatus[] = []
       let unreadable = 0
-      for (const node of nodes ?? []) {
-        const statuses = readCommitStatuses(node, query.prefix)
+      for (const commit of [
+        ...(events ?? []).map((event) => asRecord(event)?.beforeCommit),
+        ...(nodes ?? []).map((node) => asRecord(node)?.commit),
+      ]) {
+        const oid = asText(asRecord(commit)?.oid)
+        if (oid !== null && read.has(oid)) continue
+        const statuses = readCommitStatuses(commit, query.prefix)
         if (statuses === null) unreadable += 1
         else rows.push(...statuses)
+        if (oid !== null) read.add(oid)
       }
       if (unreadable > 0) {
         reasons.push(
@@ -2904,6 +2932,12 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         reasons.push(
           `pull request ${query.pullRequest} has more than the ${SWEEP_PAGE} commits this reads, ` +
             'so a status on a later commit is not read',
+        )
+      }
+      if (truncated(pushes)) {
+        reasons.push(
+          `pull request ${query.pullRequest} has more than the ${SWEEP_PAGE} force-pushes this reads, ` +
+            'so a status on a head a later one replaced is not read',
         )
       }
       if (answer.unavailable !== null) reasons.push(answer.unavailable)

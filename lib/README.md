@@ -624,7 +624,10 @@ else. It is its own query. A wider detail query would add a read to each tick of
   status cannot cost the read.
 - A commit whose status is not the shape asked for is counted in `unavailable`, never dropped.
   A review status dropped in silence reads as a round that did not run.
-- A commit that a force-push removed from the pull request is not read. Its statuses go with it.
+- A force-push takes its commits out of the pull request's commits. The read also reads the head
+  that each of the first 100 force-pushes replaced (`HeadRefForcePushedEvent.beforeCommit`),
+  before the commits. A commit below that head is not read. A replaced head that GitHub no longer
+  gives is counted in `unavailable`.
 
 `createCommitStatus` is a REST write (`POST repos/{owner}/{name}/statuses/{sha}`). It throws a
 `GhError`, as the other writes do. A status cannot be deleted, and GitHub keeps 1000 at most for

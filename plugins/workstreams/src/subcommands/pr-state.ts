@@ -76,7 +76,8 @@ recent runs have taken, and reports the state the review loop is in.
 
 The review statuses are the workstreams/<name> commit statuses that
 "workstreams.ts mark" writes, read from the first 100 commits of the pull
-request. They give four facts:
+request and from the head that each force-push replaced. They give four
+facts:
 
   round        2 with a workstreams/review-2 status on any commit, 1 with a
                workstreams/review-1 status, else 0: the review rounds that
@@ -95,8 +96,10 @@ no statuses, so its caller gives the flags. A status read that fell short
 is listed under "unavailable", and the state is null unless --round is
 given. Then the flags alone are the facts.
 
-A force-push that drops a commit from the pull request drops its statuses
-from the read too. Give the flags for such a pull request.
+A force-push, as in a restack, takes its commits out of the pull request.
+The read still reads the head it replaced, where "mark" wrote the status
+of a round. A status on a commit below that head is not read. Then the
+round can read lower than it was, so the loop reviews again.
 
 --substantial and --rot-checked describe a round that has finished, so
 neither is accepted with --round 0.
@@ -354,7 +357,7 @@ export const verdictOf = (
  *
  * A merged or closed pull request gives `merged` or `closed` (#277). This
  * check runs right after `awaiting-pr`, before every other rule. CI,
- * threads and markers do not change it. A pull request that finished
+ * threads and review statuses do not change it. A pull request that finished
  * stays final.
  *
  * An unresolved review THREAD keeps the loop in `fixing`, however green
