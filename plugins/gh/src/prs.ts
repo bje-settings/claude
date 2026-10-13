@@ -96,7 +96,3 @@ export const ownRows = (rows: readonly PullRequestRow[]): PullRequestRow[] =>
 /** Does any row name this branch AT this commit? */
 export const hasMatch = (rows: readonly PullRequestRow[], branch: string, sha: string): boolean =>
   rows.some((row) => row.headRefName === branch && row.headRefOid === sha)
-
-/** Does any row name this branch, at any commit? */
-export const namesBranch = (rows: readonly PullRequestRow[], branch: string): boolean =>
-  rows.some((row) => row.headRefName === branch)

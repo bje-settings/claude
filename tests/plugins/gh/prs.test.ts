@@ -10,7 +10,7 @@
 // came from.
 import { describe, expect, it } from 'vitest'
 
-import { hasMatch, isPullRequestRow, namesBranch, ownRows } from '#gh/prs.ts'
+import { hasMatch, isOid, isPullRequestRow, mergeCommitOf, ownRows, pullRefOf } from '#gh/prs.ts'
 
 const MINE = { headRefName: 'feature', headRefOid: 'abc', isCrossRepository: false }
 const FORK = { headRefName: 'feature', headRefOid: 'abc', isCrossRepository: true }
@@ -43,10 +43,50 @@ describe('hasMatch', () => {
   })
 })
 
-describe('namesBranch', () => {
-  it('ignores the commit', () => {
-    expect(namesBranch([MINE], 'feature')).toBe(true)
-    expect(namesBranch([MINE], 'other')).toBe(false)
+// A field from gh goes into a git argv only through these readers. Each
+// refusal below keeps a value that git could read as a flag, or as another
+// object, out of that argv.
+const SHA1 = 'a'.repeat(40)
+const SHA256 = 'b'.repeat(64)
+
+describe('isOid', () => {
+  it('accepts a full SHA-1 or SHA-256', () => {
+    expect(isOid(SHA1)).toBe(true)
+    expect(isOid(SHA256)).toBe(true)
+  })
+
+  it('refuses a short, long, upper-case or flag-shaped value, and a non-string', () => {
+    expect(isOid('a'.repeat(39))).toBe(false)
+    expect(isOid('a'.repeat(41))).toBe(false)
+    expect(isOid('A'.repeat(40))).toBe(false)
+    expect(isOid(`-${SHA1}`)).toBe(false)
+    expect(isOid(`${SHA1}\n`)).toBe(false)
+    expect(isOid(40)).toBe(false)
+  })
+})
+
+describe('mergeCommitOf', () => {
+  it('reads the oid that gh answers', () => {
+    expect(mergeCommitOf({ mergeCommit: { oid: SHA1 } })).toBe(SHA1)
+  })
+
+  it('answers null for a row with no merge commit git can read', () => {
+    expect(mergeCommitOf({})).toBeNull()
+    expect(mergeCommitOf({ mergeCommit: null })).toBeNull()
+    expect(mergeCommitOf({ mergeCommit: SHA1 })).toBeNull()
+    expect(mergeCommitOf({ mergeCommit: { oid: '--upload-pack=x' } })).toBeNull()
+  })
+})
+
+describe('pullRefOf', () => {
+  it('names the head ref of a numbered row', () => {
+    expect(pullRefOf({ number: 7 })).toBe('refs/pull/7/head')
+  })
+
+  it('answers null for a row with no whole number', () => {
+    expect(pullRefOf({})).toBeNull()
+    expect(pullRefOf({ number: 1.5 })).toBeNull()
+    expect(pullRefOf({ number: '1' })).toBeNull()
   })
 })
 
