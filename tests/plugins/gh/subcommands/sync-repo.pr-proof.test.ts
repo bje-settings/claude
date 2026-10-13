@@ -10,7 +10,14 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { manyPrs, pr } from '#harness/pulls.ts'
-import { type Fixture, fixture, ghDouble, run, shimmed } from './sync-repo.test-support.ts'
+import {
+  type Fixture,
+  fixture,
+  ghDouble,
+  run,
+  shimmed,
+  silenced,
+} from './sync-repo.test-support.ts'
 
 /** The bare origin of the fixture. */
 const originOf = (f: Fixture): string => f.git.git(f.repo, 'remote', 'get-url', 'origin')
@@ -131,6 +138,34 @@ describe('a stacked pull request', () => {
     expect(result.stdout).toContain('kept child (no merge proof)')
     expect(f.git.sha(f.repo, 'child')).toBe(child)
   })
+
+  it('keeps a branch whose row at this commit has no merge commit', async () => {
+    // Before #348, a row at the tip was proof alone. Now a row must show
+    // where it landed.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'bare')
+    const tip = f.git.sha(f.repo, 'bare')
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: [pr('bare', tip)] }) })
+
+    expect(result.stdout).toContain('kept bare (no merge proof)')
+    expect(f.git.sha(f.repo, 'bare')).toBe(tip)
+  })
+
+  it('keeps the branch when git cannot answer the merge commit probe', async () => {
+    const f = fixture()
+    const { landed, row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: crashing(f, landed),
+    })
+
+    expect(result.stdout).toContain(
+      'kept rebased (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.branches(f.repo)).toContain('rebased')
+  })
 })
 
 // --- #351 and #450: a pull request head at another commit -----------------------
@@ -221,6 +256,38 @@ describe('a merged pull request at another commit', () => {
     expect(f.git.branches(f.repo)).toContain('rebased')
   })
 
+  it('keeps the branch when git cherry answers with nothing', async () => {
+    // An answer with no lines has no `+` line either. The count of the
+    // range shows that the answer is short.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'extra', 5)
+    f.git.git(f.repo, 'checkout', '-q', 'extra')
+    f.git.commit(f.repo, 'not in the pull request', 'extra.txt', 'extra')
+    f.git.git(f.repo, 'checkout', '-q', 'main')
+    const tip = f.git.sha(f.repo, 'extra')
+
+    const result = await run(f, [f.repo], {
+      gh: ghDouble({ prs: [row] }),
+      env: silenced(f, 'cherry'),
+    })
+
+    expect(result.stdout).toContain(
+      'kept extra (git could not compare its commits; unproven, not disproven)',
+    )
+    expect(f.git.sha(f.repo, 'extra')).toBe(tip)
+  })
+
+  it('prunes a rebased tip that only the per-branch query finds', async () => {
+    // The row is past the bulk window, so only the second query names it.
+    const f = fixture()
+    const { row } = rebasedByRemote(f, 'rebased', 4)
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs: manyPrs(200, row) }) })
+
+    expect(result.stdout).toMatch(/deleted rebased \([0-9a-f]+, merged PR\)/)
+    expect(f.git.branches(f.repo)).not.toContain('rebased')
+  })
+
   it('keeps the branch when git cannot compare the commits', async () => {
     const f = fixture()
     const { row } = rebasedByRemote(f, 'rebased', 4)
@@ -295,7 +362,7 @@ describe('a fetch that fails', () => {
     expect(f.git.branches(f.repo)).toContain('nameless')
   })
 
-  it('fetches each ref once, when the per-branch query names the same row again', async () => {
+  it('keeps the branch when the bulk and per-branch rows both name a head it cannot fetch', async () => {
     const f = fixture()
     f.git.branchWithWork(f.repo, 'gone')
     const landed = f.git.sha(f.repo, 'main')
@@ -305,6 +372,23 @@ describe('a fetch that fails', () => {
 
     expect(result.stdout).toContain("kept gone (could not fetch a merged PR's commits")
     expect(f.git.branches(f.repo)).toContain('gone')
+  })
+
+  it('reports a failed fetch over a row that names the branch at another commit', async () => {
+    // One row gives `moved`, and the other cannot be fetched. The failure
+    // outranks `moved`: "none at this commit" was never checked for it.
+    const f = fixture()
+    f.git.branchWithWork(f.repo, 'mixed')
+    const landed = f.git.sha(f.repo, 'main')
+    const prs = [
+      pr('mixed', 'othersha', 'main', false, { number: 1, mergeCommit: landed }),
+      pr('mixed', ABSENT, 'main', false, { mergeCommit: landed }),
+    ]
+
+    const result = await run(f, [f.repo], { gh: ghDouble({ prs }) })
+
+    expect(result.stdout).toContain("kept mixed (could not fetch a merged PR's commits")
+    expect(f.git.branches(f.repo)).toContain('mixed')
   })
 })
 
@@ -347,7 +431,7 @@ describe('ancestry at the tip', () => {
   })
 
   it('keeps the branch when git cannot answer the ancestry probe', async () => {
-    // A failed probe is not "not merged" alone, and never "merged".
+    // A probe that fails proves nothing: not "merged", and not "not merged".
     const f = fixture()
     f.git.branchWithWork(f.repo, 'landed')
     f.git.mergeCommit(f.repo, 'landed')

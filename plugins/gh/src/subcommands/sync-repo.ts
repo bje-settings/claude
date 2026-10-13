@@ -735,9 +735,10 @@ class SyncRepoRun {
 
   /**
    * What the rows that name this branch prove. `atTip` selects the rows at
-   * this commit, or the rows at another commit. The caller asks for the
-   * first set before the ancestry probe, and for the second after it,
-   * because only the second can need a fetch.
+   * this commit, or the rows at another commit. {@link proofFor} asks for
+   * the first set before the ancestry probe, and for the second set after
+   * it. Only the second set can need a fetch of a pull request head. Either
+   * set can need a fetch of a merge commit.
    */
   private async rowsProof(
     rows: readonly PullRequestRow[],
@@ -758,16 +759,20 @@ class SyncRepoRun {
   /**
    * What one merged row proves about the commit `sha`.
    *
-   * The row's merge commit must be on `origin/<default>` (#348). This
-   * replaces the old `--base` filter, and it also refuses a merge into a
-   * parent branch that never landed. A row that fails it proves nothing,
-   * as a row that the filter dropped did before.
+   * The row's merge commit must be on `origin/<default>` (#348). A row that
+   * fails it proves nothing. This also refuses a merge into a parent branch
+   * that never landed.
    *
    * A head at another commit proves the branch when `git cherry` finds a
    * patch-equal commit in the head for each commit of the branch (#351,
-   * #450). A tip behind the head has no such commit to find, and a tip
-   * that the remote rebased finds each one. A local commit with no match
-   * gives a `+` line, and the branch stays.
+   * #450). A tip behind the head has no commit outside the head, so
+   * `git cherry` lists none. A tip that the remote rebased finds each one.
+   * A local commit with no match gives a `+` line, and the branch stays.
+   * The lines must also match the count of commits in the range. So an
+   * answer that lost its lines is never read as a proof.
+   *
+   * A patch id ignores whitespace. So a local commit that differs from the
+   * head only in whitespace counts as patch-equal.
    *
    * `git cherry` skips merge commits. A local merge that the head does not
    * hold can carry its own changes, a conflict fix for example. So such a
@@ -789,7 +794,12 @@ class SyncRepoRun {
     if (merges !== '') return 'moved'
     const unmatched = await gitLines(['cherry', head, sha], this.here)
     if (unmatched === null) return 'unprobed'
-    return unmatched.some((line) => line.startsWith('+')) ? 'moved' : 'match'
+    if (unmatched.some((line) => line.startsWith('+'))) return 'moved'
+    // `git cherry` prints one line for each commit of the range. An answer
+    // with fewer lines than that count did not compare every commit, so it
+    // proves nothing.
+    const count = await gitOut(['rev-list', '--count', `${head}..${sha}`], this.here)
+    return count === String(unmatched.length) ? 'match' : 'unprobed'
   }
 
   /** Whether `commit` is on `origin/<default>`. git answers 1 for "no". Any
