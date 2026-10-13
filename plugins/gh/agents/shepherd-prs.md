@@ -148,12 +148,13 @@ number, in the order given:
    - A manifest or an overrides block: keep the keys of both sides.
    - Code: keep the intent of both sides.
 
-   Verify locally: install, and run the build or tests that the change reaches. Commit with a
+   Verify locally: install, and run the build or tests that the change reaches. A clean install
+   is the least check, and enough for a lockfile or an overrides block. Commit with a
    Conventional Commits message that says what was resolved or fixed. Run a plain `git push`.
    Never use `--force`. Never use `--no-verify`.
 
-   If any command in this step fails, or you cannot resolve a file, or you have no local check to
-   run, do not push. Run `git merge --abort` if a merge is open. Record the pull request as
+   If any command in this step fails, or you cannot resolve a file, or you cannot run even the
+   install, do not push. Run `git merge --abort` if a merge is open. Record the pull request as
    skipped, with the command's error, and with `conflicts` after a conflict. Then continue.
    Never retry a rejected push.
 
