@@ -19,6 +19,8 @@ concurrency:
 # reports again, and every pull request waits forever for something that
 # will not arrive. Keep them short and stable. Put descriptive text in step
 # names instead, where it helps in logs but does not become load-bearing.
+# Each name is a matrix leg named by `name: ${{ matrix.check }}`, so a renamed
+# `check` value is a renamed required check.
 #
 # A new job name becomes a required check only after it has reported on
 # main, for the same reason. Add it to the ruleset right after the pull
@@ -28,27 +30,132 @@ concurrency:
 # the ruleset at #122 on 2026-09-13. This happened after each had reported
 # green on main at least once (ADR 002).
 jobs:
-  vitest:
-    name: vitest
+  check:
+    name: ${{ matrix.check }}
     runs-on: ubuntu-latest
+    # Job permissions cannot vary by leg. Only the vitest leg needs
+    # code-quality: write, for the coverage upload.
     permissions:
       contents: read
       code-quality: write
+    # pnpm reads this variable to choose the Node for `pnpm exec`, `pnpm run`,
+    # and the child processes of both. An empty value falls back to the
+    # use-node-version in `.npmrc`. Only vitest-floor sets a node value.
+    env:
+      npm_config_use_node_version: ${{ matrix.node }}
+    strategy:
+      # Without this, one failure cancels the other legs. Their required
+      # checks would then show as cancelled.
+      fail-fast: false
+      matrix:
+        include:
+          # The enterprise Code Coverage ruleset takes its input from this
+          # leg. The 100 thresholds in vitest.config.ts gate the run.
+          - check: vitest
+            run: pnpm test
+          # ADR 001: "a floor nothing executes is a claim." This proves the
+          # suite runs on Node 22.18.0. That is the first release whose type
+          # stripping runs without a flag and writes nothing to stderr. It
+          # writes no coverage report. The vitest leg is the coverage gate
+          # and the enterprise upload. Keep node equal to the floor in
+          # `engines.node` in package.json.
+          - check: vitest-floor
+            node: 22.18.0
+            run: pnpm exec vitest run --coverage.enabled=false
+          # `noEmit` lives in `tsconfig.json` rather than in this command. The
+          # same invocation then means the same thing from an editor or a
+          # hook.
+          - check: types
+            run: pnpm exec tsc -p tsconfig.json
+          # `biome ci` is the read-only verdict, never `check --write`. A gate
+          # that edits the tree to pass reports on a tree nobody reviewed.
+          # --error-on-warnings stops a recommended rule that only warns from
+          # passing.
+          - check: biome
+            run: pnpm exec biome ci . --error-on-warnings
+          # ESLint checks the Claude Code configuration files with the
+          # eslint-plugin-claude npm package. No `--cache`: some rules read a
+          # second file, and the cache does not see a change to that file.
+          # `pnpm lint` passes `--max-warnings 0`, so a warning fails the leg,
+          # the same as the biome leg.
+          - check: eslint
+            run: pnpm lint .
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/node-pnpm
+
+      # No version input here on purpose: the pin lives in package.json
+      # packageManager, one source of truth. The action refuses to run if this
+      # input and packageManager disagree.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # node-version-file resolves engines.node from package.json, so the
+      # runner gets the newest 22.x that satisfies the floor.
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      # This proves that engines.node in package.json resolved to a Node 22
+      # at or above the floor.
+      - name: Assert the setup-node version
+        run: |
+          node_version="$(node --version)"
+          if [[ ! "$node_version" =~ ^v22\.([0-9]+)\. ]]; then
+            echo "expected node --version to match ^v22.(minor)., got $node_version" >&2
+            exit 1
+          fi
+          if (( BASH_REMATCH[1] < 18 )); then
+            echo "expected node minor >= 18, got $node_version" >&2
+            exit 1
+          fi
+
+      # This fails loudly. Otherwise a leg could run on the wrong Node without
+      # a sign. That happens when pnpm stops reading the environment variable.
+      # A leg with no node value expects the use-node-version in `.npmrc`.
+      - name: Assert the Node that pnpm selects
+        run: |
+          expected="${{ matrix.node }}"
+          if [[ -z "$expected" ]]; then
+            expected="$(sed -n 's/^use-node-version=//p' .npmrc)"
+          fi
+          # tail -n 1: on the first invocation pnpm downloads the pinned
+          # version and prints a "Fetching Node.js ..." progress line to
+          # stdout ahead of the actual `node --version` output, so the raw
+          # capture would compare against two lines instead of one.
+          version="$(pnpm exec node --version | tail -n 1)"
+          if [[ "$version" != "v$expected" ]]; then
+            echo "expected pnpm exec node --version to print v$expected exactly, got $version" >&2
+            exit 1
+          fi
+
+      # Never a bare install: frozen-lockfile fails if package.json and the
+      # lockfile disagree, which is what makes the pins real.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       # A config lefthook rejects is a hook that silently never runs.
       # Nothing else in CI would catch a malformed lefthook.yml before it
-      # reached a contributor's next commit. This job already has
+      # reached a contributor's next commit. This leg already has
       # `node_modules`, and the postinstall that would otherwise sync the
       # hooks here is a no-op. Actions sets `CI` for every step, and
       # lefthook's postinstall treats that as a skip.
       - name: Validate lefthook.yml
+        if: matrix.check == 'vitest'
         run: pnpm exec lefthook validate
 
-      - name: Run the vitest suite with coverage at 100
-        run: pnpm test
+      # `tsc` errors on no inputs. But an include set that shrinks is the
+      # quieter failure this repository refuses everywhere. git pathspec
+      # `*` matches across directory separators, so `tests/*.ts` reaches
+      # nested files too.
+      - name: Refuse a run that finds no TypeScript
+        if: matrix.check == 'types'
+        run: |
+          git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
+            'plugins/*/src/*.ts' 'plugins/*/scripts/*.ts' 'plugins/*/hooks/*.ts' \
+            'eslint.config.ts' 'vitest.config.ts' | grep -q .
+
+      - name: Run ${{ matrix.check }}
+        run: ${{ matrix.run }}
 
       # vitest's own thresholds cannot see an empty file set. A 100%
       # threshold over zero files passes (reproduced: it reports
@@ -58,96 +165,14 @@ jobs:
       # whatever files they did see. This step catches the report that
       # names no files at all.
       - name: Refuse a coverage report that names no file
+        if: matrix.check == 'vitest'
         run: jq -e 'del(.total) | length > 0' coverage/coverage-summary.json
 
       # The enterprise Code Coverage ruleset's input.
-      - uses: actions/upload-code-coverage@v1
+      - name: Upload the coverage report
+        if: matrix.check == 'vitest'
+        uses: actions/upload-code-coverage@v1
         with:
           file: coverage/cobertura-coverage.xml
           language: TypeScript
           label: code-coverage/vitest
-
-  vitest-floor:
-    name: vitest-floor
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # The node-pnpm composite action, same as every other Node job: it
-      # installs from the lockfile and asserts the default pins. It does
-      # not by itself put Node 22.18.0 on PATH or in pnpm's own Node
-      # selection. `.npmrc`'s use-node-version pins 22.23.2, and pnpm
-      # honours that for `pnpm exec`/`pnpm run`, regardless of what
-      # setup-node installed. The steps below override it per-command with
-      # `--config.use-node-version`.
-      - uses: ./.github/actions/node-pnpm
-      # This fails loudly. Otherwise the job would silently run on
-      # 22.23.2, like `.npmrc`'s default. That could happen if the
-      # override flag fails, or if the floor version drifts from
-      # `engines.node` in `package.json`. Bump both together.
-      - name: Assert the floor Node
-        run: |
-          # tail -n 1: on the first invocation pnpm downloads the pinned
-          # version and prints a "Fetching Node.js 22.18.0 ..." progress
-          # line to stdout ahead of the actual `node --version` output, so
-          # the raw capture would compare against two lines instead of one.
-          version="$(pnpm --config.use-node-version=22.18.0 exec node --version | tail -n 1)"
-          if [[ "$version" != "v22.18.0" ]]; then
-            echo "expected pnpm --config.use-node-version=22.18.0 exec node --version to print v22.18.0 exactly, got $version" >&2
-            exit 1
-          fi
-      # ADR 001: "a floor nothing executes is a claim." This proves the
-      # suite runs on Node 22.18.0. That is the first release whose type
-      # stripping runs without a flag and writes nothing to stderr. There
-      # is no coverage report here. The vitest job above is the coverage
-      # gate and the enterprise upload. If this ran vitest twice per CI
-      # run, that would only move that step later.
-      - name: Run the vitest suite on the Node 22.18 floor
-        run: pnpm --config.use-node-version=22.18.0 exec vitest run --coverage.enabled=false
-
-  types:
-    name: types
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/node-pnpm
-      # `tsc` errors on no inputs. But an include set that shrinks is the
-      # quieter failure this repository refuses everywhere. git pathspec
-      # `*` matches across directory separators, so `tests/*.ts` reaches
-      # nested files too.
-      - name: Refuse a run that finds no TypeScript
-        run: |
-          git ls-files -- 'tests/*.ts' 'harness/*.ts' 'lib/*.ts' 'scripts/*.ts' \
-            'plugins/*/src/*.ts' 'plugins/*/scripts/*.ts' 'plugins/*/hooks/*.ts' \
-            'eslint.config.ts' 'vitest.config.ts' | grep -q .
-      # `noEmit` lives in `tsconfig.json` rather than on this line. The
-      # same invocation then means the same thing from an editor or a
-      # hook.
-      - name: Type-check the TypeScript
-        run: pnpm exec tsc -p tsconfig.json
-
-  biome:
-    name: biome
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/node-pnpm
-      # `biome ci`, the read-only verdict, never `check --write`. A gate
-      # that edits the tree to make itself pass reports on a tree nobody
-      # reviewed. --error-on-warnings because a recommended rule that only
-      # warns would otherwise be reported and passed.
-      - name: Lint and format-check with Biome
-        run: pnpm exec biome ci . --error-on-warnings
-
-  # ESLint checks the Claude Code configuration files with the
-  # eslint-plugin-claude npm package. No `--cache`: some rules read a
-  # second file, and the cache does not see a change to that file. `pnpm
-  # lint` passes `--max-warnings 0`, so a warning fails the job, the same as
-  # the biome job.
-  eslint:
-    name: eslint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/node-pnpm
-      - name: Lint the Claude Code configuration files with ESLint
-        run: pnpm lint .
