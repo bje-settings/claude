@@ -34,6 +34,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "lefthook"
-    ]
+    ],
+    "overrides": {
+      "katex": "^0.18.2",
+      "source-map-js": "^1.2.2"
+    }
   }
 }
