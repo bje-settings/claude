@@ -511,10 +511,11 @@ it('reads a compare it could not get as behind: null, and says why on stderr', a
 
 // --- state and the review rules (#465) ----------------------------------------------
 
-/** `state` against pull request 1, with the review endpoints given. */
-const stateWith = (pull: Record<string, unknown>, extra: Partial<GhClient>) =>
+/** `state` against pull request `number` (1 unless named), with the review
+ *  endpoints given. */
+const stateWith = (pull: Record<string, unknown>, extra: Partial<GhClient>, number = 1) =>
   drive((_sandbox, repo) => ({
-    argv: [repo, '1', 'state'],
+    argv: [repo, String(number), 'state'],
     gh: {
       ...createGhServer({
         prs: [pull as ReturnType<typeof depPr>],
@@ -592,6 +593,32 @@ it('reads the threads when the rules ask, and reports them', async () => {
 
   const done = await stateWith(depPr(1), { ...asks, viewPullRequestDetail: async () => threads(0) })
   expect(done.document.pr).toMatchObject({ threads: 'resolved' })
+
+  // The threads of pull request 7, not of another number.
+  const seven = await stateWith(
+    depPr(7),
+    {
+      ...asks,
+      viewPullRequestDetail: async ({ pullRequest }) => threads(pullRequest === 7 ? 1 : 0),
+    },
+    7,
+  )
+  expect(seven.document.pr).toMatchObject({ number: 7, threads: 'unresolved' })
+
+  // A failed thread read is null, not resolved, and stderr says why.
+  const failed = await stateWith(depPr(1), {
+    ...asks,
+    viewPullRequestDetail: async () => ({
+      pullRequest: null,
+      unavailable: 'gh: HTTP 502',
+      missing: false,
+    }),
+  })
+  expect(failed.document.ok).toBe(true)
+  expect(failed.document.pr).toMatchObject({ threads: null })
+  expect(failed.stderr).toBe(
+    'the review threads of #1 cannot be proven resolved: gh: HTTP 502; threads is null\n',
+  )
 })
 
 it('reports null verdicts when the rules cannot be read, and says why', async () => {

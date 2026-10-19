@@ -615,6 +615,12 @@ describe('approvalOf', () => {
         'missing',
       ],
       [
+        'two approvals from two authors meet a count of 2',
+        { reviews: [review('APPROVED'), review('APPROVED', 'hubot')] },
+        rule(2),
+        'met',
+      ],
+      [
         'a code owner rule with a count of 0 and one APPROVED review: met',
         { reviews: [review('APPROVED')] },
         rule(0, { codeOwner: true }),
@@ -643,6 +649,14 @@ describe('approvalOf', () => {
         'reviewDecision APPROVED with a count the reviews do not reach: met',
         { reviewDecision: 'APPROVED', reviews: [review('APPROVED')] },
         rule(2),
+        'met',
+      ],
+      [
+        // GitHub's decision already applies the last-push rule, so the
+        // commit of each review is read only when the count decides.
+        'reviewDecision APPROVED with a last-push rule and an older approval: met',
+        { reviewDecision: 'APPROVED', reviews: [review('APPROVED', 'octocat', 'sha0')] },
+        rule(1, { lastPush: true }),
         'met',
       ],
       [
@@ -682,6 +696,12 @@ describe('approvalOf', () => {
         'missing',
       ],
       ['reviews that are not a list: no reviews', { reviews: 'APPROVED' }, rule(1), 'missing'],
+      [
+        'reviews that are an object, not a list: no reviews',
+        { reviews: review('APPROVED') },
+        rule(1),
+        'missing',
+      ],
       [
         'a review with no state, or no object at all: no approval',
         { reviews: [{ author: { login: 'octocat' } }, null] },
@@ -877,6 +897,19 @@ describe('statusDocument', () => {
     const options = {
       rules: new Map([['main', rule(1, { threadResolution: true })]]),
       threads: new Map([[1, null]]),
+      all: false,
+    }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.targets.map((target) => target.threads)).toEqual([null])
+  })
+
+  it('reads a pull request with no entry in the threads map as unread', () => {
+    const pulls = [readable({ number: 1, autoMergeRequest: {}, reviews: [review('APPROVED')] })]
+    const options = {
+      rules: new Map([['main', rule(1, { threadResolution: true })]]),
+      threads: new Map<number, number | null>(),
       all: false,
     }
 

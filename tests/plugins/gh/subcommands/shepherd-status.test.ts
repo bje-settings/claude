@@ -823,6 +823,11 @@ it('refuses a second label beside --all, and any other flag', async () => {
   expect(flag.status).toBe(2)
   expect(flag.stdout).toBe('')
   expect(flag.stderr).toBe('unknown flag: --dry-run\n')
+
+  // One dash is a flag too, not a label.
+  const short = await drive((_sandbox, repo) => ({ argv: [repo, '-x'] }))
+  expect(short.status).toBe(2)
+  expect(short.stderr).toBe('unknown flag: -x\n')
 })
 
 it('reads the rules of each base, and judges each pull request by its own', async () => {
@@ -909,6 +914,30 @@ it('reads a short thread page with no unresolved thread as unread', async () => 
 
   expect(JSON.parse(result.stdout).targets[0].threads).toBeNull()
   expect(result.stderr).toContain('the review threads of #1 cannot be proven resolved')
+})
+
+it('reads the threads of each pull request by its own number', async () => {
+  const prs = [depPr(1), depPr(2)]
+  const result = await statusOf([], prs, {
+    requiredReviews: async () => rules(0, { threadResolution: true }),
+    viewPullRequestDetail: async ({ pullRequest }) => detail(pullRequest === 2 ? 3 : 0),
+  })
+
+  const document = JSON.parse(result.stdout)
+  expect(numbers(document.targets)).toEqual([1])
+  expect(numbers(document.not_ready)).toEqual([2])
+})
+
+it('keeps unresolved threads unresolved when the same read reports a problem', async () => {
+  // A thread found is proof, whatever else the read missed.
+  const result = await statusOf([], [depPr(1)], {
+    requiredReviews: async () => rules(0, { threadResolution: true }),
+    viewPullRequestDetail: async () => ({ ...detail(2), unavailable: 'more checks' }),
+  })
+
+  const document = JSON.parse(result.stdout)
+  expect(document.targets).toEqual([])
+  expect(document.not_ready[0].reasons).toEqual(['has unresolved review threads'])
 })
 
 it('reads resolved threads as resolved, and asks for no threads when the rule does not', async () => {
