@@ -520,10 +520,10 @@ const { reviews } = await gh.requiredReviews({ branch: 'main' })
 highest `required_approving_review_count`. Each flag is true when any rule sets it:
 `require_code_owner_review`, `required_review_thread_resolution` and
 `require_last_push_approval`. No `pull_request` rule, and the plan-limit 403, are a count of 0
-with three false flags. Every other refusal is null `reviews`, with the same `unavailable`
-sentence as `requiredContexts`. One rule with a field of the wrong type costs the whole read. It
-is a second method, so the contract of `requiredContexts` and its caller `pr-state` does not
-change.
+with three false flags. Every other refusal is null `reviews`, with the `unavailable` sentence
+of `requiredContexts`. One rule with a field of the wrong type costs the whole read, and its
+sentence names the pull-request rule. It is a second method, so the contract of
+`requiredContexts` and its caller `pr-state` does not change.
 
 `viewPullRequestDetail` makes one GraphQL round trip for the refs, the head commit and its check
 rollup, the unresolved review threads, and the comments. It is not `viewPullRequest`: that

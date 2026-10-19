@@ -99,7 +99,7 @@ able to register one.
 never throws. So a test has nothing else to register beside its one reply.
 
 The three sweep reads never throw, for the same reason, and each answers `{ rows, unavailable }`.
-The three review-loop reads follow the same pattern. `requiredContexts` answers
+The review-loop reads follow the same pattern. `requiredContexts` answers
 `{ contexts, unavailable }`. `viewPullRequestDetail` answers `{ pullRequest, unavailable, missing }`,
 with a null pull request for one it could not read. `listWorkflowRuns` answers
 `{ rows, unavailable }`. So does `listOpenPullRequestHeads`, the one read the watch and the

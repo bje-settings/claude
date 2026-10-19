@@ -64,8 +64,9 @@ Each target carries \`approval\` (met, missing, not_required, or null) and
 rules of each base decide what is required: an approval count above 0, a
 code owner review, an approval of the last push, or resolved review
 threads. A reviewDecision can require an approval too. A read that fails is
-null, and stderr names the branch or the pull request. Then the verdict
-rests on reviewDecision alone, and the read leaves nothing out.
+null, and stderr names the branch or the pull request. It leaves nothing
+out. When the rules fail, approval rests on reviewDecision alone. When the
+threads fail, only threads is null.
 
 Ordering: gh-security's merge-risk:<band> label first (low, then unlabelled,
 then medium, then high), oldest first within a band. Each target carries the

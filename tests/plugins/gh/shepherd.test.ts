@@ -652,8 +652,8 @@ describe('approvalOf', () => {
         'met',
       ],
       [
-        // GitHub's decision already applies the last-push rule, so the
-        // commit of each review is read only when the count decides.
+        // Ruling 2: reviewDecision APPROVED is met. The commit of each
+        // review is read only when the count decides.
         'reviewDecision APPROVED with a last-push rule and an older approval: met',
         { reviewDecision: 'APPROVED', reviews: [review('APPROVED', 'octocat', 'sha0')] },
         rule(1, { lastPush: true }),

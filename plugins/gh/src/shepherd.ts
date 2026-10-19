@@ -367,8 +367,10 @@ const standingReviews = (pull: unknown): { state: string; commit: string }[] => 
  * standing APPROVED reviews. A code owner rule takes at least one. This
  * does not prove that the approver is a code owner: that needs CODEOWNERS
  * and team membership. GitHub then still blocks the merge, and the worker
- * skips the pull request on BLOCKED. A last-push rule counts only an
- * approval of the current head. A requested change is never met.
+ * skips the pull request on BLOCKED. When the count decides, a last-push
+ * rule counts only an approval of the current head. A `reviewDecision` of
+ * APPROVED is met before the count, as ruling 2 says. A requested change is
+ * never met.
  * REVIEW_REQUIRED is GitHub's own word that the reviews are not enough, so
  * a count does not override it.
  *
@@ -627,13 +629,14 @@ export const ciSeconds = (runs: unknown): number => {
 /** Why `shepherd-status` leaves a pull request out (ruling 10 on #465). */
 export const NEEDS_APPROVAL = 'needs an approval'
 export const UNRESOLVED_THREADS = 'has unresolved review threads'
+export type NotReadyReason = typeof NEEDS_APPROVAL | typeof UNRESOLVED_THREADS
 
 /** A pull request that `shepherd-status` leaves out, with each reason. */
 export interface NotReady {
   readonly number: unknown
   readonly title: unknown
   readonly author: unknown
-  readonly reasons: readonly string[]
+  readonly reasons: readonly NotReadyReason[]
 }
 
 export interface StatusDocument {
@@ -727,10 +730,9 @@ export const statusDocument = (
       options.rules.get(baseOf(pull)) ?? null,
       options.threads.get(Number(field(pull, 'number'))) ?? null,
     )
-    const reasons = [
-      ...(shaped.approval === 'missing' ? [NEEDS_APPROVAL] : []),
-      ...(shaped.threads === 'unresolved' ? [UNRESOLVED_THREADS] : []),
-    ]
+    const reasons: NotReadyReason[] = []
+    if (shaped.approval === 'missing') reasons.push(NEEDS_APPROVAL)
+    if (shaped.threads === 'unresolved') reasons.push(UNRESOLVED_THREADS)
     if (options.all || reasons.length === 0) {
       targets.push(shaped)
     } else {
