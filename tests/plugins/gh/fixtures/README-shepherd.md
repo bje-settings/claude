@@ -128,7 +128,7 @@ rule that nobody edits a capture. The edits remove content and add none.
 
 ## What #460 changed
 
-#460 adds output, so it is the second exception to the rule that nobody edits a capture. The
+#460 adds output, so it is another exception to the rule that nobody edits a capture. The
 edits change the `stdout` of a case. Nothing else in a case changed, and no case was added or
 removed.
 
