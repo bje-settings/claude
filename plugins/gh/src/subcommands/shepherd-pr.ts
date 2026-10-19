@@ -87,6 +87,20 @@ const BEHIND_STATUSES = ['behind', 'diverged']
 const SETTLE_BOUND_DEFAULT = 90
 const SETTLE_POLL_DEFAULT = 5
 
+// How long `rebase` reads the pull request for a moved head, and how often
+// (ruling 16 on #460). `gh pr update-branch` returns when GitHub accepts the
+// request, and GitHub applies it some seconds later. Without this poll the
+// caller reads an unmoved head, calls `wait`, gets `behind` at once, and
+// rebases again. 60 seconds stays inside the Bash tool's 120 second default,
+// because the agent passes no timeout on a `rebase` call. Five seconds is
+// settle's interval: a moved head costs at most five seconds more.
+const REBASE_BOUND_DEFAULT = 60
+const REBASE_POLL_DEFAULT = 5
+
+/** gh's line for a branch that already holds its base. The head will not
+ *  move, so `rebase` does not poll for it. */
+const UP_TO_DATE_RE = /already up[- ]to[- ]date/i
+
 /** Merge states that prove auto-merge cannot fire now. BLOCKED means a
  *  required review, or a required check that has not reported. Either way,
  *  GitHub will not merge. This code does not read BLOCKED from a single
@@ -135,7 +149,15 @@ cannot make it act on the wrong pull request.
             head is behind or diverged, false when it is ahead or identical,
             null when the compare could not be read (stderr says why).
   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
-            open. Reports the head SHA before and after.
+            open. Then reads the pull request every SHEPHERD_REBASE_POLL
+            seconds until the head moves, or until SHEPHERD_REBASE_BOUND.
+            \`result\` is \`moved\`, \`unmoved\` (the bound passed with the
+            head unchanged: the update is still queued), or \`up_to_date\`
+            (gh said the branch already holds its base, so no poll). Reports
+            the head SHA before and after, with \`waited\`, \`reads_ok\`,
+            \`read_failures\` and \`read_error\`. The LAST read decides: when
+            it failed, the report is still \`ok: true\`, with \`after\` empty,
+            because the update itself ran.
   wait      reads the pull request and the compare until it can answer, or
             until its bound (see below). A head that is behind returns
             \`behind\` at once, with no poll. Otherwise it reads again every
@@ -182,6 +204,9 @@ Environment:
   SHEPHERD_SETTLE_BOUND  how long \`settle\` waits with no evidence either way,
                          in seconds (default 90).
   SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).
+  SHEPHERD_REBASE_BOUND  how long \`rebase\` reads for a moved head, in
+                         seconds (default 60).
+  SHEPHERD_REBASE_POLL   interval between two rebase reads (default 5).
 
 Exits 0 when the action ran and reported (including ok:false refusals), 2 on
 a usage error, 1 when gh could not answer at all, and 3 on an internal error,
@@ -390,33 +415,81 @@ class Shepherd {
       this.emit(false, `rebase failed: ${out}`, { before })
       return
     }
-    const fresh = await this.readPr()
+    const upToDate = UP_TO_DATE_RE.test(out)
+    const env = this.options.context.env
+    const err = this.options.context.output.err
+    const bound = envInt(env, err, 'SHEPHERD_REBASE_BOUND', REBASE_BOUND_DEFAULT, POSITIVE_RE)
+    const interval = envInt(env, err, 'SHEPHERD_REBASE_POLL', REBASE_POLL_DEFAULT, POSITIVE_RE)
+    // A count of polls ends the loop, not the clock. A sleep that does not
+    // move the clock then cannot keep this loop alive.
+    const polls = upToDate ? 0 : Math.ceil(bound / interval)
+    const started = this.options.context.now()
+    const spent = (): number => seconds(this.options.context.now() - started)
+
+    let fresh: PullSummary | null = null
+    let readsOk = 0
+    let readsFailed = 0
+    for (let poll = 0; ; poll += 1) {
+      const read = await this.readPr()
+      if (read === null) {
+        readsFailed += 1
+      } else {
+        readsOk += 1
+      }
+      fresh = read
+      // No `or ""` in front of this, unlike the Python: `missingField`
+      // refuses an empty `headRefOid` before `readPr` answers, so a head
+      // that reached here is a head gh named.
+      if ((read !== null && read.headRefOid !== before) || poll >= polls) break
+      await this.options.context.sleep(Math.min(interval, bound - poll * interval) * 1000)
+    }
+    const reading = {
+      waited: spent(),
+      reads_ok: readsOk,
+      read_failures: readsFailed,
+      read_error: fresh === null ? this.readFailure() : '',
+    }
     if (fresh === null) {
-      // The branch update ran. Only the confirmation read failed. If this
-      // told the caller `ok: false`, it would decide again and rebase a
-      // second time, which costs another CI run for a read that failed.
+      // The branch update ran. Only the last confirming read failed, and
+      // the last read decides. If this told the caller `ok: false`, it
+      // would decide again and rebase a second time, which costs another
+      // CI run for a read that failed.
       this.emit(
         true,
         `update-branch succeeded but the pull request could not be re-read: ${this.readFailure()}`,
-        { before, after: '', pr: null, output: out },
+        { before, after: '', pr: null, output: out, ...reading },
       )
       return
     }
-    // No `or ""` in front of this, unlike the Python: `missingField` refuses
-    // an empty `headRefOid` before `readPr` answers, so a head that reached
-    // here is a head gh named.
     const after = fresh.headRefOid
-    // `gh pr update-branch` is asynchronous. It returns as soon as GitHub
-    // accepts the request. It also prints the same success line when the
-    // branch was already current. Either way, the head has not moved. To
-    // call that "rebased" would tell the caller a new CI run is coming,
-    // when none may be.
-    const detail =
-      after === before
-        ? 'update-branch reported success and the head has not moved: the update is ' +
-          'still queued, or the branch was already up to date'
-        : 'rebased'
-    this.emit(true, detail, { before, after, pr: fresh, output: out })
+    if (after !== before) {
+      this.emit(true, 'rebased', {
+        before,
+        after,
+        pr: fresh,
+        output: out,
+        result: 'moved',
+        ...reading,
+      })
+      return
+    }
+    // `gh pr update-branch` prints its success line as soon as GitHub
+    // accepts the request. To call an unmoved head "rebased" would tell the
+    // caller a new CI run is coming, when none may be.
+    if (upToDate) {
+      this.emit(
+        true,
+        'update-branch reported the branch already up to date with its base; the head has not moved',
+        { before, after, pr: fresh, output: out, result: 'up_to_date', ...reading },
+      )
+      return
+    }
+    this.emit(
+      true,
+      `update-branch reported success and the head has not moved after ${reading.waited}s: the ` +
+        'update is still queued',
+      { before, after, pr: fresh, output: out, result: 'unmoved', ...reading },
+    )
   }
 
   async wait(): Promise<void> {

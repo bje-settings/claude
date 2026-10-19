@@ -149,6 +149,14 @@ removed.
   `wait_clamps_the_bound_to_the_maximum` and `wait_says_a_bound_override_was_ignored`. `reads_ok`
   is 2, 2, 19 and 19, and each `detail` names the same `waited`. The case names keep the Python's
   words.
+- **`rebase` polls** for a moved head (ruling 16 on #460). Each `rebase` report that follows a
+  branch update adds `result`, `waited`, `reads_ok`, `read_failures`, and `read_error` at the
+  end. `rebase_moves_the_head` reads `moved`, with `0`, `1`, `0` and `""`.
+  `rebase_reports_a_branch_that_was_already_up_to_date` reads `up_to_date`, with the same four
+  values, and its `detail` now says that gh reported the branch up to date.
+  `rebase_reports_an_update_that_has_only_been_queued` polls every 5 seconds to the 60 second
+  bound. It reads `unmoved`, `waited` 60 and `reads_ok` 13, and its `detail` names the 60
+  seconds.
 
 One sentence deliberately did NOT change, though it names a script that is now a command:
 `settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits

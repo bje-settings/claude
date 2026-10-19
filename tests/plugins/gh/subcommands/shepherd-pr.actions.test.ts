@@ -226,6 +226,123 @@ it('reads a head gh answered as an empty string as no head at all', async () => 
   expect(result.document.after).toBe('')
 })
 
+/** A `rebase` of pull request 1, whose reads answer `pulls` in order. The
+ *  first entry is the read before the update. */
+const rebaseOn = (
+  pulls: NonNullable<GhSequences['viewPullRequest']>,
+  env: Record<string, string> = {},
+  updated = UPDATED,
+) =>
+  drive((sandbox, repo) => ({
+    argv: [repo, '1', 'rebase'],
+    env: { ...sandbox.env, ...env },
+    gh: createGhServer({
+      replies: { viewRepository: REPOSITORY, updateBranch: updated },
+      sequences: { viewPullRequest: pulls },
+    }),
+  }))
+
+const queued = depPr(1, { merge: 'BEHIND' })
+const moved = depPr(1, { merge: 'BLOCKED', head: 'rebased-sha1' })
+
+it('polls until the head moves, and reports moved on the second read', async () => {
+  // Ruling 16 on #460: GitHub applies a queued update some seconds after gh
+  // returns.
+  const result = await rebaseOn([queued, queued, moved])
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    detail: 'rebased',
+    before: 'sha1',
+    after: 'rebased-sha1',
+    result: 'moved',
+    waited: 5,
+    reads_ok: 2,
+    read_failures: 0,
+  })
+  expect(result.elapsed).toBe(5_000)
+})
+
+it('reports unmoved when the bound passes, and stops the last sleep at the bound', async () => {
+  const result = await rebaseOn([queued], { SHEPHERD_REBASE_BOUND: '12' })
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    detail:
+      'update-branch reported success and the head has not moved after 12s: the update is ' +
+      'still queued',
+    after: 'sha1',
+    result: 'unmoved',
+    waited: 12,
+    reads_ok: 4,
+  })
+  expect(result.elapsed).toBe(12_000)
+})
+
+it('does not poll when gh says the branch is already up to date', async () => {
+  const result = await rebaseOn(
+    [queued],
+    {},
+    '✓ Pull request #1 already up-to-date with base branch\n',
+  )
+
+  expect(result.document).toMatchObject({ ok: true, result: 'up_to_date', waited: 0, reads_ok: 1 })
+  expect(result.elapsed).toBe(0)
+})
+
+it('counts a read failure that a later read recovered from, and nothing more', async () => {
+  const result = await rebaseOn([queued, ghFails('HTTP 502'), moved])
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'moved',
+    waited: 5,
+    reads_ok: 1,
+    read_failures: 1,
+    read_error: '',
+  })
+})
+
+it('reports ok with no head when the bound ends on a failed read', async () => {
+  // The update ran, so `ok: false` would send the caller to rebase again.
+  const result = await rebaseOn([queued, queued, ghFails('HTTP 502')], {
+    SHEPHERD_REBASE_BOUND: '10',
+  })
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    detail: 'update-branch succeeded but the pull request could not be re-read: HTTP 502',
+    after: '',
+    pr: null,
+    waited: 10,
+    reads_ok: 1,
+    read_failures: 2,
+    read_error: 'HTTP 502',
+  })
+  expect(result.document).not.toHaveProperty('result')
+})
+
+it('falls back to the default bound and poll for overrides that do not parse', async () => {
+  const result = await rebaseOn([queued], {
+    SHEPHERD_REBASE_BOUND: 'soon',
+    SHEPHERD_REBASE_POLL: '0',
+  })
+
+  expect(result.stderr).toBe(
+    'SHEPHERD_REBASE_BOUND=soon ignored; using 60\nSHEPHERD_REBASE_POLL=0 ignored; using 5\n',
+  )
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 60, reads_ok: 13 })
+})
+
+it('reads every SHEPHERD_REBASE_POLL seconds when it is set', async () => {
+  const result = await rebaseOn([queued], {
+    SHEPHERD_REBASE_BOUND: '10',
+    SHEPHERD_REBASE_POLL: '2',
+  })
+
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 10, reads_ok: 6 })
+})
+
 it('asks for a rebase of the pull request it was given, and never a merge', async () => {
   // If the code omits `rebase`, it writes a merge commit onto someone else's
   // branch. The number is the one the caller named. Together, both are the
