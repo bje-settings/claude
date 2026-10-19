@@ -482,6 +482,79 @@ it('reads every SHEPHERD_WAIT_POLL seconds when it is set', async () => {
   expect(result.document).toMatchObject({ result: 'pending', waited: 60, reads_ok: 4 })
 })
 
+it('refuses a SHEPHERD_WAIT_POLL of 0, which would never reach the bound', async () => {
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
+    SHEPHERD_WAIT_BOUND: '60',
+    SHEPHERD_WAIT_POLL: '0',
+  })
+
+  expect(result.stderr).toBe('SHEPHERD_WAIT_POLL=0 ignored; using 30\n')
+  expect(result.document).toMatchObject({ result: 'pending', waited: 60, reads_ok: 3 })
+})
+
+it('reports merged, not behind, when auto-merge fires during the poll', async () => {
+  // After a merge, the base holds the head, so the compare can read behind.
+  // The merge decides first.
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'passed', state: 'MERGED' })],
+    [AHEAD, compared('behind')],
+  )
+
+  expect(result.document).toMatchObject({ ok: true, result: 'merged', waited: 30 })
+})
+
+it.each([
+  ['passed', AHEAD, 'passed'],
+  ['pending', compared('behind'), 'behind'],
+] as const)(
+  'gives a verdict on the read at the bound: checks %s give %s',
+  async (checks, compare, verdict) => {
+    const result = await waitOn(
+      [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'pending' }), depPr(1, { checks })],
+      [AHEAD, AHEAD, compare],
+      { SHEPHERD_WAIT_BOUND: '50' },
+    )
+
+    expect(result.document).toMatchObject({ ok: true, result: verdict, waited: 50, reads_ok: 3 })
+  },
+)
+
+it('answers no checks from the first read when the compare is unavailable', async () => {
+  const result = await waitOn([depPr(1, { checks: 'none' })], [UNAVAILABLE])
+
+  expect(result.document).toMatchObject({ ok: true, result: 'passed', pr: { behind: null } })
+  expect(result.document.detail).toBe('no checks reported on this head')
+  expect(result.elapsed).toBe(0)
+})
+
+it('compares the head of each poll, not the head of the first read', async () => {
+  // Only the new head is behind. A compare of the first head reads ahead,
+  // and this would then report passed.
+  const server = createGhServer({
+    replies: { viewRepository: REPOSITORY },
+    sequences: {
+      viewPullRequest: [
+        depPr(1, { checks: 'pending' }),
+        depPr(1, { checks: 'passed', head: 'sha2' }),
+      ],
+    },
+  })
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'wait'],
+    env: sandbox.env,
+    gh: {
+      ...server,
+      compareCommits: async (query) => (query.head === 'sha2' ? compared('behind') : AHEAD),
+    },
+  }))
+
+  expect(result.document).toMatchObject({
+    result: 'behind',
+    waited: 30,
+    pr: { headRefOid: 'sha2', behind: true },
+  })
+})
+
 it('clamps the wait bound up to the minimum for a repository with fast CI', async () => {
   // This is the other end of `clamp(ciSeconds * 2, 120, 540)`. `Math.max` is
   // not a branch, so the coverage gate never sees this case. A floor of 1
