@@ -53,6 +53,55 @@ const section = (file: string, start: string, end?: string): string => {
 
 // --- the shepherd's prose -----------------------------------------------------
 
+// --- the review rules and --all (#465) --------------------------------------
+
+it('takes --all as an argument of the skill', () => {
+  expect(section(SKILL, 'argument-hint:', '\n')).toContain('--all')
+})
+
+it('passes --all to shepherd-status, and prints not_ready on --dry-run', () => {
+  const step = section(SKILL, '## Step 2', '## Step 3')
+  expect(step).toContain('shepherd-status <path> [label] [--all]')
+  expect(step).toContain('Pass `--all` only when it was given')
+  expect(step).toContain('`not_ready` entries with\ntheir `reasons`')
+})
+
+it('tells each agent whether --all is on', () => {
+  expect(section(SKILL, '## Step 3', '## Step 4')).toContain('whether `--all` is on')
+})
+
+it('names each not-ready pull request in the report, with its reasons', () => {
+  const step = section(SKILL, '## Step 5', '## What this skill never does')
+  expect(step).toContain('`not_ready`')
+  expect(step).toContain('"needs an\napproval"')
+  expect(step).toContain('"has unresolved review threads"')
+})
+
+it('skips a pull request that is not ready by its review rules, before any rebase or wait', () => {
+  const step = section(AGENT, '1. `state`.', '2. Decide from')
+  expect(step).toContain(
+    'Without `--all`, check the review rules next, before any `rebase` or `wait`',
+  )
+  expect(step).toContain(
+    'If `pr.approval` is `missing`, record it as\n   skipped ("needs an approval")',
+  )
+  expect(step).toContain(
+    'If `pr.threads` is `unresolved`, record it as skipped ("has\n   unresolved review threads")',
+  )
+  expect(step).toContain('A `null` is\n   not a reason to skip')
+  expect(step).toContain('With `--all`, ignore both fields')
+})
+
+it('takes the --all flag as input to the agent', () => {
+  expect(section(AGENT, 'Your input is', '```bash')).toContain('whether `--all`')
+})
+
+it('draws the not-ready edges in the skill flow', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('Not ready: named in the report with its reasons')
+  expect(body).toContain('Skipped: needs an approval, or has unresolved review threads')
+})
+
 it('names settle in the actions the agent may run', () => {
   // An action the agent does not know about is an action nobody calls.
   const lines = read(AGENT)

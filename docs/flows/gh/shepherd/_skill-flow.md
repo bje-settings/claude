@@ -23,14 +23,18 @@ flowchart TD
 
     A1 --> B[List open, non-draft, auto-merge PRs per repo,<br/>narrowed to one label when given]
     A4 -->|Yes| B
-    B -->|--dry-run| Z2([Print each repo's plan, change nothing]):::stop
-    B -->|Targets remain| C[One worker per repo, repos in parallel]
+    B --> RR{Without --all: do the review rules of its base<br/>leave the PR out?}
+    RR -->|Needs an approval, or has unresolved review threads| NR([Not ready: named in the report with its reasons]):::stop
+    RR -->|Ready, or --all, or the rules could not be read| B2[Targets]
+    B2 -->|--dry-run| Z2([Print each repo's plan and its not-ready list, change nothing]):::stop
+    B2 -->|Targets remain| C[One worker per repo, repos in parallel]
 
     subgraph worker [inside one repo, one PR at a time]
         direction TB
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
+        T -->|Without --all: approval missing or threads unresolved| NA([Skipped: needs an approval, or has unresolved review threads]):::stop --> S
         T -->|Head behind the base, no conflict, whatever the merge state| R[Rebase without a checkout,<br/>read until the head moves] --> W[Wait one CI cycle]
         T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W
         MG -->|Cannot resolve or verify| E([Skipped: unresolved or unexplained, reason names the files and checks]):::stop --> S

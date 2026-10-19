@@ -141,6 +141,16 @@ Auto-merge is the human's signal that they want the pull request. The skill neve
 itself. A run named with a label targets only pull requests that carry it. A second label in the
 same run is refused.
 
+The review rules of the base can leave a pull request out too (#465). `shepherd-status` reads the
+`pull_request` rules of each base once. A pull request is not ready when its base requires an
+approval that it does not have, or resolved review threads that it does not have. The rules
+require an approval with a count above 0, a code owner review, or an approval of the last push.
+A `reviewDecision` can require one too. Such a pull request goes to `not_ready`, with its
+reasons: "needs an approval", "has unresolved review threads". The report names it, so the person
+knows it needs a review. A repository whose rules require no review is shepherded as before. A
+read of the rules or the threads that fails leaves nothing out: stderr says why, and the verdict
+rests on `reviewDecision`. `--all` makes every auto-merge pull request a target again.
+
 Order is gh-security's `merge-risk:<band>` label first (low, then unlabelled, then medium, then
 high), oldest first within a band.
 
@@ -149,12 +159,14 @@ high), oldest first within a band.
 | Flag | Effect |
 | --- | --- |
 | `<label>` | Shepherd only pull requests that carry this one label. |
-| `--dry-run` | Print each repository's target list, in order, and stop. Nothing is rebased or waited for. |
+| `--all` | Shepherd every auto-merge pull request, also one that the review rules of its base leave out. |
+| `--dry-run` | Print each repository's target list, in order, then its `not_ready` list, and stop. Nothing is rebased or waited for. |
 
 ### The loop, per pull request
 
 | State | Action |
 | --- | --- |
+| Not ready, without `--all` | `state` reports `approval` `missing` or `threads` `unresolved`. A review can be dismissed during a run. Skipped, with "needs an approval" or "has unresolved review threads", before any rebase or wait. |
 | Behind its base | `gh pr update-branch --rebase`, no checkout. Read the pull request every 5 seconds until the head moves, for at most 60 seconds. Then wait. GitHub's compare of the base and the head decides "behind". `mergeStateStatus` does not, because it reads `BLOCKED` while a check is pending. A head that is behind is rebased before any wait. When the compare cannot be read, `mergeStateStatus` decides. |
 | Conflicts | In a throwaway worktree, `git merge origin/<base>` into the head branch, for any author. Regenerate a lockfile with the repository's own package manager. Keep the keys of both sides in a manifest. Keep both intents in code. Verify locally, commit, and run a plain `git push`. Then wait for CI. Never rebase, and never force-push. |
 | Checks in progress | Wait one CI cycle: read the pull request and the compare every 30 seconds. The bound is twice the repo's median run time, at most nine minutes per call. A base that moves during the wait ends it at the next poll, and the head is rebased. |
@@ -234,13 +246,17 @@ Never:
 The deterministic parts are two commands. The agent only decides between their results.
 
 ```bash
-node <plugin>/scripts/gh.ts shepherd-status <path> [label]        # the work list, as JSON
+node <plugin>/scripts/gh.ts shepherd-status <path> [label] [--all]   # the work list, as JSON
 node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|wait|settle|merged
 ```
 
-`shepherd-status` changes nothing. `shepherd-pr` writes only through one action: `rebase` (the
-branch update). It refuses that when its precondition does not hold: the pull request is not
-open.
+`shepherd-status` changes nothing. It prints `targets` and `not_ready`. Each target carries
+`approval` (`met`, `missing`, `not_required`, or `null`) and `threads` (`resolved`, `unresolved`,
+`not_required`, or `null`). `shepherd-pr` writes only through one action: `rebase` (the branch
+update). It refuses that when its precondition does not hold: the pull request is not open.
+`state` reads the review rules of the base, and reports `approval` and `threads` the same way.
+The other actions do not read the rules: their `approval` rests on `reviewDecision`, and their
+`threads` is `null`.
 
 Every action prints one JSON object, with `ok` and `detail`, and exits 0 whether or not it acted.
 So a refusal is data for the agent, not a crash.
