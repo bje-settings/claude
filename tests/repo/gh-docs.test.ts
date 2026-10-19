@@ -122,7 +122,7 @@ it('sends a behind head to rebase before any wait, whatever the merge state', ()
   const rule = section(AGENT, '- `pr.behind` true', '- `pr.behind` null')
 
   expect(rule).toContain('`rebase`, then `wait`, whatever `mergeStateStatus` says')
-  expect(rule).toContain('`DIRTY`')
+  expect(rule).toContain('On `DIRTY`, do\n     the step 5 merge in place of the rebase')
   expect(step).toContain('Never send a head with\n   `pr.behind` true to `wait`')
   expect(step.indexOf('- `pr.behind` true')).toBeLessThan(step.indexOf('→ `wait`'))
 })
@@ -132,12 +132,32 @@ it('sends a behind result from wait back to step 2, apart from the pending count
 
   expect(behind).toContain('Go back to step 2')
   expect(behind).toContain('does not count toward the three')
+  expect(behind).toContain('After three `behind` results with no change in `pr.headRefOid`')
+  expect(behind).toContain('("rebase did not move a head that stays behind its base")')
+})
+
+it('decides from the merge state when the compare could not be read', () => {
+  expect(section(AGENT, '- `pr.behind` null', '- `BEHIND`')).toContain(
+    'Decide from `mergeStateStatus` below',
+  )
+})
+
+it('re-reads state after settle reports a moved base', () => {
+  expect(section(AGENT, '- `changed` →', '- `closed` →')).toContain('Re-read `state`')
+})
+
+it('takes the base of a conflict merge from state', () => {
+  const step = section(AGENT, '5. Fix in a worktree', '6. After a merge')
+
+  expect(step).toContain('`pr.baseRefName` from `state`')
+  expect(step).not.toContain('--json baseRefName')
 })
 
 it('names no checks watcher in the wait result the agent reads', () => {
-  expect(section(AGENT, '3. Act on the `wait` result', '- `merged`')).toContain(
-    'the last read\n     before the bound failed',
-  )
+  const failed = section(AGENT, '3. Act on the `wait` result', '- `merged`')
+
+  expect(failed).toContain('the last read\n     before the bound failed')
+  expect(read(AGENT)).not.toContain('watcher')
 })
 
 it('names no recreate action in the agent', () => {
@@ -181,7 +201,8 @@ it('draws the behind edge from wait back to the decision in the shepherd diagram
   const body = section(FLOW, '```mermaid', '```')
 
   expect(body).toContain('W -->|Base moved: head behind| T')
-  expect(body).toContain('Head behind the base, whatever the merge state')
+  expect(body).toContain('Head behind the base, no conflict, whatever the merge state')
+  expect(body).toContain('Skipped: rebase did not move a head that stays behind its base')
 })
 
 it('draws the settle branch in the shepherd diagram', () => {

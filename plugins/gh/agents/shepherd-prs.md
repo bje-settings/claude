@@ -102,8 +102,8 @@ number, in the order given:
      - `blocked` → record it as skipped. Copy `mergeStateStatus`, `reviewDecision`, `autoMerge`,
        `waited`, and the script's `reason` verbatim. The reason already names the field that
        proved it. Do not add a cause of your own.
-     - `changed` → the base moved while `settle` ran. Go back to step 2 and decide again from the
-       new `mergeStateStatus`. This is not a skip.
+     - `changed` → the base moved while `settle` ran. Re-read `state`, then go back to step 2.
+       `settle` does not report `pr.behind`. This is not a skip.
      - `closed` → record it under `closed` with the detail and continue.
      - `open` → the bound passed, and GitHub reported nothing against it. Record it as skipped,
        with the same four fields, and the detail as the reason. "Still open, nothing reported
@@ -119,7 +119,8 @@ number, in the order given:
    - `failed` → classify the failure (step 4).
    - `behind` → the base moved. Go back to step 2. This does not count toward the three
      `pending` results. After three `behind` results with no change in `pr.headRefOid`, record
-     the pull request as skipped ("head stays behind its base").
+     the pull request as skipped ("rebase did not move a head that stays behind its base").
+     `update-branch` can report the branch as up to date while the compare still reads behind.
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone
