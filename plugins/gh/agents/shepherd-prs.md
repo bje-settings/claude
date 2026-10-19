@@ -63,7 +63,13 @@ number, in the order given:
    and continue. If `pr.autoMerge` is false, record it as skipped ("auto-merge turned off after
    selection") and continue. Auto-merge may have changed since the caller selected this pull
    request. This script never turns it on.
-2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
+2. Decide from `pr.behind`, `pr.mergeStateStatus` and `pr.checks.state`. `pr.behind` is true
+   when the head does not contain the tip of its base. While a check is pending, GitHub shows
+   `BLOCKED` in place of `BEHIND`, so `pr.behind` decides first. Never send a head with
+   `pr.behind` true to `wait`.
+   - `pr.behind` true → `rebase`, then `wait`, whatever `mergeStateStatus` says. On `DIRTY`, do
+     the step 5 merge in place of the rebase.
+   - `pr.behind` null → the compare could not be read. Decide from `mergeStateStatus` below.
    - `BEHIND` → `rebase`, then `wait`.
      If `rebase` returns `ok:false`, re-read `state` and decide again. This usually means GitHub
      refused the branch update because of a new conflict since the pull request was selected. A
@@ -84,10 +90,10 @@ number, in the order given:
    - `CLEAN`, `HAS_HOOKS`, or checks `pending` → `wait`.
    - `UNKNOWN` → GitHub has not computed it yet. Call `wait` once, then re-read `state`.
 3. Act on the `wait` result:
-   - `ok:false` → the wait did not complete. Either the pull request could not be read, or the
-     checks watcher itself failed (a 502, or an expired token). The detail names which, in gh's
-     own words, and `waited` says how long the watcher ran. This is not `pending`. Re-read `state`
-     and decide again. A second `ok:false` is skipped, with the detail.
+   - `ok:false` → the wait did not complete. Either the first read failed, or the last read
+     before the bound failed (a 502, or an expired token). The detail names which, in gh's own
+     words, and `waited` says how long `wait` read. This is not `pending`. Re-read `state` and
+     decide again. A second `ok:false` is skipped, with the detail.
    - `merged` → record the merge commit and continue to the next number.
    - `passed` → call `settle`, once. It is the grace between "checks passed" and "auto-merge did
      not fire". Do not use a second `wait` for this. `wait` returns at once on a rollup that is
@@ -107,10 +113,13 @@ number, in the order given:
        fact about gh, never a finding about the pull request. Re-read `state` and decide again. A
        second `ok:false` is skipped, with the detail as the reason.
      Never merge it yourself.
-   - `pending` → call `wait` again. (`waited` is how many seconds the watcher ran before the
-     bound.) After three consecutive `pending` results with no change in `pr.headRefOid`, record
-     the pull request as skipped ("checks did not finish"). Then continue.
+   - `pending` → call `wait` again. (`waited` is how many seconds `wait` read before its bound.)
+     After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull
+     request as skipped ("checks did not finish"). Then continue.
    - `failed` → classify the failure (step 4).
+   - `behind` → the base moved. Go back to step 2. This does not count toward the three
+     `pending` results. After three `behind` results with no change in `pr.headRefOid`, record
+     the pull request as skipped ("head stays behind its base").
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone
@@ -141,8 +150,7 @@ number, in the order given:
    gh pr checkout <n> --repo <owner/name>   # run inside that worktree
    ```
    For a conflict, run `git fetch origin <base>` and `git merge origin/<base>` there. `<base>` is
-   the `baseRefName` from `gh pr view <n> --repo <owner/name> --json baseRefName`. Resolve each
-   conflicted file:
+   `pr.baseRefName` from `state`. Resolve each conflicted file:
    - A lockfile: do not merge its text. Resolve the manifest first. Then regenerate the lockfile
      with the package manager that the repository's own lock file names.
    - A manifest or an overrides block: keep the keys of both sides.
@@ -160,7 +168,7 @@ number, in the order given:
 
    On every path, run `git worktree remove` on the fix worktree before you move on. If it refuses
    because of local changes, leave the worktree, and name its path in the reason.
-6. After a merge, the next target is BEHIND. That is expected, and step 2 handles it.
+6. After a merge, the next target is behind its base. That is expected, and step 2 handles it.
 
 ## Report
 

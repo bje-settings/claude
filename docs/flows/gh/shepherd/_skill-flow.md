@@ -3,8 +3,8 @@ type: Reference
 description: What the /gh:shepherd skill does, and every way it declines to act, given an optional label.
 stale_after: 2027-03-25
 generated:
-  by: claude-sonnet
-  at: 2026-10-13
+  by: claude-opus
+  at: 2026-10-19
 ---
 
 # /gh:shepherd skill flow
@@ -31,11 +31,13 @@ flowchart TD
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
-        T -->|Behind the base| R[Rebase without a checkout] --> W[Wait one CI cycle]
+        T -->|Head behind the base, whatever the merge state| R[Rebase without a checkout] --> W[Wait one CI cycle]
         T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W
         MG -->|Cannot resolve or verify| E([Skipped: unresolved or unexplained, reason names the files and checks]):::stop --> S
-        T -->|Checks running or already decided| W
+        T -->|Head holds the base tip: checks running or already decided| W
         W -->|Merged by auto-merge| S
+        W -->|Base moved: head behind| T
+        W -->|Still behind after three waits, head unchanged| BH([Skipped: head stays behind its base]):::stop --> S
         W -->|Checks green| P[Settle: read until GitHub decides]
         P -->|Merged| S
         P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Skipped: reason names only what was read]):::stop --> S

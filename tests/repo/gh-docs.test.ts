@@ -114,6 +114,32 @@ it('does not re-read a blocked entry that names a cause', () => {
   }
 })
 
+it('sends a behind head to rebase before any wait, whatever the merge state', () => {
+  // GitHub reports BLOCKED in place of BEHIND while a check is pending
+  // (#460). So the compare decides first, and its rule comes before every
+  // rule that sends a head to `wait`.
+  const step = section(AGENT, '2. Decide from', '3. Act on the `wait` result')
+  const rule = section(AGENT, '- `pr.behind` true', '- `pr.behind` null')
+
+  expect(rule).toContain('`rebase`, then `wait`, whatever `mergeStateStatus` says')
+  expect(rule).toContain('`DIRTY`')
+  expect(step).toContain('Never send a head with\n   `pr.behind` true to `wait`')
+  expect(step.indexOf('- `pr.behind` true')).toBeLessThan(step.indexOf('→ `wait`'))
+})
+
+it('sends a behind result from wait back to step 2, apart from the pending count', () => {
+  const behind = section(AGENT, '- `behind` → ', '4. Classify the failure')
+
+  expect(behind).toContain('Go back to step 2')
+  expect(behind).toContain('does not count toward the three')
+})
+
+it('names no checks watcher in the wait result the agent reads', () => {
+  expect(section(AGENT, '3. Act on the `wait` result', '- `merged`')).toContain(
+    'the last read\n     before the bound failed',
+  )
+})
+
 it('names no recreate action in the agent', () => {
   // Shepherd resolves a Dependabot conflict like any other (#346).
   expect(read(AGENT)).not.toContain('recreate')
@@ -149,6 +175,13 @@ it('does not list conflict resolution among what the skill never does', () => {
 
   expect(never).not.toContain('conflict')
   expect(never).toContain('force-push')
+})
+
+it('draws the behind edge from wait back to the decision in the shepherd diagram', () => {
+  const body = section(FLOW, '```mermaid', '```')
+
+  expect(body).toContain('W -->|Base moved: head behind| T')
+  expect(body).toContain('Head behind the base, whatever the merge state')
 })
 
 it('draws the settle branch in the shepherd diagram', () => {

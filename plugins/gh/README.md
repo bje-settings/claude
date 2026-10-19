@@ -155,9 +155,9 @@ high), oldest first within a band.
 
 | State | Action |
 | --- | --- |
-| Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. |
+| Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. GitHub's compare of the base and the head decides this, not `mergeStateStatus`, which reads `BLOCKED` while a check is pending. A head that is behind is never waited on. |
 | Conflicts | In a throwaway worktree, `git merge origin/<base>` into the head branch, for any author. Regenerate a lockfile with the repository's own package manager. Keep the keys of both sides in a manifest. Keep both intents in code. Verify locally, commit, and run a plain `git push`. Then wait for CI. Never rebase, and never force-push. |
-| Checks in progress | Wait one CI cycle: `gh pr checks --watch --fail-fast`, bounded by twice the repo's median run time, at most nine minutes per call. |
+| Checks in progress | Wait one CI cycle: read the pull request and the compare every 30 seconds, bounded by twice the repo's median run time, at most nine minutes per call. A base that moves during the wait ends it at once, and the head is rebased. |
 | Checks green, auto-merge fired | Record it with the merge commit. Continue. |
 | Checks green, still open | `settle`: read the pull request until GitHub decides. Record `merged` as merged, and `closed` as closed. A `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is skipped. The reason names that field. `BEHIND` or `DIRTY` sends the loop back to decide again. If the bound passes with nothing reported, that itself is the reason. Never merge it by hand. |
 | Checks failed, mechanical or caused by the base | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot refresh, or a configuration move that the new base requires (an override from `package.json` to `pnpm-workspace.yaml` for pnpm 12). A pull request that had conflicts gets one merge push and one fix. A second failure is a skip that names both attempts and the conflicted files. |
@@ -172,13 +172,19 @@ classification are all small-model work.
 
 ### Waiting
 
-There are two waits, and they wait on different things. The CI wait is a blocking
-`gh pr checks --watch`. It runs inside the per-repo subagent, once per CI cycle. It is
-deliberately not a Monitor or a scheduled wake: those idle the worker, and the orchestrator then
-sees only "waiting". The bound comes from the median duration of the last twenty completed runs
-on the default branch. It is doubled, then clamped to two to nine minutes. A wait that hits its
-bound returns `pending`, and the agent calls it again. When a rollup is already terminal, the
-skill answers from the pull request alone, with no watch at all.
+There are two waits, and they wait on different things. The CI wait, `wait`, is a blocking poll.
+It runs inside the per-repo subagent, once per CI cycle. It is deliberately not a Monitor or a
+scheduled wake: those idle the worker, and the orchestrator then sees only "waiting". The bound
+comes from the median duration of the last twenty completed runs on the default branch. It is
+doubled, then clamped to two to nine minutes. A wait that hits its bound returns `pending`, and
+the agent calls it again. When a rollup is already terminal, the skill answers from the first
+read, with no poll at all.
+
+Each poll reads the pull request and GitHub's compare of its base and its head. A head that does
+not contain the tip of its base returns `behind`, before the first poll or at the poll that sees
+the base move. A green run on such a head cannot let auto-merge fire, so its CI time would be
+spent for nothing. The first failed check returns `failed` without the rest of the run. A
+compare that cannot be read gives `behind: null`, and the poll goes on.
 
 The second is `settle`, the grace between "checks passed" and "auto-merge did not fire". It
 exists because that grace used to be one `gh` round trip. The brief told the agent to spend it on
@@ -240,9 +246,9 @@ So a refusal is data for the agent, not a crash.
 
 Nothing here reports a silence as a fact. When gh could not answer a read, the report carries
 gh's own words. When an answer lacks a field the loop decides from, the command refuses it. It
-does not shape that answer into a pull request with no checks. A `wait` whose watcher failed for
-a reason of its own reports `ok: false`, not `pending`. If it reported `pending` instead, an
-expired token would wait out one CI cycle at a time, forever. `rebase` reports gh's output, and
+does not shape that answer into a pull request with no checks. A `wait` whose bound arrives on a
+failed read reports `ok: false`, not `pending`. If it reported `pending` instead, an expired token
+would wait out one CI cycle at a time, forever. `rebase` reports gh's output, and
 says when the head has not moved. This is because `gh pr update-branch` returns as soon as GitHub
 accepts the request, and prints the same line when the branch was already current. A failed
 `wait` carries `log_tail`, and `log_error` beside it when gh would not hand over the log. This
@@ -254,7 +260,7 @@ wait out a bound on a question nobody asked. A pull request that has already mer
 answer instead of a refusal, because that answer is exactly what `settle` is asked for.
 
 `node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs
-(`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_LOG_LINES`,
+(`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_WAIT_POLL`, `SHEPHERD_LOG_LINES`,
 `SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`).
 
 Repository discovery is shared with `/gh:sync`. Both skills resolve their scope by the same rule.

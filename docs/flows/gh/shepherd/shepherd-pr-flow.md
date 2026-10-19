@@ -3,8 +3,8 @@ type: Reference
 description: How `gh.ts shepherd-pr` checks its arguments, then runs one of five steps on one pull request. It reports every result.
 stale_after: 2027-03-25
 generated:
-  by: claude-sonnet
-  at: 2026-10-13
+  by: claude-opus
+  at: 2026-10-19
 ---
 
 # shepherd-pr flow
@@ -25,7 +25,7 @@ flowchart TD
     G -->|No| Z3([could not resolve the repository, exit 1]):::stop
     G -->|Yes| R{Pull request read,<br/>with every field?}
     R -->|No| RU([ok false: could not read, exit 0]):::stop
-    R -->|state| S([ok true: the pull request, exit 0])
+    R -->|state| S([ok true: the pull request, and whether<br/>its head is behind its base, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
     subgraph writes [rebase: the only write]
@@ -37,16 +37,24 @@ flowchart TD
     RB2 -->|No| OF([ok false: gh failed, or the<br/>step did not land, exit 0]):::stop
 
     subgraph reads [wait and settle: read only]
-        R -->|wait| W{Merged, or no checks?}
-        W -->|Merged| MG([ok true: result merged, exit 0])
-        W -->|No checks| WP([ok true: result passed, exit 0])
-        W -->|Checks pending| W2{Bounded watch: gh<br/>answered with a status it uses?}
-        W -->|Checks passed or failed| W3
-        W2 -->|Yes| W3{Re-read: merged,<br/>and the checks now?}
+        R -->|wait| W{Merged?}
+        W -->|Yes| MG([ok true: result merged, exit 0])
+        W -->|No| WB{Head behind its base?}
+        WB -->|Yes| WBH([ok true: result behind,<br/>rebase before CI, exit 0])
+        WB -->|No, or the compare<br/>could not be read| WN{Any checks reported?}
+        WN -->|No| WP([ok true: result passed, exit 0])
+        WN -->|Yes| W3{Evaluate the last<br/>successful read}
         W3 -->|Merged| MG
-        W3 -->|Passed or none| WP
-        W3 -->|Pending| WPE([ok true: result pending,<br/>call wait again, exit 0])
-        W3 -->|Failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
+        W3 -->|Head behind its base| WBH
+        W3 -->|Passed| WP
+        W3 -->|A check failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
+        W3 -->|Pending| W9{Bound reached?}
+        W9 -->|Yes| W7{Last read attempt succeeded?}
+        W7 -->|Yes| WPE([ok true: result pending,<br/>call wait again, exit 0])
+        W9 -->|No| W10[Sleep one poll, never past the bound,<br/>then read the pull request and the compare]
+        W10 --> W11{That read succeeded?}
+        W11 -->|Yes| W3
+        W11 -->|No: counted, the last<br/>successful read stands| W9
         R -->|settle| ST{Merged? Or open, auto-merge on,<br/>and checks passed or none?}
         ST -->|Merged| MG
         ST -->|Yes| ST3{Evaluate the last successful<br/>read: what does it say?}
@@ -63,8 +71,7 @@ flowchart TD
         ST11 -->|No: the last successful read<br/>stands, unevaluated again| ST9
     end
     ST -->|No| RF
-    W2 -->|No: gh failed on its own| OF
-    W3 -->|Re-read failed| OF
+    W7 -->|No| OF
     ST7 -->|No| OF
 
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
