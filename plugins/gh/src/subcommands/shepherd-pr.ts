@@ -156,8 +156,10 @@ cannot make it act on the wrong pull request.
             not_required) and \`pr.threads\` (resolved, unresolved,
             not_required) come from the review rules of baseRefName,
             reviewDecision and the reviews. The threads are read only when
-            the rules ask for resolved threads. Each is null when a read
-            failed and reviewDecision does not decide it (stderr says why).
+            the rules ask for resolved threads. \`approval\` is null when the
+            rules could not be read and reviewDecision is empty. \`threads\`
+            is null when the rules or the threads could not be read. stderr
+            says why.
             The other actions read neither, so their \`pr.approval\` rests
             on reviewDecision alone, and \`pr.threads\` is null.
   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
