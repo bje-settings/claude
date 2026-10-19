@@ -31,13 +31,13 @@ flowchart TD
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
-        T -->|Head behind the base, no conflict, whatever the merge state| R[Rebase without a checkout] --> W[Wait one CI cycle]
+        T -->|Head behind the base, no conflict, whatever the merge state| R[Rebase without a checkout,<br/>read until the head moves] --> W[Wait one CI cycle]
         T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W
         MG -->|Cannot resolve or verify| E([Skipped: unresolved or unexplained, reason names the files and checks]):::stop --> S
         T -->|Head holds the base tip: checks running or already decided| W
         W -->|Merged by auto-merge| S
         W -->|Base moved: head behind| T
-        W -->|Three behind results, head unchanged| BH([Skipped: rebase did not move a head that stays behind its base]):::stop --> S
+        W -->|Three behind results after a rebase that did not move the head| BH([Skipped: rebase did not move a head that stays behind its base]):::stop --> S
         W -->|Checks green| P[Settle: read until GitHub decides]
         P -->|Merged| S
         P -->|GitHub named a cause: BLOCKED, or a review decision| BL([Skipped: reason names only what was read]):::stop --> S

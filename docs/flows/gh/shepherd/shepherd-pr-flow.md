@@ -32,7 +32,14 @@ flowchart TD
         R -->|rebase| RB{Open?}
         RB -->|No| RF([ok false: refused, exit 0]):::stop
         RB -->|Yes| RB2{gh accepted the update?}
-        RB2 -->|Yes| RB3([ok true: rebased, head unmoved,<br/>or re-read failed, exit 0])
+        RB2 -->|Yes| RB4{gh said the branch<br/>is already up to date?}
+        RB4 -->|Yes: read once, no poll| RB5([ok true: result up_to_date, exit 0])
+        RB4 -->|Yes, and that read failed| RB3
+        RB4 -->|No| RB6{Head moved on the<br/>last successful read?}
+        RB6 -->|Yes| RB7([ok true: result moved, exit 0])
+        RB6 -->|No, bound not reached| RB8[Sleep one poll, never past the bound,<br/>then read again] --> RB6
+        RB6 -->|No, at the bound| RB9([ok true: result unmoved,<br/>the update is still queued, exit 0])
+        RB6 -->|Last read failed, at the bound| RB3([ok true: re-read failed,<br/>after empty, exit 0])
     end
     RB2 -->|No| OF([ok false: gh failed, or the<br/>step did not land, exit 0]):::stop
 

@@ -74,12 +74,13 @@ number, in the order given:
      If `rebase` returns `ok:false`, re-read `state` and decide again. This usually means GitHub
      refused the branch update because of a new conflict since the pull request was selected. A
      second `ok:false` is skipped, with the detail.
-     `ok:true` with `after` equal to `before` means one of two things. Either GitHub accepted the
-     update but has not applied it yet, or the branch was already current. `output` carries the
-     line gh printed, which says which case it is.
-     `ok:true` with `after` empty means the update landed, but the confirming read did not. Both
-     cases still go to `wait`, which re-reads.
-     Do not rebase again to "make sure". That would be a second CI run for a read that failed.
+     `rebase` reads the pull request until the head moves, so its `result` is final. Go to
+     `wait` on each one:
+     - `moved` → the update landed.
+     - `unmoved` → GitHub did not apply the update within the bound.
+     - `up_to_date` → gh said the branch already holds its base, so the head did not move.
+     `ok:true` with `after` empty means the update ran, but the last read did not. Go to `wait`,
+     which re-reads. Do not rebase again on it: that costs a second CI run for a read that failed.
    - `DIRTY` (conflicts) → merge the base into the head branch (step 5), then `wait`. Do this
      for every author, Dependabot included.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait`. It returns at once when the checks are
@@ -117,10 +118,12 @@ number, in the order given:
      After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull
      request as skipped ("checks did not finish"). Then continue.
    - `failed` → classify the failure (step 4).
-   - `behind` → the base moved. Go back to step 2. This does not count toward the three
-     `pending` results. After three `behind` results with no change in `pr.headRefOid`, record
-     the pull request as skipped ("rebase did not move a head that stays behind its base").
-     `update-branch` can report the branch as up to date while the compare still reads behind.
+   - `behind` → the head does not contain the tip of its base. Go back to step 2. This result
+     does not count toward the three `pending` results. Count a `behind` result only when the
+     `rebase` before it returned `unmoved` or `up_to_date`. After three such results with no
+     change in `pr.headRefOid`, record the pull request as skipped, with the reason
+     ("rebase did not move a head that stays behind its base"). `update-branch` can report the
+     branch as up to date while the compare still reads behind.
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone

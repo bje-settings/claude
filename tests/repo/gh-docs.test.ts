@@ -127,12 +127,25 @@ it('sends a behind head to rebase before any wait, whatever the merge state', ()
   expect(step.indexOf('- `pr.behind` true')).toBeLessThan(step.indexOf('→ `wait`'))
 })
 
+it('goes to wait on each rebase result, and never rebases again on a failed read', () => {
+  const step = section(AGENT, '2. Decide from', '3. Act on the `wait` result')
+
+  for (const result of ['moved', 'unmoved', 'up_to_date']) {
+    expect(step).toContain(`- \`${result}\` → `)
+  }
+  expect(step).toContain('Do not rebase again on it')
+  expect(step).not.toContain('make sure')
+})
+
 it('sends a behind result from wait back to step 2, apart from the pending count', () => {
   const behind = section(AGENT, '- `behind` → ', '4. Classify the failure')
 
   expect(behind).toContain('Go back to step 2')
+  expect(behind).not.toContain('the base moved')
   expect(behind).toContain('does not count toward the three')
-  expect(behind).toContain('After three `behind` results with no change in `pr.headRefOid`')
+  // Ruling 16: only a `behind` after a rebase that did not move the head counts.
+  expect(behind).toContain('`rebase` before it returned `unmoved` or `up_to_date`')
+  expect(behind).toContain('After three such results with no\n     change in `pr.headRefOid`')
   expect(behind).toContain('("rebase did not move a head that stays behind its base")')
 })
 

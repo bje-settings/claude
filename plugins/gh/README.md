@@ -155,7 +155,7 @@ high), oldest first within a band.
 
 | State | Action |
 | --- | --- |
-| Behind its base | `gh pr update-branch --rebase`, no checkout, then wait. GitHub's compare of the base and the head decides this, not `mergeStateStatus`, which reads `BLOCKED` while a check is pending. A head that is behind is never waited on. When the compare cannot be read, `mergeStateStatus` decides. |
+| Behind its base | `gh pr update-branch --rebase`, no checkout. Read the pull request every 5 seconds, for at most 60, until the head moves, then wait. GitHub's compare of the base and the head decides this, not `mergeStateStatus`, which reads `BLOCKED` while a check is pending. A head that is behind is never waited on. When the compare cannot be read, `mergeStateStatus` decides. |
 | Conflicts | In a throwaway worktree, `git merge origin/<base>` into the head branch, for any author. Regenerate a lockfile with the repository's own package manager. Keep the keys of both sides in a manifest. Keep both intents in code. Verify locally, commit, and run a plain `git push`. Then wait for CI. Never rebase, and never force-push. |
 | Checks in progress | Wait one CI cycle: read the pull request and the compare every 30 seconds, bounded by twice the repo's median run time, at most nine minutes per call. A base that moves during the wait ends it at the next poll, and the head is rebased. |
 | Checks green, auto-merge fired | Record it with the merge commit. Continue. |
@@ -249,9 +249,11 @@ Nothing here reports a silence as a fact. When gh could not answer a read, the r
 gh's own words. When an answer lacks a field the loop decides from, the command refuses it. It
 does not shape that answer into a pull request with no checks. A `wait` whose bound arrives on a
 failed read reports `ok: false`, not `pending`. If it reported `pending` instead, an expired token
-would wait out one CI cycle at a time, forever. `rebase` reports gh's output, and
-says when the head has not moved. This is because `gh pr update-branch` returns as soon as GitHub
-accepts the request, and prints the same line when the branch was already current. A failed
+would wait out one CI cycle at a time, forever. `gh pr update-branch` returns as soon as GitHub
+accepts the request, before the head moves. So `rebase` reads the pull request until the head
+moves, or until its bound. It reports gh's output and a `result`: `moved`, `unmoved` (still
+queued at the bound), or `up_to_date` (gh said the branch already holds its base, so it does not
+read again). A failed
 `wait` carries `log_tail`, and `log_error` beside it when gh would not hand over the log. This
 way, an empty tail is not mistaken for a job that printed nothing.
 
@@ -262,7 +264,7 @@ answer instead of a refusal, because that answer is exactly what `settle` is ask
 
 `node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs
 (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_WAIT_POLL`, `SHEPHERD_LOG_LINES`,
-`SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`).
+`SHEPHERD_SETTLE_BOUND`, `SHEPHERD_SETTLE_POLL`, `SHEPHERD_REBASE_BOUND`, `SHEPHERD_REBASE_POLL`).
 
 Repository discovery is shared with `/gh:sync`. Both skills resolve their scope by the same rule.
 `node <plugin>/scripts/gh.ts discover <path>` is that rule on its own, one checkout root per
