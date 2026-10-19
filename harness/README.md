@@ -87,8 +87,8 @@ change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullReque
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
 `watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
-`viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `listPullRequestStatuses`,
-`createCommitStatus`, `repositoryStatus`.
+`requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`,
+`listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
 
 `watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
 failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
@@ -105,8 +105,9 @@ with a null pull request for one it could not read. `listWorkflowRuns` answers
 `{ rows, unavailable }`. So does `listOpenPullRequestHeads`, the one read the watch and the
 intersect make for every open head. So does `listOpenPullRequestLinks`, the read of the stack
 links. `compareCommits` answers `{ comparison, unavailable }`, with a null comparison for one it
-could not read. `listPullRequestStatuses` answers `{ rows, unavailable }`. `createCommitStatus` is a
-write, and throws on a failure, as `addComment` does.
+could not read. `requiredReviews` answers `{ reviews, unavailable }`, with null `reviews` for rules
+it could not read. `listPullRequestStatuses` answers `{ rows, unavailable }`. `createCommitStatus`
+is a write, and throws on a failure, as `addComment` does.
 
 `repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The
 SessionStart hook reads it (#230).

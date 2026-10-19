@@ -118,7 +118,8 @@ describe('argv', () => {
       'list',
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName',
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
+        'latestReviews',
     ])
   })
 
@@ -143,7 +144,8 @@ describe('argv', () => {
       '100',
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName',
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
+        'latestReviews',
     ])
   })
 
@@ -225,7 +227,8 @@ describe('argv', () => {
       '7',
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName',
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
+        'latestReviews',
     ])
   })
 
@@ -355,7 +358,7 @@ describe('argv', () => {
     await log.gh.watchChecks({ pullRequest: 7, boundMs: 1_000 })
 
     const fields =
-      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName'
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,latestReviews'
     expect(rows.calls.map((call) => call.args)).toEqual([
       ['pr', 'list', '--repo', 'acme/widgets', '--json', fields],
       [
@@ -1204,6 +1207,7 @@ it("defaults to the root lib's own process runner", () => {
     'readPlanIssues',
     'repositoryStatus',
     'requiredContexts',
+    'requiredReviews',
     'searchPlanIssues',
     'updateBranch',
     'viewPullRequest',
@@ -2221,6 +2225,144 @@ describe('the review loop reads', () => {
         unavailable: 'gh did not answer in 5000 ms',
       })
     })
+  })
+
+  describe('requiredReviews', () => {
+    /** A `pull_request` rule as the endpoint answers it. The other keys are
+     *  from a real read of this repository's `main` on 2026-10-19. */
+    const pullRule = (approvals: unknown, codeOwner: unknown) => ({
+      type: 'pull_request',
+      parameters: {
+        required_approving_review_count: approvals,
+        dismiss_stale_reviews_on_push: false,
+        require_code_owner_review: codeOwner,
+        require_last_push_approval: false,
+        required_review_thread_resolution: false,
+      },
+      ruleset_source_type: 'Enterprise',
+      ruleset_source: 'bje',
+      ruleset_id: 21295778,
+    })
+
+    it('asks the branch rules endpoint, with the branch percent-encoded', async () => {
+      const { gh, calls } = clientAnsweringEach([REPO, { stdout: '[]' }])
+
+      await gh.requiredReviews({ branch: 'spike/context-audit' })
+
+      expect(calls[1]?.args).toEqual([
+        'api',
+        'repos/acme/widgets/rules/branches/spike%2Fcontext-audit',
+      ])
+    })
+
+    it('reads the enterprise rule that requires no approval, as this repository answers it', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          stdout: JSON.stringify([
+            { type: 'deletion', ruleset_source_type: 'Enterprise' },
+            pullRule(0, false),
+            {
+              type: 'required_status_checks',
+              parameters: { required_status_checks: [{ context: 'vitest' }] },
+            },
+          ]),
+        },
+      ])
+
+      await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
+        reviews: { approvals: 0, codeOwner: false },
+        unavailable: null,
+      })
+    })
+
+    it('takes the highest count and any code owner flag across two rules', async () => {
+      // GitHub enforces every ruleset that applies, so the strictest wins.
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { stdout: JSON.stringify([pullRule(2, false), pullRule(1, true)]) },
+      ])
+
+      await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
+        reviews: { approvals: 2, codeOwner: true },
+        unavailable: null,
+      })
+    })
+
+    it('answers no requirement for rules with no pull_request entry, which is an answer', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { stdout: JSON.stringify([{ type: 'deletion' }, { type: 'non_fast_forward' }]) },
+      ])
+
+      await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
+        reviews: { approvals: 0, codeOwner: false },
+        unavailable: null,
+      })
+    })
+
+    it('reads the plan-limit 403 as no rule, as requiredContexts does', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        {
+          status: 1,
+          stdout: JSON.stringify({
+            message: 'Upgrade to GitHub Pro or make this repository public to enable this feature.',
+            status: '403',
+          }),
+          stderr: 'gh: refused\n',
+        },
+      ])
+
+      await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
+        reviews: { approvals: 0, codeOwner: false },
+        unavailable: null,
+      })
+    })
+
+    it('keeps an answer that is not a list unavailable, with its status and message', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '{"message":"Not Found","status":"404"}', stderr: 'gh: refused\n' },
+      ])
+
+      await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
+        reviews: null,
+        unavailable: 'the rules for main were not a list of rules (404: Not Found)',
+      })
+    })
+
+    it('reports gh’s own words when the rules could not be read', async () => {
+      const { gh } = clientAnsweringEach([
+        REPO,
+        { status: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)\n' },
+      ])
+
+      await expect(gh.requiredReviews({ branch: 'gone' })).resolves.toEqual({
+        reviews: null,
+        unavailable: 'gh: Not Found (HTTP 404)',
+      })
+    })
+
+    for (const [what, rule] of [
+      ['a count that is not an integer', pullRule('1', false)],
+      ['a code owner flag that is not a boolean', pullRule(1, 'true')],
+      ['no parameters', { type: 'pull_request' }],
+    ] as const) {
+      it(`refuses the whole read for a rule with ${what}, never a lower count`, async () => {
+        // A requirement dropped in silence is a pull request the shepherd
+        // works on while the rules refuse it.
+        const { gh } = clientAnsweringEach([
+          REPO,
+          { stdout: JSON.stringify([pullRule(2, true), rule]) },
+        ])
+
+        await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
+          reviews: null,
+          unavailable: 'a pull-request rule on main could not be read',
+        })
+      })
+    }
   })
 
   describe('viewPullRequestDetail', () => {

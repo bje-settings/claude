@@ -31,6 +31,7 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['listOpenPullRequestHeads', (client) => client.listOpenPullRequestHeads()],
   ['listOpenPullRequestLinks', (client) => client.listOpenPullRequestLinks()],
   ['requiredContexts', (client) => client.requiredContexts({ branch: 'main' })],
+  ['requiredReviews', (client) => client.requiredReviews({ branch: 'main' })],
   ['viewPullRequestDetail', (client) => client.viewPullRequestDetail({ pullRequest: 178 })],
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
   ['compareCommits', (client) => client.compareCommits({ base: 'dda20bc', head: 'a51ef71' })],
@@ -124,6 +125,7 @@ it('answers every endpoint it declares', async () => {
       unavailable: null,
     },
     requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
+    requiredReviews: { reviews: { approvals: 1, codeOwner: false }, unavailable: null },
     viewPullRequestDetail: {
       pullRequest: {
         number: 178,
