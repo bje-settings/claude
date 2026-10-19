@@ -896,7 +896,7 @@ it('keeps a pull request whose threads cannot be read, and says why', async () =
   expect(numbers(document.targets)).toEqual([1])
   expect(document.targets[0].threads).toBeNull()
   expect(result.stderr).toBe(
-    'the review threads of #1 are unavailable: gh: HTTP 502; threads is null\n',
+    'the review threads of #1 cannot be proven resolved: gh: HTTP 502; threads is null\n',
   )
 })
 
@@ -908,7 +908,7 @@ it('reads a short thread page with no unresolved thread as unread', async () => 
   })
 
   expect(JSON.parse(result.stdout).targets[0].threads).toBeNull()
-  expect(result.stderr).toContain('the review threads of #1 are unavailable')
+  expect(result.stderr).toContain('the review threads of #1 cannot be proven resolved')
 })
 
 it('reads resolved threads as resolved, and asks for no threads when the rule does not', async () => {

@@ -35,6 +35,10 @@ const FLOW = path.join(FLOWS, 'gh', 'shepherd', '_skill-flow.md')
 
 const read = (file: string): string => readFileSync(file, 'utf8')
 
+/** The text with each run of whitespace as one space, so a pin survives a
+ *  reflow of the lines. */
+const flat = (text: string): string => text.replace(/\s+/g, ' ')
+
 const occurrences = (body: string, marker: string): number => body.split(marker).length - 1
 
 /** The text between two markers. This asserts that each one is still
@@ -60,40 +64,40 @@ it('takes --all as an argument of the skill', () => {
 })
 
 it('passes --all to shepherd-status, and prints not_ready on --dry-run', () => {
-  const step = section(SKILL, '## Step 2', '## Step 3')
+  const step = flat(section(SKILL, '## Step 2', '## Step 3'))
   expect(step).toContain('shepherd-status <path> [label] [--all]')
   expect(step).toContain('Pass `--all` only when it was given')
-  expect(step).toContain('`not_ready` entries with\ntheir `reasons`')
+  expect(step).toContain('`not_ready` entries with their `reasons`')
 })
 
 it('tells each agent whether --all is on', () => {
-  expect(section(SKILL, '## Step 3', '## Step 4')).toContain('whether `--all` is on')
+  expect(flat(section(SKILL, '## Step 3', '## Step 4'))).toContain('whether `--all` is on')
 })
 
 it('names each not-ready pull request in the report, with its reasons', () => {
-  const step = section(SKILL, '## Step 5', '## What this skill never does')
+  const step = flat(section(SKILL, '## Step 5', '## What this skill never does'))
   expect(step).toContain('`not_ready`')
-  expect(step).toContain('"needs an\napproval"')
+  expect(step).toContain('"needs an approval"')
   expect(step).toContain('"has unresolved review threads"')
 })
 
 it('skips a pull request that is not ready by its review rules, before any rebase or wait', () => {
-  const step = section(AGENT, '1. `state`.', '2. Decide from')
+  const step = flat(section(AGENT, '1. `state`.', '2. Decide from'))
   expect(step).toContain(
     'Without `--all`, check the review rules next, before any `rebase` or `wait`',
   )
   expect(step).toContain(
-    'If `pr.approval` is `missing`, record it as\n   skipped ("needs an approval")',
+    'If `pr.approval` is `missing`, record it as skipped ("needs an approval")',
   )
   expect(step).toContain(
-    'If `pr.threads` is `unresolved`, record it as skipped ("has\n   unresolved review threads")',
+    'If `pr.threads` is `unresolved`, record it as skipped ("has unresolved review threads")',
   )
-  expect(step).toContain('A `null` is\n   not a reason to skip')
+  expect(step).toContain('A `null` is not a reason to skip')
   expect(step).toContain('With `--all`, ignore both fields')
 })
 
 it('takes the --all flag as input to the agent', () => {
-  expect(section(AGENT, 'Your input is', '```bash')).toContain('whether `--all`')
+  expect(flat(section(AGENT, 'Your input is', '```bash'))).toContain('whether `--all`')
 })
 
 it('draws the not-ready edges in the skill flow', () => {

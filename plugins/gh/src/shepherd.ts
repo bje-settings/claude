@@ -419,8 +419,9 @@ export const threadsOf = (
  * the read failed. stderr then says why.
  *
  * Both commands make this read, so it lives here, beside
- * {@link directoryRefusal}. A count that is zero, from a read that also
- * reports a short page, is `null`: more threads can be past the page.
+ * {@link directoryRefusal}. A count of zero from a read that also reports a
+ * problem is `null`. The problem can be a short page of threads, or of
+ * checks or comments. This does not tell them apart, so zero is not proof.
  */
 export const readUnresolvedThreads = async (
   gh: GhClient,
@@ -432,7 +433,8 @@ export const readUnresolvedThreads = async (
   if (count > 0) return count
   if (answer.unavailable === null) return 0
   err.write(
-    `the review threads of #${pullRequest} are unavailable: ${answer.unavailable}; threads is null\n`,
+    `the review threads of #${pullRequest} cannot be proven resolved: ${answer.unavailable}; ` +
+      'threads is null\n',
   )
   return null
 }
