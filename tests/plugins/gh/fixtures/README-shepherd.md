@@ -126,6 +126,16 @@ rule that nobody edits a capture. The edits remove content and add none.
   `divergences-shepherd.json` records the change once, with no case names, because its
   `sentences` array is shared with the `shepherd-pr` parity check.
 
+## What #460 changed
+
+#460 adds output, so it is the second exception to the rule that nobody edits a capture. The
+edits add keys to the `stdout` of a case. Nothing else in a case changed.
+
+- **`baseRefName`** is the last key of each pull request object. `PULL_REQUEST_FIELDS` asks gh
+  for it, and `summary` carries it, because `shepherd-pr` compares the head with that base. So
+  each `pr` object in `shepherd-pr-output.json`, and each entry of `targets` in
+  `shepherd-status-output.json`, ends with the `baseRefName` of its captured row (`main`).
+
 One sentence deliberately did NOT change, though it names a script that is now a command:
 `settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits
 inside the JSON document, which an agent copies into its report. So it is output, not prose, and
@@ -141,8 +151,8 @@ answers, on the pull request it was given`. Each of those two also asserts the C
 goes through, because `--repo` is not a field of any request here: it is a construction option.
 So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`,
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
-capture keeps the field because it is the Python's record. Apart from the #216 removals above,
-nobody edits the captures.
+capture keeps the field because it is the Python's record. Apart from the #216 removals and the
+#460 additions above, nobody edits the captures.
 
 ## The capture script
 

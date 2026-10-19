@@ -476,6 +476,7 @@ describe('summary', () => {
       createdAt: '2026-01-01T00:00:00Z',
       statusCheckRollup: [],
       reviewDecision: 'REVIEW_REQUIRED',
+      baseRefName: 'main',
     }
 
     expect(summary(pull)).toEqual({
@@ -494,6 +495,7 @@ describe('summary', () => {
       checks: { state: 'none', failing: [] },
       is_dependabot: true,
       reviewDecision: 'REVIEW_REQUIRED',
+      baseRefName: 'main',
     })
     // A human reads the key order in a transcript, so it is the contract,
     // not an implementation detail.
@@ -513,6 +515,7 @@ describe('summary', () => {
       'checks',
       'is_dependabot',
       'reviewDecision',
+      'baseRefName',
     ])
   })
 

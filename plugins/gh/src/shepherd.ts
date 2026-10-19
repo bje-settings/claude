@@ -337,6 +337,9 @@ export interface PullSummary {
   readonly checks: ChecksSummary
   readonly is_dependabot: boolean
   readonly reviewDecision: unknown
+  /** The branch the pull request merges into. `shepherd-pr` compares the
+   *  head with it (#460). */
+  readonly baseRefName: unknown
 }
 
 /** Whether a human has marked this pull request for auto-merge. `is not
@@ -382,6 +385,7 @@ export const summary = (pull: unknown): PullSummary => {
     // proof that auto-merge cannot fire. It does not guess at branch
     // protection.
     reviewDecision: isTruthy(field(pull, 'reviewDecision')) ? field(pull, 'reviewDecision') : '',
+    baseRefName: answered(field(pull, 'baseRefName')),
   }
 }
 
