@@ -152,6 +152,10 @@ export const fakeTime = (): {
   return {
     now: () => elapsed,
     sleep: async (milliseconds: number) => {
+      // No action sleeps for zero or less. Such a sleep does not move this
+      // clock, so a loop that waits for the clock would hang the test. The
+      // throw turns that loop into a red test (#460).
+      if (milliseconds <= 0) throw new Error(`fakeTime: a sleep of ${milliseconds} ms`)
       elapsed += milliseconds
     },
     at: () => elapsed,
