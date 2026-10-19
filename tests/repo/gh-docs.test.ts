@@ -94,6 +94,20 @@ it('skips a pull request that is not ready by its review rules, before any rebas
   )
   expect(step).toContain('A `null` is not a reason to skip')
   expect(step).toContain('With `--all`, ignore both fields')
+  expect(step).toContain('When both hold, name both reasons')
+})
+
+it('runs the step 1 checks again after every read of state', () => {
+  // The `changed` and `ok:false` paths re-read `state`. Without this rule
+  // they go to step 2, and an approval lost during the run is not seen.
+  const step = flat(section(AGENT, '1. `state`.', '2. Decide from'))
+  expect(step).toContain('Do this step again after every read of `state`, not only the first')
+  expect(step).toContain('Keep the `pr.checks.state` of the first read for step 4')
+})
+
+it('names the review verdicts among the fields a skip reason may copy', () => {
+  const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
+  expect(rules).toContain('`autoMerge`, `pr.approval`, `pr.threads` and the script')
 })
 
 it('takes the --all flag as input to the agent', () => {
@@ -165,6 +179,8 @@ it('does not re-read a blocked entry that names a cause', () => {
   for (const named of ['BLOCKED', 'DIRTY', 'BEHIND', 'reviewDecision']) {
     expect(step).toContain(named)
   }
+  // The skips of #465 name a cause too, so they are not the race.
+  expect(flat(step)).toContain('"needs an approval" or "has unresolved review threads"')
 })
 
 it('sends a behind head to rebase before any wait, whatever the merge state', () => {

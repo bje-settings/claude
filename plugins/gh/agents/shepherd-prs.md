@@ -47,7 +47,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
   next pull request, whether or not it confirmed anything.
 - **A `skipped` reason names only fields you actually read.** Copy `mergeStateStatus`,
-  `reviewDecision`, `autoMerge` and the script's own `reason` out of the JSON in front of you.
+  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads` and the script's own `reason` out of
+  the JSON in front of you.
   Never write that a review requirement, a branch protection rule, or a server-side auto-merge
   setting is the cause. Write that only when the state you read says so. "Checks passed and it
   has not merged yet" is not evidence of any of them. A guess in that field becomes a finding
@@ -69,6 +70,8 @@ number, in the order given:
    skipped ("needs an approval"). If `pr.threads` is `unresolved`, record it as skipped ("has
    unresolved review threads"). When both hold, name both reasons. Then continue. A `null` is
    not a reason to skip. With `--all`, ignore both fields.
+   Do this step again after every read of `state`, not only the first, before you go to step 2.
+   Keep the `pr.checks.state` of the first read for step 4.
 2. Decide from `pr.behind`, `pr.mergeStateStatus` and `pr.checks.state`. `pr.behind` is true
    when the head does not contain the tip of its base. While a check is pending, GitHub shows
    `BLOCKED` in place of `BEHIND`, so `pr.behind` decides first. Never send a head with

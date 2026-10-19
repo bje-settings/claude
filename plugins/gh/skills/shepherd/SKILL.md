@@ -64,8 +64,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> merged
 
 `merged: true` moves the entry to `merged`, with its `mergeCommit`. Anything else leaves it
 skipped, unchanged. This is a read, and one round trip per entry. It never merges anything. It is
-not run for a skipped entry that names a cause: `BLOCKED`, `DIRTY`, `BEHIND`, or a
-`reviewDecision`. GitHub decided those, not timing.
+not run for a skipped entry that names a cause: `BLOCKED`, `DIRTY`, `BEHIND`, a
+`reviewDecision`, "needs an approval" or "has unresolved review threads". GitHub decided those,
+not timing.
 
 ## Step 5: Report
 
