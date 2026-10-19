@@ -66,9 +66,9 @@ number, in the order given:
 2. Decide from `pr.behind`, `pr.mergeStateStatus` and `pr.checks.state`. `pr.behind` is true
    when the head does not contain the tip of its base. While a check is pending, GitHub shows
    `BLOCKED` in place of `BEHIND`, so `pr.behind` decides first. Never send a head with
-   `pr.behind` true to `wait`.
+   `pr.behind` true to `wait` before a `rebase` or the step 5 merge.
    - `pr.behind` true → `rebase`, then `wait`, whatever `mergeStateStatus` says. On `DIRTY`, do
-     the step 5 merge in place of the rebase.
+     the step 5 merge in place of the rebase. Act on the `rebase` report as under `BEHIND`.
    - `pr.behind` null → the compare could not be read. Decide from `mergeStateStatus` below.
    - `BEHIND` → `rebase`, then `wait`.
      If `rebase` returns `ok:false`, re-read `state` and decide again. This usually means GitHub
@@ -93,7 +93,7 @@ number, in the order given:
 3. Act on the `wait` result:
    - `ok:false` → the wait did not complete. Either the first read failed, or the last read
      before the bound failed (a 502, or an expired token). The detail names which, in gh's own
-     words, and `waited` says how long `wait` read. This is not `pending`. Re-read `state` and
+     words. Only the second case has `waited`. This is not `pending`. Re-read `state` and
      decide again. A second `ok:false` is skipped, with the detail.
    - `merged` → record the merge commit and continue to the next number.
    - `passed` → call `settle`, once. It is the grace between "checks passed" and "auto-merge did
@@ -119,9 +119,9 @@ number, in the order given:
      request as skipped ("checks did not finish"). Then continue.
    - `failed` → classify the failure (step 4).
    - `behind` → the head does not contain the tip of its base. Go back to step 2. This result
-     does not count toward the three `pending` results. Count a `behind` result only when the
-     `rebase` before it returned `unmoved` or `up_to_date`. After three such results with no
-     change in `pr.headRefOid`, record the pull request as skipped, with the reason
+     does not count toward the three `pending` results. Count a `behind` result unless the
+     `rebase` before it returned `moved`. Stop after three counted results with no change in
+     `pr.headRefOid`. Record the pull request as skipped, with the reason
      ("rebase did not move a head that stays behind its base"). `update-branch` can report the
      branch as up to date while the compare still reads behind.
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means

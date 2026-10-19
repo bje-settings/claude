@@ -123,7 +123,10 @@ it('sends a behind head to rebase before any wait, whatever the merge state', ()
 
   expect(rule).toContain('`rebase`, then `wait`, whatever `mergeStateStatus` says')
   expect(rule).toContain('On `DIRTY`, do\n     the step 5 merge in place of the rebase')
-  expect(step).toContain('Never send a head with\n   `pr.behind` true to `wait`')
+  expect(step).toContain(
+    'Never send a head with\n   `pr.behind` true to `wait` before a `rebase` or the step 5 merge',
+  )
+  expect(rule).toContain('Act on the `rebase` report as under `BEHIND`')
   expect(step.indexOf('- `pr.behind` true')).toBeLessThan(step.indexOf('→ `wait`'))
 })
 
@@ -143,9 +146,14 @@ it('sends a behind result from wait back to step 2, apart from the pending count
   expect(behind).toContain('Go back to step 2')
   expect(behind).not.toContain('the base moved')
   expect(behind).toContain('does not count toward the three')
-  // Ruling 16: only a `behind` after a rebase that did not move the head counts.
-  expect(behind).toContain('`rebase` before it returned `unmoved` or `up_to_date`')
-  expect(behind).toContain('After three such results with no\n     change in `pr.headRefOid`')
+  // Ruling 16: a `behind` after a rebase that moved the head does not count.
+  // A rebase whose last read failed has no `result`, so its `behind` counts.
+  expect(behind).toContain(
+    'Count a `behind` result unless the\n     `rebase` before it returned `moved`',
+  )
+  expect(behind).toContain(
+    'Stop after three counted results with no change in\n     `pr.headRefOid`',
+  )
   expect(behind).toContain('("rebase did not move a head that stays behind its base")')
 })
 

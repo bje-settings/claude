@@ -139,9 +139,10 @@ removed.
 - **`behind`** follows it, in each `pr` that `state` and `wait` report from an open pull request:
   `state_*` and `wait_*` cases whose `ok` is true and whose `result` is not `merged`. The replay
   answers the compare with `ahead`, because no capture recorded one, so the value is `false`.
-- **`wait` polls.** It no longer runs `gh pr checks --watch`, so `watcher_rc` is gone. A `wait`
-  that read past its entry adds `waited`, `reads_ok`, `read_failures`, and `read_error` at the
-  end, as `settle` does. In `wait_answers_passed_from_a_green_rollup` and the four
+- **`wait` polls.** It no longer runs `gh pr checks --watch`, so `watcher_rc` is gone. Two
+  `wait` answers come from the first read: merged, and no checks on a head that is not behind.
+  Each other `wait` adds `waited`, `reads_ok`, `read_failures`, and `read_error` at the end, as
+  `settle` does. In `wait_answers_passed_from_a_green_rollup` and the four
   `wait_answers_failed_*`, `wait_keeps_*` and `wait_walks_*` cases, these are `0`, `1`, `0` and
   `""`. The four pending cases now poll every 30 seconds until the bound, and the last sleep
   stops at the bound. So `waited` is the bound: 1 in `wait_reports_pending_when_its_bound_is_hit`,
@@ -150,8 +151,9 @@ removed.
   is 2, 2, 19 and 19, and each `detail` names the same `waited`. The case names keep the Python's
   words.
 - **`rebase` polls** for a moved head (ruling 16 on #460). Each `rebase` report that follows a
-  branch update adds `result`, `waited`, `reads_ok`, `read_failures`, and `read_error` at the
-  end. `rebase_moves_the_head` reads `moved`, with `0`, `1`, `0` and `""`.
+  branch update adds `waited`, `reads_ok`, `read_failures`, and `read_error` at the end. A report
+  from a successful last read also adds `result` before them. No capture has a failed last
+  read. `rebase_moves_the_head` reads `moved`, with `0`, `1`, `0` and `""`.
   `rebase_reports_a_branch_that_was_already_up_to_date` reads `up_to_date`, with the same four
   values, and its `detail` now says that gh reported the branch up to date.
   `rebase_reports_an_update_that_has_only_been_queued` polls every 5 seconds to the 60 second
