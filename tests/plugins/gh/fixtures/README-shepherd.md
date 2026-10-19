@@ -73,8 +73,8 @@ The capture records `waited` (both `wait` and `settle`) and `settle`'s `reads_ok
 `read_failures` exactly as the Python printed them. This means they measure the machine the
 capture ran on. For example, `settle_reports_open_when_auto_merge_never_fires` reads
 `"waited": 3`, because there a 3 second bound with a 1 second poll took 3 seconds of real time. A
-loaded machine would have written 4 instead. `wait`'s `watcher_rc`, where the bound fired (the
-Python's own 124 for a killed watcher), is the same kind of number.
+loaded machine would have written 4 instead. `wait` measured the same way until #460 (see "What
+#460 changed").
 
 The capture does NOT skip them, and there is no separate list of them for the parity test to keep
 in step. The port takes its clock and its sleep as arguments, and the tests pass it a fake clock
@@ -126,6 +126,40 @@ rule that nobody edits a capture. The edits remove content and add none.
   `divergences-shepherd.json` records the change once, with no case names, because its
   `sentences` array is shared with the `shepherd-pr` parity check.
 
+## What #460 changed
+
+#460 adds output, so it is another exception to the rule that nobody edits a capture. The
+edits change the `stdout` of a case. Nothing else in a case changed, and no case was added or
+removed.
+
+- **`baseRefName`** is the last key of each pull request object. `PULL_REQUEST_FIELDS` asks gh
+  for it, and `summary` carries it, because `shepherd-pr` compares the head with that base. Each
+  `pr` object in `shepherd-pr-output.json` ends with the `baseRefName` of its row (`main`). So
+  does each entry of `targets` in `shepherd-status-output.json`.
+- **`behind`** follows it, in each `pr` that `state` and `wait` report from an open pull request:
+  `state_*` and `wait_*` cases whose `ok` is true and whose `result` is not `merged`. The replay
+  answers the compare with `ahead`, because no capture recorded one, so the value is `false`.
+- **`wait` polls.** It no longer runs `gh pr checks --watch`, so `watcher_rc` is gone. Two
+  `wait` answers come from the first read: merged, and no checks on a head that is not behind.
+  Each other `wait` adds `waited`, `reads_ok`, `read_failures`, and `read_error` at the end, as
+  `settle` does. In `wait_answers_passed_from_a_green_rollup` and the four
+  `wait_answers_failed_*`, `wait_keeps_*` and `wait_walks_*` cases, these are `0`, `1`, `0` and
+  `""`. The four pending cases now poll every 30 seconds until the bound, and the last sleep
+  stops at the bound. So `waited` is the bound: 1 in `wait_reports_pending_when_its_bound_is_hit`,
+  5 in `wait_reports_the_rollup_once_the_watcher_returns`, and 540 in
+  `wait_clamps_the_bound_to_the_maximum` and `wait_says_a_bound_override_was_ignored`. `reads_ok`
+  is 2, 2, 19 and 19, and each `detail` names the same `waited`. The case names keep the Python's
+  words.
+- **`rebase` polls** for a moved head (ruling 16 on #460). Each `rebase` report that follows a
+  branch update adds `waited`, `reads_ok`, `read_failures`, and `read_error` at the end. A report
+  from a successful last read also adds `result` before them. No capture has a failed last
+  read. `rebase_moves_the_head` reads `moved`, with `0`, `1`, `0` and `""`.
+  `rebase_reports_a_branch_that_was_already_up_to_date` reads `up_to_date`, with the same four
+  values, and its `detail` now says that gh reported the branch up to date.
+  `rebase_reports_an_update_that_has_only_been_queued` polls every 5 seconds to the 60 second
+  bound. It reads `unmoved`, `waited` 60 and `reads_ok` 13, and its `detail` names the 60
+  seconds.
+
 One sentence deliberately did NOT change, though it names a script that is now a command:
 `settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits
 inside the JSON document, which an agent copies into its report. So it is output, not prose, and
@@ -141,8 +175,8 @@ answers, on the pull request it was given`. Each of those two also asserts the C
 goes through, because `--repo` is not a field of any request here: it is a construction option.
 So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`,
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
-capture keeps the field because it is the Python's record. Apart from the #216 removals above,
-nobody edits the captures.
+capture keeps the field because it is the Python's record. Apart from the #216 removals and the
+#460 additions above, nobody edits the captures.
 
 ## The capture script
 

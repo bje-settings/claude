@@ -2,18 +2,23 @@
 // The file is one of several so that vitest can run them at the same time (#205).
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
 import { expect, it } from 'vitest'
-import { HELP } from '#gh/subcommands/shepherd-pr.ts'
-import { ghFails } from '#harness/gh.ts'
-import { createGhServer, depPr } from '#harness/pulls.ts'
+import { HELP, runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
+import { type GhClient, type GhReplies, ghFails } from '#harness/gh.ts'
+import { createGitFixtures } from '#harness/git.ts'
+import { createGhServer, depPr, type GhSequences } from '#harness/pulls.ts'
+import { createSandbox } from '#harness/sandbox.ts'
 import {
+  AHEAD,
   CAPTURE,
+  capture,
   clients,
+  compared,
+  comparing,
   drive,
   REPOSITORY,
   recording,
+  UNAVAILABLE,
   UPDATED,
-  WATCH_BOUND,
-  WATCH_PENDING,
 } from './shepherd-pr.test-support.ts'
 
 // --- usage and the preflight ----------------------------------------------------
@@ -222,6 +227,201 @@ it('reads a head gh answered as an empty string as no head at all', async () => 
 
   expect(result.document.detail).toContain('gh answered without headRefOid')
   expect(result.document.after).toBe('')
+  // Every read of the poll failed the same way: 12 polls at the defaults.
+  expect(result.document).toMatchObject({ ok: true, reads_ok: 0, read_failures: 13 })
+})
+
+/** A `rebase` of pull request 1, whose reads answer `pulls` in order. The
+ *  first entry is the read before the update. */
+const rebaseOn = (
+  pulls: NonNullable<GhSequences['viewPullRequest']>,
+  env: Record<string, string> = {},
+  updated = UPDATED,
+) =>
+  drive((sandbox, repo) => ({
+    argv: [repo, '1', 'rebase'],
+    env: { ...sandbox.env, ...env },
+    gh: createGhServer({
+      replies: { viewRepository: REPOSITORY, updateBranch: updated },
+      sequences: { viewPullRequest: pulls },
+    }),
+  }))
+
+const queued = depPr(1, { merge: 'BEHIND' })
+const moved = depPr(1, { merge: 'BLOCKED', head: 'rebased-sha1' })
+
+it('polls until the head moves, and reports moved on the second read', async () => {
+  // Ruling 16 on #460: GitHub applies a queued update some seconds after gh
+  // returns.
+  const result = await rebaseOn([queued, queued, moved])
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    detail: 'rebased',
+    before: 'sha1',
+    after: 'rebased-sha1',
+    result: 'moved',
+    waited: 5,
+    reads_ok: 2,
+    read_failures: 0,
+  })
+  expect(result.elapsed).toBe(5_000)
+})
+
+it('reports unmoved when the bound passes, and stops the last sleep at the bound', async () => {
+  const result = await rebaseOn([queued], { SHEPHERD_REBASE_BOUND: '12' })
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    detail:
+      'update-branch reported success and the head has not moved after 12s: the update is ' +
+      'still queued',
+    after: 'sha1',
+    result: 'unmoved',
+    waited: 12,
+    reads_ok: 4,
+  })
+  expect(result.elapsed).toBe(12_000)
+})
+
+it.each([
+  // gh 2.102 prints this line (cli/cli `pkg/cmd/pr/update-branch/update_branch.go`).
+  '✓ PR branch already up-to-date\n',
+  '✓ Pull request #1 already up-to-date with base branch\n',
+  'Already up to date\n',
+])('does not poll when gh says the branch is already up to date: %j', async (line) => {
+  const result = await rebaseOn([queued], {}, line)
+
+  expect(result.document).toMatchObject({ ok: true, result: 'up_to_date', waited: 0, reads_ok: 1 })
+  expect(result.elapsed).toBe(0)
+})
+
+it('reports moved when gh says up to date but the head moved all the same', async () => {
+  // The head decides, not gh's line.
+  const result = await rebaseOn([queued, moved], {}, '✓ PR branch already up-to-date\n')
+
+  expect(result.document).toMatchObject({ result: 'moved', after: 'rebased-sha1', reads_ok: 1 })
+})
+
+it('counts a read failure that a later read recovered from, and nothing more', async () => {
+  const result = await rebaseOn([queued, ghFails('HTTP 502'), moved])
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'moved',
+    waited: 5,
+    reads_ok: 1,
+    read_failures: 1,
+    read_error: '',
+  })
+})
+
+it('reports ok with no head when the bound ends on a failed read', async () => {
+  // The update ran, so `ok: false` would send the caller to rebase again.
+  const result = await rebaseOn([queued, queued, ghFails('HTTP 502')], {
+    SHEPHERD_REBASE_BOUND: '10',
+  })
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    detail: 'update-branch succeeded but the pull request could not be re-read: HTTP 502',
+    after: '',
+    pr: null,
+    waited: 10,
+    reads_ok: 1,
+    read_failures: 2,
+    read_error: 'HTTP 502',
+  })
+  expect(result.document).not.toHaveProperty('result')
+})
+
+it('falls back to the default bound and poll for overrides that do not parse', async () => {
+  const result = await rebaseOn([queued], {
+    SHEPHERD_REBASE_BOUND: 'soon',
+    SHEPHERD_REBASE_POLL: '0',
+  })
+
+  expect(result.stderr).toBe(
+    'SHEPHERD_REBASE_BOUND=soon ignored; using 60\nSHEPHERD_REBASE_POLL=0 ignored; using 5\n',
+  )
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 60, reads_ok: 13 })
+})
+
+it('reads every SHEPHERD_REBASE_POLL seconds when it is set', async () => {
+  const result = await rebaseOn([queued], {
+    SHEPHERD_REBASE_BOUND: '10',
+    SHEPHERD_REBASE_POLL: '2',
+  })
+
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 10, reads_ok: 6 })
+})
+
+/** A `rebase` of pull request 1 on a clock this test controls. Each read
+ *  costs `readMs` of the clock. A sleep moves the clock only when
+ *  `sleepMoves` is true. A sleep that is not positive, or the 100th sleep,
+ *  throws: a loop that does not end then fails, and does not hang. */
+const rebaseOnClock = async (
+  pulls: NonNullable<GhSequences['viewPullRequest']>,
+  env: Record<string, string>,
+  readMs: number,
+  sleepMoves: boolean,
+) => {
+  const sandbox = createSandbox()
+  const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
+  const writers = capture()
+  let elapsed = 0
+  let sleeps = 0
+  const server = createGhServer({
+    replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
+    sequences: { viewPullRequest: pulls },
+  })
+  const gh: GhClient = {
+    ...server,
+    viewPullRequest: async (pull) => {
+      elapsed += readMs
+      return server.viewPullRequest(pull)
+    },
+  }
+  const status = await runShepherdPr([repo, '1', 'rebase'], {
+    cwd: repo,
+    env: { ...sandbox.env, ...env },
+    output: writers.output,
+    createGh: () => gh,
+    now: () => elapsed,
+    sleep: async (milliseconds) => {
+      sleeps += 1
+      if (milliseconds <= 0 || sleeps >= 100) throw new Error(`runaway sleep ${milliseconds}`)
+      if (sleepMoves) elapsed += milliseconds
+    },
+  })
+  return { status, document: JSON.parse(writers.stdout()) }
+}
+
+it('ends at the bound on the clock, when slow reads use up the bound first', async () => {
+  // Each read costs 3 seconds. The poll count alone would allow 4 reads.
+  // The clock reaches the 10 second bound after 2, so the call stays inside
+  // the Bash tool's timeout. `waited` is measured: the sleeps add up to 4.
+  const result = await rebaseOnClock(
+    [queued],
+    { SHEPHERD_REBASE_BOUND: '10', SHEPHERD_REBASE_POLL: '4' },
+    3000,
+    true,
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 10, reads_ok: 2 })
+})
+
+it('ends on the count of polls, when a sleep does not move the clock', async () => {
+  const result = await rebaseOnClock(
+    [queued],
+    { SHEPHERD_REBASE_BOUND: '10', SHEPHERD_REBASE_POLL: '5' },
+    0,
+    false,
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 0, reads_ok: 3 })
 })
 
 it('asks for a rebase of the pull request it was given, and never a merge', async () => {
@@ -243,131 +443,314 @@ it('asks for a rebase of the pull request it was given, and never a merge', asyn
   expect(result.ghOptions).toEqual(clients(target))
 })
 
-// --- wait ---------------------------------------------------------------------------
+// --- state and the compare ----------------------------------------------------------
 
-it('does not watch a rollup that has already failed', async () => {
-  // In practice, `gh pr checks --watch` sometimes does not return on a
-  // terminal rollup. So this command reads the failure from the rollup, and
-  // starts no watcher at all. If the code calls `watchChecks` anyway, the
-  // unregistered stub throws and names itself.
+it('reports a BLOCKED head with pending checks as behind, from the compare of its own base', async () => {
+  // GitHub reports BLOCKED in place of BEHIND while a required check is
+  // pending (#460). The compare answers only for this base and this head,
+  // so a call with any other pair fails the test.
+  const pull = { ...depPr(1, { merge: 'BLOCKED', checks: 'pending' }), baseRefName: 'release' }
+  const server = createGhServer({ prs: [pull], replies: { viewRepository: REPOSITORY } })
   const result = await drive((_sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'failed' })],
-      replies: { viewRepository: REPOSITORY, readFailedRunLog: 'the failing step\n' },
-    }),
-  }))
-
-  expect(result.document.result).toBe('failed')
-})
-
-it('refuses when the watcher failed for a reason of its own', async () => {
-  // If the code reports this as `pending`, the caller waits forever. It
-  // waits out an expired token or a 502, one CI cycle at a time. The
-  // transcript never says why.
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'pending' })],
-      replies: {
-        viewRepository: REPOSITORY,
-        watchChecks: {
-          status: 4,
-          timedOut: false,
-          waitedMs: 0,
-          problem: 'HTTP 502: Bad gateway\n',
-        },
+    argv: [repo, '1', 'state'],
+    gh: {
+      ...server,
+      compareCommits: async (query) => {
+        if (query.base !== 'release' || query.head !== 'sha1') throw new Error('wrong compare')
+        return compared('behind')
       },
-    }),
-  }))
-
-  expect(result.document.ok).toBe(false)
-  expect(result.document.detail).toBe('watcher failed after 0s: HTTP 502: Bad gateway')
-  expect(result.document.watcher_rc).toBe(4)
-  expect(result.document).not.toHaveProperty('result')
-})
-
-it('names the watcher’s status when the watcher failed without saying anything', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'pending' })],
-      replies: {
-        viewRepository: REPOSITORY,
-        watchChecks: { status: 4, timedOut: false, waitedMs: 0, problem: '' },
-      },
-    }),
-  }))
-
-  expect(result.document.detail).toBe('watcher failed after 0s: gh exited 4')
-})
-
-it('refuses a watch that a signal ended, which said nothing about the checks', async () => {
-  // A watch with no status of its own is not one of the known codes. Whether
-  // the bound has fired tells it apart from this command's own kill.
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'pending' })],
-      replies: {
-        viewRepository: REPOSITORY,
-        watchChecks: {
-          status: null,
-          timedOut: false,
-          waitedMs: 2000,
-          problem: 'gh was killed by SIGHUP',
-        },
-      },
-    }),
-  }))
-
-  expect(result.document.ok).toBe(false)
-  expect(result.document.detail).toBe('watcher failed after 2s: gh was killed by SIGHUP')
-  expect(result.document.watcher_rc).toBeNull()
-})
-
-it('keeps only the last lines of a watcher’s account of itself', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'pending' })],
-      replies: {
-        viewRepository: REPOSITORY,
-        watchChecks: {
-          status: 4,
-          timedOut: false,
-          waitedMs: 0,
-          problem: ['one', 'two', 'three', 'four', 'five', 'six', 'seven'].join('\n'),
-        },
-      },
-    }),
-  }))
-
-  expect(result.document.detail).toBe('watcher failed after 0s: three four five six seven')
-})
-
-it('still decides from the rollup when the watcher reports a failed check', async () => {
-  // Exit 1 is gh's own "a check failed" signal, not a failure of gh itself.
-  // So the rollup decides.
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '5' },
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'pending' })],
-      replies: {
-        viewRepository: REPOSITORY,
-        watchChecks: { status: 1, timedOut: false, waitedMs: 0, problem: 'some check failed\n' },
-      },
-    }),
+    },
   }))
 
   expect(result.document.ok).toBe(true)
-  expect(result.document.result).toBe('pending')
-  expect(result.document.watcher_rc).toBe(1)
+  expect(result.document.pr).toMatchObject({
+    mergeStateStatus: 'BLOCKED',
+    checks: { state: 'pending' },
+    baseRefName: 'release',
+    behind: true,
+  })
+})
+
+it.each([
+  ['behind', true],
+  ['diverged', true],
+  ['ahead', false],
+  ['identical', false],
+] as const)('reads a compare that is %s as behind: %s', async (status, behind) => {
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '1', 'state'],
+    gh: comparing({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }, [compared(status)]),
+  }))
+
+  expect(result.document.pr).toMatchObject({ behind })
+  expect(result.stderr).toBe('')
+})
+
+it('reads a compare it could not get as behind: null, and says why on stderr', async () => {
+  const result = await drive((_sandbox, repo) => ({
+    argv: [repo, '1', 'state'],
+    gh: comparing({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }, [UNAVAILABLE]),
+  }))
+
+  expect(result.document.ok).toBe(true)
+  expect(result.document.pr).toMatchObject({ behind: null })
+  expect(result.stderr).toBe(
+    'behind is null: the compare of main...sha1 is unavailable: gh api compare failed: HTTP 502\n',
+  )
+})
+
+// --- wait ---------------------------------------------------------------------------
+
+/** A `wait` against pull request 1, which reads `pulls` in order and the
+ *  compare from `compares` in order. */
+const waitOn = (
+  pulls: NonNullable<GhSequences['viewPullRequest']>,
+  compares: Parameters<typeof comparing>[1],
+  env: Record<string, string> = {},
+  replies: GhReplies = {},
+) =>
+  drive((sandbox, repo) => ({
+    argv: [repo, '1', 'wait'],
+    env: { ...sandbox.env, ...env },
+    gh: comparing(
+      {
+        replies: { viewRepository: REPOSITORY, ...replies },
+        sequences: { viewPullRequest: pulls },
+      },
+      compares,
+    ),
+  }))
+
+it('returns behind within one poll when the base moves under pending checks', async () => {
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD, compared('behind')])
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'behind',
+    waited: 30,
+    pr: { behind: true },
+  })
+  expect(result.document.detail).toBe(
+    'the head does not contain the tip of main; rebase it before waiting on CI',
+  )
+  expect(result.elapsed).toBe(30_000)
+})
+
+it.each(['pending', 'none', 'passed', 'failed'])(
+  'returns behind at once, with no sleep, for a behind head whose checks are %s',
+  async (checks) => {
+    const result = await waitOn([depPr(1, { checks })], [compared('diverged')])
+
+    expect(result.document).toMatchObject({ ok: true, result: 'behind', waited: 0, reads_ok: 1 })
+    expect(result.elapsed).toBe(0)
+  },
+)
+
+it('answers a rollup that has already failed from the first read, with no sleep', async () => {
+  const result = await waitOn(
+    [depPr(1, { checks: 'failed' })],
+    [AHEAD],
+    {},
+    {
+      readFailedRunLog: 'the failing step\n',
+    },
+  )
+
+  expect(result.document).toMatchObject({ result: 'failed', log_tail: 'the failing step' })
+  expect(result.elapsed).toBe(0)
+})
+
+it('polls on when the compare is unavailable, and reports behind: null', async () => {
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'passed' })],
+    [UNAVAILABLE],
+  )
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'passed',
+    waited: 30,
+    reads_ok: 2,
+    read_failures: 0,
+    pr: { behind: null },
+  })
+  expect(result.stderr).toContain('behind is null: the compare of main...sha1 is unavailable')
+})
+
+it('returns failed on the first failed rollup, with the log, while other checks still run', async () => {
+  // `mixed` is one check still running and one that failed.
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'mixed' })],
+    [AHEAD],
+    {},
+    { readFailedRunLog: 'line 1\nline 2\n' },
+  )
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'failed',
+    waited: 30,
+    log_tail: 'line 1\nline 2',
+    pr: { checks: { state: 'failed' } },
+  })
+})
+
+it('reports merged when auto-merge fires during the poll', async () => {
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'passed', state: 'MERGED' })],
+    [AHEAD],
+  )
+
+  expect(result.document).toMatchObject({ ok: true, result: 'merged', waited: 30 })
+})
+
+it('refuses, as ok: false, a bound that ends on a read that failed', async () => {
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'pending' }), ghFails('HTTP 502')],
+    [AHEAD],
+    { SHEPHERD_WAIT_BOUND: '60' },
+  )
+
+  expect(result.document).toMatchObject({
+    ok: false,
+    bound: 60,
+    waited: 60,
+    reads_ok: 2,
+    read_failures: 1,
+    read_error: 'HTTP 502',
+  })
+  expect(result.document.detail).toBe(
+    'wait waited 60s but could not re-read the pull request (1 of 3 reads failed, the last ' +
+      'among them): HTTP 502',
+  )
+  expect(result.document).not.toHaveProperty('result')
+})
+
+it('counts a read failure that a later read recovered from, and nothing more', async () => {
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), ghFails('HTTP 502'), depPr(1, { checks: 'passed' })],
+    [AHEAD],
+  )
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'passed',
+    waited: 60,
+    reads_ok: 2,
+    read_failures: 1,
+    read_error: '',
+  })
+})
+
+it('reports pending at the bound, and stops the last sleep at the bound', async () => {
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
+    SHEPHERD_WAIT_BOUND: '50',
+  })
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'pending',
+    bound: 50,
+    waited: 50,
+    reads_ok: 3,
+    read_failures: 0,
+    pr: { behind: false },
+  })
+  expect(result.document.detail).toBe('checks still running after 50s')
+  expect(result.elapsed).toBe(50_000)
+})
+
+it('falls back to a 30 second poll for a SHEPHERD_WAIT_POLL that does not parse', async () => {
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
+    SHEPHERD_WAIT_BOUND: '60',
+    SHEPHERD_WAIT_POLL: 'often',
+  })
+
+  expect(result.stderr).toBe('SHEPHERD_WAIT_POLL=often ignored; using 30\n')
+  // Two polls of 30 seconds fill a 60 second bound.
+  expect(result.document).toMatchObject({ result: 'pending', waited: 60, reads_ok: 3 })
+})
+
+it('reads every SHEPHERD_WAIT_POLL seconds when it is set', async () => {
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
+    SHEPHERD_WAIT_BOUND: '60',
+    SHEPHERD_WAIT_POLL: '20',
+  })
+
+  expect(result.document).toMatchObject({ result: 'pending', waited: 60, reads_ok: 4 })
+})
+
+it('refuses a SHEPHERD_WAIT_POLL of 0, which would never reach the bound', async () => {
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
+    SHEPHERD_WAIT_BOUND: '60',
+    SHEPHERD_WAIT_POLL: '0',
+  })
+
+  expect(result.stderr).toBe('SHEPHERD_WAIT_POLL=0 ignored; using 30\n')
+  expect(result.document).toMatchObject({ result: 'pending', waited: 60, reads_ok: 3 })
+})
+
+it('reports merged, not behind, when auto-merge fires during the poll', async () => {
+  // After a merge, the base holds the head, so the compare can read behind.
+  // The merge decides first.
+  const result = await waitOn(
+    [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'passed', state: 'MERGED' })],
+    [AHEAD, compared('behind')],
+  )
+
+  expect(result.document).toMatchObject({ ok: true, result: 'merged', waited: 30 })
+})
+
+it.each([
+  ['passed', 'passed', AHEAD],
+  ['pending', 'behind', compared('behind')],
+] as const)(
+  'gives a verdict on the read at the bound: checks %s give %s',
+  async (checks, verdict, compare) => {
+    const result = await waitOn(
+      [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'pending' }), depPr(1, { checks })],
+      [AHEAD, AHEAD, compare],
+      { SHEPHERD_WAIT_BOUND: '50' },
+    )
+
+    expect(result.document).toMatchObject({ ok: true, result: verdict, waited: 50, reads_ok: 3 })
+  },
+)
+
+it('answers no checks from the first read when the compare is unavailable', async () => {
+  const result = await waitOn([depPr(1, { checks: 'none' })], [UNAVAILABLE])
+
+  expect(result.document).toMatchObject({ ok: true, result: 'passed', pr: { behind: null } })
+  expect(result.document.detail).toBe('no checks reported on this head')
+  expect(result.elapsed).toBe(0)
+})
+
+it('compares the head of each poll, not the head of the first read', async () => {
+  // Only the new head is behind. A compare of the first head reads ahead,
+  // and this would then report passed.
+  const server = createGhServer({
+    replies: { viewRepository: REPOSITORY },
+    sequences: {
+      viewPullRequest: [
+        depPr(1, { checks: 'pending' }),
+        depPr(1, { checks: 'passed', head: 'sha2' }),
+      ],
+    },
+  })
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'wait'],
+    env: sandbox.env,
+    gh: {
+      ...server,
+      compareCommits: async (query) => (query.head === 'sha2' ? compared('behind') : AHEAD),
+    },
+  }))
+
+  expect(result.document).toMatchObject({
+    result: 'behind',
+    waited: 30,
+    pr: { headRefOid: 'sha2', behind: true },
+  })
 })
 
 it('clamps the wait bound up to the minimum for a repository with fast CI', async () => {
@@ -375,68 +758,11 @@ it('clamps the wait bound up to the minimum for a repository with fast CI', asyn
   // not a branch, so the coverage gate never sees this case. A floor of 1
   // would go unnoticed. A wait that returned after two seconds would report
   // `pending` for a run that had barely started.
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '10' },
-    gh: createGhServer({
-      prs: [depPr(1, { checks: 'pending' })],
-      replies: { viewRepository: REPOSITORY, watchChecks: WATCH_PENDING },
-    }),
-  }))
-
-  expect(result.document.bound).toBe(120)
-})
-
-it('reports merged when auto-merge fires during the watch', async () => {
-  // The merge must land while the WATCHER runs, not before the first read.
-  // Otherwise, the test takes the path that skips the watch, and proves
-  // nothing. `test_shepherd_pr.py:623` says so in its own docstring.
-  // It backs that up: it asserts that the watch happened. So this test
-  // asserts the watch's own request here, in full. It does not just count
-  // the calls.
-  const watches: unknown[] = []
-  const server = createGhServer({
-    replies: { viewRepository: REPOSITORY, watchChecks: WATCH_BOUND },
-    sequences: {
-      viewPullRequest: [
-        depPr(1, { checks: 'pending' }),
-        depPr(1, { checks: 'pending', state: 'MERGED' }),
-      ],
-    },
+  const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
+    SHEPHERD_CI_SECONDS: '10',
   })
 
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '2' },
-    gh: {
-      ...server,
-      watchChecks: async (pull) => {
-        watches.push(pull)
-        return server.watchChecks(pull)
-      },
-    },
-  }))
-
-  expect(result.document.result).toBe('merged')
-  expect(watches).toEqual([{ pullRequest: 1, boundMs: 2000, failFast: true }])
-})
-
-it('reports a pull request that became unreadable during the watch', async () => {
-  const result = await drive((sandbox, repo) => ({
-    argv: [repo, '1', 'wait'],
-    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '1' },
-    gh: createGhServer({
-      replies: { viewRepository: REPOSITORY, watchChecks: WATCH_BOUND },
-      sequences: {
-        viewPullRequest: [depPr(1, { checks: 'pending' }), ghFails('HTTP 502: Bad gateway')],
-      },
-    }),
-  }))
-
-  expect(result.document.ok).toBe(false)
-  expect(result.document.detail).toBe(
-    'checks finished but the pull request could not be re-read: HTTP 502: Bad gateway',
-  )
+  expect(result.document.bound).toBe(120)
 })
 
 it('reports a log gh would not hand over, which is not a job that printed nothing', async () => {
@@ -444,7 +770,11 @@ it('reports a log gh would not hand over, which is not a job that printed nothin
     argv: [repo, '1', 'wait'],
     gh: createGhServer({
       prs: [depPr(1, { checks: 'failed' })],
-      replies: { viewRepository: REPOSITORY, readFailedRunLog: ghFails('HTTP 502: Bad gateway') },
+      replies: {
+        viewRepository: REPOSITORY,
+        compareCommits: AHEAD,
+        readFailedRunLog: ghFails('HTTP 502: Bad gateway'),
+      },
     }),
   }))
 
@@ -463,6 +793,7 @@ it('strips the colour a log viewer would have rendered', async () => {
       prs: [depPr(1, { checks: 'failed' })],
       replies: {
         viewRepository: REPOSITORY,
+        compareCommits: AHEAD,
         readFailedRunLog: `${esc}[31mred${esc}[0m and plain\n`,
       },
     }),

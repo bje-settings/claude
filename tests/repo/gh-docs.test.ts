@@ -114,6 +114,73 @@ it('does not re-read a blocked entry that names a cause', () => {
   }
 })
 
+it('sends a behind head to rebase before any wait, whatever the merge state', () => {
+  // GitHub reports BLOCKED in place of BEHIND while a check is pending
+  // (#460). So the compare decides first, and its rule comes before every
+  // rule that sends a head to `wait`.
+  const step = section(AGENT, '2. Decide from', '3. Act on the `wait` result')
+  const rule = section(AGENT, '- `pr.behind` true', '- `pr.behind` null')
+
+  expect(rule).toContain('`rebase`, then `wait`, whatever `mergeStateStatus` says')
+  expect(rule).toContain('On `DIRTY`, do\n     the step 5 merge in place of the rebase')
+  expect(step).toContain(
+    'Never send a head with\n   `pr.behind` true to `wait` before a `rebase` or the step 5 merge',
+  )
+  expect(rule).toContain('Act on the `rebase` report as under `BEHIND`')
+  expect(step.indexOf('- `pr.behind` true')).toBeLessThan(step.indexOf('→ `wait`'))
+})
+
+it('goes to wait on each rebase result, and never rebases again on a failed read', () => {
+  const step = section(AGENT, '2. Decide from', '3. Act on the `wait` result')
+
+  for (const result of ['moved', 'unmoved', 'up_to_date']) {
+    expect(step).toContain(`- \`${result}\` → `)
+  }
+  expect(step).toContain('Do not rebase again before that `wait`')
+  expect(step).not.toContain('make sure')
+})
+
+it('sends a behind result from wait back to step 2, apart from the pending count', () => {
+  const behind = section(AGENT, '- `behind` → ', '4. Classify the failure')
+
+  expect(behind).toContain('Go back to step 2')
+  expect(behind).not.toContain('the base moved')
+  expect(behind).toContain('does not count toward the three')
+  // Ruling 16: a `behind` after a rebase that moved the head does not count.
+  // A rebase whose last read failed has no `result`, so its `behind` counts.
+  expect(behind).toContain(
+    'Count a `behind` result unless the\n     `rebase` before it returned `moved`',
+  )
+  expect(behind).toContain(
+    'Stop after three counted results with no change in\n     `pr.headRefOid`',
+  )
+  expect(behind).toContain('("rebase did not move a head that stays behind its base")')
+})
+
+it('decides from the merge state when the compare could not be read', () => {
+  expect(section(AGENT, '- `pr.behind` null', '- `BEHIND`')).toContain(
+    'Decide from `mergeStateStatus` below',
+  )
+})
+
+it('re-reads state after settle reports a moved base', () => {
+  expect(section(AGENT, '- `changed` →', '- `closed` →')).toContain('Re-read `state`')
+})
+
+it('takes the base of a conflict merge from state', () => {
+  const step = section(AGENT, '5. Fix in a worktree', '6. After a merge')
+
+  expect(step).toContain('`pr.baseRefName` from `state`')
+  expect(step).not.toContain('--json baseRefName')
+})
+
+it('names no checks watcher in the wait result the agent reads', () => {
+  const failed = section(AGENT, '3. Act on the `wait` result', '- `merged`')
+
+  expect(failed).toContain('the last read\n     before the bound failed')
+  expect(read(AGENT)).not.toContain('watcher')
+})
+
 it('names no recreate action in the agent', () => {
   // Shepherd resolves a Dependabot conflict like any other (#346).
   expect(read(AGENT)).not.toContain('recreate')
@@ -149,6 +216,14 @@ it('does not list conflict resolution among what the skill never does', () => {
 
   expect(never).not.toContain('conflict')
   expect(never).toContain('force-push')
+})
+
+it('draws the behind edge from wait back to the decision in the shepherd diagram', () => {
+  const body = section(FLOW, '```mermaid', '```')
+
+  expect(body).toContain('W -->|Base moved: head behind| T')
+  expect(body).toContain('Head behind the base, no conflict, whatever the merge state')
+  expect(body).toContain('Skipped: rebase did not move a head that stays behind its base')
 })
 
 it('draws the settle branch in the shepherd diagram', () => {

@@ -63,17 +63,25 @@ number, in the order given:
    and continue. If `pr.autoMerge` is false, record it as skipped ("auto-merge turned off after
    selection") and continue. Auto-merge may have changed since the caller selected this pull
    request. This script never turns it on.
-2. Decide from `pr.mergeStateStatus` and `pr.checks.state`:
+2. Decide from `pr.behind`, `pr.mergeStateStatus` and `pr.checks.state`. `pr.behind` is true
+   when the head does not contain the tip of its base. While a check is pending, GitHub shows
+   `BLOCKED` in place of `BEHIND`, so `pr.behind` decides first. Never send a head with
+   `pr.behind` true to `wait` before a `rebase` or the step 5 merge.
+   - `pr.behind` true → `rebase`, then `wait`, whatever `mergeStateStatus` says. On `DIRTY`, do
+     the step 5 merge in place of the rebase. Act on the `rebase` report as under `BEHIND`.
+   - `pr.behind` null → the compare could not be read. Decide from `mergeStateStatus` below.
    - `BEHIND` → `rebase`, then `wait`.
      If `rebase` returns `ok:false`, re-read `state` and decide again. This usually means GitHub
      refused the branch update because of a new conflict since the pull request was selected. A
      second `ok:false` is skipped, with the detail.
-     `ok:true` with `after` equal to `before` means one of two things. Either GitHub accepted the
-     update but has not applied it yet, or the branch was already current. `output` carries the
-     line gh printed, which says which case it is.
-     `ok:true` with `after` empty means the update landed, but the confirming read did not. Both
-     cases still go to `wait`, which re-reads.
-     Do not rebase again to "make sure". That would be a second CI run for a read that failed.
+     `rebase` reads the pull request until the head moves, so its `result` is final. Go to
+     `wait` on each one:
+     - `moved` → the update landed.
+     - `unmoved` → GitHub did not apply the update within the bound.
+     - `up_to_date` → gh said the branch already holds its base, so the head did not move.
+     `ok:true` with `after` empty means the update ran, but the last read did not. Go to `wait`,
+     which re-reads. Do not rebase again before that `wait`: that costs a second CI run for a
+     read that failed.
    - `DIRTY` (conflicts) → merge the base into the head branch (step 5), then `wait`. Do this
      for every author, Dependabot included.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait`. It returns at once when the checks are
@@ -84,10 +92,10 @@ number, in the order given:
    - `CLEAN`, `HAS_HOOKS`, or checks `pending` → `wait`.
    - `UNKNOWN` → GitHub has not computed it yet. Call `wait` once, then re-read `state`.
 3. Act on the `wait` result:
-   - `ok:false` → the wait did not complete. Either the pull request could not be read, or the
-     checks watcher itself failed (a 502, or an expired token). The detail names which, in gh's
-     own words, and `waited` says how long the watcher ran. This is not `pending`. Re-read `state`
-     and decide again. A second `ok:false` is skipped, with the detail.
+   - `ok:false` → the wait did not complete. Either the first read failed, or the last read
+     before the bound failed (a 502, or an expired token). The detail names which, in gh's own
+     words. Only the second case has `waited`. This is not `pending`. Re-read `state` and
+     decide again. A second `ok:false` is skipped, with the detail.
    - `merged` → record the merge commit and continue to the next number.
    - `passed` → call `settle`, once. It is the grace between "checks passed" and "auto-merge did
      not fire". Do not use a second `wait` for this. `wait` returns at once on a rollup that is
@@ -96,8 +104,8 @@ number, in the order given:
      - `blocked` → record it as skipped. Copy `mergeStateStatus`, `reviewDecision`, `autoMerge`,
        `waited`, and the script's `reason` verbatim. The reason already names the field that
        proved it. Do not add a cause of your own.
-     - `changed` → the base moved while `settle` ran. Go back to step 2 and decide again from the
-       new `mergeStateStatus`. This is not a skip.
+     - `changed` → the base moved while `settle` ran. Re-read `state`, then go back to step 2.
+       `settle` does not report `pr.behind`. This is not a skip.
      - `closed` → record it under `closed` with the detail and continue.
      - `open` → the bound passed, and GitHub reported nothing against it. Record it as skipped,
        with the same four fields, and the detail as the reason. "Still open, nothing reported
@@ -107,10 +115,16 @@ number, in the order given:
        fact about gh, never a finding about the pull request. Re-read `state` and decide again. A
        second `ok:false` is skipped, with the detail as the reason.
      Never merge it yourself.
-   - `pending` → call `wait` again. (`waited` is how many seconds the watcher ran before the
-     bound.) After three consecutive `pending` results with no change in `pr.headRefOid`, record
-     the pull request as skipped ("checks did not finish"). Then continue.
+   - `pending` → call `wait` again. (`waited` is how many seconds `wait` read before its bound.)
+     After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull
+     request as skipped ("checks did not finish"). Then continue.
    - `failed` → classify the failure (step 4).
+   - `behind` → the head does not contain the tip of its base. Go back to step 2. This result
+     does not count toward the three `pending` results. Count a `behind` result unless the
+     `rebase` before it returned `moved`. Stop after three counted results with no change in
+     `pr.headRefOid`. Record the pull request as skipped, with the reason
+     ("rebase did not move a head that stays behind its base"). `update-branch` can report the
+     branch as up to date while the compare still reads behind.
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone
@@ -141,8 +155,7 @@ number, in the order given:
    gh pr checkout <n> --repo <owner/name>   # run inside that worktree
    ```
    For a conflict, run `git fetch origin <base>` and `git merge origin/<base>` there. `<base>` is
-   the `baseRefName` from `gh pr view <n> --repo <owner/name> --json baseRefName`. Resolve each
-   conflicted file:
+   `pr.baseRefName` from `state`. Resolve each conflicted file:
    - A lockfile: do not merge its text. Resolve the manifest first. Then regenerate the lockfile
      with the package manager that the repository's own lock file names.
    - A manifest or an overrides block: keep the keys of both sides.
@@ -160,7 +173,7 @@ number, in the order given:
 
    On every path, run `git worktree remove` on the fix worktree before you move on. If it refuses
    because of local changes, leave the worktree, and name its path in the reason.
-6. After a merge, the next target is BEHIND. That is expected, and step 2 handles it.
+6. After a merge, the next target is behind its base. That is expected, and step 2 handles it.
 
 ## Report
 

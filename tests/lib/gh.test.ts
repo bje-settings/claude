@@ -118,7 +118,7 @@ describe('argv', () => {
       'list',
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision',
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName',
     ])
   })
 
@@ -143,7 +143,7 @@ describe('argv', () => {
       '100',
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision',
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName',
     ])
   })
 
@@ -225,7 +225,7 @@ describe('argv', () => {
       '7',
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision',
+        'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName',
     ])
   })
 
@@ -355,7 +355,7 @@ describe('argv', () => {
     await log.gh.watchChecks({ pullRequest: 7, boundMs: 1_000 })
 
     const fields =
-      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision'
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName'
     expect(rows.calls.map((call) => call.args)).toEqual([
       ['pr', 'list', '--repo', 'acme/widgets', '--json', fields],
       [

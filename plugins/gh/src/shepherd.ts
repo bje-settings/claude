@@ -44,7 +44,7 @@ import type { Output } from './lib/streams.ts'
  * the eight `gh` calls these commands make name the repository with `--repo`
  * (`gh-shepherd-pr.py:399` and on), while the first call resolves the
  * repository from the checkout. `now` and `sleep` are here because
- * `wait` has a bound, and `settle` polls until a bound. A
+ * `rebase`, `wait` and `settle` each poll until a bound. A
  * test that passed a real timer would have to wait out a real bound
  * instead. The answer is an exit status, not an `Envelope<string>`, because
  * these commands have a fourth status: 3, an internal error. `lib/envelope.ts`
@@ -279,7 +279,8 @@ export const missingField = (pull: unknown): string => {
   if (record === null) return 'a pull request object'
   // The fields the loop decides on. The checks differ per field, so this
   // list stays here, rather than in a constant nothing else reads.
-  for (const name of ['state', 'headRefOid']) {
+  // `wait` and `state` compare the head with `baseRefName` (#460).
+  for (const name of ['state', 'headRefOid', 'baseRefName']) {
     if (!isTruthy(record[name])) return name
   }
   if (!('statusCheckRollup' in record)) return 'statusCheckRollup'
@@ -337,6 +338,9 @@ export interface PullSummary {
   readonly checks: ChecksSummary
   readonly is_dependabot: boolean
   readonly reviewDecision: unknown
+  /** The branch the pull request merges into. `shepherd-pr` compares the
+   *  head with it (#460). */
+  readonly baseRefName: unknown
 }
 
 /** Whether a human has marked this pull request for auto-merge. `is not
@@ -382,6 +386,7 @@ export const summary = (pull: unknown): PullSummary => {
     // proof that auto-merge cannot fire. It does not guess at branch
     // protection.
     reviewDecision: isTruthy(field(pull, 'reviewDecision')) ? field(pull, 'reviewDecision') : '',
+    baseRefName: answered(field(pull, 'baseRefName')),
   }
 }
 
@@ -524,11 +529,10 @@ export const statusDocument = (
  * does not split on `\ufeff`. JavaScript does the opposite on both.
  * Unlike {@link tailLines}, whose missing separator was the bare
  * carriage return a progress bar writes on every redraw, nothing gh
- * prints carries any of these characters. `\x1c` to `\x1e` cannot reach
- * here on the watcher path, because `tailLines` has already broken the
- * text on them. A hand-built, exhaustive whitespace class in a shipping
- * function would cover no reachable case. So the set stays `\s`, and
- * this comment records the difference instead of hiding it.
+ * prints carries any of these characters. A hand-built, exhaustive
+ * whitespace class in a shipping function would cover no reachable case.
+ * So the set stays `\s`, and this comment records the difference instead
+ * of hiding it.
  */
 export const oneLine = (text: string): string => text.split(/\s+/).filter(Boolean).join(' ')
 

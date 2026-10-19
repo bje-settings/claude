@@ -943,7 +943,8 @@ export interface GhClientOptions {
  * The `--json` field lists, taken from the scripts that ask for them today.
  * `PULL_REQUEST_FIELDS` matches `plugins/gh/scripts/lib/shepherd.py`'s
  * `PR_FIELDS`: `gh-shepherd-pr.py`'s `read_pr` and `gh-shepherd-status.py`'s
- * pull-request query both ask for exactly this list.
+ * pull-request query both ask for exactly this list, plus `baseRefName`.
+ * `shepherd-pr` compares the head with that base (#460).
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
  * request's head by its number (#450). Its merge commit proves that the
@@ -955,7 +956,7 @@ export interface GhClientOptions {
  */
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
-  'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision'
+  'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName'
 const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'

@@ -8,11 +8,11 @@
 // only does the step. It refuses a step whose preconditions do not hold.
 // A confused caller cannot make it act on the wrong pull request.
 //
-// **Time is an argument.** `wait` is bounded, and `settle` polls until its
-// own bound. The clock and the sleep come in through `ShepherdContext`. This
-// lets the tests drive every bound to its end, with no real wait. The bounds
-// themselves are the Python's numbers, unchanged (#106 measures the settle
-// bound and lands after this port).
+// **Time is an argument.** `rebase`, `wait` and `settle` each poll until
+// their own bound. The clock and the sleep come in through `ShepherdContext`.
+// This lets the tests drive every bound to its end, with no real wait. The
+// wait and settle bounds are the Python's numbers (#106 measures the settle
+// bound). The rebase bound and the wait interval are new at #460.
 //
 // The command function is the seam (ADR 001). Its inputs are the arguments,
 // the environment, an injected `gh`, the clock, the sleep, and the output
@@ -60,6 +60,18 @@ const DEFAULT_LOG_LINES = 60
 const WAIT_BOUND_MIN = 120
 const WAIT_BOUND_MAX = 540
 
+/** How often `wait` reads the pull request and the compare, in seconds. Each
+ *  read is three `gh` calls: the pull request, the repository and the
+ *  compare. A 540 second bound is 19 reads, so at most 57 calls. A failed
+ *  check adds one call for its log (#460). */
+const WAIT_POLL_DEFAULT = 30
+
+/** Compare statuses that say the head does not contain the tip of its base.
+ *  `diverged` is in this list too: the base has commits that the head lacks.
+ *  Under a strict up-to-date rule, auto-merge cannot fire on such a head.
+ *  So `wait` does not wait for its checks (#460). */
+const BEHIND_STATUSES = ['behind', 'diverged']
+
 // How long `settle` continues to read, when GitHub reports nothing either
 // way, and how often it reads. This is deliberately a constant, not
 // something derived from SHEPHERD_CI_SECONDS. That number is the measured
@@ -75,6 +87,21 @@ const WAIT_BOUND_MAX = 540
 // carries it as it is.
 const SETTLE_BOUND_DEFAULT = 90
 const SETTLE_POLL_DEFAULT = 5
+
+// How long `rebase` reads the pull request for a moved head, and how often
+// (ruling 16 on #460). `gh pr update-branch` returns when GitHub accepts the
+// request, and GitHub applies it some seconds later. Without this poll the
+// caller reads an unmoved head, calls `wait`, gets `behind` at once, and
+// rebases again. The agent passes no timeout on a `rebase` call, so the
+// Bash tool cuts it off at 120 seconds. The 60 second bound counts the reads
+// too. It leaves time for the branch update and the last read. Five seconds
+// is settle's interval: a moved head costs at most five seconds more.
+const REBASE_BOUND_DEFAULT = 60
+const REBASE_POLL_DEFAULT = 5
+
+/** gh's line for a branch that already holds its base. The head will not
+ *  move, so `rebase` does not poll for it. */
+const UP_TO_DATE_RE = /already up[- ]to[- ]date/i
 
 /** Merge states that prove auto-merge cannot fire now. BLOCKED means a
  *  required review, or a required check that has not reported. Either way,
@@ -99,16 +126,11 @@ const BLOCKING_REVIEW_DECISIONS = ['REVIEW_REQUIRED', 'CHANGES_REQUESTED']
  *  have watched. */
 const SETTLED_CHECK_STATES = ['passed', 'none']
 
-/** The exit codes `gh pr checks` uses to report on the checks: 0 means all
- *  passed, 1 means one failed, 8 means still pending. 124 is this command's
- *  own bound. Any other code means gh failed to answer at all (a 502, a
- *  rate limit, an expired token). To report that as `pending` would make
- *  the caller wait it out, one CI cycle at a time, forever. */
-const WATCHER_CODES = [0, 1, 8, 124]
-
-/** How much of a failed watcher's stderr travels in the detail. Enough for the
- *  HTTP status and the message under it, not the whole of gh's help text. */
-const WATCHER_ERR_LINES = 5
+/** A pull request as `state` and `wait` report it: the summary, and whether
+ *  the head is behind its base. `true` and `false` come from the compare.
+ *  `null` means the compare could not be read, so the caller decides from
+ *  `mergeStateStatus`. */
+type PullState = PullSummary & { readonly behind: boolean | null }
 
 export const HELP = `The deterministic per-pull-request steps of /gh:shepherd.
 
@@ -124,15 +146,33 @@ agent running the loop decides which action comes next; this only does the
 step, and refuses steps whose preconditions do not hold, so a confused caller
 cannot make it act on the wrong pull request.
 
-  state     the pull request as \`summary\` shapes it (see src/shepherd.ts)
+  state     the pull request as \`summary\` shapes it (see src/shepherd.ts),
+            plus \`pr.behind\`. It is true when the compare of baseRefName
+            and the head is behind or diverged. It is false when the compare
+            is ahead or identical. It is null when the compare could not be
+            read (stderr says why).
   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
-            open. Reports the head SHA before and after.
-  wait      gh pr checks --watch --fail-fast, bounded (see below). Result is
-            one of passed, failed, pending, merged; \`failing\` lists the
-            failed checks and \`log_tail\` carries the failed steps' log, with
-            \`log_error\` beside it when gh would not hand the log over. A
-            watcher that failed for a reason of its own (a 502, an expired
-            token) is \`ok: false\`, never \`pending\`.
+            open. Then reads the pull request every SHEPHERD_REBASE_POLL
+            seconds until the head moves, or until SHEPHERD_REBASE_BOUND.
+            The bound includes the time of each read. \`result\` is one of:
+            \`moved\`; \`unmoved\` (the update is still queued at the bound);
+            \`up_to_date\` (gh said the branch holds its base, so one read).
+            Reports the head SHA before and after, with \`waited\`,
+            \`reads_ok\`, \`read_failures\` and \`read_error\`. The LAST read
+            decides. When it failed, the report is still \`ok: true\`,
+            because the update ran. It then has \`after\` empty and no
+            \`result\`.
+  wait      reads the pull request and the compare until it can answer, or
+            until its bound (see below). A head that is behind returns
+            \`behind\` at once, with no poll. Otherwise it reads again every
+            SHEPHERD_WAIT_POLL seconds. Result is one of: merged; behind;
+            failed (on the first failed rollup); passed; pending (at the
+            bound). On failed, \`failing\` lists the failed checks, and
+            \`log_tail\` carries the failed steps' log. \`log_error\` is
+            beside it when gh would not hand the log over. \`waited\` is
+            measured. \`reads_ok\`, \`read_failures\` and \`read_error\` say
+            how the reads went. As in settle, the LAST read decides. A bound
+            that arrives on a failed read is \`ok: false\`, never \`pending\`.
   settle    the grace between "checks passed" and "auto-merge did not fire".
             Reads the pull request until GitHub answers one way or the other:
             \`merged\`; \`closed\` when it was closed while settling; \`blocked\`
@@ -164,9 +204,13 @@ Environment:
   SHEPHERD_LOG_LINES     lines of failed-step log to keep (default 60).
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
+  SHEPHERD_WAIT_POLL     interval between two wait reads (default 30).
   SHEPHERD_SETTLE_BOUND  how long \`settle\` waits with no evidence either way,
                          in seconds (default 90).
   SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).
+  SHEPHERD_REBASE_BOUND  how long \`rebase\` reads for a moved head, in
+                         seconds (default 60).
+  SHEPHERD_REBASE_POLL   interval between two rebase reads (default 5).
 
 Exits 0 when the action ran and reported (including ok:false refusals), 2 on
 a usage error, 1 when gh could not answer at all, and 3 on an internal error,
@@ -288,6 +332,30 @@ class Shepherd {
     return summary(pull)
   }
 
+  /**
+   * Whether the head lacks commits of its base, from GitHub's compare.
+   *
+   * `mergeStateStatus` cannot answer this. While a required check is
+   * pending, GitHub reports BLOCKED in place of BEHIND (#460). A compare
+   * that could not be read is `null`, not a failed read. The caller then
+   * decides from the merge state, as it did before #460. stderr carries
+   * the reason, so the null is never a silence.
+   */
+  async withBehind(pull: PullSummary): Promise<PullState> {
+    // `missingField` refuses an answer without either name, so both are
+    // names gh gave.
+    const base = String(pull.baseRefName)
+    const head = String(pull.headRefOid)
+    const answer = await this.options.gh.compareCommits({ base, head })
+    if (answer.comparison === null) {
+      this.options.context.output.err.write(
+        `behind is null: the compare of ${base}...${head} is unavailable: ${answer.unavailable}\n`,
+      )
+      return { ...pull, behind: null }
+    }
+    return { ...pull, behind: BEHIND_STATUSES.includes(answer.comparison.status) }
+  }
+
   /** `[succeeded, gh's output on one line]` for a mutating call. */
   async ghText(call: Promise<string>): Promise<[boolean, string]> {
     try {
@@ -326,7 +394,7 @@ class Shepherd {
   async state(): Promise<void> {
     const pull = await this.readPr()
     if (pull === null) return this.unreadable()
-    this.emit(true, 'read', { pr: pull })
+    this.emit(true, 'read', { pr: await this.withBehind(pull) })
   }
 
   async merged(): Promise<void> {
@@ -351,143 +419,224 @@ class Shepherd {
       this.emit(false, `rebase failed: ${out}`, { before })
       return
     }
-    const fresh = await this.readPr()
+    const upToDate = UP_TO_DATE_RE.test(out)
+    const env = this.options.context.env
+    const err = this.options.context.output.err
+    const bound = envInt(env, err, 'SHEPHERD_REBASE_BOUND', REBASE_BOUND_DEFAULT, POSITIVE_RE)
+    const interval = envInt(env, err, 'SHEPHERD_REBASE_POLL', REBASE_POLL_DEFAULT, POSITIVE_RE)
+    // Two limits end the loop. The clock includes the time of each read, so
+    // slow reads cannot push the call past the bound. A count of polls is
+    // the second limit. A sleep that does not move the clock then cannot
+    // keep this loop alive.
+    const polls = upToDate ? 0 : Math.ceil(bound / interval)
+    const started = this.options.context.now()
+    const spent = (): number => seconds(this.options.context.now() - started)
+
+    let fresh: PullSummary | null = null
+    let readsOk = 0
+    let readsFailed = 0
+    for (let poll = 0; ; poll += 1) {
+      const read = await this.readPr()
+      if (read === null) {
+        readsFailed += 1
+      } else {
+        readsOk += 1
+      }
+      fresh = read
+      // `missingField` refuses an empty `headRefOid` before `readPr`
+      // answers. So a head here is a head gh named, and needs no `or ""`.
+      if (read !== null && read.headRefOid !== before) break
+      if (poll >= polls || spent() >= bound) break
+      // `spent()` is whole seconds below `bound` here, so this sleep is at
+      // least one second. The last sleep stops at the bound.
+      await this.options.context.sleep(Math.min(interval, bound - spent()) * 1000)
+    }
+    const reading = {
+      waited: spent(),
+      reads_ok: readsOk,
+      read_failures: readsFailed,
+      read_error: fresh === null ? this.readFailure() : '',
+    }
     if (fresh === null) {
-      // The branch update ran. Only the confirmation read failed. If this
-      // told the caller `ok: false`, it would decide again and rebase a
-      // second time, which costs another CI run for a read that failed.
+      // The branch update ran. Only the last confirming read failed, and
+      // the last read decides. So this report has no `result`. With
+      // `ok: false`, the caller would rebase a second time. That costs
+      // another CI run for a read that failed.
       this.emit(
         true,
         `update-branch succeeded but the pull request could not be re-read: ${this.readFailure()}`,
-        { before, after: '', pr: null, output: out },
+        { before, after: '', pr: null, output: out, ...reading },
       )
       return
     }
-    // No `or ""` in front of this, unlike the Python: `missingField` refuses
-    // an empty `headRefOid` before `readPr` answers, so a head that reached
-    // here is a head gh named.
     const after = fresh.headRefOid
-    // `gh pr update-branch` is asynchronous. It returns as soon as GitHub
-    // accepts the request. It also prints the same success line when the
-    // branch was already current. Either way, the head has not moved. To
-    // call that "rebased" would tell the caller a new CI run is coming,
-    // when none may be.
-    const detail =
-      after === before
-        ? 'update-branch reported success and the head has not moved: the update is ' +
-          'still queued, or the branch was already up to date'
-        : 'rebased'
-    this.emit(true, detail, { before, after, pr: fresh, output: out })
+    if (after !== before) {
+      this.emit(true, 'rebased', {
+        before,
+        after,
+        pr: fresh,
+        output: out,
+        result: 'moved',
+        ...reading,
+      })
+      return
+    }
+    // `gh pr update-branch` prints its success line as soon as GitHub
+    // accepts the request. An unmoved head is not "rebased": no new CI run
+    // may start.
+    if (upToDate) {
+      this.emit(
+        true,
+        'update-branch reported the branch already up to date with its base; the head has not moved',
+        { before, after, pr: fresh, output: out, result: 'up_to_date', ...reading },
+      )
+      return
+    }
+    this.emit(
+      true,
+      `update-branch reported success and the head has not moved after ${reading.waited}s: the ` +
+        'update is still queued',
+      { before, after, pr: fresh, output: out, result: 'unmoved', ...reading },
+    )
   }
 
   async wait(): Promise<void> {
-    const pull = await this.readPr()
-    if (pull === null) return this.unreadable()
-    if (pull.state === 'MERGED') {
-      this.emit(true, 'merged', { result: 'merged', pr: pull })
+    const first = await this.readPr()
+    if (first === null) return this.unreadable()
+    if (first.state === 'MERGED') {
+      this.emit(true, 'merged', { result: 'merged', pr: first })
       return
     }
-    if (pull.checks.state === 'none') {
+    // The compare comes before the checks. A head that is behind goes back
+    // to the caller at once, whatever the checks say. A green run on it
+    // cannot let auto-merge fire, so its CI time would be lost.
+    let pull = await this.withBehind(first)
+    if (pull.behind !== true && pull.checks.state === 'none') {
       this.emit(true, 'no checks reported on this head', { result: 'passed', pr: pull })
       return
     }
 
-    // This code watches only while a check is still active. A rollup that
-    // is already final is answered from the pull request itself. `gh pr
-    // checks --watch` has been seen to watch a fully finished rollup
-    // forever, when the rollup contains skipped checks. A watcher that
-    // never returns is worse than no watcher.
+    const env = this.options.context.env
+    const err = this.options.context.output.err
     const bound = envInt(
-      this.options.context.env,
-      this.options.context.output.err,
+      env,
+      err,
       'SHEPHERD_WAIT_BOUND',
       clamp(this.options.ciSeconds * 2, WAIT_BOUND_MIN, WAIT_BOUND_MAX),
       POSITIVE_RE,
     )
-    let watcherRc: number | null = 0
-    let waited = 0
-    if (pull.checks.state === 'pending') {
-      const watch = await this.options.gh.watchChecks({
-        pullRequest: this.options.number,
-        boundMs: bound * 1000,
-        failFast: true,
-      })
-      // This code uses 124 for the bound, the way coreutils `timeout`
-      // publishes it. `run_bounded` made this translation, and `lib/gh.ts`
-      // deliberately leaves it to whoever publishes a status. A watch that
-      // a signal ended has no status of its own. `null` is outside
-      // WATCHER_CODES, so this refuses below.
-      watcherRc = watch.timedOut ? 124 : watch.status
-      waited = seconds(watch.waitedMs)
-      // A watch that a signal ended has no status at all. That is not one
-      // of the codes either, so this refuses here with the rest.
-      const saidSomething = watcherRc !== null && WATCHER_CODES.includes(watcherRc)
-      if (!saidSomething) {
-        // gh said nothing about the checks. It could not reach GitHub, or
-        // could not start at all. To report this as `pending` would make
-        // the caller wait out a broken token, one CI cycle at a time.
-        // Instead this is a refusal that carries what gh printed. It
-        // checks truthiness on the account, so a watcher that failed
-        // silently still names its status.
-        const problem = oneLine(tailLines(watch.problem, WATCHER_ERR_LINES))
-        this.emit(
-          false,
-          `watcher failed after ${waited}s: ${problem || `gh exited ${watcherRc}`}`,
-          {
-            bound,
-            watcher_rc: watcherRc,
-            pr: pull,
-            waited,
-          },
-        )
-        return
+    // `POSITIVE_RE` rejects 0, for settle's reason: a zero interval never
+    // reaches the deadline.
+    const interval = envInt(env, err, 'SHEPHERD_WAIT_POLL', WAIT_POLL_DEFAULT, POSITIVE_RE)
+    // Measured, not added up from the sleeps, for settle's reason.
+    const started = this.options.context.now()
+    const spent = (): number => seconds(this.options.context.now() - started)
+
+    let readsOk = 1
+    let readsFailed = 0
+    // Whether the most recent read failed. This follows settle's rule. A
+    // failed read says nothing about the pull request, so it gets no
+    // verdict. A bound that arrives on one is `ok: false`, because `pull`
+    // is then older than the bound this would report.
+    let stale = false
+    while (true) {
+      if (!stale) {
+        const reading = {
+          waited: spent(),
+          reads_ok: readsOk,
+          read_failures: readsFailed,
+          // `readPr` clears its error on each read that succeeds, and a
+          // verdict comes only from one. A failure that a later read
+          // recovered from is counted, and nothing more.
+          read_error: '',
+        }
+        if (await this.waitVerdict(pull, reading)) return
       }
+      const left = bound - spent()
+      if (left <= 0) break
+      // The last sleep stops at the bound, so no sleep goes past it.
+      await this.options.context.sleep(Math.min(interval, left) * 1000)
+      const fresh = await this.readPr()
+      if (fresh === null) {
+        readsFailed += 1
+        stale = true
+        continue
+      }
+      readsOk += 1
+      stale = false
+      pull = await this.withBehind(fresh)
     }
 
-    // This code re-reads the pull request afterward, in every case. A
-    // rollup that already passed may have let auto-merge fire. This code
-    // decides from the rollup, not from the watcher's exit code.
-    const fresh = await this.readPr()
-    if (fresh === null) {
+    if (stale) {
       this.emit(
         false,
-        `checks finished but the pull request could not be re-read: ${this.readFailure()}`,
+        `wait waited ${spent()}s but could not re-read the pull request (${readsFailed} of ` +
+          `${readsOk + readsFailed} reads failed, the last among them): ${this.readErr}`,
+        {
+          bound,
+          waited: spent(),
+          reads_ok: readsOk,
+          read_failures: readsFailed,
+          read_error: this.readErr,
+          pr: pull,
+        },
       )
       return
     }
-    if (fresh.state === 'MERGED') {
-      this.emit(true, 'merged', { result: 'merged', pr: fresh })
-      return
+    // This is the time actually spent, not the bound. A caller that sizes
+    // its next call reads this number.
+    this.emit(true, `checks still running after ${spent()}s`, {
+      result: 'pending',
+      bound,
+      pr: pull,
+      waited: spent(),
+      reads_ok: readsOk,
+      read_failures: readsFailed,
+      read_error: '',
+    })
+  }
+
+  /**
+   * Report the read that answers `wait`, and say whether one did.
+   *
+   * Pending checks answer nothing, so the caller reads again. Every other
+   * read is final. These are merged, a head behind its base, and a rollup
+   * that passed or has no checks. A rollup with a failed check is final too.
+   * It does not wait for the rest of the run, as `--fail-fast` did before
+   * #460.
+   */
+  async waitVerdict(pull: PullState, reading: Record<string, unknown>): Promise<boolean> {
+    if (pull.state === 'MERGED') {
+      this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
+      return true
     }
-    const state = fresh.checks.state
+    if (pull.behind === true) {
+      this.emit(
+        true,
+        `the head does not contain the tip of ${String(pull.baseRefName)}; rebase it before ` +
+          'waiting on CI',
+        { result: 'behind', pr: pull, ...reading },
+      )
+      return true
+    }
+    const state = pull.checks.state
     if (state === 'passed' || state === 'none') {
-      this.emit(true, 'checks passed', { result: 'passed', pr: fresh })
-      return
+      this.emit(true, 'checks passed', { result: 'passed', pr: pull, ...reading })
+      return true
     }
-    if (state === 'pending') {
-      // This is the time actually spent, not the bound. A watcher that
-      // returned early did not wait out the full bound. A caller that
-      // sizes its next call reads this number.
-      this.emit(true, `checks still running after ${waited}s`, {
-        result: 'pending',
-        bound,
-        watcher_rc: watcherRc,
-        pr: fresh,
-        waited,
-      })
-      return
-    }
+    if (state === 'pending') return false
 
     // Something failed. This code names the checks. It also pulls the
     // failed steps' log for the first Actions job among them, so the
     // agent can classify the failure without another round trip.
-    const [logTail, logError] = await this.failedLog(fresh.checks.failing)
+    const [logTail, logError] = await this.failedLog(pull.checks.failing)
     // `log_error` appears only when there is one. "No log" and "gh would
     // not hand the log over" call for different next steps. A reader
     // ignores a field that is always present and almost always empty.
     const extra =
       logError === '' ? { log_tail: logTail } : { log_tail: logTail, log_error: logError }
-    this.emit(true, 'checks failed', { result: 'failed', pr: fresh, ...extra })
+    this.emit(true, 'checks failed', { result: 'failed', pr: pull, ...extra, ...reading })
+    return true
   }
 
   /**
