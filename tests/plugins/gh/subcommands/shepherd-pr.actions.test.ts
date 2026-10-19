@@ -504,11 +504,11 @@ it('reports merged, not behind, when auto-merge fires during the poll', async ()
 })
 
 it.each([
-  ['passed', AHEAD, 'passed'],
-  ['pending', compared('behind'), 'behind'],
+  ['passed', 'passed', AHEAD],
+  ['pending', 'behind', compared('behind')],
 ] as const)(
   'gives a verdict on the read at the bound: checks %s give %s',
-  async (checks, compare, verdict) => {
+  async (checks, verdict, compare) => {
     const result = await waitOn(
       [depPr(1, { checks: 'pending' }), depPr(1, { checks: 'pending' }), depPr(1, { checks })],
       [AHEAD, AHEAD, compare],

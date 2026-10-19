@@ -83,9 +83,10 @@ export const divergence = (
  */
 
 /**
- * Nothing skips these four fields, and no list keeps them in step. The Python
- * measured them on the machine that ran the capture. The injected clock here
- * produces the same numbers. That is why this port uses an injected clock.
+ * `wait` no longer reports `watcher_rc` (#460). Nothing skips the other
+ * three fields, and no list keeps them in step. The Python measured them on
+ * the machine that ran the capture. The injected clock here produces the
+ * same numbers. That is why this port uses an injected clock.
  * The test then compares the whole document byte for byte, like every other
  * key. A key that lost reproducibility would turn the comparison red, not
  * quietly join a list.

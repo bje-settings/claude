@@ -529,11 +529,10 @@ export const statusDocument = (
  * does not split on `\ufeff`. JavaScript does the opposite on both.
  * Unlike {@link tailLines}, whose missing separator was the bare
  * carriage return a progress bar writes on every redraw, nothing gh
- * prints carries any of these characters. `\x1c` to `\x1e` cannot reach
- * here on the watcher path, because `tailLines` has already broken the
- * text on them. A hand-built, exhaustive whitespace class in a shipping
- * function would cover no reachable case. So the set stays `\s`, and
- * this comment records the difference instead of hiding it.
+ * prints carries any of these characters. A hand-built, exhaustive
+ * whitespace class in a shipping function would cover no reachable case.
+ * So the set stays `\s`, and this comment records the difference instead
+ * of hiding it.
  */
 export const oneLine = (text: string): string => text.split(/\s+/).filter(Boolean).join(' ')
 

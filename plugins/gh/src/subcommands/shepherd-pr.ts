@@ -61,7 +61,8 @@ const WAIT_BOUND_MIN = 120
 const WAIT_BOUND_MAX = 540
 
 /** How often `wait` reads the pull request and the compare, in seconds. Each
- *  poll is two `gh` calls, so a 540 second bound costs at most 38 (#460). */
+ *  read is three `gh` calls: the pull request, the repository and the
+ *  compare. A 540 second bound is 19 reads, so at most 57 calls (#460). */
 const WAIT_POLL_DEFAULT = 30
 
 /** Compare statuses that say the head does not contain the tip of its base.
@@ -472,7 +473,7 @@ class Shepherd {
       }
       const left = bound - spent()
       if (left <= 0) break
-      // The last sleep stops at the bound, so `waited` never passes it.
+      // The last sleep stops at the bound, so no sleep goes past it.
       await this.options.context.sleep(Math.min(interval, left) * 1000)
       const fresh = await this.readPr()
       if (fresh === null) {
