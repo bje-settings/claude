@@ -2,12 +2,15 @@
 // The file is one of several so that vitest can run them at the same time (#205).
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
 import { expect, it } from 'vitest'
-import { HELP } from '#gh/subcommands/shepherd-pr.ts'
-import { type GhReplies, ghFails } from '#harness/gh.ts'
+import { HELP, runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
+import { type GhClient, type GhReplies, ghFails } from '#harness/gh.ts'
+import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhSequences } from '#harness/pulls.ts'
+import { createSandbox } from '#harness/sandbox.ts'
 import {
   AHEAD,
   CAPTURE,
+  capture,
   clients,
   compared,
   comparing,
@@ -224,6 +227,8 @@ it('reads a head gh answered as an empty string as no head at all', async () => 
 
   expect(result.document.detail).toContain('gh answered without headRefOid')
   expect(result.document.after).toBe('')
+  // Every read of the poll failed the same way: 12 polls at the defaults.
+  expect(result.document).toMatchObject({ ok: true, reads_ok: 0, read_failures: 13 })
 })
 
 /** A `rebase` of pull request 1, whose reads answer `pulls` in order. The
@@ -279,15 +284,23 @@ it('reports unmoved when the bound passes, and stops the last sleep at the bound
   expect(result.elapsed).toBe(12_000)
 })
 
-it('does not poll when gh says the branch is already up to date', async () => {
-  const result = await rebaseOn(
-    [queued],
-    {},
-    '✓ Pull request #1 already up-to-date with base branch\n',
-  )
+it.each([
+  // gh 2.102 prints this line (cli/cli `pkg/cmd/pr/update-branch/update_branch.go`).
+  '✓ PR branch already up-to-date\n',
+  '✓ Pull request #1 already up-to-date with base branch\n',
+  'Already up to date\n',
+])('does not poll when gh says the branch is already up to date: %j', async (line) => {
+  const result = await rebaseOn([queued], {}, line)
 
   expect(result.document).toMatchObject({ ok: true, result: 'up_to_date', waited: 0, reads_ok: 1 })
   expect(result.elapsed).toBe(0)
+})
+
+it('reports moved when gh says up to date but the head moved all the same', async () => {
+  // The head decides, not gh's line.
+  const result = await rebaseOn([queued, moved], {}, '✓ PR branch already up-to-date\n')
+
+  expect(result.document).toMatchObject({ result: 'moved', after: 'rebased-sha1', reads_ok: 1 })
 })
 
 it('counts a read failure that a later read recovered from, and nothing more', async () => {
@@ -341,6 +354,74 @@ it('reads every SHEPHERD_REBASE_POLL seconds when it is set', async () => {
   })
 
   expect(result.document).toMatchObject({ result: 'unmoved', waited: 10, reads_ok: 6 })
+})
+
+/** A `rebase` of pull request 1 on a clock this test controls. Each read
+ *  costs `readMs` of the clock. A sleep moves the clock only when
+ *  `sleepMoves` is true. A sleep that is not positive, or the 100th sleep,
+ *  throws: a loop that does not end then fails, and does not hang. */
+const rebaseOnClock = async (
+  pulls: NonNullable<GhSequences['viewPullRequest']>,
+  env: Record<string, string>,
+  readMs: number,
+  sleepMoves: boolean,
+) => {
+  const sandbox = createSandbox()
+  const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
+  const writers = capture()
+  let elapsed = 0
+  let sleeps = 0
+  const server = createGhServer({
+    replies: { viewRepository: REPOSITORY, updateBranch: UPDATED },
+    sequences: { viewPullRequest: pulls },
+  })
+  const gh: GhClient = {
+    ...server,
+    viewPullRequest: async (pull) => {
+      elapsed += readMs
+      return server.viewPullRequest(pull)
+    },
+  }
+  const status = await runShepherdPr([repo, '1', 'rebase'], {
+    cwd: repo,
+    env: { ...sandbox.env, ...env },
+    output: writers.output,
+    createGh: () => gh,
+    now: () => elapsed,
+    sleep: async (milliseconds) => {
+      sleeps += 1
+      if (milliseconds <= 0 || sleeps >= 100) throw new Error(`runaway sleep ${milliseconds}`)
+      if (sleepMoves) elapsed += milliseconds
+    },
+  })
+  return { status, document: JSON.parse(writers.stdout()) }
+}
+
+it('ends at the bound on the clock, when slow reads use up the bound first', async () => {
+  // Each read costs 3 seconds. The poll count alone would allow 4 reads.
+  // The clock reaches the 10 second bound after 2, so the call stays inside
+  // the Bash tool's timeout. `waited` is measured: the sleeps add up to 4.
+  const result = await rebaseOnClock(
+    [queued],
+    { SHEPHERD_REBASE_BOUND: '10', SHEPHERD_REBASE_POLL: '4' },
+    3000,
+    true,
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 10, reads_ok: 2 })
+})
+
+it('ends on the count of polls, when a sleep does not move the clock', async () => {
+  const result = await rebaseOnClock(
+    [queued],
+    { SHEPHERD_REBASE_BOUND: '10', SHEPHERD_REBASE_POLL: '5' },
+    0,
+    false,
+  )
+
+  expect(result.status).toBe(0)
+  expect(result.document).toMatchObject({ result: 'unmoved', waited: 0, reads_ok: 3 })
 })
 
 it('asks for a rebase of the pull request it was given, and never a merge', async () => {

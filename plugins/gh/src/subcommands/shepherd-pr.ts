@@ -91,9 +91,10 @@ const SETTLE_POLL_DEFAULT = 5
 // (ruling 16 on #460). `gh pr update-branch` returns when GitHub accepts the
 // request, and GitHub applies it some seconds later. Without this poll the
 // caller reads an unmoved head, calls `wait`, gets `behind` at once, and
-// rebases again. 60 seconds stays inside the Bash tool's 120 second default,
-// because the agent passes no timeout on a `rebase` call. Five seconds is
-// settle's interval: a moved head costs at most five seconds more.
+// rebases again. The agent passes no timeout on a `rebase` call, so the
+// Bash tool cuts it off at 120 seconds. The 60 second bound counts the reads
+// too. It leaves time for the branch update and the last read. Five seconds
+// is settle's interval: a moved head costs at most five seconds more.
 const REBASE_BOUND_DEFAULT = 60
 const REBASE_POLL_DEFAULT = 5
 
@@ -420,8 +421,10 @@ class Shepherd {
     const err = this.options.context.output.err
     const bound = envInt(env, err, 'SHEPHERD_REBASE_BOUND', REBASE_BOUND_DEFAULT, POSITIVE_RE)
     const interval = envInt(env, err, 'SHEPHERD_REBASE_POLL', REBASE_POLL_DEFAULT, POSITIVE_RE)
-    // A count of polls ends the loop, not the clock. A sleep that does not
-    // move the clock then cannot keep this loop alive.
+    // Two limits end the loop. The clock includes the time of each read, so
+    // slow reads cannot push the call past the bound. A count of polls is
+    // the second limit. A sleep that does not move the clock then cannot
+    // keep this loop alive.
     const polls = upToDate ? 0 : Math.ceil(bound / interval)
     const started = this.options.context.now()
     const spent = (): number => seconds(this.options.context.now() - started)
@@ -437,11 +440,13 @@ class Shepherd {
         readsOk += 1
       }
       fresh = read
-      // No `or ""` in front of this, unlike the Python: `missingField`
-      // refuses an empty `headRefOid` before `readPr` answers, so a head
-      // that reached here is a head gh named.
-      if ((read !== null && read.headRefOid !== before) || poll >= polls) break
-      await this.options.context.sleep(Math.min(interval, bound - poll * interval) * 1000)
+      // `missingField` refuses an empty `headRefOid` before `readPr`
+      // answers. So a head here is a head gh named, and needs no `or ""`.
+      if (read !== null && read.headRefOid !== before) break
+      if (poll >= polls || spent() >= bound) break
+      // `spent()` is whole seconds below `bound` here, so this sleep is at
+      // least one second. The last sleep stops at the bound.
+      await this.options.context.sleep(Math.min(interval, bound - spent()) * 1000)
     }
     const reading = {
       waited: spent(),
