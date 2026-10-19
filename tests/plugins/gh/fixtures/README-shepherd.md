@@ -73,8 +73,8 @@ The capture records `waited` (both `wait` and `settle`) and `settle`'s `reads_ok
 `read_failures` exactly as the Python printed them. This means they measure the machine the
 capture ran on. For example, `settle_reports_open_when_auto_merge_never_fires` reads
 `"waited": 3`, because there a 3 second bound with a 1 second poll took 3 seconds of real time. A
-loaded machine would have written 4 instead. `wait`'s `watcher_rc`, where the bound fired (the
-Python's own 124 for a killed watcher), is the same kind of number.
+loaded machine would have written 4 instead. `wait` measured the same way until #460 (see "What
+#460 changed").
 
 The capture does NOT skip them, and there is no separate list of them for the parity test to keep
 in step. The port takes its clock and its sleep as arguments, and the tests pass it a fake clock
@@ -129,12 +129,26 @@ rule that nobody edits a capture. The edits remove content and add none.
 ## What #460 changed
 
 #460 adds output, so it is the second exception to the rule that nobody edits a capture. The
-edits add keys to the `stdout` of a case. Nothing else in a case changed.
+edits change the `stdout` of a case. Nothing else in a case changed, and no case was added or
+removed.
 
 - **`baseRefName`** is the last key of each pull request object. `PULL_REQUEST_FIELDS` asks gh
   for it, and `summary` carries it, because `shepherd-pr` compares the head with that base. So
   each `pr` object in `shepherd-pr-output.json`, and each entry of `targets` in
   `shepherd-status-output.json`, ends with the `baseRefName` of its captured row (`main`).
+- **`behind`** follows it, in each `pr` that `state` and `wait` report from an open pull request:
+  `state_*` and `wait_*` cases whose `ok` is true and whose `result` is not `merged`. The replay
+  answers the compare with `ahead`, because no capture recorded one, so the value is `false`.
+- **`wait` polls.** It no longer runs `gh pr checks --watch`, so `watcher_rc` is gone. A `wait`
+  that read past its entry adds `waited`, `reads_ok`, `read_failures`, and `read_error` at the
+  end, as `settle` does. In `wait_answers_passed_from_a_green_rollup` and the four
+  `wait_answers_failed_*`, `wait_keeps_*` and `wait_walks_*` cases, these are `0`, `1`, `0` and
+  `""`. The four pending cases now poll every 30 seconds until the bound, and the last sleep
+  stops at the bound. So `waited` is the bound: 1 in `wait_reports_pending_when_its_bound_is_hit`,
+  5 in `wait_reports_the_rollup_once_the_watcher_returns`, and 540 in
+  `wait_clamps_the_bound_to_the_maximum` and `wait_says_a_bound_override_was_ignored`. `reads_ok`
+  is 2, 2, 19 and 19, and each `detail` names the same `waited`. The case names keep the Python's
+  words.
 
 One sentence deliberately did NOT change, though it names a script that is now a command:
 `settle`'s `there is nothing to settle, and this script never enables it`. This sentence sits

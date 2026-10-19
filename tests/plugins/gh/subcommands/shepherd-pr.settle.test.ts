@@ -9,6 +9,7 @@ import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
 import {
+  AHEAD,
   CAPTURE,
   capture,
   closedPipe,
@@ -338,7 +339,10 @@ it('lets a reader that left stop the report, never the rebase', async () => {
 it('says nothing when no override was given', async () => {
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'state'],
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }),
+    gh: createGhServer({
+      prs: [depPr(1)],
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+    }),
   }))
 
   expect(result.stderr).toBe('')
@@ -348,7 +352,10 @@ it('reads an override set to nothing as an override nobody set', async () => {
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'state'],
     env: { ...sandbox.env, SHEPHERD_LOG_LINES: '' },
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }),
+    gh: createGhServer({
+      prs: [depPr(1)],
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+    }),
   }))
 
   expect(result.stderr).toBe('')
@@ -358,7 +365,10 @@ it('refuses a log line count of zero, which would keep no log at all', async () 
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'state'],
     env: { ...sandbox.env, SHEPHERD_LOG_LINES: '0' },
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }),
+    gh: createGhServer({
+      prs: [depPr(1)],
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+    }),
   }))
 
   expect(result.stderr).toBe('SHEPHERD_LOG_LINES=0 ignored; using 60\n')
@@ -371,7 +381,10 @@ it('accepts a CI estimate of zero, which is a number even though it is not posit
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'state'],
     env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '0' },
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }),
+    gh: createGhServer({
+      prs: [depPr(1)],
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+    }),
   }))
 
   expect(result.stderr).toBe('')

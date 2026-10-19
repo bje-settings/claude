@@ -8,10 +8,10 @@
 // stderr, and exit status against what the Python printed, byte for byte.
 // Only the divergences in `fixtures/README-shepherd.md` differ.
 //
-// The examples after the parity block cover three cases that one captured run
-// cannot show. The first is an answer that changes between two polls. The
-// second is a watcher that fails for its own reason. The third is a failure
-// that is not a refusal by gh.
+// The examples after the parity block cover cases that one captured run
+// cannot show. One is an answer that changes between two polls: the rollup,
+// or the compare of the base and the head (#460). Another is a failure that
+// is not a refusal by gh.
 //
 // **No test waits.** The clock and the sleep are arguments. `fakeTime`
 // advances the clock by the exact amount each sleep requests. A 90 second
@@ -29,7 +29,7 @@ import { expect } from 'vitest'
 import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
 import type { ShepherdContext } from '#gh/shepherd.ts'
 import { HELP, runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
-import { type GhClient, ghFails, type WatchResult } from '#harness/gh.ts'
+import { type GhClient, type GhResults, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhServerOptions, type PullRequestRow } from '#harness/pulls.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
@@ -97,17 +97,47 @@ export const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { n
 /** What `gh pr update-branch` prints when GitHub accepted the request. */
 export const UPDATED = '✓ Pull request #1 branch has been updated\n'
 
-/** A watch that answered at once because the rollup was already pending, which
- *  is `gh pr checks` exit 8. */
-export const WATCH_PENDING: WatchResult = { status: 8, timedOut: false, waitedMs: 0, problem: '' }
+/** A compare with this status, as `compareCommits` answers it. */
+export const compared = (
+  status: 'ahead' | 'behind' | 'diverged' | 'identical',
+): GhResults['compareCommits'] => ({
+  comparison: { status, files: [], filesAtLimit: false },
+  unavailable: null,
+})
 
-/** A watch this command's own bound killed has no status of its own.
- *  `timedOut` is the only field that says what happened. */
-export const WATCH_BOUND: WatchResult = {
-  status: null,
-  timedOut: true,
-  waitedMs: 1000,
-  problem: '',
+/** A head that holds the tip of its base. Each replay answers the compare
+ *  with this, so the captured pull requests read `behind: false`. */
+export const AHEAD = compared('ahead')
+
+/** A compare GitHub would not answer. `compareCommits` never throws. */
+export const UNAVAILABLE: GhResults['compareCommits'] = {
+  comparison: null,
+  unavailable: 'gh api compare failed: HTTP 502',
+}
+
+/**
+ * `gh`, with the compare answered from `replies` in order. The last reply
+ * repeats.
+ *
+ * `createGhServer` takes a sequence only for the endpoints it routes, and
+ * the compare is not one of them. So this wraps the server, as
+ * {@link recording} does. The poll in `wait` needs a base that moves
+ * between two reads.
+ */
+export const comparing = (
+  options: GhServerOptions,
+  replies: readonly GhResults['compareCommits'][],
+): GhClient => {
+  const server = createGhServer(options)
+  let taken = 0
+  return {
+    ...server,
+    compareCommits: async () => {
+      const reply = replies[Math.min(taken, replies.length - 1)] as GhResults['compareCommits']
+      taken += 1
+      return reply
+    },
+  }
 }
 
 /** A clock that moves only when something sleeps. A bound then arrives
@@ -306,10 +336,6 @@ export const ARRANGEMENTS: Record<string, GhServerOptions> = {
       ),
     },
   },
-  wait_reports_pending_when_its_bound_is_hit: { replies: { watchChecks: WATCH_BOUND } },
-  wait_clamps_the_bound_to_the_maximum: { replies: { watchChecks: WATCH_PENDING } },
-  wait_reports_the_rollup_once_the_watcher_returns: { replies: { watchChecks: WATCH_PENDING } },
-  wait_says_a_bound_override_was_ignored: { replies: { watchChecks: WATCH_PENDING } },
   wait_answers_failed_and_carries_the_log_tail: {
     replies: { readFailedRunLog: 'line 1\nline 2\nline 3\n' },
   },
@@ -401,7 +427,13 @@ export const replay = async (name: string): Promise<void> => {
       ...ARRANGEMENTS[name],
       // Merged rather than replaced: an arrangement that registers one reply
       // must not unregister the one every case needs.
-      replies: { viewRepository: REPOSITORY, ...ARRANGEMENTS[name]?.replies },
+      // The compare is #460's, so no capture registers it. Every captured
+      // head holds the tip of its base.
+      replies: {
+        viewRepository: REPOSITORY,
+        compareCommits: AHEAD,
+        ...ARRANGEMENTS[name]?.replies,
+      },
     }),
   }))
 

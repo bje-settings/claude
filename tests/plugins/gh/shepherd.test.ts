@@ -50,6 +50,7 @@ const statusContext = (state: string, context = 'ci/legacy') => ({
 const readable = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   state: 'OPEN',
   headRefOid: 'sha1',
+  baseRefName: 'main',
   statusCheckRollup: [],
   reviewDecision: '',
   labels: [],
@@ -257,15 +258,18 @@ describe('missingField', () => {
     expect(missingField(null)).toBe('a pull request object')
   })
 
-  it.each(['state', 'headRefOid'])('names %s when gh did not answer with it', (name) => {
-    const pull = readable()
-    delete pull[name]
+  it.each(['state', 'headRefOid', 'baseRefName'])(
+    'names %s when gh did not answer with it',
+    (name) => {
+      const pull = readable()
+      delete pull[name]
 
-    expect(missingField(pull)).toBe(name)
-    expect(missingField(readable({ [name]: null }))).toBe(name)
-    // Truthiness, not a null check: an empty SHA means gh answered nothing.
-    expect(missingField(readable({ [name]: '' }))).toBe(name)
-  })
+      expect(missingField(pull)).toBe(name)
+      expect(missingField(readable({ [name]: null }))).toBe(name)
+      // Truthiness, not a null check: an empty SHA means gh answered nothing.
+      expect(missingField(readable({ [name]: '' }))).toBe(name)
+    },
+  )
 
   it('names the rollup key when it is absent, but not when it is null', () => {
     // Absent, not empty: an empty rollup is a real answer about a new head.
