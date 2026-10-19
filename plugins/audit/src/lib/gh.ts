@@ -721,9 +721,9 @@ export interface GhClient {
    */
   requiredContexts(query: { readonly branch: string }): Promise<GhResults['requiredContexts']>
   /**
-   * The reviews every ruleset that applies to `branch` requires: the
-   * highest approval count, and whether any rule asks for a code owner,
-   * for resolved review threads, or for an approval of the last push.
+   * The reviews that the rulesets of `branch` require. This is the highest
+   * approval count. It also says whether any rule asks for a code owner, for
+   * resolved review threads, or for an approval of the last push.
    *
    * This reads the same endpoint as {@link GhClient.requiredContexts}, and
    * a plan-limit answer is "no rule" here too. It is a second method, not a

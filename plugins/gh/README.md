@@ -144,12 +144,13 @@ same run is refused.
 The review rules of the base can leave a pull request out too (#465). `shepherd-status` reads the
 `pull_request` rules of each base once. A pull request is not ready when its base requires an
 approval that it does not have. It is also not ready when its base requires resolved review
-threads and a thread is open. The rules require an approval with a count above 0, a code owner
-review, or an approval of the last push. A `reviewDecision` can require one too. Such a pull request goes to `not_ready`, with its
-reasons: "needs an approval", "has unresolved review threads". The report names it, so the person
-knows it needs a review. A repository whose rules require no review is shepherded as before. A
-read of the rules or the threads that fails leaves nothing out. Then stderr says why, and the
-verdict rests on `reviewDecision`. `--all` makes every auto-merge pull request a target again.
+threads and a thread is open. A rule requires an approval by a count above 0, a code owner
+review, or the last push. A `reviewDecision` can require one too. Such a pull request goes to
+`not_ready`, with its reasons: "needs an approval", "has unresolved review threads". The report
+names it, so the person knows it needs a review. A repository whose rules require no review is
+shepherded as before. A read of the rules or the threads that fails leaves nothing out, and
+stderr says why. When the rules fail, the approval rests on `reviewDecision`. `--all` makes every
+auto-merge pull request a target again.
 
 Order is gh-security's `merge-risk:<band>` label first (low, then unlabelled, then medium, then
 high), oldest first within a band.
