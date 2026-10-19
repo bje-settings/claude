@@ -28,7 +28,7 @@ import { expect, it } from 'vitest'
 import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
 import type { ShepherdContext } from '#gh/shepherd.ts'
 import { HELP, runShepherdStatus } from '#gh/subcommands/shepherd-status.ts'
-import { type GhClient, ghFails } from '#harness/gh.ts'
+import { type GhClient, type GhResults, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhServerOptions, type PullRequestRow } from '#harness/pulls.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
@@ -62,6 +62,12 @@ const divergence = (id: string): { was: string; now: string; prefix?: string; ca
   const row = DIVERGENCES.sentences.find((entry) => entry.id === id)
   if (row === undefined) throw new Error(`no divergence recorded as ${id}`)
   return row
+}
+
+/** Rules with no `pull_request` entry, as `requiredReviews` answers them. */
+const NO_RULE = {
+  reviews: { approvals: 0, codeOwner: false, threadResolution: false, lastPush: false },
+  unavailable: null,
 }
 
 /** What `gh repo view` answered with in the capture. */
@@ -293,9 +299,11 @@ const replay = async (name: string): Promise<void> => {
       // These are the defaults the stub uses when a case turns nothing on.
       // The merge keeps them; it does not replace them. An arrangement that
       // registers one reply must not remove the two every case needs.
+      // No capture recorded a review rule (#465), so each base has none.
       replies: {
         viewRepository: REPOSITORY,
         listRuns: [],
+        requiredReviews: NO_RULE,
         ...ARRANGEMENTS[name]?.replies,
       },
     }),
@@ -357,7 +365,7 @@ it('takes the working directory as the target when none is given', async () => {
       argv: [],
       gh: createGhServer({
         prs: [depPr(1)],
-        replies: { viewRepository: REPOSITORY, listRuns: [] },
+        replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
       }),
     }
   })
@@ -375,7 +383,7 @@ it('asks for every open pull request, with the window it reads, when no label is
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
-    replies: { viewRepository: REPOSITORY, listRuns: [] },
+    replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
   })
 
   let target = ''
@@ -403,7 +411,7 @@ it('passes the one label given through to the query', async () => {
   const queries: unknown[] = []
   const server = createGhServer({
     prs: [],
-    replies: { viewRepository: REPOSITORY, listRuns: [] },
+    replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
   })
 
   const result = await drive((_sandbox, repo) => ({
@@ -424,7 +432,10 @@ it('passes the one label given through to the query', async () => {
 it('refuses a third argument, naming one label per run', async () => {
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, 'dependencies', 'enhancement'],
-    gh: createGhServer({ prs: [], replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+    gh: createGhServer({
+      prs: [],
+      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+    }),
   }))
 
   expect(result.status).toBe(2)
@@ -458,7 +469,7 @@ it('exits 1 when the open window saturates, and names the fix', async () => {
     argv: [],
     gh: createGhServer({
       prs: openPrs,
-      replies: { viewRepository: REPOSITORY, listRuns: [] },
+      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
     }),
   }))
 
@@ -475,7 +486,7 @@ it('does not saturate one below the limit', async () => {
     argv: [],
     gh: createGhServer({
       prs: openPrs,
-      replies: { viewRepository: REPOSITORY, listRuns: [] },
+      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
     }),
   }))
 
@@ -681,10 +692,235 @@ it('lets a reader that left stop the report, and nothing else', async () => {
   // finishes that later work. It costs one extra writer.
   const result = await drive(() => ({
     argv: [],
-    gh: createGhServer({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+    gh: createGhServer({
+      prs: [depPr(1)],
+      replies: { viewRepository: REPOSITORY, listRuns: [], requiredReviews: NO_RULE },
+    }),
     reader: closedPipe,
   }))
 
   expect(result.status).toBe(0)
   expect(result.stderr).toBe('')
+})
+
+// --- the review rules and --all (#465) --------------------------------------------------
+
+/** The review rules of one base, as `requiredReviews` answers them. */
+const rules = (
+  approvals: number,
+  flags: { threadResolution?: boolean; lastPush?: boolean } = {},
+): GhResults['requiredReviews'] => ({
+  reviews: { approvals, codeOwner: false, threadResolution: false, lastPush: false, ...flags },
+  unavailable: null,
+})
+
+/** A pull request read with this many unresolved review threads. */
+const detail = (unresolved: number): GhResults['viewPullRequestDetail'] => ({
+  pullRequest: {
+    number: 1,
+    title: 'build(deps): bump dep-1',
+    state: 'OPEN',
+    draft: false,
+    base: 'main',
+    head: 'dep-1',
+    headSha: 'sha1',
+    mergeable: 'MERGEABLE',
+    checks: [],
+    unresolvedThreads: Array.from({ length: unresolved }, () => ({
+      author: 'octocat',
+      bot: false,
+    })),
+    commentAuthors: [],
+  },
+  unavailable: null,
+  missing: false,
+})
+
+/** A run of `shepherd-status` with these arguments, over these pull
+ *  requests, with `extra` as the endpoints that #465 added. */
+const statusOf = (argv: readonly string[], prs: PullRequestRow[], extra: Partial<GhClient>) =>
+  drive((_sandbox, repo) => ({
+    argv: [repo, ...argv],
+    gh: {
+      ...createGhServer({ prs, replies: { viewRepository: REPOSITORY, listRuns: [] } }),
+      ...extra,
+    },
+  }))
+
+const numbers = (rows: { number: number }[]): number[] => rows.map((row) => row.number)
+
+it('leaves out a pull request with no review when its base requires one', async () => {
+  // Rule 15 (a) on #465.
+  const result = await statusOf(['dependencies'], [depPr(1)], {
+    requiredReviews: async () => rules(1),
+  })
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(document.targets).toEqual([])
+  expect(document.not_ready).toEqual([
+    {
+      number: 1,
+      title: 'build(deps): bump dep-1',
+      author: 'app/dependabot',
+      reasons: ['needs an approval'],
+    },
+  ])
+})
+
+it('makes the same pull request a target with --all, in any position, beside a label', async () => {
+  // Rule 15 (b) and (i) on #465.
+  for (const argv of [
+    ['--all', 'dependencies'],
+    ['dependencies', '--all'],
+  ]) {
+    const queries: unknown[] = []
+    const server = createGhServer({
+      prs: [depPr(1)],
+      replies: { viewRepository: REPOSITORY, listRuns: [] },
+    })
+    const result = await drive((_sandbox, repo) => ({
+      argv: [repo, ...argv],
+      gh: {
+        ...server,
+        requiredReviews: async () => rules(1),
+        listPullRequests: async (query) => {
+          queries.push(query)
+          return server.listPullRequests(query)
+        },
+      },
+    }))
+
+    const document = JSON.parse(result.stdout)
+    expect(numbers(document.targets)).toEqual([1])
+    expect(document.targets[0].approval).toBe('missing')
+    expect(document.not_ready).toEqual([])
+    expect(queries).toEqual([{ state: 'open', label: 'dependencies', limit: 500 }])
+  }
+})
+
+it('makes an approved pull request a target, with today’s output', async () => {
+  // Rule 15 (c) on #465: one APPROVED review against a count of 1.
+  const approved = {
+    ...depPr(1),
+    reviews: [{ author: { login: 'octocat' }, state: 'APPROVED', commit: { oid: 'sha1' } }],
+  }
+  const result = await statusOf([], [approved], { requiredReviews: async () => rules(1) })
+
+  const document = JSON.parse(result.stdout)
+  expect(numbers(document.targets)).toEqual([1])
+  expect(document.targets[0].approval).toBe('met')
+})
+
+it('refuses a second label beside --all, and any other flag', async () => {
+  const label = await drive((_sandbox, repo) => ({
+    argv: [repo, 'dependencies', '--all', 'enhancement'],
+  }))
+  expect(label.status).toBe(2)
+  expect(label.stderr).toBe('one label per run\n')
+
+  const flag = await drive((_sandbox, repo) => ({ argv: [repo, '--dry-run'] }))
+  expect(flag.status).toBe(2)
+  expect(flag.stdout).toBe('')
+  expect(flag.stderr).toBe('unknown flag: --dry-run\n')
+})
+
+it('reads the rules of each base, and judges each pull request by its own', async () => {
+  // Rule 15 (h) on #465: the answer differs by branch, so a pull request
+  // judged by the rules of the other base would land on the other side.
+  const prs = [depPr(1), { ...depPr(2), baseRefName: 'release' }]
+  const result = await statusOf([], prs, {
+    requiredReviews: async ({ branch }) => (branch === 'main' ? rules(1) : rules(0)),
+  })
+
+  const document = JSON.parse(result.stdout)
+  expect(numbers(document.targets)).toEqual([2])
+  expect(numbers(document.not_ready)).toEqual([1])
+  expect(document.targets[0].approval).toBe('not_required')
+})
+
+it('falls back to reviewDecision when the rules cannot be read, and names the branch', async () => {
+  // Rule 15 (g) on #465 and ruling 5.
+  const result = await statusOf([], [depPr(1), depPr(2, { review: 'REVIEW_REQUIRED' })], {
+    requiredReviews: async () => ({ reviews: null, unavailable: 'gh: HTTP 502' }),
+  })
+
+  expect(result.status).toBe(0)
+  const document = JSON.parse(result.stdout)
+  expect(numbers(document.targets)).toEqual([1])
+  expect(document.targets[0].approval).toBeNull()
+  expect(numbers(document.not_ready)).toEqual([2])
+  expect(result.stderr).toBe(
+    'the review rules of main are unavailable: gh: HTTP 502; approval rests on reviewDecision\n',
+  )
+})
+
+it('leaves out a pull request with unresolved threads when its base asks', async () => {
+  const approved = {
+    ...depPr(1),
+    reviews: [{ author: { login: 'octocat' }, state: 'APPROVED', commit: { oid: 'sha1' } }],
+  }
+  const result = await statusOf([], [approved], {
+    requiredReviews: async () => rules(1, { threadResolution: true }),
+    viewPullRequestDetail: async () => detail(5),
+  })
+
+  const document = JSON.parse(result.stdout)
+  expect(document.targets).toEqual([])
+  expect(document.not_ready[0].reasons).toEqual(['has unresolved review threads'])
+})
+
+it('names both reasons for a pull request with no approval and open threads', async () => {
+  const result = await statusOf([], [depPr(1)], {
+    requiredReviews: async () => rules(1, { threadResolution: true }),
+    viewPullRequestDetail: async () => detail(1),
+  })
+
+  expect(JSON.parse(result.stdout).not_ready[0].reasons).toEqual([
+    'needs an approval',
+    'has unresolved review threads',
+  ])
+})
+
+it('keeps a pull request whose threads cannot be read, and says why', async () => {
+  const result = await statusOf([], [depPr(1)], {
+    requiredReviews: async () => rules(0, { threadResolution: true }),
+    viewPullRequestDetail: async () => ({
+      pullRequest: null,
+      unavailable: 'gh: HTTP 502',
+      missing: false,
+    }),
+  })
+
+  const document = JSON.parse(result.stdout)
+  expect(numbers(document.targets)).toEqual([1])
+  expect(document.targets[0].threads).toBeNull()
+  expect(result.stderr).toBe(
+    'the review threads of #1 are unavailable: gh: HTTP 502; threads is null\n',
+  )
+})
+
+it('reads a short thread page with no unresolved thread as unread', async () => {
+  // More threads can be past the page, so zero is not proof.
+  const result = await statusOf([], [depPr(1)], {
+    requiredReviews: async () => rules(0, { threadResolution: true }),
+    viewPullRequestDetail: async () => ({ ...detail(0), unavailable: 'more review threads' }),
+  })
+
+  expect(JSON.parse(result.stdout).targets[0].threads).toBeNull()
+  expect(result.stderr).toContain('the review threads of #1 are unavailable')
+})
+
+it('reads resolved threads as resolved, and asks for no threads when the rule does not', async () => {
+  const resolved = await statusOf([], [depPr(1)], {
+    requiredReviews: async () => rules(0, { threadResolution: true }),
+    viewPullRequestDetail: async () => detail(0),
+  })
+  expect(JSON.parse(resolved.stdout).targets[0].threads).toBe('resolved')
+
+  // No `viewPullRequestDetail` is registered, so a read here would throw
+  // and exit 3.
+  const unasked = await statusOf([], [depPr(1)], { requiredReviews: async () => rules(0) })
+  expect(unasked.status).toBe(0)
+  expect(JSON.parse(unasked.stdout).targets[0].threads).toBe('not_required')
 })

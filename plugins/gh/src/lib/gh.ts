@@ -402,12 +402,16 @@ export interface CommitComparison {
 }
 
 /** What the branch rules ask of reviews before a pull request can merge. No
- *  `pull_request` rule is `{ approvals: 0, codeOwner: false }`. */
+ *  `pull_request` rule is 0 and three false values. */
 export interface RequiredReviews {
   /** The highest `required_approving_review_count` across the rules. */
   readonly approvals: number
   /** True when any rule sets `require_code_owner_review`. */
   readonly codeOwner: boolean
+  /** True when any rule sets `required_review_thread_resolution`. */
+  readonly threadResolution: boolean
+  /** True when any rule sets `require_last_push_approval`. */
+  readonly lastPush: boolean
 }
 
 /** One commit status on a commit of a pull request, as
@@ -718,7 +722,8 @@ export interface GhClient {
   requiredContexts(query: { readonly branch: string }): Promise<GhResults['requiredContexts']>
   /**
    * The reviews every ruleset that applies to `branch` requires: the
-   * highest approval count, and whether any rule asks for a code owner.
+   * highest approval count, and whether any rule asks for a code owner,
+   * for resolved review threads, or for an approval of the last push.
    *
    * This reads the same endpoint as {@link GhClient.requiredContexts}, and
    * a plan-limit answer is "no rule" here too. It is a second method, not a
@@ -971,8 +976,10 @@ export interface GhClientOptions {
  * `PULL_REQUEST_FIELDS` matches `plugins/gh/scripts/lib/shepherd.py`'s
  * `PR_FIELDS`: `gh-shepherd-pr.py`'s `read_pr` and `gh-shepherd-status.py`'s
  * pull-request query both ask for exactly this list, plus `baseRefName` and
- * `latestReviews`. `shepherd-pr` compares the head with that base (#460).
- * The shepherd counts the approvals in `latestReviews` (#465).
+ * `reviews`. `shepherd-pr` compares the head with that base (#460). The
+ * shepherd counts the approvals in `reviews` (#465). It is not
+ * `latestReviews`: gh answers that field with an empty `commit.oid` on
+ * every review (read on 2026-10-19), and a last-push rule needs the commit.
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
  * request's head by its number (#450). Its merge commit proves that the
@@ -985,7 +992,7 @@ export interface GhClientOptions {
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
   'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-  'latestReviews'
+  'reviews'
 const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
@@ -1979,30 +1986,44 @@ const requiredContextsOf = (rules: readonly unknown[]): string[] | null => {
   return contexts
 }
 
+/** What {@link requiredReviewsOf} answers for rules with no `pull_request`
+ *  entry, and the plan limit. */
+const NO_REVIEW_RULE: RequiredReviews = {
+  approvals: 0,
+  codeOwner: false,
+  threadResolution: false,
+  lastPush: false,
+}
+
 /**
  * The reviews the branch rules require, or null when a `pull_request` rule
  * is not the shape the endpoint promises.
  *
  * Two rulesets can each carry a `pull_request` rule. GitHub enforces all of
- * them, so the highest count and any code owner flag win. A rule that
+ * them, so the highest count and any flag that is true win. A rule that
  * cannot be read costs the whole read, on {@link requiredContextsOf}'
  * grounds: a count dropped in silence is a requirement a caller reads as
  * absent.
  */
 const requiredReviewsOf = (rules: readonly unknown[]): RequiredReviews | null => {
-  let approvals = 0
-  let codeOwner = false
+  const found = { approvals: 0, codeOwner: false, threadResolution: false, lastPush: false }
   for (const entry of rules) {
     const rule = asRecord(entry)
     if (rule?.type !== 'pull_request') continue
     const parameters = asRecord(rule.parameters)
     const count = parameters?.required_approving_review_count
     const owner = parameters?.require_code_owner_review
-    if (!Number.isInteger(count) || typeof owner !== 'boolean') return null
-    approvals = Math.max(approvals, count as number)
-    codeOwner = codeOwner || owner
+    const threads = parameters?.required_review_thread_resolution
+    const lastPush = parameters?.require_last_push_approval
+    if (!Number.isInteger(count)) return null
+    if (typeof owner !== 'boolean' || typeof threads !== 'boolean') return null
+    if (typeof lastPush !== 'boolean') return null
+    found.approvals = Math.max(found.approvals, count as number)
+    found.codeOwner ||= owner
+    found.threadResolution ||= threads
+    found.lastPush ||= lastPush
   }
-  return { approvals, codeOwner }
+  return found
 }
 
 /** Every value {@link CompareStatus} can hold, for {@link ISSUE_STATES}'
@@ -2885,7 +2906,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const answer = await restJson(`rules/branches/${encodeURIComponent(query.branch)}`)
       if (answer.unavailable !== null) return { reviews: null, unavailable: answer.unavailable }
       if (isPlanLimit(answer.value)) {
-        return { reviews: { approvals: 0, codeOwner: false }, unavailable: null }
+        return { reviews: NO_REVIEW_RULE, unavailable: null }
       }
       if (!Array.isArray(answer.value)) {
         return {

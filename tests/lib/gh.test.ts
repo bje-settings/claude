@@ -119,7 +119,7 @@ describe('argv', () => {
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
         'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-        'latestReviews',
+        'reviews',
     ])
   })
 
@@ -145,7 +145,7 @@ describe('argv', () => {
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
         'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-        'latestReviews',
+        'reviews',
     ])
   })
 
@@ -228,7 +228,7 @@ describe('argv', () => {
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
         'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-        'latestReviews',
+        'reviews',
     ])
   })
 
@@ -358,7 +358,7 @@ describe('argv', () => {
     await log.gh.watchChecks({ pullRequest: 7, boundMs: 1_000 })
 
     const fields =
-      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,latestReviews'
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,reviews'
     expect(rows.calls.map((call) => call.args)).toEqual([
       ['pr', 'list', '--repo', 'acme/widgets', '--json', fields],
       [
@@ -2230,14 +2230,19 @@ describe('the review loop reads', () => {
   describe('requiredReviews', () => {
     /** A `pull_request` rule as the endpoint answers it. The other keys are
      *  from a real read of this repository's `main` on 2026-10-19. */
-    const pullRule = (approvals: unknown, codeOwner: unknown) => ({
+    const pullRule = (
+      approvals: unknown,
+      codeOwner: unknown,
+      threads: unknown = false,
+      lastPush: unknown = false,
+    ) => ({
       type: 'pull_request',
       parameters: {
         required_approving_review_count: approvals,
         dismiss_stale_reviews_on_push: false,
         require_code_owner_review: codeOwner,
-        require_last_push_approval: false,
-        required_review_thread_resolution: false,
+        require_last_push_approval: lastPush,
+        required_review_thread_resolution: threads,
       },
       ruleset_source_type: 'Enterprise',
       ruleset_source: 'bje',
@@ -2271,20 +2276,22 @@ describe('the review loop reads', () => {
       ])
 
       await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
-        reviews: { approvals: 0, codeOwner: false },
+        reviews: { approvals: 0, codeOwner: false, threadResolution: false, lastPush: false },
         unavailable: null,
       })
     })
 
-    it('takes the highest count and any code owner flag across two rules', async () => {
+    it('takes the highest count and any flag that is true across two rules', async () => {
       // GitHub enforces every ruleset that applies, so the strictest wins.
       const { gh } = clientAnsweringEach([
         REPO,
-        { stdout: JSON.stringify([pullRule(2, false), pullRule(1, true)]) },
+        {
+          stdout: JSON.stringify([pullRule(2, false, true, false), pullRule(1, true, false, true)]),
+        },
       ])
 
       await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
-        reviews: { approvals: 2, codeOwner: true },
+        reviews: { approvals: 2, codeOwner: true, threadResolution: true, lastPush: true },
         unavailable: null,
       })
     })
@@ -2296,7 +2303,7 @@ describe('the review loop reads', () => {
       ])
 
       await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
-        reviews: { approvals: 0, codeOwner: false },
+        reviews: { approvals: 0, codeOwner: false, threadResolution: false, lastPush: false },
         unavailable: null,
       })
     })
@@ -2315,7 +2322,7 @@ describe('the review loop reads', () => {
       ])
 
       await expect(gh.requiredReviews({ branch: 'main' })).resolves.toEqual({
-        reviews: { approvals: 0, codeOwner: false },
+        reviews: { approvals: 0, codeOwner: false, threadResolution: false, lastPush: false },
         unavailable: null,
       })
     })
@@ -2347,6 +2354,8 @@ describe('the review loop reads', () => {
     for (const [what, rule] of [
       ['a count that is not an integer', pullRule('1', false)],
       ['a code owner flag that is not a boolean', pullRule(1, 'true')],
+      ['a thread flag that is not a boolean', pullRule(1, false, null)],
+      ['a last-push flag that is not a boolean', pullRule(1, false, false, 1)],
       ['no parameters', { type: 'pull_request' }],
     ] as const) {
       it(`refuses the whole read for a rule with ${what}, never a lower count`, async () => {

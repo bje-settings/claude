@@ -14,16 +14,20 @@
 // its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from
 // the tree. The file and line references below point at what they held at
 // `cd0d515`. Each reference stays because it says where a rule came from.
-import { GhError } from '../lib/gh.ts'
+import { GhError, type RequiredReviews } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import {
+  autoMergeBases,
   ciSeconds,
   directoryRefusal,
   isTruthy,
   oneLine,
+  readReviewRules,
+  readUnresolvedThreads,
   type ShepherdContext,
   type ShepherdExit,
   statusDocument,
+  threadReads,
 } from '../shepherd.ts'
 
 /** How far back the CI-duration sample reaches. Twenty runs cover a few
@@ -38,7 +42,7 @@ const PR_LIMIT = 500
 export const HELP = `What /gh:shepherd would work on in one repository.
 
 Usage:
-  gh.ts shepherd-status [path] [label]
+  gh.ts shepherd-status [path] [label] [--all]
 
 Prints one JSON document and changes nothing:
 
@@ -49,7 +53,19 @@ Prints one JSON document and changes nothing:
   targets          open, non-draft pull requests that a human has already
                    marked for auto-merge, in the order the loop should take
                    them. A label narrows this list to pull requests that
-                   carry it
+                   carry it. Without --all, a pull request that is not
+                   ready by the review rules of its base is left out
+  not_ready        the pull requests left out, as {number, title, author,
+                   reasons}. Each reason is "needs an approval" or "has
+                   unresolved review threads". Empty with --all
+
+Each target carries \`approval\` (met, missing, not_required, or null) and
+\`threads\` (resolved, unresolved, not_required, or null). The pull_request
+rules of each base decide what is required: an approval count above 0, a
+code owner review, an approval of the last push, or resolved review
+threads. A reviewDecision can require an approval too. A read that fails is
+null, and stderr names the branch or the pull request. Then the verdict
+rests on reviewDecision alone, and the read leaves nothing out.
 
 Ordering: gh-security's merge-risk:<band> label first (low, then unlabelled,
 then medium, then high), oldest first within a band. Each target carries the
@@ -57,10 +73,10 @@ fields the loop needs to pick its next step, plus a \`checks\` summary reduced
 from statusCheckRollup so the caller does not have to know both the CheckRun
 and StatusContext shapes.
 
-Exits 2 on a usage error (a bad path, or more than one label), 1 when gh
-cannot answer for the repository or the open window is full, and 3 on an
-internal error, which is outside the documented set so a caller cannot
-mistake it for an answer.`
+Exits 2 on a usage error (a bad path, more than one label, or a flag other
+than --all), 1 when gh cannot answer for the repository or the open window
+is full, and 3 on an internal error, which is outside the documented set so
+a caller cannot mistake it for an answer.`
 
 /**
  * What a `gh` failure says, and whether gh itself was missing.
@@ -121,8 +137,14 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
       return 0
     }
   }
-  if (argv.length > 2) return refuse('one label per run', 2)
-  const [first, second] = argv
+  // `--all` is read in any position too. Any other word that starts with a
+  // dash is a flag this command does not know, not a path or a label.
+  const all = argv.includes('--all')
+  const words = argv.filter((arg) => arg !== '--all')
+  const flag = words.find((arg) => arg.startsWith('-'))
+  if (flag !== undefined) return refuse(`unknown flag: ${flag}`, 2)
+  if (words.length > 2) return refuse('one label per run', 2)
+  const [first, second] = words
 
   // The path as typed, or the caller's own directory. An empty argument is
   // a path, not an absent one. This is what `argv[0] if argv else` says.
@@ -190,7 +212,25 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     if (!(error instanceof GhError)) throw error
   }
 
-  const document = statusDocument(pulls, resolved.repo, resolved.branch, ciSeconds(runs))
+  // One read of the review rules for each base, then one read of the
+  // threads for each pull request whose base asks for resolved threads
+  // (#465). A read that fails is not a failure of the command. Its pull
+  // requests fall back to `reviewDecision`, so a failed read never empties
+  // the queue.
+  const rules = new Map<string, RequiredReviews | null>()
+  for (const base of autoMergeBases(pulls)) {
+    rules.set(base, await readReviewRules(gh, base, output.err))
+  }
+  const threads = new Map<number, number | null>()
+  for (const number of threadReads(pulls, rules)) {
+    threads.set(number, await readUnresolvedThreads(gh, number, output.err))
+  }
+
+  const document = statusDocument(pulls, resolved.repo, resolved.branch, ciSeconds(runs), {
+    rules,
+    threads,
+    all,
+  })
   // `indent=2, ensure_ascii=False`: two spaces, and every character as
   // itself. This is what `JSON.stringify(value, null, 2)` writes.
   output.out.write(`${JSON.stringify(document, null, 2)}\n`)

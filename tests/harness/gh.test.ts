@@ -125,7 +125,10 @@ it('answers every endpoint it declares', async () => {
       unavailable: null,
     },
     requiredContexts: { contexts: ['vitest', 'types'], unavailable: null },
-    requiredReviews: { reviews: { approvals: 1, codeOwner: false }, unavailable: null },
+    requiredReviews: {
+      reviews: { approvals: 1, codeOwner: false, threadResolution: true, lastPush: false },
+      unavailable: null,
+    },
     viewPullRequestDetail: {
       pullRequest: {
         number: 178,

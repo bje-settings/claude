@@ -513,16 +513,17 @@ silence is a pull request reported green that the ruleset would in fact refuse.
 
 ```ts
 const { reviews } = await gh.requiredReviews({ branch: 'main' })
-// reviews -> { approvals: 1, codeOwner: true }, or null with `unavailable`
+// reviews -> { approvals: 1, codeOwner: true, threadResolution: true, lastPush: false }
 ```
 
 `requiredReviews` reads the same endpoint for the `pull_request` rules (#465). It answers the
-highest `required_approving_review_count`, and `codeOwner` true when any rule sets
-`require_code_owner_review`. No `pull_request` rule, and the plan-limit 403, are
-`{ approvals: 0, codeOwner: false }`. Every other refusal is null `reviews` with the same
-`unavailable` sentence as `requiredContexts`. One rule whose two fields are not an integer and a
-boolean costs the whole read. It is a second method, so the contract of `requiredContexts` and
-its caller `pr-state` does not change.
+highest `required_approving_review_count`. Each flag is true when any rule sets it:
+`require_code_owner_review`, `required_review_thread_resolution` and
+`require_last_push_approval`. No `pull_request` rule, and the plan-limit 403, are a count of 0
+with three false flags. Every other refusal is null `reviews`, with the same `unavailable`
+sentence as `requiredContexts`. One rule with a field of the wrong type costs the whole read. It
+is a second method, so the contract of `requiredContexts` and its caller `pr-state` does not
+change.
 
 `viewPullRequestDetail` makes one GraphQL round trip for the refs, the head commit and its check
 rollup, the unresolved review threads, and the comments. It is not `viewPullRequest`: that

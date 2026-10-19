@@ -176,7 +176,23 @@ goes through, because `--repo` is not a field of any request here: it is a const
 So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`,
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
 capture keeps the field because it is the Python's record. Apart from the #216 removals and the
-#460 additions above, nobody edits the captures.
+#460 additions above, and the #465 additions below, nobody edits the captures.
+
+## What #465 changed
+
+#465 adds output too, so it is one more exception to the rule. The edits change the `stdout` of
+a case. Nothing else in a case changed, and no case was added or removed. No capture recorded a
+review rule. So each replay answers `requiredReviews` with no `pull_request` rule.
+
+- **`approval` and `threads`** follow `baseRefName` in each pull request object, before
+  `behind`. In `shepherd-status-output.json`, each entry of `targets` reads `not_required` for
+  both. The `state_*` cases read the same. `rebase_*`, `wait_*` and `settle_*` do not read the
+  rules. So their `threads` is `null`, and their `approval` comes from `reviewDecision` alone:
+  `null` for `""`, `met` in `settle_keeps_waiting_on_an_approved_review`, and `missing` in
+  `settle_names_both_causes_when_both_are_blocking` and
+  `settle_reports_blocked_naming_the_review_decision`.
+- **`not_ready`** is the last key of each `shepherd-status` document. It is `[]` in every case,
+  because no rule requires a review.
 
 ## The capture script
 

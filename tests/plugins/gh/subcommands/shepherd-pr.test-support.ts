@@ -110,6 +110,12 @@ export const compared = (
  *  with this, so the captured pull requests read `behind: false`. */
 export const AHEAD = compared('ahead')
 
+/** Rules with no `pull_request` entry, as `requiredReviews` answers them. */
+export const NO_RULE: GhResults['requiredReviews'] = {
+  reviews: { approvals: 0, codeOwner: false, threadResolution: false, lastPush: false },
+  unavailable: null,
+}
+
 /** A compare GitHub would not answer. `compareCommits` never throws. */
 export const UNAVAILABLE: GhResults['compareCommits'] = {
   comparison: null,
@@ -433,10 +439,12 @@ export const replay = async (name: string): Promise<void> => {
       // Merged rather than replaced: an arrangement that registers one reply
       // must not unregister the one every case needs.
       // The compare is #460's, so no capture registers it. Every captured
-      // head holds the tip of its base.
+      // head holds the tip of its base. The review rules are #465's: no
+      // capture recorded a rule, so each base has none.
       replies: {
         viewRepository: REPOSITORY,
         compareCommits: AHEAD,
+        requiredReviews: NO_RULE,
         ...ARRANGEMENTS[name]?.replies,
       },
     }),
