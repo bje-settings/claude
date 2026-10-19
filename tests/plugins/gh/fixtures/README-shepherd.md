@@ -133,9 +133,9 @@ edits change the `stdout` of a case. Nothing else in a case changed, and no case
 removed.
 
 - **`baseRefName`** is the last key of each pull request object. `PULL_REQUEST_FIELDS` asks gh
-  for it, and `summary` carries it, because `shepherd-pr` compares the head with that base. So
-  each `pr` object in `shepherd-pr-output.json`, and each entry of `targets` in
-  `shepherd-status-output.json`, ends with the `baseRefName` of its captured row (`main`).
+  for it, and `summary` carries it, because `shepherd-pr` compares the head with that base. Each
+  `pr` object in `shepherd-pr-output.json` ends with the `baseRefName` of its row (`main`). So
+  does each entry of `targets` in `shepherd-status-output.json`.
 - **`behind`** follows it, in each `pr` that `state` and `wait` report from an open pull request:
   `state_*` and `wait_*` cases whose `ok` is true and whose `result` is not `merged`. The replay
   answers the compare with `ahead`, because no capture recorded one, so the value is `false`.

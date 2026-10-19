@@ -136,7 +136,7 @@ it('goes to wait on each rebase result, and never rebases again on a failed read
   for (const result of ['moved', 'unmoved', 'up_to_date']) {
     expect(step).toContain(`- \`${result}\` → `)
   }
-  expect(step).toContain('Do not rebase again on it')
+  expect(step).toContain('Do not rebase again before that `wait`')
   expect(step).not.toContain('make sure')
 })
 

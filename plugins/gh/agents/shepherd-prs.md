@@ -80,7 +80,8 @@ number, in the order given:
      - `unmoved` → GitHub did not apply the update within the bound.
      - `up_to_date` → gh said the branch already holds its base, so the head did not move.
      `ok:true` with `after` empty means the update ran, but the last read did not. Go to `wait`,
-     which re-reads. Do not rebase again on it: that costs a second CI run for a read that failed.
+     which re-reads. Do not rebase again before that `wait`: that costs a second CI run for a
+     read that failed.
    - `DIRTY` (conflicts) → merge the base into the head branch (step 5), then `wait`. Do this
      for every author, Dependabot included.
    - `BLOCKED`, `UNSTABLE`, or checks `failed` → `wait`. It returns at once when the checks are
