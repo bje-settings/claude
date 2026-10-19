@@ -44,7 +44,7 @@ import type { Output } from './lib/streams.ts'
  * the eight `gh` calls these commands make name the repository with `--repo`
  * (`gh-shepherd-pr.py:399` and on), while the first call resolves the
  * repository from the checkout. `now` and `sleep` are here because
- * `wait` and `settle` each poll until a bound. A
+ * `rebase`, `wait` and `settle` each poll until a bound. A
  * test that passed a real timer would have to wait out a real bound
  * instead. The answer is an exit status, not an `Envelope<string>`, because
  * these commands have a fourth status: 3, an internal error. `lib/envelope.ts`

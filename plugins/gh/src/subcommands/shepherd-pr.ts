@@ -8,11 +8,11 @@
 // only does the step. It refuses a step whose preconditions do not hold.
 // A confused caller cannot make it act on the wrong pull request.
 //
-// **Time is an argument.** `wait` and `settle` each poll until their own
-// bound. The clock and the sleep come in through `ShepherdContext`. This
-// lets the tests drive every bound to its end, with no real wait. The bounds
-// themselves are the Python's numbers, unchanged (#106 measures the settle
-// bound and lands after this port).
+// **Time is an argument.** `rebase`, `wait` and `settle` each poll until
+// their own bound. The clock and the sleep come in through `ShepherdContext`.
+// This lets the tests drive every bound to its end, with no real wait. The
+// wait and settle bounds are the Python's numbers (#106 measures the settle
+// bound). The rebase bound and the wait interval are new at #460.
 //
 // The command function is the seam (ADR 001). Its inputs are the arguments,
 // the environment, an injected `gh`, the clock, the sleep, and the output
@@ -62,13 +62,14 @@ const WAIT_BOUND_MAX = 540
 
 /** How often `wait` reads the pull request and the compare, in seconds. Each
  *  read is three `gh` calls: the pull request, the repository and the
- *  compare. A 540 second bound is 19 reads, so at most 57 calls (#460). */
+ *  compare. A 540 second bound is 19 reads, so at most 57 calls. A failed
+ *  check adds one call for its log (#460). */
 const WAIT_POLL_DEFAULT = 30
 
 /** Compare statuses that say the head does not contain the tip of its base.
  *  `diverged` is in this list too: the base has commits that the head lacks.
- *  A green run on such a head cannot let auto-merge fire under a strict
- *  up-to-date rule, so `wait` does not wait it out (#460). */
+ *  Under a strict up-to-date rule, auto-merge cannot fire on such a head.
+ *  So `wait` does not wait for its checks (#460). */
 const BEHIND_STATUSES = ['behind', 'diverged']
 
 // How long `settle` continues to read, when GitHub reports nothing either
@@ -146,30 +147,32 @@ step, and refuses steps whose preconditions do not hold, so a confused caller
 cannot make it act on the wrong pull request.
 
   state     the pull request as \`summary\` shapes it (see src/shepherd.ts),
-            plus \`pr.behind\`: true when the compare of baseRefName and the
-            head is behind or diverged, false when it is ahead or identical,
-            null when the compare could not be read (stderr says why).
+            plus \`pr.behind\`. It is true when the compare of baseRefName
+            and the head is behind or diverged. It is false when the compare
+            is ahead or identical. It is null when the compare could not be
+            read (stderr says why).
   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
             open. Then reads the pull request every SHEPHERD_REBASE_POLL
             seconds until the head moves, or until SHEPHERD_REBASE_BOUND.
-            \`result\` is \`moved\`, \`unmoved\` (the bound passed with the
-            head unchanged: the update is still queued), or \`up_to_date\`
-            (gh said the branch already holds its base, so no poll). Reports
-            the head SHA before and after, with \`waited\`, \`reads_ok\`,
-            \`read_failures\` and \`read_error\`. The LAST read decides: when
-            it failed, the report is still \`ok: true\`, with \`after\` empty,
-            because the update itself ran.
+            The bound includes the time of each read. \`result\` is one of:
+            \`moved\`; \`unmoved\` (the update is still queued at the bound);
+            \`up_to_date\` (gh said the branch holds its base, so one read).
+            Reports the head SHA before and after, with \`waited\`,
+            \`reads_ok\`, \`read_failures\` and \`read_error\`. The LAST read
+            decides. When it failed, the report is still \`ok: true\`,
+            because the update ran. It then has \`after\` empty and no
+            \`result\`.
   wait      reads the pull request and the compare until it can answer, or
             until its bound (see below). A head that is behind returns
             \`behind\` at once, with no poll. Otherwise it reads again every
-            SHEPHERD_WAIT_POLL seconds. Result is one of merged, behind,
-            failed (on the first failed rollup), passed, or pending (at the
-            bound); \`failing\` lists the failed checks and \`log_tail\`
-            carries the failed steps' log, with \`log_error\` beside it when
-            gh would not hand the log over. \`waited\` is measured, and
-            \`reads_ok\`, \`read_failures\` and \`read_error\` say how the
-            reading went. As in settle, the LAST read decides: a bound that
-            arrives on a read that failed is \`ok: false\`, never \`pending\`.
+            SHEPHERD_WAIT_POLL seconds. Result is one of: merged; behind;
+            failed (on the first failed rollup); passed; pending (at the
+            bound). On failed, \`failing\` lists the failed checks, and
+            \`log_tail\` carries the failed steps' log. \`log_error\` is
+            beside it when gh would not hand the log over. \`waited\` is
+            measured. \`reads_ok\`, \`read_failures\` and \`read_error\` say
+            how the reads went. As in settle, the LAST read decides. A bound
+            that arrives on a failed read is \`ok: false\`, never \`pending\`.
   settle    the grace between "checks passed" and "auto-merge did not fire".
             Reads the pull request until GitHub answers one way or the other:
             \`merged\`; \`closed\` when it was closed while settling; \`blocked\`
@@ -456,9 +459,9 @@ class Shepherd {
     }
     if (fresh === null) {
       // The branch update ran. Only the last confirming read failed, and
-      // the last read decides. If this told the caller `ok: false`, it
-      // would decide again and rebase a second time, which costs another
-      // CI run for a read that failed.
+      // the last read decides. So this report has no `result`. With
+      // `ok: false`, the caller would rebase a second time. That costs
+      // another CI run for a read that failed.
       this.emit(
         true,
         `update-branch succeeded but the pull request could not be re-read: ${this.readFailure()}`,
@@ -479,8 +482,8 @@ class Shepherd {
       return
     }
     // `gh pr update-branch` prints its success line as soon as GitHub
-    // accepts the request. To call an unmoved head "rebased" would tell the
-    // caller a new CI run is coming, when none may be.
+    // accepts the request. An unmoved head is not "rebased": no new CI run
+    // may start.
     if (upToDate) {
       this.emit(
         true,
@@ -505,8 +508,8 @@ class Shepherd {
       return
     }
     // The compare comes before the checks. A head that is behind goes back
-    // to the caller at once, whatever the checks say: a green run on it
-    // cannot let auto-merge fire, so its CI time is spent for nothing.
+    // to the caller at once, whatever the checks say. A green run on it
+    // cannot let auto-merge fire, so its CI time would be lost.
     let pull = await this.withBehind(first)
     if (pull.behind !== true && pull.checks.state === 'none') {
       this.emit(true, 'no checks reported on this head', { result: 'passed', pr: pull })
@@ -597,9 +600,10 @@ class Shepherd {
    * Report the read that answers `wait`, and say whether one did.
    *
    * Pending checks answer nothing, so the caller reads again. Every other
-   * read is final: merged, a head behind its base, a rollup that passed or
-   * has no checks, and a rollup with a failed check. The last one does not
-   * wait for the rest of the run, the same as `--fail-fast` before #460.
+   * read is final. These are merged, a head behind its base, and a rollup
+   * that passed or has no checks. A rollup with a failed check is final too.
+   * It does not wait for the rest of the run, as `--fail-fast` did before
+   * #460.
    */
   async waitVerdict(pull: PullState, reading: Record<string, unknown>): Promise<boolean> {
     if (pull.state === 'MERGED') {
