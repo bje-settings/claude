@@ -27,14 +27,14 @@ flowchart TD
     R -->|No| RU([ok false: could not read, exit 0]):::stop
     R -->|state| SR{Review rules of the base read?}
     SR -->|No: stderr says why| SN[approval from reviewDecision alone;<br/>threads null]
-    SR -->|Yes| ST{Rules ask for resolved threads?}
-    ST -->|Yes| STR[Read the unresolved threads;<br/>a failed read is null, stderr says why]
-    ST -->|No| SV
+    SR -->|Yes| SRT{Rules ask for resolved threads?}
+    SRT -->|Yes| STR[Read the unresolved threads;<br/>a failed read is null, stderr says why]
+    SRT -->|No| SV
     STR --> SV[approval: met, missing or not_required;<br/>threads: resolved, unresolved or not_required]
     SN --> SY
     SV --> SY{From this repository,<br/>with headRefName?}
     SY -->|From a fork: no ref read| S
-    SY -->|gh answered without either field:<br/>stderr says why| S
+    SY -->|gh answered without isCrossRepository<br/>or headRefName: stderr says why| S
     SY -->|Yes| SY2{Ref of the branch read?}
     SY2 -->|No: stderr says why| S
     SY2 -->|Yes| SY3{Ref is headRefOid?}
