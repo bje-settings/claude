@@ -107,7 +107,35 @@ it('runs the step 1 checks again after every read of state', () => {
 
 it('names the review verdicts among the fields a skip reason may copy', () => {
   const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
-  expect(rules).toContain('`autoMerge`, `pr.approval`, `pr.threads` and the script')
+  expect(rules).toContain('`autoMerge`, `pr.approval`, `pr.threads`')
+})
+
+// --- a head out of sync with its branch (#467) ------------------------------
+
+it('skips a head out of sync with its branch, before any rebase or wait, with both SHAs', () => {
+  // Rule 15 (h). A rebase cannot move a head that GitHub has not moved to
+  // the newest push of its branch.
+  const step = flat(section(AGENT, '1. `state`.', '2. Decide from'))
+  expect(step).toContain(
+    'If `pr.inSync` is false, record it as skipped ("head out of sync with its branch: ' +
+      'headRefOid <pr.headRefOid>, branch at <pr.branchRefOid>") and continue, before any ' +
+      '`rebase` or `wait`',
+  )
+  expect(step).toContain('Copy both SHAs from the JSON')
+  expect(step).toContain('A `null` `pr.inSync` is not a reason to skip')
+  // The out-of-sync check comes before the check of the review rules.
+  expect(step.indexOf('`pr.inSync` is false')).toBeLessThan(step.indexOf('review rules next'))
+})
+
+it('names both SHAs among the fields a skip reason may copy', () => {
+  const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
+  expect(rules).toContain('`pr.headRefOid`, `pr.branchRefOid` and the script')
+})
+
+it('draws the out-of-sync skip in the skill flow', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('Head out of sync with its branch ref')
+  expect(body).toContain('Skipped: head out of sync with its branch, both SHAs named')
 })
 
 it('takes the --all flag as input to the agent', () => {

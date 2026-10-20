@@ -434,7 +434,10 @@ export const replay = async (name: string): Promise<void> => {
     ),
     env: shepherdEnv(sandbox, expected.env),
     gh: createGhServer({
-      prs: expected.prs ?? [],
+      // `isCrossRepository` is #467's, so no capture recorded it. Every
+      // captured pull request is from the repository itself. The server
+      // answers each branch ref with the head of its row.
+      prs: (expected.prs ?? []).map((row) => ({ isCrossRepository: false, ...row })),
       ...ARRANGEMENTS[name],
       // Merged rather than replaced: an arrangement that registers one reply
       // must not unregister the one every case needs.

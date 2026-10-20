@@ -176,7 +176,7 @@ goes through, because `--repo` is not a field of any request here: it is a const
 So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repository: <resolved> }`,
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
 capture keeps the field because it is the Python's record. Apart from the #216 removals and the
-#460 additions above, and the #465 additions below, nobody edits the captures.
+#460 additions above, and the #465, #466 and #467 additions below, nobody edits the captures.
 
 ## What #465 changed
 
@@ -193,6 +193,17 @@ review rule. So each replay answers `requiredReviews` with no `pull_request` rul
   `settle_reports_blocked_naming_the_review_decision`.
 - **`not_ready`** is the last key of each `shepherd-status` document. It is `[]` in every case,
   because no rule requires a review.
+
+## What #466 and #467 changed
+
+#466 and #467 add output too. The edits change the `stdout` of a case, and nothing else. No case
+was added or removed.
+
+- **`branchRefOid` and `inSync`** (#467) follow `behind` in the `pr` of the four `state_*` cases
+  that read the pull request. They read `sha1` and `true`. No capture recorded
+  `isCrossRepository`, and every captured pull request is from the repository itself. So each
+  replay gives each row `isCrossRepository: false`, and the server answers the ref of each branch
+  with the head of its row.
 
 ## The capture script
 

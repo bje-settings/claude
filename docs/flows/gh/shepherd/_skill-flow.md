@@ -34,6 +34,7 @@ flowchart TD
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
+        T -->|Head out of sync with its branch ref| OS([Skipped: head out of sync with its branch, both SHAs named]):::stop --> S
         T -->|Without --all: approval missing or threads unresolved| NA([Skipped: needs an approval, or has unresolved review threads]):::stop --> S
         T -->|Head behind the base, no conflict, whatever the merge state| R[Rebase without a checkout,<br/>read until the head moves] --> W[Wait one CI cycle]
         T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W

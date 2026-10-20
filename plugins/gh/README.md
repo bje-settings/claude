@@ -167,6 +167,7 @@ high), oldest first within a band.
 
 | State | Action |
 | --- | --- |
+| Head out of sync with its branch | `state` reports `inSync` false: GitHub still names an older commit than the one the branch points at. A rebase cannot move such a head. Skipped, with both SHAs, before any rebase or wait. |
 | Not ready, without `--all` | `state` reports `approval` `missing` or `threads` `unresolved`. A review can be dismissed during a run. Skipped, with "needs an approval" or "has unresolved review threads", before any rebase or wait. |
 | Behind its base | `gh pr update-branch --rebase`, no checkout. Read the pull request every 5 seconds until the head moves, for at most 60 seconds. Then wait. GitHub's compare of the base and the head decides "behind". `mergeStateStatus` does not, because it reads `BLOCKED` while a check is pending. A head that is behind is rebased before any wait. When the compare cannot be read, `mergeStateStatus` decides. |
 | Conflicts | In a throwaway worktree, `git merge origin/<base>` into the head branch, for any author. Regenerate a lockfile with the repository's own package manager. Keep the keys of both sides in a manifest. Keep both intents in code. Verify locally, commit, and run a plain `git push`. Then wait for CI. Never rebase, and never force-push. |
@@ -256,6 +257,9 @@ node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|wait|settle|merg
 `not_required`, or `null`). `shepherd-pr` writes only through one action: `rebase` (the branch
 update). It refuses that when its precondition does not hold: the pull request is not open.
 `state` reads the review rules of the base, and reports `approval` and `threads` the same way.
+It also reads the ref of the head branch, for a pull request that is not from a fork. It reports
+the ref's commit as `branchRefOid`, and `inSync`: false when that commit is not `headRefOid`.
+Both are `null` for a fork, and for a ref it could not read (stderr says why).
 The other actions do not read the rules: their `approval` rests on `reviewDecision`, and their
 `threads` is `null`.
 

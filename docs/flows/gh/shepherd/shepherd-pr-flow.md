@@ -31,8 +31,16 @@ flowchart TD
     ST -->|Yes| STR[Read the unresolved threads;<br/>a failed read is null, stderr says why]
     ST -->|No| SV
     STR --> SV[approval: met, missing or not_required;<br/>threads: resolved, unresolved or not_required]
-    SN --> S
-    SV --> S([ok true: the pull request, whether its head<br/>is behind its base, approval and threads, exit 0])
+    SN --> SY
+    SV --> SY{From this repository,<br/>with headRefName?}
+    SY -->|From a fork: no ref read| S
+    SY -->|gh answered without either field:<br/>stderr says why| S
+    SY -->|Yes| SY2{Ref of the branch read?}
+    SY2 -->|No: stderr says why| S
+    SY2 -->|Yes| SY3{Ref is headRefOid?}
+    SY3 -->|Yes: inSync true| S
+    SY3 -->|No| SO([ok true: inSync false, the detail names<br/>headRefOid and the ref, exit 0])
+    S([ok true: the pull request, whether its head<br/>is behind its base, approval and threads,<br/>branchRefOid and inSync, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
     subgraph writes [rebase: the only write]

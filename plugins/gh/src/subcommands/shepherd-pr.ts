@@ -134,6 +134,19 @@ const SETTLED_CHECK_STATES = ['passed', 'none']
  *  `mergeStateStatus`. */
 type PullState = PullSummary & { readonly behind: boolean | null }
 
+/** Whether the head of a pull request is the commit its branch points at
+ *  (#467). Only `state` reads the ref, so only its `pr` carries this.
+ *  `branchRefOid` is the commit of the branch ref. `inSync` is `false` when
+ *  it differs from `headRefOid`. Both are `null` for a pull request from
+ *  another repository, which has no branch here to read, and for a read
+ *  that failed. stderr then says why. */
+interface BranchSync {
+  readonly branchRefOid: string | null
+  readonly inSync: boolean | null
+}
+
+const NO_SYNC: BranchSync = { branchRefOid: null, inSync: null }
+
 export const HELP = `The deterministic per-pull-request steps of /gh:shepherd.
 
 Usage:
@@ -152,6 +165,12 @@ cannot make it act on the wrong pull request.
             plus \`pr.behind\`. It is true when the compare of baseRefName
             and the head is behind or diverged. It is false when the compare
             is ahead or identical. It is null when the compare could not be
+            read (stderr says why). Then \`pr.branchRefOid\`, the commit of
+            the ref of headRefName, and \`pr.inSync\`. \`inSync\` is false
+            when that commit is not headRefOid: GitHub has not moved the
+            pull request to the newest push of its branch. The detail then
+            names both commits. Both are null for a pull request from
+            another repository (no read), and for a ref that could not be
             read (stderr says why). \`pr.approval\` (met, missing,
             not_required) and \`pr.threads\` (resolved, unresolved,
             not_required) come from the review rules of baseRefName,
@@ -408,6 +427,41 @@ class Shepherd {
     this.emit(false, `refused: pull request is ${String(pull.state)}, not OPEN`, { pr: pull })
   }
 
+  /**
+   * Whether the head of the pull request is the commit its branch points
+   * at, from the branch ref (#467).
+   *
+   * GitHub can keep an old `headRefOid` after a push to the branch. Then
+   * `update-branch` refuses, or says the branch is up to date, and the
+   * compare goes on to read it as behind. A pull request from another
+   * repository has no branch here, so it gets no read. Nor does an answer
+   * that does not say which repository the head is in: `main` of a fork
+   * read as `main` here would differ, and give a false verdict. A read that
+   * failed is `null`, and stderr says why.
+   */
+  async withSync(pull: Record<string, unknown>): Promise<BranchSync> {
+    if (pull.isCrossRepository === true) return NO_SYNC
+    const err = this.options.context.output.err
+    const branch = pull.headRefName
+    const missing =
+      pull.isCrossRepository !== false
+        ? 'isCrossRepository'
+        : !isTruthy(branch)
+          ? 'headRefName'
+          : ''
+    if (missing !== '') {
+      err.write(`inSync is null: gh answered without ${missing}\n`)
+      return NO_SYNC
+    }
+    const name = String(branch)
+    const answer = await this.options.gh.branchRef({ branch: name })
+    if (answer.sha === null) {
+      err.write(`inSync is null: the ref of ${name} is unavailable: ${answer.unavailable}\n`)
+      return NO_SYNC
+    }
+    return { branchRefOid: answer.sha, inSync: answer.sha === pull.headRefOid }
+  }
+
   // ------------------------------------------------------------ actions ---
 
   async state(): Promise<void> {
@@ -422,7 +476,16 @@ class Shepherd {
       rules?.threadResolution === true
         ? await readUnresolvedThreads(this.options.gh, this.options.number, err)
         : null
-    this.emit(true, 'read', { pr: await this.withBehind(summary(pull, rules, unresolved)) })
+    const shaped = await this.withBehind(summary(pull, rules, unresolved))
+    const sync = await this.withSync(pull)
+    // `missingField` refuses an answer without `headRefOid`, so it is a
+    // commit gh named.
+    const detail =
+      sync.inSync === false
+        ? `the pull request's head is out of sync with its branch: headRefOid ` +
+          `${String(pull.headRefOid)}, ${String(pull.headRefName)} at ${sync.branchRefOid}`
+        : 'read'
+    this.emit(true, detail, { pr: { ...shaped, ...sync } })
   }
 
   async merged(): Promise<void> {

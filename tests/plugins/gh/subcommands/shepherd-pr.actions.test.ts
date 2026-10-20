@@ -634,6 +634,105 @@ it('reports null verdicts when the rules cannot be read, and says why', async ()
   )
 })
 
+// --- state and the branch ref (#467) -----------------------------------------------
+
+/** The pull request a field test saw: not from a fork, and GitHub still
+ *  names the commit from before the newest push to its branch. */
+const STALE_HEAD = '17a37c0ffee0000000000000000000000000000a'
+const PUSHED = '18b50c0ffee0000000000000000000000000000b'
+
+/** `state` with no review rule, and the ref endpoint given. */
+const syncWith = (pull: Record<string, unknown>, extra: Partial<GhClient>) =>
+  stateWith(pull, { requiredReviews: async () => NO_RULE, ...extra })
+
+it('reports a head out of sync with its branch, and names both commits', async () => {
+  // Rule 15 (a). The ref answers only for this pull request's own branch.
+  const result = await syncWith(depPr(1, { head: STALE_HEAD }), {
+    branchRef: async ({ branch }) => {
+      if (branch !== 'dependabot/npm/dep-1') throw new Error('wrong branch')
+      return { sha: PUSHED, unavailable: null }
+    },
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.document.ok).toBe(true)
+  expect(result.document.detail).toBe(
+    `the pull request's head is out of sync with its branch: headRefOid ${STALE_HEAD}, ` +
+      `dependabot/npm/dep-1 at ${PUSHED}`,
+  )
+  expect(result.document.pr).toMatchObject({
+    headRefOid: STALE_HEAD,
+    behind: false,
+    branchRefOid: PUSHED,
+    inSync: false,
+  })
+  expect(result.stderr).toBe('')
+})
+
+it('reads a head that matches its branch as in sync, with the detail it had before', async () => {
+  // Rule 15 (b). The server answers the ref with the head of the row.
+  const result = await syncWith(depPr(1), {})
+
+  expect(result.document.detail).toBe('read')
+  const pr = result.document.pr as Record<string, unknown>
+  expect(Object.keys(pr).slice(-3)).toEqual(['behind', 'branchRefOid', 'inSync'])
+  expect(pr).toMatchObject({ headRefOid: 'sha1', branchRefOid: 'sha1', inSync: true })
+  expect(result.stderr).toBe('')
+})
+
+it('reads no ref for a pull request from another repository', async () => {
+  // Rule 15 (c). A fork's branch is not a branch here: `main` of a fork is
+  // not this repository's `main`. A call to the ref fails the test.
+  const result = await syncWith(
+    { ...depPr(1), headRefName: 'main', isCrossRepository: true },
+    {
+      branchRef: async () => {
+        throw new Error('a ref read for a fork')
+      },
+    },
+  )
+
+  expect(result.document.detail).toBe('read')
+  expect(result.document.pr).toMatchObject({ branchRefOid: null, inSync: null })
+  expect(result.stderr).toBe('')
+})
+
+it('decides as before when the ref cannot be read, and says why on stderr', async () => {
+  // Rule 15 (d).
+  const result = await syncWith(depPr(1), {
+    branchRef: async () => ({ sha: null, unavailable: 'gh: API rate limit exceeded' }),
+  })
+
+  expect(result.document.ok).toBe(true)
+  expect(result.document.detail).toBe('read')
+  expect(result.document.pr).toMatchObject({ behind: false, branchRefOid: null, inSync: null })
+  expect(result.stderr).toBe(
+    'inSync is null: the ref of dependabot/npm/dep-1 is unavailable: gh: API rate limit exceeded\n',
+  )
+})
+
+it.each([
+  ['without isCrossRepository', { isCrossRepository: undefined }, 'isCrossRepository'],
+  ['with a fork flag that is not a boolean', { isCrossRepository: 'false' }, 'isCrossRepository'],
+  ['without headRefName', { headRefName: undefined }, 'headRefName'],
+  ['with an empty headRefName', { headRefName: '' }, 'headRefName'],
+])('reads no ref for an answer %s, and says why on stderr', async (_what, fields, missing) => {
+  // An answer that does not say the head is in this repository is not
+  // read as one: a fork's `main` read as `main` here would differ.
+  const result = await syncWith(
+    { ...depPr(1), ...fields },
+    {
+      branchRef: async () => {
+        throw new Error('a ref read without the fields it needs')
+      },
+    },
+  )
+
+  expect(result.document.ok).toBe(true)
+  expect(result.document.pr).toMatchObject({ branchRefOid: null, inSync: null })
+  expect(result.stderr).toBe(`inSync is null: gh answered without ${missing}\n`)
+})
+
 // --- wait ---------------------------------------------------------------------------
 
 /** A `wait` against pull request 1, which reads `pulls` in order and the

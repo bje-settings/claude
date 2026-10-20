@@ -47,8 +47,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
   next pull request, whether or not it confirmed anything.
 - **A `skipped` reason names only fields you actually read.** Copy `mergeStateStatus`,
-  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads` and the script's own `reason` out of
-  the JSON in front of you.
+  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads`, `pr.headRefOid`, `pr.branchRefOid`
+  and the script's own `reason` out of the JSON in front of you.
   Never write that a review requirement, a branch protection rule, or a server-side auto-merge
   setting is the cause. Write that only when the state you read says so. "Checks passed and it
   has not merged yet" is not evidence of any of them. A guess in that field becomes a finding
@@ -65,6 +65,10 @@ number, in the order given:
    and continue. If `pr.autoMerge` is false, record it as skipped ("auto-merge turned off after
    selection") and continue. Auto-merge may have changed since the caller selected this pull
    request. This script never turns it on.
+   If `pr.inSync` is false, record it as skipped ("head out of sync with its branch: headRefOid
+   <pr.headRefOid>, branch at <pr.branchRefOid>") and continue, before any `rebase` or `wait`.
+   GitHub has not moved the pull request to the newest push of its branch, so a `rebase` cannot
+   move it. Copy both SHAs from the JSON. A `null` `pr.inSync` is not a reason to skip.
    Without `--all`, check the review rules next, before any `rebase` or `wait`. A review can be
    dismissed, or a thread opened, during the run. If `pr.approval` is `missing`, record it as
    skipped ("needs an approval"). If `pr.threads` is `unresolved`, record it as skipped ("has
