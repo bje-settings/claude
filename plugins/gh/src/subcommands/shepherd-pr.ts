@@ -36,6 +36,7 @@ import {
   missingField,
   oneLine,
   type PullSummary,
+  pendingRuns,
   readReviewRules,
   readUnresolvedThreads,
   type ShepherdContext,
@@ -485,6 +486,61 @@ class Shepherd {
     return { branchRefOid: answer.sha, inSync: answer.sha === pull.headRefOid }
   }
 
+  /** Each line {@link note} has written in this action, so a poll that
+   *  meets the same failure again does not write it again. */
+  readonly noted = new Set<string>()
+
+  /** Write `line` to stderr, once per action. */
+  note(line: string): void {
+    if (this.noted.has(line)) return
+    this.noted.add(line)
+    this.options.context.output.err.write(`${line}\n`)
+  }
+
+  /**
+   * The progress of the checks of `pull` now, with `least` as the least
+   * stall bound (#466).
+   *
+   * The stamps of one job do not move until it finishes, so this also
+   * reads the steps of each Actions run that has a pending check (ruling
+   * 12). A step that starts or finishes moves `newest`. A run whose jobs
+   * could not be read, in full or in part, costs only its steps: stderr
+   * says which, and the rollup still decides. A check that is not an
+   * Actions job has only its own stamps.
+   *
+   * A rollup with no stamp at all is measured from the date of the head
+   * commit (ruling 13). So a check that never started still ends in
+   * `stalled`. When that date cannot be read either, `idle` is null, and
+   * stderr says why.
+   */
+  async progressOf(pull: Record<string, unknown>, least: number): Promise<CheckProgress> {
+    const gh = this.options.gh
+    const stamps: (string | null)[] = []
+    for (const run of pendingRuns(pull)) {
+      const answer = await gh.listRunJobs({ run })
+      if (answer.unavailable !== null) {
+        this.note(`progress may miss steps of run ${run}: ${answer.unavailable}`)
+      }
+      for (const job of answer.rows) {
+        stamps.push(job.startedAt, job.completedAt)
+        for (const step of job.steps) stamps.push(step.startedAt, step.completedAt)
+      }
+    }
+    const wall = this.options.context.clock()
+    const progress = checkProgress(pull, wall, least, { stamps })
+    if (progress.idle !== null) return progress
+    // `missingField` refuses an answer without `headRefOid`.
+    const sha = String(pull.headRefOid)
+    const commit = await gh.commitDate({ sha })
+    if (commit.date === null) {
+      this.note(
+        `idle is null: no check has a stamp, and the date of ${sha} is unavailable: ${commit.unavailable}`,
+      )
+      return progress
+    }
+    return checkProgress(pull, wall, least, { stamps, since: commit.date })
+  }
+
   // ------------------------------------------------------------ actions ---
 
   async state(): Promise<void> {
@@ -650,7 +706,12 @@ class Shepherd {
     const least = Math.max(floor, this.options.ciSeconds * 2)
     // The progress of the last read that succeeded, at the time of that
     // read. It needs no state between two calls: the stamps are GitHub's.
-    let progress = checkProgress(raw, this.options.context.clock(), least)
+    // Only pending checks need it, so only a pending read pays its reads.
+    let progress: CheckProgress | null = null
+    const measure = async (): Promise<CheckProgress> => {
+      progress = await this.progressOf(raw as Record<string, unknown>, least)
+      return progress
+    }
     // Measured, not added up from the sleeps, for settle's reason.
     const started = this.options.context.now()
     const spent = (): number => seconds(this.options.context.now() - started)
@@ -673,7 +734,7 @@ class Shepherd {
           // recovered from is counted, and nothing more.
           read_error: '',
         }
-        if (await this.waitVerdict(pull, reading, progress)) return
+        if (await this.waitVerdict(pull, reading, measure)) return
       }
       const left = bound - spent()
       if (left <= 0) break
@@ -688,7 +749,6 @@ class Shepherd {
       readsOk += 1
       stale = false
       raw = fresh
-      progress = checkProgress(raw, this.options.context.clock(), least)
       pull = await this.withBehind(summary(raw))
     }
 
@@ -734,7 +794,7 @@ class Shepherd {
   async waitVerdict(
     pull: PullState,
     reading: Record<string, unknown>,
-    progress: CheckProgress,
+    measure: () => Promise<CheckProgress>,
   ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
@@ -755,7 +815,9 @@ class Shepherd {
       return true
     }
     if (state === 'pending') {
-      // A null `idle` is a rollup with no stamp, which proves nothing.
+      const progress = await measure()
+      // A null `idle` is a rollup with no stamp and no head commit date,
+      // which proves nothing.
       if (progress.idle === null || progress.idle < progress.stall_bound) return false
       this.emit(
         true,

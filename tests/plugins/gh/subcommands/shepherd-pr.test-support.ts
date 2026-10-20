@@ -122,6 +122,16 @@ export const UNAVAILABLE: GhResults['compareCommits'] = {
   unavailable: 'gh api compare failed: HTTP 502',
 }
 
+/** A run with no job read yet, as `listRunJobs` answers it. */
+export const NO_JOBS: GhResults['listRunJobs'] = { rows: [], unavailable: null }
+
+/** The date of every head commit in a replay: when the wall clock of the
+ *  test starts (#466). */
+export const HEAD_DATE: GhResults['commitDate'] = {
+  date: '2026-10-20T22:30:00Z',
+  unavailable: null,
+}
+
 /**
  * `gh`, with the compare answered from `replies` in order. The last reply
  * repeats.
@@ -135,7 +145,13 @@ export const comparing = (
   options: GhServerOptions,
   replies: readonly GhResults['compareCommits'][],
 ): GhClient => {
-  const server = createGhServer(options)
+  // A `wait` on pending checks reads the jobs of their runs, and the date of
+  // the head when no stamp exists (#466). A test that is about neither gets
+  // no jobs, and a head committed when its clock starts.
+  const server = createGhServer({
+    ...options,
+    replies: { listRunJobs: NO_JOBS, commitDate: HEAD_DATE, ...options.replies },
+  })
   let taken = 0
   return {
     ...server,
@@ -459,6 +475,11 @@ export const replay = async (name: string): Promise<void> => {
         viewRepository: REPOSITORY,
         compareCommits: AHEAD,
         requiredReviews: NO_RULE,
+        // The jobs and the head date are #466's, so no capture recorded
+        // them. Each run has no job to read, and each head was committed
+        // when the clock of the replay starts.
+        listRunJobs: NO_JOBS,
+        commitDate: HEAD_DATE,
         ...ARRANGEMENTS[name]?.replies,
       },
     }),

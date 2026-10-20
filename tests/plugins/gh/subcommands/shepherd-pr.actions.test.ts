@@ -15,6 +15,8 @@ import {
   compared,
   comparing,
   drive,
+  HEAD_DATE,
+  NO_JOBS,
   NO_RULE,
   REPOSITORY,
   recording,
@@ -936,13 +938,17 @@ const waitAt = (
   wall: number,
   pulls: NonNullable<GhSequences['viewPullRequest']>,
   env: Record<string, string> = {},
+  replies: GhReplies = {},
 ) =>
   drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
     env: { ...sandbox.env, ...env },
     wall,
     gh: comparing(
-      { replies: { viewRepository: REPOSITORY }, sequences: { viewPullRequest: pulls } },
+      {
+        replies: { viewRepository: REPOSITORY, ...replies },
+        sequences: { viewPullRequest: pulls },
+      },
       [AHEAD],
     ),
   }))
@@ -1090,23 +1096,212 @@ it('reads the progress of a rollup of StatusContext rows from their startedAt', 
   expect(moving.document).toMatchObject({ result: 'pending', progress: { idle: 90 } })
 })
 
-it('never reports stalled for a rollup with no stamp, such as StatusContext rows without one', async () => {
-  // Rule 15 (g): a row with no stamp proves no progress, and no stall.
-  const result = await waitAt(REBASED + 600 * MINUTE, [depPr(1, { checks: 'status-pending' })], {
-    SHEPHERD_WAIT_BOUND: '30',
+it('measures a rollup with no stamp from the head commit, so it ends in stalled', async () => {
+  // Ruling 13, and rule 15 (g): StatusContext rows without a `startedAt`.
+  // A hung check that never started cannot hold the run forever.
+  const since = { date: stampAt(REBASED), unavailable: null }
+  const pull = depPr(1, { checks: 'status-pending' })
+
+  const early = await waitAt(
+    REBASED + 5 * MINUTE,
+    [pull],
+    { SHEPHERD_WAIT_BOUND: '30' },
+    {
+      commitDate: since,
+    },
+  )
+  expect(early.document).toMatchObject({
+    result: 'pending',
+    progress: { newest: '2026-10-19T20:14:00Z', idle: 330, source: 'head commit' },
   })
 
-  expect(result.document).toMatchObject({
-    result: 'pending',
+  const late = await waitAt(REBASED + 10 * MINUTE, [pull], {}, { commitDate: since })
+  expect(late.document).toMatchObject({
+    result: 'stalled',
+    waited: 0,
     progress: {
       finished: 0,
       checks: 1,
-      started: null,
-      newest: null,
-      idle: null,
+      started: '2026-10-19T20:14:00Z',
+      newest: '2026-10-19T20:14:00Z',
+      idle: 600,
       stall_bound: 600,
+      source: 'head commit',
     },
   })
+})
+
+it('stays pending when no stamp exists and the head date cannot be read, and says why', async () => {
+  const result = await waitAt(
+    REBASED + 600 * MINUTE,
+    [depPr(1, { checks: 'status-pending' })],
+    { SHEPHERD_WAIT_BOUND: '60' },
+    { commitDate: { date: null, unavailable: 'gh: HTTP 502' } },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { newest: null, idle: null, source: null },
+  })
+  // Three reads meet the same failure. stderr says it once.
+  expect(result.stderr).toBe(
+    'idle is null: no check has a stamp, and the date of sha1 is unavailable: gh: HTTP 502\n',
+  )
+})
+
+// --- the steps of the jobs (ruling 12) ---------------------------------------------
+
+/** The jobs of run 11: one job, `test`, that started at `started`, with a
+ *  step that finished at each of `done`, and one step still running. The
+ *  shape is what `listRunJobs` read for #471 on 2026-10-20. */
+const jobsOf = (started: number, done: readonly number[]): GhResults['listRunJobs'] => ({
+  rows: [
+    {
+      id: 21,
+      startedAt: stampAt(started),
+      completedAt: null,
+      steps: [
+        ...done.map((finished, index) => ({
+          startedAt: stampAt(index === 0 ? started : (done[index - 1] as number)),
+          completedAt: stampAt(finished),
+        })),
+        { startedAt: stampAt(done.at(-1) ?? started), completedAt: null },
+        { startedAt: null, completedAt: null },
+      ],
+    },
+  ],
+  unavailable: null,
+})
+
+it('never stalls one long job whose steps finish every few minutes, the #466 field case', async () => {
+  // Rule 15 (e) with ruling 12. `ci_seconds` 130, one job that runs 15
+  // minutes, and its steps finish every three minutes. The rollup stamps sit
+  // still at 20:14 the whole time.
+  const steps = [3, 6, 9, 12, 15].map((minutes) => REBASED + minutes * MINUTE)
+  for (let call = 0; call < 6; call += 1) {
+    const wall = REBASED + call * 4 * MINUTE
+    const result = await waitAt(
+      wall,
+      [running(REBASED)],
+      { SHEPHERD_CI_SECONDS: '130' },
+      {
+        listRunJobs: jobsOf(
+          REBASED,
+          steps.filter((at) => at <= wall),
+        ),
+      },
+    )
+
+    expect(result.document).toMatchObject({ result: 'pending', bound: 260 })
+    const progress = result.document.progress as Record<string, number>
+    expect(progress.idle).toBeLessThan(progress.stall_bound as number)
+  }
+})
+
+it('reads the steps again on each poll, so a step that finishes during a call counts', async () => {
+  // The rollup is 9 minutes still when the call starts. A step finishes
+  // before the second read, so the call ends pending, not stalled.
+  const answers = [jobsOf(REBASED, []), jobsOf(REBASED, [REBASED + 9 * MINUTE + 10_000])]
+  let read = 0
+  const server = comparing(
+    { replies: { viewRepository: REPOSITORY }, sequences: { viewPullRequest: [running(REBASED)] } },
+    [AHEAD],
+  )
+  const result = await drive((sandbox, repo) => ({
+    argv: [repo, '1', 'wait'],
+    env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '120' },
+    wall: REBASED + 9 * MINUTE,
+    gh: {
+      ...server,
+      // The first read sees no step done, and every later read sees one.
+      listRunJobs: async () => {
+        const answer = answers[Math.min(read, 1)] as GhResults['listRunJobs']
+        read += 1
+        return answer
+      },
+    },
+  }))
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { newest: '2026-10-19T20:23:10Z', idle: 110, source: 'checks' },
+  })
+})
+
+it('reports stalled for a job whose steps stop for the bound', async () => {
+  const last = REBASED + 5 * MINUTE
+  const result = await waitAt(
+    REBASED + 15 * MINUTE,
+    [running(REBASED)],
+    {},
+    {
+      listRunJobs: jobsOf(REBASED, [REBASED + 2 * MINUTE, last]),
+    },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'stalled',
+    waited: 0,
+    progress: {
+      started: '2026-10-19T20:14:00Z',
+      newest: '2026-10-19T20:19:00Z',
+      idle: 600,
+      stall_bound: 600,
+      source: 'checks',
+    },
+  })
+})
+
+it('decides from the rollup alone when the jobs cannot be read, and says why once', async () => {
+  const result = await waitAt(
+    REBASED + 5 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '60' },
+    { listRunJobs: { rows: [], unavailable: 'gh: API rate limit exceeded' } },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { newest: '2026-10-19T20:14:00Z', idle: 360, source: 'checks' },
+  })
+  expect(result.stderr).toBe('progress may miss steps of run 11: gh: API rate limit exceeded\n')
+})
+
+it('keeps the steps it read from a run whose jobs were read in part', async () => {
+  const part = {
+    ...jobsOf(REBASED, [REBASED + 4 * MINUTE]),
+    unavailable: 'run 11 has 120 jobs; 100 were read',
+  }
+  const result = await waitAt(
+    REBASED + 5 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '30' },
+    {
+      listRunJobs: part,
+    },
+  )
+
+  expect(result.document).toMatchObject({ progress: { newest: '2026-10-19T20:18:00Z' } })
+  expect(result.stderr).toBe(
+    'progress may miss steps of run 11: run 11 has 120 jobs; 100 were read\n',
+  )
+})
+
+it('reads no jobs and no head date for a rollup that is not pending', async () => {
+  // Each read throws, so a call to either fails the test.
+  const result = await waitAt(
+    REBASED,
+    [depPr(1, { checks: 'failed' })],
+    {},
+    {
+      listRunJobs: ghFails('a jobs read for finished checks') as never,
+      commitDate: ghFails('a head date read for finished checks') as never,
+      readFailedRunLog: 'line 1\n',
+    },
+  )
+
+  expect(result.document).toMatchObject({ result: 'failed' })
+  expect(result.document).not.toHaveProperty('progress')
 })
 
 it('takes the floor of the stall bound from SHEPHERD_STALL_FLOOR', async () => {
@@ -1204,7 +1399,7 @@ it('compares the head of each poll, not the head of the first read', async () =>
   // Only the new head is behind. A compare of the first head reads ahead,
   // and this would then report passed.
   const server = createGhServer({
-    replies: { viewRepository: REPOSITORY },
+    replies: { viewRepository: REPOSITORY, listRunJobs: NO_JOBS, commitDate: HEAD_DATE },
     sequences: {
       viewPullRequest: [
         depPr(1, { checks: 'pending' }),

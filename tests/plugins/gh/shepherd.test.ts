@@ -28,6 +28,7 @@ import {
   isTruthy,
   missingField,
   oneLine,
+  pendingRuns,
   rank,
   statusDocument,
   summary,
@@ -280,6 +281,7 @@ describe('checkProgress', () => {
       newest: '2026-10-20T22:15:29Z',
       idle: 300,
       stall_bound: 600,
+      source: 'checks',
     })
   })
 
@@ -317,6 +319,7 @@ describe('checkProgress', () => {
       newest: '2026-10-20T22:00:47Z',
       idle: 600,
       stall_bound: 600,
+      source: 'checks',
     })
   })
 
@@ -338,6 +341,7 @@ describe('checkProgress', () => {
       newest: null,
       idle: null,
       stall_bound: 600,
+      source: null,
     })
   })
 
@@ -350,6 +354,7 @@ describe('checkProgress', () => {
         newest: null,
         idle: null,
         stall_bound: 600,
+        source: null,
       })
     }
   })
@@ -363,12 +368,71 @@ describe('checkProgress', () => {
     ).toBe(599)
   })
 
+  it('reads a step that started or finished as progress, inside a job whose stamps sit still', () => {
+    // Ruling 12: the #466 field case. One job has run 15 minutes, and its
+    // steps finish every few minutes.
+    const rollup = [stamped('IN_PROGRESS', '2026-10-19T20:14:00Z')]
+    const steps = ['2026-10-19T20:14:05Z', '2026-10-19T20:20:00Z', '2026-10-19T20:26:00Z', null]
+
+    expect(
+      checkProgress({ statusCheckRollup: rollup }, at('2026-10-19T20:29:00Z'), 600, {
+        stamps: steps,
+      }),
+    ).toMatchObject({ newest: '2026-10-19T20:26:00Z', idle: 180, source: 'checks' })
+  })
+
+  it('measures a rollup with no stamp from the head commit, and only then', () => {
+    // Ruling 13: a check that never started still ends.
+    const queued = { statusCheckRollup: [checkRun('QUEUED', null)] }
+    const since = '2026-10-19T20:14:00Z'
+
+    expect(checkProgress(queued, at('2026-10-19T20:24:00Z'), 600, { since })).toEqual({
+      finished: 0,
+      checks: 1,
+      started: since,
+      newest: since,
+      idle: 600,
+      stall_bound: 600,
+      source: 'head commit',
+    })
+    const later = { statusCheckRollup: [stamped('IN_PROGRESS', '2026-10-19T20:20:00Z')] }
+    expect(checkProgress(later, at('2026-10-19T20:24:00Z'), 600, { since })).toMatchObject({
+      newest: '2026-10-19T20:20:00Z',
+      source: 'checks',
+    })
+    expect(checkProgress(queued, 0, 600, { since: ZERO })).toMatchObject({
+      idle: null,
+      source: null,
+    })
+  })
+
   it('reads a wall clock behind GitHub’s as no time idle, not as a negative', () => {
     const rollup = [stamped('IN_PROGRESS', '2026-10-20T22:15:19Z')]
 
     expect(checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T22:15:17Z'), 600).idle).toBe(
       0,
     )
+  })
+})
+
+describe('pendingRuns', () => {
+  it('names the run of each pending Actions check once, and no other', () => {
+    const job = (status: string, run: number, jobId: number) => ({
+      ...checkRun(status, status === 'COMPLETED' ? 'SUCCESS' : null),
+      detailsUrl: `https://github.com/acme/widgets/actions/runs/${run}/job/${jobId}`,
+    })
+    const rollup = [
+      job('IN_PROGRESS', 11, 21),
+      job('QUEUED', 11, 22),
+      job('COMPLETED', 12, 23),
+      job('IN_PROGRESS', 13, 24),
+      statusContext('PENDING'),
+      { ...checkRun('IN_PROGRESS', null), detailsUrl: 'https://ci.example/1' },
+    ]
+
+    expect(pendingRuns({ statusCheckRollup: rollup })).toEqual(['11', '13'])
+    expect(pendingRuns({})).toEqual([])
+    expect(pendingRuns({ statusCheckRollup: 'nonsense' })).toEqual([])
   })
 })
 

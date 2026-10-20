@@ -205,9 +205,12 @@ was added or removed.
   replay gives each row `isCrossRepository: false`, and the server answers the ref of each branch
   with the head of its row.
 - **`progress`** (#466) is the last key of the four `wait_*` cases that end `pending`. No
-  captured row carries a stamp. So each reads `finished` 1, `checks` 2, `started`, `newest` and
-  `idle` null. `stall_bound` is twice `SHEPHERD_CI_SECONDS`, and never under 600: 600 in three
-  cases, and 2000 in `wait_clamps_the_bound_to_the_maximum`, which sets it to 1000.
+  captured row carries a stamp, and no capture recorded a job or a commit date. So each replay
+  answers the jobs of a run with none, and the date of the head with `2026-10-20T22:30:00Z`, when
+  the clock of the replay starts. Each case reads `finished` 1, `checks` 2, that date as `started`
+  and `newest`, `idle` equal to its `waited`, and `source` `head commit`. `stall_bound` is twice
+  `SHEPHERD_CI_SECONDS`, and never under 600: 600 in three cases, and 2000 in
+  `wait_clamps_the_bound_to_the_maximum`, which sets it to 1000.
 
 ## The capture script
 

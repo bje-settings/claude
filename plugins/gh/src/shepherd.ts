@@ -280,6 +280,35 @@ export interface CheckProgress {
   /** How long the checks may make no progress: the larger of the least
    *  bound and the run's own time from `started` to `newest`. */
   readonly stall_bound: number
+  /** What `newest` came from: `checks` for the rollup and the steps of its
+   *  jobs, `head commit` for a rollup with no stamp, or null for neither. */
+  readonly source: 'checks' | 'head commit' | null
+}
+
+/** What `checkProgress` reads beside the rollup. */
+export interface MoreStamps {
+  /** The stamps of the jobs and steps of the pending Actions runs. */
+  readonly stamps?: readonly unknown[]
+  /** The date of the head commit, read only when no other stamp exists. */
+  readonly since?: unknown
+}
+
+/** A stamp that {@link epochSeconds} reads as a real time. */
+const isStamp = (stamp: unknown): stamp is string => (epochSeconds(stamp) ?? 0) > 0
+
+/**
+ * The run of each pending check that is an Actions job, once each, from the
+ * `/actions/runs/<run>/job/<job>` link of its row (#466). A finished check
+ * has its last stamp already, so its run is not read.
+ */
+export const pendingRuns = (pull: unknown): string[] => {
+  const raw = field(pull, 'statusCheckRollup')
+  const rollup: unknown[] = Array.isArray(raw) ? raw : []
+  const runs = rollup
+    .filter((row) => checkState(row) === 'pending')
+    .map((row) => jobLink(checkLink(row))?.run)
+    .filter((run): run is string => run !== undefined)
+  return [...new Set(runs)]
 }
 
 /**
@@ -295,25 +324,34 @@ export interface CheckProgress {
  * gh writes Go's zero time, `0001-01-01T00:00:00Z`, for a stamp that
  * GitHub has not set, such as the `completedAt` of a check that has not
  * finished. That stamp, and any other that is not a time, counts as no
- * stamp. No stamp on any row gives an `idle` of null, which is never a
- * stall. Every stamp {@link epochSeconds} accepts has one fixed form, so
+ * stamp. The steps of the pending jobs come in `more.stamps`. With no
+ * stamp at all, `more.since`, the date of the head commit, is the one
+ * stamp. With neither, `idle` is null, which is never a stall. Every stamp {@link epochSeconds} accepts has one fixed form, so
  * text order is time order. GitHub does not order the two stamps of one row: a skipped check
  * can finish before it starts.
  */
-export const checkProgress = (pull: unknown, wallMs: number, least: number): CheckProgress => {
+export const checkProgress = (
+  pull: unknown,
+  wallMs: number,
+  least: number,
+  more: MoreStamps = {},
+): CheckProgress => {
   const raw = field(pull, 'statusCheckRollup')
   const rollup: unknown[] = Array.isArray(raw) ? raw : []
-  const stamps = rollup
-    .flatMap((row) => STAMP_FIELDS.map((name) => field(row, name)))
-    .filter((stamp): stamp is string => (epochSeconds(stamp) ?? 0) > 0)
-    .sort(byText)
+  const checked = [
+    ...rollup.flatMap((row) => STAMP_FIELDS.map((name) => field(row, name))),
+    ...(more.stamps ?? []),
+  ].filter(isStamp)
+  // The head commit stands in only for a rollup with no stamp (ruling 13).
+  const source = checked.length > 0 ? 'checks' : isStamp(more.since) ? 'head commit' : null
+  const stamps = (source === 'head commit' ? [more.since as string] : checked).sort(byText)
   const newest = stamps.at(-1)
   const base = {
     finished: rollup.filter((row) => checkState(row) !== 'pending').length,
     checks: rollup.length,
   }
   if (newest === undefined) {
-    return { ...base, started: null, newest: null, idle: null, stall_bound: least }
+    return { ...base, started: null, newest: null, idle: null, stall_bound: least, source }
   }
   // A list with a last entry has a first. Both passed `epochSeconds` above.
   const started = stamps[0] as string
@@ -326,6 +364,7 @@ export const checkProgress = (pull: unknown, wallMs: number, least: number): Che
     // A wall clock a little behind GitHub's is no progress, not a negative.
     idle: Math.max(0, Math.floor(wallMs / 1000 - to)),
     stall_bound: Math.max(least, Math.floor(to - from)),
+    source,
   }
 }
 
