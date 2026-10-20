@@ -508,22 +508,30 @@ class Shepherd {
    *
    * The stamps of one job do not move until it finishes, so this also
    * reads the steps of each Actions run that has a pending check (ruling
-   * 12). A step that starts or finishes moves `newest`. A run whose jobs
-   * could not be read, in full or in part, costs only its steps: stderr
-   * says which, and the rollup still decides. A check that is not an
-   * Actions job has only its own stamps.
+   * 12 on #466). A step that starts or finishes moves `newest`. A run whose
+   * jobs could not be read, in full or in part, keeps the steps it read,
+   * and stderr says which. `missed` is then true: the steps that were not
+   * read may have moved, so that read is no proof of a stall. A check that
+   * is not an Actions job has only its own stamps.
    *
-   * A rollup with no stamp at all is measured from the date of the head
-   * commit (ruling 13). So a check that never started still ends in
-   * `stalled`. When that date cannot be read either, `idle` is null, and
-   * stderr says why.
+   * A rollup with no stamp at all is measured from the newer of the date of
+   * the head commit and the last update of the pull request (ruling 13 on
+   * #466). A push moves `updatedAt`, so a commit made long before its push
+   * does not stall at once. So a check that never started still ends in
+   * `stalled`. When neither time can be read, `idle` is null, and stderr
+   * says why.
    */
-  async progressOf(pull: Record<string, unknown>, least: number): Promise<CheckProgress> {
+  async progressOf(
+    pull: Record<string, unknown>,
+    least: number,
+  ): Promise<{ readonly progress: CheckProgress; readonly missed: boolean }> {
     const gh = this.options.gh
     const stamps: (string | null)[] = []
+    let missed = false
     for (const run of pendingRuns(pull)) {
       const answer = await gh.listRunJobs({ run })
       if (answer.unavailable !== null) {
+        missed = true
         this.note(`progress may miss steps of run ${run}: ${answer.unavailable}`)
       }
       for (const job of answer.rows) {
@@ -533,17 +541,19 @@ class Shepherd {
     }
     const wall = this.options.context.clock()
     const progress = checkProgress(pull, wall, least, { stamps })
-    if (progress.idle !== null) return progress
+    if (progress.idle !== null) return { progress, missed }
     // `missingField` refuses an answer without `headRefOid`.
     const sha = String(pull.headRefOid)
     const commit = await gh.commitDate({ sha })
     if (commit.date === null) {
-      this.note(
-        `idle is null: no check has a stamp, and the date of ${sha} is unavailable: ${commit.unavailable}`,
-      )
-      return progress
+      this.note(`the date of ${sha} is unavailable: ${commit.unavailable}`)
     }
-    return checkProgress(pull, wall, least, { stamps, since: commit.date })
+    const since = [commit.date, pull.updatedAt]
+    const measured = checkProgress(pull, wall, least, { stamps, since })
+    if (measured.idle === null) {
+      this.note('idle is null: no check has a stamp, and the head has no date to read')
+    }
+    return { progress: measured, missed }
   }
 
   // ------------------------------------------------------------ actions ---
@@ -713,9 +723,10 @@ class Shepherd {
     // read. It needs no state between two calls: the stamps are GitHub's.
     // Only pending checks need it, so only a pending read pays its reads.
     let progress: CheckProgress | null = null
-    const measure = async (): Promise<CheckProgress> => {
-      progress = await this.progressOf(raw as Record<string, unknown>, least)
-      return progress
+    const measure = async (): Promise<{ progress: CheckProgress; missed: boolean }> => {
+      const measured = await this.progressOf(raw as Record<string, unknown>, least)
+      progress = measured.progress
+      return measured
     }
     // Measured, not added up from the sleeps, for settle's reason.
     const started = this.options.context.now()
@@ -799,7 +810,7 @@ class Shepherd {
   async waitVerdict(
     pull: PullState,
     reading: Record<string, unknown>,
-    measure: () => Promise<CheckProgress>,
+    measure: () => Promise<{ readonly progress: CheckProgress; readonly missed: boolean }>,
   ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
@@ -820,10 +831,10 @@ class Shepherd {
       return true
     }
     if (state === 'pending') {
-      const progress = await measure()
-      // A null `idle` is a rollup with no stamp and no head commit date,
-      // which proves nothing.
-      if (progress.idle === null || progress.idle < progress.stall_bound) return false
+      const { progress, missed } = await measure()
+      // A null `idle` is a rollup with no stamp and no date of the head,
+      // which proves nothing. Nor does a read that missed steps.
+      if (missed || progress.idle === null || progress.idle < progress.stall_bound) return false
       this.emit(
         true,
         `no check started or finished for ${progress.idle}s; the stall bound is ` +

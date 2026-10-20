@@ -386,7 +386,7 @@ describe('checkProgress', () => {
     const queued = { statusCheckRollup: [checkRun('QUEUED', null)] }
     const since = '2026-10-19T20:14:00Z'
 
-    expect(checkProgress(queued, at('2026-10-19T20:24:00Z'), 600, { since })).toEqual({
+    expect(checkProgress(queued, at('2026-10-19T20:24:00Z'), 600, { since: [since] })).toEqual({
       finished: 0,
       checks: 1,
       started: since,
@@ -396,11 +396,13 @@ describe('checkProgress', () => {
       source: 'head commit',
     })
     const later = { statusCheckRollup: [stamped('IN_PROGRESS', '2026-10-19T20:20:00Z')] }
-    expect(checkProgress(later, at('2026-10-19T20:24:00Z'), 600, { since })).toMatchObject({
-      newest: '2026-10-19T20:20:00Z',
-      source: 'checks',
-    })
-    expect(checkProgress(queued, 0, 600, { since: ZERO })).toMatchObject({
+    expect(checkProgress(later, at('2026-10-19T20:24:00Z'), 600, { since: [since] })).toMatchObject(
+      {
+        newest: '2026-10-19T20:20:00Z',
+        source: 'checks',
+      },
+    )
+    expect(checkProgress(queued, 0, 600, { since: [ZERO] })).toMatchObject({
       idle: null,
       source: null,
     })

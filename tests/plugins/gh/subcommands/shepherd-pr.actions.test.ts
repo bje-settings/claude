@@ -1131,6 +1131,23 @@ it('measures a rollup with no stamp from the head commit, so it ends in stalled'
   })
 })
 
+it('measures a rollup with no stamp from the last update of the pull request, when that is newer', async () => {
+  // A commit made a day before its push has an old committer date. A push
+  // moves `updatedAt`, so the first read of a new run is not a stall.
+  const pull = { ...depPr(1, { checks: 'status-pending' }), updatedAt: stampAt(REBASED) }
+  const result = await waitAt(
+    REBASED + 5 * MINUTE,
+    [pull],
+    { SHEPHERD_WAIT_BOUND: '30' },
+    { commitDate: { date: stampAt(REBASED - 24 * 60 * MINUTE), unavailable: null } },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { newest: '2026-10-19T20:14:00Z', idle: 330, source: 'head commit' },
+  })
+})
+
 it('stays pending when no stamp exists and the head date cannot be read, and says why', async () => {
   const result = await waitAt(
     REBASED + 600 * MINUTE,
@@ -1143,9 +1160,11 @@ it('stays pending when no stamp exists and the head date cannot be read, and say
     result: 'pending',
     progress: { newest: null, idle: null, source: null },
   })
-  // Three reads meet the same failure. stderr says it once.
+  // Three reads meet the same failure. stderr says it once. The row has no
+  // `updatedAt`, so the head has no date at all.
   expect(result.stderr).toBe(
-    'idle is null: no check has a stamp, and the date of sha1 is unavailable: gh: HTTP 502\n',
+    'the date of sha1 is unavailable: gh: HTTP 502\n' +
+      'idle is null: no check has a stamp, and the head has no date to read\n',
   )
 })
 
@@ -1265,6 +1284,23 @@ it('decides from the rollup alone when the jobs cannot be read, and says why onc
     progress: { newest: '2026-10-19T20:14:00Z', idle: 360, source: 'checks' },
   })
   expect(result.stderr).toBe('progress may miss steps of run 11: gh: API rate limit exceeded\n')
+})
+
+it('reports no stall on a read whose jobs read failed, since the steps may have moved', async () => {
+  // The rollup alone is 15 minutes still. Only the steps could prove
+  // progress, and they could not be read, so the call ends pending.
+  const result = await waitAt(
+    REBASED + 15 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '60' },
+    { listRunJobs: { rows: [], unavailable: 'gh: HTTP 502' } },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { idle: 960, stall_bound: 600, source: 'checks' },
+  })
+  expect(result.stderr).toBe('progress may miss steps of run 11: gh: HTTP 502\n')
 })
 
 it('keeps the steps it read from a run whose jobs were read in part', async () => {
