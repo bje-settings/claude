@@ -1324,9 +1324,12 @@ it('keeps the steps it read from a run whose jobs were read in part', async () =
 })
 
 it.each([
-  ['a job that finished after its last step', '2026-10-19T20:22:00Z', '2026-10-19T20:16:00Z'],
-  ['a step that finished, with no step after it', null, '2026-10-19T20:21:00Z'],
-])('reads %s as progress', async (_case, jobDone, stepDone) => {
+  // Each wall time is under the bound for the stamp the case names, and
+  // reaches it for every older stamp.
+  ['a job that finished after its last step', '2026-10-19T20:22:00Z', '2026-10-19T20:16:00Z', 12],
+  ['a step that finished, with no step after it', null, '2026-10-19T20:21:00Z', 12],
+  ['a step that started, and still runs', null, null, 10],
+])('reads %s as progress', async (_case, jobDone, stepDone, minutes) => {
   const jobs = {
     rows: [
       {
@@ -1339,7 +1342,7 @@ it.each([
     unavailable: null,
   }
   const result = await waitAt(
-    REBASED + 12 * MINUTE,
+    REBASED + minutes * MINUTE,
     [running(REBASED)],
     { SHEPHERD_WAIT_BOUND: '30' },
     { listRunJobs: jobs },
@@ -1347,7 +1350,7 @@ it.each([
 
   expect(result.document).toMatchObject({
     result: 'pending',
-    progress: { newest: jobDone ?? stepDone, source: 'checks' },
+    progress: { newest: jobDone ?? stepDone ?? '2026-10-19T20:15:00Z', source: 'checks' },
   })
 })
 
