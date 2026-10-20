@@ -206,7 +206,8 @@ was added or removed.
   with the head of its row.
 - **`progress`** (#466) is the last key of the four `wait_*` cases that end `pending`. No
   captured row carries a stamp. So each reads `finished` 1, `checks` 2, `started`, `newest` and
-  `idle` null, and `stall_bound` 600.
+  `idle` null. `stall_bound` is twice `SHEPHERD_CI_SECONDS`, and never under 600: 600 in three
+  cases, and 2000 in `wait_clamps_the_bound_to_the_maximum`, which sets it to 1000.
 
 ## The capture script
 

@@ -354,6 +354,15 @@ describe('checkProgress', () => {
     }
   })
 
+  it('counts only whole seconds idle, so a stall is never early', () => {
+    // 599.5 seconds after the newest stamp is 599 whole seconds.
+    const rollup = [stamped('IN_PROGRESS', '2026-10-20T22:15:19Z')]
+
+    expect(
+      checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T22:15:19Z') + 599_500, 600).idle,
+    ).toBe(599)
+  })
+
   it('reads a wall clock behind GitHub’s as no time idle, not as a negative', () => {
     const rollup = [stamped('IN_PROGRESS', '2026-10-20T22:15:19Z')]
 

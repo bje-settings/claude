@@ -277,29 +277,31 @@ export interface CheckProgress {
   readonly newest: string | null
   /** Whole seconds from `newest` to the wall clock, or null with no stamp. */
   readonly idle: number | null
-  /** How long the checks may make no progress: the larger of the floor
-   *  and the run's own time from `started` to `newest`. */
+  /** How long the checks may make no progress: the larger of the least
+   *  bound and the run's own time from `started` to `newest`. */
   readonly stall_bound: number
 }
 
 /**
- * The progress of the rollup at the wall time `nowMs`, with `floor`
+ * The progress of the rollup at the wall time `wallMs`, with `least`
  * seconds as the least bound (#466).
  *
  * A check that starts or finishes moves `newest`. So `idle` grows only
  * while no check does either. The bound grows with the run: a run that
- * made progress for twenty minutes may then sit still for twenty. The
- * floor covers a run that has only just started.
+ * made progress for twenty minutes may then sit still for twenty. `least`
+ * covers a run that has only just started, and one long job: the stamps
+ * of a job do not move until it finishes.
  *
  * gh writes Go's zero time, `0001-01-01T00:00:00Z`, for a stamp that
- * GitHub has not set, such as the `completedAt` of a running check. That
+ * GitHub has not set, such as the `completedAt` of a check that has not
+ * finished. That
  * stamp, and any other that is not a time, counts as no stamp. No stamp
  * on any row gives an `idle` of null, which is never a stall. Every stamp
  * {@link epochSeconds} accepts has one fixed form, so text order is time
  * order. GitHub does not order the two stamps of one row: a skipped check
  * can finish before it starts.
  */
-export const checkProgress = (pull: unknown, nowMs: number, floor: number): CheckProgress => {
+export const checkProgress = (pull: unknown, wallMs: number, least: number): CheckProgress => {
   const raw = field(pull, 'statusCheckRollup')
   const rollup: unknown[] = Array.isArray(raw) ? raw : []
   const stamps = rollup
@@ -312,7 +314,7 @@ export const checkProgress = (pull: unknown, nowMs: number, floor: number): Chec
     checks: rollup.length,
   }
   if (newest === undefined) {
-    return { ...base, started: null, newest: null, idle: null, stall_bound: floor }
+    return { ...base, started: null, newest: null, idle: null, stall_bound: least }
   }
   // A list with a last entry has a first. Both passed `epochSeconds` above.
   const started = stamps[0] as string
@@ -323,8 +325,8 @@ export const checkProgress = (pull: unknown, nowMs: number, floor: number): Chec
     started,
     newest,
     // A wall clock a little behind GitHub's is no progress, not a negative.
-    idle: Math.max(0, Math.floor(nowMs / 1000 - to)),
-    stall_bound: Math.max(floor, Math.floor(to - from)),
+    idle: Math.max(0, Math.floor(wallMs / 1000 - to)),
+    stall_bound: Math.max(least, Math.floor(to - from)),
   }
 }
 

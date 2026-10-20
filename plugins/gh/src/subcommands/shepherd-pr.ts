@@ -71,10 +71,11 @@ const WAIT_BOUND_MAX = 540
 const WAIT_POLL_DEFAULT = 30
 
 /** The least time, in seconds, that the checks of a head may make no
- *  progress before `wait` reports `stalled` (#466). The bound is the larger
- *  of this and the run's own time so far, so `ci_seconds` does not decide
- *  it: a `ci_seconds` that is too small (#463) cannot make a skip. Ten
- *  minutes is longer than the longest `wait` call, 540 seconds. */
+ *  progress before `wait` reports `stalled` (#466). The bound is the
+ *  largest of this, twice `ci_seconds`, and the run's own time so far. So
+ *  a `ci_seconds` that is too small (#463) cannot make the bound smaller.
+ *  Ten minutes is longer than the longest default `wait` call, 540 seconds
+ *  (`WAIT_BOUND_MAX`). */
 const STALL_FLOOR_DEFAULT = 600
 
 /** Compare statuses that say the head does not contain the tip of its base.
@@ -149,10 +150,9 @@ type PullState = PullSummary & { readonly behind: boolean | null }
  *  it differs from `headRefOid`. Both are `null` for a pull request from
  *  another repository, which has no branch here to read, and for a read
  *  that failed. stderr then says why. */
-interface BranchSync {
-  readonly branchRefOid: string | null
-  readonly inSync: boolean | null
-}
+type BranchSync =
+  | { readonly branchRefOid: string; readonly inSync: boolean }
+  | { readonly branchRefOid: null; readonly inSync: null }
 
 const NO_SYNC: BranchSync = { branchRefOid: null, inSync: null }
 
@@ -212,16 +212,19 @@ cannot make it act on the wrong pull request.
             the rollup), \`idle\` (seconds from \`newest\` to the wall clock)
             and \`stall_bound\`. \`stalled\` means \`idle\` reached
             \`stall_bound\`: no check started or finished for that long. The
-            bound is the larger of SHEPHERD_STALL_FLOOR and the run's own
-            time from \`started\` to \`newest\`, so a long run gets a long
-            bound, and ci_seconds does not set it. A rollup with no stamp
-            has a null \`idle\`, and is never \`stalled\`. Each call decides
-            from the rollup alone, so a caller counts nothing. On failed, \`failing\` lists the failed checks, and
-            \`log_tail\` carries the failed steps' log. \`log_error\` is
-            beside it when gh would not hand the log over. \`waited\` is
-            measured. \`reads_ok\`, \`read_failures\` and \`read_error\` say
-            how the reads went. As in settle, the LAST read decides. A bound
-            that arrives on a failed read is \`ok: false\`, never \`pending\`.
+            bound is the largest of SHEPHERD_STALL_FLOOR, twice ci_seconds,
+            and the run's own time from \`started\` to \`newest\`. So a long
+            run gets a long bound, and one long job gets the median run
+            time twice. A ci_seconds that is too small cannot make the bound
+            smaller. A rollup with no stamp has a null \`idle\`, and is
+            never \`stalled\`. Each call decides from the rollup alone, so a
+            caller counts nothing. On failed, \`failing\` lists the failed
+            checks, and \`log_tail\` carries the failed steps' log.
+            \`log_error\` is beside it when gh would not hand the log over.
+            \`waited\` is measured. \`reads_ok\`, \`read_failures\` and
+            \`read_error\` say how the reads went. As in settle, the LAST
+            read decides. A bound that arrives on a failed read is
+            \`ok: false\`, never \`pending\`.
   settle    the grace between "checks passed" and "auto-merge did not fire".
             Reads the pull request until GitHub answers one way or the other:
             \`merged\`; \`closed\` when it was closed while settling; \`blocked\`
@@ -641,9 +644,13 @@ class Shepherd {
     // reaches the deadline.
     const interval = envInt(env, err, 'SHEPHERD_WAIT_POLL', WAIT_POLL_DEFAULT, POSITIVE_RE)
     const floor = envInt(env, err, 'SHEPHERD_STALL_FLOOR', STALL_FLOOR_DEFAULT, POSITIVE_RE)
+    // The stamps of one job do not move until it finishes. So a job as long
+    // as the median run, with no other check to start or finish, is not a
+    // stall (#466).
+    const least = Math.max(floor, this.options.ciSeconds * 2)
     // The progress of the last read that succeeded, at the time of that
     // read. It needs no state between two calls: the stamps are GitHub's.
-    let progress = checkProgress(raw, this.options.context.clock(), floor)
+    let progress = checkProgress(raw, this.options.context.clock(), least)
     // Measured, not added up from the sleeps, for settle's reason.
     const started = this.options.context.now()
     const spent = (): number => seconds(this.options.context.now() - started)
@@ -681,7 +688,7 @@ class Shepherd {
       readsOk += 1
       stale = false
       raw = fresh
-      progress = checkProgress(raw, this.options.context.clock(), floor)
+      progress = checkProgress(raw, this.options.context.clock(), least)
       pull = await this.withBehind(summary(raw))
     }
 

@@ -1036,6 +1036,26 @@ it('gives a long run a bound as long as the run, so a long quiet job is not a st
   })
 })
 
+it('gives one long job a bound of twice the median run time, so it is not a stall', async () => {
+  // A short job finishes at two minutes, and `test` runs on. Its stamps do
+  // not move until it finishes. Twice a 10 minute median is 20 minutes.
+  const newest = REBASED + 2 * MINUTE
+  const env = { SHEPHERD_CI_SECONDS: '600', SHEPHERD_WAIT_BOUND: '30' }
+
+  // The last read comes 30 seconds after the first.
+  const quiet = await waitAt(newest + 10 * MINUTE, [running(REBASED, [newest])], env)
+  expect(quiet.document).toMatchObject({
+    result: 'pending',
+    progress: { idle: 630, stall_bound: 1200 },
+  })
+
+  const hung = await waitAt(newest + 20 * MINUTE, [running(REBASED, [newest])], env)
+  expect(hung.document).toMatchObject({
+    result: 'stalled',
+    progress: { idle: 1200, stall_bound: 1200 },
+  })
+})
+
 it('reads the progress of a rollup of StatusContext rows from their startedAt', async () => {
   // Rule 15 (g). gh gives a StatusContext a `startedAt`: the time of its
   // newest status (#470, 2026-10-20). A new status is progress.
@@ -1090,8 +1110,10 @@ it('never reports stalled for a rollup with no stamp, such as StatusContext rows
 })
 
 it('takes the floor of the stall bound from SHEPHERD_STALL_FLOOR', async () => {
+  // Twice a 30 second median is under the floor, so the floor decides.
   const result = await waitAt(REBASED + 3 * MINUTE, [running(REBASED)], {
     SHEPHERD_STALL_FLOOR: '120',
+    SHEPHERD_CI_SECONDS: '30',
   })
 
   expect(result.document).toMatchObject({

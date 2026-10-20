@@ -171,8 +171,8 @@ high), oldest first within a band.
 | Not ready, without `--all` | `state` reports `approval` `missing` or `threads` `unresolved`. A review can be dismissed during a run. Skipped, with "needs an approval" or "has unresolved review threads", before any rebase or wait. |
 | Behind its base | `gh pr update-branch --rebase`, no checkout. Read the pull request every 5 seconds until the head moves, for at most 60 seconds. Then wait. GitHub's compare of the base and the head decides "behind". `mergeStateStatus` does not, because it reads `BLOCKED` while a check is pending. A head that is behind is rebased before any wait. When the compare cannot be read, `mergeStateStatus` decides. |
 | Conflicts | In a throwaway worktree, `git merge origin/<base>` into the head branch, for any author. Regenerate a lockfile with the repository's own package manager. Keep the keys of both sides in a manifest. Keep both intents in code. Verify locally, commit, and run a plain `git push`. Then wait for CI. Never rebase, and never force-push. |
-| Checks in progress | Wait one CI cycle: read the pull request and the compare every 30 seconds. The bound is twice the repo's median run time, at most nine minutes per call. A base that moves during the wait ends it at the next poll, and the head is rebased. While a check starts or finishes, the skill waits on, however many calls that takes. |
-| Checks stalled | `wait` returns `stalled` when no check started or finished for the stall bound: the larger of ten minutes and the run's own time from its first check stamp to its newest. Skipped ("checks made no progress"), with the progress `wait` read. |
+| Checks in progress | Wait one CI cycle: read the pull request and the compare every 30 seconds. The bound is twice the repo's median run time, at most nine minutes per call. A base that moves during the wait ends it at the next poll, and the head is rebased. While a check starts or finishes, the agent calls `wait` again, however many calls that takes. |
+| Checks stalled | `wait` returns `stalled` when no check started or finished for the stall bound: the largest of ten minutes, twice the repo's median run time, and the run's own time from its first check stamp to its newest. Skipped ("checks made no progress"), with the progress `wait` read. |
 | Checks green, auto-merge fired | Record it with the merge commit. Continue. |
 | Checks green, still open | `settle`: read the pull request until GitHub decides. Record `merged` as merged, and `closed` as closed. A `BLOCKED` merge state seen twice, or a `REVIEW_REQUIRED`/`CHANGES_REQUESTED` review decision seen once, is skipped. The reason names that field. `BEHIND` or `DIRTY` sends the loop back to decide again. If the bound passes with nothing reported, that itself is the reason. Never merge it by hand. |
 | Checks failed, mechanical or caused by the base | Fix it once, in a throwaway worktree, and push. Examples: a lockfile to regenerate, a formatter, a pin that must move in step, a snapshot refresh, or a configuration move that the new base requires (an override from `package.json` to `pnpm-workspace.yaml` for pnpm 12). A pull request that had conflicts gets one merge push and one fix. A second failure is a skip that names both attempts and the conflicted files. |
@@ -198,10 +198,11 @@ read, with no poll at all.
 `wait` decides when the checks stall, not the agent (#466). GitHub puts a `startedAt` and a
 `completedAt` on each check, and gh gives a status a `startedAt` too. `wait` compares the newest
 stamp with the wall clock. When no check started or finished for the stall bound, it returns
-`stalled`. The bound is the larger of ten minutes (`SHEPHERD_STALL_FLOOR`) and the run's own time
-from its first stamp to its newest. So a run that made progress for twenty minutes may sit still
-for twenty. The CI median does not set the bound, so a median that is too small does not cause a
-skip. Each call decides from the rollup alone. The agent counts no `pending` result. `pending`
+`stalled`. The bound is the largest of three values: ten minutes (`SHEPHERD_STALL_FLOOR`), twice
+the CI median, and the run's own time from its first stamp to its newest. So a run that made
+progress for twenty minutes may sit still for twenty. The stamps of one job do not move until it
+finishes, so one long job needs the median. A median that is too small cannot make the bound
+smaller than the other two values. Each call decides from the rollup alone. The agent counts no `pending` result. `pending`
 and `stalled` carry `progress`: the checks finished, the first and newest stamps, `idle`, and
 `stall_bound`. A rollup with no stamp at all is never `stalled`.
 
