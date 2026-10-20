@@ -131,11 +131,11 @@ ported call site already has a branch for a child that failed. None of them want
 around the call. Three properties are why this exists instead of `execFile`:
 
 - **A bound that stays.** `{ timeoutMs }` starts the child detached. When the bound fires, `run`
-  kills the whole process group, not just the one child this process holds. `gh pr checks --watch`
-  polls in a loop, and the sync fan-out starts one child per repository. A kill of only the parent
+  kills the whole process group, not just the one child this process holds. A `gh` call can
+  poll in a loop, and the sync fan-out starts one child per repository. A kill of only the parent
   would leave those children active on the network long after the caller gave up. `timedOut`
   says whether the bound fired. `elapsedMs` says how long the child actually took, because a
-  watcher that returned early did not wait for the full bound.
+  child that ended early did not wait for the full bound.
 - **"Could not start" apart from "ran and failed."** `startFailure` carries node's own error code.
   `status` carries the shell's convention for the same fact: 127 for a command that is not there,
   126 for one that is there but will not run. That mapping comes from `lib/install.py`, kept so a
@@ -251,7 +251,7 @@ Every member of `GhError` is public. `tsc` sees each file here under two paths: 
 copy in `plugins/<p>/src/lib/`. A `private` or `protected` member would make the class nominal
 per declaration, and the two identities would no longer be assignable to each other.
 
-Two inputs are required, where an optional one would let back in a defect this layer exists to
+Two pull request inputs are required, where an optional one would let back in a defect this layer exists to
 close. `listMergedPullRequests`'s `limit` is one: left out, gh substitutes 30, and the caller has
 no number to judge saturation against, so a truncated window reads as a complete answer.
 `updateBranch`'s `rebase` is the other: left out, gh writes a merge commit onto someone's head

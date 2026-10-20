@@ -130,7 +130,7 @@ export interface RunResult {
    *  the caller that publishes a status, not this file. */
   readonly timedOut: boolean
   /** How long the child actually took. `gh-shepherd-pr.py:266` measures the
-   *  same thing, for the same reason. A watcher that returns early did not
+   *  same thing, for the same reason. A child that ends early did not
    *  wait the full time limit. To say it did wait would mislead a caller
    *  that must decide whether to wait again. */
   readonly elapsedMs: number
@@ -174,7 +174,7 @@ export type Runner = (
  *
  * This is the port of `kill_group` (`hook-io.py:236`,
  * `gh-shepherd-pr.py:234`). It is also why {@link run} starts a bounded
- * child detached. `gh pr checks --watch` polls in a loop, and the sync
+ * child detached. A `gh` call can poll in a loop, and the sync
  * fan-out starts a child per repository. Suppose this code killed only the
  * one child this process holds. That child's own children would stay
  * active on the network, long after the caller gave up. A detached child
