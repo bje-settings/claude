@@ -189,6 +189,10 @@ const drive = async (
       return options.gh ?? createGhServer({ prs: [], replies: { viewRepository: REPOSITORY } })
     },
     now: options.now ?? (() => 0),
+    // This command never reads the wall clock either.
+    clock: () => {
+      throw new Error('shepherd-status must not read the wall clock')
+    },
     // This command never calls `sleep`. A timer here would create a promise
     // that never resolves, not a wait that nobody notices.
     sleep: async () => {

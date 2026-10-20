@@ -20,6 +20,7 @@ import {
   recording,
   UNAVAILABLE,
   UPDATED,
+  WALL,
 } from './shepherd-pr.test-support.ts'
 
 // --- usage and the preflight ----------------------------------------------------
@@ -389,6 +390,7 @@ const rebaseOnClock = async (
     output: writers.output,
     createGh: () => gh,
     now: () => elapsed,
+    clock: () => WALL + elapsed,
     sleep: async (milliseconds) => {
       sleeps += 1
       if (milliseconds <= 0 || sleeps >= 100) throw new Error(`runaway sleep ${milliseconds}`)

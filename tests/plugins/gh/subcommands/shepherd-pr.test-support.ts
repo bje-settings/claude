@@ -147,16 +147,22 @@ export const comparing = (
   }
 }
 
+/** Where the test wall clock starts: a time after every stamp in the
+ *  harness rows, on the day of the field test (#466). */
+export const WALL = Date.parse('2026-10-20T22:30:00Z')
+
 /** A clock that moves only when something sleeps. A bound then arrives
- *  without a real wait. */
+ *  without a real wait. The wall clock moves with it, from {@link WALL}. */
 export const fakeTime = (): {
   now: () => number
+  clock: () => number
   sleep: (ms: number) => Promise<void>
   at: () => number
 } => {
   let elapsed = 0
   return {
     now: () => elapsed,
+    clock: () => WALL + elapsed,
     sleep: async (milliseconds: number) => {
       // No action sleeps for zero or less. Such a sleep does not move this
       // clock, so a loop that waits for the clock would hang the test. The
@@ -245,6 +251,7 @@ export const drive = async (
       return gh
     },
     now: time.now,
+    clock: time.clock,
     sleep: time.sleep,
   }
   const status = await runShepherdPr(options.argv, context)

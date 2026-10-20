@@ -62,6 +62,10 @@ export interface ShepherdContext {
    *  accumulates ("the reads between two sleeps take time of their own",
    *  `gh-shepherd-pr.py:838`), so it needs a clock and not a counter. */
   readonly now: () => number
+  /** The wall clock, in milliseconds since the epoch. `wait` compares it
+   *  with the stamps GitHub puts on each check, which are wall time too
+   *  (#466). `now` cannot do that: it counts from an arbitrary start. */
+  readonly clock: () => number
   /** Wait this many milliseconds. Injected, so a poll that waits 90 seconds
    *  of GitHub's time waits none of a test's. */
   readonly sleep: (milliseconds: number) => Promise<void>
