@@ -411,6 +411,5 @@ export function createGhServer(options: GhServerOptions = {}): GhClient {
     readFailedRunLog: async (run) => registered('readFailedRunLog') ?? base.readFailedRunLog(run),
     updateBranch: async (pull) => registered('updateBranch') ?? base.updateBranch(pull),
     addComment: async (comment) => registered('addComment') ?? base.addComment(comment),
-    watchChecks: async (pull) => registered('watchChecks') ?? base.watchChecks(pull),
   }
 }

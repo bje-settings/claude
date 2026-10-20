@@ -53,7 +53,6 @@ export type {
   RepositoryStatus,
   RequiredReviews,
   RunQuery,
-  WatchResult,
   WorkflowRun,
 } from '../lib/gh.ts'
 export { GhError } from '../lib/gh.ts'
@@ -130,7 +129,6 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     readFailedRunLog: async () => answer(replies, 'readFailedRunLog'),
     updateBranch: async () => answer(replies, 'updateBranch'),
     addComment: async () => answer(replies, 'addComment'),
-    watchChecks: async () => answer(replies, 'watchChecks'),
     issueStates: async () => answer(replies, 'issueStates'),
     listMilestones: async () => answer(replies, 'listMilestones'),
     listIssues: async () => answer(replies, 'listIssues'),

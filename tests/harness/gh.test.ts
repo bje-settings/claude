@@ -23,7 +23,6 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['readFailedRunLog', (client) => client.readFailedRunLog({ run: 1234, job: 99 })],
   ['updateBranch', (client) => client.updateBranch({ pullRequest: 7, rebase: true })],
   ['addComment', (client) => client.addComment({ pullRequest: 7, body: 'hello' })],
-  ['watchChecks', (client) => client.watchChecks({ pullRequest: 7, interval: 30, boundMs: 1_000 })],
   ['issueStates', (client) => client.issueStates({ numbers: [127, 164] })],
   ['listMilestones', (client) => client.listMilestones()],
   ['listIssues', (client) => client.listIssues({ milestone: '4' })],
@@ -79,7 +78,6 @@ it('answers every endpoint it declares', async () => {
     readFailedRunLog: 'FAIL tests/thing\n',
     updateBranch: 'Updated branch\n',
     addComment: 'https://github.com/acme/widgets/pull/7#issuecomment-1\n',
-    watchChecks: { status: 0, timedOut: false, waitedMs: 12, problem: '' },
     issueStates: { states: { '127': 'OPEN', '164': 'not_found' }, unavailable: null },
     listMilestones: {
       rows: [{ number: 4, title: 'workstreams primitives', openIssues: 13, closedIssues: 1 }],

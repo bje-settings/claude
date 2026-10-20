@@ -298,41 +298,6 @@ describe('argv', () => {
     await gh.addComment({ pullRequest: 7 })
   })
 
-  it('watches the checks under a bound, with the flags it was given', async () => {
-    // gh 2.98.0 refuses `--watch` with `--json`, and refuses `--interval`
-    // without `--watch`. So this call carries no `--json` at all. The
-    // caller reads the rollup afterwards with `viewPullRequest`, as
-    // `gh-shepherd-pr.py:668` does. `--fail-fast` is what that script
-    // passes.
-    //
-    // This assertion covers EVERY call, not just the first one plus a
-    // count. The contract is that the watch is the only round trip this
-    // endpoint makes: no second `gh pr checks --json` read, which the one
-    // consumer never reads and which fails outright on a pull request with
-    // no checks. An assertion over the whole list pins the argv and the
-    // absence of a second call together. A count would pin a number, and
-    // name nothing when it broke: that is the kind of call-count assertion
-    // `harness/README.md` refuses.
-    const { gh, calls } = clientAnswering({ stdout: '' })
-    await gh.watchChecks({ pullRequest: 7, interval: 30, failFast: true, boundMs: 90_000 })
-    expect(calls.map((call) => call.args)).toEqual([
-      ['pr', 'checks', '7', '--watch', '--fail-fast', '--interval', '30'],
-    ])
-    expect(calls[0]?.timeoutMs).toBe(90_000)
-  })
-
-  it('watches with only the bound when it was given no flags', async () => {
-    // The bound is the one thing that is not optional. Round 5's handoff
-    // fact 1 is that #154 left this call unbounded, and `process.ts`
-    // detaches only a bounded child, so an unbounded watch could not be
-    // group-killed either. The type refuses a call that omits the bound,
-    // which is why there is no unbounded example here to test.
-    const { gh, calls } = clientAnswering({ stdout: '' })
-    await gh.watchChecks({ pullRequest: 7, failFast: false, boundMs: 45_000 })
-    expect(calls[0]?.args).toEqual(['pr', 'checks', '7', '--watch'])
-    expect(calls[0]?.timeoutMs).toBe(45_000)
-  })
-
   it('names the repository on every call when it was given one', async () => {
     // Round 5's handoff fact 4: the shepherd scripts run from wherever the
     // agent started, not from the checkout, so they name the repository on
@@ -355,7 +320,6 @@ describe('argv', () => {
     await log.gh.readFailedRunLog({ run: 1234 })
     await log.gh.updateBranch({ pullRequest: 7, rebase: false })
     await log.gh.addComment({ pullRequest: 7, body: 'hi' })
-    await log.gh.watchChecks({ pullRequest: 7, boundMs: 1_000 })
 
     const fields =
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,reviews'
@@ -392,7 +356,6 @@ describe('argv', () => {
       ['run', 'view', '1234', '--repo', 'acme/widgets', '--log-failed'],
       ['pr', 'update-branch', '7', '--repo', 'acme/widgets'],
       ['pr', 'comment', '7', '--repo', 'acme/widgets', '--body', 'hi'],
-      ['pr', 'checks', '7', '--repo', 'acme/widgets', '--watch'],
     ])
   })
 
@@ -471,7 +434,7 @@ describe('the client bound (ruling 4, #295)', () => {
 
   it('does not override a call that already carries its own bound', async () => {
     const { gh, calls } = clientAnswering({ stdout: '' }, { boundMs: 5_000 })
-    await gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })
+    await gh.repositoryStatus(['acme/widgets'], { boundMs: 90_000 })
     expect(calls[0]?.timeoutMs).toBe(90_000)
   })
 
@@ -698,111 +661,6 @@ describe('refusals', () => {
       'gh answered gh repo view with something that is not an object',
     )
     expect((error as GhError).detail).toBe((error as GhError).message)
-  })
-})
-
-describe('the checks watch', () => {
-  it('answers with the status when a check failed, rather than throwing', async () => {
-    // `gh pr checks --watch` reports through its exit status: 1 means a
-    // check failed, 8 means still pending. To read those as transport
-    // failures is how a red rollup arrives as a broken token.
-    const { gh } = clientAnswering({ status: 1, stderr: 'Some checks were not successful\n' })
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toEqual({
-      status: 1,
-      timedOut: false,
-      waitedMs: 0,
-      problem: 'Some checks were not successful\n',
-    })
-  })
-
-  it('answers with the status when the checks are still pending', async () => {
-    const { gh } = clientAnswering({ status: 8, elapsedMs: 12_000 })
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
-      status: 8,
-      waitedMs: 12_000,
-      problem: '',
-    })
-  })
-
-  it('says the bound fired, and how long it actually waited', async () => {
-    // Round 5's handoff fact 1. The Python publishes this as 124, the way
-    // coreutils `timeout` does, and that translation is the caller's.
-    const { gh } = clientAnswering({
-      status: null,
-      signal: 'SIGKILL',
-      timedOut: true,
-      elapsedMs: 90_012,
-    })
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toEqual({
-      status: null,
-      timedOut: true,
-      waitedMs: 90_012,
-      problem: '',
-    })
-  })
-
-  it('names the signal when something other than the bound killed the watch', async () => {
-    // The OOM killer, a SIGHUP when the terminal closed, or a supervisor's
-    // SIGTERM: each is a case like this one. `status` is null, so it is not
-    // one of WATCHER_CODES, and `timedOut` is false, so the caller is told
-    // it did not time out either. If `problem` were also empty, the
-    // shepherd would print a blank reason for a watch that died, and that
-    // is the silence this field exists to prevent. The Python never has
-    // this problem: `run_bounded` drains stderr a second time after the
-    // kill (`gh-shepherd-pr.py:286` to `291`).
-    const { gh } = clientAnswering({ status: null, signal: 'SIGKILL', elapsedMs: 340 })
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toEqual({
-      status: null,
-      timedOut: false,
-      waitedMs: 340,
-      problem: 'gh was killed by SIGKILL',
-    })
-  })
-
-  it("keeps gh's own words when a signal ended a watch that had already said something", async () => {
-    const { gh } = clientAnswering({
-      status: null,
-      signal: 'SIGTERM',
-      stderr: 'could not reach api.github.com\n',
-    })
-    // Whole, with its newline. `problem` is documented as what the watch
-    // said on stderr, entire, and the caller does the tail itself. Before
-    // this fix, the signal arm alone went through `accountOf`, which trims.
-    // So the same field either kept a trailing newline or lost it, based on
-    // whether a signal arrived.
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
-      problem: 'could not reach api.github.com\n',
-    })
-  })
-
-  it('reports a pipe that failed rather than the words that got through', async () => {
-    // A watch must not throw, so the account of the broken pipe goes where
-    // gh's own words would have gone. To answer with the partial stderr
-    // would hand the caller a confident half-sentence.
-    const { gh } = clientAnswering({
-      status: 1,
-      stderr: 'Some checks were not su',
-      streamErrors: [{ code: 'EIO', message: 'read EIO' }],
-    })
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
-      status: 1,
-      problem: "gh's output could not be read: EIO, read EIO",
-    })
-  })
-
-  it('reports a gh that could not be started at all, without throwing', async () => {
-    // `run_bounded` answers 127 here, rather than raise an error, because
-    // its caller reports it as a refusal that carries what gh printed
-    // (`gh-shepherd-pr.py:279` to `284`). To hand some outcomes back as
-    // values and the rest as exceptions is what that caller cannot use.
-    const { gh } = clientAnswering({
-      status: 127,
-      startFailure: { code: 'ENOENT', message: 'spawn gh ENOENT' },
-    })
-    await expect(gh.watchChecks({ pullRequest: 7, boundMs: 90_000 })).resolves.toMatchObject({
-      status: 127,
-      problem: 'cannot run gh: spawn gh ENOENT',
-    })
   })
 })
 
@@ -1213,7 +1071,6 @@ it("defaults to the root lib's own process runner", () => {
     'viewPullRequest',
     'viewPullRequestDetail',
     'viewRepository',
-    'watchChecks',
   ])
 })
 

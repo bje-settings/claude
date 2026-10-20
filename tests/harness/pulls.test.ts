@@ -286,9 +286,6 @@ it('answers every endpoint it was given no set for the way createGhMock does', a
     'no reply registered',
   )
   await expect(gh.addComment({ pullRequest: 1, body: 'x' })).rejects.toThrow('no reply registered')
-  await expect(gh.watchChecks({ pullRequest: 1, boundMs: 1 })).rejects.toThrow(
-    'no reply registered',
-  )
 })
 
 it('lets a registered reply outrank the pull-request set', async () => {
@@ -378,12 +375,12 @@ it('counts each endpoint’s sequence on its own', async () => {
   const gh = createGhServer({
     sequences: {
       viewPullRequest: [{ number: 1 }, { number: 2 }],
-      watchChecks: [{ status: 8, timedOut: false, waitedMs: 1, problem: '' }],
+      readFailedRunLog: ['a log\n'],
     },
   })
 
   await expect(gh.viewPullRequest({ pullRequest: 1 })).resolves.toEqual({ number: 1 })
-  await expect(gh.watchChecks({ pullRequest: 1, boundMs: 1 })).resolves.toMatchObject({ status: 8 })
+  await expect(gh.readFailedRunLog({ run: 1 })).resolves.toBe('a log\n')
   await expect(gh.viewPullRequest({ pullRequest: 1 })).resolves.toEqual({ number: 2 })
 })
 
@@ -397,7 +394,6 @@ it('drives every endpoint from a sequence, not just the pull-request ones', asyn
       readFailedRunLog: ['a log\n'],
       updateBranch: ['updated\n'],
       addComment: ['posted\n'],
-      watchChecks: [{ status: 0, timedOut: false, waitedMs: 0, problem: '' }],
     },
   })
 
@@ -410,7 +406,6 @@ it('drives every endpoint from a sequence, not just the pull-request ones', asyn
   await expect(gh.readFailedRunLog({ run: 1 })).resolves.toBe('a log\n')
   await expect(gh.updateBranch({ pullRequest: 1, rebase: true })).resolves.toBe('updated\n')
   await expect(gh.addComment({ pullRequest: 1, body: 'x' })).resolves.toBe('posted\n')
-  await expect(gh.watchChecks({ pullRequest: 1, boundMs: 5 })).resolves.toMatchObject({ status: 0 })
 })
 
 it('refuses an empty sequence rather than answering undefined', async () => {
