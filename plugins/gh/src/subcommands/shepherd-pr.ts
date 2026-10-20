@@ -67,8 +67,10 @@ const WAIT_BOUND_MAX = 540
 
 /** How often `wait` reads the pull request and the compare, in seconds. Each
  *  read is three `gh` calls: the pull request, the repository and the
- *  compare. A 540 second bound is 19 reads, so at most 57 calls. A failed
- *  check adds one call for its log (#460). */
+ *  compare. A 540 second bound is 19 reads, so 57 calls. A pending read
+ *  adds one call for each Actions run with a pending check, and one for the
+ *  date of the head when no check has a stamp (#466). A failed check adds
+ *  one call for its log (#460). */
 const WAIT_POLL_DEFAULT = 30
 
 /** The least time, in seconds, that the checks of a head may make no
@@ -213,18 +215,22 @@ cannot make it act on the wrong pull request.
             from \`newest\` to the wall clock), \`stall_bound\` and \`source\`.
             The stamps are the startedAt and completedAt of each rollup row,
             and of each job and step of each Actions run with a pending
-            check (one read of the run's jobs per poll). \`stalled\` means
+            check (one read of the jobs of each such run, per poll).
+            \`stalled\` means
             \`idle\` reached \`stall_bound\`: no check, job or step started
             or finished for that long. The bound is the largest of
             SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's own time
             from \`started\` to \`newest\`. So a long run gets a long bound,
             and a ci_seconds that is too small cannot make the bound
-            smaller. A jobs read that fails costs only its steps (stderr
-            says why). With no stamp at all, the date of the head commit is
-            the one stamp, and \`source\` is \`head commit\`, so a check that
-            never starts still ends in \`stalled\`. When that date cannot be
-            read either, \`idle\` is null (stderr says why). Each call
-            decides from what it reads, so a caller counts nothing. On failed, \`failing\` lists the failed
+            smaller. A poll whose jobs read fails, in full or in part, is
+            never \`stalled\`: the steps it missed may have moved (stderr
+            says why). With no stamp at all, the newer of the head commit's
+            date and the pull request's updatedAt is the one stamp, and
+            \`source\` is \`head commit\`. So a check that never starts still
+            ends in \`stalled\`, and a commit made long before its push does
+            not stall at once. With neither date, \`idle\` is null (stderr
+            says why). Each call decides from what it reads, so a caller
+            counts nothing. On failed, \`failing\` lists the failed
             checks, and \`log_tail\` carries the failed steps' log.
             \`log_error\` is beside it when gh would not hand the log over.
             \`waited\` is measured. \`reads_ok\`, \`read_failures\` and
@@ -263,7 +269,8 @@ Environment:
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
   SHEPHERD_WAIT_POLL     interval between two wait reads (default 30).
-  SHEPHERD_STALL_FLOOR   the least \`stall_bound\`, in seconds (default 600).
+  SHEPHERD_STALL_FLOOR   the least \`stall_bound\`, in seconds, when twice
+                         ci_seconds is not larger (default 600).
   SHEPHERD_SETTLE_BOUND  how long \`settle\` waits with no evidence either way,
                          in seconds (default 90).
   SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).
@@ -715,9 +722,9 @@ class Shepherd {
     // reaches the deadline.
     const interval = envInt(env, err, 'SHEPHERD_WAIT_POLL', WAIT_POLL_DEFAULT, POSITIVE_RE)
     const floor = envInt(env, err, 'SHEPHERD_STALL_FLOOR', STALL_FLOOR_DEFAULT, POSITIVE_RE)
-    // The stamps of one job do not move until it finishes. So a job as long
-    // as the median run, with no other check to start or finish, is not a
-    // stall (#466).
+    // A check with no steps to read, such as one that is not an Actions
+    // job, stamps only when it starts and finishes. So a check as long as
+    // the median run is not a stall (#466).
     const least = Math.max(floor, this.options.ciSeconds * 2)
     // The progress of the last read that succeeded, at the time of that
     // read. It needs no state between two calls: the stamps are GitHub's.

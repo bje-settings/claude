@@ -70,9 +70,9 @@ flowchart TD
         W3 -->|Head behind its base| WBH
         W3 -->|Passed| WP
         W3 -->|A check failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
-        W3 -->|Pending| WJ[Read the jobs of each Actions run with a pending check;<br/>a failed read costs its steps, stderr says why]
+        W3 -->|Pending| WJ[Read the jobs of each Actions run with a pending check;<br/>a failed read gives no stall on this poll, stderr says why]
         WJ --> WK{Any stamp on a check, job or step?}
-        WK -->|No| WD[The head commit date is the one stamp;<br/>unreadable: idle null, stderr says why]
+        WK -->|No| WD[The newer of the head commit date and updatedAt<br/>is the one stamp; neither: idle null, stderr says why]
         WK -->|Yes| WL
         WD --> WL{Idle for the stall bound?}
         WL -->|Yes| WS([ok true: result stalled,<br/>with the progress, exit 0])

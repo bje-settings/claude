@@ -288,7 +288,8 @@ it('draws the jobs read and the head commit fallback in the shepherd-pr flow', (
     '```',
   )
   expect(body).toContain('Read the jobs of each Actions run with a pending check')
-  expect(body).toContain('The head commit date is the one stamp')
+  expect(body).toContain('The newer of the head commit date and updatedAt')
+  expect(body).toContain('a failed read gives no stall on this poll')
 })
 
 it('decides from the merge state when the compare could not be read', () => {

@@ -635,7 +635,8 @@ which `unavailable` quotes.
 
 `commitDate` reads `repos/{owner}/{name}/commits/{sha}` and answers `{ date, unavailable }`, with
 the committer date. `shepherd-pr wait` reads a step that starts or finishes as progress, and
-measures a rollup with no stamp from the head commit's date (#466).
+measures a rollup with no stamp from the newer of that date and the pull request's `updatedAt`
+(#466).
 
 ### `listPullRequestStatuses` and `createCommitStatus`
 

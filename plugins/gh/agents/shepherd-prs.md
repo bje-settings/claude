@@ -132,6 +132,7 @@ number, in the order given:
      `wait` decides from the stamps of the checks and of their job steps when they stall. Never
      count `pending` results toward a skip.
    - `stalled` → no check, job or step started or finished for `progress.stall_bound` seconds.
+     With `progress.source` `head commit`, no check has a stamp, and the head is that old.
      Record the pull request as skipped ("checks made no progress"), with `progress.newest`,
      `progress.idle`, `progress.stall_bound` and `progress.source`. Then continue.
    - `failed` → classify the failure (step 4).
