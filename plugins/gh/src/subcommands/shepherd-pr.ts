@@ -216,22 +216,21 @@ cannot make it act on the wrong pull request.
             The stamps are the startedAt and completedAt of each rollup row,
             and of each job and step of each Actions run with a pending
             check (one read of the jobs of each such run, per poll).
-            \`stalled\` means
-            \`idle\` reached \`stall_bound\`: no check, job or step started
-            or finished for that long. The bound is the largest of
-            SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's own time
-            from \`started\` to \`newest\`. So a long run gets a long bound,
-            and a ci_seconds that is too small cannot make the bound
+            \`stalled\` means \`idle\` reached \`stall_bound\`: no check, job
+            or step started or finished for that long. The bound is the
+            largest of SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's
+            own time from \`started\` to \`newest\`. So a long run gets a long
+            bound, and a ci_seconds that is too small cannot make the bound
             smaller. A poll whose jobs read fails, in full or in part, is
-            never \`stalled\`: the steps it missed may have moved (stderr
-            says why). With no stamp at all, the newer of the head commit's
-            date and the pull request's updatedAt is the one stamp, and
-            \`source\` is \`head commit\`. So a check that never starts still
-            ends in \`stalled\`, and a commit made long before its push does
-            not stall at once. With neither date, \`idle\` is null (stderr
-            says why). Each call decides from what it reads, so a caller
-            counts nothing. On failed, \`failing\` lists the failed
-            checks, and \`log_tail\` carries the failed steps' log.
+            never \`stalled\`: the steps it missed may have moved (stderr says
+            why). With no stamp at all, the newer of the head commit's date
+            and the pull request's updatedAt is the one stamp, and \`source\`
+            is \`head commit\`. So a check that never starts still ends in
+            \`stalled\`, and a commit made long before its push does not stall
+            at once. With neither date, \`idle\` is null (stderr says why).
+            Each call decides from what it reads, so a caller counts nothing.
+            On failed, \`failing\` lists the failed checks, and \`log_tail\`
+            carries the failed steps' log.
             \`log_error\` is beside it when gh would not hand the log over.
             \`waited\` is measured. \`reads_ok\`, \`read_failures\` and
             \`read_error\` say how the reads went. As in settle, the LAST
@@ -523,10 +522,10 @@ class Shepherd {
    *
    * A rollup with no stamp at all is measured from the newer of the date of
    * the head commit and the last update of the pull request (ruling 13 on
-   * #466). A push moves `updatedAt`, so a commit made long before its push
-   * does not stall at once. So a check that never started still ends in
-   * `stalled`. When neither time can be read, `idle` is null, and stderr
-   * says why.
+   * #466). So a check that never started still ends in `stalled`. A push
+   * moves `updatedAt`, so a commit made long before its push does not stall
+   * at once. When neither time can be read, `idle` is null, and stderr says
+   * why.
    */
   async progressOf(
     pull: Record<string, unknown>,

@@ -197,20 +197,19 @@ read, with no poll at all.
 
 `wait` decides when the checks stall, not the agent (#466). GitHub puts a `startedAt` and a
 `completedAt` on each check, and gh gives a status a `startedAt` too. For each Actions run with a
-pending check, `wait` also reads the jobs of the run, with the same two stamps on each job and
-each step. `wait` compares the newest stamp with the wall clock. When no check, job or step
-started or finished for the stall bound, it returns `stalled`. The bound is the largest of three values: ten minutes (`SHEPHERD_STALL_FLOOR`), twice
-the CI median, and the run's own time from its first stamp to its newest. So a run that made
-progress for twenty minutes may sit still for twenty. The stamps of one job do not move until it
-finishes, but its steps do. So one long job is progress while its steps finish. A median that is
-too small cannot make the bound smaller than the other two values. A poll whose jobs read fails
-is never `stalled`, because the steps it missed may have moved, and stderr says why. A rollup with
-no stamp at all is measured from the newer of the head commit's date and the pull request's last
-update. So a check that never starts still ends in `stalled`, and a commit made long before its
-push does not stall at once. Each call
-decides from what it reads. The agent counts no `pending` result. `pending` and `stalled` carry
-`progress`: the checks finished, the first and newest stamps, `idle`, `stall_bound`, and `source`
-(`checks` or `head commit`).
+pending check, `wait` also reads the jobs of the run, with the same two stamps on each job and each
+step. `wait` compares the newest stamp with the wall clock. When no check, job or step started or
+finished for the stall bound, it returns `stalled`. The bound is the largest of three values: ten
+minutes (`SHEPHERD_STALL_FLOOR`), twice the CI median, and the run's own time from its first stamp
+to its newest. So a run that made progress for twenty minutes may sit still for twenty. The stamps
+of one job do not move until it finishes, but its steps do. So one long job is progress while its
+steps finish. A median that is too small cannot make the bound smaller than the other two values. A
+poll whose jobs read fails is never `stalled`, because the steps it missed may have moved, and
+stderr says why. A rollup with no stamp at all is measured from the newer of the head commit's date
+and the pull request's last update. So a check that never starts still ends in `stalled`, and a
+commit made long before its push does not stall at once. Each call decides from what it reads. The
+agent counts no `pending` result. `pending` and `stalled` carry `progress`: the checks finished, the
+first and newest stamps, `idle`, `stall_bound`, and `source` (`checks` or `head commit`).
 
 Each poll reads the pull request and GitHub's compare of its base and its head. A head that does
 not contain the tip of its base returns `behind`. This occurs before the first poll, or at the
