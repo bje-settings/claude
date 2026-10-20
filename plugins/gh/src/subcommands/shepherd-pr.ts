@@ -77,9 +77,11 @@ const WAIT_POLL_DEFAULT = 30
  *  progress before `wait` reports `stalled` (#466). The bound is the
  *  largest of this, twice `ci_seconds`, and the run's own time so far. So
  *  a `ci_seconds` that is too small (#463) cannot make the bound smaller.
- *  Ten minutes is longer than the longest default `wait` call, 540 seconds
- *  (`WAIT_BOUND_MAX`). */
-const STALL_FLOOR_DEFAULT = 600
+ *  1620 seconds is three default `wait` calls at their longest, 540 seconds
+ *  each (`WAIT_BOUND_MAX`). That is what the agent's old rule of three
+ *  `pending` results allowed, so no healthy long step skips sooner than it
+ *  did before #466 (ruling 14). */
+const STALL_FLOOR_DEFAULT = 1620
 
 /** Compare statuses that say the head does not contain the tip of its base.
  *  `diverged` is in this list too: the base has commits that the head lacks.
@@ -269,7 +271,7 @@ Environment:
                          tests and for repos whose CI is far from typical.
   SHEPHERD_WAIT_POLL     interval between two wait reads (default 30).
   SHEPHERD_STALL_FLOOR   the least \`stall_bound\`, in seconds, when twice
-                         ci_seconds is not larger (default 600).
+                         ci_seconds is not larger (default 1620).
   SHEPHERD_SETTLE_BOUND  how long \`settle\` waits with no evidence either way,
                          in seconds (default 90).
   SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).

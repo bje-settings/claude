@@ -985,10 +985,10 @@ it('never skips a run whose checks still finish, past three pending results', as
 })
 
 it('reports stalled once no check started or finished for the bound, with the progress', async () => {
-  // Rule 15 (f). The newest stamp is 500 seconds old when the call starts.
-  // Reads every 30 seconds see it at 530, 560, 590 and 620 seconds.
+  // Rule 15 (f). The newest stamp is 1500 seconds old when the call starts.
+  // Reads every 30 seconds see it at 1530, 1560, 1590 and 1620 seconds.
   const newest = REBASED + 2 * MINUTE
-  const result = await waitAt(newest + 500_000, [running(REBASED, [newest])])
+  const result = await waitAt(newest + 1_500_000, [running(REBASED, [newest])])
 
   expect(result.document).toMatchObject({
     ok: true,
@@ -1003,12 +1003,12 @@ it('reports stalled once no check started or finished for the bound, with the pr
       checks: 2,
       started: '2026-10-19T20:14:00Z',
       newest: '2026-10-19T20:16:00Z',
-      idle: 620,
-      stall_bound: 600,
+      idle: 1620,
+      stall_bound: 1620,
     },
   })
   expect(result.document.detail).toBe(
-    'no check started or finished for 620s; the stall bound is 600s',
+    'no check started or finished for 1620s; the stall bound is 1620s',
   )
   expect(Object.keys(result.document).at(-1)).toBe('progress')
   expect(result.elapsed).toBe(120_000)
@@ -1023,42 +1023,43 @@ it('reports stalled from the first read, with no sleep, for a run already still'
     result: 'stalled',
     waited: 0,
     reads_ok: 1,
-    progress: { newest: '2026-10-19T20:14:00Z', idle: 1800, stall_bound: 600 },
+    progress: { newest: '2026-10-19T20:14:00Z', idle: 1800, stall_bound: 1620 },
   })
   expect(result.elapsed).toBe(0)
 })
 
 it('gives a long run a bound as long as the run, so a long quiet job is not a stall', async () => {
-  // 25 minutes of progress, then 12 minutes with none: past the floor, but
-  // not past the run's own time.
-  const newest = REBASED + 25 * MINUTE
-  const result = await waitAt(newest + 12 * MINUTE, [running(REBASED, [newest])], {
+  // 40 minutes of progress, then 30 minutes with none: past the floor of
+  // 27 minutes, but not past the run's own time.
+  const newest = REBASED + 40 * MINUTE
+  const result = await waitAt(newest + 30 * MINUTE, [running(REBASED, [newest])], {
     SHEPHERD_WAIT_BOUND: '60',
   })
 
   expect(result.document).toMatchObject({
     result: 'pending',
-    progress: { idle: 780, stall_bound: 1500 },
+    progress: { idle: 1860, stall_bound: 2400 },
   })
 })
 
 it('gives one long job a bound of twice the median run time, so it is not a stall', async () => {
   // A short job finishes at two minutes, and `test` runs on. Its stamps do
-  // not move until it finishes. Twice a 10 minute median is 20 minutes.
+  // not move until it finishes. Twice a 20 minute median is 40 minutes,
+  // past the floor of 27.
   const newest = REBASED + 2 * MINUTE
-  const env = { SHEPHERD_CI_SECONDS: '600', SHEPHERD_WAIT_BOUND: '30' }
+  const env = { SHEPHERD_CI_SECONDS: '1200', SHEPHERD_WAIT_BOUND: '30' }
 
   // The last read comes 30 seconds after the first.
-  const quiet = await waitAt(newest + 10 * MINUTE, [running(REBASED, [newest])], env)
+  const quiet = await waitAt(newest + 30 * MINUTE, [running(REBASED, [newest])], env)
   expect(quiet.document).toMatchObject({
     result: 'pending',
-    progress: { idle: 630, stall_bound: 1200 },
+    progress: { idle: 1830, stall_bound: 2400 },
   })
 
-  const hung = await waitAt(newest + 20 * MINUTE, [running(REBASED, [newest])], env)
+  const hung = await waitAt(newest + 40 * MINUTE, [running(REBASED, [newest])], env)
   expect(hung.document).toMatchObject({
     result: 'stalled',
-    progress: { idle: 1200, stall_bound: 1200 },
+    progress: { idle: 2400, stall_bound: 2400 },
   })
 })
 
@@ -1086,10 +1087,10 @@ it('reads the progress of a rollup of StatusContext rows from their startedAt', 
     ],
   }
 
-  const still = await waitAt(posted + 10 * MINUTE, [pull])
+  const still = await waitAt(posted + 27 * MINUTE, [pull])
   expect(still.document).toMatchObject({
     result: 'stalled',
-    progress: { finished: 1, checks: 2, idle: 600, stall_bound: 600 },
+    progress: { finished: 1, checks: 2, idle: 1620, stall_bound: 1620 },
   })
 
   const moving = await waitAt(posted + MINUTE, [pull], { SHEPHERD_WAIT_BOUND: '30' })
@@ -1115,7 +1116,7 @@ it('measures a rollup with no stamp from the head commit, so it ends in stalled'
     progress: { newest: '2026-10-19T20:14:00Z', idle: 330, source: 'head commit' },
   })
 
-  const late = await waitAt(REBASED + 10 * MINUTE, [pull], {}, { commitDate: since })
+  const late = await waitAt(REBASED + 27 * MINUTE, [pull], {}, { commitDate: since })
   expect(late.document).toMatchObject({
     result: 'stalled',
     waited: 0,
@@ -1124,8 +1125,8 @@ it('measures a rollup with no stamp from the head commit, so it ends in stalled'
       checks: 1,
       started: '2026-10-19T20:14:00Z',
       newest: '2026-10-19T20:14:00Z',
-      idle: 600,
-      stall_bound: 600,
+      idle: 1620,
+      stall_bound: 1620,
       source: 'head commit',
     },
   })
@@ -1218,9 +1219,10 @@ it('never stalls one long job whose steps finish every few minutes, the #466 fie
 })
 
 it('reads the steps again on each poll, so a step that finishes during a call counts', async () => {
-  // The rollup is 9 minutes still when the call starts. A step finishes
-  // before the second read, so the call ends pending, not stalled.
-  const answers = [jobsOf(REBASED, []), jobsOf(REBASED, [REBASED + 9 * MINUTE + 10_000])]
+  // The rollup is 26 minutes still when the call starts, and would pass the
+  // 27 minute bound before the call ends. A step finishes before the second
+  // read, so the call ends pending, not stalled.
+  const answers = [jobsOf(REBASED, []), jobsOf(REBASED, [REBASED + 26 * MINUTE + 10_000])]
   let read = 0
   const server = comparing(
     { replies: { viewRepository: REPOSITORY }, sequences: { viewPullRequest: [running(REBASED)] } },
@@ -1229,7 +1231,7 @@ it('reads the steps again on each poll, so a step that finishes during a call co
   const result = await drive((sandbox, repo) => ({
     argv: [repo, '1', 'wait'],
     env: { ...sandbox.env, SHEPHERD_WAIT_BOUND: '120' },
-    wall: REBASED + 9 * MINUTE,
+    wall: REBASED + 26 * MINUTE,
     gh: {
       ...server,
       // The first read sees no step done, and every later read sees one.
@@ -1243,14 +1245,14 @@ it('reads the steps again on each poll, so a step that finishes during a call co
 
   expect(result.document).toMatchObject({
     result: 'pending',
-    progress: { newest: '2026-10-19T20:23:10Z', idle: 110, source: 'checks' },
+    progress: { newest: '2026-10-19T20:40:10Z', idle: 110, source: 'checks' },
   })
 })
 
 it('reports stalled for a job whose steps stop for the bound', async () => {
   const last = REBASED + 5 * MINUTE
   const result = await waitAt(
-    REBASED + 15 * MINUTE,
+    last + 27 * MINUTE,
     [running(REBASED)],
     {},
     {
@@ -1264,8 +1266,8 @@ it('reports stalled for a job whose steps stop for the bound', async () => {
     progress: {
       started: '2026-10-19T20:14:00Z',
       newest: '2026-10-19T20:19:00Z',
-      idle: 600,
-      stall_bound: 600,
+      idle: 1620,
+      stall_bound: 1620,
       source: 'checks',
     },
   })
@@ -1287,10 +1289,11 @@ it('decides from the rollup alone when the jobs cannot be read, and says why onc
 })
 
 it('reports no stall on a read whose jobs read failed, since the steps may have moved', async () => {
-  // The rollup alone is 15 minutes still. Only the steps could prove
-  // progress, and they could not be read, so the call ends pending.
+  // The rollup alone is 30 minutes still, past the 27 minute bound. Only
+  // the steps could prove progress, and they could not be read, so the call
+  // ends pending.
   const result = await waitAt(
-    REBASED + 15 * MINUTE,
+    REBASED + 30 * MINUTE,
     [running(REBASED)],
     { SHEPHERD_WAIT_BOUND: '60' },
     { listRunJobs: { rows: [], unavailable: 'gh: HTTP 502' } },
@@ -1298,7 +1301,7 @@ it('reports no stall on a read whose jobs read failed, since the steps may have 
 
   expect(result.document).toMatchObject({
     result: 'pending',
-    progress: { idle: 960, stall_bound: 600, source: 'checks' },
+    progress: { idle: 1860, stall_bound: 1620, source: 'checks' },
   })
   expect(result.stderr).toBe('progress may miss steps of run 11: gh: HTTP 502\n')
 })
@@ -1324,11 +1327,11 @@ it('keeps the steps it read from a run whose jobs were read in part', async () =
 })
 
 it.each([
-  // Each wall time is under the bound for the stamp the case names, and
-  // reaches it for every older stamp.
-  ['a job that finished after its last step', '2026-10-19T20:22:00Z', '2026-10-19T20:16:00Z', 12],
-  ['a step that finished, with no step after it', null, '2026-10-19T20:21:00Z', 12],
-  ['a step that started, and still runs', null, null, 10],
+  // Each wall time is under the 27 minute bound for the stamp the case
+  // names, and reaches it for every older stamp.
+  ['a job that finished after its last step', '2026-10-19T20:22:00Z', '2026-10-19T20:16:00Z', 30],
+  ['a step that finished, with no step after it', null, '2026-10-19T20:21:00Z', 30],
+  ['a step that started, and still runs', null, null, 27],
 ])('reads %s as progress', async (_case, jobDone, stepDone, minutes) => {
   const jobs = {
     rows: [
@@ -1399,15 +1402,15 @@ it('takes the floor of the stall bound from SHEPHERD_STALL_FLOOR', async () => {
   })
 })
 
-it('falls back to a 600 second floor for a SHEPHERD_STALL_FLOOR that does not parse', async () => {
+it('falls back to a 1620 second floor for a SHEPHERD_STALL_FLOOR that does not parse', async () => {
   for (const floor of ['abc', '0']) {
     const result = await waitAt(REBASED + 3 * MINUTE, [running(REBASED)], {
       SHEPHERD_STALL_FLOOR: floor,
       SHEPHERD_WAIT_BOUND: '30',
     })
 
-    expect(result.document).toMatchObject({ result: 'pending', progress: { stall_bound: 600 } })
-    expect(result.stderr).toBe(`SHEPHERD_STALL_FLOOR=${floor} ignored; using 600\n`)
+    expect(result.document).toMatchObject({ result: 'pending', progress: { stall_bound: 1620 } })
+    expect(result.stderr).toBe(`SHEPHERD_STALL_FLOOR=${floor} ignored; using 1620\n`)
   }
 })
 
