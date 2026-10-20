@@ -259,19 +259,36 @@ it('calls wait again on pending, and never counts pending toward a skip', () => 
   const pending = flat(section(AGENT, '- `pending` → ', '- `stalled` → '))
   expect(pending).toContain('call `wait` again')
   expect(pending).toContain('Never count `pending` results toward a skip')
+  // Ruling 12: one long job moves through its steps.
+  expect(pending).toContain('the stamps of the checks and of their job steps')
 })
 
 it('skips a stalled pull request, with the progress the script read', () => {
   const stalled = flat(section(AGENT, '- `stalled` → ', '- `failed` → '))
-  expect(stalled).toContain('no check started or finished for `progress.stall_bound` seconds')
+  expect(stalled).toContain(
+    'no check, job or step started or finished for `progress.stall_bound` seconds',
+  )
   expect(stalled).toContain('Record the pull request as skipped ("checks made no progress")')
-  expect(stalled).toContain('`progress.newest`, `progress.idle` and `progress.stall_bound`')
+  expect(stalled).toContain(
+    '`progress.newest`, `progress.idle`, `progress.stall_bound` and `progress.source`',
+  )
 })
 
 it('draws the stalled skip in the skill flow, decided by the script', () => {
   const body = section(FLOW, '```mermaid', '```')
-  expect(body).toContain('W -->|Still in progress: a check started or finished| W')
+  expect(body).toContain('W -->|Still in progress: a check, job or step started or finished| W')
   expect(body).toContain('Skipped: checks made no progress')
+})
+
+it('draws the jobs read and the head commit fallback in the shepherd-pr flow', () => {
+  // Rulings 12 and 13.
+  const body = section(
+    path.join(FLOWS, 'gh', 'shepherd', 'shepherd-pr-flow.md'),
+    '```mermaid',
+    '```',
+  )
+  expect(body).toContain('Read the jobs of each Actions run with a pending check')
+  expect(body).toContain('The head commit date is the one stamp')
 })
 
 it('decides from the merge state when the compare could not be read', () => {

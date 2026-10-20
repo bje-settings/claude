@@ -209,17 +209,22 @@ cannot make it act on the wrong pull request.
             failed (on the first failed rollup); passed; stalled; pending
             (at the bound). \`stalled\` and \`pending\` carry \`progress\`:
             \`finished\` and \`checks\` (rows done, and all rows), \`started\`
-            and \`newest\` (the oldest and newest startedAt or completedAt in
-            the rollup), \`idle\` (seconds from \`newest\` to the wall clock)
-            and \`stall_bound\`. \`stalled\` means \`idle\` reached
-            \`stall_bound\`: no check started or finished for that long. The
-            bound is the largest of SHEPHERD_STALL_FLOOR, twice ci_seconds,
-            and the run's own time from \`started\` to \`newest\`. So a long
-            run gets a long bound, and one long job gets twice the median
-            run time. A ci_seconds that is too small cannot make the bound
-            smaller. A rollup with no stamp has a null \`idle\`, and is
-            never \`stalled\`. Each call decides from the rollup alone, so a
-            caller counts nothing. On failed, \`failing\` lists the failed
+            and \`newest\` (the oldest and newest stamp), \`idle\` (seconds
+            from \`newest\` to the wall clock), \`stall_bound\` and \`source\`.
+            The stamps are the startedAt and completedAt of each rollup row,
+            and of each job and step of each Actions run with a pending
+            check (one read of the run's jobs per poll). \`stalled\` means
+            \`idle\` reached \`stall_bound\`: no check, job or step started
+            or finished for that long. The bound is the largest of
+            SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's own time
+            from \`started\` to \`newest\`. So a long run gets a long bound,
+            and a ci_seconds that is too small cannot make the bound
+            smaller. A jobs read that fails costs only its steps (stderr
+            says why). With no stamp at all, the date of the head commit is
+            the one stamp, and \`source\` is \`head commit\`, so a check that
+            never starts still ends in \`stalled\`. When that date cannot be
+            read either, \`idle\` is null (stderr says why). Each call
+            decides from what it reads, so a caller counts nothing. On failed, \`failing\` lists the failed
             checks, and \`log_tail\` carries the failed steps' log.
             \`log_error\` is beside it when gh would not hand the log over.
             \`waited\` is measured. \`reads_ok\`, \`read_failures\` and

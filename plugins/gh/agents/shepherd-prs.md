@@ -129,11 +129,11 @@ number, in the order given:
        second `ok:false` is skipped, with the detail as the reason.
      Never merge it yourself.
    - `pending` → call `wait` again. (`waited` is how many seconds `wait` read before its bound.)
-     `wait` decides from the checks' own stamps when they stall. Never count `pending` results
-     toward a skip.
-   - `stalled` → no check started or finished for `progress.stall_bound` seconds. Record the pull
-     request as skipped ("checks made no progress"), with `progress.newest`, `progress.idle` and
-     `progress.stall_bound`. Then continue.
+     `wait` decides from the stamps of the checks and of their job steps when they stall. Never
+     count `pending` results toward a skip.
+   - `stalled` → no check, job or step started or finished for `progress.stall_bound` seconds.
+     Record the pull request as skipped ("checks made no progress"), with `progress.newest`,
+     `progress.idle`, `progress.stall_bound` and `progress.source`. Then continue.
    - `failed` → classify the failure (step 4).
    - `behind` → the head does not contain the tip of its base. Go back to step 2. Count a
      `behind` result unless the `rebase` before it returned `moved`. Stop after three counted

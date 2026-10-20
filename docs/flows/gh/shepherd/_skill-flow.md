@@ -49,8 +49,8 @@ flowchart TD
         P -->|Bound passed, nothing reported against it| BL
         P -->|Base moved: BEHIND or DIRTY| T
         P -->|Closed while settle runs| CS([Closed, terminal]):::stop --> S
-        W -->|Still in progress: a check started or finished| W
-        W -->|Stalled: no check started or finished for the stall bound| BP([Skipped: checks made no progress]):::stop --> S
+        W -->|Still in progress: a check, job or step started or finished| W
+        W -->|Stalled: no check, job or step started or finished for the stall bound| BP([Skipped: checks made no progress]):::stop --> S
         W -->|Checks failed| K{Cause of the failure?}
         K -->|Mechanical, or caused by the base, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
         K -->|Logic or config check already failing on the PR's own head| SK([Skipped: failed before shepherd]):::stop --> S
