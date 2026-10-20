@@ -214,8 +214,8 @@ cannot make it act on the wrong pull request.
             \`stall_bound\`: no check started or finished for that long. The
             bound is the largest of SHEPHERD_STALL_FLOOR, twice ci_seconds,
             and the run's own time from \`started\` to \`newest\`. So a long
-            run gets a long bound, and one long job gets the median run
-            time twice. A ci_seconds that is too small cannot make the bound
+            run gets a long bound, and one long job gets twice the median
+            run time. A ci_seconds that is too small cannot make the bound
             smaller. A rollup with no stamp has a null \`idle\`, and is
             never \`stalled\`. Each call decides from the rollup alone, so a
             caller counts nothing. On failed, \`failing\` lists the failed

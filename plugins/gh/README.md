@@ -202,9 +202,9 @@ stamp with the wall clock. When no check started or finished for the stall bound
 the CI median, and the run's own time from its first stamp to its newest. So a run that made
 progress for twenty minutes may sit still for twenty. The stamps of one job do not move until it
 finishes, so one long job needs the median. A median that is too small cannot make the bound
-smaller than the other two values. Each call decides from the rollup alone. The agent counts no `pending` result. `pending`
-and `stalled` carry `progress`: the checks finished, the first and newest stamps, `idle`, and
-`stall_bound`. A rollup with no stamp at all is never `stalled`.
+smaller than the other two values. Each call decides from the rollup alone. The agent counts no
+`pending` result. `pending` and `stalled` carry `progress`: the checks finished, the first and
+newest stamps, `idle`, and `stall_bound`. A rollup with no stamp at all is never `stalled`.
 
 Each poll reads the pull request and GitHub's compare of its base and its head. A head that does
 not contain the tip of its base returns `behind`. This occurs before the first poll, or at the

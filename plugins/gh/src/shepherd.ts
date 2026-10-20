@@ -294,11 +294,10 @@ export interface CheckProgress {
  *
  * gh writes Go's zero time, `0001-01-01T00:00:00Z`, for a stamp that
  * GitHub has not set, such as the `completedAt` of a check that has not
- * finished. That
- * stamp, and any other that is not a time, counts as no stamp. No stamp
- * on any row gives an `idle` of null, which is never a stall. Every stamp
- * {@link epochSeconds} accepts has one fixed form, so text order is time
- * order. GitHub does not order the two stamps of one row: a skipped check
+ * finished. That stamp, and any other that is not a time, counts as no
+ * stamp. No stamp on any row gives an `idle` of null, which is never a
+ * stall. Every stamp {@link epochSeconds} accepts has one fixed form, so
+ * text order is time order. GitHub does not order the two stamps of one row: a skipped check
  * can finish before it starts.
  */
 export const checkProgress = (pull: unknown, wallMs: number, least: number): CheckProgress => {
