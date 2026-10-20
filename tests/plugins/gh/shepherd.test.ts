@@ -359,6 +359,20 @@ describe('checkProgress', () => {
     }
   })
 
+  it('counts a failed, skipped or cancelled row as finished', () => {
+    const rollup = [
+      checkRun('COMPLETED', 'FAILURE', 'lint'),
+      checkRun('COMPLETED', 'SKIPPED', 'deploy'),
+      checkRun('COMPLETED', 'CANCELLED', 'docs'),
+      checkRun('IN_PROGRESS', null),
+    ]
+
+    expect(checkProgress({ statusCheckRollup: rollup }, 0, 600)).toMatchObject({
+      finished: 3,
+      checks: 4,
+    })
+  })
+
   it('counts only whole seconds idle, so a stall is never early', () => {
     // 599.5 seconds after the newest stamp is 599 whole seconds.
     const rollup = [stamped('IN_PROGRESS', '2026-10-20T22:15:19Z')]

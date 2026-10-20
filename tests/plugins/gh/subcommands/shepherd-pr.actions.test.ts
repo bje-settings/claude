@@ -1323,6 +1323,48 @@ it('keeps the steps it read from a run whose jobs were read in part', async () =
   )
 })
 
+it.each([
+  ['a job that finished after its last step', '2026-10-19T20:22:00Z', '2026-10-19T20:16:00Z'],
+  ['a step that finished, with no step after it', null, '2026-10-19T20:21:00Z'],
+])('reads %s as progress', async (_case, jobDone, stepDone) => {
+  const jobs = {
+    rows: [
+      {
+        id: 21,
+        startedAt: stampAt(REBASED),
+        completedAt: jobDone,
+        steps: [{ startedAt: stampAt(REBASED + MINUTE), completedAt: stepDone }],
+      },
+    ],
+    unavailable: null,
+  }
+  const result = await waitAt(
+    REBASED + 12 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '30' },
+    { listRunJobs: jobs },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { newest: jobDone ?? stepDone, source: 'checks' },
+  })
+})
+
+it('reads no head date for a pending rollup with a stamp', async () => {
+  // The head date stands in only when no check has a stamp, so a call to
+  // it fails the test.
+  const result = await waitAt(
+    REBASED + 5 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '30' },
+    { commitDate: ghFails('a head date read for stamped checks') as never },
+  )
+
+  expect(result.document).toMatchObject({ result: 'pending', progress: { source: 'checks' } })
+  expect(result.stderr).toBe('')
+})
+
 it('reads no jobs and no head date for a rollup that is not pending', async () => {
   // Each read throws, so a call to either fails the test.
   const result = await waitAt(
