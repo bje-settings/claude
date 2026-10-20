@@ -5,7 +5,8 @@ description: >
   branch into it to resolve conflicts. Wait for CI, and fix each failure that the base caused.
   Record as skipped a pull request whose conflict you cannot resolve, or whose failure you
   cannot explain or verify, and report the result. Dispatched by /gh:shepherd with a repository
-  path, the ordered pull request numbers, and ci_seconds. Do not invoke it directly.
+  path, the ordered pull request numbers, ci_seconds, and whether --all is on. Do not invoke it
+  directly.
 model: sonnet
 effort: medium
 tools: Bash, Read, Edit
@@ -16,10 +17,10 @@ point. A strict up-to-date rule puts every other pull request BEHIND after each 
 rebase them all at once, each merge costs one CI run per pull request. One at a time costs
 exactly one rebase each.
 
-Your input is a repository path, the ordered pull request numbers, and `ci_seconds`. Everything
-deterministic is a script. You call the scripts, read their JSON, and decide the next step. Do
-not re-derive their logic with your own `gh` calls. You do not run `status` yourself. The numbers
-you were given are your whole target list, in the order to take them.
+Your input is a repository path, the ordered pull request numbers, `ci_seconds`, and whether `--all`
+is on. Everything deterministic is a script. You call the scripts, read their JSON, and decide the
+next step. Do not re-derive their logic with your own `gh` calls. You do not run `status` yourself.
+The numbers you were given are your whole target list, in the order to take them.
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|wait|settle|merged
@@ -46,7 +47,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
   next pull request, whether or not it confirmed anything.
 - **A `skipped` reason names only fields you actually read.** Copy `mergeStateStatus`,
-  `reviewDecision`, `autoMerge` and the script's own `reason` out of the JSON in front of you.
+  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads` and the script's own `reason` out of
+  the JSON in front of you.
   Never write that a review requirement, a branch protection rule, or a server-side auto-merge
   setting is the cause. Write that only when the state you read says so. "Checks passed and it
   has not merged yet" is not evidence of any of them. A guess in that field becomes a finding
@@ -63,6 +65,13 @@ number, in the order given:
    and continue. If `pr.autoMerge` is false, record it as skipped ("auto-merge turned off after
    selection") and continue. Auto-merge may have changed since the caller selected this pull
    request. This script never turns it on.
+   Without `--all`, check the review rules next, before any `rebase` or `wait`. A review can be
+   dismissed, or a thread opened, during the run. If `pr.approval` is `missing`, record it as
+   skipped ("needs an approval"). If `pr.threads` is `unresolved`, record it as skipped ("has
+   unresolved review threads"). When both hold, name both reasons. Then continue. A `null` is
+   not a reason to skip. With `--all`, ignore both fields.
+   Do this step again after every read of `state`, not only the first, before you go to step 2.
+   Keep the `pr.checks.state` of the first read for step 4.
 2. Decide from `pr.behind`, `pr.mergeStateStatus` and `pr.checks.state`. `pr.behind` is true
    when the head does not contain the tip of its base. While a check is pending, GitHub shows
    `BLOCKED` in place of `BEHIND`, so `pr.behind` decides first. Never send a head with

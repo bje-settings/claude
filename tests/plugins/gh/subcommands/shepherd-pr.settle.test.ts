@@ -15,6 +15,7 @@ import {
   closedPipe,
   divergence,
   drive,
+  NO_RULE,
   REPOSITORY,
   recording,
   settleEnv,
@@ -341,7 +342,7 @@ it('says nothing when no override was given', async () => {
     argv: [repo, '1', 'state'],
     gh: createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD, requiredReviews: NO_RULE },
     }),
   }))
 
@@ -354,7 +355,7 @@ it('reads an override set to nothing as an override nobody set', async () => {
     env: { ...sandbox.env, SHEPHERD_LOG_LINES: '' },
     gh: createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD, requiredReviews: NO_RULE },
     }),
   }))
 
@@ -367,7 +368,7 @@ it('refuses a log line count of zero, which would keep no log at all', async () 
     env: { ...sandbox.env, SHEPHERD_LOG_LINES: '0' },
     gh: createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD, requiredReviews: NO_RULE },
     }),
   }))
 
@@ -383,7 +384,7 @@ it('accepts a CI estimate of zero, which is a number even though it is not posit
     env: { ...sandbox.env, SHEPHERD_CI_SECONDS: '0' },
     gh: createGhServer({
       prs: [depPr(1)],
-      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+      replies: { viewRepository: REPOSITORY, compareCommits: AHEAD, requiredReviews: NO_RULE },
     }),
   }))
 

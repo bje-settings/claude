@@ -35,6 +35,10 @@ const FLOW = path.join(FLOWS, 'gh', 'shepherd', '_skill-flow.md')
 
 const read = (file: string): string => readFileSync(file, 'utf8')
 
+/** The text with each run of whitespace as one space, so a pin survives a
+ *  reflow of the lines. */
+const flat = (text: string): string => text.replace(/\s+/g, ' ')
+
 const occurrences = (body: string, marker: string): number => body.split(marker).length - 1
 
 /** The text between two markers. This asserts that each one is still
@@ -52,6 +56,69 @@ const section = (file: string, start: string, end?: string): string => {
 }
 
 // --- the shepherd's prose -----------------------------------------------------
+
+// --- the review rules and --all (#465) --------------------------------------
+
+it('takes --all as an argument of the skill', () => {
+  expect(section(SKILL, 'argument-hint:', '\n')).toContain('--all')
+})
+
+it('passes --all to shepherd-status, and prints not_ready on --dry-run', () => {
+  const step = flat(section(SKILL, '## Step 2', '## Step 3'))
+  expect(step).toContain('shepherd-status <path> [label] [--all]')
+  expect(step).toContain('Pass `--all` only when it was given')
+  expect(step).toContain('`not_ready` entries with their `reasons`')
+})
+
+it('tells each agent whether --all is on', () => {
+  expect(flat(section(SKILL, '## Step 3', '## Step 4'))).toContain('whether `--all` is on')
+})
+
+it('names each not-ready pull request in the report, with its reasons', () => {
+  const step = flat(section(SKILL, '## Step 5', '## What this skill never does'))
+  expect(step).toContain('`not_ready`')
+  expect(step).toContain('"needs an approval"')
+  expect(step).toContain('"has unresolved review threads"')
+})
+
+it('skips a pull request that is not ready by its review rules, before any rebase or wait', () => {
+  const step = flat(section(AGENT, '1. `state`.', '2. Decide from'))
+  expect(step).toContain(
+    'Without `--all`, check the review rules next, before any `rebase` or `wait`',
+  )
+  expect(step).toContain(
+    'If `pr.approval` is `missing`, record it as skipped ("needs an approval")',
+  )
+  expect(step).toContain(
+    'If `pr.threads` is `unresolved`, record it as skipped ("has unresolved review threads")',
+  )
+  expect(step).toContain('A `null` is not a reason to skip')
+  expect(step).toContain('With `--all`, ignore both fields')
+  expect(step).toContain('When both hold, name both reasons')
+})
+
+it('runs the step 1 checks again after every read of state', () => {
+  // The `changed` and `ok:false` paths re-read `state`. Without this rule
+  // they go to step 2, and an approval lost during the run is not seen.
+  const step = flat(section(AGENT, '1. `state`.', '2. Decide from'))
+  expect(step).toContain('Do this step again after every read of `state`, not only the first')
+  expect(step).toContain('Keep the `pr.checks.state` of the first read for step 4')
+})
+
+it('names the review verdicts among the fields a skip reason may copy', () => {
+  const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
+  expect(rules).toContain('`autoMerge`, `pr.approval`, `pr.threads` and the script')
+})
+
+it('takes the --all flag as input to the agent', () => {
+  expect(flat(section(AGENT, 'Your input is', '```bash'))).toContain('whether `--all`')
+})
+
+it('draws the not-ready edges in the skill flow', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('Not ready: named in the report with its reasons')
+  expect(body).toContain('Skipped: needs an approval, or has unresolved review threads')
+})
 
 it('names settle in the actions the agent may run', () => {
   // An action the agent does not know about is an action nobody calls.
@@ -112,6 +179,8 @@ it('does not re-read a blocked entry that names a cause', () => {
   for (const named of ['BLOCKED', 'DIRTY', 'BEHIND', 'reviewDecision']) {
     expect(step).toContain(named)
   }
+  // The skips of #465 name a cause too, so they are not the race.
+  expect(flat(step)).toContain('"needs an approval" or "has unresolved review threads"')
 })
 
 it('sends a behind head to rebase before any wait, whatever the merge state', () => {

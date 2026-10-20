@@ -15,6 +15,8 @@
 // states where a rule came from.
 import { describe, expect, it } from 'vitest'
 import {
+  approvalOf,
+  autoMergeBases,
   checkLink,
   checkName,
   checkState,
@@ -29,6 +31,8 @@ import {
   statusDocument,
   summary,
   tailLines,
+  threadReads,
+  threadsOf,
 } from '#gh/shepherd.ts'
 
 const checkRun = (status: string, conclusion: string | null, name = 'build') => ({
@@ -500,6 +504,8 @@ describe('summary', () => {
       is_dependabot: true,
       reviewDecision: 'REVIEW_REQUIRED',
       baseRefName: 'main',
+      approval: 'missing',
+      threads: null,
     })
     // A human reads the key order in a transcript, so it is the contract,
     // not an implementation detail.
@@ -520,6 +526,8 @@ describe('summary', () => {
       'is_dependabot',
       'reviewDecision',
       'baseRefName',
+      'approval',
+      'threads',
     ])
   })
 
@@ -552,6 +560,201 @@ describe('summary', () => {
   })
 })
 
+/** No rules read, and no `--all`: what `statusDocument` was given before
+ *  #465. */
+const OPEN_DOOR = { rules: new Map(), threads: new Map(), all: false }
+
+/** The review rules of one base, as `requiredReviews` answers them. */
+const rule = (
+  approvals: number,
+  flags: { codeOwner?: boolean; threadResolution?: boolean; lastPush?: boolean } = {},
+) => ({ approvals, codeOwner: false, threadResolution: false, lastPush: false, ...flags })
+
+/** A review as gh lists it in `reviews`, on the head `readable` names. */
+const review = (state: string, login = 'octocat', oid = 'sha1') => ({
+  author: { login },
+  state,
+  commit: { oid },
+})
+
+describe('approvalOf', () => {
+  // One row per case of rulings 1, 2, 5 and 10 on #465.
+  const cases: [string, Record<string, unknown>, ReturnType<typeof rule> | null, string | null][] =
+    [
+      ['no rule and no decision: not required', {}, rule(0), 'not_required'],
+      ['rules unread and no decision: null', {}, null, null],
+      ['a count of 1 and no review: missing', { reviews: [] }, rule(1), 'missing'],
+      [
+        'a count of 1 and one APPROVED review: met',
+        { reviews: [review('APPROVED')] },
+        rule(1),
+        'met',
+      ],
+      [
+        'a count of 2 and one APPROVED review: missing',
+        { reviews: [review('APPROVED'), review('COMMENTED', 'hubot')] },
+        rule(2),
+        'missing',
+      ],
+      [
+        'a COMMENTED review after an approval keeps the approval',
+        { reviews: [review('APPROVED'), review('COMMENTED')] },
+        rule(1),
+        'met',
+      ],
+      [
+        'a DISMISSED review after an approval takes it back',
+        { reviews: [review('APPROVED'), review('DISMISSED')] },
+        rule(1),
+        'missing',
+      ],
+      [
+        'two approvals from one author count once',
+        { reviews: [review('APPROVED'), review('APPROVED')] },
+        rule(2),
+        'missing',
+      ],
+      [
+        'two approvals from two authors meet a count of 2',
+        { reviews: [review('APPROVED'), review('APPROVED', 'hubot')] },
+        rule(2),
+        'met',
+      ],
+      [
+        'a code owner rule with a count of 0 and one APPROVED review: met',
+        { reviews: [review('APPROVED')] },
+        rule(0, { codeOwner: true }),
+        'met',
+      ],
+      ['a code owner rule and no review: missing', {}, rule(0, { codeOwner: true }), 'missing'],
+      [
+        'a last-push rule and an approval of the head: met',
+        { reviews: [review('APPROVED', 'octocat', 'sha1')] },
+        rule(1, { lastPush: true }),
+        'met',
+      ],
+      [
+        'a last-push rule and an approval of an older commit: missing',
+        { reviews: [review('APPROVED', 'octocat', 'sha0')] },
+        rule(1, { lastPush: true }),
+        'missing',
+      ],
+      [
+        'an approval of an older commit, with no last-push rule: met',
+        { reviews: [review('APPROVED', 'octocat', 'sha0')] },
+        rule(1),
+        'met',
+      ],
+      [
+        'reviewDecision APPROVED with a count the reviews do not reach: met',
+        { reviewDecision: 'APPROVED', reviews: [review('APPROVED')] },
+        rule(2),
+        'met',
+      ],
+      [
+        // Ruling 2: reviewDecision APPROVED is met. The commit of each
+        // review is read only when the count decides.
+        'reviewDecision APPROVED with a last-push rule and an older approval: met',
+        { reviewDecision: 'APPROVED', reviews: [review('APPROVED', 'octocat', 'sha0')] },
+        rule(1, { lastPush: true }),
+        'met',
+      ],
+      [
+        'reviewDecision APPROVED with the rules unread: met',
+        { reviewDecision: 'APPROVED' },
+        null,
+        'met',
+      ],
+      [
+        'reviewDecision CHANGES_REQUESTED with no rule: missing',
+        { reviewDecision: 'CHANGES_REQUESTED' },
+        rule(0),
+        'missing',
+      ],
+      [
+        'a standing CHANGES_REQUESTED review beside enough approvals: missing',
+        { reviews: [review('APPROVED'), review('CHANGES_REQUESTED', 'hubot')] },
+        rule(1),
+        'missing',
+      ],
+      [
+        'a CHANGES_REQUESTED review with nothing required: not required',
+        { reviews: [review('CHANGES_REQUESTED')] },
+        rule(0),
+        'not_required',
+      ],
+      [
+        'reviewDecision REVIEW_REQUIRED with the rules unread: missing',
+        { reviewDecision: 'REVIEW_REQUIRED' },
+        null,
+        'missing',
+      ],
+      [
+        'reviewDecision REVIEW_REQUIRED beside an approval that meets the count: missing',
+        { reviewDecision: 'REVIEW_REQUIRED', reviews: [review('APPROVED')] },
+        rule(1),
+        'missing',
+      ],
+      ['reviews that are not a list: no reviews', { reviews: 'APPROVED' }, rule(1), 'missing'],
+      [
+        'reviews that are an object, not a list: no reviews',
+        { reviews: review('APPROVED') },
+        rule(1),
+        'missing',
+      ],
+      [
+        'a review with no state, or no object at all: no approval',
+        { reviews: [{ author: { login: 'octocat' } }, null] },
+        rule(1),
+        'missing',
+      ],
+    ]
+
+  it.each(cases)('%s', (_name, pull, rules, approval) => {
+    expect(approvalOf(readable(pull), rules)).toBe(approval)
+  })
+})
+
+describe('threadsOf', () => {
+  it('needs the rules to answer at all', () => {
+    expect(threadsOf(null, 3)).toBeNull()
+  })
+
+  it('reads a rule that does not ask for resolved threads as not required', () => {
+    expect(threadsOf(rule(1), null)).toBe('not_required')
+  })
+
+  it('reads a thread rule by the count of unresolved threads', () => {
+    const asks = rule(0, { threadResolution: true })
+    expect(threadsOf(asks, 2)).toBe('unresolved')
+    expect(threadsOf(asks, 0)).toBe('resolved')
+    expect(threadsOf(asks, null)).toBeNull()
+  })
+})
+
+describe('autoMergeBases and threadReads', () => {
+  const pulls = [
+    { number: 1, autoMergeRequest: {}, baseRefName: 'main' },
+    { number: 2, autoMergeRequest: {}, baseRefName: 'release' },
+    { number: 3, autoMergeRequest: {}, baseRefName: 'main' },
+    { number: 4, autoMergeRequest: null, baseRefName: 'main' },
+    { number: 5, autoMergeRequest: {}, isDraft: true, baseRefName: 'draft-base' },
+    { number: 6, autoMergeRequest: {} },
+  ]
+
+  it('names each base of the auto-merge pull requests once, and skips the rest', () => {
+    expect(autoMergeBases(pulls)).toEqual(['main', 'release'])
+  })
+
+  it('names the auto-merge pull requests whose base asks for resolved threads', () => {
+    const rules = new Map([
+      ['main', rule(0, { threadResolution: true })],
+      ['release', null],
+    ])
+    expect(threadReads(pulls, rules)).toEqual([1, 3])
+  })
+})
+
 describe('statusDocument', () => {
   it('keeps only pull requests a human marked for auto-merge', () => {
     const pulls = [
@@ -559,7 +762,7 @@ describe('statusDocument', () => {
       { number: 2, autoMergeRequest: null, createdAt: '2026-01-02', title: 't' },
     ]
 
-    const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 42, OPEN_DOOR)
 
     expect(document.targets.map((target) => target.number)).toEqual([1])
     expect(document.repo).toBe('acme/widgets')
@@ -570,7 +773,7 @@ describe('statusDocument', () => {
   it('drops drafts', () => {
     const pulls = [{ number: 1, isDraft: true, autoMergeRequest: {}, createdAt: '2026-01-01' }]
 
-    const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 42, OPEN_DOOR)
 
     expect(document.targets).toEqual([])
   })
@@ -582,7 +785,7 @@ describe('statusDocument', () => {
     // presence is what marks it as wanted.
     const pulls = [{ number: 1, autoMergeRequest: false, createdAt: '2026-01-01' }]
 
-    const document = statusDocument(pulls, 'acme/widgets', 'main', 42)
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 42, OPEN_DOOR)
 
     expect(document.targets.map((target) => target.number)).toEqual([1])
   })
@@ -604,7 +807,7 @@ describe('statusDocument', () => {
       },
     ]
 
-    const document = statusDocument(pulls, 'acme/widgets', 'main', 300)
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, OPEN_DOOR)
 
     expect(document.targets.map((target) => target.number)).toEqual([7, 6, 5])
   })
@@ -617,17 +820,138 @@ describe('statusDocument', () => {
       { number: 4, autoMergeRequest: {}, createdAt: '2026-01-01' },
     ]
 
-    const document = statusDocument(pulls, 'acme/widgets', 'main', 300)
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, OPEN_DOOR)
 
     expect(document.targets.map((target) => target.number)).toEqual([9, 4])
   })
 
+  it('leaves out a pull request whose base requires an approval it does not have', () => {
+    // Rule 15 (a) on #465: a count of 1 and no review.
+    const pulls = [
+      readable({ number: 1, title: 'one', author: { login: 'octocat' }, autoMergeRequest: {} }),
+      readable({
+        number: 2,
+        autoMergeRequest: {},
+        reviews: [review('APPROVED')],
+        createdAt: '2026-01-02',
+      }),
+    ]
+    const options = { ...OPEN_DOOR, rules: new Map([['main', rule(1)]]) }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.targets.map((target) => target.number)).toEqual([2])
+    expect(document.targets[0]?.approval).toBe('met')
+    expect(document.not_ready).toEqual([
+      { number: 1, title: 'one', author: 'octocat', reasons: ['needs an approval'] },
+    ])
+  })
+
+  it('makes every auto-merge pull request a target with --all', () => {
+    // Rule 15 (b) on #465: the same pull request, asked for all.
+    const pulls = [readable({ number: 1, autoMergeRequest: {} })]
+    const options = {
+      rules: new Map([['main', rule(1, { threadResolution: true })]]),
+      threads: new Map([[1, 4]]),
+      all: true,
+    }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.targets.map((target) => [target.approval, target.threads])).toEqual([
+      ['missing', 'unresolved'],
+    ])
+    expect(document.not_ready).toEqual([])
+  })
+
+  it('leaves out a pull request with unresolved threads, and names both reasons', () => {
+    const pulls = [
+      readable({ number: 1, autoMergeRequest: {} }),
+      readable({ number: 2, autoMergeRequest: {}, reviews: [review('APPROVED')] }),
+      readable({ number: 3, autoMergeRequest: {}, reviews: [review('APPROVED')] }),
+    ]
+    const options = {
+      rules: new Map([['main', rule(1, { threadResolution: true })]]),
+      threads: new Map([
+        [1, 2],
+        [2, 1],
+        [3, 0],
+      ]),
+      all: false,
+    }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.not_ready.map((entry) => [entry.number, entry.reasons])).toEqual([
+      [1, ['needs an approval', 'has unresolved review threads']],
+      [2, ['has unresolved review threads']],
+    ])
+    expect(document.targets.map((target) => [target.number, target.threads])).toEqual([
+      [3, 'resolved'],
+    ])
+  })
+
+  it('keeps a pull request whose threads could not be read', () => {
+    // Ruling 5: a failed read never leaves a pull request out.
+    const pulls = [readable({ number: 1, autoMergeRequest: {}, reviews: [review('APPROVED')] })]
+    const options = {
+      rules: new Map([['main', rule(1, { threadResolution: true })]]),
+      threads: new Map([[1, null]]),
+      all: false,
+    }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.targets.map((target) => target.threads)).toEqual([null])
+  })
+
+  it('reads a pull request with no entry in the threads map as unread', () => {
+    const pulls = [readable({ number: 1, autoMergeRequest: {}, reviews: [review('APPROVED')] })]
+    const options = {
+      rules: new Map([['main', rule(1, { threadResolution: true })]]),
+      threads: new Map<number, number | null>(),
+      all: false,
+    }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.targets.map((target) => target.threads)).toEqual([null])
+  })
+
+  it('falls back to reviewDecision for a base whose rules were not read', () => {
+    // Ruling 5: a failed read never leaves a pull request out on its own.
+    const pulls = [
+      readable({ number: 1, autoMergeRequest: {} }),
+      readable({ number: 2, autoMergeRequest: {}, reviewDecision: 'REVIEW_REQUIRED' }),
+      readable({ number: 3, autoMergeRequest: {}, baseRefName: 'release' }),
+    ]
+    const options = { ...OPEN_DOOR, rules: new Map([['main', null]]) }
+
+    const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
+
+    expect(document.targets.map((target) => [target.number, target.approval])).toEqual([
+      [1, null],
+      [3, null],
+    ])
+    expect(document.not_ready.map((entry) => entry.number)).toEqual([2])
+  })
+
+  it('puts not_ready after targets, so the keys already there keep their order', () => {
+    expect(Object.keys(statusDocument([], 'acme/widgets', 'main', 300, OPEN_DOOR))).toEqual([
+      'repo',
+      'default_branch',
+      'ci_seconds',
+      'targets',
+      'not_ready',
+    ])
+  })
+
   it('reads a listing that is not a list at all as no pull requests', () => {
-    expect(statusDocument(null, 'acme/widgets', 'main', 300).targets).toEqual([])
+    expect(statusDocument(null, 'acme/widgets', 'main', 300, OPEN_DOOR).targets).toEqual([])
     // This value is not a list, and it is not null either, so a `??` fold
     // keeps it. `.filter` then throws, and the command exits 3. It does not
     // report that there are no targets.
-    expect(statusDocument(42, 'acme/widgets', 'main', 300).targets).toEqual([])
+    expect(statusDocument(42, 'acme/widgets', 'main', 300, OPEN_DOOR).targets).toEqual([])
   })
 })
 

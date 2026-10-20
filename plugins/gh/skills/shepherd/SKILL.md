@@ -2,15 +2,16 @@
 name: shepherd
 description: >
   Merge every open, non-draft pull request that has auto-merge set, one at a time. An optional
-  argument narrows this to one label. Rebase each, resolve its conflicts by merging the base
-  branch into it, wait for CI, and fix failures that the base caused. This applies to any pull
-  request, whether a human or a bot authored it. Let auto-merge land each one
-  before you move to the next. Scope comes from the working directory. Inside a git repo, it
-  shepherds that repo. Outside one, it shepherds every immediate subdirectory that is a git repo,
-  one subagent per repo, in parallel. It never merges by hand, never enables auto-merge, and
-  never bypasses a check.
+  argument narrows this to one label. A pull request that the review rules of its base do not
+  allow yet (no approval, or unresolved review threads) is left out, unless `--all` is given.
+  Rebase each, resolve its conflicts by merging the base branch into it, wait for CI, and fix
+  failures that the base caused. This applies to any pull request, whether a human or a bot
+  authored it. Let auto-merge land each one before you move to the next. Scope comes from the
+  working directory. Inside a git repo, it shepherds that repo. Outside one, it shepherds every
+  immediate subdirectory that is a git repo, one subagent per repo, in parallel. It never merges
+  by hand, never enables auto-merge, and never bypasses a check.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" *) Agent
-argument-hint: "[label] [--dry-run]"
+argument-hint: "[label] [--all] [--dry-run]"
 disable-model-invocation: true
 ---
 
@@ -28,26 +29,27 @@ stop. Do not classify the directory yourself. The command already did that.
 
 ## Step 2: Status
 
-Parse `$ARGUMENTS`: `--dry-run` when present, and whatever text remains, if any, as one label.
-Do not enforce a second label yourself; the script refuses it.
+Parse `$ARGUMENTS`: `--dry-run` and `--all` when present, and whatever text remains, if any, as
+one label. Do not enforce a second label yourself; the script refuses it.
 
 For each path:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-status <path> [label]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-status <path> [label] [--all]
 ```
 
-Read `targets`. A repo with no targets gets no agent. Report it in one line. If `--dry-run` was
-given, print each repo's target list in order (number, title, author, `mergeStateStatus`,
-`checks.state`), and stop here.
+Pass `--all` only when it was given. Read `targets` and `not_ready`. A repo with no targets gets no
+agent. Report it in one line. If `--dry-run` was given, print each repo's target list in order
+(number, title, author, `mergeStateStatus`, `checks.state`), then its `not_ready` entries with
+their `reasons`, and stop here.
 
 ## Step 3: Shepherd
 
 Launch one `shepherd-prs` agent per repo that has targets. Send them all in a single message, so
 they run in parallel. Each agent gets the repo path, the ordered pull request numbers from
-`targets`, and `ci_seconds`, and returns a JSON report. It does not run `status` itself. Do not
-start a second agent for the same repo. Do not shepherd a repo yourself. The serial-within-a-repo
-guarantee lives in the agent.
+`targets`, `ci_seconds`, and whether `--all` is on, and returns a JSON report. It does not run
+`status` itself. Do not start a second agent for the same repo. Do not shepherd a repo yourself. The
+serial-within-a-repo guarantee lives in the agent.
 
 ## Step 4: Verify the skipped entries
 
@@ -62,8 +64,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> merged
 
 `merged: true` moves the entry to `merged`, with its `mergeCommit`. Anything else leaves it
 skipped, unchanged. This is a read, and one round trip per entry. It never merges anything. It is
-not run for a skipped entry that names a cause: `BLOCKED`, `DIRTY`, `BEHIND`, or a
-`reviewDecision`. GitHub decided those, not timing.
+not run for a skipped entry that names a cause: `BLOCKED`, `DIRTY`, `BEHIND`, a
+`reviewDecision`, "needs an approval" or "has unresolved review threads". GitHub decided those,
+not timing.
 
 ## Step 5: Report
 
@@ -75,7 +78,8 @@ Collate the agents' JSON into one table per repo:
 | #n | closed | reason |
 | #n | skipped | reason; `hypothesis` when present; the conflicted files, when there were any |
 
-Then list the `ci_seconds` each agent measured.
+Then list each `not_ready` entry from step 2 as not shepherded, with its `reasons` ("needs an
+approval", "has unresolved review threads"). Then list the `ci_seconds` each agent measured.
 
 The `gh-security` plugin may be installed. When it is, and at least one pull request merged,
 mention `/gh-security:resolve-alerts` as the natural next step. A merge of auto-merge pull

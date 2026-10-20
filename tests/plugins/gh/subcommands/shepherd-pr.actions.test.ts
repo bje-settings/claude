@@ -3,7 +3,7 @@
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
 import { expect, it } from 'vitest'
 import { HELP, runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
-import { type GhClient, type GhReplies, ghFails } from '#harness/gh.ts'
+import { type GhClient, type GhReplies, type GhResults, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhSequences } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
@@ -15,6 +15,7 @@ import {
   compared,
   comparing,
   drive,
+  NO_RULE,
   REPOSITORY,
   recording,
   UNAVAILABLE,
@@ -450,7 +451,10 @@ it('reports a BLOCKED head with pending checks as behind, from the compare of it
   // pending (#460). The compare answers only for this base and this head,
   // so a call with any other pair fails the test.
   const pull = { ...depPr(1, { merge: 'BLOCKED', checks: 'pending' }), baseRefName: 'release' }
-  const server = createGhServer({ prs: [pull], replies: { viewRepository: REPOSITORY } })
+  const server = createGhServer({
+    prs: [pull],
+    replies: { viewRepository: REPOSITORY, requiredReviews: NO_RULE },
+  })
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'state'],
     gh: {
@@ -479,7 +483,10 @@ it.each([
 ] as const)('reads a compare that is %s as behind: %s', async (status, behind) => {
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'state'],
-    gh: comparing({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }, [compared(status)]),
+    gh: comparing(
+      { prs: [depPr(1)], replies: { viewRepository: REPOSITORY, requiredReviews: NO_RULE } },
+      [compared(status)],
+    ),
   }))
 
   expect(result.document.pr).toMatchObject({ behind })
@@ -489,13 +496,141 @@ it.each([
 it('reads a compare it could not get as behind: null, and says why on stderr', async () => {
   const result = await drive((_sandbox, repo) => ({
     argv: [repo, '1', 'state'],
-    gh: comparing({ prs: [depPr(1)], replies: { viewRepository: REPOSITORY } }, [UNAVAILABLE]),
+    gh: comparing(
+      { prs: [depPr(1)], replies: { viewRepository: REPOSITORY, requiredReviews: NO_RULE } },
+      [UNAVAILABLE],
+    ),
   }))
 
   expect(result.document.ok).toBe(true)
   expect(result.document.pr).toMatchObject({ behind: null })
   expect(result.stderr).toBe(
     'behind is null: the compare of main...sha1 is unavailable: gh api compare failed: HTTP 502\n',
+  )
+})
+
+// --- state and the review rules (#465) ----------------------------------------------
+
+/** `state` against pull request `number` (1 unless named), with the review
+ *  endpoints given. */
+const stateWith = (pull: Record<string, unknown>, extra: Partial<GhClient>, number = 1) =>
+  drive((_sandbox, repo) => ({
+    argv: [repo, String(number), 'state'],
+    gh: {
+      ...createGhServer({
+        prs: [pull as ReturnType<typeof depPr>],
+        replies: { viewRepository: REPOSITORY, compareCommits: AHEAD },
+      }),
+      ...extra,
+    },
+  }))
+
+/** Review rules with these flags, as `requiredReviews` answers them. */
+const reviewRules = (
+  approvals: number,
+  flags: { threadResolution?: boolean; lastPush?: boolean } = {},
+): GhResults['requiredReviews'] => ({
+  reviews: { approvals, codeOwner: false, threadResolution: false, lastPush: false, ...flags },
+  unavailable: null,
+})
+
+const approvedOn = (oid: string) => ({
+  ...depPr(1),
+  reviews: [{ author: { login: 'octocat' }, state: 'APPROVED', commit: { oid } }],
+})
+
+it('reports approval and threads from the rules of its own base', async () => {
+  // Rule 15 (j) on #465. The rules answer only for `release`.
+  const result = await stateWith(
+    { ...depPr(1), baseRefName: 'release' },
+    {
+      requiredReviews: async ({ branch }) => {
+        if (branch !== 'release') throw new Error('wrong base')
+        return reviewRules(1)
+      },
+    },
+  )
+
+  expect(result.document.ok).toBe(true)
+  expect(result.document.pr).toMatchObject({ approval: 'missing', threads: 'not_required' })
+})
+
+it('meets a last-push rule with an approval of the head, and not of an older commit', async () => {
+  const rules = { requiredReviews: async () => reviewRules(1, { lastPush: true }) }
+
+  const head = await stateWith(approvedOn('sha1'), rules)
+  expect(head.document.pr).toMatchObject({ approval: 'met' })
+
+  const older = await stateWith(approvedOn('sha0'), rules)
+  expect(older.document.pr).toMatchObject({ approval: 'missing' })
+})
+
+it('reads the threads when the rules ask, and reports them', async () => {
+  const threads = (unresolved: number): GhResults['viewPullRequestDetail'] => ({
+    pullRequest: {
+      number: 1,
+      title: 'build(deps): bump dep-1',
+      state: 'OPEN',
+      draft: false,
+      base: 'main',
+      head: 'dep-1',
+      headSha: 'sha1',
+      mergeable: 'MERGEABLE',
+      checks: [],
+      unresolvedThreads: Array.from({ length: unresolved }, () => ({
+        author: 'octocat',
+        bot: false,
+      })),
+      commentAuthors: [],
+    },
+    unavailable: null,
+    missing: false,
+  })
+  const asks = { requiredReviews: async () => reviewRules(0, { threadResolution: true }) }
+
+  const open = await stateWith(depPr(1), { ...asks, viewPullRequestDetail: async () => threads(2) })
+  expect(open.document.pr).toMatchObject({ approval: 'not_required', threads: 'unresolved' })
+
+  const done = await stateWith(depPr(1), { ...asks, viewPullRequestDetail: async () => threads(0) })
+  expect(done.document.pr).toMatchObject({ threads: 'resolved' })
+
+  // The threads of pull request 7, not of another number.
+  const seven = await stateWith(
+    depPr(7),
+    {
+      ...asks,
+      viewPullRequestDetail: async ({ pullRequest }) => threads(pullRequest === 7 ? 1 : 0),
+    },
+    7,
+  )
+  expect(seven.document.pr).toMatchObject({ number: 7, threads: 'unresolved' })
+
+  // A failed thread read is null, not resolved, and stderr says why.
+  const failed = await stateWith(depPr(1), {
+    ...asks,
+    viewPullRequestDetail: async () => ({
+      pullRequest: null,
+      unavailable: 'gh: HTTP 502',
+      missing: false,
+    }),
+  })
+  expect(failed.document.ok).toBe(true)
+  expect(failed.document.pr).toMatchObject({ threads: null })
+  expect(failed.stderr).toBe(
+    'the review threads of #1 cannot be proven resolved: gh: HTTP 502; threads is null\n',
+  )
+})
+
+it('reports null verdicts when the rules cannot be read, and says why', async () => {
+  // Ruling 5: a failed read is not a failed `state`.
+  const result = await stateWith(depPr(1), {
+    requiredReviews: async () => ({ reviews: null, unavailable: 'gh: HTTP 502' }),
+  })
+
+  expect(result.document.ok).toBe(true)
+  expect(result.document.pr).toMatchObject({ approval: null, threads: null })
+  expect(result.stderr).toBe(
+    'the review rules of main are unavailable: gh: HTTP 502; approval rests on reviewDecision\n',
   )
 })
 

@@ -32,7 +32,7 @@
 // `cd0d515`. Each reference stays because it says where a rule came from.
 
 import { accessSync, constants, statSync } from 'node:fs'
-import type { GhClient } from './lib/gh.ts'
+import type { GhClient, RequiredReviews } from './lib/gh.ts'
 import type { Output } from './lib/streams.ts'
 
 /**
@@ -320,6 +320,147 @@ export const isBot = (pull: unknown): boolean => {
   return login.endsWith('[bot]') || login.startsWith('app/') || isDependabot(pull)
 }
 
+/** Review decisions that GitHub gives only when a review is required. */
+const DECIDED_REVIEWS = ['APPROVED', 'REVIEW_REQUIRED', 'CHANGES_REQUESTED']
+
+/** Review states that stand until the same author reviews again. A
+ *  COMMENTED review does not take back an approval. */
+const STANDING_REVIEWS = ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED']
+
+/** Whether the approvals a pull request has meet what its base requires. */
+export type Approval = 'met' | 'missing' | 'not_required'
+
+/** Whether the review threads meet what its base requires. */
+export type Threads = 'resolved' | 'unresolved' | 'not_required'
+
+/**
+ * Each author's standing review, oldest author first: the newest review of
+ * that author whose state is in {@link STANDING_REVIEWS}.
+ *
+ * gh lists `reviews` oldest first. This is the list that GitHub's own
+ * decision reads. It is not `latestReviews`, whose `commit.oid` gh leaves
+ * empty, and which can keep a COMMENTED review in place of an approval.
+ */
+const standingReviews = (pull: unknown): { state: string; commit: string }[] => {
+  const listed = field(pull, 'reviews')
+  const byAuthor = new Map<string, { state: string; commit: string }>()
+  for (const review of Array.isArray(listed) ? listed : []) {
+    const state = asText(field(review, 'state'))
+    if (!STANDING_REVIEWS.includes(state)) continue
+    byAuthor.set(asText(field(field(review, 'author'), 'login')), {
+      state,
+      commit: asText(field(field(review, 'commit'), 'oid')),
+    })
+  }
+  return [...byAuthor.values()]
+}
+
+/**
+ * The approval verdict, from `reviewDecision`, `reviews` and the rules of
+ * the base (rulings 1, 2, 5 and 10 on #465).
+ *
+ * An approval is required when the rules ask for a count above 0 or for a
+ * code owner, or when `reviewDecision` names a decision. A ruleset can leave
+ * `reviewDecision` empty, so the rules decide too.
+ *
+ * A required approval is met by `reviewDecision` APPROVED, or by enough
+ * standing APPROVED reviews. A code owner rule takes at least one. This
+ * does not prove that the approver is a code owner: that needs CODEOWNERS
+ * and team membership. GitHub then still blocks the merge, and the worker
+ * skips the pull request on BLOCKED. When the count decides, a last-push
+ * rule counts only an approval of the current head. A `reviewDecision` of
+ * APPROVED is met before the count, as ruling 2 says. A requested change is
+ * never met.
+ * REVIEW_REQUIRED is GitHub's own word that the reviews are not enough, so
+ * a count does not override it.
+ *
+ * `rules` is `null` when they were not read. Then only `reviewDecision`
+ * can make an approval missing, and a failed read never leaves a pull
+ * request out.
+ */
+export const approvalOf = (pull: unknown, rules: RequiredReviews | null): Approval | null => {
+  const decision = asText(field(pull, 'reviewDecision'))
+  const need = Math.max(rules?.approvals ?? 0, rules?.codeOwner === true ? 1 : 0)
+  if (need === 0 && !DECIDED_REVIEWS.includes(decision)) {
+    return rules === null ? null : 'not_required'
+  }
+  const reviews = standingReviews(pull)
+  if (decision === 'CHANGES_REQUESTED') return 'missing'
+  if (reviews.some((review) => review.state === 'CHANGES_REQUESTED')) return 'missing'
+  if (decision === 'APPROVED') return 'met'
+  if (decision === 'REVIEW_REQUIRED') return 'missing'
+  // Here the rules alone require it, so `need` is at least 1, and `rules`
+  // were read.
+  const head = asText(field(pull, 'headRefOid'))
+  const approved = reviews.filter(
+    (review) => review.state === 'APPROVED' && (rules?.lastPush !== true || review.commit === head),
+  )
+  return approved.length >= need ? 'met' : 'missing'
+}
+
+/**
+ * The review-thread verdict (ruling 10 on #465).
+ *
+ * `unresolved` is the count of unresolved threads, or `null` when they were
+ * not read. Only a rule that asks for resolved threads makes the count
+ * matter. A read that failed is `null`, and never leaves a pull request
+ * out.
+ */
+export const threadsOf = (
+  rules: RequiredReviews | null,
+  unresolved: number | null,
+): Threads | null => {
+  if (rules === null) return null
+  if (!rules.threadResolution) return 'not_required'
+  if (unresolved === null) return null
+  return unresolved > 0 ? 'unresolved' : 'resolved'
+}
+
+/**
+ * The number of unresolved review threads on a pull request, or `null` when
+ * the read failed. stderr then says why.
+ *
+ * Both commands make this read, so it lives here, beside
+ * {@link directoryRefusal}. A count of zero from a read that also reports a
+ * problem is `null`. The problem can be a short page of threads, or of
+ * checks or comments. This does not tell them apart, so zero is not proof.
+ */
+export const readUnresolvedThreads = async (
+  gh: GhClient,
+  pullRequest: number,
+  err: Output['err'],
+): Promise<number | null> => {
+  const answer = await gh.viewPullRequestDetail({ pullRequest })
+  const count = answer.pullRequest?.unresolvedThreads.length ?? 0
+  if (count > 0) return count
+  if (answer.unavailable === null) return 0
+  err.write(
+    `the review threads of #${pullRequest} cannot be proven resolved: ${answer.unavailable}; ` +
+      'threads is null\n',
+  )
+  return null
+}
+
+/**
+ * The review rules of `base`, or `null` when they could not be read. stderr
+ * then says why, and the verdicts rest on `reviewDecision` alone (ruling 5
+ * on #465). Both commands make this read.
+ */
+export const readReviewRules = async (
+  gh: GhClient,
+  base: string,
+  err: Output['err'],
+): Promise<RequiredReviews | null> => {
+  const answer = await gh.requiredReviews({ branch: base })
+  if (answer.reviews === null) {
+    err.write(
+      `the review rules of ${base} are unavailable: ${answer.unavailable}; approval rests on ` +
+        'reviewDecision\n',
+    )
+  }
+  return answer.reviews
+}
+
 /** The pull request as every action reports it. The key order is the
  *  contract; see {@link summary}. */
 export interface PullSummary {
@@ -341,6 +482,10 @@ export interface PullSummary {
   /** The branch the pull request merges into. `shepherd-pr` compares the
    *  head with it (#460). */
   readonly baseRefName: unknown
+  /** The verdict of {@link approvalOf} (#465). */
+  readonly approval: Approval | null
+  /** The verdict of {@link threadsOf} (#465). */
+  readonly threads: Threads | null
 }
 
 /** Whether a human has marked this pull request for auto-merge. `is not
@@ -361,9 +506,19 @@ const hasAutoMerge = (pull: unknown): boolean => {
  * position.
  *
  * Nothing here validates the pull request. {@link missingField} does that,
- * and the callers run it before they call this function.
+ * and the callers run it before they call this function. `reviews` is not
+ * in that check: a list that is absent is no reviews, and the verdict then
+ * rests on `reviewDecision` and the rules.
+ *
+ * `rules` are the review rules of the base, and `unresolved` the count of
+ * unresolved review threads. Each is `null` when the caller did not read
+ * it. Only `state` and `shepherd-status` read them.
  */
-export const summary = (pull: unknown): PullSummary => {
+export const summary = (
+  pull: unknown,
+  rules: RequiredReviews | null = null,
+  unresolved: number | null = null,
+): PullSummary => {
   const labels = field(pull, 'labels')
   return {
     number: answered(field(pull, 'number')),
@@ -387,6 +542,8 @@ export const summary = (pull: unknown): PullSummary => {
     // protection.
     reviewDecision: isTruthy(field(pull, 'reviewDecision')) ? field(pull, 'reviewDecision') : '',
     baseRefName: answered(field(pull, 'baseRefName')),
+    approval: approvalOf(pull, rules),
+    threads: threadsOf(rules, unresolved),
   }
 }
 
@@ -469,11 +626,26 @@ export const ciSeconds = (runs: unknown): number => {
   return median === undefined ? DEFAULT_CI_SECONDS : median
 }
 
+/** Why `shepherd-status` leaves a pull request out (ruling 10 on #465). */
+export const NEEDS_APPROVAL = 'needs an approval'
+export const UNRESOLVED_THREADS = 'has unresolved review threads'
+export type NotReadyReason = typeof NEEDS_APPROVAL | typeof UNRESOLVED_THREADS
+
+/** A pull request that `shepherd-status` leaves out, with each reason. */
+export interface NotReady {
+  readonly number: unknown
+  readonly title: unknown
+  readonly author: unknown
+  readonly reasons: readonly NotReadyReason[]
+}
+
 export interface StatusDocument {
   readonly repo: string
   readonly default_branch: string
   readonly ci_seconds: number
   readonly targets: readonly PullSummary[]
+  /** Empty with `--all`, and when nothing was left out (#465). */
+  readonly not_ready: readonly NotReady[]
 }
 
 /** `createdAt` as the sort key, or `""`. This is the port of
@@ -485,6 +657,47 @@ const createdAt = (pull: unknown): string => asText(field(pull, 'createdAt'))
  *  `localeCompare` would order by the machine's locale instead. */
 const byText = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0)
 
+/** The base a pull request merges into, or `""`. */
+const baseOf = (pull: unknown): string => asText(field(pull, 'baseRefName'))
+
+/** Open, non-draft pull requests that a human has marked for auto-merge. */
+const autoMergeRows = (pulls: unknown): unknown[] =>
+  (Array.isArray(pulls) ? pulls : []).filter(
+    (pull) => !isTruthy(field(pull, 'isDraft')) && hasAutoMerge(pull),
+  )
+
+/** Each base of the auto-merge pull requests, once. `shepherd-status`
+ *  reads the review rules of each one (#465). A row with no base is not
+ *  a branch to ask about. */
+export const autoMergeBases = (pulls: unknown): string[] => [
+  ...new Set(
+    autoMergeRows(pulls)
+      .map(baseOf)
+      .filter((base) => base !== ''),
+  ),
+]
+
+/** The number of each auto-merge pull request whose base asks for resolved
+ *  review threads. `shepherd-status` reads the threads of these alone. */
+export const threadReads = (
+  pulls: unknown,
+  rules: ReadonlyMap<string, RequiredReviews | null>,
+): number[] =>
+  autoMergeRows(pulls)
+    .filter((pull) => rules.get(baseOf(pull))?.threadResolution === true)
+    .map((pull) => Number(field(pull, 'number')))
+
+export interface StatusOptions {
+  /** The review rules of each base. `null`, or a base not here, means the
+   *  rules were not read. */
+  readonly rules: ReadonlyMap<string, RequiredReviews | null>
+  /** The unresolved review threads of each pull request, by number. `null`,
+   *  or a number not here, means the threads were not read. */
+  readonly threads: ReadonlyMap<number, number | null>
+  /** `--all`: every auto-merge pull request is a target. */
+  readonly all: boolean
+}
+
 /**
  * The whole `gh-shepherd-status.py` report.
  *
@@ -492,26 +705,46 @@ const byText = (left: string, right: string): number => (left < right ? -1 : lef
  * request that a human has already marked for auto-merge. One without that
  * mark is left out: auto-merge is the human's signal that the pull request
  * is wanted, and this never enables it.
+ *
+ * Without `--all`, a pull request whose approval is `missing`, or whose
+ * threads are `unresolved`, is not a target either. It goes to
+ * `not_ready`, in the same order, with each reason, so the report can name
+ * it (#465).
  */
 export const statusDocument = (
   pulls: unknown,
   repo: string,
   defaultBranch: string,
   ci: number,
+  options: StatusOptions,
 ): StatusDocument => {
-  const rows: unknown[] = Array.isArray(pulls) ? pulls : []
-  const open = rows.filter((pull) => !isTruthy(field(pull, 'isDraft')))
-  const targets = open.filter((pull) => hasAutoMerge(pull))
+  const rows = autoMergeRows(pulls)
   // Stable in Python and in JavaScript. Two pull requests with the same key
   // keep the order gh listed them in.
-  targets.sort(
-    (left, right) => rank(left) - rank(right) || byText(createdAt(left), createdAt(right)),
-  )
+  rows.sort((left, right) => rank(left) - rank(right) || byText(createdAt(left), createdAt(right)))
+  const targets: PullSummary[] = []
+  const notReady: NotReady[] = []
+  for (const pull of rows) {
+    const shaped = summary(
+      pull,
+      options.rules.get(baseOf(pull)) ?? null,
+      options.threads.get(Number(field(pull, 'number'))) ?? null,
+    )
+    const reasons: NotReadyReason[] = []
+    if (shaped.approval === 'missing') reasons.push(NEEDS_APPROVAL)
+    if (shaped.threads === 'unresolved') reasons.push(UNRESOLVED_THREADS)
+    if (options.all || reasons.length === 0) {
+      targets.push(shaped)
+    } else {
+      notReady.push({ number: shaped.number, title: shaped.title, author: shaped.author, reasons })
+    }
+  }
   return {
     repo,
     default_branch: defaultBranch,
     ci_seconds: ci,
-    targets: targets.map(summary),
+    targets,
+    not_ready: notReady,
   }
 }
 

@@ -511,6 +511,20 @@ stdout and exits non-zero, which `restJson` reads on purpose.
 not be read costs the whole answer, not just its own context, because a required context dropped in
 silence is a pull request reported green that the ruleset would in fact refuse.
 
+```ts
+const { reviews } = await gh.requiredReviews({ branch: 'main' })
+// reviews -> { approvals: 1, codeOwner: true, threadResolution: true, lastPush: false }
+```
+
+`requiredReviews` reads the same endpoint for the `pull_request` rules (#465). It answers the
+highest `required_approving_review_count`. Each flag is true when any rule sets it:
+`require_code_owner_review`, `required_review_thread_resolution` and
+`require_last_push_approval`. No `pull_request` rule, and the plan-limit 403, are a count of 0
+with three false flags. Every other refusal is null `reviews`, with the `unavailable` sentence
+of `requiredContexts`. One rule with a field of the wrong type costs the whole read, and its
+sentence names the pull-request rule. It is a second method, so the contract of
+`requiredContexts` and its caller `pr-state` does not change.
+
 `viewPullRequestDetail` makes one GraphQL round trip for the refs, the head commit and its check
 rollup, the unresolved review threads, and the comments. It is not `viewPullRequest`: that
 endpoint's `--json` field list carries neither ref name, and cannot carry review threads at all,

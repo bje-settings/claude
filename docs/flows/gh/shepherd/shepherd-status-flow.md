@@ -1,10 +1,10 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, one label at most. It also shows each way it stops.
+description: How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets and a not-ready list, one label at most. It also shows each way it stops.
 stale_after: 2027-03-25
 generated:
-  by: claude-sonnet
-  at: 2026-09-25
+  by: claude-opus
+  at: 2026-10-19
 ---
 
 # shepherd-status flow
@@ -17,7 +17,9 @@ the `shepherd-prs` agent with the targets it names.
 flowchart TD
     A[shepherd-status run] --> B{Help in any position?}
     B -->|Yes| H([Print usage, exit 0])
-    B -->|No| B2{More than two arguments?}
+    B -->|No| B1{A flag other than --all?}
+    B1 -->|Yes| Z8([Refused: unknown flag, exit 2]):::stop
+    B1 -->|No| B2{More than two arguments,<br/>besides --all?}
     B2 -->|Yes| Z0([Refused: one label per run, exit 2]):::stop
     B2 -->|No| C[Target: the first argument, or the working<br/>directory when there is none; label: the<br/>second argument, if any]
     C --> D{Target is a directory<br/>you can enter?}
@@ -37,9 +39,15 @@ flowchart TD
     J --> L[Drop draft pull requests]
     K --> L
     L --> M{Auto-merge enabled?}
-    M -->|Yes| N[targets: merge-risk low, then no label,<br/>then medium, then high, then a band<br/>it does not know; oldest first in a band]
+    M -->|Yes| Q[Read the review rules of each base once;<br/>the threads of each PR whose base asks]
     M -->|No| O([Left out; never enabled])
+    Q -->|A read fails| QF[stderr names the branch or the PR;<br/>the verdict rests on reviewDecision]
+    QF --> R
+    Q -->|Read| R{Without --all: needs an approval,<br/>or has unresolved review threads?}
+    R -->|Yes| NR[not_ready, with its reasons]
+    R -->|No, or --all| N[targets: merge-risk low, then no label,<br/>then medium, then high, then a band<br/>it does not know; oldest first in a band]
     N --> P([Print one JSON document, exit 0])
+    NR --> P
     X[Any error it did not expect] --> Z6([internal error on stderr, exit 3]):::stop
 
     classDef stop fill:#fff3e0,stroke:#e65100,color:#000

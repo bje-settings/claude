@@ -25,7 +25,14 @@ flowchart TD
     G -->|No| Z3([could not resolve the repository, exit 1]):::stop
     G -->|Yes| R{Pull request read,<br/>with every field?}
     R -->|No| RU([ok false: could not read, exit 0]):::stop
-    R -->|state| S([ok true: the pull request, and whether<br/>its head is behind its base, exit 0])
+    R -->|state| SR{Review rules of the base read?}
+    SR -->|No: stderr says why| SN[approval from reviewDecision alone;<br/>threads null]
+    SR -->|Yes| ST{Rules ask for resolved threads?}
+    ST -->|Yes| STR[Read the unresolved threads;<br/>a failed read is null, stderr says why]
+    ST -->|No| SV
+    STR --> SV[approval: met, missing or not_required;<br/>threads: resolved, unresolved or not_required]
+    SN --> S
+    SV --> S([ok true: the pull request, whether its head<br/>is behind its base, approval and threads, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
     subgraph writes [rebase: the only write]

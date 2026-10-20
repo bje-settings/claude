@@ -34,6 +34,8 @@ import {
   missingField,
   oneLine,
   type PullSummary,
+  readReviewRules,
+  readUnresolvedThreads,
   type ShepherdContext,
   type ShepherdExit,
   summary,
@@ -150,7 +152,16 @@ cannot make it act on the wrong pull request.
             plus \`pr.behind\`. It is true when the compare of baseRefName
             and the head is behind or diverged. It is false when the compare
             is ahead or identical. It is null when the compare could not be
-            read (stderr says why).
+            read (stderr says why). \`pr.approval\` (met, missing,
+            not_required) and \`pr.threads\` (resolved, unresolved,
+            not_required) come from the review rules of baseRefName,
+            reviewDecision and the reviews. The threads are read only when
+            the rules ask for resolved threads. \`approval\` is null when the
+            rules could not be read and reviewDecision is empty. \`threads\`
+            is null when the rules or the threads could not be read. stderr
+            says why.
+            The other actions read neither, so their \`pr.approval\` rests
+            on reviewDecision alone, and \`pr.threads\` is null.
   rebase    gh pr update-branch --rebase. Refuses unless the pull request is
             open. Then reads the pull request every SHEPHERD_REBASE_POLL
             seconds until the head moves, or until SHEPHERD_REBASE_BOUND.
@@ -316,6 +327,14 @@ class Shepherd {
    * checks are `none`, which `wait` then reads as passed.
    */
   async readPr(): Promise<PullSummary | null> {
+    const pull = await this.readPull()
+    return pull === null ? null : summary(pull)
+  }
+
+  /** The pull request as gh answered it, once {@link missingField} has
+   *  passed it, or `null` with {@link readErr} set. `state` shapes it with
+   *  the review rules of its base. */
+  async readPull(): Promise<Record<string, unknown> | null> {
     let pull: Record<string, unknown>
     try {
       pull = await this.options.gh.viewPullRequest({ pullRequest: this.options.number })
@@ -329,7 +348,7 @@ class Shepherd {
       return null
     }
     this.readErr = ''
-    return summary(pull)
+    return pull
   }
 
   /**
@@ -392,9 +411,18 @@ class Shepherd {
   // ------------------------------------------------------------ actions ---
 
   async state(): Promise<void> {
-    const pull = await this.readPr()
+    const pull = await this.readPull()
     if (pull === null) return this.unreadable()
-    this.emit(true, 'read', { pr: await this.withBehind(pull) })
+    // `missingField` refuses an answer without `baseRefName`, so it is a
+    // name gh gave.
+    const err = this.options.context.output.err
+    const rules = await readReviewRules(this.options.gh, String(pull.baseRefName), err)
+    // The threads are read only when the rules ask for them (#465).
+    const unresolved =
+      rules?.threadResolution === true
+        ? await readUnresolvedThreads(this.options.gh, this.options.number, err)
+        : null
+    this.emit(true, 'read', { pr: await this.withBehind(summary(pull, rules, unresolved)) })
   }
 
   async merged(): Promise<void> {
