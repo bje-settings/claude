@@ -602,6 +602,22 @@ GitHub refused, such as one for an unknown commit, quotes GitHub's `message`.
 
 `workstreams pr-state` reads it for the commits after the round 1 head (#356).
 
+### `branchRef`
+
+```ts
+const { sha } = await gh.branchRef({ branch: 'dependabot/npm/dep-1' })
+```
+
+`branchRef` reads `repos/{owner}/{name}/git/ref/heads/{branch}` through REST. It answers
+`{ sha, unavailable }` and never throws. `sha` is the ref's `object.sha`, the commit that the
+branch points at. The name is percent-encoded whole: `%2F` reaches the branch `a/b` (verified
+live on 2026-10-20). The endpoint answers an exact name only, so a prefix of a branch name is a
+404.
+
+A 404 still answers JSON. So a reply with no `object.sha` costs the read, and the reason quotes
+GitHub's `status` and `message`. `shepherd-pr state` compares it with a pull request's
+`headRefOid` (#467).
+
 ### `listPullRequestStatuses` and `createCommitStatus`
 
 ```ts

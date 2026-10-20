@@ -74,6 +74,7 @@ it('builds a dependencies pull request with every field PR_FIELDS asks for', () 
     mergeable: 'MERGEABLE',
     headRefOid: 'sha1',
     headRefName: 'dependabot/npm/dep-1',
+    isCrossRepository: false,
     baseRefName: 'main',
     createdAt: '2026-01-01T00:00:00Z',
     mergeCommit: null,
@@ -264,6 +265,35 @@ it('fails a number that resolves to nothing, in gh’s own words', async () => {
   )
 })
 
+it('answers the ref of a branch with the head of the row that names it', async () => {
+  // The fixture claims a pull request whose head is in step with its
+  // branch (#467). A name with a slash is one branch, not a path.
+  const gh = createGhServer({ prs: [depPr(1), depPr(2, { head: 'moved2' })] })
+
+  await expect(gh.branchRef({ branch: 'dependabot/npm/dep-2' })).resolves.toEqual({
+    sha: 'moved2',
+    unavailable: null,
+  })
+})
+
+it('answers the ref of a branch that no row names as GitHub’s 404', async () => {
+  const gh = createGhServer({ prs: [depPr(1)] })
+
+  await expect(gh.branchRef({ branch: 'dependabot/npm' })).resolves.toEqual({
+    sha: null,
+    unavailable: 'the ref of dependabot/npm carried no commit (404: Not Found)',
+  })
+})
+
+it('lets a registered ref reply or sequence outrank the pull-request set', async () => {
+  const stale = { sha: 'newer1', unavailable: null }
+  const replied = createGhServer({ prs: [depPr(1)], replies: { branchRef: stale } })
+  const sequenced = createGhServer({ prs: [depPr(1)], sequences: { branchRef: [stale] } })
+
+  await expect(replied.branchRef({ branch: 'dependabot/npm/dep-1' })).resolves.toEqual(stale)
+  await expect(sequenced.branchRef({ branch: 'dependabot/npm/dep-1' })).resolves.toEqual(stale)
+})
+
 it('throws for a pull-request endpoint when no set was registered at all', async () => {
   const gh = createGhServer({})
 
@@ -273,6 +303,9 @@ it('throws for a pull-request endpoint when no set was registered at all', async
   )
   await expect(gh.viewPullRequest({ pullRequest: 1 })).rejects.toThrow(
     'no reply registered for viewPullRequest',
+  )
+  await expect(gh.branchRef({ branch: 'main' })).rejects.toThrow(
+    'no reply registered for branchRef',
   )
 })
 

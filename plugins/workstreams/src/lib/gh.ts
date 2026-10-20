@@ -500,6 +500,11 @@ export interface GhResults {
     readonly comparison: CommitComparison | null
     readonly unavailable: string | null
   }
+  /** The commit one branch points at, or null when it could not be read. */
+  branchRef: {
+    readonly sha: string | null
+    readonly unavailable: string | null
+  }
   /** The statuses with one context prefix on a pull request's commits. */
   listPullRequestStatuses: PagedResult<CommitStatus>
   /** The status GitHub created, as its JSON object. */
@@ -719,6 +724,18 @@ export interface GhClient {
     readonly head: string
   }): Promise<GhResults['compareCommits']>
   /**
+   * The commit that one branch of this repository points at, through REST
+   * (`repos/{owner}/{name}/git/ref/heads/{branch}`): the ref's `object.sha`.
+   *
+   * The endpoint answers an exact name only. A name that no branch has is a
+   * 404, never a branch whose name starts with it. `shepherd-pr` compares
+   * this with a pull request's `headRefOid` (#467).
+   *
+   * Never throws, for {@link PagedResult}'s reason. A ref that could not be
+   * read is a null `sha`, with the reason beside it.
+   */
+  branchRef(query: { readonly branch: string }): Promise<GhResults['branchRef']>
+  /**
    * The commit statuses whose context starts with `prefix`, on the first 100
    * commits of one pull request (#377). Each row carries its commit,
    * context, state, description and `createdAt`, and nothing else.
@@ -914,6 +931,8 @@ export interface GhClientOptions {
  * shepherd counts the approvals in `reviews` (#465). It is not
  * `latestReviews`: gh answers that field with an empty `commit.oid` on
  * every review (read on 2026-10-19), and a last-push rule needs the commit.
+ * `state` reads the ref of `headRefName` when `isCrossRepository` is false
+ * (#467).
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
  * request's head by its number (#450). Its merge commit proves that the
@@ -926,7 +945,7 @@ export interface GhClientOptions {
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
   'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-  'reviews'
+  'reviews,headRefName,isCrossRepository'
 const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
@@ -2859,6 +2878,22 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const answer = await restJson(`compare/${path}?per_page=1`)
       if (answer.unavailable !== null) return { comparison: null, unavailable: answer.unavailable }
       return readComparison(answer.value, range)
+    },
+
+    // A 404 still answers JSON, with GitHub's `message` in it, so it reads
+    // as a ref with no `object`. `%2F` in the name reaches the ref
+    // `heads/a/b` (verified live on 2026-10-20).
+    branchRef: async (query) => {
+      const answer = await restJson(`git/ref/heads/${encodeURIComponent(query.branch)}`)
+      if (answer.unavailable !== null) return { sha: null, unavailable: answer.unavailable }
+      const sha = asText(asRecord(asRecord(answer.value)?.object)?.sha)
+      if (sha === null || sha === '') {
+        return {
+          sha: null,
+          unavailable: `the ref of ${query.branch} carried no commit${errorBodyOf(answer.value)}`,
+        }
+      }
+      return { sha, unavailable: null }
     },
 
     listPullRequestStatuses: async (query) => {

@@ -119,7 +119,7 @@ describe('argv', () => {
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
         'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-        'reviews',
+        'reviews,headRefName,isCrossRepository',
     ])
   })
 
@@ -145,7 +145,7 @@ describe('argv', () => {
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
         'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-        'reviews',
+        'reviews,headRefName,isCrossRepository',
     ])
   })
 
@@ -228,7 +228,7 @@ describe('argv', () => {
       '--json',
       'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
         'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-        'reviews',
+        'reviews,headRefName,isCrossRepository',
     ])
   })
 
@@ -322,7 +322,7 @@ describe('argv', () => {
     await log.gh.addComment({ pullRequest: 7, body: 'hi' })
 
     const fields =
-      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,reviews'
+      'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,reviews,headRefName,isCrossRepository'
     expect(rows.calls.map((call) => call.args)).toEqual([
       ['pr', 'list', '--repo', 'acme/widgets', '--json', fields],
       [
@@ -1048,6 +1048,7 @@ it("defaults to the root lib's own process runner", () => {
   const endpoints = Object.keys(gh).sort()
   expect(endpoints).toEqual([
     'addComment',
+    'branchRef',
     'compareCommits',
     'createCommitStatus',
     'issueStates',
@@ -3183,6 +3184,109 @@ describe('the review loop reads', () => {
         comparison: null,
         unavailable: 'gh did not answer in 5000 ms',
       })
+    })
+  })
+})
+
+// --- the ref of one branch (#467) ---------------------------------------------
+//
+// One repository resolution, then one REST read of the ref.
+describe('branchRef', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+  /** The ref as GitHub answered it for this repository's own branch, on
+   *  2026-10-20. */
+  const refReply = (branch: string, sha: string): Reply => ({
+    stdout: JSON.stringify({
+      ref: `refs/heads/${branch}`,
+      node_id: 'REF_kwDOUJSlNNoAJnJlZnMvaGVhZHMvd2t0ci00NjEtZGVsZXRlLXdhdGNoY2hlY2tz',
+      url: `https://api.github.com/repos/acme/widgets/git/refs/heads/${branch}`,
+      object: {
+        sha,
+        type: 'commit',
+        url: `https://api.github.com/repos/acme/widgets/git/commits/${sha}`,
+      },
+    }),
+  })
+  const SHA = 'af8689cbace9f69b009df29d84a76e6b39c25284'
+
+  it('reads the ref of the branch and answers its commit', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, refReply('wktr-461-delete-watchchecks', SHA)])
+
+    const result = await gh.branchRef({ branch: 'wktr-461-delete-watchchecks' })
+
+    expect(calls[1]?.args).toEqual([
+      'api',
+      'repos/acme/widgets/git/ref/heads/wktr-461-delete-watchchecks',
+    ])
+    expect(result).toEqual({ sha: SHA, unavailable: null })
+  })
+
+  it('reads a branch whose name holds a slash as one name', async () => {
+    const branch = 'copilot/backport-2518-releases-v2'
+    const { gh, calls } = clientAnsweringEach([REPO, refReply(branch, SHA)])
+
+    const result = await gh.branchRef({ branch })
+
+    expect(calls[1]?.args[1]).toBe(
+      'repos/acme/widgets/git/ref/heads/copilot%2Fbackport-2518-releases-v2',
+    )
+    expect(result).toEqual({ sha: SHA, unavailable: null })
+  })
+
+  it('quotes GitHub’s 404 for a branch that does not exist', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      {
+        status: 1,
+        stdout:
+          '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/git/refs#get-a-reference","status":"404"}',
+        stderr: 'gh: Not Found (HTTP 404)\n',
+      },
+    ])
+
+    await expect(gh.branchRef({ branch: 'gone' })).resolves.toEqual({
+      sha: null,
+      unavailable: 'the ref of gone carried no commit (404: Not Found)',
+    })
+  })
+
+  for (const [what, stdout] of [
+    ['an answer that is not an object', '[]'],
+    ['a ref with no object', '{"ref":"refs/heads/a"}'],
+    ['a ref whose object is not an object', '{"ref":"refs/heads/a","object":"af8689c"}'],
+    ['a ref whose sha is not text', '{"ref":"refs/heads/a","object":{"sha":7}}'],
+    ['a ref whose sha is empty', '{"ref":"refs/heads/a","object":{"sha":""}}'],
+  ] as const) {
+    it(`reports ${what}, never a commit`, async () => {
+      const { gh } = clientAnsweringEach([REPO, { stdout }])
+
+      await expect(gh.branchRef({ branch: 'a' })).resolves.toEqual({
+        sha: null,
+        unavailable: 'the ref of a carried no commit',
+      })
+    })
+  }
+
+  it('reports gh’s own words when the ref could not be read', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { status: 1, stdout: '', stderr: 'gh: API rate limit exceeded\n' },
+    ])
+
+    await expect(gh.branchRef({ branch: 'a' })).resolves.toEqual({
+      sha: null,
+      unavailable: 'gh: API rate limit exceeded',
+    })
+  })
+
+  it('reports a repository it could not resolve, before it reads the ref', async () => {
+    const { gh } = clientAnsweringEach([
+      { status: 1, stdout: '', stderr: 'gh: Could not resolve to a Repository\n' },
+    ])
+
+    await expect(gh.branchRef({ branch: 'a' })).resolves.toEqual({
+      sha: null,
+      unavailable: 'gh: Could not resolve to a Repository',
     })
   })
 })
