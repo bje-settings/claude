@@ -35,6 +35,8 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['listWorkflowRuns', (client) => client.listWorkflowRuns({ branch: 'main', perPage: 10 })],
   ['compareCommits', (client) => client.compareCommits({ base: 'dda20bc', head: 'a51ef71' })],
   ['branchRef', (client) => client.branchRef({ branch: 'dependabot/npm/dep-1' })],
+  ['listRunJobs', (client) => client.listRunJobs({ run: '39508680057' })],
+  ['commitDate', (client) => client.commitDate({ sha: 'eb0ee17' })],
   [
     'listPullRequestStatuses',
     (client) => client.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' }),
@@ -167,6 +169,11 @@ it('answers every endpoint it declares', async () => {
       unavailable: null,
     },
     branchRef: { sha: '9b13a20ab347d9c3e2053ce90f94ed3090cb36fe', unavailable: null },
+    listRunJobs: {
+      rows: [{ id: 1, startedAt: '2026-10-20T22:31:04Z', completedAt: null, steps: [] }],
+      unavailable: null,
+    },
+    commitDate: { date: '2026-10-20T22:47:46Z', unavailable: null },
     listPullRequestStatuses: {
       rows: [
         {

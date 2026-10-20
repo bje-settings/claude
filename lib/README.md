@@ -618,6 +618,25 @@ A 404 still answers JSON. So a reply with no `object.sha` costs the read, and th
 GitHub's `status` and `message`. `shepherd-pr state` compares it with a pull request's
 `headRefOid` (#467).
 
+### `listRunJobs` and `commitDate`
+
+```ts
+const { rows } = await gh.listRunJobs({ run: '39508680057' })
+// rows[0] -> { id, startedAt, completedAt, steps: [{ startedAt, completedAt }] }
+const { date } = await gh.commitDate({ sha: 'eb0ee17' })
+```
+
+`listRunJobs` reads `repos/{owner}/{name}/actions/runs/{run}/jobs?per_page=100` through REST. It
+answers `{ rows, unavailable }` and never throws. Each row is a job with its `started_at` and
+`completed_at`, and the same two stamps for each step. GitHub answers null for a stamp it has not
+set, and so does a row here. A job with no numeric `id` or no `steps` list is left out and counted
+in `unavailable`. So is each job past the first page. A run that does not exist is a 404 body,
+which `unavailable` quotes.
+
+`commitDate` reads `repos/{owner}/{name}/commits/{sha}` and answers `{ date, unavailable }`, with
+the committer date. `shepherd-pr wait` reads a step that starts or finishes as progress, and
+measures a rollup with no stamp from the head commit's date (#466).
+
 ### `listPullRequestStatuses` and `createCommitStatus`
 
 ```ts

@@ -52,6 +52,7 @@ export type {
   PullRequestSummary,
   RepositoryStatus,
   RequiredReviews,
+  RunJob,
   RunQuery,
   WorkflowRun,
 } from '../lib/gh.ts'
@@ -143,6 +144,8 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     listWorkflowRuns: async () => answer(replies, 'listWorkflowRuns'),
     compareCommits: async () => answer(replies, 'compareCommits'),
     branchRef: async () => answer(replies, 'branchRef'),
+    listRunJobs: async () => answer(replies, 'listRunJobs'),
+    commitDate: async () => answer(replies, 'commitDate'),
     listPullRequestStatuses: async () => answer(replies, 'listPullRequestStatuses'),
     createCommitStatus: async () => answer(replies, 'createCommitStatus'),
     repositoryStatus: async () => answer(replies, 'repositoryStatus'),

@@ -1049,6 +1049,7 @@ it("defaults to the root lib's own process runner", () => {
   expect(endpoints).toEqual([
     'addComment',
     'branchRef',
+    'commitDate',
     'compareCommits',
     'createCommitStatus',
     'issueStates',
@@ -1060,6 +1061,7 @@ it("defaults to the root lib's own process runner", () => {
     'listOpenPullRequests',
     'listPullRequestStatuses',
     'listPullRequests',
+    'listRunJobs',
     'listRuns',
     'listWorkflowRuns',
     'readFailedRunLog',
@@ -3287,6 +3289,165 @@ describe('branchRef', () => {
     await expect(gh.branchRef({ branch: 'a' })).resolves.toEqual({
       sha: null,
       unavailable: 'gh: Could not resolve to a Repository',
+    })
+  })
+})
+
+// --- the jobs of a run, and the date of a commit (#466) ---------------------
+//
+// One repository resolution, then one REST read.
+describe('listRunJobs and commitDate', () => {
+  const REPO: Reply = { stdout: '{"nameWithOwner":"acme/widgets"}' }
+  /** A job as `actions/runs/{id}/jobs` answered for #471 on 2026-10-20,
+   *  cut to the fields this reads. */
+  const job = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    status: 'in_progress',
+    started_at: '2026-10-20T22:31:04Z',
+    completed_at: null,
+    steps: [
+      {
+        status: 'completed',
+        started_at: '2026-10-20T22:31:05Z',
+        completed_at: '2026-10-20T22:31:06Z',
+      },
+      { status: 'in_progress', started_at: '2026-10-20T22:31:06Z', completed_at: null },
+      { status: 'queued', started_at: null, completed_at: null },
+    ],
+    ...extra,
+  })
+  const jobsReply = (jobs: unknown, extra: Record<string, unknown> = {}): Reply => ({
+    stdout: JSON.stringify({ total_count: Array.isArray(jobs) ? jobs.length : 0, jobs, ...extra }),
+  })
+
+  it('reads one page of the jobs of a run, with the stamps of each step', async () => {
+    const { gh, calls } = clientAnsweringEach([REPO, jobsReply([job(118923958213)])])
+
+    const result = await gh.listRunJobs({ run: '39508680057' })
+
+    expect(calls[1]?.args).toEqual([
+      'api',
+      'repos/acme/widgets/actions/runs/39508680057/jobs?per_page=100',
+    ])
+    expect(result).toEqual({
+      rows: [
+        {
+          id: 118923958213,
+          startedAt: '2026-10-20T22:31:04Z',
+          completedAt: null,
+          steps: [
+            { startedAt: '2026-10-20T22:31:05Z', completedAt: '2026-10-20T22:31:06Z' },
+            { startedAt: '2026-10-20T22:31:06Z', completedAt: null },
+            { startedAt: null, completedAt: null },
+          ],
+        },
+      ],
+      unavailable: null,
+    })
+  })
+
+  it('names a job it could not read, and keeps the rest', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      jobsReply([job(1), { id: 'two', steps: [] }, job(3, { steps: 'none' }), null]),
+    ])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows.map((row) => row.id)).toEqual([1])
+    expect(result.unavailable).toBe('3 job(s) of run 7 could not be read')
+  })
+
+  it('names the jobs past the first page', async () => {
+    const { gh } = clientAnsweringEach([REPO, jobsReply([job(1)], { total_count: 120 })])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.unavailable).toBe('run 7 has 120 jobs; 1 were read')
+  })
+
+  it('reads a reply with no total_count by its own list', async () => {
+    const { gh } = clientAnsweringEach([REPO, { stdout: JSON.stringify({ jobs: [job(1)] }) }])
+
+    await expect(gh.listRunJobs({ run: '7' })).resolves.toMatchObject({ unavailable: null })
+  })
+
+  it('quotes GitHub’s 404 for a run that does not exist', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      {
+        status: 1,
+        stdout:
+          '{"message":"Not Found","documentation_url":"https://docs.github.com/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run","status":"404"}',
+        stderr: 'gh: Not Found (HTTP 404)\n',
+      },
+    ])
+
+    await expect(gh.listRunJobs({ run: '1' })).resolves.toEqual({
+      rows: [],
+      unavailable: 'the jobs of run 1 were not a list (404: Not Found)',
+    })
+  })
+
+  it('reports gh’s own words when the jobs could not be read', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { status: 1, stdout: '', stderr: 'gh: API rate limit exceeded\n' },
+    ])
+
+    await expect(gh.listRunJobs({ run: '1' })).resolves.toEqual({
+      rows: [],
+      unavailable: 'gh: API rate limit exceeded',
+    })
+  })
+
+  it('reads the committer date of a commit', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      {
+        stdout: JSON.stringify({
+          sha: 'eb0ee17',
+          commit: {
+            author: { date: '2026-10-20T22:40:00Z' },
+            committer: { date: '2026-10-20T22:47:46Z' },
+          },
+        }),
+      },
+    ])
+
+    const result = await gh.commitDate({ sha: 'eb0ee17' })
+
+    expect(calls[1]?.args).toEqual(['api', 'repos/acme/widgets/commits/eb0ee17'])
+    expect(result).toEqual({ date: '2026-10-20T22:47:46Z', unavailable: null })
+  })
+
+  it('reports a commit with no committer date, and quotes a 404', async () => {
+    const shapes = clientAnsweringEach([REPO, { stdout: '{"commit":{}}' }])
+    await expect(shapes.gh.commitDate({ sha: 'a' })).resolves.toEqual({
+      date: null,
+      unavailable: 'the commit a carried no committer date',
+    })
+
+    const gone = clientAnsweringEach([
+      REPO,
+      { status: 1, stdout: '{"message":"No commit found for SHA: a","status":"422"}' },
+    ])
+    await expect(gone.gh.commitDate({ sha: 'a' })).resolves.toEqual({
+      date: null,
+      unavailable: 'the commit a carried no committer date (422: No commit found for SHA: a)',
+    })
+  })
+
+  it('reports gh’s own words when the commit could not be read', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { status: 1, stdout: '', stderr: 'gh: API rate limit exceeded\n' },
+    ])
+
+    await expect(gh.commitDate({ sha: 'a' })).resolves.toEqual({
+      date: null,
+      unavailable: 'gh: API rate limit exceeded',
     })
   })
 })
