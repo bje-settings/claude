@@ -204,6 +204,9 @@ was added or removed.
   `isCrossRepository`, and every captured pull request is from the repository itself. So each
   replay gives each row `isCrossRepository: false`, and the server answers the ref of each branch
   with the head of its row.
+- **`progress`** (#466) is the last key of the four `wait_*` cases that end `pending`. No
+  captured row carries a stamp. So each reads `finished` 1, `checks` 2, `started`, `newest` and
+  `idle` null, and `stall_bound` 600.
 
 ## The capture script
 

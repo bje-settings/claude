@@ -47,8 +47,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
   next pull request, whether or not it confirmed anything.
 - **A `skipped` reason names only fields you actually read.** Copy `mergeStateStatus`,
-  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads`, `pr.headRefOid`, `pr.branchRefOid`
-  and the script's own `reason` out of the JSON in front of you.
+  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads`, `pr.headRefOid`, `pr.branchRefOid`,
+  the `progress` fields and the script's own `reason` out of the JSON in front of you.
   Never write that a review requirement, a branch protection rule, or a server-side auto-merge
   setting is the cause. Write that only when the state you read says so. "Checks passed and it
   has not merged yet" is not evidence of any of them. A guess in that field becomes a finding
@@ -129,15 +129,17 @@ number, in the order given:
        second `ok:false` is skipped, with the detail as the reason.
      Never merge it yourself.
    - `pending` → call `wait` again. (`waited` is how many seconds `wait` read before its bound.)
-     After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull
-     request as skipped ("checks did not finish"). Then continue.
+     `wait` decides from the checks' own stamps when they stall. Never count `pending` results
+     toward a skip.
+   - `stalled` → no check started or finished for `progress.stall_bound` seconds. Record the pull
+     request as skipped ("checks made no progress"), with `progress.newest`, `progress.idle` and
+     `progress.stall_bound`. Then continue.
    - `failed` → classify the failure (step 4).
-   - `behind` → the head does not contain the tip of its base. Go back to step 2. This result
-     does not count toward the three `pending` results. Count a `behind` result unless the
-     `rebase` before it returned `moved`. Stop after three counted results with no change in
-     `pr.headRefOid`. Record the pull request as skipped, with the reason
-     ("rebase did not move a head that stays behind its base"). `update-branch` can report the
-     branch as up to date while the compare still reads behind.
+   - `behind` → the head does not contain the tip of its base. Go back to step 2. Count a
+     `behind` result unless the `rebase` before it returned `moved`. Stop after three counted
+     results with no change in `pr.headRefOid`. Record the pull request as skipped, with the
+     reason ("rebase did not move a head that stays behind its base"). `update-branch` can report
+     the branch as up to date while the compare still reads behind.
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone

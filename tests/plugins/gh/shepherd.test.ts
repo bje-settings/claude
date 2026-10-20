@@ -19,6 +19,7 @@ import {
   autoMergeBases,
   checkLink,
   checkName,
+  checkProgress,
   checkState,
   checks,
   ciSeconds,
@@ -251,6 +252,116 @@ describe('checks', () => {
 })
 
 // --- missingField, one test per required field --------------------------------
+
+describe('checkProgress', () => {
+  /** A CheckRun with the two stamps gh gives it. */
+  const stamped = (status: string, startedAt: string, completedAt = ZERO, name = 'build') => ({
+    ...checkRun(status, status === 'COMPLETED' ? 'SUCCESS' : null, name),
+    startedAt,
+    completedAt,
+  })
+  /** gh's word for a stamp GitHub has not set: Go's zero time. */
+  const ZERO = '0001-01-01T00:00:00Z'
+  const at = (stamp: string): number => Date.parse(stamp)
+
+  it('reads the rollup of a run in progress, as gh answered for #471 on 2026-10-20', () => {
+    // The running checks carry the zero time as `completedAt`.
+    const rollup = [
+      stamped('IN_PROGRESS', '2026-10-20T22:15:19Z', ZERO, 'vitest'),
+      stamped('COMPLETED', '2026-10-20T22:15:18Z', '2026-10-20T22:15:18Z', 'Analyze'),
+      stamped('COMPLETED', '2026-10-20T22:15:19Z', '2026-10-20T22:15:29Z', 'Label pull request'),
+      stamped('IN_PROGRESS', '2026-10-20T22:15:20Z', ZERO, 'eslint'),
+    ]
+
+    expect(checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T22:20:29Z'), 600)).toEqual({
+      finished: 2,
+      checks: 4,
+      started: '2026-10-20T22:15:18Z',
+      newest: '2026-10-20T22:15:29Z',
+      idle: 300,
+      stall_bound: 600,
+    })
+  })
+
+  it('takes the newest of every stamp, whatever their order within a row', () => {
+    // A skipped CodeQL check on #470 finished at 21:58:29 and started at 21:58:36.
+    const rollup = [stamped('COMPLETED', '2026-10-20T21:58:36Z', '2026-10-20T21:58:29Z')]
+
+    expect(
+      checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T21:58:46Z'), 600),
+    ).toMatchObject({ started: '2026-10-20T21:58:29Z', newest: '2026-10-20T21:58:36Z', idle: 10 })
+  })
+
+  it('makes the bound the run’s own time from its first stamp to its newest, past the floor', () => {
+    const rollup = [
+      stamped('COMPLETED', '2026-10-20T20:14:00Z', '2026-10-20T20:39:00Z', 'test'),
+      stamped('IN_PROGRESS', '2026-10-20T20:14:00Z'),
+    ]
+
+    expect(
+      checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T20:51:00Z'), 600),
+    ).toMatchObject({ idle: 720, stall_bound: 1500 })
+  })
+
+  it('reads a StatusContext by the startedAt gh gives it, the time of its newest status', () => {
+    // gh answered both StatusContext rows on #470 with a `startedAt`.
+    const rollup = [
+      { ...statusContext('PENDING', 'workstreams/review-1'), startedAt: '2026-10-20T21:59:15Z' },
+      { ...statusContext('SUCCESS', 'workstreams/rot-check'), startedAt: '2026-10-20T22:00:47Z' },
+    ]
+
+    expect(checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T22:10:47Z'), 600)).toEqual({
+      finished: 1,
+      checks: 2,
+      started: '2026-10-20T21:59:15Z',
+      newest: '2026-10-20T22:00:47Z',
+      idle: 600,
+      stall_bound: 600,
+    })
+  })
+
+  it('gives a null idle for a rollup with no stamp it can read, which is never a stall', () => {
+    const rollup = [
+      statusContext('PENDING'),
+      checkRun('QUEUED', null),
+      stamped('QUEUED', ZERO),
+      { ...checkRun('IN_PROGRESS', null), startedAt: 'soon' },
+      { ...checkRun('IN_PROGRESS', null), startedAt: '2026-13-40T00:00:00Z' },
+      { ...checkRun('IN_PROGRESS', null), startedAt: 1760994919 },
+      null,
+    ]
+
+    expect(checkProgress({ statusCheckRollup: rollup }, at('2027-01-01T00:00:00Z'), 600)).toEqual({
+      finished: 0,
+      checks: 7,
+      started: null,
+      newest: null,
+      idle: null,
+      stall_bound: 600,
+    })
+  })
+
+  it('reads a rollup that is absent or not a list as no rows', () => {
+    for (const pull of [{}, { statusCheckRollup: 'nonsense' }]) {
+      expect(checkProgress(pull, 0, 600)).toEqual({
+        finished: 0,
+        checks: 0,
+        started: null,
+        newest: null,
+        idle: null,
+        stall_bound: 600,
+      })
+    }
+  })
+
+  it('reads a wall clock behind GitHub’s as no time idle, not as a negative', () => {
+    const rollup = [stamped('IN_PROGRESS', '2026-10-20T22:15:19Z')]
+
+    expect(checkProgress({ statusCheckRollup: rollup }, at('2026-10-20T22:15:17Z'), 600).idle).toBe(
+      0,
+    )
+  })
+})
 
 describe('missingField', () => {
   it('accepts an answer carrying all of them', () => {

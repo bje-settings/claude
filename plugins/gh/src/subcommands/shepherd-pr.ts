@@ -28,6 +28,8 @@ import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import type { Writer } from '../lib/streams.ts'
 import {
+  type CheckProgress,
+  checkProgress,
   directoryRefusal,
   isTruthy,
   jobLink,
@@ -67,6 +69,13 @@ const WAIT_BOUND_MAX = 540
  *  compare. A 540 second bound is 19 reads, so at most 57 calls. A failed
  *  check adds one call for its log (#460). */
 const WAIT_POLL_DEFAULT = 30
+
+/** The least time, in seconds, that the checks of a head may make no
+ *  progress before `wait` reports `stalled` (#466). The bound is the larger
+ *  of this and the run's own time so far, so `ci_seconds` does not decide
+ *  it: a `ci_seconds` that is too small (#463) cannot make a skip. Ten
+ *  minutes is longer than the longest `wait` call, 540 seconds. */
+const STALL_FLOOR_DEFAULT = 600
 
 /** Compare statuses that say the head does not contain the tip of its base.
  *  `diverged` is in this list too: the base has commits that the head lacks.
@@ -196,8 +205,18 @@ cannot make it act on the wrong pull request.
             until its bound (see below). A head that is behind returns
             \`behind\` at once, with no poll. Otherwise it reads again every
             SHEPHERD_WAIT_POLL seconds. Result is one of: merged; behind;
-            failed (on the first failed rollup); passed; pending (at the
-            bound). On failed, \`failing\` lists the failed checks, and
+            failed (on the first failed rollup); passed; stalled; pending
+            (at the bound). \`stalled\` and \`pending\` carry \`progress\`:
+            \`finished\` and \`checks\` (rows done, and all rows), \`started\`
+            and \`newest\` (the oldest and newest startedAt or completedAt in
+            the rollup), \`idle\` (seconds from \`newest\` to the wall clock)
+            and \`stall_bound\`. \`stalled\` means \`idle\` reached
+            \`stall_bound\`: no check started or finished for that long. The
+            bound is the larger of SHEPHERD_STALL_FLOOR and the run's own
+            time from \`started\` to \`newest\`, so a long run gets a long
+            bound, and ci_seconds does not set it. A rollup with no stamp
+            has a null \`idle\`, and is never \`stalled\`. Each call decides
+            from the rollup alone, so a caller counts nothing. On failed, \`failing\` lists the failed checks, and
             \`log_tail\` carries the failed steps' log. \`log_error\` is
             beside it when gh would not hand the log over. \`waited\` is
             measured. \`reads_ok\`, \`read_failures\` and \`read_error\` say
@@ -235,6 +254,7 @@ Environment:
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
   SHEPHERD_WAIT_POLL     interval between two wait reads (default 30).
+  SHEPHERD_STALL_FLOOR   the least \`stall_bound\`, in seconds (default 600).
   SHEPHERD_SETTLE_BOUND  how long \`settle\` waits with no evidence either way,
                          in seconds (default 90).
   SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).
@@ -592,8 +612,9 @@ class Shepherd {
   }
 
   async wait(): Promise<void> {
-    const first = await this.readPr()
-    if (first === null) return this.unreadable()
+    let raw = await this.readPull()
+    if (raw === null) return this.unreadable()
+    const first = summary(raw)
     if (first.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: first })
       return
@@ -619,6 +640,10 @@ class Shepherd {
     // `POSITIVE_RE` rejects 0, for settle's reason: a zero interval never
     // reaches the deadline.
     const interval = envInt(env, err, 'SHEPHERD_WAIT_POLL', WAIT_POLL_DEFAULT, POSITIVE_RE)
+    const floor = envInt(env, err, 'SHEPHERD_STALL_FLOOR', STALL_FLOOR_DEFAULT, POSITIVE_RE)
+    // The progress of the last read that succeeded, at the time of that
+    // read. It needs no state between two calls: the stamps are GitHub's.
+    let progress = checkProgress(raw, this.options.context.clock(), floor)
     // Measured, not added up from the sleeps, for settle's reason.
     const started = this.options.context.now()
     const spent = (): number => seconds(this.options.context.now() - started)
@@ -641,13 +666,13 @@ class Shepherd {
           // recovered from is counted, and nothing more.
           read_error: '',
         }
-        if (await this.waitVerdict(pull, reading)) return
+        if (await this.waitVerdict(pull, reading, progress)) return
       }
       const left = bound - spent()
       if (left <= 0) break
       // The last sleep stops at the bound, so no sleep goes past it.
       await this.options.context.sleep(Math.min(interval, left) * 1000)
-      const fresh = await this.readPr()
+      const fresh = await this.readPull()
       if (fresh === null) {
         readsFailed += 1
         stale = true
@@ -655,7 +680,9 @@ class Shepherd {
       }
       readsOk += 1
       stale = false
-      pull = await this.withBehind(fresh)
+      raw = fresh
+      progress = checkProgress(raw, this.options.context.clock(), floor)
+      pull = await this.withBehind(summary(raw))
     }
 
     if (stale) {
@@ -684,19 +711,24 @@ class Shepherd {
       reads_ok: readsOk,
       read_failures: readsFailed,
       read_error: '',
+      progress,
     })
   }
 
   /**
    * Report the read that answers `wait`, and say whether one did.
    *
-   * Pending checks answer nothing, so the caller reads again. Every other
-   * read is final. These are merged, a head behind its base, and a rollup
-   * that passed or has no checks. A rollup with a failed check is final too.
-   * It does not wait for the rest of the run, as `--fail-fast` did before
-   * #460.
+   * Pending checks answer nothing, so the caller reads again, unless they
+   * made no progress for the stall bound (#466). Every other read is final.
+   * These are merged, a head behind its base, and a rollup that passed or
+   * has no checks. A rollup with a failed check is final too. It does not
+   * wait for the rest of the run, as `--fail-fast` did before #460.
    */
-  async waitVerdict(pull: PullState, reading: Record<string, unknown>): Promise<boolean> {
+  async waitVerdict(
+    pull: PullState,
+    reading: Record<string, unknown>,
+    progress: CheckProgress,
+  ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
       return true
@@ -715,7 +747,17 @@ class Shepherd {
       this.emit(true, 'checks passed', { result: 'passed', pr: pull, ...reading })
       return true
     }
-    if (state === 'pending') return false
+    if (state === 'pending') {
+      // A null `idle` is a rollup with no stamp, which proves nothing.
+      if (progress.idle === null || progress.idle < progress.stall_bound) return false
+      this.emit(
+        true,
+        `no check started or finished for ${progress.idle}s; the stall bound is ` +
+          `${progress.stall_bound}s`,
+        { result: 'stalled', pr: pull, ...reading, progress },
+      )
+      return true
+    }
 
     // Something failed. This code names the checks. It also pulls the
     // failed steps' log for the first Actions job among them, so the

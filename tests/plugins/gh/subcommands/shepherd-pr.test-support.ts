@@ -153,7 +153,9 @@ export const WALL = Date.parse('2026-10-20T22:30:00Z')
 
 /** A clock that moves only when something sleeps. A bound then arrives
  *  without a real wait. The wall clock moves with it, from {@link WALL}. */
-export const fakeTime = (): {
+export const fakeTime = (
+  wall = WALL,
+): {
   now: () => number
   clock: () => number
   sleep: (ms: number) => Promise<void>
@@ -162,7 +164,7 @@ export const fakeTime = (): {
   let elapsed = 0
   return {
     now: () => elapsed,
-    clock: () => WALL + elapsed,
+    clock: () => wall + elapsed,
     sleep: async (milliseconds: number) => {
       // No action sleeps for zero or less. Such a sleep does not move this
       // clock, so a loop that waits for the clock would hang the test. The
@@ -212,6 +214,8 @@ export interface RunOptions {
   readonly env?: NodeJS.ProcessEnv
   /** A stdout stream of the caller's own, for the reader that went away. */
   readonly reader?: (into: string[]) => OutputStream
+  /** Where the wall clock starts, if not at {@link WALL}. */
+  readonly wall?: number
 }
 
 export interface RunResult {
@@ -239,7 +243,7 @@ export const drive = async (
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
   const options = build(sandbox, repo)
   const writers = capture(options.reader)
-  const time = fakeTime()
+  const time = fakeTime(options.wall)
   const gh = options.gh ?? createGhServer({ replies: { viewRepository: REPOSITORY } })
   const ghOptions: unknown[] = []
   const context: ShepherdContext = {

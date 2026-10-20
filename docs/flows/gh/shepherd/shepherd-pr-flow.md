@@ -4,7 +4,7 @@ description: How `gh.ts shepherd-pr` checks its arguments, then runs one of five
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-19
+  at: 2026-10-20
 ---
 
 # shepherd-pr flow
@@ -70,9 +70,10 @@ flowchart TD
         W3 -->|Head behind its base| WBH
         W3 -->|Passed| WP
         W3 -->|A check failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
-        W3 -->|Pending| W9{Bound reached?}
+        W3 -->|Pending, and no check started or finished<br/>for the stall bound| WS([ok true: result stalled,<br/>with the progress, exit 0])
+        W3 -->|Pending, inside the stall bound| W9{Bound reached?}
         W9 -->|Yes| W7{Last read attempt succeeded?}
-        W7 -->|Yes| WPE([ok true: result pending,<br/>call wait again, exit 0])
+        W7 -->|Yes| WPE([ok true: result pending, with the progress,<br/>call wait again, exit 0])
         W9 -->|No| W10[Sleep one poll, never past the bound,<br/>then read the pull request and the compare]
         W10 --> W11{That read succeeded?}
         W11 -->|Yes| W3

@@ -129,7 +129,9 @@ it('skips a head out of sync with its branch, before any rebase or wait, with bo
 
 it('names both SHAs among the fields a skip reason may copy', () => {
   const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
-  expect(rules).toContain('`pr.headRefOid`, `pr.branchRefOid` and the script')
+  expect(rules).toContain(
+    '`pr.headRefOid`, `pr.branchRefOid`, the `progress` fields and the script',
+  )
 })
 
 it('draws the out-of-sync skip in the skill flow', () => {
@@ -237,21 +239,39 @@ it('goes to wait on each rebase result, and never rebases again on a failed read
   expect(step).not.toContain('make sure')
 })
 
-it('sends a behind result from wait back to step 2, apart from the pending count', () => {
-  const behind = section(AGENT, '- `behind` → ', '4. Classify the failure')
+it('sends a behind result from wait back to step 2, and counts it toward its own skip', () => {
+  const behind = flat(section(AGENT, '- `behind` → ', '4. Classify the failure'))
 
   expect(behind).toContain('Go back to step 2')
   expect(behind).not.toContain('the base moved')
-  expect(behind).toContain('does not count toward the three')
   // Ruling 16: a `behind` after a rebase that moved the head does not count.
   // A rebase whose last read failed has no `result`, so its `behind` counts.
-  expect(behind).toContain(
-    'Count a `behind` result unless the\n     `rebase` before it returned `moved`',
-  )
-  expect(behind).toContain(
-    'Stop after three counted results with no change in\n     `pr.headRefOid`',
-  )
+  expect(behind).toContain('Count a `behind` result unless the `rebase` before it returned `moved`')
+  expect(behind).toContain('Stop after three counted results with no change in `pr.headRefOid`')
   expect(behind).toContain('("rebase did not move a head that stays behind its base")')
+})
+
+// --- checks that stall (#466) -------------------------------------------------
+
+it('calls wait again on pending, and never counts pending toward a skip', () => {
+  // Rule 15 (h). The script decides a stall, so a run whose checks still
+  // finish is never skipped for its count of `pending` results.
+  const pending = flat(section(AGENT, '- `pending` → ', '- `stalled` → '))
+  expect(pending).toContain('call `wait` again')
+  expect(pending).toContain('Never count `pending` results toward a skip')
+})
+
+it('skips a stalled pull request, with the progress the script read', () => {
+  const stalled = flat(section(AGENT, '- `stalled` → ', '- `failed` → '))
+  expect(stalled).toContain('no check started or finished for `progress.stall_bound` seconds')
+  expect(stalled).toContain('Record the pull request as skipped ("checks made no progress")')
+  expect(stalled).toContain('`progress.newest`, `progress.idle` and `progress.stall_bound`')
+})
+
+it('draws the stalled skip in the skill flow, decided by the script', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('W -->|Still in progress: a check started or finished| W')
+  expect(body).toContain('Skipped: checks made no progress')
 })
 
 it('decides from the merge state when the compare could not be read', () => {

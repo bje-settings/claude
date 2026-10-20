@@ -896,6 +896,223 @@ it('reports pending at the bound, and stops the last sleep at the bound', async 
   expect(result.elapsed).toBe(50_000)
 })
 
+// --- wait and the progress of the checks (#466) ------------------------------------
+
+/** A stamp in gh's form, `ms` after the epoch. */
+const stampAt = (ms: number): string => new Date(ms).toISOString().replace('.000Z', 'Z')
+
+/** gh's word for a stamp GitHub has not set: Go's zero time. */
+const ZERO_TIME = '0001-01-01T00:00:00Z'
+
+/** Pull request 1 with a run in progress: every check started at `started`,
+ *  one check finished at each of `done`, and `test` still runs. The stamps
+ *  have the shape gh answered for #471 on 2026-10-20. */
+const running = (started: number, done: readonly number[] = []) => ({
+  ...depPr(1),
+  statusCheckRollup: [
+    ...done.map((finished, index) => ({
+      __typename: 'CheckRun',
+      name: `job-${index}`,
+      status: 'COMPLETED',
+      conclusion: 'SUCCESS',
+      startedAt: stampAt(started),
+      completedAt: stampAt(finished),
+      detailsUrl: `https://github.com/acme/widgets/actions/runs/11/job/3${index}`,
+    })),
+    {
+      __typename: 'CheckRun',
+      name: 'test',
+      status: 'IN_PROGRESS',
+      conclusion: null,
+      startedAt: stampAt(started),
+      completedAt: ZERO_TIME,
+      detailsUrl: 'https://github.com/acme/widgets/actions/runs/11/job/21',
+    },
+  ],
+})
+
+/** A `wait` on pull request 1 with the wall clock at `wall`. */
+const waitAt = (
+  wall: number,
+  pulls: NonNullable<GhSequences['viewPullRequest']>,
+  env: Record<string, string> = {},
+) =>
+  drive((sandbox, repo) => ({
+    argv: [repo, '1', 'wait'],
+    env: { ...sandbox.env, ...env },
+    wall,
+    gh: comparing(
+      { replies: { viewRepository: REPOSITORY }, sequences: { viewPullRequest: pulls } },
+      [AHEAD],
+    ),
+  }))
+
+const MINUTE = 60_000
+/** When the field test's rebase landed: 2026-10-19 at 20:14 UTC. */
+const REBASED = Date.parse('2026-10-19T20:14:00Z')
+
+it('never skips a run whose checks still finish, past three pending results', async () => {
+  // Rule 15 (e), the field test of #466. `ci_seconds` 130 gives each call a
+  // 260 second bound, and the CI takes 17 minutes. A check finishes about
+  // every four minutes, so each call reads a newer stamp than the last.
+  const finishes = [3, 7, 11, 15].map((minutes) => REBASED + minutes * MINUTE)
+  const finished: number[] = []
+  for (let call = 0; call < 5; call += 1) {
+    const wall = REBASED + call * 270_000
+    const result = await waitAt(
+      wall,
+      [
+        running(
+          REBASED,
+          finishes.filter((at) => at <= wall),
+        ),
+      ],
+      { SHEPHERD_CI_SECONDS: '130' },
+    )
+
+    expect(result.document).toMatchObject({ ok: true, result: 'pending', bound: 260 })
+    const progress = result.document.progress as Record<string, number>
+    expect(progress.idle).toBeLessThan(progress.stall_bound as number)
+    finished.push(progress.finished as number)
+  }
+  expect(finished).toEqual([0, 1, 2, 3, 4])
+})
+
+it('reports stalled once no check started or finished for the bound, with the progress', async () => {
+  // Rule 15 (f). The newest stamp is 500 seconds old when the call starts.
+  // Reads every 30 seconds see it at 530, 560, 590 and 620 seconds.
+  const newest = REBASED + 2 * MINUTE
+  const result = await waitAt(newest + 500_000, [running(REBASED, [newest])])
+
+  expect(result.document).toMatchObject({
+    ok: true,
+    result: 'stalled',
+    waited: 120,
+    reads_ok: 5,
+    read_failures: 0,
+    read_error: '',
+    pr: { checks: { state: 'pending' }, behind: false },
+    progress: {
+      finished: 1,
+      checks: 2,
+      started: '2026-10-19T20:14:00Z',
+      newest: '2026-10-19T20:16:00Z',
+      idle: 620,
+      stall_bound: 600,
+    },
+  })
+  expect(result.document.detail).toBe(
+    'no check started or finished for 620s; the stall bound is 600s',
+  )
+  expect(Object.keys(result.document).at(-1)).toBe('progress')
+  expect(result.elapsed).toBe(120_000)
+})
+
+it('reports stalled from the first read, with no sleep, for a run already still', async () => {
+  // Each call decides from the rollup alone, so a hung check ends in a skip
+  // whatever the calls before it saw.
+  const result = await waitAt(REBASED + 30 * MINUTE, [running(REBASED)])
+
+  expect(result.document).toMatchObject({
+    result: 'stalled',
+    waited: 0,
+    reads_ok: 1,
+    progress: { newest: '2026-10-19T20:14:00Z', idle: 1800, stall_bound: 600 },
+  })
+  expect(result.elapsed).toBe(0)
+})
+
+it('gives a long run a bound as long as the run, so a long quiet job is not a stall', async () => {
+  // 25 minutes of progress, then 12 minutes with none: past the floor, but
+  // not past the run's own time.
+  const newest = REBASED + 25 * MINUTE
+  const result = await waitAt(newest + 12 * MINUTE, [running(REBASED, [newest])], {
+    SHEPHERD_WAIT_BOUND: '60',
+  })
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { idle: 780, stall_bound: 1500 },
+  })
+})
+
+it('reads the progress of a rollup of StatusContext rows from their startedAt', async () => {
+  // Rule 15 (g). gh gives a StatusContext a `startedAt`: the time of its
+  // newest status (#470, 2026-10-20). A new status is progress.
+  const posted = REBASED + 5 * MINUTE
+  const pull = {
+    ...depPr(1),
+    statusCheckRollup: [
+      {
+        __typename: 'StatusContext',
+        context: 'workstreams/review-1',
+        state: 'PENDING',
+        startedAt: stampAt(REBASED),
+        targetUrl: '',
+      },
+      {
+        __typename: 'StatusContext',
+        context: 'workstreams/rot-check',
+        state: 'SUCCESS',
+        startedAt: stampAt(posted),
+        targetUrl: '',
+      },
+    ],
+  }
+
+  const still = await waitAt(posted + 10 * MINUTE, [pull])
+  expect(still.document).toMatchObject({
+    result: 'stalled',
+    progress: { finished: 1, checks: 2, idle: 600, stall_bound: 600 },
+  })
+
+  const moving = await waitAt(posted + MINUTE, [pull], { SHEPHERD_WAIT_BOUND: '30' })
+  expect(moving.document).toMatchObject({ result: 'pending', progress: { idle: 90 } })
+})
+
+it('never reports stalled for a rollup with no stamp, such as StatusContext rows without one', async () => {
+  // Rule 15 (g): a row with no stamp proves no progress, and no stall.
+  const result = await waitAt(REBASED + 600 * MINUTE, [depPr(1, { checks: 'status-pending' })], {
+    SHEPHERD_WAIT_BOUND: '30',
+  })
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: {
+      finished: 0,
+      checks: 1,
+      started: null,
+      newest: null,
+      idle: null,
+      stall_bound: 600,
+    },
+  })
+})
+
+it('takes the floor of the stall bound from SHEPHERD_STALL_FLOOR', async () => {
+  const result = await waitAt(REBASED + 3 * MINUTE, [running(REBASED)], {
+    SHEPHERD_STALL_FLOOR: '120',
+  })
+
+  expect(result.document).toMatchObject({
+    result: 'stalled',
+    waited: 0,
+    progress: { idle: 180, stall_bound: 120 },
+  })
+})
+
+it('falls back to a 600 second floor for a SHEPHERD_STALL_FLOOR that does not parse', async () => {
+  for (const floor of ['abc', '0']) {
+    const result = await waitAt(REBASED + 3 * MINUTE, [running(REBASED)], {
+      SHEPHERD_STALL_FLOOR: floor,
+      SHEPHERD_WAIT_BOUND: '30',
+    })
+
+    expect(result.document).toMatchObject({ result: 'pending', progress: { stall_bound: 600 } })
+    expect(result.stderr).toBe(`SHEPHERD_STALL_FLOOR=${floor} ignored; using 600\n`)
+  }
+})
+
 it('falls back to a 30 second poll for a SHEPHERD_WAIT_POLL that does not parse', async () => {
   const result = await waitOn([depPr(1, { checks: 'pending' })], [AHEAD], {
     SHEPHERD_WAIT_BOUND: '60',

@@ -261,6 +261,73 @@ export const checks = (pull: unknown): ChecksSummary => {
   }
 }
 
+/** The stamps a rollup row carries. A CheckRun has both. gh gives a
+ *  StatusContext a `startedAt` too: the time of its newest status. */
+const STAMP_FIELDS = ['startedAt', 'completedAt']
+
+/** How far the checks of a rollup have come, as `wait` reports it (#466). */
+export interface CheckProgress {
+  /** The rows that passed or failed. */
+  readonly finished: number
+  /** All the rows. */
+  readonly checks: number
+  /** The oldest stamp: when the first check started. */
+  readonly started: string | null
+  /** The newest stamp: when a check last started or finished. */
+  readonly newest: string | null
+  /** Whole seconds from `newest` to the wall clock, or null with no stamp. */
+  readonly idle: number | null
+  /** How long the checks may make no progress: the larger of the floor
+   *  and the run's own time from `started` to `newest`. */
+  readonly stall_bound: number
+}
+
+/**
+ * The progress of the rollup at the wall time `nowMs`, with `floor`
+ * seconds as the least bound (#466).
+ *
+ * A check that starts or finishes moves `newest`. So `idle` grows only
+ * while no check does either. The bound grows with the run: a run that
+ * made progress for twenty minutes may then sit still for twenty. The
+ * floor covers a run that has only just started.
+ *
+ * gh writes Go's zero time, `0001-01-01T00:00:00Z`, for a stamp that
+ * GitHub has not set, such as the `completedAt` of a running check. That
+ * stamp, and any other that is not a time, counts as no stamp. No stamp
+ * on any row gives an `idle` of null, which is never a stall. Every stamp
+ * {@link epochSeconds} accepts has one fixed form, so text order is time
+ * order. GitHub does not order the two stamps of one row: a skipped check
+ * can finish before it starts.
+ */
+export const checkProgress = (pull: unknown, nowMs: number, floor: number): CheckProgress => {
+  const raw = field(pull, 'statusCheckRollup')
+  const rollup: unknown[] = Array.isArray(raw) ? raw : []
+  const stamps = rollup
+    .flatMap((row) => STAMP_FIELDS.map((name) => field(row, name)))
+    .filter((stamp): stamp is string => (epochSeconds(stamp) ?? 0) > 0)
+    .sort(byText)
+  const newest = stamps.at(-1)
+  const base = {
+    finished: rollup.filter((row) => checkState(row) !== 'pending').length,
+    checks: rollup.length,
+  }
+  if (newest === undefined) {
+    return { ...base, started: null, newest: null, idle: null, stall_bound: floor }
+  }
+  // A list with a last entry has a first. Both passed `epochSeconds` above.
+  const started = stamps[0] as string
+  const from = epochSeconds(started) as number
+  const to = epochSeconds(newest) as number
+  return {
+    ...base,
+    started,
+    newest,
+    // A wall clock a little behind GitHub's is no progress, not a negative.
+    idle: Math.max(0, Math.floor(nowMs / 1000 - to)),
+    stall_bound: Math.max(floor, Math.floor(to - from)),
+  }
+}
+
 /**
  * The first required field gh did not answer with, or `""` when every
  * field is there.
