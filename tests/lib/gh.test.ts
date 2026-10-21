@@ -251,7 +251,7 @@ describe('argv', () => {
       '--limit',
       '20',
       '--json',
-      'databaseId,status,conclusion,createdAt,updatedAt',
+      'databaseId,status,conclusion,createdAt,updatedAt,headSha',
     ])
   })
 
@@ -262,7 +262,7 @@ describe('argv', () => {
       'run',
       'list',
       '--json',
-      'databaseId,status,conclusion,createdAt,updatedAt',
+      'databaseId,status,conclusion,createdAt,updatedAt,headSha',
     ])
   })
 
@@ -345,7 +345,7 @@ describe('argv', () => {
         '--repo',
         'acme/widgets',
         '--json',
-        'databaseId,status,conclusion,createdAt,updatedAt',
+        'databaseId,status,conclusion,createdAt,updatedAt,headSha',
       ],
     ])
     expect(calls.map((call) => call.args)).toEqual([

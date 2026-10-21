@@ -1054,7 +1054,8 @@ export interface GhClientOptions {
  * `RUN_FIELDS` match `gh-shepherd-status.py`'s repository and run queries.
  * The run list adds the run's identity and outcome to the two timestamps
  * that script reads, because a run row with no id cannot be followed to
- * `readFailedRunLog`, the next endpoint in this same interface.
+ * `readFailedRunLog`, the next endpoint in this same interface. It also adds
+ * `headSha`: `shepherd-status` keeps the longest run of each head (#463).
  */
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
@@ -1062,7 +1063,7 @@ const PULL_REQUEST_FIELDS =
   'reviews,headRefName,isCrossRepository,updatedAt'
 const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
-const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
+const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt,headSha'
 
 /** How many numbers `issueStates` puts in one `gh api graphql` call. This is
  *  a conservative batch size, not a documented limit. GitHub rejects a
