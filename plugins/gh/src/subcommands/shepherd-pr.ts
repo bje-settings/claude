@@ -364,9 +364,9 @@ export interface WorkerOptions {
   /** The bound of `wait`, in seconds. Left out, it is {@link
    *  waitBoundOf}. */
   readonly waitBound?: number
-  /** The required checks of the stack base. Left out, `wait` decides from
-   *  the rollup alone. A required check with no row in the rollup is then
-   *  pending, not passed (#469). `null` is a read that failed: the rollup
+  /** The required checks of the stack base. When they are given, `wait`
+   *  takes a required check with no row in the rollup as pending, not
+   *  passed (#469). Left out, or `null` for a read that failed, the rollup
    *  alone decides. */
   readonly requiredContexts?: readonly string[] | null
 }

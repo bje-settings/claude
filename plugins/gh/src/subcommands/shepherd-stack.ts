@@ -95,10 +95,11 @@ stack \`base\`, not of its own base.
             method, and \`detail\` says so. \`unread\` when a layer, its
             compare or the merge methods could not be read, so nothing was
             proven. Required checks that could not be read leave the
-            rollup to decide. \`refused\` when GitHub refused the merge; \`reason\` is gh's own
-            words. \`merged\` when every layer then reads MERGED, and
-            \`accepted\` when GitHub took the merge but a layer is not merged
-            yet (a merge queue, for one). \`layers\` gives each merge commit.
+            rollup to decide. \`refused\` when GitHub refused the merge;
+            \`reason\` is gh's own words. \`merged\` when every layer then
+            reads MERGED, and \`accepted\` when GitHub took the merge but a
+            layer is not merged yet (a merge queue, for one). \`layers\`
+            gives each merge commit.
 
 This command never force pushes, never enables auto-merge, and never
 bypasses a check. Its writes are the branch updates and the stack merge.
