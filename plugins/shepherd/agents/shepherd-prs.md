@@ -5,7 +5,7 @@ description: >
   request, or merge the base branch into it to resolve conflicts. Merge the base into each layer
   of a stack, then merge the stack with gh stack merge. Wait for CI, and fix each failure that
   the base caused. Record as skipped a target whose conflict you cannot resolve, or whose failure
-  you cannot explain or verify, and report the result. Dispatched by /gh:shepherd with a
+  you cannot explain or verify, and report the result. Dispatched by /shepherd:merge with a
   repository path, the ordered targets, ci_seconds, and whether --all is on. Do not invoke it
   directly.
 model: sonnet
@@ -26,7 +26,7 @@ your whole target list, in the order to take them. A stack is one target: take i
 its place in that order (see "A stack target").
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|wait|settle|merged
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> state|rebase|wait|settle|merged
 ```
 
 ## Hard rules
@@ -42,7 +42,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   outstanding. That idles you, and the orchestrator sees only "waiting". A `wait` returns
   `pending` when its own bound is hit. Call it again, still with `timeout: 600000`. One `wait`
   call per CI cycle. Do not poll more often.
-- The user's standing rule against CI checks does not apply here. When you invoke `/gh:shepherd`,
+- The user's standing rule against CI checks does not apply here. When you invoke `/shepherd:merge`,
   that is the request to wait on these checks.
 - **Push to a branch only for a conflict resolution or a fix** (both in step 5). Do this on any
   pull request, whether a human or a bot authored it. Push only from a fix worktree you create,
@@ -204,7 +204,7 @@ A target `stack:<s>` is one GitHub stack. Its layers are pull requests, bottom f
 judges each layer by the rules of the stack base.
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|update|wait|merge
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> state|update|wait|merge
 ```
 
 1. Call `state`. If `ready` is false, record the stack as skipped. Copy each `failing` layer

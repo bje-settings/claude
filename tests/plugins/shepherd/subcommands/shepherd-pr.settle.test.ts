@@ -3,11 +3,11 @@
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
 import { writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
-import { runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
 import { type GhClient, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
+import { runShepherdPr } from '#shepherd/subcommands/shepherd-pr.ts'
 import {
   AHEAD,
   CAPTURE,

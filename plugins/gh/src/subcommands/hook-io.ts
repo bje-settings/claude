@@ -3,10 +3,8 @@
 // nothing. When git or the GitHub CLI is not on PATH, it checks nothing.
 // It writes one problem line for each missing tool, and `additionalContext`
 // that names the missing tools. So the model does not start work that will
-// fail (#243). A missing gh extension stops no check: the hook does not use
-// it. It gets a problem line and `additionalContext` of its own, after the
-// other lines (ruling 6 on #469). {@link statusLine} and {@link
-// problemLines} shape the lines, and `plugins/gh/README.md` shows them.
+// fail (#243). {@link statusLine} and {@link problemLines} shape the lines,
+// and `plugins/gh/README.md` shows them.
 //
 // The hook finds the repository that holds the session's directory, or the
 // repositories directly inside it (`discover.ts`). It skips a repository
@@ -29,7 +27,6 @@
 // of the payload's directory are async, and each has a time limit from the
 // same clock (#267). A read that did not finish in time gives a problem
 // line, never "not found" and never another directory.
-import { discoverRepos } from '../discover.ts'
 import {
   absentDependencies,
   type Dependency,
@@ -38,6 +35,7 @@ import {
   isPresent,
   withinDeadline,
 } from '../lib/dependencies.ts'
+import { discoverRepos } from '../lib/discover.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
 import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
 import { emit as libEmit } from '../lib/hook-output.ts'
@@ -123,25 +121,14 @@ export const statusLine = (counts: StatusCounts, repoCount: number): string | nu
   return `${PREFIX} ${items.join(' ')}`
 }
 
-/** One row of the table. `without` says what cannot run when a gh
- *  extension is absent. A tool on `PATH` needs none: without it, the
- *  plugin cannot run at all. */
-type Row = Dependency & { readonly without?: string }
-
 /** What the plugin needs, in the order their lines show
  *  (`.claude/rules/_design-principles.md`, "Dependencies outside a
  *  plugin"). `lib/dependencies.ts` checks this table; no plugin keeps its
- *  own copy of the check. `shepherd-stack merge` runs `gh stack merge`
- *  (ruling 6 on #469). */
-const DEPENDENCIES: readonly Row[] = [
+ *  own copy of the check. Without either tool, the plugin cannot run at
+ *  all. */
+const DEPENDENCIES: readonly Dependency[] = [
   { tool: 'git', label: 'git' },
   { tool: 'gh', label: 'GitHub CLI (gh)' },
-  {
-    tool: 'stack',
-    label: 'gh stack extension',
-    via: 'gh-extension',
-    without: '/gh:shepherd cannot merge a stack.',
-  },
 ]
 
 /** The line for one problem. */
@@ -158,11 +145,6 @@ const dependencyContext = (absent: readonly Dependency[]): string => {
   const verb = absent.length === 1 ? 'is' : 'are'
   return `${labels} ${verb} absent. The gh plugin cannot run.`
 }
-
-/** The `additionalContext` for absent gh extensions: each one, and what
- *  cannot run without it. The plugin still runs. */
-const extensionContext = (absent: readonly Row[]): string =>
-  absent.map((row) => `${row.label} is absent. ${row.without}`).join(' ')
 
 /**
  * The kinds of failure, in the order of their problem lines. `words` is
@@ -649,19 +631,14 @@ const checkStatus = async (
   edges: HookEdges,
   timeoutMs: () => number,
 ): Promise<Status | null> => {
-  const lookUp = (row: Row): Promise<boolean | null> =>
-    isPresent(row, edges.env, edges.files, timeoutMs(), edges.platform)
-  const tools = DEPENDENCIES.filter((dependency) => dependency.via === undefined)
-  const extensions = DEPENDENCIES.filter((dependency) => dependency.via === 'gh-extension')
-  // The extensions are read beside the checks, and awaited last. So a slow
-  // read of one costs the checks none of the deadline.
-  const extensionReads = Promise.all(extensions.map(lookUp))
-  const found = await Promise.all(tools.map(lookUp))
-  const presence = new Map(tools.map((dependency, index) => [dependency.tool, found[index]]))
+  const found = await Promise.all(
+    DEPENDENCIES.map((row) => isPresent(row, edges.env, edges.files, timeoutMs(), edges.platform)),
+  )
+  const presence = new Map(DEPENDENCIES.map((dependency, index) => [dependency.tool, found[index]]))
   // A walk that did not finish is not an absent tool. It gets a line of
   // its own, and no `additionalContext`: the tool may well be there.
-  const absent = absentDependencies(tools, (tool) => presence.get(tool) !== false)
-  const unchecked = tools.filter((dependency) => presence.get(dependency.tool) === null)
+  const absent = absentDependencies(DEPENDENCIES, (tool) => presence.get(tool) !== false)
+  const unchecked = DEPENDENCIES.filter((dependency) => presence.get(dependency.tool) === null)
   if (absent.length > 0 || unchecked.length > 0) {
     const problems = [
       ...absent.map((dependency) => `${dependency.label} not found on PATH`),
@@ -746,28 +723,10 @@ const checkStatus = async (
     clearTimeout(timer)
   }
   for (const failure of failures) edges.output.err.write(`${failure.line}\n`)
-  // A gh extension that is absent, or whose read did not finish, comes
-  // last. Only an absent one gets `additionalContext`.
-  const installed = await extensionReads
-  const noExtension = extensions.filter((_row, index) => installed[index] === false)
-  const extensionProblems = [
-    ...noExtension.map((row) => `${row.label} not found`),
-    ...extensions
-      .filter((_row, index) => installed[index] === null)
-      .map((row) => `${row.label} could not be checked`),
-  ]
-  for (const problem of extensionProblems) edges.output.err.write(`${problem}\n`)
   const status = statusLine(tally, checkouts.length)
-  const lines = [
-    ...(status === null ? [] : [status]),
-    ...problemLines(failures, roots.length > 1),
-    ...extensionProblems.map(problemLine),
-  ]
+  const lines = [...(status === null ? [] : [status]), ...problemLines(failures, roots.length > 1)]
   if (lines.length === 0) return null
-  const line = lines.join('\n')
-  return noExtension.length === 0
-    ? { line }
-    : { line, additionalContext: extensionContext(noExtension) }
+  return { line: lines.join('\n') }
 }
 
 /**

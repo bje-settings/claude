@@ -2,11 +2,11 @@
 // The file is one of several so that vitest can run them at the same time (#205).
 // `shepherd-pr.test-support.ts` holds the helpers and the header that says what the tests prove.
 import { expect, it } from 'vitest'
-import { HELP, runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
 import { type GhClient, type GhReplies, type GhResults, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhSequences } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
+import { HELP, runShepherdPr } from '#shepherd/subcommands/shepherd-pr.ts'
 import {
   AHEAD,
   CAPTURE,
@@ -33,23 +33,25 @@ it('prints its own usage for --help, naming every action it accepts', async () =
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(`${HELP}\n`)
   for (const action of ['state', 'rebase', 'wait', 'settle', 'merged']) {
-    expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
+    expect(result.stdout).toContain(`shepherd.ts shepherd-pr <path> <number> ${action}`)
   }
   expect(result.stderr).toBe('')
 })
 
 it('opens its usage with the sentence the Python opened with', async () => {
-  // The divergence recorded for `help` is the command name, and nothing else.
-  // The test reads the sentence in front of it from the capture. It does not
-  // restate that sentence. So a rewrite of the first line becomes a
-  // divergence, which needs an argument.
+  // The divergence recorded for `help` is the command name and the skill
+  // name, and nothing else. The test reads the sentence in front of it from
+  // the capture. It does not restate that sentence. So a rewrite of the
+  // first line becomes a divergence, which needs an argument.
   const opening = (CAPTURE.help?.stdout ?? '').split('\n')[0]?.split(' \u2014 ')[1] ?? ''
 
   expect(opening).not.toBe('')
   // The Python's docstring opened with `gh-shepherd-pr.py \u2014 the ...`.
   // This port uses the same sentence, but with a capital letter where the
-  // script name used to be.
-  expect(HELP.split('\n')[0]?.toLowerCase()).toBe(opening.toLowerCase())
+  // script name used to be. The skill is `/shepherd:merge` since #477.
+  expect(HELP.split('\n')[0]?.toLowerCase()).toBe(
+    opening.replace('/gh:shepherd', '/shepherd:merge').toLowerCase(),
+  )
 })
 
 it('answers -h the same way it answers --help', async () => {

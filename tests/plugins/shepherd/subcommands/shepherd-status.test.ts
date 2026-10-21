@@ -1,4 +1,4 @@
-// This suite tests `gh.ts shepherd-status` against the Python's own captured
+// This suite tests `shepherd.ts shepherd-status` against the Python's own captured
 // output. It is the port of `tests/gh/test_shepherd_status.py` and of the
 // `gh-shepherd-status.py` half of `test_shepherd_edges.py`.
 //
@@ -25,13 +25,13 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
-import type { ShepherdContext } from '#gh/shepherd.ts'
-import { HELP, runShepherdStatus } from '#gh/subcommands/shepherd-status.ts'
 import { type GhClient, type GhResults, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhServerOptions, type PullRequestRow } from '#harness/pulls.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
+import { createOutput, type OutputStream } from '#shepherd/lib/streams.ts'
+import type { ShepherdContext } from '#shepherd/shepherd.ts'
+import { HELP, runShepherdStatus } from '#shepherd/subcommands/shepherd-status.ts'
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
 
@@ -348,7 +348,7 @@ it('prints its own usage for --help, naming the command rather than a script', a
 
   expect(result.status).toBe(0)
   expect(result.stdout).toBe(`${HELP}\n`)
-  expect(result.stdout).toContain('Usage:\n  gh.ts shepherd-status [path] [label]')
+  expect(result.stdout).toContain('Usage:\n  shepherd.ts shepherd-status [path] [label]')
   expect(result.stderr).toBe('')
 })
 

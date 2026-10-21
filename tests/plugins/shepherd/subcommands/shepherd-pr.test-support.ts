@@ -1,4 +1,4 @@
-// This file tests `gh.ts shepherd-pr` against the Python version's captured
+// This file tests `shepherd.ts shepherd-pr` against the Python version's captured
 // output. It ports `tests/gh/test_shepherd_pr.py` and the `gh-shepherd-pr.py`
 // half of `test_shepherd_edges.py`.
 //
@@ -26,13 +26,13 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from 'vitest'
-import { createOutput, type OutputStream } from '#gh/lib/streams.ts'
-import type { ShepherdContext } from '#gh/shepherd.ts'
-import { HELP, runShepherdPr } from '#gh/subcommands/shepherd-pr.ts'
 import { type GhClient, type GhResults, ghFails } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createGhServer, depPr, type GhServerOptions, type PullRequestRow } from '#harness/pulls.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
+import { createOutput, type OutputStream } from '#shepherd/lib/streams.ts'
+import type { ShepherdContext } from '#shepherd/shepherd.ts'
+import { HELP, runShepherdPr } from '#shepherd/subcommands/shepherd-pr.ts'
 
 export const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
 
@@ -387,7 +387,7 @@ export const ARRANGEMENTS: Record<string, GhServerOptions> = {
 
 /** USAGE_TEXT maps each such case to what comes in front of the usage text.
  *  Each case's stderr ends in this command's own usage text. That usage text
- *  names `gh.ts shepherd-pr`, where the Python named a script file. The test
+ *  names `shepherd.ts shepherd-pr`, where the Python named a script file. The test
  *  compares both halves: the line, against the Python's own, and the usage,
  *  against this command's. */
 export const USAGE_TEXT = new Map([

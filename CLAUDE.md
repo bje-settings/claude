@@ -18,8 +18,9 @@ plugin holds no symlink, so each install method gets the same files (ADR 006).
 ### Plugins
 
 Plugins are listed in `README.md`; each has its own README. New `gh` skills belong in the `gh`
-plugin. Its skills share repo discovery through `plugins/gh/src/discover.ts`. A skill reaches it
-as `node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover <path>`. A new skill that audits a
+plugin, and new merge skills in the `shepherd` plugin. Repo discovery is `lib/discover.ts`,
+copied into each plugin that imports it. A `shepherd` skill reaches it as
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" discover <path>`. A new skill that audits a
 repository's context files for rot belongs in the `audit` plugin.
 
 Plugin code is TypeScript, run directly by node on a 22.18 floor; `.claude/rules/type-ts.md`
@@ -149,8 +150,8 @@ holds the rule overrides. Run `pnpm lint .`; `CONTRIBUTING.md` has the editor se
 
 ## Claude settings
 
-`.claude/settings.json` enables each plugin in this marketplace: `gh`, `workstreams`,
-`mermaid` and `audit`. It turns off `typescript-lsp@claude-plugins-official` (#193). When you
+`.claude/settings.json` enables each plugin in this marketplace: `gh`, `shepherd`,
+`workstreams`, `mermaid` and `audit`. It turns off `typescript-lsp@claude-plugins-official` (#193). When you
 add a plugin to the marketplace, add it to `enabledPlugins` too.
 `extraKnownMarketplaces` names this repository as the `bje` source. A new machine or a cloud
 session then installs each enabled `@bje` plugin.

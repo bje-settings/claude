@@ -1,4 +1,5 @@
-// The gh plugin's prose, checked for the parts a script cannot enforce.
+// The prose of the gh and shepherd plugins, checked for the parts a script
+// cannot enforce.
 // This is ported from tests/gh/test_shepherd_docs.py and
 // tests/gh/test_flow_discover.py, both deleted with the rest of
 // tests/gh at #127.
@@ -7,7 +8,7 @@
 // catches the residual race if its skill says to make that read. The
 // diagram is what a reader consults before either step. None of that is
 // reachable from the commands' own tests, so this file checks it. /gh:sync
-// and /gh:shepherd also resolve their scope by one shared rule, so their
+// and /shepherd:merge also resolve their scope by one shared rule, so their
 // flow diagrams describe it with one shared `discover` subgraph. A drift
 // between the two would mean one diagram lies about how scope is decided.
 //
@@ -28,10 +29,10 @@ import path from 'node:path'
 import { expect, it } from 'vitest'
 import { FLOWS, PLUGINS } from './repo.ts'
 
-const GH = path.join(PLUGINS, 'gh')
-const AGENT = path.join(GH, 'agents', 'shepherd-prs.md')
-const SKILL = path.join(GH, 'skills', 'shepherd', 'SKILL.md')
-const FLOW = path.join(FLOWS, 'gh', 'shepherd', '_skill-flow.md')
+const SHEPHERD = path.join(PLUGINS, 'shepherd')
+const AGENT = path.join(SHEPHERD, 'agents', 'shepherd-prs.md')
+const SKILL = path.join(SHEPHERD, 'skills', 'merge', 'SKILL.md')
+const FLOW = path.join(FLOWS, 'shepherd', 'merge', '_skill-flow.md')
 
 const read = (file: string): string => readFileSync(file, 'utf8')
 
@@ -195,7 +196,7 @@ it('reclassifies a blocked entry with one merged read', () => {
   // Scoped to the step: `merged` alone appears in the report table too.
   const step = section(SKILL, '## Step 4', '## Step 5')
 
-  expect(step).toContain('scripts/gh.ts" shepherd-pr <path> <n> merged')
+  expect(step).toContain('scripts/shepherd.ts" shepherd-pr <path> <n> merged')
   expect(step).toContain('autoMerge')
   expect(step).toContain('CLEAN')
   expect(step).toContain('UNKNOWN')
@@ -283,7 +284,7 @@ it('draws the stalled skip in the skill flow, decided by the script', () => {
 it('draws the jobs read and the head commit fallback in the shepherd-pr flow', () => {
   // Rulings 12 and 13.
   const body = section(
-    path.join(FLOWS, 'gh', 'shepherd', 'shepherd-pr-flow.md'),
+    path.join(FLOWS, 'shepherd', 'merge', 'shepherd-pr-flow.md'),
     '```mermaid',
     '```',
   )
@@ -442,10 +443,10 @@ it('draws the stack loop in the shepherd diagram', () => {
 
 // --- the one shared discover subgraph -----------------------------------------
 
-/** The `subgraph discover ... end` block of one skill flow, indentation
- *  stripped. */
+/** The `subgraph discover ... end` block of one skill flow, as
+ *  `<plugin>/<skill>`, indentation stripped. */
 const discoverBlock = (skill: string): string => {
-  const lines = read(path.join(FLOWS, 'gh', skill, '_skill-flow.md')).split('\n')
+  const lines = read(path.join(FLOWS, skill, '_skill-flow.md')).split('\n')
   const block: string[] = []
   let inside = false
   for (const line of lines) {
@@ -457,7 +458,7 @@ const discoverBlock = (skill: string): string => {
   return block.join('\n')
 }
 
-for (const skill of ['sync', 'shepherd']) {
+for (const skill of ['gh/sync', 'shepherd/merge']) {
   it(`draws a discover subgraph in the ${skill} diagram`, () => {
     const block = discoverBlock(skill)
 
@@ -468,5 +469,5 @@ for (const skill of ['sync', 'shepherd']) {
 }
 
 it('keeps the two discover subgraphs identical', () => {
-  expect(discoverBlock('sync')).toBe(discoverBlock('shepherd'))
+  expect(discoverBlock('gh/sync')).toBe(discoverBlock('shepherd/merge'))
 })

@@ -110,69 +110,6 @@ it('refuses a -j value that is not a positive integer', () => {
   expect(result.stderr).toBe('invalid -j value: 0\n')
 })
 
-it('lists the shepherd commands in the command list', () => {
-  const result = runScript(BIN, { args: [], env: env() })
-
-  expect(result.stdout).toContain('shepherd-status')
-  expect(result.stdout).toContain('shepherd-pr <path> <number> <action>')
-  expect(result.stdout).toContain('shepherd-stack <path> <stack> <action>')
-})
-
-it('prints shepherd-stack’s own usage for its --help, naming every action', () => {
-  const result = runScript(BIN, { args: ['shepherd-stack', '--help'], env: env() })
-
-  expect(result.status).toBe(0)
-  for (const action of ['state', 'update', 'wait', 'merge']) {
-    expect(result.stdout).toContain(`gh.ts shepherd-stack <path> <stack> ${action}`)
-  }
-})
-
-it('prints shepherd-status’s own usage for its --help', () => {
-  const result = runScript(BIN, { args: ['shepherd-status', '--help'], env: env() })
-
-  expect(result.status).toBe(0)
-  expect(result.stdout).toContain('gh.ts shepherd-status [path]')
-  expect(result.stderr).toBe('')
-})
-
-it('prints shepherd-pr’s own usage for its --help, naming every action', () => {
-  const result = runScript(BIN, { args: ['shepherd-pr', '--help'], env: env() })
-
-  expect(result.status).toBe(0)
-  for (const action of ['state', 'rebase', 'wait', 'settle', 'merged']) {
-    expect(result.stdout).toContain(`gh.ts shepherd-pr <path> <number> ${action}`)
-  }
-})
-
-it('refuses shepherd-pr with too few arguments, exit 2, usage on stderr', () => {
-  // This tests the process boundary itself. A command that answers with a
-  // status rather than an envelope still reaches `process.exitCode` through
-  // the same adapter.
-  const result = runScript(BIN, { args: ['shepherd-pr', '.', '1'], env: env() })
-
-  expect(result.status).toBe(2)
-  expect(result.stdout).toBe('')
-  expect(result.stderr).toContain('gh.ts shepherd-pr <path> <number> state')
-})
-
-it('refuses a shepherd-pr path that is not a directory, without reaching gh', () => {
-  const result = runScript(BIN, {
-    args: ['shepherd-pr', 'no-such-directory', '1', 'state'],
-    env: env(),
-  })
-
-  expect(result.status).toBe(2)
-  expect(result.stdout).toBe('')
-  expect(result.stderr).toBe('not a directory: no-such-directory\n')
-})
-
-it('refuses a shepherd-status path that is not a directory', () => {
-  const result = runScript(BIN, { args: ['shepherd-status', 'no-such-directory'], env: env() })
-
-  expect(result.status).toBe(2)
-  expect(result.stderr).toBe('not a directory: no-such-directory\n')
-})
-
 it('exits 1 with the report on stdout when a job fails, at the real process boundary', () => {
   // Issue #81: nothing can drive `syncRepo` into this state through the real
   // `gh.ts` binary (see `fixtures/throwing-sync-entry.ts` and
@@ -191,16 +128,4 @@ it('exits 1 with the report on stdout when a job fails, at the real process boun
   expect(result.status).toBe(1)
   expect(result.stdout).toBe('  ✗ the sync failed: boom\n')
   expect(result.stderr).toBe(`the sync to ${path.basename(repo)} failed\n`)
-})
-
-it('refuses a pull request number that is not one', () => {
-  const sandbox = createSandbox()
-
-  const result = runScript(BIN, {
-    args: ['shepherd-pr', sandbox.path, 'abc', 'state'],
-    env: sandbox.env,
-  })
-
-  expect(result.status).toBe(2)
-  expect(result.stderr).toBe('not a pull request number: abc\n')
 })

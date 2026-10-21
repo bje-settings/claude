@@ -1,16 +1,17 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most. It also shows each way it stops.
+description: How `shepherd.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most. It also shows each way it stops.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-20
+  at: 2026-10-21
 ---
 
 # shepherd-status flow
 
-`node scripts/gh.ts shepherd-status` prints one JSON document about what `/gh:shepherd` would
-work on in one repository, and changes nothing. The `/gh:shepherd` skill runs it, then dispatches
+`node scripts/shepherd.ts shepherd-status` prints one JSON document about what `/shepherd:merge`
+would work on in one repository, and changes nothing. The `/shepherd:merge` skill runs it, then
+dispatches
 the `shepherd-prs` agent with the targets it names.
 
 ```mermaid

@@ -2,7 +2,7 @@
 // `tests/gh/test_discover.py` and of the shell `discover_spec.sh` before it.
 //
 // The suite also checks every "ok" example against
-// `fixtures/python-cli-output.json`. That file holds what `lib/discover.py`
+// `tests/plugins/gh/fixtures/python-cli-output.json`. That file holds what `lib/discover.py`
 // printed for the same state, before any of this existed. The list this
 // module answers with matches what that script printed, one path per line.
 // So the two are the same contract, seen from either side of the `print`.
@@ -23,11 +23,19 @@ import {
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { discoverRepos, gitUnavailable, toplevel } from '#gh/discover.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
+import { discoverRepos, gitUnavailable, toplevel } from '#lib/discover.ts'
 
-const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+/** The gh plugin's fixtures. `python-cli-output.json` holds the captures of
+ *  discovery and of `sync`, so the two suites read one copy. */
+const FIXTURES = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'plugins',
+  'gh',
+  'fixtures',
+)
 
 /** What the Python printed, as the capture commit recorded it. */
 interface PythonRun {

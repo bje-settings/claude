@@ -1,8 +1,8 @@
 // The `discover` command against what `lib/discover.py` printed.
 //
-// `../discover.test.ts` covers the rule itself, in process, against real
+// `tests/lib/discover.test.ts` covers the rule itself, in process, against real
 // repositories. This file covers the command line layer on top of it. It
-// replays the ten states that `fixtures/python-cli-output.json`'s `discover`
+// replays the ten states that `tests/plugins/gh/fixtures/python-cli-output.json`'s `discover`
 // rows came from. It compares stdout, stderr and status for each state.
 //
 // `fixtures/divergences-discover.json` holds, as data, what this file
@@ -12,16 +12,19 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { HELP, runDiscover } from '#gh/subcommands/discover.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { captureOutput } from '#harness/output.ts'
 import { pluginFile } from '#harness/paths.ts'
 import { createSandbox, type Sandbox } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
+import { HELP, runDiscover } from '#shepherd/subcommands/discover.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURES = path.join(HERE, '..', 'fixtures')
-const BIN = pluginFile('gh', 'scripts', 'gh.ts')
+/** `python-cli-output.json` holds the captures of discovery and of `sync`,
+ *  so it stays with the gh plugin's fixtures, and this suite reads it there. */
+const GH_FIXTURES = path.join(HERE, '..', '..', 'gh', 'fixtures')
+const BIN = pluginFile('shepherd', 'scripts', 'shepherd.ts')
 
 interface CapturedRun {
   argv: string[]
@@ -31,7 +34,7 @@ interface CapturedRun {
 }
 
 const PYTHON = (
-  JSON.parse(readFileSync(path.join(FIXTURES, 'python-cli-output.json'), 'utf8')) as {
+  JSON.parse(readFileSync(path.join(GH_FIXTURES, 'python-cli-output.json'), 'utf8')) as {
     discover: Record<string, CapturedRun>
   }
 ).discover
@@ -259,7 +262,7 @@ it('refuses a second target rather than answering about one of them', async () =
 
   expect(ran.status).toBe(2)
   expect(ran.stdout).toBe('')
-  expect(ran.stderr).toBe('usage: gh.ts discover [path]\n')
+  expect(ran.stderr).toBe('usage: shepherd.ts discover [path]\n')
 })
 
 it('records every divergence from the Python as data, and no more', () => {
@@ -269,7 +272,7 @@ it('records every divergence from the Python as data, and no more', () => {
   }
 })
 
-it('is reachable through scripts/gh.ts, as the shepherd skill reaches it', () => {
+it('is reachable through scripts/shepherd.ts, as the merge skill reaches it', () => {
   const sandbox = createSandbox()
   const git = createGitFixtures(sandbox)
   const fan = sandbox.join('fan')
@@ -283,7 +286,7 @@ it('is reachable through scripts/gh.ts, as the shepherd skill reaches it', () =>
   expect(result.stderr).toBe('')
 })
 
-it('lists itself in the command list scripts/gh.ts prints', () => {
+it('lists itself in the command list scripts/shepherd.ts prints', () => {
   const sandbox = createSandbox()
 
   const result = runScript(BIN, { args: [], env: sandbox.env })

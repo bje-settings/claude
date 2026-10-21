@@ -3,7 +3,7 @@
   "notReplayed": {
     "shepherd-pr": {
       "help": {
-        "why": "The usage text is this command's own prose: it spells `gh.ts shepherd-pr <path> <number> <action>` where the Python's docstring spelled `gh-shepherd-pr.py`.",
+        "why": "The usage text is this command's own prose: it spells `shepherd.ts shepherd-pr <path> <number> <action>` where the Python's docstring spelled `gh-shepherd-pr.py`, and it names the skill `/shepherd:merge` where the Python named `/gh:shepherd` (#477).",
         "pinnedBy": "prints its own usage for --help, naming every action it accepts"
       },
       "an_internal_error": {
@@ -13,7 +13,7 @@
     },
     "shepherd-status": {
       "help": {
-        "why": "The usage text is this command's own prose: it names `gh.ts shepherd-status` rather than a script file.",
+        "why": "The usage text is this command's own prose: it names `shepherd.ts shepherd-status` rather than a script file.",
         "pinnedBy": "prints its own usage for --help, naming the command rather than a script"
       },
       "an_internal_error": {
@@ -34,14 +34,14 @@
     {
       "id": "internalError",
       "was": "gh-shepherd-pr.py: internal error: ",
-      "now": "gh.ts shepherd-pr: internal error: ",
-      "why": "The file is scripts/gh.ts for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged.",
+      "now": "shepherd.ts shepherd-pr: internal error: ",
+      "why": "The file is scripts/shepherd.ts for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged.",
       "cases": ["an_internal_error"]
     },
     {
       "id": "internalErrorStatus",
       "was": "gh-shepherd-status.py: internal error: ",
-      "now": "gh.ts shepherd-status: internal error: ",
+      "now": "shepherd.ts shepherd-status: internal error: ",
       "why": "The same, for the other command.",
       "cases": ["an_internal_error"]
     },

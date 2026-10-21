@@ -1,5 +1,5 @@
 // Both shepherd commands share this reading and shaping code. It is the
-// port of `plugins/gh/scripts/lib/shepherd.py`.
+// port of the gh plugin's `scripts/lib/shepherd.py`.
 //
 // The shell library and the three jq programs beside it held four things
 // between them: the fold that turns a `statusCheckRollup` into one word,
@@ -26,9 +26,9 @@
 // was asked for. A declared pull-request type would be a promise. This
 // module is written not to trust that promise.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from
-// the tree. The file and line references below point at what they held at
+// **The Python this ports was deleted at #127.** The gh plugin's
+// `scripts/*.py`, its `lib/`, its `hooks/hook-io.py` and `tests/gh/` are
+// gone from the tree. The file and line references below point at what they held at
 // `cd0d515`. Each reference stays because it says where a rule came from.
 
 import { accessSync, constants, statSync } from 'node:fs'

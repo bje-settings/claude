@@ -1,5 +1,6 @@
-// This file has the deterministic per-pull-request steps of `/gh:shepherd`.
-// It is the port of `plugins/gh/scripts/gh-shepherd-pr.py`.
+// This file has the deterministic per-pull-request steps of
+// `/shepherd:merge`. It is the port of the gh plugin's
+// `scripts/gh-shepherd-pr.py`.
 //
 // Every action prints one JSON object: `{"action", "repo", "number", "ok",
 // "detail", ...}`. The keys stay in the order the Python wrote them. An
@@ -25,9 +26,9 @@
 // writers. Its output is an exit status. Nothing is spawned, and no `gh` is
 // on PATH.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py`, and `tests/gh/` are gone from
-// the tree. The file and line references below point to what they held at
+// **The Python this ports was deleted at #127.** The gh plugin's
+// `scripts/*.py`, its `lib/`, its `hooks/hook-io.py`, and `tests/gh/` are
+// gone from the tree. The file and line references below point to what they held at
 // `cd0d515`. This file keeps them because each one says where a rule came
 // from.
 import { GhError } from '../lib/gh.ts'
@@ -168,14 +169,14 @@ export type BranchSync =
 
 const NO_SYNC: BranchSync = { branchRefOid: null, inSync: null }
 
-export const HELP = `The deterministic per-pull-request steps of /gh:shepherd.
+export const HELP = `The deterministic per-pull-request steps of /shepherd:merge.
 
 Usage:
-  gh.ts shepherd-pr <path> <number> state
-  gh.ts shepherd-pr <path> <number> rebase
-  gh.ts shepherd-pr <path> <number> wait
-  gh.ts shepherd-pr <path> <number> settle
-  gh.ts shepherd-pr <path> <number> merged
+  shepherd.ts shepherd-pr <path> <number> state
+  shepherd.ts shepherd-pr <path> <number> rebase
+  shepherd.ts shepherd-pr <path> <number> wait
+  shepherd.ts shepherd-pr <path> <number> settle
+  shepherd.ts shepherd-pr <path> <number> merged
 
 Every action prints one JSON object: {"action", "ok", "detail", ...}. The
 agent running the loop decides which action comes next; this only does the
@@ -269,7 +270,7 @@ label, and never bypasses a check. The only write is the rebase, and nothing
 else.
 
 Environment:
-  SHEPHERD_CI_SECONDS    typical CI wall time, from gh.ts shepherd-status
+  SHEPHERD_CI_SECONDS    typical CI wall time, from shepherd.ts shepherd-status
                          (default 300). The wait bound is twice this, clamped
                          to [120, 540] so it fits inside a ten-minute tool
                          call; the caller re-invokes \`wait\` on \`pending\`.
@@ -1296,8 +1297,8 @@ const shepherdPr = async (
  * the JSON on stdout must not read a crash as an answer. Instead, the
  * agent gets a line that names what broke, not a stack trace it cannot
  * act on. The line names this command, not the script file that the
- * Python named, because the file is `scripts/gh.ts` for every command
- * now.
+ * Python named, because the file is `scripts/shepherd.ts` for every
+ * command now.
  */
 export const runShepherdPr = async (
   argv: readonly string[],
@@ -1310,7 +1311,7 @@ export const runShepherdPr = async (
       error instanceof Error
         ? `${error.name}: ${error.message}`
         : `${typeof error}: ${String(error)}`
-    context.output.err.write(`gh.ts shepherd-pr: internal error: ${account}\n`)
+    context.output.err.write(`shepherd.ts shepherd-pr: internal error: ${account}\n`)
     return 3
   }
 }

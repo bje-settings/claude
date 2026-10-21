@@ -40,7 +40,7 @@ import {
   threadReads,
   threadsOf,
   unreportedRequired,
-} from '#gh/shepherd.ts'
+} from '#shepherd/shepherd.ts'
 
 const checkRun = (status: string, conclusion: string | null, name = 'build') => ({
   __typename: 'CheckRun',

@@ -83,20 +83,6 @@ it('finishes clean when the reader of a sync report never reads at all', async (
   expect(git.sha(work, 'refs/remotes/origin/main')).not.toBe(before)
 })
 
-it('finishes clean when the reader of shepherd-status --help leaves at once', async () => {
-  const sandbox = createSandbox()
-  // The shepherd family writes its own JSON document through the writers it
-  // receives. It does not use the envelope renderer. So it needs its own
-  // example here.
-  const running = startScript(BIN, { args: ['shepherd-status', '--help'], env: sandbox.env })
-
-  running.closeStdout()
-  const ended = await running.ended()
-
-  expect(ended.status).toBe(0)
-  expectNoCrash(ended.stderr)
-})
-
 it('finishes clean when the reader of the hook response leaves at once', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')

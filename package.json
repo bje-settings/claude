@@ -8,6 +8,7 @@
     "#audit/*": "./plugins/audit/src/*",
     "#gh/*": "./plugins/gh/src/*",
     "#mermaid/*": "./plugins/mermaid/src/*",
+    "#shepherd/*": "./plugins/shepherd/src/*",
     "#workstreams/*": "./plugins/workstreams/src/*"
   },
   "description": "Dev and CI toolchain for the marketplace. Not a shipped package and not a dependency of any plugin: plugins never carry a package.json (RFC 001 decision 13, docs/rfc/001-typescript-port.md).",

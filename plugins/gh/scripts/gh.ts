@@ -14,24 +14,14 @@
 //
 // **The dispatch is `run` below and nothing else.** The import inside each
 // arm is dynamic. A command nobody asked for is never loaded. A new
-// command changes no other line in this file. #127 layer 4 added
-// `discover`. The `/gh:shepherd` skill's first step resolves its scope: it
-// runs discovery and reads one path per line. That step ran
-// `python3 "$S/lib/discover.py" "$PWD"` until the port deleted the Python.
-// The port then owed this command a node form. It answers with its own
-// status, not an envelope. Its two refusals are exit 1, in the contract
-// that `tests/plugins/gh/fixtures/python-cli-output.json` captured.
+// command changes no other line in this file.
 //
 // The hook is not here. `hooks/hook-io.ts` is its own entry point, the way
 // `hooks/hook-io.py` was. `hooks.json` runs one file this way. The three
 // seams that build the hook stay reachable by hand.
 //
-// The three shepherd commands answer with an exit status, not an envelope.
-// They have a fourth status (3, an internal error) that `lib/envelope.ts`
-// deliberately does not know. They write their own JSON document through
-// the writers handed to them. `discover` answers with a status for its own
-// reason, given in its own file. This is why `run` answers with a number,
-// and why the envelope commands render inside their own arm.
+// Each command answers with an envelope, and renders it inside its own
+// arm. `run` answers with the status that the render gives.
 
 import { assertNodeFloor } from '../src/lib/node-floor.ts'
 
@@ -44,17 +34,9 @@ const { createOutput } = await import('../src/lib/streams.ts')
 const USAGE = `usage: gh.ts <command> [options]
 
 commands:
-  discover [path]                                 the checkout roots in scope
-                                                  for a directory, one per line
   sync [--dry-run] [--no-install] [-j N] [path]   sync a checkout, or every
                                                   checkout one level down
   sync-repo [--dry-run] [--no-install] <path>     sync one checkout
-  shepherd-status [path] [label]                  what /gh:shepherd would work
-                                                  on in one repository
-  shepherd-pr <path> <number> <action>            one deterministic step
-                                                  against one pull request
-  shepherd-stack <path> <stack> <action>          one deterministic step
-                                                  against one GitHub stack
 
 gh.ts <command> --help prints that command's own usage.`
 
@@ -88,30 +70,8 @@ const edges = { cwd: process.cwd(), env: process.env, output }
 // scripts rely on this after they change into the checkout.
 const repositoryClient = (cwd: string) => createGhClient({ cwd, env: process.env })
 
-// The shepherd commands name the repository with `--repo` on every call
-// except the one that resolves it, so their client takes both forms. They
-// also poll, so the clock and the sleep function are arguments, not
-// imports. These are the real ones, built here with every other edge of
-// the process. `performance` is node's monotonic clock, the same role
-// `time.monotonic()` had. `Date` is the wall clock, which `wait` compares
-// with GitHub's check stamps (#466). The timer is the one `time.sleep` used.
-const shepherdEdges = {
-  createGh: (target: { cwd?: string; repository?: string }) =>
-    createGhClient({ ...target, env: process.env }),
-  now: () => performance.now(),
-  clock: () => Date.now(),
-  sleep: (milliseconds: number) =>
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, milliseconds)
-    }),
-}
-
 /** The command `name` asks for, run, or `null` when nothing answers to it. */
 const run = async (name: string, argv: readonly string[]): Promise<number | null> => {
-  if (name === 'discover') {
-    const { runDiscover } = await import('../src/subcommands/discover.ts')
-    return runDiscover(argv, edges)
-  }
   if (name === 'sync') {
     const { runSync } = await import('../src/subcommands/sync.ts')
     return write(await runSync(argv, { ...edges, createGh: repositoryClient }))
@@ -119,18 +79,6 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
   if (name === 'sync-repo') {
     const { runSyncRepo } = await import('../src/subcommands/sync-repo.ts')
     return write(await runSyncRepo(argv, { ...edges, createGh: repositoryClient }))
-  }
-  if (name === 'shepherd-status') {
-    const { runShepherdStatus } = await import('../src/subcommands/shepherd-status.ts')
-    return runShepherdStatus(argv, { ...edges, ...shepherdEdges })
-  }
-  if (name === 'shepherd-pr') {
-    const { runShepherdPr } = await import('../src/subcommands/shepherd-pr.ts')
-    return runShepherdPr(argv, { ...edges, ...shepherdEdges })
-  }
-  if (name === 'shepherd-stack') {
-    const { runShepherdStack } = await import('../src/subcommands/shepherd-stack.ts')
-    return runShepherdStack(argv, { ...edges, ...shepherdEdges })
   }
   return null
 }

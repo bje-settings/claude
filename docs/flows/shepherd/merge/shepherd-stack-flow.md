@@ -1,15 +1,16 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-stack` checks its arguments, then runs one of four steps on one GitHub stack, layer by layer, bottom first. It reports every result.
+description: How `shepherd.ts shepherd-stack` checks its arguments, then runs one of four steps on one GitHub stack, layer by layer, bottom first. It reports every result.
 stale_after: 2027-04-20
 generated:
   by: claude-opus
-  at: 2026-10-20
+  at: 2026-10-21
 ---
 
 # shepherd-stack flow
 
-`node scripts/gh.ts shepherd-stack <path> <stack> <action>` runs one step on one GitHub stack.
+`node scripts/shepherd.ts shepherd-stack <path> <stack> <action>` runs one step on one GitHub
+stack.
 The `shepherd-prs` agent runs it for a stack target that `shepherd-status` gave. Each layer is a
 `shepherd-pr` step, judged by the rules of the stack base (ruling 4 on #469).
 

@@ -1,5 +1,5 @@
 ---
-name: shepherd
+name: merge
 description: >
   Merge every open, non-draft pull request that has auto-merge set, one at a time, and each
   GitHub stack once every layer is ready. An optional argument narrows this to one label. A pull
@@ -12,7 +12,7 @@ description: >
   Outside one, it shepherds every immediate subdirectory that is a git repo, one subagent per
   repo, in parallel. It never merges by hand, except a stack with gh stack merge. It never
   enables auto-merge, never force pushes, and never bypasses a check.
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" *) Agent
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" *) Agent
 argument-hint: "[label] [--all] [--dry-run]"
 disable-model-invocation: true
 ---
@@ -23,7 +23,7 @@ level down. Serial within a repo, parallel across repos.
 ## Step 1: Discover
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" discover "$PWD"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" discover "$PWD"
 ```
 
 One path per line. If there are none, say "No git repositories directly inside <cwd>" and
@@ -37,7 +37,7 @@ one label. Do not enforce a second label yourself; the script refuses it.
 For each path:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-status <path> [label] [--all]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-status <path> [label] [--all]
 ```
 
 Pass `--all` only when it was given. Read `targets` and `not_ready`. A repo with no targets gets no
@@ -48,11 +48,11 @@ and its `reasons`), and stop here.
 
 ## Step 3: Shepherd
 
-Launch one `shepherd-prs` agent per repo that has targets. Send them all in a single message, so
+Launch one `shepherd:shepherd-prs` agent per repo that has targets. Send them all in a single message, so
 they run in parallel. Each agent gets the repo path, the ordered targets from `targets` (each
 pull request number, and each stack as `stack:<s>`), `ci_seconds`, and whether `--all` is on,
 and returns a JSON report. The agent takes a stack as one unit, with
-`node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> <action>`. It does not run
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-stack <path> <s> <action>`. It does not run
 `status` itself. Do not start a second agent for the same repo. Do not shepherd a repo yourself. The
 serial-within-a-repo guarantee lives in the agent.
 
@@ -64,7 +64,7 @@ worker's last read and its report. One `skipped` shape is that race's signature:
 For each such entry, once:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> merged
+node "${CLAUDE_PLUGIN_ROOT}/scripts/shepherd.ts" shepherd-pr <path> <n> merged
 ```
 
 A skipped stack with `result` `accepted` gets the same read for each of its `layers`. When

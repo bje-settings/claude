@@ -1,4 +1,4 @@
-// The deterministic steps of `/gh:shepherd` for one GitHub stack (#469).
+// The deterministic steps of `/shepherd:merge` for one GitHub stack (#469).
 //
 // Every action prints one JSON object: `{"action", "repo", "stack", "ok",
 // "detail", ...}`. The agent that runs the loop decides which action comes
@@ -13,7 +13,7 @@
 // **No force push.** `update` asks GitHub to merge the base into each layer
 // that is behind, bottom up (`gh pr update-branch` in MERGE mode). GitHub
 // merges such a stack (the probe of ruling 3 on #469). `merge` is the one
-// merge in the gh plugin: `gh stack merge`, which GitHub runs all or
+// merge in the shepherd plugin: `gh stack merge`, which GitHub runs all or
 // nothing, under the rules of the base.
 //
 // The command function is the seam (ADR 001). Its inputs are the arguments,
@@ -49,18 +49,18 @@ const METHOD_ORDER: readonly MergeMethod[] = ['squash', 'merge', 'rebase']
 /** Checks states that let a stack merge. */
 const GREEN = ['passed', 'none']
 
-export const HELP = `The deterministic steps of /gh:shepherd for one GitHub stack.
+export const HELP = `The deterministic steps of /shepherd:merge for one GitHub stack.
 
 Usage:
-  gh.ts shepherd-stack <path> <stack> state
-  gh.ts shepherd-stack <path> <stack> update
-  gh.ts shepherd-stack <path> <stack> wait
-  gh.ts shepherd-stack <path> <stack> merge
+  shepherd.ts shepherd-stack <path> <stack> state
+  shepherd.ts shepherd-stack <path> <stack> update
+  shepherd.ts shepherd-stack <path> <stack> wait
+  shepherd.ts shepherd-stack <path> <stack> merge
 
 <stack> is the stack number, from shepherd-status. Every action prints one
 JSON object: {"action", "repo", "stack", "ok", "detail", ...}. The open
 layers are taken bottom first. A merged entry is no layer. Each layer is a
-shepherd-pr step (see gh.ts shepherd-pr --help), judged by the rules of the
+shepherd-pr step (see shepherd.ts shepherd-pr --help), judged by the rules of the
 stack \`base\`, not of its own base.
 
   state     each open layer as shepherd-pr state reads it, with the review
@@ -105,7 +105,7 @@ stack \`base\`, not of its own base.
 This command never force pushes, never enables auto-merge, and never
 bypasses a check. Its writes are the branch updates and the stack merge.
 
-Environment: the SHEPHERD_* variables of gh.ts shepherd-pr. The wait bound
+Environment: the SHEPHERD_* variables of shepherd.ts shepherd-pr. The wait bound
 is for the whole stack.
 
 Exits 0 when the action ran and reported (including ok:false refusals), 2 on
@@ -509,7 +509,7 @@ export const runShepherdStack = async (
       error instanceof Error
         ? `${error.name}: ${error.message}`
         : `${typeof error}: ${String(error)}`
-    context.output.err.write(`gh.ts shepherd-stack: internal error: ${account}\n`)
+    context.output.err.write(`shepherd.ts shepherd-stack: internal error: ${account}\n`)
     return 3
   }
 }

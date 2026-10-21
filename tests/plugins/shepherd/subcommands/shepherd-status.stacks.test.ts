@@ -1,4 +1,4 @@
-// `gh.ts shepherd-status` and GitHub stacks (#469). A stack is one target,
+// `shepherd.ts shepherd-status` and GitHub stacks (#469). A stack is one target,
 // after the pull requests. Every open layer is judged by the rules of the
 // stack base (ruling 4 on #469). A stack that is not ready goes to
 // `not_ready`, with each layer and the requirement that failed.
@@ -8,13 +8,13 @@
 // `stack`. The rows are the shape of the real stack of #470 and #471 on
 // 2026-10-20: two layers, the upper one based on the lower one's branch.
 import { expect, it } from 'vitest'
-import type { ShepherdContext } from '#gh/shepherd.ts'
-import { runShepherdStatus } from '#gh/subcommands/shepherd-status.ts'
 import { type GhClient, type GhResults, ghFails, type PullRequestDetail } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { captureOutput } from '#harness/output.ts'
 import { createGhServer, type GhServerOptions, type PullRequestRow } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
+import type { ShepherdContext } from '#shepherd/shepherd.ts'
+import { runShepherdStatus } from '#shepherd/subcommands/shepherd-status.ts'
 
 const REPOSITORY = { nameWithOwner: 'bje-settings/claude', defaultBranchRef: { name: 'main' } }
 

@@ -1,5 +1,5 @@
-// What `/gh:shepherd` would work on in one repository. This is the port of
-// `plugins/gh/scripts/gh-shepherd-status.py`.
+// What `/shepherd:merge` would work on in one repository. This is the port
+// of the gh plugin's `scripts/gh-shepherd-status.py`.
 //
 // This command writes one JSON document on stdout and changes nothing.
 // Every decision it makes about a pull request is a function in
@@ -10,9 +10,9 @@
 // an injected `gh` and the output writers go in, and an exit status comes
 // out. Nothing is spawned, and no `gh` is on PATH.
 //
-// **The Python this ports was deleted at #127.** `plugins/gh/scripts/*.py`,
-// its `lib/`, `plugins/gh/hooks/hook-io.py` and `tests/gh/` are gone from
-// the tree. The file and line references below point at what they held at
+// **The Python this ports was deleted at #127.** The gh plugin's
+// `scripts/*.py`, its `lib/`, its `hooks/hook-io.py` and `tests/gh/` are
+// gone from the tree. The file and line references below point at what they held at
 // `cd0d515`. Each reference stays because it says where a rule came from.
 import { GhError, type RequiredReviews } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
@@ -42,10 +42,10 @@ const RUN_SAMPLE = 20
  *  bigger number here. gh pages the request itself. */
 const PR_LIMIT = 500
 
-export const HELP = `What /gh:shepherd would work on in one repository.
+export const HELP = `What /shepherd:merge would work on in one repository.
 
 Usage:
-  gh.ts shepherd-status [path] [label] [--all]
+  shepherd.ts shepherd-status [path] [label] [--all]
 
 Prints one JSON document and changes nothing:
 
@@ -357,7 +357,7 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
  * the JSON on stdout must not read a crash as an answer. The agent gets a
  * line that names what broke, instead of a stack trace it cannot act on.
  * The line names this command, not the script file the Python named,
- * because the file is `scripts/gh.ts` for every command now.
+ * because the file is `scripts/shepherd.ts` for every command now.
  */
 export const runShepherdStatus = async (
   argv: readonly string[],
@@ -370,7 +370,7 @@ export const runShepherdStatus = async (
       error instanceof Error
         ? `${error.name}: ${error.message}`
         : `${typeof error}: ${String(error)}`
-    context.output.err.write(`gh.ts shepherd-status: internal error: ${account}\n`)
+    context.output.err.write(`shepherd.ts shepherd-status: internal error: ${account}\n`)
     return 3
   }
 }

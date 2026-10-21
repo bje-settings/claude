@@ -1,13 +1,13 @@
 ---
 type: Reference
-description: What the /gh:shepherd skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label.
+description: What the /shepherd:merge skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-20
+  at: 2026-10-21
 ---
 
-# /gh:shepherd skill flow
+# /shepherd:merge skill flow
 
 ```mermaid
 flowchart TD
@@ -85,5 +85,5 @@ flowchart TD
 ```
 
 The `discover` subgraph is shared with `/gh:sync`, byte for byte. Both skills resolve their
-scope by the same rule, `plugins/gh/src/discover.ts`. So the two diagrams must describe it
+scope by the same rule, `lib/discover.ts`. So the two diagrams must describe it
 identically.

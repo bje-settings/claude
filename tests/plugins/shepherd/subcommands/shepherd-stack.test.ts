@@ -1,4 +1,4 @@
-// `gh.ts shepherd-stack` (#469): the steps of `/gh:shepherd` for one GitHub
+// `shepherd.ts shepherd-stack` (#469): the steps of `/shepherd:merge` for one GitHub
 // stack. Each layer is a `shepherd-pr` step, judged by the rules of the
 // stack base (ruling 4 on #469).
 //
@@ -11,13 +11,13 @@
 // **No test waits.** `fakeTime` moves the clock by each sleep.
 import { mkdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
-import type { ShepherdContext } from '#gh/shepherd.ts'
-import { HELP, runShepherdStack } from '#gh/subcommands/shepherd-stack.ts'
 import { type GhClient, type GhResults, ghFails, type PullRequestDetail } from '#harness/gh.ts'
 import { createGitFixtures } from '#harness/git.ts'
 import { captureOutput } from '#harness/output.ts'
 import { createGhServer, type PullRequestRow } from '#harness/pulls.ts'
 import { createSandbox } from '#harness/sandbox.ts'
+import type { ShepherdContext } from '#shepherd/shepherd.ts'
+import { HELP, runShepherdStack } from '#shepherd/subcommands/shepherd-stack.ts'
 import { fakeTime, HEAD_DATE, NO_JOBS } from './shepherd-pr.test-support.ts'
 
 const REPOSITORY = { nameWithOwner: 'bje-settings/claude', defaultBranchRef: { name: 'main' } }
@@ -1042,7 +1042,7 @@ it('reports an internal error rather than a stack trace, and exits 3', async () 
   expect(error).toMatchObject({
     code: 3,
     stdout: '',
-    stderr: 'gh.ts shepherd-stack: internal error: TypeError: boom\n',
+    stderr: 'shepherd.ts shepherd-stack: internal error: TypeError: boom\n',
   })
-  expect(value.stderr).toBe('gh.ts shepherd-stack: internal error: string: odd\n')
+  expect(value.stderr).toBe('shepherd.ts shepherd-stack: internal error: string: odd\n')
 })

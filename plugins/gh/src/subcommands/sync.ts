@@ -30,7 +30,7 @@
 // tree. The file and line references below point to what they held at
 // `cd0d515`. Each reference stays because it says where a rule came from.
 import path from 'node:path'
-import { discoverRepos, gitUnavailable, toplevel } from '../discover.ts'
+import { discoverRepos, gitUnavailable, toplevel } from '../lib/discover.ts'
 import { type Envelope, failed, ok, refused } from '../lib/envelope.ts'
 import { createWriter } from '../lib/streams.ts'
 import { type Command, REPORT, type SyncRepoOptions, syncRepo } from './sync-repo.ts'

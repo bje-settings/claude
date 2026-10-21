@@ -1,16 +1,16 @@
 ---
 type: Reference
-description: How `gh.ts shepherd-pr` checks its arguments, then runs one of five steps on one pull request. It reports every result.
+description: How `shepherd.ts shepherd-pr` checks its arguments, then runs one of five steps on one pull request. It reports every result.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-20
+  at: 2026-10-21
 ---
 
 # shepherd-pr flow
 
-`node scripts/gh.ts shepherd-pr` does one step on one pull request and prints one JSON object.
-The `/gh:shepherd` skill and the `shepherd-prs` agent run it and decide the next step.
+`node scripts/shepherd.ts shepherd-pr` does one step on one pull request and prints one JSON
+object. The `/shepherd:merge` skill and the `shepherd-prs` agent run it and decide the next step.
 
 ```mermaid
 flowchart TD

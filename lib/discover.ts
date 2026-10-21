@@ -35,7 +35,7 @@
 import { readdirSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 
-import { toplevel as gitToplevel, runGit } from './lib/git.ts'
+import { toplevel as gitToplevel, runGit } from './git.ts'
 
 /** What discovery answers with. */
 export type Discovery =

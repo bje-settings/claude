@@ -12,6 +12,7 @@
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": false,
     "gh@bje": true,
+    "shepherd@bje": true,
     "workstreams@bje": true,
     "mermaid@bje": true,
     "audit@bje": true

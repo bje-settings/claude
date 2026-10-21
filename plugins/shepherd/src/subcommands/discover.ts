@@ -1,30 +1,29 @@
 // This file is repository discovery as a command. It is the port of the
-// `__main__` block of `plugins/gh/scripts/lib/discover.py` (deleted at
-// #127).
+// `__main__` block of the Python `lib/discover.py` (deleted at #127).
 //
-// `../discover.ts` is the rule itself, and every other command reaches it
-// in process. This is the command line onto it. It exists because one
-// caller is not a command at all: the `/gh:shepherd` skill resolves its
+// `../lib/discover.ts` is the rule itself, and every other command reaches
+// it in process. This is the command line onto it. It exists because one
+// caller is not a command at all: the `/shepherd:merge` skill resolves its
 // scope. It runs discovery and reads one path per line, before it knows
 // which repositories it will ask `shepherd-status` about. That step ran
 // `python3 "$S/lib/discover.py" "$PWD"` until this port. The plugin then
 // owed it a node form.
 //
-// `tests/plugins/gh/fixtures/python-cli-output.json`'s `discover` rows are what the Python
-// printed for each of these states. The rows were captured before any of
-// it was ported. `tests/plugins/gh/subcommands/discover.test.ts` compares against them.
-// `tests/plugins/gh/fixtures/divergences-discover.json` is what this file deliberately
-// says instead.
+// The `discover` rows of the captured `python-cli-output.json` are what the
+// Python printed for each of these states. The rows were captured before
+// any of it was ported. `tests/plugins/shepherd/subcommands/discover.test.ts`
+// compares against them. `tests/plugins/shepherd/fixtures/divergences-discover.json`
+// is what this file deliberately says instead.
 //
 // The command function is the seam (ADR 001). Arguments and the process's
 // edges go in. An exit status comes out, with nothing spawned.
-import { discoverRepos, gitUnavailable } from '../discover.ts'
+import { discoverRepos, gitUnavailable } from '../lib/discover.ts'
 import type { Output } from '../lib/streams.ts'
 
 export const HELP = `The checkout roots in scope for a directory, one per line.
 
 Usage:
-  gh.ts discover [path]
+  shepherd.ts discover [path]
 
 Scope comes from the target, so no caller has to classify it:
   - the target is inside a git repo  -> that repo's checkout root
@@ -41,8 +40,8 @@ answer. Exit 1 means the target could not be read at all, or git itself could
 not run. Either way, that is a different fact, said on stderr. Exit 2 means
 the arguments were refused.`
 
-/** The edges this command reads: the same three `scripts/gh.ts` hands
- *  every envelope command, and no `gh`. Discovery asks git, and nothing
+/** The edges this command reads: three of the edges `scripts/shepherd.ts`
+ *  hands every command, and no `gh`. Discovery asks git, and nothing
  *  else. */
 export interface DiscoverContext {
   readonly cwd: string
@@ -56,8 +55,9 @@ export interface DiscoverContext {
  *
  * This uses exit 1, not 2, for a target that cannot be read. `discover.py`
  * published 1 for both of its refusals, and the two captured rows
- * (`not_a_directory`, `unreadable_target`) are that contract. `gh.ts sync`
- * answers 2 for the same two states, deliberately. It refuses a request.
+ * (`not_a_directory`, `unreadable_target`) are that contract. The gh
+ * plugin's `sync` answers 2 for the same two states, deliberately. It
+ * refuses a request.
  * This command instead reports that it could not answer a question.
  */
 export const runDiscover = async (
@@ -66,8 +66,8 @@ export const runDiscover = async (
 ): Promise<number> => {
   const { output } = context
   // #218 finding 5: this reads help in any position, before the
-  // extra-argument refusal below. `sync.ts` and `sync-repo.ts` already
-  // read help this way.
+  // extra-argument refusal below. The gh plugin's `sync` and `sync-repo`
+  // already read help this way.
   if (argv.includes('-h') || argv.includes('--help')) {
     output.out.write(`${HELP}\n`)
     return 0
@@ -77,7 +77,7 @@ export const runDiscover = async (
     // This code accepts one target or none. It would silently ignore a
     // second one. A caller that meant two directories would read one
     // answer as both.
-    output.err.write(`usage: gh.ts discover [path]\n`)
+    output.err.write(`usage: shepherd.ts discover [path]\n`)
     return 2
   }
 
@@ -106,8 +106,8 @@ export const runDiscover = async (
   // Discovery answers "no checkouts" when git cannot run at all, the same
   // answer a directory with nothing in it gives. Without this check, a
   // machine with no git on PATH would read as one with no checkouts to
-  // report. `gh.ts sync` guards against the same fact with the same
-  // function, `../discover.ts`'s `gitUnavailable`.
+  // report. The gh plugin's `sync` guards against the same fact with the
+  // same function, `../lib/discover.ts`'s `gitUnavailable`.
   const unavailable = await gitUnavailable(context.env)
   if (unavailable !== null) {
     output.err.write(`missing git: ${unavailable}\n`)
