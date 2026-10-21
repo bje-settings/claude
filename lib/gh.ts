@@ -606,12 +606,12 @@ export interface GhClient {
     pullRequest: number
     /** Required, and not defaulted. `gh pr update-branch` with no `--rebase`
      *  writes a MERGE COMMIT onto someone's head branch, so an omitted flag
-     *  here is a write nobody asked for. The one ported call site passes
-     *  this flag unconditionally (`gh-shepherd-pr.py:483`; `:19` names the
-     *  whole subcommand "rebase    gh pr update-branch --rebase"). `false`
-     *  is still an available value, so nothing here asks a caller for
-     *  something it does not already have. An optional field
-     *  would let an omission select the behaviour no consumer wants. */
+     *  here is a write nobody asked for. `shepherd-pr rebase` passes
+     *  `true` (`gh-shepherd-pr.py:483`; `:19` names the whole subcommand
+     *  "rebase    gh pr update-branch --rebase"). `shepherd-stack update`
+     *  passes `false` on purpose: a stack layer takes its base by a merge
+     *  commit, so nothing force pushes (ruling 3 on #469). Each caller names
+     *  its mode. An optional field would let an omission select a mode. */
     rebase: boolean
   }): Promise<GhResults['updateBranch']>
   addComment(comment: { pullRequest: number } & CommentText): Promise<GhResults['addComment']>

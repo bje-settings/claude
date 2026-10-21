@@ -224,6 +224,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|updat
    - On `failed`, classify and fix the failure of `layer`, as steps 4 and 5 do, then `wait`.
      The fix cap is for the whole stack.
    - On `stalled`, record it as skipped, with `layer` and the `report.progress` fields.
+   - On `merged`, a layer merged outside this run. Re-read `state`.
    - On `ok:false`, re-read `state`. A second `ok:false` is skipped, with the detail.
 4. Call `merge` once `wait` gave `passed`:
    - On `merged`, record the stack, with each layer and its `mergeCommit` from `layers`.
