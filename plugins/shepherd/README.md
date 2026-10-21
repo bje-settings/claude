@@ -183,7 +183,8 @@ Never:
 ### Commands
 
 The deterministic parts are three commands, and `discover` (below). The agent only decides
-between their results.
+between their results. `<plugin>` below is the plugin's own directory. Inside Claude Code, the
+skill and the agent use `${CLAUDE_PLUGIN_ROOT}` for it.
 
 ```bash
 node <plugin>/scripts/shepherd.ts shepherd-status <path> [label] [--all]   # the work list, as JSON
