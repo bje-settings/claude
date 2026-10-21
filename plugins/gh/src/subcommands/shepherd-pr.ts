@@ -884,7 +884,7 @@ export class Shepherd {
     pull: PullState,
     reading: Record<string, unknown>,
     measure: () => Promise<{ readonly progress: CheckProgress; readonly missed: boolean }>,
-    unreported: readonly string[] = [],
+    unreported: readonly string[],
   ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
