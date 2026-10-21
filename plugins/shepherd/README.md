@@ -107,13 +107,14 @@ pending check, `wait` also reads every page of the jobs of the run, up to 20 pag
 two stamps on each job and each step. `wait` compares the newest stamp with the wall clock. When
 no check, job or step started or finished for the stall bound, it returns `stalled`. The bound is
 the largest of three values: 27 minutes (`SHEPHERD_STALL_FLOOR`, three nine-minute waits), twice
-the CI median, and the run's own time from its first stamp to its newest. So a run that made progress for twenty minutes may sit still for twenty. The stamps
-of one job do not move until it finishes, but its steps do. So one long job is progress while its
-steps finish. A median that is too small cannot make the bound smaller than the other two values. A
-poll whose jobs read fails, in full or in part, gets twice the bound (#476). The steps it missed
-may have moved. Its `stall_bound` shows the doubled value, and stderr says why the read
-failed. A rollup with no stamp at all is measured from the newer of the head commit's date
-and the pull request's last update. So a check that never starts still ends in `stalled`, and a
+the CI median, and the run's own time from its first stamp to its newest. So a run that made
+progress for twenty minutes may sit still for twenty. The stamps of one job do not move until it
+finishes, but its steps do. So one long job is progress while its steps finish. A median that is
+too small cannot make the bound smaller than the other two values. A poll whose jobs read fails,
+in full or in part, gets twice the bound (#476). The steps it missed may have moved. Its
+`stall_bound` shows the doubled value, and stderr says why the read failed. A rollup with no
+stamp at all is measured from the newer of the head commit's date and the pull request's last
+update. So a check that never starts still ends in `stalled`, and a
 commit made long before its push does not stall at once. Each call decides from what it reads. The
 agent counts no `pending` result. `pending` and `stalled` carry `progress`: the checks finished, the
 first and newest stamps, `idle`, `stall_bound`, and `source` (`checks` or `head commit`).
@@ -281,6 +282,6 @@ shepherd: ⚠️ gh stack extension not found
 ```
 
 A read that does not finish within 2.5 seconds gives `could not be checked` in place of
-`not found`, and adds no sentence to `additionalContext`. An environment with no home directory gives the same
-line for the extension. The hook always exits 0. The same reason also goes to stderr, one line
-for each item. The hook is `hooks/session-start.ts`.
+`not found`, and adds no sentence to `additionalContext`. An environment with no home directory
+gives the same line for the extension. The hook always exits 0. The same reason also goes to
+stderr, one line for each item. The hook is `hooks/session-start.ts`.

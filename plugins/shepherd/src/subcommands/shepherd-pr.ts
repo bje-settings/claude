@@ -239,8 +239,9 @@ cannot make it act on the wrong pull request.
             the head commit's date and the pull request's updatedAt is the
             one stamp, and \`source\` is \`head commit\`. So a check that never
             starts still ends in \`stalled\`, and a commit made long before its
-            push does not stall at once. With neither date, \`idle\` is null (stderr says why).
-            Each call decides from what it reads, so a caller counts nothing.
+            push does not stall at once. With neither date, \`idle\` is null
+            (stderr says why). Each call decides from what it reads, so a
+            caller counts nothing.
             On failed, \`failing\` lists the failed checks, and \`log_tail\`
             carries the failed steps' log.
             \`log_error\` is beside it when gh would not hand the log over.
