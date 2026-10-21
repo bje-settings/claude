@@ -115,7 +115,6 @@ export const runHook = async (
     // Far above the 5 s the hook gets in a session. A whole suite of real
     // git at once is slow, and only the deadline tests mean to reach it.
     deadlineMs: 20_000,
-    platform: process.platform,
     ...overrides,
   })
   return { status, stdout: output.stdout(), stderr: output.stderr() }

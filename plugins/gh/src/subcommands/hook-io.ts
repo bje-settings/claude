@@ -7,7 +7,7 @@
 // and `plugins/gh/README.md` shows them.
 //
 // The hook finds the repository that holds the session's directory, or the
-// repositories directly inside it (`discover.ts`). It skips a repository
+// repositories directly inside it (`lib/discover.ts`). It skips a repository
 // whose `origin` is not on github.com. It fetches each repository, then
 // counts from local refs. One GraphQL query per five repositories reads the
 // GitHub counts, at the same time as the fetches.
@@ -32,7 +32,7 @@ import {
   type Dependency,
   deadlineClock,
   type FileReads,
-  isPresent,
+  onPath,
   withinDeadline,
 } from '../lib/dependencies.ts'
 import { discoverRepos } from '../lib/discover.ts'
@@ -286,9 +286,6 @@ export interface HookEdges {
   readonly files: FileReads
   /** The time the whole check may take, in milliseconds. */
   readonly deadlineMs: number
-  /** `process.platform`. gh keeps its extensions in a different place on
-   *  Windows. */
-  readonly platform: string
 }
 
 /** The namespaces that the ref lookups name in full. `--merged main` would
@@ -632,7 +629,7 @@ const checkStatus = async (
   timeoutMs: () => number,
 ): Promise<Status | null> => {
   const found = await Promise.all(
-    DEPENDENCIES.map((row) => isPresent(row, edges.env, edges.files, timeoutMs(), edges.platform)),
+    DEPENDENCIES.map((dependency) => onPath(dependency.tool, edges.env, edges.files, timeoutMs())),
   )
   const presence = new Map(DEPENDENCIES.map((dependency, index) => [dependency.tool, found[index]]))
   // A walk that did not finish is not an absent tool. It gets a line of

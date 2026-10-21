@@ -54,7 +54,6 @@ if (meetsNodeFloor(process.version)) {
       createGh: (env) => createGhClient({ env }),
       files: nodeFileReads,
       deadlineMs: DEADLINE_MS,
-      platform: process.platform,
     })
   } catch (error) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
