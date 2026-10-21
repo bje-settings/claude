@@ -636,13 +636,14 @@ describe('ciSeconds', () => {
 
   it('counts each head as its longest run, the #463 field case', () => {
     // One push starts three 1 to 3 second workflows beside a 20 minute CI.
-    // Over every row, the median is a few seconds.
+    // Over every row, the median is a few seconds. The CI run comes first,
+    // so the longest run is not the last one read.
     const heads = [
       ['a', 1200],
       ['b', 1190],
       ['c', 1230],
     ] as const
-    const runs = heads.flatMap(([sha, ci]) => [1, 2, 3, ci].map((seconds) => runFor(seconds, sha)))
+    const runs = heads.flatMap(([sha, ci]) => [ci, 1, 2, 3].map((seconds) => runFor(seconds, sha)))
 
     expect(ciSeconds(runs)).toBe(1200)
   })
