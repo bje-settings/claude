@@ -37,6 +37,9 @@ const CALLS: Array<[GhEndpoint, (client: GhClient) => Promise<unknown>]> = [
   ['branchRef', (client) => client.branchRef({ branch: 'dependabot/npm/dep-1' })],
   ['listRunJobs', (client) => client.listRunJobs({ run: '39508680057' })],
   ['commitDate', (client) => client.commitDate({ sha: 'eb0ee17' })],
+  ['listOpenStacks', (client) => client.listOpenStacks()],
+  ['mergeMethods', (client) => client.mergeMethods({ branch: 'main' })],
+  ['mergeStack', (client) => client.mergeStack({ stack: 472, method: 'squash' })],
   [
     'listPullRequestStatuses',
     (client) => client.listPullRequestStatuses({ pullRequest: 178, prefix: 'workstreams/' }),
@@ -174,6 +177,12 @@ it('answers every endpoint it declares', async () => {
       unavailable: null,
     },
     commitDate: { date: '2026-10-20T22:47:46Z', unavailable: null },
+    listOpenStacks: {
+      rows: [{ number: 472, base: 'main', layers: [{ number: 470, state: 'OPEN' }] }],
+      unavailable: null,
+    },
+    mergeMethods: { methods: ['merge', 'squash'], unavailable: null },
+    mergeStack: { accepted: true, output: '✓ Merged #470 into main (e98cf21)' },
     listPullRequestStatuses: {
       rows: [
         {

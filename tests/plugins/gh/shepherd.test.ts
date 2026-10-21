@@ -23,11 +23,15 @@ import {
   checkState,
   checks,
   ciSeconds,
+  failedRequired,
   isBot,
   isDependabot,
   isTruthy,
+  layerReasons,
   missingField,
+  type NotReady,
   oneLine,
+  type PullSummary,
   pendingRuns,
   rank,
   statusDocument,
@@ -35,6 +39,7 @@ import {
   tailLines,
   threadReads,
   threadsOf,
+  unreportedRequired,
 } from '#gh/shepherd.ts'
 
 const checkRun = (status: string, conclusion: string | null, name = 'build') => ({
@@ -955,6 +960,14 @@ describe('autoMergeBases and threadReads', () => {
   })
 })
 
+/** The pull request targets of a document. These examples list no stack. */
+const pullTargets = (document: ReturnType<typeof statusDocument>): PullSummary[] =>
+  document.targets as PullSummary[]
+
+/** The pull requests a document leaves out. */
+const pullNotReady = (document: ReturnType<typeof statusDocument>): NotReady[] =>
+  document.not_ready as NotReady[]
+
 describe('statusDocument', () => {
   it('keeps only pull requests a human marked for auto-merge', () => {
     const pulls = [
@@ -964,7 +977,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 42, OPEN_DOOR)
 
-    expect(document.targets.map((target) => target.number)).toEqual([1])
+    expect(pullTargets(document).map((target) => target.number)).toEqual([1])
     expect(document.repo).toBe('acme/widgets')
     expect(document.default_branch).toBe('main')
     expect(document.ci_seconds).toBe(42)
@@ -987,7 +1000,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 42, OPEN_DOOR)
 
-    expect(document.targets.map((target) => target.number)).toEqual([1])
+    expect(pullTargets(document).map((target) => target.number)).toEqual([1])
   })
 
   it('orders targets by band, then oldest first inside a band', () => {
@@ -1009,7 +1022,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, OPEN_DOOR)
 
-    expect(document.targets.map((target) => target.number)).toEqual([7, 6, 5])
+    expect(pullTargets(document).map((target) => target.number)).toEqual([7, 6, 5])
   })
 
   it('leaves two targets opened at the same moment in the order gh listed them', () => {
@@ -1022,7 +1035,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, OPEN_DOOR)
 
-    expect(document.targets.map((target) => target.number)).toEqual([9, 4])
+    expect(pullTargets(document).map((target) => target.number)).toEqual([9, 4])
   })
 
   it('leaves out a pull request whose base requires an approval it does not have', () => {
@@ -1040,8 +1053,8 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
 
-    expect(document.targets.map((target) => target.number)).toEqual([2])
-    expect(document.targets[0]?.approval).toBe('met')
+    expect(pullTargets(document).map((target) => target.number)).toEqual([2])
+    expect(pullTargets(document)[0]?.approval).toBe('met')
     expect(document.not_ready).toEqual([
       { number: 1, title: 'one', author: 'octocat', reasons: ['needs an approval'] },
     ])
@@ -1058,7 +1071,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
 
-    expect(document.targets.map((target) => [target.approval, target.threads])).toEqual([
+    expect(pullTargets(document).map((target) => [target.approval, target.threads])).toEqual([
       ['missing', 'unresolved'],
     ])
     expect(document.not_ready).toEqual([])
@@ -1082,11 +1095,11 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
 
-    expect(document.not_ready.map((entry) => [entry.number, entry.reasons])).toEqual([
+    expect(pullNotReady(document).map((entry) => [entry.number, entry.reasons])).toEqual([
       [1, ['needs an approval', 'has unresolved review threads']],
       [2, ['has unresolved review threads']],
     ])
-    expect(document.targets.map((target) => [target.number, target.threads])).toEqual([
+    expect(pullTargets(document).map((target) => [target.number, target.threads])).toEqual([
       [3, 'resolved'],
     ])
   })
@@ -1102,7 +1115,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
 
-    expect(document.targets.map((target) => target.threads)).toEqual([null])
+    expect(pullTargets(document).map((target) => target.threads)).toEqual([null])
   })
 
   it('reads a pull request with no entry in the threads map as unread', () => {
@@ -1115,7 +1128,7 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
 
-    expect(document.targets.map((target) => target.threads)).toEqual([null])
+    expect(pullTargets(document).map((target) => target.threads)).toEqual([null])
   })
 
   it('falls back to reviewDecision for a base whose rules were not read', () => {
@@ -1129,11 +1142,11 @@ describe('statusDocument', () => {
 
     const document = statusDocument(pulls, 'acme/widgets', 'main', 300, options)
 
-    expect(document.targets.map((target) => [target.number, target.approval])).toEqual([
+    expect(pullTargets(document).map((target) => [target.number, target.approval])).toEqual([
       [1, null],
       [3, null],
     ])
-    expect(document.not_ready.map((entry) => entry.number)).toEqual([2])
+    expect(pullNotReady(document).map((entry) => entry.number)).toEqual([2])
   })
 
   it('puts not_ready after targets, so the keys already there keep their order', () => {
@@ -1201,5 +1214,66 @@ describe('tailLines', () => {
     for (const [index, mark] of breaks.entries()) {
       expect(tailLines(`a${mark}b${mark}c`, 2), String(index)).toBe('b\nc')
     }
+  })
+})
+
+describe('stacks (#469)', () => {
+  const red = {
+    isDraft: true,
+    statusCheckRollup: [
+      { __typename: 'CheckRun', name: 'vitest', status: 'COMPLETED', conclusion: 'FAILURE' },
+      { __typename: 'StatusContext', context: 'lint', state: 'PENDING' },
+    ],
+  }
+
+  it('names only a required check that failed, and none when the checks were not read', () => {
+    expect(failedRequired(red, ['lint', 'vitest', 'types'])).toEqual(['vitest'])
+    expect(failedRequired(red, null)).toEqual([])
+  })
+
+  it('names a required check with no row at all as unreported', () => {
+    expect(unreportedRequired(red, ['lint', 'vitest', 'types'])).toEqual(['types'])
+    expect(unreportedRequired({}, ['types'])).toEqual(['types'])
+    expect(unreportedRequired(red, null)).toEqual([])
+  })
+
+  it('matches a required check by its whole name, never by a part of it', () => {
+    const windows = {
+      statusCheckRollup: [
+        {
+          __typename: 'CheckRun',
+          name: 'vitest-windows',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+        },
+      ],
+    }
+    expect(failedRequired(windows, ['vitest'])).toEqual([])
+    expect(unreportedRequired(windows, ['vitest'])).toEqual(['vitest'])
+  })
+
+  it('keeps a draft and a failed check with --all, and drops the review rules', () => {
+    expect(layerReasons(red, 'missing', 'unresolved', ['vitest'], false)).toEqual([
+      'is a draft',
+      'needs an approval',
+      'has unresolved review threads',
+      'required check vitest failed',
+    ])
+    expect(layerReasons(red, 'missing', 'unresolved', ['vitest'], true)).toEqual([
+      'is a draft',
+      'required check vitest failed',
+    ])
+  })
+
+  it('leaves a stack in when the rules of its base were not read', () => {
+    const stack = { number: 9, base: 'main', layers: [{ number: 8, state: 'OPEN' as const }] }
+    const rows = new Map([[8, { number: 8, reviewDecision: '' }]])
+
+    const document = statusDocument([], 'acme/widgets', 'main', 300, {
+      ...OPEN_DOOR,
+      stacks: [{ stack, rows, contexts: null }],
+    })
+
+    expect(document.targets).toEqual([{ stack: 9, base: 'main', layers: [8] }])
   })
 })

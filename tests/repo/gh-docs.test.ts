@@ -368,6 +368,78 @@ it('draws the settle branch in the shepherd diagram', () => {
   expect(body).toContain('BEHIND or DIRTY')
 })
 
+// --- stacks (#469) ----------------------------------------------------------
+
+it('takes a stack as one unit, serially with the other targets', () => {
+  const intro = flat(section(AGENT, 'Your input is', '## Hard rules'))
+  expect(intro).toContain('or `stack:<s>` for a GitHub stack')
+  expect(intro).toContain('A stack is one target: take it as one unit, in its place in that order')
+  const stack = flat(section(AGENT, '## A stack target', '## Report'))
+  expect(stack).toContain('shepherd-stack <path> <s> state|update|wait|merge')
+  for (const step of ['1. Call `state`', '2. Call `update`', '3. Call `wait`', '4. Call `merge`']) {
+    expect(stack).toContain(step)
+  }
+})
+
+it('allows one merge, shepherd-stack merge, and no other', () => {
+  const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
+  expect(rules).toContain('**Never merge, never enable or disable auto-merge')
+  expect(rules).toContain(
+    'The one exception is `shepherd-stack merge` on a stack target. It is the only merge you run.',
+  )
+  const merge = flat(section(AGENT, '4. Call `merge`', '## Report'))
+  expect(merge).toContain(
+    "On `refused`, record it as skipped. Copy `reason` verbatim: it is gh's own words",
+  )
+})
+
+it('ends each stack loop that a read or a rule could hold open', () => {
+  const stack = flat(section(AGENT, '## A stack target', '## Report'))
+  expect(stack).toContain('`--all` does not change this')
+  expect(stack).toContain(
+    'a second `pending` in a row whose `report.unreported` is not empty, and names the same ' +
+      'checks, is skipped',
+  )
+  expect(stack).toContain('An empty list names no check')
+  expect(stack).toContain('An empty `failing` is a base that allows no merge method')
+  expect(stack).toContain('On any other `ok:false`, such as a stack that is gone, re-read `state`')
+})
+
+it('never force pushes, a stack included', () => {
+  const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
+  expect(rules).toContain('and never force. This holds for a stack too')
+  expect(rules).toContain('never run `gh stack rebase`, `gh stack push` or `gh stack sync`')
+  expect(flat(section(AGENT, '2. Call `update`', '3. Call `wait`'))).toContain(
+    'a fix worktree for that layer',
+  )
+})
+
+it('passes stack targets to the agent, and lists them on --dry-run', () => {
+  expect(flat(section(SKILL, '## Step 2', '## Step 3'))).toContain(
+    'for a stack, `stack`, `base` and `layers`',
+  )
+  expect(flat(section(SKILL, '## Step 3', '## Step 4'))).toContain('each stack as `stack:<s>`')
+})
+
+it('reports each layer of a stack, and the one merge exception', () => {
+  const report = flat(section(SKILL, '## Step 5', '## What this skill never does'))
+  expect(report).toContain('| stack s | merged | each layer and its merge commit |')
+  expect(report).toContain('For a stack, name each `failing` layer and its `reasons`')
+  const never = flat(section(SKILL, '## What this skill never does'))
+  expect(never).toContain('The one exception is a stack')
+  expect(never).toContain('force-push, a stack included')
+  expect(flat(section(SKILL, 'description:', 'allowed-tools:'))).toContain(
+    'except a stack with gh stack merge',
+  )
+})
+
+it('draws the stack loop in the shepherd diagram', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('The target is a stack: one unit')
+  expect(body).toContain('gh stack merge: all layers or none')
+  expect(body).toContain('never a force push')
+})
+
 // --- the one shared discover subgraph -----------------------------------------
 
 /** The `subgraph discover ... end` block of one skill flow, indentation

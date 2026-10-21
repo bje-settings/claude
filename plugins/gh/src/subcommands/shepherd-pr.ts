@@ -14,6 +14,12 @@
 // wait and settle bounds are the Python's numbers (#106 measures the settle
 // bound). The rebase bound and the wait interval are new at #460.
 //
+// `shepherd-stack.ts` runs these same steps on each layer of a stack
+// (#469). It builds a {@link Shepherd} for each layer, with a `report` in
+// place of stdout, the rules of the stack base, and its own wait bound. So
+// the two commands share every read and every poll, and neither copies
+// the other.
+//
 // The command function is the seam (ADR 001). Its inputs are the arguments,
 // the environment, an injected `gh`, the clock, the sleep, and the output
 // writers. Its output is an exit status. Nothing is spawned, and no `gh` is
@@ -43,9 +49,10 @@ import {
   type ShepherdExit,
   summary,
   tailLines,
+  unreportedRequired,
 } from '../shepherd.ts'
 
-const NUMBER_RE = /^[1-9][0-9]*$/
+export const NUMBER_RE = /^[1-9][0-9]*$/
 const DIGITS_RE = /^[0-9]+$/
 const POSITIVE_RE = /^[1-9][0-9]*$/
 
@@ -147,7 +154,7 @@ const SETTLED_CHECK_STATES = ['passed', 'none']
  *  the head is behind its base. `true` and `false` come from the compare.
  *  `null` means the compare could not be read, so the caller decides from
  *  `mergeStateStatus`. */
-type PullState = PullSummary & { readonly behind: boolean | null }
+export type PullState = PullSummary & { readonly behind: boolean | null }
 
 /** Whether the head of a pull request is the commit its branch points at
  *  (#467). Only `state` reads the ref, so only its `pr` carries this.
@@ -155,7 +162,7 @@ type PullState = PullSummary & { readonly behind: boolean | null }
  *  it differs from `headRefOid`. Both are `null` for a pull request from
  *  another repository, which has no branch here to read, and for a read
  *  that failed. stderr then says why. */
-type BranchSync =
+export type BranchSync =
   | { readonly branchRefOid: string; readonly inSync: boolean }
   | { readonly branchRefOid: null; readonly inSync: null }
 
@@ -315,19 +322,31 @@ const envInt = (
 const clamp = (value: number, low: number, high: number): number =>
   Math.max(low, Math.min(value, high))
 
+/** The bound of one `wait`, in seconds: SHEPHERD_WAIT_BOUND, or twice
+ *  `ciSeconds` clamped to [120, 540]. `shepherd-stack wait` shares one
+ *  bound across its layers (#469). */
+export const waitBoundOf = (env: NodeJS.ProcessEnv, err: Writer, ciSeconds: number): number =>
+  envInt(
+    env,
+    err,
+    'SHEPHERD_WAIT_BOUND',
+    clamp(ciSeconds * 2, WAIT_BOUND_MIN, WAIT_BOUND_MAX),
+    POSITIVE_RE,
+  )
+
 /** What a `gh` failure said, in one line. For anything else, this
  *  re-throws the error. This uses `GhError.detail`, never `message`: the
  *  message carries the whole argv, and these reports quote gh. */
-const ghAccount = (error: unknown): string => {
+export const ghAccount = (error: unknown): string => {
   if (error instanceof GhError) return oneLine(error.detail)
   throw error
 }
 
 /** The measured seconds of a duration in milliseconds, as `int()` read the
  *  monotonic clock: truncated, never rounded up. */
-const seconds = (milliseconds: number): number => Math.floor(milliseconds / 1000)
+export const seconds = (milliseconds: number): number => Math.floor(milliseconds / 1000)
 
-interface WorkerOptions {
+export interface WorkerOptions {
   readonly repo: string
   readonly number: number
   readonly action: string
@@ -335,10 +354,25 @@ interface WorkerOptions {
   readonly logLines: number
   readonly context: ShepherdContext
   readonly gh: ReturnType<ShepherdContext['createGh']>
+  /** Where each report goes. Left out, it is stdout. `shepherd-stack`
+   *  takes the report of each layer here, and writes one of its own. */
+  readonly report?: (document: Record<string, unknown>) => void
+  /** The branch whose review rules `state` reads. Left out, it is the
+   *  base of the pull request. A layer of a stack reads the rules of the
+   *  stack base (ruling 4 on #469). */
+  readonly rulesBase?: string
+  /** The bound of `wait`, in seconds. Left out, it is {@link
+   *  waitBoundOf}. */
+  readonly waitBound?: number
+  /** The required checks of the stack base. When they are given, `wait`
+   *  takes a required check with no row in the rollup as pending, not
+   *  passed (#469). Left out, or `null` for a read that failed, the rollup
+   *  alone decides. */
+  readonly requiredContexts?: readonly string[] | null
 }
 
 /** One action against one pull request. */
-class Shepherd {
+export class Shepherd {
   readonly options: WorkerOptions
   /** gh's own words from the last read. A caller that polls can then say
    *  why a read failed. It need not treat the silence as a fact about the
@@ -368,7 +402,11 @@ class Shepherd {
       detail,
       ...extra,
     }
-    this.options.context.output.out.write(`${JSON.stringify(document, null, 2)}\n`)
+    if (this.options.report === undefined) {
+      this.options.context.output.out.write(`${JSON.stringify(document, null, 2)}\n`)
+    } else {
+      this.options.report(document)
+    }
   }
 
   // ----------------------------------------------------------------- gh ---
@@ -566,13 +604,23 @@ class Shepherd {
 
   // ------------------------------------------------------------ actions ---
 
-  async state(): Promise<void> {
+  /**
+   * What `state` reports, with the pull request as gh answered it, or
+   * `null` with {@link readErr} set. `shepherd-stack` reads the draft
+   * flag and the rollup of each layer from `raw`.
+   */
+  async stateOf(): Promise<{
+    readonly raw: Record<string, unknown>
+    readonly detail: string
+    readonly pr: PullState & BranchSync
+  } | null> {
     const pull = await this.readPull()
-    if (pull === null) return this.unreadable()
+    if (pull === null) return null
     // `missingField` refuses an answer without `baseRefName`, so it is a
     // name gh gave.
     const err = this.options.context.output.err
-    const rules = await readReviewRules(this.options.gh, String(pull.baseRefName), err)
+    const base = this.options.rulesBase ?? String(pull.baseRefName)
+    const rules = await readReviewRules(this.options.gh, base, err)
     // The threads are read only when the rules ask for them (#465).
     const unresolved =
       rules?.threadResolution === true
@@ -587,7 +635,13 @@ class Shepherd {
         ? `the pull request's head is out of sync with its branch: headRefOid ` +
           `${String(pull.headRefOid)}, ${String(pull.headRefName)} at ${sync.branchRefOid}`
         : 'read'
-    this.emit(true, detail, { pr: { ...shaped, ...sync } })
+    return { raw: pull, detail, pr: { ...shaped, ...sync } }
+  }
+
+  async state(): Promise<void> {
+    const read = await this.stateOf()
+    if (read === null) return this.unreadable()
+    this.emit(true, read.detail, { pr: read.pr })
   }
 
   async merged(): Promise<void> {
@@ -600,16 +654,23 @@ class Shepherd {
     this.emit(true, `not merged: ${String(pull.state)}`, { merged: false })
   }
 
-  async rebase(): Promise<void> {
+  /**
+   * `gh pr update-branch`, then a read of the pull request until the head
+   * moves. `rebase` is the `rebase` action. `shepherd-stack update`
+   * passes `false`: GitHub merges the base into the head, and nothing
+   * force pushes (ruling 3 on #469). Only the words of the report differ.
+   */
+  async update(rebase: boolean): Promise<void> {
+    const word = rebase ? 'rebase' : 'update'
     const pull = await this.readPr()
     if (pull === null) return this.unreadable()
     if (pull.state !== 'OPEN') return this.refuseNotOpen(pull)
     const before = pull.headRefOid
     const [posted, out] = await this.ghText(
-      this.options.gh.updateBranch({ pullRequest: this.options.number, rebase: true }),
+      this.options.gh.updateBranch({ pullRequest: this.options.number, rebase }),
     )
     if (!posted) {
-      this.emit(false, `rebase failed: ${out}`, { before })
+      this.emit(false, `${word} failed: ${out}`, { before })
       return
     }
     const upToDate = UP_TO_DATE_RE.test(out)
@@ -664,7 +725,7 @@ class Shepherd {
     }
     const after = fresh.headRefOid
     if (after !== before) {
-      this.emit(true, 'rebased', {
+      this.emit(true, rebase ? 'rebased' : 'updated', {
         before,
         after,
         pr: fresh,
@@ -705,20 +766,14 @@ class Shepherd {
     // to the caller at once, whatever the checks say. A green run on it
     // cannot let auto-merge fire, so its CI time would be lost.
     let pull = await this.withBehind(first)
-    if (pull.behind !== true && pull.checks.state === 'none') {
+    if (pull.behind !== true && pull.checks.state === 'none' && this.unreported(raw).length === 0) {
       this.emit(true, 'no checks reported on this head', { result: 'passed', pr: pull })
       return
     }
 
     const env = this.options.context.env
     const err = this.options.context.output.err
-    const bound = envInt(
-      env,
-      err,
-      'SHEPHERD_WAIT_BOUND',
-      clamp(this.options.ciSeconds * 2, WAIT_BOUND_MIN, WAIT_BOUND_MAX),
-      POSITIVE_RE,
-    )
+    const bound = this.options.waitBound ?? waitBoundOf(env, err, this.options.ciSeconds)
     // `POSITIVE_RE` rejects 0, for settle's reason: a zero interval never
     // reaches the deadline.
     const interval = envInt(env, err, 'SHEPHERD_WAIT_POLL', WAIT_POLL_DEFAULT, POSITIVE_RE)
@@ -758,7 +813,7 @@ class Shepherd {
           // recovered from is counted, and nothing more.
           read_error: '',
         }
-        if (await this.waitVerdict(pull, reading, measure)) return
+        if (await this.waitVerdict(pull, reading, measure, this.unreported(raw))) return
       }
       const left = bound - spent()
       if (left <= 0) break
@@ -792,6 +847,9 @@ class Shepherd {
       )
       return
     }
+    // `unreported` is in the report only when the caller named the
+    // required checks, so the report of `shepherd-pr wait` is unchanged.
+    const unreported = this.unreported(raw)
     // This is the time actually spent, not the bound. A caller that sizes
     // its next call reads this number.
     this.emit(true, `checks still running after ${spent()}s`, {
@@ -803,7 +861,14 @@ class Shepherd {
       read_failures: readsFailed,
       read_error: '',
       progress,
+      ...(this.options.requiredContexts === undefined ? {} : { unreported }),
     })
+  }
+
+  /** The required checks with no row in the rollup of `raw`. Empty when
+   *  the caller named none. */
+  unreported(raw: unknown): string[] {
+    return unreportedRequired(raw, this.options.requiredContexts ?? null)
   }
 
   /**
@@ -819,6 +884,7 @@ class Shepherd {
     pull: PullState,
     reading: Record<string, unknown>,
     measure: () => Promise<{ readonly progress: CheckProgress; readonly missed: boolean }>,
+    unreported: readonly string[],
   ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
@@ -834,6 +900,9 @@ class Shepherd {
       return true
     }
     const state = pull.checks.state
+    // A required check with no row has no stamps, so it cannot stall. The
+    // bound ends the wait on it, as `pending`.
+    if ((state === 'passed' || state === 'none') && unreported.length > 0) return false
     if (state === 'passed' || state === 'none') {
       this.emit(true, 'checks passed', { result: 'passed', pr: pull, ...reading })
       return true
@@ -1110,12 +1179,49 @@ class Shepherd {
   }
 }
 
+/** `SHEPHERD_CI_SECONDS` and `SHEPHERD_LOG_LINES`, as both shepherd step
+ *  commands read them. */
+export const readSettings = (
+  env: NodeJS.ProcessEnv,
+  err: Writer,
+): { readonly ciSeconds: number; readonly logLines: number } => ({
+  ciSeconds: envInt(env, err, 'SHEPHERD_CI_SECONDS', DEFAULT_CI_SECONDS),
+  logLines: envInt(env, err, 'SHEPHERD_LOG_LINES', DEFAULT_LOG_LINES, POSITIVE_RE),
+})
+
+/**
+ * The `owner/name` of the checkout at `target`, or the refusal, exit 1.
+ *
+ * This call resolves from the checkout. It is the one call of the five
+ * that names no repository, because it answers what the repository is.
+ * `shepherd-stack` makes the same call (#469).
+ */
+export const resolveRepository = async (
+  target: string,
+  context: ShepherdContext,
+): Promise<string | { readonly refusal: string }> => {
+  let view: Record<string, unknown>
+  try {
+    view = await context.createGh({ cwd: target }).viewRepository()
+  } catch (error) {
+    if (error instanceof GhError && error.status === 127) return { refusal: 'gh is required' }
+    return { refusal: `could not resolve the repository with gh: ${ghAccount(error)}` }
+  }
+  const name = view.nameWithOwner
+  if (!isTruthy(name)) {
+    return {
+      refusal: 'could not resolve the repository with gh: gh answered without nameWithOwner',
+    }
+  }
+  return String(name)
+}
+
 /** The action each name runs, which is also the set the usage advertises: a
  *  name with no entry here is the unknown-action refusal, so the two cannot
  *  drift apart. */
 const HANDLERS: Record<string, (worker: Shepherd) => Promise<void>> = {
   state: (worker) => worker.state(),
-  rebase: (worker) => worker.rebase(),
+  rebase: (worker) => worker.update(true),
   wait: (worker) => worker.wait(),
   settle: (worker) => worker.settle(),
   merged: (worker) => worker.merged(),
@@ -1151,14 +1257,7 @@ const shepherdPr = async (
   // This code reads these values before it checks the action. A caller who
   // set a value that goes unused still hears about anything else it asked
   // for.
-  const ciSeconds = envInt(context.env, output.err, 'SHEPHERD_CI_SECONDS', DEFAULT_CI_SECONDS)
-  const logLines = envInt(
-    context.env,
-    output.err,
-    'SHEPHERD_LOG_LINES',
-    DEFAULT_LOG_LINES,
-    POSITIVE_RE,
-  )
+  const { ciSeconds, logLines } = readSettings(context.env, output.err)
 
   // This code checks the action before any gh call. An unknown action is a
   // usage error, and a usage error costs nothing (#218 finding 2).
@@ -1173,23 +1272,12 @@ const shepherdPr = async (
     return refuse(HELP, 2)
   }
 
-  // This call resolves from the checkout. It is the one call of the five
-  // that names no repository, because it answers what the repository is.
-  let view: Record<string, unknown>
-  try {
-    view = await context.createGh({ cwd: target }).viewRepository()
-  } catch (error) {
-    if (error instanceof GhError && error.status === 127) return refuse('gh is required', 1)
-    return refuse(`could not resolve the repository with gh: ${ghAccount(error)}`, 1)
-  }
-  const name = view.nameWithOwner
-  if (!isTruthy(name)) {
-    return refuse('could not resolve the repository with gh: gh answered without nameWithOwner', 1)
-  }
+  const name = await resolveRepository(target, context)
+  if (typeof name !== 'string') return refuse(name.refusal, 1)
 
   await handler(
     new Shepherd({
-      repo: String(name),
+      repo: name,
       number: Number(number),
       action,
       ciSeconds,

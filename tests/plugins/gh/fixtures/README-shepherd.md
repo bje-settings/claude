@@ -177,6 +177,7 @@ So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repos
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
 capture keeps the field because it is the Python's record. Apart from the #216 removals and the
 #460 additions above, and the #465, #466 and #467 additions below, nobody edits the captures.
+#469 edits none.
 
 ## What #465 changed
 
@@ -211,6 +212,17 @@ was added or removed.
   and `newest`, `idle` equal to its `waited`, and `source` `head commit`. `stall_bound` is twice
   `SHEPHERD_CI_SECONDS`, and never under 1620: 1620 in three cases, and 2000 in
   `wait_clamps_the_bound_to_the_maximum`, which sets it to 1000.
+
+## What #469 changed
+
+#469 adds stacks to `shepherd-status`, and edits no capture. No case was added or removed, and no
+byte of a case changed.
+
+- **The stacks read.** Each `shepherd-status` case now asks for the open stacks. No captured row
+  is in a stack, so each replay answers with none, and the document is the same bytes. A stack
+  target, and a stack in `not_ready`, show only in `subcommands/shepherd-status.stacks.test.ts`.
+- **`shepherd-pr`.** The output of each action is the same. `shepherd-stack` runs the same steps
+  on each layer, with a `report` in place of stdout (`subcommands/shepherd-stack.test.ts`).
 
 ## The capture script
 

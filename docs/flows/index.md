@@ -12,10 +12,11 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [audit/context/_skill-flow.md](audit/context/_skill-flow.md) | What the /audit:context skill does, and every way it declines to act. |
 | [audit/context/context-flow.md](audit/context/context-flow.md) | How `audit.ts context` checks its arguments and checkout, runs tier 0 and the model stages, and which outcome sets its exit status. |
 | [gh/issues/_skill-flow.md](gh/issues/_skill-flow.md) | What the gh:issues skill does for each operation, and every way it declines to act. |
-| [gh/shepherd/_skill-flow.md](gh/shepherd/_skill-flow.md) | What the /gh:shepherd skill does, and every way it declines to act, given an optional label. |
+| [gh/shepherd/_skill-flow.md](gh/shepherd/_skill-flow.md) | What the /gh:shepherd skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label. |
 | [gh/shepherd/discover-flow.md](gh/shepherd/discover-flow.md) | How `gh.ts discover` finds the checkout roots in scope for a directory, and each way it stops. |
 | [gh/shepherd/shepherd-pr-flow.md](gh/shepherd/shepherd-pr-flow.md) | How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result. |
-| [gh/shepherd/shepherd-status-flow.md](gh/shepherd/shepherd-status-flow.md) | How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests into targets, one label at most. It also shows each way it stops. |
+| [gh/shepherd/shepherd-status-flow.md](gh/shepherd/shepherd-status-flow.md) | How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most. It also shows each way it stops. |
+| [gh/shepherd/shepherd-stack-flow.md](gh/shepherd/shepherd-stack-flow.md) | How `gh.ts shepherd-stack` checks its arguments, then runs one of four steps on one GitHub stack, layer by layer, bottom first. It reports every result. |
 | [gh/sync/_skill-flow.md](gh/sync/_skill-flow.md) | What the /gh:sync skill does, and every way it declines to act. |
 | [gh/sync/sync-flow.md](gh/sync/sync-flow.md) | How `gh.ts sync` finds its checkouts, syncs each one in process, and which outcome sets its exit status. |
 | [mermaid/view/_skill-flow.md](mermaid/view/_skill-flow.md) | What the /mermaid:view skill does, and every way it declines to act. |

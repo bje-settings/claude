@@ -115,6 +115,16 @@ it('lists the shepherd commands in the command list', () => {
 
   expect(result.stdout).toContain('shepherd-status')
   expect(result.stdout).toContain('shepherd-pr <path> <number> <action>')
+  expect(result.stdout).toContain('shepherd-stack <path> <stack> <action>')
+})
+
+it('prints shepherd-stack’s own usage for its --help, naming every action', () => {
+  const result = runScript(BIN, { args: ['shepherd-stack', '--help'], env: env() })
+
+  expect(result.status).toBe(0)
+  for (const action of ['state', 'update', 'wait', 'merge']) {
+    expect(result.stdout).toContain(`gh.ts shepherd-stack <path> <stack> ${action}`)
+  }
 })
 
 it('prints shepherd-status’s own usage for its --help', () => {

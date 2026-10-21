@@ -14,6 +14,9 @@ import {
   deadlineClock,
   exists,
   type FileReads,
+  ghDataDirectory,
+  hasGhExtension,
+  isPresent,
   nodeFileReads,
   onPath,
   which,
@@ -174,6 +177,59 @@ describe('onPath', () => {
     expect(await onPath('tool', env, nodeFileReads, 1_000)).toBe(true)
     expect(await onPath('other', env, nodeFileReads, 1_000)).toBe(false)
     expect(await onPath('tool', env, hung, 10)).toBeNull()
+  })
+})
+
+describe('ghDataDirectory', () => {
+  // gh's own order (go-gh `config.DataDir`, read on 2026-10-20).
+  it('takes XDG_DATA_HOME first, on any platform', () => {
+    const env = { XDG_DATA_HOME: '/x', LOCALAPPDATA: '/l', HOME: '/h' }
+    expect(ghDataDirectory(env, 'darwin')).toBe(path.join('/x', 'gh'))
+    expect(ghDataDirectory(env, 'win32')).toBe(path.join('/x', 'gh'))
+  })
+
+  it('takes LOCALAPPDATA on Windows only, then the home directory', () => {
+    const env = { XDG_DATA_HOME: '', LOCALAPPDATA: '/l', HOME: '/h', USERPROFILE: '/u' }
+    expect(ghDataDirectory(env, 'win32')).toBe(path.join('/l', 'GitHub CLI'))
+    expect(ghDataDirectory(env, 'linux')).toBe(path.join('/h', '.local', 'share', 'gh'))
+    expect(ghDataDirectory({ USERPROFILE: '/u' }, 'win32')).toBe(
+      path.join('/u', '.local', 'share', 'gh'),
+    )
+  })
+
+  it('answers null when the environment names no home', () => {
+    expect(ghDataDirectory({}, 'linux')).toBeNull()
+    expect(ghDataDirectory({ HOME: '' }, 'darwin')).toBeNull()
+  })
+})
+
+describe('hasGhExtension', () => {
+  it('answers true for an extension directory, false for none or a file, null when late or with no home', async () => {
+    const sandbox = createSandbox()
+    const extensions = sandbox.join('home', '.local', 'share', 'gh', 'extensions')
+    mkdirSync(path.join(extensions, 'gh-stack'), { recursive: true })
+    writeFileSync(path.join(extensions, 'gh-flat'), '')
+    const env = { HOME: sandbox.join('home') }
+    const hung: FileReads = { ...nodeFileReads, kindOf: () => never() }
+
+    expect(await hasGhExtension('stack', env, nodeFileReads, 1_000, 'darwin')).toBe(true)
+    expect(await hasGhExtension('flat', env, nodeFileReads, 1_000, 'darwin')).toBe(false)
+    expect(await hasGhExtension('other', env, nodeFileReads, 1_000, 'darwin')).toBe(false)
+    expect(await hasGhExtension('stack', {}, nodeFileReads, 1_000, 'darwin')).toBeNull()
+    expect(await hasGhExtension('stack', env, hung, 10, 'darwin')).toBeNull()
+  })
+})
+
+describe('isPresent', () => {
+  it('reads a tool on PATH, and a gh extension in gh’s directory', async () => {
+    const sandbox = createSandbox()
+    binWith(sandbox.join('bin'), 'stack', 0o755)
+    const env = { PATH: sandbox.join('bin'), HOME: sandbox.join('home') }
+    const tool: Dependency = { tool: 'stack', label: 'a tool named stack' }
+    const extension: Dependency = { tool: 'stack', label: 'gh stack', via: 'gh-extension' }
+
+    expect(await isPresent(tool, env, nodeFileReads, 1_000, 'darwin')).toBe(true)
+    expect(await isPresent(extension, env, nodeFileReads, 1_000, 'darwin')).toBe(false)
   })
 })
 

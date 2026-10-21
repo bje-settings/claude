@@ -32,7 +32,7 @@
 // `cd0d515`. Each reference stays because it says where a rule came from.
 
 import { accessSync, constants, statSync } from 'node:fs'
-import type { GhClient, RequiredReviews } from './lib/gh.ts'
+import type { GhClient, PullRequestStack, RequiredReviews } from './lib/gh.ts'
 import type { Output } from './lib/streams.ts'
 
 /**
@@ -585,6 +585,25 @@ export const readReviewRules = async (
   return answer.reviews
 }
 
+/**
+ * The status-check contexts that the rules of `base` require, or `null`
+ * when they could not be read. stderr then says why. A stack is then judged
+ * by its rollup alone (#469). `requiredContexts` reads the rules that
+ * `readReviewRules` reads, so this is no new kind of read.
+ */
+export const readRequiredContexts = async (
+  gh: GhClient,
+  base: string,
+  err: Output['err'],
+): Promise<readonly string[] | null> => {
+  const answer = await gh.requiredContexts({ branch: base })
+  if (answer.unavailable === null) return answer.contexts
+  err.write(
+    `the required checks of ${base} are unavailable: ${answer.unavailable}; the rollup alone decides\n`,
+  )
+  return null
+}
+
 /** The pull request as every action reports it. The key order is the
  *  contract; see {@link summary}. */
 export interface PullSummary {
@@ -755,6 +774,117 @@ export const NEEDS_APPROVAL = 'needs an approval'
 export const UNRESOLVED_THREADS = 'has unresolved review threads'
 export type NotReadyReason = typeof NEEDS_APPROVAL | typeof UNRESOLVED_THREADS
 
+/** Why a layer of a stack is not ready (#469). */
+export const IS_DRAFT = 'is a draft'
+export const NOT_OPEN = 'is closed'
+
+/** The reason for a required check of the stack base that failed. */
+export const failedCheck = (name: string): string => `required check ${name} failed`
+
+/**
+ * The required contexts that failed on the head of `pull`: a rollup row of
+ * that name whose state is failed. A context that has not reported, or is
+ * still pending, is not a failure here. `shepherd-stack wait` waits for it.
+ * `null` contexts were not read, so nothing is proven failed.
+ */
+export const failedRequired = (pull: unknown, contexts: readonly string[] | null): string[] => {
+  const failing = checks(pull).failing
+  return (contexts ?? []).filter((name) => failing.some((check) => check.name === name))
+}
+
+/**
+ * The required contexts with no row at all in the rollup of `pull`.
+ * `shepherd-stack wait` waits for these, and `merge` refuses on them.
+ * `null` contexts name none.
+ */
+export const unreportedRequired = (pull: unknown, contexts: readonly string[] | null): string[] => {
+  const raw = field(pull, 'statusCheckRollup')
+  const names = (Array.isArray(raw) ? raw : []).map(checkName)
+  return (contexts ?? []).filter((name) => !names.includes(name))
+}
+
+/**
+ * Why one open layer of a stack is not ready, from its approval and threads
+ * by the rules of the stack base (ruling 4 on #469). `--all` drops the
+ * review and thread rules, as it does for a pull request. A draft and a
+ * failed required check still count. A null verdict, from a read that
+ * failed, proves nothing missing.
+ */
+export const layerReasons = (
+  pull: unknown,
+  approval: Approval | null,
+  threads: Threads | null,
+  contexts: readonly string[] | null,
+  all: boolean,
+): string[] => {
+  const reasons: string[] = []
+  if (isTruthy(field(pull, 'isDraft'))) reasons.push(IS_DRAFT)
+  if (!all && approval === 'missing') reasons.push(NEEDS_APPROVAL)
+  if (!all && threads === 'unresolved') reasons.push(UNRESOLVED_THREADS)
+  return [...reasons, ...failedRequired(pull, contexts).map(failedCheck)]
+}
+
+/** A stack that `shepherd-status` gives the loop as one target. `layers`
+ *  are the open layers, bottom first. */
+export interface StackTarget {
+  readonly stack: number
+  readonly base: string
+  readonly layers: readonly number[]
+}
+
+/** One layer of a stack, and why it is not ready. */
+export interface LayerReasons {
+  readonly number: number
+  readonly reasons: readonly string[]
+}
+
+/** A stack that `shepherd-status` leaves out: each layer that is not
+ *  ready, with each reason. */
+export interface StackNotReady extends StackTarget {
+  readonly failing: readonly LayerReasons[]
+}
+
+/** One stack as `shepherd-status` read it. */
+export interface StackRead {
+  readonly stack: PullRequestStack
+  /** The row of each open layer, by number. */
+  readonly rows: ReadonlyMap<number, unknown>
+  /** The required contexts of the base, or `null` when not read. */
+  readonly contexts: readonly string[] | null
+}
+
+/** The open layers of a stack, bottom first. A merged entry has landed,
+ *  so it is no layer (the probe on #469). */
+export const openLayers = (stack: PullRequestStack): number[] =>
+  stack.layers.filter((layer) => layer.state === 'OPEN').map((layer) => layer.number)
+
+/**
+ * Each layer of a stack that is not ready, with each reason. A closed
+ * entry that did not merge is not ready: GitHub cannot merge it.
+ */
+export const stackFailing = (
+  read: StackRead,
+  rules: RequiredReviews | null,
+  threads: ReadonlyMap<number, number | null>,
+  all: boolean,
+): LayerReasons[] =>
+  read.stack.layers
+    .filter((layer) => layer.state !== 'MERGED')
+    .map((layer) => ({
+      number: layer.number,
+      reasons:
+        layer.state === 'CLOSED'
+          ? [NOT_OPEN]
+          : layerReasons(
+              read.rows.get(layer.number),
+              approvalOf(read.rows.get(layer.number), rules),
+              threadsOf(rules, threads.get(layer.number) ?? null),
+              read.contexts,
+              all,
+            ),
+    }))
+    .filter((layer) => layer.reasons.length > 0)
+
 /** A pull request that `shepherd-status` leaves out, with each reason. */
 export interface NotReady {
   readonly number: unknown
@@ -767,9 +897,11 @@ export interface StatusDocument {
   readonly repo: string
   readonly default_branch: string
   readonly ci_seconds: number
-  readonly targets: readonly PullSummary[]
-  /** Empty with `--all`, and when nothing was left out (#465). */
-  readonly not_ready: readonly NotReady[]
+  /** The pull requests, then the stacks (#469). */
+  readonly targets: readonly (PullSummary | StackTarget)[]
+  /** Empty with `--all`, and when nothing was left out (#465). A stack
+   *  with a draft or a failed required check is here even with `--all`. */
+  readonly not_ready: readonly (NotReady | StackNotReady)[]
 }
 
 /** `createdAt` as the sort key, or `""`. This is the port of
@@ -820,6 +952,8 @@ export interface StatusOptions {
   readonly threads: ReadonlyMap<number, number | null>
   /** `--all`: every auto-merge pull request is a target. */
   readonly all: boolean
+  /** The stacks that were read. Left out, there are none. */
+  readonly stacks?: readonly StackRead[]
 }
 
 /**
@@ -834,6 +968,11 @@ export interface StatusOptions {
  * threads are `unresolved`, is not a target either. It goes to
  * `not_ready`, in the same order, with each reason, so the report can name
  * it (#465).
+ *
+ * Each stack comes after the pull requests, as one target, in the order it
+ * was read (#469). A layer of a stack is never a pull request target too.
+ * The loop takes the pull requests first: one stack merge moves the base
+ * under every pull request, and a stack costs a CI run on each layer.
  */
 export const statusDocument = (
   pulls: unknown,
@@ -842,12 +981,14 @@ export const statusDocument = (
   ci: number,
   options: StatusOptions,
 ): StatusDocument => {
-  const rows = autoMergeRows(pulls)
+  const stacks = options.stacks ?? []
+  const layers = new Set(stacks.flatMap((read) => openLayers(read.stack)))
+  const rows = autoMergeRows(pulls).filter((pull) => !layers.has(Number(field(pull, 'number'))))
   // Stable in Python and in JavaScript. Two pull requests with the same key
   // keep the order gh listed them in.
   rows.sort((left, right) => rank(left) - rank(right) || byText(createdAt(left), createdAt(right)))
-  const targets: PullSummary[] = []
-  const notReady: NotReady[] = []
+  const targets: (PullSummary | StackTarget)[] = []
+  const notReady: (NotReady | StackNotReady)[] = []
   for (const pull of rows) {
     const shaped = summary(
       pull,
@@ -862,6 +1003,18 @@ export const statusDocument = (
     } else {
       notReady.push({ number: shaped.number, title: shaped.title, author: shaped.author, reasons })
     }
+  }
+  for (const read of stacks) {
+    const base = read.stack.base
+    const target = { stack: read.stack.number, base, layers: openLayers(read.stack) }
+    const failing = stackFailing(
+      read,
+      options.rules.get(base) ?? null,
+      options.threads,
+      options.all,
+    )
+    if (failing.length === 0) targets.push(target)
+    else notReady.push({ ...target, failing })
   }
   return {
     repo,
