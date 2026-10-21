@@ -6,7 +6,8 @@
 // The #230 acceptance test is the table at the end. For every state it
 // builds, `systemMessage` holds at most one status line, then one problem
 // line for each kind of failure, and there is no `additionalContext`.
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
+import path from 'node:path'
 import { expect, it } from 'vitest'
 import { type FileReads, nodeFileReads } from '#gh/lib/dependencies.ts'
 import {
@@ -21,6 +22,7 @@ import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
 import {
   createRig,
   expectStatusLines,
+  ghStackDirectory,
   githubRepo,
   hangingFetch,
   onGitHub,
@@ -157,6 +159,42 @@ it('names only the absent tool in additionalContext when another walk never answ
       'git is absent. The gh plugin cannot run.',
     ),
   )
+})
+
+it('reports an extension read that never answers as could not be checked, with no additionalContext', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const files: FileReads = {
+    ...nodeFileReads,
+    kindOf: (target) => (target.endsWith('gh-stack') ? never() : nodeFileReads.kindOf(target)),
+  }
+
+  const ran = await runHook(rig, ['session-start'], answering({ 'acme/widgets': side() }), {
+    stdin: () => Promise.resolve(JSON.stringify({ cwd: work })),
+    files,
+    deadlineMs: 5_000,
+  })
+
+  expect(ran).toEqual({
+    status: 0,
+    stdout: emit('gh: ⚠️ gh stack extension could not be checked'),
+    stderr: 'gh stack extension could not be checked\n',
+  })
+})
+
+it('finds the gh stack extension under XDG_DATA_HOME before the home', async () => {
+  const rig = createRig()
+  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
+  const data = rig.sandbox.join('xdg')
+  mkdirSync(path.join(data, 'gh', 'extensions', 'gh-stack'), { recursive: true })
+  rmSync(ghStackDirectory(rig.sandbox), { recursive: true })
+
+  const ran = await runHook(rig, ['session-start'], answering({ 'acme/widgets': side() }), {
+    stdin: () => Promise.resolve(JSON.stringify({ cwd: work })),
+    env: { ...rig.sandbox.env, XDG_DATA_HOME: data },
+  })
+
+  expect(ran).toEqual({ status: 0, stdout: '', stderr: '' })
 })
 
 it('reports a payload directory that never answers as a folder that could not be read', async () => {
@@ -454,6 +492,20 @@ const CASES: readonly Case[] = [
     line: 'gh: ⚠️ GitHub CLI (gh) not found on PATH',
     failures: 1,
     additionalContext: 'GitHub CLI (gh) is absent. The gh plugin cannot run.',
+  },
+  {
+    // A missing extension stops no check (ruling 6 on #469). Its line comes
+    // after the status line, and its context says what cannot run.
+    name: 'a missing gh stack extension, behind its remote',
+    build: (rig) => {
+      rmSync(ghStackDirectory(rig.sandbox), { recursive: true })
+      const work = ONE(rig)
+      rig.git.remoteAdvance(work)
+      return { cwd: work, gh: answering({ 'acme/widgets': side() }) }
+    },
+    line: 'gh: [behind]\ngh: ⚠️ gh stack extension not found',
+    failures: 1,
+    additionalContext: 'gh stack extension is absent. /gh:shepherd cannot merge a stack.',
   },
   {
     name: 'a missing git and GitHub CLI',
