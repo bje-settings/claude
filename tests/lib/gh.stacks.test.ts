@@ -338,13 +338,13 @@ describe('mergeStack', () => {
     })
   })
 
-  it('reads a status of 0 whose output broke as no merge', async () => {
+  it('reads a status of 0 whose output broke as a merge GitHub took, with what broke', async () => {
     const { gh } = clientAnswering([
       result({ streamErrors: [{ code: 'EPIPE', message: 'write EPIPE' }] }),
     ])
 
     await expect(gh.mergeStack({ stack: 6, method: 'rebase' })).resolves.toEqual({
-      accepted: false,
+      accepted: true,
       output: "gh's output could not be read: EPIPE, write EPIPE",
     })
   })

@@ -841,9 +841,9 @@ export interface GhClient {
    * `gh stack` extension has no `--repo` flag, so the client must have a
    * `cwd` in the repository. GitHub merges every layer or none.
    *
-   * Never throws. A refusal is `accepted: false`, with gh's own words in
-   * `output`. The extension writes its refusals to stderr (the probe on
-   * #469).
+   * Never throws. A status other than 0 is `accepted: false`, with gh's
+   * own words in `output`. The extension writes its refusals to stderr
+   * (the probe on #469).
    */
   mergeStack(query: {
     readonly stack: number
@@ -3204,7 +3204,9 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
 
     // No `--repo`: the extension refuses the flag, and reads the
     // repository from the checkout (the probe on #469). The status decides,
-    // and `accountOf` gives gh's words for a refusal.
+    // and `accountOf` gives gh's words for a refusal. A status of 0 whose
+    // output broke is still a merge GitHub took: the caller reads each
+    // layer to learn what landed.
     mergeStack: async (query) => {
       const result = await invoke([
         'stack',
@@ -3213,10 +3215,14 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         '--yes',
         `--${query.method}`,
       ])
-      if (result.status === 0 && result.streamErrors.length === 0) {
-        return { accepted: true, output: result.combined.trim() }
+      if (result.status !== 0) {
+        return { accepted: false, output: accountOf(result, options.boundMs) }
       }
-      return { accepted: false, output: accountOf(result, options.boundMs) }
+      const output =
+        result.streamErrors.length === 0
+          ? result.combined.trim()
+          : accountOf(result, options.boundMs)
+      return { accepted: true, output }
     },
 
     listPullRequestStatuses: async (query) => {
