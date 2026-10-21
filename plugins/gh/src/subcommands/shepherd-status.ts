@@ -22,10 +22,13 @@ import {
   directoryRefusal,
   isTruthy,
   oneLine,
+  openLayers,
+  readRequiredContexts,
   readReviewRules,
   readUnresolvedThreads,
   type ShepherdContext,
   type ShepherdExit,
+  type StackRead,
   statusDocument,
   threadReads,
 } from '../shepherd.ts'
@@ -54,10 +57,17 @@ Prints one JSON document and changes nothing:
                    marked for auto-merge, in the order the loop should take
                    them. A label narrows this list to pull requests that
                    carry it. Without --all, a pull request that is not
-                   ready by the review rules of its base is left out
+                   ready by the review rules of its base is left out. Then
+                   each GitHub stack that is ready, as {stack, base,
+                   layers}: its number, the branch it merges into, and its
+                   open layers, bottom first. With a label, a stack counts
+                   when one of its open layers carries it
   not_ready        the pull requests left out, as {number, title, author,
                    reasons}. Each reason is "needs an approval" or "has
-                   unresolved review threads". Empty with --all
+                   unresolved review threads". Empty with --all. Then each
+                   stack left out, as {stack, base, layers, failing}.
+                   \`failing\` lists each layer that is not ready, as
+                   {number, reasons}
 
 Each target carries \`approval\` (met, missing, not_required, or null) and
 \`threads\` (resolved, unresolved, not_required, or null). The pull_request
@@ -67,6 +77,18 @@ threads. A reviewDecision can require an approval too. A read that fails is
 null, and stderr names the branch or the pull request. It leaves nothing
 out. When the rules fail, approval rests on reviewDecision alone. When the
 threads fail, only threads is null.
+
+Every open layer of a stack is judged by the rules of the stack base, not
+of its own base, as GitHub merges it. A layer is not ready when it "is a
+draft", "needs an approval", "has unresolved review threads", or when a
+required check of the stack base failed ("required check <name> failed").
+An entry that is "is closed" did not merge. A merged entry is no layer.
+With --all, the approval and the threads count for nothing; a draft and a
+failed required check still do. A required check that has not reported
+yet is no reason: shepherd-stack wait waits for it. A stack read that
+fails, in full or in part, leaves out each stack it could not read, and
+stderr says why. It never puts a stack in not_ready. A layer of a stack is
+never a pull request target too.
 
 Ordering: gh-security's merge-risk:<band> label first (low, then unlabelled,
 then medium, then high), oldest first within a band. Each target carries the
@@ -119,6 +141,67 @@ const resolveRepository = async (
   if (!isTruthy(name)) return { problem: 'gh answered without nameWithOwner', missing: false }
   if (!isTruthy(branch)) return { problem: 'gh answered without a default branch', missing: false }
   return { repo: String(name), branch: String(branch) }
+}
+
+/** The number of a listed row, or `NaN` for a row with none. */
+const numberOf = (row: unknown): number => Number((row as Record<string, unknown> | null)?.number)
+
+/**
+ * Each stack in scope, with the row of each open layer and the required
+ * checks of its base (#469).
+ *
+ * A layer that the listing did not hold, because a label narrowed it, is
+ * read by itself. A stack with a layer that could not be read is left out,
+ * and stderr says why. So is a stack the listing could not read: a failed
+ * read never decides a verdict. With a label, a stack is in scope when one
+ * of its open layers carries it.
+ */
+const readStacks = async (
+  gh: ReturnType<ShepherdContext['createGh']>,
+  pulls: readonly unknown[],
+  labelled: boolean,
+  err: ShepherdContext['output']['err'],
+): Promise<StackRead[]> => {
+  const answer = await gh.listOpenStacks()
+  if (answer.unavailable !== null) {
+    err.write(`a stack may be left out: the stacks could not all be read: ${answer.unavailable}\n`)
+  }
+  const listed = new Map(pulls.map((row) => [numberOf(row), row]))
+  const contexts = new Map<string, readonly string[] | null>()
+  const reads: StackRead[] = []
+  for (const stack of answer.rows) {
+    const open = openLayers(stack)
+    if (labelled && !open.some((number) => listed.has(number))) continue
+    const rows = new Map<number, unknown>()
+    for (const number of open) {
+      const row = listed.get(number) ?? (await readLayer(gh, number, stack.number, err))
+      if (row !== null) rows.set(number, row)
+    }
+    if (rows.size < open.length) continue
+    if (!contexts.has(stack.base)) {
+      contexts.set(stack.base, await readRequiredContexts(gh, stack.base, err))
+    }
+    reads.push({ stack, rows, contexts: contexts.get(stack.base) ?? null })
+  }
+  return reads
+}
+
+/** One layer the listing did not hold, or `null` when gh could not read
+ *  it. stderr then names the stack it leaves out. */
+const readLayer = async (
+  gh: ReturnType<ShepherdContext['createGh']>,
+  number: number,
+  stack: number,
+  err: ShepherdContext['output']['err'],
+): Promise<unknown> => {
+  try {
+    return await gh.viewPullRequest({ pullRequest: number })
+  } catch (error) {
+    err.write(
+      `stack #${stack} is left out: #${number} could not be read: ${ghRefusal(error).detail}\n`,
+    )
+    return null
+  }
 }
 
 /** The command, with everything it did not expect still to be caught. */
@@ -227,10 +310,25 @@ const status = async (argv: readonly string[], context: ShepherdContext): Promis
     threads.set(number, await readUnresolvedThreads(gh, number, output.err))
   }
 
+  // The stacks, with the rules of each stack base, and the threads of each
+  // layer when those rules ask for them (#469).
+  const stacks = await readStacks(gh, pulls, second !== undefined, output.err)
+  for (const read of stacks) {
+    const base = read.stack.base
+    if (!rules.has(base)) rules.set(base, await readReviewRules(gh, base, output.err))
+    if (rules.get(base)?.threadResolution !== true) continue
+    for (const number of read.rows.keys()) {
+      if (!threads.has(number)) {
+        threads.set(number, await readUnresolvedThreads(gh, number, output.err))
+      }
+    }
+  }
+
   const document = statusDocument(pulls, resolved.repo, resolved.branch, ciSeconds(runs), {
     rules,
     threads,
     all,
+    stacks,
   })
   // `indent=2, ensure_ascii=False`: two spaces, and every character as
   // itself. This is what `JSON.stringify(value, null, 2)` writes.
