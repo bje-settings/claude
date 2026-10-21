@@ -1334,6 +1334,38 @@ it('reports stalled at twice the bound when the jobs read fails on every poll, t
   expect(result.stderr).toBe('progress may miss steps of run 11: gh: HTTP 502\n')
 })
 
+it('never stalls a null idle, on a read whose jobs read failed', async () => {
+  // A queued job: its row has a link to its run, and no stamp yet.
+  const queued = {
+    ...depPr(1),
+    statusCheckRollup: [
+      {
+        __typename: 'CheckRun',
+        name: 'test',
+        status: 'QUEUED',
+        conclusion: null,
+        startedAt: ZERO_TIME,
+        completedAt: ZERO_TIME,
+        detailsUrl: 'https://github.com/acme/widgets/actions/runs/11/job/21',
+      },
+    ],
+  }
+  const result = await waitAt(
+    REBASED + 600 * MINUTE,
+    [queued],
+    { SHEPHERD_WAIT_BOUND: '60' },
+    {
+      listRunJobs: { rows: [], unavailable: 'gh: HTTP 502' },
+      commitDate: { date: null, unavailable: 'gh: HTTP 502' },
+    },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { idle: null, stall_bound: 3240, source: null },
+  })
+})
+
 it('doubles a stall bound that the run span sets, on a read whose jobs were read in part', async () => {
   // The steps read run from 20:14 to 20:54, so the span is 2400 seconds,
   // past the 1620 second floor. A part read doubles that span. The last
