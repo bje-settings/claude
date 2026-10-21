@@ -349,6 +349,16 @@ describe('mergeStack', () => {
     })
   })
 
+  it('reads a gh that a signal killed as not accepted, with the signal', async () => {
+    // A signal leaves no status. Only a status of 0 is a merge GitHub took.
+    const { gh } = clientAnswering([result({ status: null, signal: 'SIGKILL' })])
+
+    await expect(gh.mergeStack({ stack: 6, method: 'squash' })).resolves.toEqual({
+      accepted: false,
+      output: 'gh was killed by SIGKILL',
+    })
+  })
+
   it('reports a gh that could not start', async () => {
     const { gh } = clientAnswering([
       result({

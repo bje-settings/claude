@@ -895,6 +895,9 @@ it('reports pending at the bound, and stops the last sleep at the bound', async 
     pr: { behind: false },
   })
   expect(result.document.detail).toBe('checks still running after 50s')
+  // `unreported` is `shepherd-stack`'s field. The report of a pull request
+  // has no such key.
+  expect(result.document).not.toHaveProperty('unreported')
   expect(result.elapsed).toBe(50_000)
 })
 

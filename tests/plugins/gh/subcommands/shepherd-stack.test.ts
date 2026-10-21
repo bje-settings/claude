@@ -110,7 +110,10 @@ interface Serve {
   readonly rules?: (branch: string) => GhResults['requiredReviews']
   readonly contexts?: GhResults['requiredContexts']
   readonly methods?: GhResults['mergeMethods']
-  readonly merge?: (state: StackWorld) => GhResults['mergeStack']
+  readonly merge?: (
+    state: StackWorld,
+    query: Parameters<GhClient['mergeStack']>[0],
+  ) => GhResults['mergeStack']
   readonly more?: Partial<GhClient>
 }
 
@@ -174,9 +177,9 @@ const serve = (state: StackWorld, options: Serve = {}): GhClient => {
       layer.head = `${layer.head}+`
       return '✓ PR branch updated\n'
     },
-    mergeStack: async () => {
+    mergeStack: async (query) => {
       if (options.merge === undefined) throw new Error('mergeStack must not run here')
-      return options.merge(state)
+      return options.merge(state, query)
     },
     ...options.more,
   }
@@ -559,9 +562,21 @@ it('wait holds a layer whose required check has no row, until the bound ends', a
   const none = world()
   ;(none.layers[1] as Layer).overrides = { statusCheckRollup: [] }
 
+  // Only `main`, the stack base, requires `vitest`. A layer's own base
+  // requires nothing.
+  const byBranch = (served: StackWorld) =>
+    serve(served, {
+      more: {
+        requiredContexts: async ({ branch }) => ({
+          contexts: branch === 'main' ? ['vitest'] : [],
+          unavailable: null,
+        }),
+      },
+    })
+
   const env = { SHEPHERD_WAIT_BOUND: '60', SHEPHERD_WAIT_POLL: '30' }
-  const withLint = await stack(serve(lint), 'wait', env)
-  const withNone = await stack(serve(none), 'wait', env)
+  const withLint = await stack(byBranch(lint), 'wait', env)
+  const withNone = await stack(byBranch(none), 'wait', env)
 
   for (const ran of [withLint, withNone]) {
     expect(ran.document).toMatchObject({
@@ -657,21 +672,43 @@ it('merge runs gh stack merge once every layer is ready, and gives each merge co
   })
 })
 
+/** GitHub, which merges only stack 472, and says by which method. */
+const mergeAs: NonNullable<Serve['merge']> = (state, query) => {
+  if (query.stack !== 472) return { accepted: false, output: `✗ no stack #${query.stack}` }
+  mergeAll(state)
+  return { accepted: true, output: `✓ Merged stack #${query.stack} by ${query.method}` }
+}
+
 it('merge takes the first method the base allows, squash before merge before rebase', async () => {
   const merge = await stack(
     serve(world(), {
       methods: { methods: ['merge', 'rebase'], unavailable: null },
-      merge: mergeAll,
+      merge: mergeAs,
     }),
     'merge',
   )
   const rebase = await stack(
-    serve(world(), { methods: { methods: ['rebase'], unavailable: null }, merge: mergeAll }),
+    serve(world(), { methods: { methods: ['rebase'], unavailable: null }, merge: mergeAs }),
     'merge',
   )
+  const squash = await stack(serve(world(), { methods: BOTH, merge: mergeAs }), 'merge')
 
-  expect(merge.document.method).toBe('merge')
-  expect(rebase.document.method).toBe('rebase')
+  // The output is GitHub's, so it proves which stack and method gh got.
+  expect(merge.document).toMatchObject({
+    result: 'merged',
+    method: 'merge',
+    output: '✓ Merged stack #472 by merge',
+  })
+  expect(rebase.document).toMatchObject({
+    result: 'merged',
+    method: 'rebase',
+    output: '✓ Merged stack #472 by rebase',
+  })
+  expect(squash.document).toMatchObject({
+    result: 'merged',
+    method: 'squash',
+    output: '✓ Merged stack #472 by squash',
+  })
 })
 
 it('merge reports a merge GitHub accepted that has not landed on every layer', async () => {
@@ -937,6 +974,8 @@ it('merge refuses a base that allows no merge method', async () => {
     ok: false,
     result: 'not_ready',
     detail: 'refused: main allows no merge method',
+    base: 'main',
+    failing: [],
   })
 })
 
