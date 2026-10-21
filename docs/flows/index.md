@@ -12,14 +12,14 @@ One directory per skill, `<plugin>/<skill>/`. `_skill-flow.md` is the flow of th
 | [audit/context/_skill-flow.md](audit/context/_skill-flow.md) | What the /audit:context skill does, and every way it declines to act. |
 | [audit/context/context-flow.md](audit/context/context-flow.md) | How `audit.ts context` checks its arguments and checkout, runs tier 0 and the model stages, and which outcome sets its exit status. |
 | [gh/issues/_skill-flow.md](gh/issues/_skill-flow.md) | What the gh:issues skill does for each operation, and every way it declines to act. |
-| [gh/shepherd/_skill-flow.md](gh/shepherd/_skill-flow.md) | What the /gh:shepherd skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label. |
-| [gh/shepherd/discover-flow.md](gh/shepherd/discover-flow.md) | How `gh.ts discover` finds the checkout roots in scope for a directory, and each way it stops. |
-| [gh/shepherd/shepherd-pr-flow.md](gh/shepherd/shepherd-pr-flow.md) | How `gh.ts shepherd-pr` checks its arguments, then runs one of six steps on one pull request. It reports every result. |
-| [gh/shepherd/shepherd-status-flow.md](gh/shepherd/shepherd-status-flow.md) | How `gh.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most. It also shows each way it stops. |
-| [gh/shepherd/shepherd-stack-flow.md](gh/shepherd/shepherd-stack-flow.md) | How `gh.ts shepherd-stack` checks its arguments, then runs one of four steps on one GitHub stack, layer by layer, bottom first. It reports every result. |
 | [gh/sync/_skill-flow.md](gh/sync/_skill-flow.md) | What the /gh:sync skill does, and every way it declines to act. |
 | [gh/sync/sync-flow.md](gh/sync/sync-flow.md) | How `gh.ts sync` finds its checkouts, syncs each one in process, and which outcome sets its exit status. |
 | [mermaid/view/_skill-flow.md](mermaid/view/_skill-flow.md) | What the /mermaid:view skill does, and every way it declines to act. |
+| [shepherd/merge/_skill-flow.md](shepherd/merge/_skill-flow.md) | What the /shepherd:merge skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label. |
+| [shepherd/merge/discover-flow.md](shepherd/merge/discover-flow.md) | How `shepherd.ts discover` finds the checkout roots in scope for a directory, and each way it stops. |
+| [shepherd/merge/shepherd-pr-flow.md](shepherd/merge/shepherd-pr-flow.md) | How `shepherd.ts shepherd-pr` checks its arguments, then runs one of five steps on one pull request. It reports every result. |
+| [shepherd/merge/shepherd-stack-flow.md](shepherd/merge/shepherd-stack-flow.md) | How `shepherd.ts shepherd-stack` checks its arguments, then runs one of four steps on one GitHub stack, layer by layer, bottom first. It reports every result. |
+| [shepherd/merge/shepherd-status-flow.md](shepherd/merge/shepherd-status-flow.md) | How `shepherd.ts shepherd-status` reads one repository's open, auto-merge pull requests and its stacks into targets and a not-ready list, one label at most. It also shows each way it stops. |
 | [workstreams/question/_skill-flow.md](workstreams/question/_skill-flow.md) | What the /workstreams:question skill does, and every way it declines to act. |
 | [workstreams/question/rounds-flow.md](workstreams/question/rounds-flow.md) | How `workstreams.ts rounds` finds the rounds in flight from their plan comments, scopes them, and when its answer is short. |
 | [workstreams/review/_skill-flow.md](workstreams/review/_skill-flow.md) | What the /workstreams:review skill does in one step, and every way it declines to act. |

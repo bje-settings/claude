@@ -9,7 +9,13 @@
     {
       "name": "gh",
       "source": "./plugins/gh",
-      "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed. /gh:shepherd merges every auto-merge-enabled pull request one at a time, optionally by one label. gh:issues files, links and triages issues with duplicate checks and tracker fields.",
+      "description": "GitHub and git workflow skills. /gh:sync moves a checkout to its default branch, fast-forwards it, and prunes branches whose work has already landed. gh:issues files, links and triages issues with duplicate checks and tracker fields.",
+      "category": "development"
+    },
+    {
+      "name": "shepherd",
+      "source": "./plugins/shepherd",
+      "description": "Pull request merges. /shepherd:merge merges every auto-merge-enabled pull request one at a time, and each stack once every layer is ready, optionally by one label, and waits on CI between merges.",
       "category": "development"
     },
     {

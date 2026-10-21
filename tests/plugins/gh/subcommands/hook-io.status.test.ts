@@ -265,13 +265,13 @@ it('warns, and asks nothing more, when discovery does not finish in time', async
 
   // Discovery runs git, which takes longer than 1 ms. The `PATH` walk
   // counts against the same deadline (#267), so here it answers at once:
-  // every tool is there, and so is the directory of the gh stack extension.
+  // every tool is there.
   const ran = await statusOf(rig, work, createGhMock(), {
     deadlineMs: 1,
     files: {
       ...nodeFileReads,
       canRun: async () => {},
-      kindOf: async (target) => (target.endsWith('gh-stack') ? 'directory' : 'other'),
+      kindOf: async () => 'other',
     },
   })
 

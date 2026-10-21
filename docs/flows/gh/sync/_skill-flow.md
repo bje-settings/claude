@@ -4,7 +4,7 @@ description: What the /gh:sync skill does, and every way it declines to act.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-13
+  at: 2026-10-21
 ---
 
 # /gh:sync skill flow
@@ -58,6 +58,6 @@ Every path that keeps a branch says which reason applied. The distinction matter
 "Never checked" is not "no proof". If it reports one as the other, that asserts something the
 command did not establish.
 
-The `discover` subgraph is shared with `/gh:shepherd`, byte for byte. Both skills resolve their
-scope by the same rule, `plugins/gh/src/discover.ts`. So the two diagrams must describe it
+The `discover` subgraph is shared with `/shepherd:merge`, byte for byte. Both skills resolve their
+scope by the same rule, `lib/discover.ts`. So the two diagrams must describe it
 identically.

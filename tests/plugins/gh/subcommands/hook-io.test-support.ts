@@ -27,24 +27,7 @@ export const createRig = (): Rig => {
   writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho "gh: stand-in for tests" >&2\nexit 1\n', {
     mode: 0o755,
   })
-  // The `gh stack` extension is installed, in the sandbox home, so a test
-  // that is not about it gets no line for it (ruling 6 on #469). gh reads
-  // `XDG_DATA_HOME` before the home, so it goes.
-  delete sandbox.env.XDG_DATA_HOME
-  installGhStack(sandbox)
   return { sandbox, git: createGitFixtures(sandbox) }
-}
-
-/** The directory gh installs the `gh stack` extension in, under the
- *  sandbox home. */
-export const ghStackDirectory = (sandbox: Sandbox): string =>
-  path.join(String(sandbox.env.HOME), '.local', 'share', 'gh', 'extensions', 'gh-stack')
-
-/** Install a stand-in `gh stack` extension where gh keeps it. */
-export const installGhStack = (sandbox: Sandbox): void => {
-  const directory = ghStackDirectory(sandbox)
-  mkdirSync(directory, { recursive: true })
-  writeFileSync(path.join(directory, 'gh-stack'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
 }
 
 /**
@@ -132,7 +115,6 @@ export const runHook = async (
     // Far above the 5 s the hook gets in a session. A whole suite of real
     // git at once is slow, and only the deadline tests mean to reach it.
     deadlineMs: 20_000,
-    platform: process.platform,
     ...overrides,
   })
   return { status, stdout: output.stdout(), stderr: output.stderr() }

@@ -21,6 +21,10 @@
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/mermaid/**"
 
+"plugin:shepherd":
+  - changed-files:
+      - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/shepherd/**"
+
 "plugin:workstreams":
   - changed-files:
       - any-glob-to-any-file: "{plugins,tests/plugins,docs/flows}/workstreams/**"

@@ -1,0 +1,13 @@
+{
+  "name": "shepherd",
+  "description": "/shepherd:merge merges every auto-merge-enabled pull request one at a time, and each stack once every layer is ready, optionally by one label, rebasing, merging the base branch to resolve conflicts, and waiting on CI, and skips what it cannot explain or verify.",
+  "version": "0.15.0",
+  "license": "MIT",
+  "homepage": "https://github.com/bje-settings/claude",
+  "repository": "https://github.com/bje-settings/claude",
+  "author": {
+    "name": "Brian Espinosa",
+    "email": "b@bje.co"
+  },
+  "keywords": ["github", "pull-requests", "auto-merge", "stacks", "ci"]
+}

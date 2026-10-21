@@ -30,16 +30,7 @@ The plugin's own README has the detail, with the scripts the skills and hooks ru
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghsync"><code>/gh:sync</code></a>: move a checkout to its default branch, fast-forward it, and prune branches and worktrees whose work has landed. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd"><code>/gh:shepherd</code></a>: merge every auto-merge-enabled PR one at a time, optionally by one label, then rebase and wait on CI between merges. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghissues"><code>gh:issues</code></a>: file, link and triage issues. It checks for duplicates, and sets relationships, milestone, type and priority in their fields. <em>Claude starts it when you ask for an issue. It has no slash command.</em></li>
-      </ul>
-    </td>
-  </tr>
-  <tr>
-    <th scope="row">Agents</th>
-    <td>
-      <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#ghshepherd"><code>shepherd-prs</code></a>: it shepherds one repository's given pull requests serially. <code>/gh:shepherd</code> dispatches it, one per repository, in parallel.</li>
       </ul>
     </td>
   </tr>
@@ -48,6 +39,37 @@ The plugin's own README has the detail, with the scripts the skills and hooks ru
     <td>
       <ul>
         <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: one status line on start, resume, clear and compact. It shows commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem gets a line of its own, such as a failed fetch or a missing git. It fetches, but never changes a branch, worktree, or working tree.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+### [`shepherd`](plugins/shepherd)
+
+> Pull request merges.
+
+<table>
+  <tr>
+    <th scope="row">Skills</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#shepherdmerge"><code>/shepherd:merge</code></a>: merge every auto-merge-enabled PR one at a time, and each stack once every layer is ready, optionally by one label, then rebase and wait on CI between merges. <em>Scope: <code>cwd</code> can be a single repo or a directory of repo subdirs.</em></li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Agents</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#shepherdmerge"><code>shepherd-prs</code></a>: it shepherds one repository's given pull requests serially. <code>/shepherd:merge</code> dispatches it, one per repository, in parallel.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <th scope="row">Hooks</th>
+    <td>
+      <ul>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#session-start-hook">Session start</a>: checks for git, the GitHub CLI and the <code>gh stack</code> extension when a session starts, resumes, clears or compacts. It writes nothing when all are present. An absent tool gets a line of its own. The extension gets a line only when both tools are present.</li>
       </ul>
     </td>
   </tr>

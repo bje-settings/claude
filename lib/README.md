@@ -16,7 +16,8 @@ from. Nothing here changed with the deletion.
 
 Everything here **ships**. Each file takes no dependency. Each file imports nothing outside this
 directory except node's own built-in modules. Today that means `node:util` in `args.ts`,
-`node:child_process` in `process.ts`, and `node:fs/promises` and `node:path` in `dependencies.ts`.
+`node:child_process` in `process.ts`, `node:fs/promises` and `node:path` in `dependencies.ts`, and
+`node:fs` and `node:path` in `discover.ts`.
 `node-floor.ts`, `hook-output.ts`, `envelope.ts`, and `streams.ts` import nothing at all. `git.ts`
 and `gh.ts` reach node only through `process.ts`.
 
@@ -40,6 +41,7 @@ check them.
 | `envelope.ts` | The answer a command gives back. Two renderers turn that answer into stdout, stderr, and an exit code. `failedOnThrow` turns a throw at an entry point into one stderr line and exit 1. |
 | `process.ts` | `run`. It starts one child process, with no shell, with a cwd, an env, stdin, and a time bound. Its answer tells apart "could not start" from "ran and failed". `endOnceWritten` ends a hook process that a hung read still holds, after its output has left (#267). |
 | `git.ts` | The git calls the ported scripts make more than once, built on `process.ts`. Not a full git SDK. |
+| `discover.ts` | `discoverRepos`: the checkout roots in scope for a directory. `gitUnavailable` says why git cannot run at all. Built on `git.ts`. See "Repository discovery", below. |
 | `streams.ts` | Writers that go quiet only on a broken pipe. Also UTF-8 stdin. |
 | `gh.ts` | `GhClient` and `createGhClient`. One method exists per operation. `gh` is the transport. A failure throws a `GhError`. |
 | `typesafe.ts` | `createJev`. The generic ask/usage transport for TypeSafe's System One endpoint. It retries, backs off, and redacts. A failure throws a `JevError`. |
@@ -211,6 +213,25 @@ Two of `streams.py`'s three duties have no counterpart here. `tests/lib/streams.
 real child, rather than assert it in prose: node writes strings as UTF-8 whatever the locale
 says, and node opens `/dev/null` over a stdio descriptor that was closed before the process
 started. `readStdinText` is the third duty, on the way in.
+
+## Repository discovery
+
+```ts
+const found = await discoverRepos(target, env)
+if (found.outcome === 'ok') for (const root of found.roots) syncOne(root)
+```
+
+Scope comes from the target, so no caller has to classify it. Inside a git repository, the answer
+is that repository's checkout root. Outside one, it is each immediate subdirectory that is the
+root of a checkout. Paths are symlink-resolved, because git reports resolved paths.
+
+A target that is not a directory, and a target that cannot be read, are outcomes, not throws.
+Each caller says a different sentence, with a different status, for each one. A missing git is
+no root, the same answer as a directory with no checkouts in it. So a caller that must tell the
+two apart asks `gitUnavailable` after discovery.
+
+The gh plugin's `sync` and `hook-io.ts`, and the shepherd plugin's `discover` command, import
+this file. So `/gh:sync` and `/shepherd:merge` resolve their scope by one rule.
 
 ## The `gh` client
 
