@@ -95,8 +95,9 @@ stack \`base\`, not of its own base.
             method, and \`detail\` says so. \`unread\` when a layer, its
             compare or the merge methods could not be read, so nothing was
             proven. Required checks that could not be read leave the
-            rollup to decide. \`refused\` when GitHub refused the merge;
-            \`reason\` is gh's own words. \`merged\` when every layer then
+            rollup to decide. \`refused\` when gh stack merge exited with
+            a status other than 0; \`reason\` is gh's own words, or why gh
+            could not run or was killed. \`merged\` when every layer then
             reads MERGED, and \`accepted\` when GitHub took the merge but a
             layer is not merged yet (a merge queue, for one). \`layers\`
             gives each merge commit.
@@ -309,7 +310,8 @@ class StackShepherd {
     )
     for (const number of openLayers(stack)) {
       // One bound for the stack. A layer that comes late still gets a bound
-      // of 1 s, so it reports. The stack can then go past its bound by 1 s.
+      // of 1 s, so it reports. A late layer can pass after that 1 s, so the
+      // stack can go past its bound by 1 s for each late layer.
       const waitBound = Math.max(1, bound - spent())
       const { worker, report } = this.layer(number, stack.base, { waitBound, requiredContexts })
       await worker.wait()
@@ -402,8 +404,11 @@ class StackShepherd {
     }
     const answer = await gh.mergeStack({ stack: this.options.stack, method })
     if (!answer.accepted) {
-      // gh's own words, which the agent copies into its skip. GitHub
-      // applied the rules of the base and merged nothing.
+      // gh's own words, which the agent copies into its skip. On a
+      // refusal, GitHub applied the rules of the base and merged nothing.
+      // A gh that could not run, or that a signal killed, comes here too,
+      // with this code's account of it. No bound applies to this client,
+      // so only an outside signal kills it, and its outcome is unknown.
       this.emit(true, `GitHub refused the merge: ${answer.output}`, {
         result: 'refused',
         method,

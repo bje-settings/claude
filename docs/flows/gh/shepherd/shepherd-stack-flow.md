@@ -51,7 +51,7 @@ flowchart TD
     M2 -->|Unread| MU
     M2 -->|None| MD([not_ready, no layer, detail names the base]):::stop
     M2 -->|Squash, else merge, else rebase| M3[gh stack merge stack --yes, from the checkout]
-    M3 -->|GitHub refused| MR([refused, gh's own words as the reason])
+    M3 -->|GitHub refused, or gh could not run or was killed| MR([refused, gh's own words,<br/>or why gh did not finish, as the reason])
     M3 -->|Accepted| M4{Each layer reads MERGED?}
     M4 -->|Yes| MM([merged, each merge commit])
     M4 -->|No, or a read failed| MA([accepted, each layer's state])

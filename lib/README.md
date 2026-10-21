@@ -659,7 +659,9 @@ methods both allow, in GitHub's order, or a null `methods` with the reason. It n
 
 `mergeStack` runs `gh stack merge <stack> --yes --<method>`. The `gh stack` extension has no
 `--repo` flag, so the client must have a `cwd` in the repository. `accepted` is true on exit 0.
-A refusal is `accepted: false`, with gh's own words in `output`. It never throws.
+When that output could not be read, `output` says so. A status other than 0 is
+`accepted: false`, with gh's own words in `output`, or why gh could not run or was killed. It
+never throws.
 `shepherd-stack merge` is the one caller.
 
 ### `listPullRequestStatuses` and `createCommitStatus`
