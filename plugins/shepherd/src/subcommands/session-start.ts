@@ -4,10 +4,10 @@
 //
 // It checks the plugin's dependency table with `lib/dependencies.ts`
 // (`.claude/rules/_design-principles.md`, "Dependencies outside a plugin").
-// When everything is present, it writes nothing. When git or gh has a
-// problem, it reports only the tools: the plugin cannot run, and the
-// extension does not matter. A missing `gh stack` extension stops only the
-// stack merge.
+// When everything is present, it writes nothing. Otherwise it reports the
+// problems of git and gh first, then the problem of the `gh stack`
+// extension. A missing tool stops the whole plugin. A missing extension
+// stops only the stack merge.
 //
 // Every read is local and async, and has a time limit from one clock
 // (#267). A read that did not finish in time reads as "could not be
@@ -112,18 +112,17 @@ export const runSessionStart = async (edges: SessionStartEdges): Promise<number>
     presence,
     'not found',
   )
-  // A missing tool is a problem line of its own, and it stops every other
-  // check (`.claude/rules/path-hooks.md`).
-  const failed = tools.problems.length > 0 ? tools : extensions
-  if (failed.problems.length === 0) return 0
-  for (const problem of failed.problems) output.err.write(`${problem}\n`)
-  const lines = failed.problems.map((problem) => `${PLUGIN_PREFIX}: ⚠️ ${problem}`)
-  const context =
-    failed.absent.length === 0
-      ? undefined
-      : failed === tools
-        ? toolContext(failed.absent)
-        : extensionContext(failed.absent)
+  // The extension read is a file read under gh's data directory. It needs
+  // no tool, so a tool problem does not hide its line (ruling 7 on #480).
+  const problems = [...tools.problems, ...extensions.problems]
+  if (problems.length === 0) return 0
+  for (const problem of problems) output.err.write(`${problem}\n`)
+  const lines = problems.map((problem) => `${PLUGIN_PREFIX}: ⚠️ ${problem}`)
+  const sentences = [
+    ...(tools.absent.length === 0 ? [] : [toolContext(tools.absent)]),
+    ...(extensions.absent.length === 0 ? [] : [extensionContext(extensions.absent)]),
+  ]
+  const context = sentences.length === 0 ? undefined : sentences.join(' ')
   output.out.write(emit(PLUGIN_PREFIX, lines.join('\n'), context))
   return 0
 }

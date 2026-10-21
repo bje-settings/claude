@@ -1,5 +1,5 @@
 {
-  "description": "Checks at session start that git, the GitHub CLI and the gh stack extension are present. Writes nothing when they are. An absent tool gets a line of its own. The extension gets a line only when both tools are present.",
+  "description": "Checks at session start that git, the GitHub CLI and the gh stack extension are present. Writes nothing when they are. Each problem gets a line of its own: the tools first, then the extension.",
   "hooks": {
     "SessionStart": [
       {
