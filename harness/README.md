@@ -88,7 +88,8 @@ change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullReque
 `issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
 `requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `branchRef`,
-`listRunJobs`, `commitDate`, `listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
+`listRunJobs`, `commitDate`, `listOpenStacks`, `mergeMethods`, `mergeStack`,
+`listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
 
 `issueStates` answers with a record, `{ states, unavailable }`. It never throws.
 So a test has nothing else to register beside its one reply.
@@ -103,7 +104,10 @@ links. `compareCommits` answers `{ comparison, unavailable }`, with a null compa
 could not read. `branchRef` answers `{ sha, unavailable }`, with a null `sha` for a ref it could
 not read. `listRunJobs` answers `{ rows, unavailable }`. `commitDate` answers `{ date, unavailable }`,
 with a null `date` for a commit it could not read. `requiredReviews` answers `{ reviews, unavailable }`, with null `reviews` for rules
-it could not read. `listPullRequestStatuses` answers `{ rows, unavailable }`. `createCommitStatus`
+it could not read. `listOpenStacks` answers `{ rows, unavailable }`, and `mergeMethods` `{ methods, unavailable }`.
+`mergeStack` is a write that never throws: it answers `{ accepted, output }`. The server in
+`pulls.ts` answers `listOpenStacks` from the rows that carry `stack: { number, base }`, in the
+order of the set. `listPullRequestStatuses` answers `{ rows, unavailable }`. `createCommitStatus`
 is a write, and throws on a failure, as `addComment` does.
 
 `repositoryStatus` answers `{ repositories, unavailable }` and never throws either. The

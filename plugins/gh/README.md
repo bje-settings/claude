@@ -122,6 +122,10 @@ failures that the base caused, on any pull request whether a human or a bot auth
 Auto-merge does the actual merge. The skill only gets each pull request to green, and confirms
 it landed before it starts the next one.
 
+It also merges each GitHub stack once every layer is ready (#469). GitHub refuses auto-merge on a
+stacked pull request, so a stack merges with `gh stack merge` instead. That is the skill's one
+merge. GitHub applies the rules of the base to it, all layers or none.
+
 Serial is the point. A strict up-to-date rule puts every other open pull request behind after
 each merge. If you shepherd them in parallel, each merge costs a CI run per pull request. One at
 a time costs exactly one rebase each. A by-hand run of six Dependabot pull requests measured
@@ -155,13 +159,22 @@ auto-merge pull request a target again.
 Order is gh-security's `merge-risk:<band>` label first (low, then unlabelled, then medium, then
 high), oldest first within a band.
 
+A stack is one target, after the pull requests. Its layers are its open pull requests, bottom
+first. A merged entry is no layer. A layer of a stack is never a pull request target too. Every
+layer is judged by the rules of the stack base, as GitHub merges it, not by the rules of its own
+base. A stack is not ready, and goes to `not_ready` with each layer and reason, when a layer "is
+a draft", an entry "is closed", a required check of the stack base failed, or a layer "needs an
+approval" or "has unresolved review threads". `--all` drops the last two. A required check that
+is still pending is no reason: the loop waits for it. With a label, a stack is a target when one
+of its open layers carries it.
+
 ### Flags
 
 | Flag | Effect |
 | --- | --- |
 | `<label>` | Shepherd only pull requests that carry this one label. |
 | `--all` | Shepherd every auto-merge pull request, also one that the review rules of its base leave out. |
-| `--dry-run` | Print each repository's target list, in order, then its `not_ready` list, and stop. Nothing is rebased or waited for. |
+| `--dry-run` | Print each repository's target list, in order, stacks included, then its `not_ready` list, and stop. Nothing is rebased or waited for. |
 
 ### The loop, per pull request
 
@@ -250,23 +263,39 @@ The orchestrator makes one more read before it prints the report. A `skipped` en
 orchestrator runs `merged` once, and reclassifies it. It leaves alone a `skipped` entry that names
 a cause. GitHub decided that, not the clock.
 
+### A stack, step by step
+
+`shepherd-stack` runs each step on every layer, bottom first. Each layer is a `shepherd-pr` step.
+
+| Step | What it does |
+| --- | --- |
+| `state` | Each layer as `shepherd-pr state` reads it, by the rules of the stack base, with its reasons. `ready` is true when no layer has one. |
+| `update` | Merges the base into each layer that is behind, with `gh pr update-branch` in MERGE mode, and reads until the head moves. A conflict goes to the agent, which resolves it with a plain push. |
+| `wait` | `shepherd-pr wait` on each layer, in one bound for the stack. The first layer that does not pass decides. |
+| `merge` | Refuses unless every layer is ready, current and green. Then `gh stack merge <stack> --yes`, with squash, else merge, else rebase: the first that the repository and the rules of the base allow. A refusal by GitHub comes back in gh's own words. |
+
+No step force pushes. A probe on #469 showed that GitHub merges a stack whose layers took the base
+by a merge commit. `gh stack rebase`, `push` and `sync` each force push, so nothing here runs
+them.
+
 ### What it never does
 
 Never:
-- merge by hand
+- merge by hand, except a stack with `shepherd-stack merge`
 - enable or disable auto-merge
 - bypass or re-run a required check
 - edit labels
-- force-push
+- force-push, a stack included
 - commit with `--no-verify`
 
 ### Commands
 
-The deterministic parts are two commands. The agent only decides between their results.
+The deterministic parts are three commands. The agent only decides between their results.
 
 ```bash
 node <plugin>/scripts/gh.ts shepherd-status <path> [label] [--all]   # the work list, as JSON
 node <plugin>/scripts/gh.ts shepherd-pr <path> <n> state|rebase|wait|settle|merged
+node <plugin>/scripts/gh.ts shepherd-stack <path> <stack> state|update|wait|merge
 ```
 
 `shepherd-status` changes nothing. It prints `targets` and `not_ready`. Each target carries
@@ -300,6 +329,12 @@ way, an empty tail is not mistaken for a job that printed nothing.
 closed, one without auto-merge, or one whose checks are neither `passed` nor absent. It does not
 wait out a bound on a question nobody asked. A pull request that has already merged gets an
 answer instead of a refusal, because that answer is exactly what `settle` is asked for.
+
+`shepherd-stack` prints one JSON object per action too, with `stack` in place of `number`. A
+read that fails never decides a verdict: it gives `ok: false`, or `result` `unread` from
+`merge`. `merge` gives `merged`, `accepted` (GitHub took the merge, and a layer is not
+merged yet), `refused` with gh's `reason`, or `not_ready` with each layer and reason.
+`node <plugin>/scripts/gh.ts shepherd-stack --help` has the whole contract.
 
 `node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs
 (`SHEPHERD_CI_SECONDS`, `SHEPHERD_WAIT_BOUND`, `SHEPHERD_WAIT_POLL`, `SHEPHERD_STALL_FLOOR`,
@@ -420,6 +455,19 @@ The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for ea
 hook also writes `hookSpecificOutput.additionalContext`. It states which tools are absent and
 that the plugin cannot run. The model then does not start work that will fail. With every tool
 present, there is no `additionalContext` at all.
+
+`/gh:shepherd` also needs the `gh stack` extension (`gh extension install github/gh-stack`) to
+merge a stack. The hook reads gh's own extension directory, not `PATH`: `extensions/gh-stack`
+under `$XDG_DATA_HOME/gh`, or `%LOCALAPPDATA%\GitHub CLI` on Windows, or `~/.local/share/gh`.
+That is the order gh uses. A missing extension stops no check. It gets a line of its own, after
+the others, and `additionalContext` that says `/gh:shepherd` cannot merge a stack:
+
+```
+gh: ⚠️ gh stack extension not found
+```
+
+A read of that directory that does not finish in time gives
+`gh: ⚠️ gh stack extension could not be checked`, with no `additionalContext`.
 
 A `PATH` walk that does not finish in time is not a missing tool. That tool gets
 `gh: ⚠️ git could not be checked` or `gh: ⚠️ GitHub CLI (gh) could not be checked`, and the hook

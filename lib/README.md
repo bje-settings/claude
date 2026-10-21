@@ -34,7 +34,7 @@ check them.
 | Module | What it gives a plugin |
 | --- | --- |
 | `node-floor.ts` | The Node 22.18 floor. `assertNodeFloor` checks it for an entry point. `meetsNodeFloor` checks it for a hook that must stay silent. `belowFloorMessage` is the line a `SessionStart` hook writes instead, since it runs once. Imports nothing. |
-| `dependencies.ts` | `absentDependencies` is a pure function over a plugin's declared table and a lookup. `which` is the lookup: an async `PATH` walk that gives a path or `null`. So no plugin keeps its own copy of the check (`.claude/rules/_design-principles.md`). `FileReads` is every filesystem read a `SessionStart` hook makes, async, so a test can give one that never answers. `withinDeadline`, `onPath` and `deadlineClock` keep each read inside the hook's one deadline (#267). A read that is late answers "could not be checked", never "absent". |
+| `dependencies.ts` | `absentDependencies` is a pure function over a plugin's declared table and a lookup. `which` is the lookup: an async `PATH` walk that gives a path or `null`. So no plugin keeps its own copy of the check (`.claude/rules/_design-principles.md`). `FileReads` is every filesystem read a `SessionStart` hook makes, async, so a test can give one that never answers. `withinDeadline`, `onPath` and `deadlineClock` keep each read inside the hook's one deadline (#267). A read that is late answers "could not be checked", never "absent". A row with `via: 'gh-extension'` names a gh extension, which is not on `PATH`. `isPresent` picks the lookup for a row. `hasGhExtension` reads `extensions/gh-<name>` under `ghDataDirectory`, the order gh itself uses (#469). |
 | `hook-output.ts` | `emit` and `colour`, for a `SessionStart` hook's `systemMessage` and, when given one, `hookSpecificOutput.additionalContext`. The plugin prefix is a parameter, so more than one hook uses it. |
 | `args.ts` | `parseArguments`, built on `node:util`'s `parseArgs`. It takes a declared option set. It returns an envelope. |
 | `envelope.ts` | The answer a command gives back. Two renderers turn that answer into stdout, stderr, and an exit code. `failedOnThrow` turns a throw at an entry point into one stderr line and exit 1. |
@@ -637,6 +637,30 @@ which `unavailable` quotes.
 the committer date. `shepherd-pr wait` reads a step that starts or finishes as progress, and
 measures a rollup with no stamp from the newer of that date and the pull request's `updatedAt`
 (#466).
+
+### `listOpenStacks`, `mergeMethods` and `mergeStack`
+
+```ts
+const { rows } = await gh.listOpenStacks()
+// rows[0] -> { number: 472, base: 'main', layers: [{ number: 470, state: 'OPEN' }, ...] }
+const { methods } = await gh.mergeMethods({ branch: 'main' }) // ['merge', 'squash']
+const { accepted, output } = await gh.mergeStack({ stack: 472, method: 'squash' })
+```
+
+`listOpenStacks` reads the `stack` field of each open pull request through GraphQL, and answers
+each stack once. GraphQL has no field that names a stack by its number. The layers come bottom
+first, with each state. A merged entry stays in the stack (the probe on #469). A stack with more
+entries than one page, or an entry with no pull request, costs its row, which `unavailable`
+counts. It never throws.
+
+`mergeMethods` reads the merge settings of the repository through GraphQL, and the
+`allowed_merge_methods` of each `pull_request` rule of the branch through REST. It answers the
+methods both allow, in GitHub's order, or a null `methods` with the reason. It never throws.
+
+`mergeStack` runs `gh stack merge <stack> --yes --<method>`. The `gh stack` extension has no
+`--repo` flag, so the client must have a `cwd` in the repository. `accepted` is true on exit 0.
+A refusal is `accepted: false`, with gh's own words in `output`. It never throws.
+`shepherd-stack merge` is the one caller.
 
 ### `listPullRequestStatuses` and `createCommitStatus`
 

@@ -1,6 +1,6 @@
 ---
 type: Reference
-description: What the /gh:shepherd skill does, and every way it declines to act, given an optional label.
+description: What the /gh:shepherd skill does for auto-merge pull requests and stacks, and every way it declines to act, given an optional label.
 stale_after: 2027-03-25
 generated:
   by: claude-opus
@@ -26,6 +26,9 @@ flowchart TD
     B --> RR{Without --all: do the review rules of its base<br/>leave the PR out?}
     RR -->|Needs an approval, or has unresolved review threads| NR([Not ready: named in the report with its reasons]):::stop
     RR -->|Ready, or --all, or the rules could not be read| B2[Targets]
+    B --> SR{Each stack: a draft or closed layer, a failed required check,<br/>or without --all a missing approval or unresolved threads,<br/>by the rules of the stack base?}
+    SR -->|Yes| NR
+    SR -->|No: one target, after the PRs| B2
     B2 -->|--dry-run| Z2([Print each repo's plan and its not-ready list, change nothing]):::stop
     B2 -->|Targets remain| C[One worker per repo, repos in parallel]
 
@@ -51,6 +54,20 @@ flowchart TD
         P -->|Closed while settle runs| CS([Closed, terminal]):::stop --> S
         W -->|Still in progress: a check, job or step started or finished| W
         W -->|Stalled: no check, job or step started or finished for the stall bound| BP([Skipped: checks made no progress]):::stop --> S
+        S -->|The target is a stack: one unit| SS{Every open layer still ready<br/>by the rules of the stack base?}
+        SS -->|No| SSN([Skipped: the layer and the requirement]):::stop --> S
+        SS -->|Yes| SU[Merge the base into each layer behind it,<br/>bottom up; never a force push]
+        SU -->|Conflict on a layer| SC[Merge its base in a worktree, resolve, verify, plain push] --> SU
+        SC -->|Cannot resolve or verify| E
+        SU --> SW[Wait on the checks of every layer]
+        SW -->|A layer behind its base| SU
+        SW -->|Still in progress| SW
+        SW -->|A layer stalled| BP
+        SW -->|A layer failed| SF[Fix it as for a PR, within the fix cap] --> SW
+        SF -->|Cannot explain or verify| E
+        SW -->|Every layer green| SM[gh stack merge: all layers or none]
+        SM -->|Merged| S
+        SM -->|GitHub refused, or a layer not ready| SSN
         W -->|Checks failed| K{Cause of the failure?}
         K -->|Mechanical, or caused by the base, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
         K -->|Logic or config check already failing on the PR's own head| SK([Skipped: failed before shepherd]):::stop --> S
