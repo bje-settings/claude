@@ -508,6 +508,21 @@ const CASES: readonly Case[] = [
     additionalContext: 'gh stack extension is absent. /gh:shepherd cannot merge a stack.',
   },
   {
+    // The extension line comes after the line of each other problem.
+    name: 'a missing gh stack extension and a fetch that failed',
+    build: (rig) => {
+      rmSync(ghStackDirectory(rig.sandbox), { recursive: true })
+      return {
+        cwd: ONE(rig),
+        gh: answering({ 'acme/widgets': side() }),
+        env: { ...rig.sandbox.env, PATH: BAD_TOKEN(rig) },
+      }
+    },
+    line: 'gh: ⚠️ fetch failed: Invalid username or token\ngh: ⚠️ gh stack extension not found',
+    failures: 2,
+    additionalContext: 'gh stack extension is absent. /gh:shepherd cannot merge a stack.',
+  },
+  {
     name: 'a missing git and GitHub CLI',
     build: (rig) => ({
       cwd: ONE(rig),
