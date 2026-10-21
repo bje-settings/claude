@@ -226,15 +226,16 @@ cannot make it act on the wrong pull request.
             from \`newest\` to the wall clock), \`stall_bound\` and \`source\`.
             The stamps are the startedAt and completedAt of each rollup row,
             and of each job and step of each Actions run with a pending
-            check (one read of the jobs of each such run, per poll).
+            check (each poll reads every page of the jobs of each such run,
+            up to 20 pages of 100).
             \`stalled\` means \`idle\` reached \`stall_bound\`: no check, job
             or step started or finished for that long. The bound is the
             largest of SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's
             own time from \`started\` to \`newest\`. So a long run gets a long
             bound, and a ci_seconds that is too small cannot make the bound
-            smaller. A poll whose jobs read fails, in full or in part, is
-            never \`stalled\`: the steps it missed may have moved (stderr says
-            why). With no stamp at all, the newer of the head commit's date
+            smaller. A poll whose jobs read fails, in full or in part, has
+            twice that bound as its \`stall_bound\`: the steps it missed may
+            have moved (stderr says why). With no stamp at all, the newer of the head commit's date
             and the pull request's updatedAt is the one stamp, and \`source\`
             is \`head commit\`. So a check that never starts still ends in
             \`stalled\`, and a commit made long before its push does not stall

@@ -746,8 +746,8 @@ export interface GhClient {
    * Workflow runs, newest first, through `actions/runs`.
    *
    * This is not {@link GhClient.listRuns}, whose `--json` field list carries
-   * neither `event` nor the head commit. So a caller cannot tell a
-   * `pull_request` run from a `push` run, nor tell which head either ran on.
+   * no `event`. So a caller cannot tell a `pull_request` run from a `push`
+   * run.
    * `branch` is the filter this REST endpoint applies server-side.
    * `head_sha` is NOT used: it once answered nothing for a head whose runs
    * did exist (round 7 finding 6), while `branch` answered.

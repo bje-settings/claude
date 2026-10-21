@@ -69,7 +69,7 @@ The plugin's own README has the detail, with the scripts the skills and hooks ru
     <th scope="row">Hooks</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#session-start-hook">Session start</a>: checks for git, the GitHub CLI and the <code>gh stack</code> extension when a session starts, resumes, clears or compacts. It writes nothing when all are present. An absent tool gets a line of its own. The extension gets a line only when both tools are present.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/shepherd#session-start-hook">Session start</a>: checks for git, the GitHub CLI and the <code>gh stack</code> extension when a session starts, resumes, clears or compacts. It writes nothing when all are present. Each problem gets a line of its own: the tools first, then the extension.</li>
       </ul>
     </td>
   </tr>

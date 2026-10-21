@@ -94,22 +94,25 @@ classification are all small-model work.
 There are two waits, and they wait on different things. The CI wait, `wait`, is a blocking poll.
 It runs inside the per-repo subagent, once per CI cycle. It is deliberately not a Monitor or a
 scheduled wake: those idle the worker, and the orchestrator then sees only "waiting". The bound
-comes from the median duration of the last twenty completed runs on the default branch. It is
-doubled, then clamped to two to nine minutes. A wait that hits its bound returns `pending`, and
+comes from `ci_seconds`. `shepherd-status` reads the last 100 completed runs on the default
+branch, keeps the longest run of each head commit, and takes the median over the heads (#463).
+One push starts several workflows, so a short workflow beside a long CI does not make the median
+short. The bound is that median doubled, then clamped to two to nine minutes. A wait that hits its bound returns `pending`, and
 the agent calls it again. When a rollup is already terminal, the skill answers from the first
 read, with no poll at all.
 
 `wait` decides when the checks stall, not the agent (#466). GitHub puts a `startedAt` and a
 `completedAt` on each check, and gh gives a status a `startedAt` too. For each Actions run with a
-pending check, `wait` also reads the jobs of the run, with the same two stamps on each job and each
-step. `wait` compares the newest stamp with the wall clock. When no check, job or step started or
+pending check, `wait` also reads every page of the jobs of the run, up to 20 pages, with the same
+two stamps on each job and each step. `wait` compares the newest stamp with the wall clock. When no check, job or step started or
 finished for the stall bound, it returns `stalled`. The bound is the largest of three values: 27
 minutes (`SHEPHERD_STALL_FLOOR`, three nine-minute waits), twice the CI median, and the run's own time from its first stamp
 to its newest. So a run that made progress for twenty minutes may sit still for twenty. The stamps
 of one job do not move until it finishes, but its steps do. So one long job is progress while its
 steps finish. A median that is too small cannot make the bound smaller than the other two values. A
-poll whose jobs read fails is never `stalled`, because the steps it missed may have moved, and
-stderr says why. A rollup with no stamp at all is measured from the newer of the head commit's date
+poll whose jobs read fails, in full or in part, gets twice the bound (#476), because the steps it
+missed may have moved. Its `stall_bound` shows the doubled value, and stderr says why the read
+failed. A rollup with no stamp at all is measured from the newer of the head commit's date
 and the pull request's last update. So a check that never starts still ends in `stalled`, and a
 commit made long before its push does not stall at once. Each call decides from what it reads. The
 agent counts no `pending` result. `pending` and `stalled` carry `progress`: the checks finished, the
@@ -251,8 +254,8 @@ read each status against its own command.
 When a session starts, resumes, clears, or compacts, the hook checks that git, the GitHub CLI and
 the `gh stack` extension are present. When all three are present, it writes nothing.
 
-When git or gh is not on `PATH`, each one gets a line of its own, and the hook reports nothing
-else. `additionalContext` says that the plugin cannot run:
+When git or gh is not on `PATH`, each one gets a line of its own. `additionalContext` says that
+the plugin cannot run:
 
 ```
 shepherd: ⚠️ git not found on PATH
@@ -266,6 +269,14 @@ Windows, or `~/.local/share/gh`. That is the order gh uses. When the extension i
 `additionalContext` says that `/shepherd:merge` cannot merge a stack:
 
 ```
+shepherd: ⚠️ gh stack extension not found
+```
+
+The extension read needs neither git nor gh, so a tool problem does not hide it (#480). The tool
+lines come first, then the extension line, and `additionalContext` carries both sentences:
+
+```
+shepherd: ⚠️ git not found on PATH
 shepherd: ⚠️ gh stack extension not found
 ```
 

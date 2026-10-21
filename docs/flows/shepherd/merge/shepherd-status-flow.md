@@ -36,7 +36,7 @@ flowchart TD
     G2 -->|Yes| Z7([more than 500 open pull requests;<br/>use a label, exit 1]):::stop
     G2 -->|No| I{Recent completed runs on<br/>the default branch readable?}
     I -->|No| J[CI time: 300 s]
-    I -->|Yes| K[CI time: median run duration;<br/>300 s when no run is usable]
+    I -->|Yes: the 100 newest| K[CI time: the longest run of each head SHA,<br/>then the median over the SHAs;<br/>300 s when no SHA is usable]
     J --> L[Drop draft pull requests]
     K --> L
     L --> LS{A layer of an open stack?}
