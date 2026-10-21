@@ -489,6 +489,70 @@ it('wait gives each layer what is left of the one bound', async () => {
   expect(ran.document).toMatchObject({ result: 'pending', layer: 471, report: { bound: 1 } })
 })
 
+/** `gh` over a stack whose bottom goes green on read `greenAt` of it, and
+ *  whose top stays pending. */
+const slowBottom = (greenAt: number): GhClient => {
+  const state = world()
+  let reads = 0
+  return serve(state, {
+    more: {
+      viewPullRequest: async ({ pullRequest }) => {
+        const layer = state.layers.find((each) => each.number === pullRequest) as Layer
+        if (pullRequest === 470) reads += 1
+        const green = pullRequest === 470 && reads >= greenAt
+        return row(layer.number, layer.head, {
+          statusCheckRollup: green ? GREEN : [run('vitest', null)],
+        })
+      },
+    },
+  })
+}
+
+it('wait gives the next layer only what the layers below it left of the bound', async () => {
+  const env = { SHEPHERD_WAIT_BOUND: '60', SHEPHERD_WAIT_POLL: '30' }
+  // The bottom passes after 30 s, so the top gets the other 30 s.
+  const half = await stack(slowBottom(2), 'wait', env)
+  // The bottom passes at the bound, so the top still gets 1 s.
+  const late = await stack(slowBottom(3), 'wait', env)
+
+  expect(half.document).toMatchObject({
+    result: 'pending',
+    layer: 471,
+    bound: 60,
+    waited: 60,
+    report: { bound: 30, waited: 30 },
+  })
+  expect(late.document).toMatchObject({
+    result: 'pending',
+    layer: 471,
+    bound: 60,
+    report: { bound: 1, waited: 1 },
+  })
+})
+
+it('wait reports a layer that merged, or stalled, while the layers below it passed', async () => {
+  const state = world()
+  const merged = serve(state, {
+    more: {
+      viewPullRequest: async ({ pullRequest }) => {
+        const layer = state.layers.find((each) => each.number === pullRequest) as Layer
+        return row(layer.number, layer.head, pullRequest === 471 ? { state: 'MERGED' } : {})
+      },
+    },
+  })
+  const stuck = world()
+  // The check of the top layer started long ago, and nothing moved since.
+  ;(stuck.layers[1] as Layer).overrides = {
+    statusCheckRollup: [{ ...run('vitest', null), startedAt: '2026-10-19T00:00:00Z' }],
+  }
+
+  const ranMerged = await stack(merged, 'wait')
+  const ranStuck = await stack(serve(stuck), 'wait', { SHEPHERD_STALL_FLOOR: '60' })
+
+  expect(ranMerged.document).toMatchObject({ ok: true, result: 'merged', layer: 471 })
+  expect(ranStuck.document).toMatchObject({ ok: true, result: 'stalled', layer: 471 })
+})
+
 it('wait holds a layer whose required check has no row, until the bound ends', async () => {
   const lint = world()
   ;(lint.layers[1] as Layer).overrides = { statusCheckRollup: [run('lint', 'SUCCESS')] }
@@ -720,6 +784,106 @@ it('merge refuses a layer out of sync with its branch, a missing approval, and a
     { number: 471, reasons: ['needs an approval', 'is out of sync with its branch'] },
     { number: 473, reasons: ['is closed'] },
   ])
+})
+
+it('merge refuses unresolved threads, a red required check, and any red check', async () => {
+  const threads = serve(world(), {
+    methods: BOTH,
+    rules: () => THREADS,
+    more: {
+      viewPullRequestDetail: async ({ pullRequest }) => ({
+        pullRequest: {
+          unresolvedThreads: pullRequest === 471 ? [{ path: 'a.ts' }] : [],
+        } as unknown as PullRequestDetail,
+        unavailable: null,
+        missing: false,
+      }),
+    },
+  })
+  const required = world()
+  ;(required.layers[1] as Layer).overrides = { statusCheckRollup: [run('vitest', 'FAILURE')] }
+  const other = world()
+  ;(other.layers[1] as Layer).overrides = {
+    statusCheckRollup: [run('vitest', 'SUCCESS'), run('lint', 'FAILURE')],
+  }
+
+  const ranThreads = await stack(threads, 'merge')
+  const ranRequired = await stack(serve(required, { methods: BOTH }), 'merge')
+  const ranOther = await stack(serve(other, { methods: BOTH }), 'merge')
+
+  expect(ranThreads.document.failing).toEqual([
+    { number: 471, reasons: ['has unresolved review threads'] },
+  ])
+  expect(ranRequired.document.failing).toEqual([
+    { number: 471, reasons: ['required check vitest failed', 'checks are failed'] },
+  ])
+  expect(ranOther.document.failing).toEqual([{ number: 471, reasons: ['checks are failed'] }])
+})
+
+it('merge takes a stack with no checks and none required, and a ref it could not read', async () => {
+  const none = world()
+  for (const layer of none.layers) layer.overrides = { statusCheckRollup: [] }
+  const noRef = serve(world(), {
+    methods: BOTH,
+    merge: mergeAll,
+    more: { branchRef: async () => ({ sha: null, unavailable: 'gh: HTTP 502' }) },
+  })
+
+  const ranNone = await stack(
+    serve(none, { methods: BOTH, merge: mergeAll, contexts: { contexts: [], unavailable: null } }),
+    'merge',
+  )
+  const ranNoRef = await stack(noRef, 'merge')
+
+  // GitHub applies the rules of the base to the merge, so an unread ref
+  // is no reason to refuse it here.
+  expect(ranNone.document.result).toBe('merged')
+  expect(ranNoRef.document.result).toBe('merged')
+})
+
+it('merge reads the required checks and the merge methods of the stack base', async () => {
+  const state = world()
+  ;(state.layers[1] as Layer).overrides = { statusCheckRollup: [run('lint', 'SUCCESS')] }
+  // Only `main`, the stack base, requires `vitest` and allows a method.
+  const byBranch = (served: StackWorld) =>
+    serve(served, {
+      merge: mergeAll,
+      more: {
+        requiredContexts: async ({ branch }) => ({
+          contexts: branch === 'main' ? ['vitest'] : [],
+          unavailable: null,
+        }),
+        mergeMethods: async ({ branch }) => ({
+          methods: branch === 'main' ? ['squash'] : [],
+          unavailable: null,
+        }),
+      },
+    })
+
+  const unreported = await stack(byBranch(state), 'merge')
+  const ready = await stack(byBranch(world()), 'merge')
+
+  expect(unreported.document.failing).toEqual([
+    { number: 471, reasons: ['required check vitest has not reported'] },
+  ])
+  expect(ready.document).toMatchObject({ result: 'merged', method: 'squash' })
+})
+
+it('state names a red required check of the stack base, not of the own base', async () => {
+  const state = world()
+  ;(state.layers[1] as Layer).overrides = { statusCheckRollup: [run('vitest', 'FAILURE')] }
+  const gh = serve(state, {
+    more: {
+      requiredContexts: async ({ branch }) => ({
+        contexts: branch === 'main' ? ['vitest'] : [],
+        unavailable: null,
+      }),
+    },
+  })
+
+  const ran = await stack(gh, 'state')
+
+  expect(ran.document.failing).toEqual([{ number: 471, reasons: ['required check vitest failed'] }])
 })
 
 it('merge relies on the rollup when the required checks cannot be read', async () => {

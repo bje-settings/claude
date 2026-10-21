@@ -217,6 +217,23 @@ it('judges an upper layer by the rules of the stack base, not of its own base', 
   expect(byOwn.document.targets).toEqual([STACK])
 })
 
+it('reads the required checks of the stack base, not of a layer', async () => {
+  const prs = [layer(470), layer(471, { statusCheckRollup: [run('vitest', 'FAILURE')] })]
+  const gh: GhClient = {
+    ...serve(prs),
+    requiredContexts: async ({ branch }) => ({
+      contexts: branch === 'main' ? ['vitest'] : [],
+      unavailable: null,
+    }),
+  }
+
+  const ran = await status(gh)
+
+  expect(ran.document.not_ready).toEqual([
+    { ...STACK, failing: [{ number: 471, reasons: ['required check vitest failed'] }] },
+  ])
+})
+
 it('reads the threads of a layer only when the stack base asks, and once for a pull request target too', async () => {
   const resolved = threadsOn471(
     serve(

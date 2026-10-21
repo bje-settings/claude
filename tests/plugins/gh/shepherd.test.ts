@@ -1237,6 +1237,21 @@ describe('stacks (#469)', () => {
     expect(unreportedRequired(red, null)).toEqual([])
   })
 
+  it('matches a required check by its whole name, never by a part of it', () => {
+    const windows = {
+      statusCheckRollup: [
+        {
+          __typename: 'CheckRun',
+          name: 'vitest-windows',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+        },
+      ],
+    }
+    expect(failedRequired(windows, ['vitest'])).toEqual([])
+    expect(unreportedRequired(windows, ['vitest'])).toEqual(['vitest'])
+  })
+
   it('keeps a draft and a failed check with --all, and drops the review rules', () => {
     expect(layerReasons(red, 'missing', 'unresolved', ['vitest'], false)).toEqual([
       'is a draft',
