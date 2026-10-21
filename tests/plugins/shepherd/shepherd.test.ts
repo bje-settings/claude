@@ -671,6 +671,10 @@ describe('ciSeconds', () => {
 
   it('drops a non-positive duration', () => {
     expect(ciSeconds([runFor(0), runFor(50)])).toBe(50)
+    // A run that ends before it starts. Kept, it would be the lower middle
+    // and move the median to 40.
+    expect(ciSeconds([runFor(-5), runFor(40), runFor(50)])).toBe(50)
+    expect(ciSeconds([runFor(-5)])).toBe(300)
   })
 
   it('falls back when nothing is usable', () => {

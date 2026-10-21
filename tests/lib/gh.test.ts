@@ -3446,6 +3446,20 @@ describe('listRunJobs and commitDate', () => {
     expect(result.unavailable).toBe('gh: HTTP 502; run 7 has 150 jobs; 100 were read')
   })
 
+  it('keeps the total_count of an earlier page when a later page has none', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      jobsReply(jobs(100), { total_count: 250 }),
+      { stdout: JSON.stringify({ jobs: jobs(100, 100) }) },
+      { status: 1, stdout: '', stderr: 'gh: HTTP 502\n' },
+    ])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows).toHaveLength(200)
+    expect(result.unavailable).toBe('gh: HTTP 502; run 7 has 250 jobs; 200 were read')
+  })
+
   it('reports a repository it could not resolve, with no jobs', async () => {
     const { gh } = clientAnsweringEach([
       { status: 1, stdout: '', stderr: 'gh: Could not resolve to a Repository\n' },
