@@ -588,9 +588,8 @@ proof the number is gone.
 `listWorkflowRuns` uses REST (`actions/runs`), because `listRuns` asks `gh run list` for a field
 list that carries no `event`. So a caller cannot tell a `pull_request` run from a `push` run.
 `listRuns` carries `headSha`, so `shepherd-status` can keep the longest run of each head (#463).
-`listWorkflowRuns` filters with `?branch=`,
-never `?head_sha=`: that filter once answered nothing for a head whose runs did exist, and cost a
-close-and-reopen and a whole CI run.
+`listWorkflowRuns` filters with `?branch=`, never `?head_sha=`: that filter once answered nothing
+for a head whose runs did exist, and cost a close-and-reopen and a whole CI run.
 
 A row carries the run's `id`, `workflowId` and `createdAt` too. `required-contexts.ts`
 `currentChecks` reads them to find a newer run that has made no check yet (#370). A row that
@@ -654,8 +653,8 @@ at most, the rule of `SWEEP_PAGES`. It answers `{ rows, unavailable }` and never
 is a job with its `started_at` and `completed_at`, and the same two stamps for each step. GitHub
 answers null for a stamp it has not set, and so does a row here. A job with no numeric `id` or no
 `steps` list is left out and counted in `unavailable`. A page that fails, and the jobs past the
-20th page, are in `unavailable` too, and the rows of the pages read stay. A run that does not
-exist is a 404 body, which `unavailable` quotes.
+20th page, are in `unavailable` too. The rows of the pages read stay. A run that does not exist
+is a 404 body, which `unavailable` quotes.
 
 `commitDate` reads `repos/{owner}/{name}/commits/{sha}` and answers `{ date, unavailable }`, with
 the committer date. `shepherd-pr wait` reads a step that starts or finishes as progress, and

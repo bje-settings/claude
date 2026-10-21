@@ -235,7 +235,7 @@ and no byte of a case changed.
   `RUN_SAMPLE` is 100, not 20.
 - **The replay.** The Python read no head, so no captured run has one. `runRow` in
   `subcommands/shepherd-status.test.ts` gives each run a head of its own. With one run on each
-  head, the median over the heads is the captured median, in
+  head, the median over the heads is the captured median. The cases are
   `the_median_of_recent_run_durations`, `only_completed_runs_on_the_default_branch` and
   `a_non_positive_duration_falls_back`. The `ciSecondsPerHead` entry in
   `divergences-shepherd.json` records this. Its `cases` is empty for the reason of

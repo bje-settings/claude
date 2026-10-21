@@ -53,8 +53,9 @@ Prints one JSON document and changes nothing:
 
   repo             owner/name
   default_branch   the branch pull requests are merged into
-  ci_seconds       median wall time of recent completed workflow runs on the
-                   default branch; 300 when there are none
+  ci_seconds       the median, over head commits, of the longest completed
+                   workflow run of each, from the 100 newest runs on the
+                   default branch; 300 when no head is usable
   targets          open, non-draft pull requests that a human has already
                    marked for auto-merge, in the order the loop should take
                    them. A label narrows this list to pull requests that

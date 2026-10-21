@@ -71,7 +71,7 @@ flowchart TD
         W3 -->|Passed| WP
         W3 -->|A check failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
         W3 -->|Pending| WJ[Read every page of the jobs of each Actions run<br/>with a pending check, up to 20 pages]
-        WJ --> WM{Each jobs read in full?}
+        WJ --> WM{Was every jobs read complete?}
         WM -->|No: a page failed, past 20 pages,<br/>or a job that could not be read| WM2[The stall bound of this poll is doubled;<br/>stderr says why]
         WM -->|Yes| WK{Any stamp on a check, job or step?}
         WM2 --> WK

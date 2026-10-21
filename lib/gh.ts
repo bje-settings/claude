@@ -800,8 +800,9 @@ export interface GhClient {
    * `shepherd-pr wait` reads a step that starts or finishes as progress
    * (#466).
    *
-   * It reads one page of 100 jobs. A run with more names the rest in
-   * `unavailable`, and so does a job that is not the shape REST promises.
+   * It reads every page of 100 jobs, up to `JOB_PAGES` (#476). A page
+   * that fails, the jobs past the last page, and a job that is not the
+   * shape REST promises go in `unavailable`. The rows already read stay.
    *
    * Never throws, for {@link PagedResult}'s reason.
    */
