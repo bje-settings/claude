@@ -49,6 +49,7 @@ import {
   type ShepherdExit,
   summary,
   tailLines,
+  unreportedRequired,
 } from '../shepherd.ts'
 
 export const NUMBER_RE = /^[1-9][0-9]*$/
@@ -363,6 +364,11 @@ export interface WorkerOptions {
   /** The bound of `wait`, in seconds. Left out, it is {@link
    *  waitBoundOf}. */
   readonly waitBound?: number
+  /** The required checks of the stack base. Left out, `wait` decides from
+   *  the rollup alone. A required check with no row in the rollup is then
+   *  pending, not passed (#469). `null` is a read that failed: the rollup
+   *  alone decides. */
+  readonly requiredContexts?: readonly string[] | null
 }
 
 /** One action against one pull request. */
@@ -760,7 +766,7 @@ export class Shepherd {
     // to the caller at once, whatever the checks say. A green run on it
     // cannot let auto-merge fire, so its CI time would be lost.
     let pull = await this.withBehind(first)
-    if (pull.behind !== true && pull.checks.state === 'none') {
+    if (pull.behind !== true && pull.checks.state === 'none' && this.unreported(raw).length === 0) {
       this.emit(true, 'no checks reported on this head', { result: 'passed', pr: pull })
       return
     }
@@ -807,7 +813,7 @@ export class Shepherd {
           // recovered from is counted, and nothing more.
           read_error: '',
         }
-        if (await this.waitVerdict(pull, reading, measure)) return
+        if (await this.waitVerdict(pull, reading, measure, this.unreported(raw))) return
       }
       const left = bound - spent()
       if (left <= 0) break
@@ -841,6 +847,9 @@ export class Shepherd {
       )
       return
     }
+    // `unreported` is in the report only when the caller named the
+    // required checks, so the report of `shepherd-pr wait` is unchanged.
+    const unreported = this.unreported(raw)
     // This is the time actually spent, not the bound. A caller that sizes
     // its next call reads this number.
     this.emit(true, `checks still running after ${spent()}s`, {
@@ -852,7 +861,14 @@ export class Shepherd {
       read_failures: readsFailed,
       read_error: '',
       progress,
+      ...(this.options.requiredContexts === undefined ? {} : { unreported }),
     })
+  }
+
+  /** The required checks with no row in the rollup of `raw`. Empty when
+   *  the caller named none. */
+  unreported(raw: unknown): string[] {
+    return unreportedRequired(raw, this.options.requiredContexts ?? null)
   }
 
   /**
@@ -868,6 +884,7 @@ export class Shepherd {
     pull: PullState,
     reading: Record<string, unknown>,
     measure: () => Promise<{ readonly progress: CheckProgress; readonly missed: boolean }>,
+    unreported: readonly string[] = [],
   ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
@@ -883,6 +900,9 @@ export class Shepherd {
       return true
     }
     const state = pull.checks.state
+    // A required check with no row has no stamps, so it cannot stall. The
+    // bound ends the wait on it, as `pending`.
+    if ((state === 'passed' || state === 'none') && unreported.length > 0) return false
     if (state === 'passed' || state === 'none') {
       this.emit(true, 'checks passed', { result: 'passed', pr: pull, ...reading })
       return true

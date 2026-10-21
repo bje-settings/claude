@@ -261,7 +261,7 @@ it('judges a stack by its rollup alone when the required checks cannot be read',
 
   expect(ran.document.targets).toEqual([STACK])
   expect(ran.stderr).toBe(
-    'the required checks of main are unavailable: gh: HTTP 502; no check is required\n',
+    'the required checks of main are unavailable: gh: HTTP 502; the rollup alone decides\n',
   )
 })
 

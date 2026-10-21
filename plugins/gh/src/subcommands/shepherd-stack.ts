@@ -79,7 +79,9 @@ stack \`base\`, not of its own base.
             read failed, or gh refused the update (a conflict, often), with
             \`layer\` and gh's words.
   wait      shepherd-pr wait on each layer, bottom up, in one bound for the
-            whole stack. \`result\` is \`passed\` when every layer passed.
+            whole stack. A required check of the base with no row on a
+            layer is pending, and \`report.unreported\` names each one when
+            the bound ends. \`result\` is \`passed\` when every layer passed.
             Else it is the result of the first layer that did not pass
             (behind, failed, stalled, pending, merged), with \`layer\` and
             its whole \`report\`. ok:false when that wait did not complete.
@@ -89,8 +91,11 @@ stack \`base\`, not of its own base.
             and green: \`result\` \`not_ready\`, with \`failing\` as in state,
             plus "is behind its base", "is out of sync with its branch",
             "checks are <state>", and "required check <name> has not
-            reported". \`unread\` when a read failed, so nothing was proven.
-            \`refused\` when GitHub refused the merge; \`reason\` is gh's own
+            reported". An empty \`failing\` is a base that allows no merge
+            method, and \`detail\` says so. \`unread\` when a layer, its
+            compare or the merge methods could not be read, so nothing was
+            proven. Required checks that could not be read leave the
+            rollup to decide. \`refused\` when GitHub refused the merge; \`reason\` is gh's own
             words. \`merged\` when every layer then reads MERGED, and
             \`accepted\` when GitHub took the merge but a layer is not merged
             yet (a merge queue, for one). \`layers\` gives each merge commit.
@@ -164,7 +169,7 @@ class StackShepherd {
   layer(
     number: number,
     base: string,
-    more: Partial<Pick<WorkerOptions, 'waitBound'>> = {},
+    more: Partial<Pick<WorkerOptions, 'waitBound' | 'requiredContexts'>> = {},
   ): { worker: Shepherd; report: () => Record<string, unknown> } {
     let reported: Record<string, unknown> = {}
     const { repo, action, ciSeconds, logLines, context, gh } = this.options
@@ -294,11 +299,18 @@ class StackShepherd {
     const bound = waitBoundOf(context.env, context.output.err, ciSeconds)
     const started = context.now()
     const spent = (): number => seconds(context.now() - started)
+    // A required check with no row on a layer is pending, so `merge` does
+    // not refuse a stack that `wait` called passed.
+    const requiredContexts = await readRequiredContexts(
+      this.options.gh,
+      stack.base,
+      context.output.err,
+    )
     for (const number of openLayers(stack)) {
-      // One bound for the stack. A layer that comes late still gets one
-      // read, so it reports, and does not sleep past the bound.
+      // One bound for the stack. A layer that comes late still gets a bound
+      // of 1 s, so it reports. The stack can then go past its bound by 1 s.
       const waitBound = Math.max(1, bound - spent())
-      const { worker, report } = this.layer(number, stack.base, { waitBound })
+      const { worker, report } = this.layer(number, stack.base, { waitBound, requiredContexts })
       await worker.wait()
       const done = report()
       if (done.ok !== true) {

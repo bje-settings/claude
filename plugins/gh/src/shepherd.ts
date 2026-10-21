@@ -599,7 +599,7 @@ export const readRequiredContexts = async (
   const answer = await gh.requiredContexts({ branch: base })
   if (answer.unavailable === null) return answer.contexts
   err.write(
-    `the required checks of ${base} are unavailable: ${answer.unavailable}; no check is required\n`,
+    `the required checks of ${base} are unavailable: ${answer.unavailable}; the rollup alone decides\n`,
   )
   return null
 }
@@ -794,7 +794,8 @@ export const failedRequired = (pull: unknown, contexts: readonly string[] | null
 
 /**
  * The required contexts with no row at all in the rollup of `pull`.
- * `shepherd-stack merge` waits for these. `null` contexts name none.
+ * `shepherd-stack wait` waits for these, and `merge` refuses on them.
+ * `null` contexts name none.
  */
 export const unreportedRequired = (pull: unknown, contexts: readonly string[] | null): string[] => {
   const raw = field(pull, 'statusCheckRollup')

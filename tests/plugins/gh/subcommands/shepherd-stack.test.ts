@@ -489,6 +489,60 @@ it('wait gives each layer what is left of the one bound', async () => {
   expect(ran.document).toMatchObject({ result: 'pending', layer: 471, report: { bound: 1 } })
 })
 
+it('wait holds a layer whose required check has no row, until the bound ends', async () => {
+  const lint = world()
+  ;(lint.layers[1] as Layer).overrides = { statusCheckRollup: [run('lint', 'SUCCESS')] }
+  const none = world()
+  ;(none.layers[1] as Layer).overrides = { statusCheckRollup: [] }
+
+  const env = { SHEPHERD_WAIT_BOUND: '60', SHEPHERD_WAIT_POLL: '30' }
+  const withLint = await stack(serve(lint), 'wait', env)
+  const withNone = await stack(serve(none), 'wait', env)
+
+  for (const ran of [withLint, withNone]) {
+    expect(ran.document).toMatchObject({
+      ok: true,
+      result: 'pending',
+      layer: 471,
+      report: { result: 'pending', unreported: ['vitest'], waited: 60 },
+    })
+  }
+})
+
+it('wait passes a layer once its required check reports', async () => {
+  const state = world()
+  const layer = state.layers[1] as Layer
+  layer.overrides = { statusCheckRollup: [] }
+  const gh = serve(state, {
+    more: {
+      // The required check reports on the second read of the top layer.
+      viewPullRequest: async ({ pullRequest }) => {
+        const found = state.layers.find((each) => each.number === pullRequest) as Layer
+        const reply = row(found.number, found.head, found.overrides)
+        if (pullRequest === 471) layer.overrides = {}
+        return reply
+      },
+    },
+  })
+
+  const ran = await stack(gh, 'wait', { SHEPHERD_WAIT_BOUND: '60', SHEPHERD_WAIT_POLL: '30' })
+
+  expect(ran.document).toMatchObject({ ok: true, result: 'passed' })
+})
+
+it('wait decides from the rollup alone when the required checks cannot be read', async () => {
+  const state = world()
+  ;(state.layers[1] as Layer).overrides = { statusCheckRollup: [] }
+
+  const ran = await stack(
+    serve(state, { contexts: { contexts: [], unavailable: 'gh: HTTP 502' } }),
+    'wait',
+  )
+
+  expect(ran.document).toMatchObject({ ok: true, result: 'passed' })
+  expect(ran.stderr).toContain('the required checks of main are unavailable')
+})
+
 it('wait refuses, with the layer, when the wait of a layer did not complete', async () => {
   const gh = serve(world(), {
     more: { viewPullRequest: async () => Promise.reject(ghFails('gh: HTTP 502')) },

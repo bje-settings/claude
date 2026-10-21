@@ -38,7 +38,7 @@ flowchart TD
     U2 -->|Moved| U1
     U1 -->|No layer left| UD([updated, or current])
 
-    F -->|wait| W1[shepherd-pr wait on the next layer,<br/>in what is left of one bound]
+    F -->|wait| W1[shepherd-pr wait on the next layer,<br/>in what is left of one bound;<br/>a required check with no row is pending]
     W1 -->|Passed| W1
     W1 -->|Behind, failed, stalled, pending, merged| WR([That result, with the layer report])
     W1 -->|The wait did not complete| WX([ok:false, with the layer]):::stop
@@ -49,7 +49,7 @@ flowchart TD
     M1 -->|A layer is not ready, behind, out of sync,<br/>not green, or a required check has not reported;<br/>or an entry is closed| MN([not_ready, each layer and reason]):::stop
     M1 -->|Every layer is ready, current and green| M2{A merge method that the repository<br/>and the rules of the base allow?}
     M2 -->|Unread| MU
-    M2 -->|None| MN
+    M2 -->|None| MD([not_ready, no layer, detail names the base]):::stop
     M2 -->|Squash, else merge, else rebase| M3[gh stack merge stack --yes, from the checkout]
     M3 -->|GitHub refused| MR([refused, gh's own words as the reason])
     M3 -->|Accepted| M4{Each layer reads MERGED?}
@@ -64,4 +64,5 @@ flowchart TD
 No step force pushes. `update` asks GitHub to merge the base into a layer, and GitHub then merges
 such a stack (the probe of ruling 3 on #469). `gh stack merge` is all or nothing, and GitHub
 applies the rules of the base to it. A read that failed never decides a verdict: it gives
-`ok:false` or `unread`, and the agent reads again.
+`ok:false` or `unread`, and the agent reads again. Required checks that could not be read are the
+one exception: the rollup alone decides, and GitHub still applies the rules.

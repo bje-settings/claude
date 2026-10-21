@@ -165,8 +165,8 @@ layer is judged by the rules of the stack base, as GitHub merges it, not by the 
 base. A stack is not ready, and goes to `not_ready` with each layer and reason, when a layer "is
 a draft", an entry "is closed", a required check of the stack base failed, or a layer "needs an
 approval" or "has unresolved review threads". `--all` drops the last two. A required check that
-is still pending is no reason: the loop waits for it. With a label, a stack is a target when one
-of its open layers carries it.
+is still pending, or has not reported, is no reason: `shepherd-stack wait` waits for it. With a
+label, a stack is a target when one of its open layers carries it.
 
 ### Flags
 
@@ -265,13 +265,14 @@ a cause. GitHub decided that, not the clock.
 
 ### A stack, step by step
 
-`shepherd-stack` runs each step on every layer, bottom first. Each layer is a `shepherd-pr` step.
+`shepherd-stack` runs `state`, `update` and `wait` on each open layer, bottom first. Each layer
+is a `shepherd-pr` step. `merge` is one `gh stack merge` for the whole stack.
 
 | Step | What it does |
 | --- | --- |
 | `state` | Each layer as `shepherd-pr state` reads it, by the rules of the stack base, with its reasons. `ready` is true when no layer has one. |
 | `update` | Merges the base into each layer that is behind, with `gh pr update-branch` in MERGE mode, and reads until the head moves. A conflict goes to the agent, which resolves it with a plain push. |
-| `wait` | `shepherd-pr wait` on each layer, in one bound for the stack. The first layer that does not pass decides. |
+| `wait` | `shepherd-pr wait` on each layer, in one bound for the stack. A required check of the base with no row on a layer is pending. The first layer that does not pass decides. |
 | `merge` | Refuses unless every layer is ready, current and green. Then `gh stack merge <stack> --yes`, with squash, else merge, else rebase: the first that the repository and the rules of the base allow. A refusal by GitHub comes back in gh's own words. |
 
 No step force pushes. A probe on #469 showed that GitHub merges a stack whose layers took the base
@@ -333,7 +334,8 @@ answer instead of a refusal, because that answer is exactly what `settle` is ask
 `shepherd-stack` prints one JSON object per action too, with `stack` in place of `number`. A
 read that fails never decides a verdict: it gives `ok: false`, or `result` `unread` from
 `merge`. `merge` gives `merged`, `accepted` (GitHub took the merge, and a layer is not
-merged yet), `refused` with gh's `reason`, or `not_ready` with each layer and reason.
+merged yet), `refused` with gh's `reason`, or `not_ready` with each layer and reason. A
+`not_ready` with an empty `failing` is a base that allows no merge method, and `detail` says so.
 `node <plugin>/scripts/gh.ts shepherd-stack --help` has the whole contract.
 
 `node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs

@@ -208,8 +208,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|updat
 ```
 
 1. Call `state`. If `ready` is false, record the stack as skipped. Copy each `failing` layer
-   and its `reasons`. With `--all`, "needs an approval" and "has unresolved review threads"
-   are no reason to skip. `ok:false` is a read that failed: call `state` again. A second
+   and its `reasons`. `--all` does not change this: GitHub refuses the merge of a stack with
+   a layer that "needs an approval" or "has unresolved review threads", so `state` keeps those
+   reasons. `ok:false` is a read that failed: call `state` again. A second
    `ok:false` is skipped, with the detail.
 2. Call `update`. It merges the base into each layer that is behind, bottom up. On `updated`,
    `current` or `stopped`, go to `wait`. On `ok:false`, re-read `state`. A conflict on
@@ -220,7 +221,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|updat
    - On `passed`, go to `merge`.
    - On `behind`, go to `update`, then `wait`. Count it as in step 3, from
      `report.pr.headRefOid` of `layer`.
-   - On `pending`, call `wait` again.
+   - On `pending`, call `wait` again. A required check that never reports holds the stack.
+     So a second `pending` in a row whose `report.unreported` names the same checks is
+     skipped, with `layer` and those names.
    - On `failed`, classify and fix the failure of `layer`, as steps 4 and 5 do, then `wait`.
      The fix cap is for the whole stack.
    - On `stalled`, record it as skipped, with `layer` and the `report.progress` fields.
@@ -233,8 +236,11 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|updat
    - On `refused`, record it as skipped. Copy `reason` verbatim: it is gh's own words.
    - On `not_ready`, and "is behind its base", go to `update`. On "checks are pending" or a
      required check that "has not reported", go to `wait`. On any other reason, skip, with
-     each `failing` layer and its `reasons`.
+     `detail` and each `failing` layer and its `reasons`. An empty `failing` is a base that
+     allows no merge method.
    - On `unread`, call `merge` again. A second `unread` is skipped, with the detail.
+   - On any other `ok:false`, such as a stack that is gone, re-read `state`. A second one is
+     skipped, with the detail.
 
 ## Report
 

@@ -393,6 +393,16 @@ it('allows one merge, shepherd-stack merge, and no other', () => {
   )
 })
 
+it('ends each stack loop that a read or a rule could hold open', () => {
+  const stack = flat(section(AGENT, '## A stack target', '## Report'))
+  expect(stack).toContain('`--all` does not change this')
+  expect(stack).toContain(
+    'a second `pending` in a row whose `report.unreported` names the same checks is skipped',
+  )
+  expect(stack).toContain('An empty `failing` is a base that allows no merge method')
+  expect(stack).toContain('On any other `ok:false`, such as a stack that is gone, re-read `state`')
+})
+
 it('never force pushes, a stack included', () => {
   const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
   expect(rules).toContain('and never force. This holds for a stack too')
