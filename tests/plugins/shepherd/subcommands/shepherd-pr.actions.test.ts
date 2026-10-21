@@ -1293,10 +1293,11 @@ it('decides from the rollup alone when the jobs cannot be read, and says why onc
   expect(result.stderr).toBe('progress may miss steps of run 11: gh: API rate limit exceeded\n')
 })
 
-it('reports no stall on a read whose jobs read failed, since the steps may have moved', async () => {
+it('reports no stall under twice the bound on a read whose jobs read failed', async () => {
   // The rollup alone is 30 minutes still, past the 27 minute bound. Only
-  // the steps could prove progress, and they could not be read, so the call
-  // ends pending.
+  // the steps could prove progress, and they could not be read. So the
+  // bound is twice 1620 seconds, and the call ends pending (ruling 3 on
+  // #476).
   const result = await waitAt(
     REBASED + 30 * MINUTE,
     [running(REBASED)],
@@ -1306,9 +1307,54 @@ it('reports no stall on a read whose jobs read failed, since the steps may have 
 
   expect(result.document).toMatchObject({
     result: 'pending',
-    progress: { idle: 1860, stall_bound: 1620, source: 'checks' },
+    progress: { idle: 1860, stall_bound: 3240, source: 'checks' },
   })
   expect(result.stderr).toBe('progress may miss steps of run 11: gh: HTTP 502\n')
+})
+
+it('reports stalled at twice the bound when the jobs read fails on every poll, the #476 field case', async () => {
+  // The call starts 50 minutes after the last stamp, and each poll is 30
+  // seconds. The jobs read fails on each one. The poll at 54 minutes is the
+  // first to reach twice 1620 seconds, so the earlier polls end in no
+  // verdict.
+  const result = await waitAt(
+    REBASED + 50 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '540' },
+    { listRunJobs: { rows: [], unavailable: 'gh: HTTP 502' } },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'stalled',
+    waited: 240,
+    detail: 'no check started or finished for 3240s; the stall bound is 3240s',
+    progress: { idle: 3240, stall_bound: 3240, source: 'checks' },
+  })
+  // Stderr says why once, though each poll missed.
+  expect(result.stderr).toBe('progress may miss steps of run 11: gh: HTTP 502\n')
+})
+
+it('doubles a stall bound that the run span sets, on a read whose jobs were read in part', async () => {
+  // The steps read run from 20:14 to 20:54, so the span is 2400 seconds,
+  // past the 1620 second floor. A part read doubles that span. The last
+  // read is at the 30 second bound.
+  const last = REBASED + 40 * MINUTE
+  const result = await waitAt(
+    last + 60 * MINUTE,
+    [running(REBASED)],
+    { SHEPHERD_WAIT_BOUND: '30' },
+    {
+      listRunJobs: {
+        ...jobsOf(REBASED, [last]),
+        unavailable: 'run 11 has 2500 jobs; 2000 were read',
+      },
+    },
+  )
+
+  expect(result.document).toMatchObject({
+    result: 'pending',
+    progress: { idle: 3630, stall_bound: 4800 },
+  })
 })
 
 it('keeps the steps it read from a run whose jobs were read in part', async () => {
