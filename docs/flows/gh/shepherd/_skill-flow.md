@@ -4,7 +4,7 @@ description: What the /gh:shepherd skill does, and every way it declines to act,
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-19
+  at: 2026-10-20
 ---
 
 # /gh:shepherd skill flow
@@ -34,6 +34,7 @@ flowchart TD
         S[Next PR, lowest merge risk then oldest] --> T{PR state}
         T -->|Already merged or closed| S
         T -->|Auto-merge turned off since selection| SN([Skipped: auto-merge is off]):::stop --> S
+        T -->|Head out of sync with its branch ref| OS([Skipped: head out of sync with its branch, both SHAs named]):::stop --> S
         T -->|Without --all: approval missing or threads unresolved| NA([Skipped: needs an approval, or has unresolved review threads]):::stop --> S
         T -->|Head behind the base, no conflict, whatever the merge state| R[Rebase without a checkout,<br/>read until the head moves] --> W[Wait one CI cycle]
         T -->|Conflicts, any author| MG[Merge the base in a worktree, resolve, verify, plain push] --> W
@@ -48,8 +49,8 @@ flowchart TD
         P -->|Bound passed, nothing reported against it| BL
         P -->|Base moved: BEHIND or DIRTY| T
         P -->|Closed while settle runs| CS([Closed, terminal]):::stop --> S
-        W -->|Still in progress| W
-        W -->|Still in progress after three waits, head unchanged| BP([Skipped: checks did not finish]):::stop --> S
+        W -->|Still in progress: a check, job or step started or finished| W
+        W -->|Stalled: no check, job or step started or finished for the stall bound| BP([Skipped: checks made no progress]):::stop --> S
         W -->|Checks failed| K{Cause of the failure?}
         K -->|Mechanical, or caused by the base, within the fix cap| F[Fix in a throwaway worktree, plain push] --> W
         K -->|Logic or config check already failing on the PR's own head| SK([Skipped: failed before shepherd]):::stop --> S

@@ -91,11 +91,13 @@ const repositoryClient = (cwd: string) => createGhClient({ cwd, env: process.env
 // also poll, so the clock and the sleep function are arguments, not
 // imports. These are the real ones, built here with every other edge of
 // the process. `performance` is node's monotonic clock, the same role
-// `time.monotonic()` had. The timer is the one `time.sleep` used.
+// `time.monotonic()` had. `Date` is the wall clock, which `wait` compares
+// with GitHub's check stamps (#466). The timer is the one `time.sleep` used.
 const shepherdEdges = {
   createGh: (target: { cwd?: string; repository?: string }) =>
     createGhClient({ ...target, env: process.env }),
   now: () => performance.now(),
+  clock: () => Date.now(),
   sleep: (milliseconds: number) =>
     new Promise<void>((resolve) => {
       setTimeout(resolve, milliseconds)

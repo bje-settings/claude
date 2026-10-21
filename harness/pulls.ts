@@ -248,6 +248,7 @@ export const depPr = (number: number, keys: DepPrKeys = {}): PullRequestRow => {
     mergeable: merge === 'DIRTY' ? 'CONFLICTING' : 'MERGEABLE',
     headRefOid: head,
     headRefName: `dependabot/npm/dep-${number}`,
+    isCrossRepository: false,
     baseRefName: 'main',
     createdAt: created,
     mergeCommit: state === 'MERGED' ? { oid: `merged${number}` } : null,
@@ -409,6 +410,23 @@ export function createGhServer(options: GhServerOptions = {}): GhClient {
     viewRepository: async () => registered('viewRepository') ?? base.viewRepository(),
     listRuns: async (query) => registered('listRuns') ?? base.listRuns(query),
     readFailedRunLog: async (run) => registered('readFailedRunLog') ?? base.readFailedRunLog(run),
+
+    // The ref of a branch is the head of the pull request that names it, as
+    // GitHub keeps them in step (#467). A branch that no row names is the
+    // 404 GitHub answers, in `branchRef`'s words.
+    branchRef: async (query) => {
+      const sequenced = registered('branchRef')
+      if (sequenced !== undefined) return sequenced
+      if (hasReply('branchRef')) return base.branchRef(query)
+      const found = rowsFor('branchRef').find((row) => row.headRefName === query.branch)
+      if (found === undefined) {
+        return {
+          sha: null,
+          unavailable: `the ref of ${query.branch} carried no commit (404: Not Found)`,
+        }
+      }
+      return { sha: String(found.headRefOid), unavailable: null }
+    },
     updateBranch: async (pull) => registered('updateBranch') ?? base.updateBranch(pull),
     addComment: async (comment) => registered('addComment') ?? base.addComment(comment),
   }

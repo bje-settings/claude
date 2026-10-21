@@ -317,6 +317,20 @@ export interface PullRequestDetail {
   readonly commentAuthors: readonly string[]
 }
 
+/** The two stamps of a job or of one of its steps. GitHub answers null for
+ *  a stamp it has not set. */
+export interface JobStamps {
+  readonly startedAt: string | null
+  readonly completedAt: string | null
+}
+
+/** One job of a workflow run, as `actions/runs/{id}/jobs` reports it, with
+ *  the stamps of each step (#466). */
+export interface RunJob extends JobStamps {
+  readonly id: number
+  readonly steps: readonly JobStamps[]
+}
+
 /** One workflow run, as `actions/runs` reports it. */
 export interface WorkflowRun {
   /** The run's `id`, the same number as {@link CheckWorkflowRun.id}. Of two
@@ -498,6 +512,18 @@ export interface GhResults {
   /** One compare of two commits, or null when it could not be read. */
   compareCommits: {
     readonly comparison: CommitComparison | null
+    readonly unavailable: string | null
+  }
+  /** The commit one branch points at, or null when it could not be read. */
+  branchRef: {
+    readonly sha: string | null
+    readonly unavailable: string | null
+  }
+  /** The jobs of one workflow run, with the stamps of their steps. */
+  listRunJobs: PagedResult<RunJob>
+  /** When one commit was committed, or null when it could not be read. */
+  commitDate: {
+    readonly date: string | null
     readonly unavailable: string | null
   }
   /** The statuses with one context prefix on a pull request's commits. */
@@ -719,6 +745,39 @@ export interface GhClient {
     readonly head: string
   }): Promise<GhResults['compareCommits']>
   /**
+   * The commit that one branch of this repository points at, through REST
+   * (`repos/{owner}/{name}/git/ref/heads/{branch}`): the ref's `object.sha`.
+   *
+   * The endpoint answers an exact name only. A name that no branch has is a
+   * 404, never a branch whose name starts with it. `shepherd-pr` compares
+   * this with a pull request's `headRefOid` (#467).
+   *
+   * Never throws, for {@link PagedResult}'s reason. A ref that could not be
+   * read is a null `sha`, with the reason beside it.
+   */
+  branchRef(query: { readonly branch: string }): Promise<GhResults['branchRef']>
+  /**
+   * The jobs of one workflow run through REST
+   * (`repos/{owner}/{name}/actions/runs/{run}/jobs`), with the
+   * `started_at` and `completed_at` of each job and each step.
+   * `shepherd-pr wait` reads a step that starts or finishes as progress
+   * (#466).
+   *
+   * It reads one page of 100 jobs. A run with more names the rest in
+   * `unavailable`, and so does a job that is not the shape REST promises.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listRunJobs(query: { readonly run: string }): Promise<GhResults['listRunJobs']>
+  /**
+   * The committer date of one commit through REST
+   * (`repos/{owner}/{name}/commits/{sha}`). `shepherd-pr wait` measures a
+   * rollup with no stamp from it (#466).
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  commitDate(query: { readonly sha: string }): Promise<GhResults['commitDate']>
+  /**
    * The commit statuses whose context starts with `prefix`, on the first 100
    * commits of one pull request (#377). Each row carries its commit,
    * context, state, description and `createdAt`, and nothing else.
@@ -914,6 +973,8 @@ export interface GhClientOptions {
  * shepherd counts the approvals in `reviews` (#465). It is not
  * `latestReviews`: gh answers that field with an empty `commit.oid` on
  * every review (read on 2026-10-19), and a last-push rule needs the commit.
+ * `state` reads the ref of `headRefName` when `isCrossRepository` is false
+ * (#467).
  * `MERGED_PULL_REQUEST_FIELDS` matches `lib/prs.py`'s `FIELDS` for the merged
  * window, plus `number` and `mergeCommit`. `sync-repo` fetches a pull
  * request's head by its number (#450). Its merge commit proves that the
@@ -926,7 +987,7 @@ export interface GhClientOptions {
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
   'headRefOid,statusCheckRollup,createdAt,state,mergeCommit,reviewDecision,baseRefName,' +
-  'reviews'
+  'reviews,headRefName,isCrossRepository,updatedAt'
 const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
 const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
@@ -962,6 +1023,10 @@ const SWEEP_PAGES = 20
  * API. A caller that measures durations passes its own sample size instead.
  */
 const RUN_PAGE = 30
+
+/** How many jobs `listRunJobs` asks for: REST's largest page. A run with
+ *  more says so in `unavailable`. */
+const JOB_PAGE = 100
 
 /** Every value {@link IssueState} can hold, as a `Record`, not a bare array
  *  literal. A new member added to the union with no key here to match it is
@@ -1823,6 +1888,21 @@ const readPullRequestDetail = (
     },
     reasons,
   }
+}
+
+/** One job of a run with the stamps of its steps, or null for a job that
+ *  has no numeric `id` or no `steps` list. A stamp that is not text is
+ *  null, which is what GitHub answers for a stamp it has not set. */
+const readRunJob = (node: unknown): RunJob | null => {
+  const record = asRecord(node)
+  const id = asInteger(record?.id)
+  const steps = record?.steps
+  if (id === null || !Array.isArray(steps)) return null
+  const stamps = (value: unknown): JobStamps => ({
+    startedAt: asText(asRecord(value)?.started_at),
+    completedAt: asText(asRecord(value)?.completed_at),
+  })
+  return { id, ...stamps(record), steps: steps.map(stamps) }
 }
 
 /** One `actions/runs` row, or null when it is not the shape REST promises.
@@ -2859,6 +2939,67 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
       const answer = await restJson(`compare/${path}?per_page=1`)
       if (answer.unavailable !== null) return { comparison: null, unavailable: answer.unavailable }
       return readComparison(answer.value, range)
+    },
+
+    // A run that does not exist answers a 404 body with no `jobs`. The
+    // shape was read live on 2026-10-20.
+    listRunJobs: async (query) => {
+      const answer = await restJson(
+        `actions/runs/${encodeURIComponent(query.run)}/jobs?per_page=${JOB_PAGE}`,
+      )
+      if (answer.unavailable !== null) return { rows: [], unavailable: answer.unavailable }
+      const reply = asRecord(answer.value)
+      const jobs = reply?.jobs
+      if (!Array.isArray(jobs)) {
+        return {
+          rows: [],
+          unavailable: `the jobs of run ${query.run} were not a list${errorBodyOf(answer.value)}`,
+        }
+      }
+      const rows: RunJob[] = []
+      const reasons: string[] = []
+      for (const entry of jobs) {
+        const row = readRunJob(entry)
+        if (row !== null) rows.push(row)
+      }
+      if (rows.length < jobs.length) {
+        reasons.push(`${jobs.length - rows.length} job(s) of run ${query.run} could not be read`)
+      }
+      const total = asInteger(reply?.total_count) ?? jobs.length
+      if (total > jobs.length) {
+        reasons.push(`run ${query.run} has ${total} jobs; ${jobs.length} were read`)
+      }
+      return { rows, unavailable: joinedReasons(reasons) }
+    },
+
+    commitDate: async (query) => {
+      const answer = await restJson(`commits/${encodeURIComponent(query.sha)}`)
+      if (answer.unavailable !== null) return { date: null, unavailable: answer.unavailable }
+      const commit = asRecord(asRecord(answer.value)?.commit)
+      const date = asText(asRecord(commit?.committer)?.date)
+      if (date === null) {
+        return {
+          date: null,
+          unavailable: `the commit ${query.sha} carried no committer date${errorBodyOf(answer.value)}`,
+        }
+      }
+      return { date, unavailable: null }
+    },
+
+    // A 404 still answers JSON, with GitHub's `message` in it, so it reads
+    // as a ref with no `object`. `%2F` in the name reaches the ref
+    // `heads/a/b` (verified live on 2026-10-20).
+    branchRef: async (query) => {
+      const answer = await restJson(`git/ref/heads/${encodeURIComponent(query.branch)}`)
+      if (answer.unavailable !== null) return { sha: null, unavailable: answer.unavailable }
+      const sha = asText(asRecord(asRecord(answer.value)?.object)?.sha)
+      if (sha === null || sha === '') {
+        return {
+          sha: null,
+          unavailable: `the ref of ${query.branch} carried no commit${errorBodyOf(answer.value)}`,
+        }
+      }
+      return { sha, unavailable: null }
     },
 
     listPullRequestStatuses: async (query) => {

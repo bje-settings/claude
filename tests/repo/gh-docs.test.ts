@@ -107,7 +107,37 @@ it('runs the step 1 checks again after every read of state', () => {
 
 it('names the review verdicts among the fields a skip reason may copy', () => {
   const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
-  expect(rules).toContain('`autoMerge`, `pr.approval`, `pr.threads` and the script')
+  expect(rules).toContain('`autoMerge`, `pr.approval`, `pr.threads`')
+})
+
+// --- a head out of sync with its branch (#467) ------------------------------
+
+it('skips a head out of sync with its branch, before any rebase or wait, with both SHAs', () => {
+  // Rule 15 (h). A rebase cannot move a head that GitHub has not moved to
+  // the newest push of its branch.
+  const step = flat(section(AGENT, '1. `state`.', '2. Decide from'))
+  expect(step).toContain(
+    'If `pr.inSync` is false, record it as skipped ("head out of sync with its branch: ' +
+      'headRefOid <pr.headRefOid>, branch at <pr.branchRefOid>") and continue, before any ' +
+      '`rebase` or `wait`',
+  )
+  expect(step).toContain('Copy both SHAs from the JSON')
+  expect(step).toContain('A `null` `pr.inSync` is not a reason to skip')
+  // The out-of-sync check comes before the check of the review rules.
+  expect(step.indexOf('`pr.inSync` is false')).toBeLessThan(step.indexOf('review rules next'))
+})
+
+it('names both SHAs among the fields a skip reason may copy', () => {
+  const rules = flat(section(AGENT, '## Hard rules', '## The loop'))
+  expect(rules).toContain(
+    '`pr.headRefOid`, `pr.branchRefOid`, the `progress` fields and the script',
+  )
+})
+
+it('draws the out-of-sync skip in the skill flow', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('Head out of sync with its branch ref')
+  expect(body).toContain('Skipped: head out of sync with its branch, both SHAs named')
 })
 
 it('takes the --all flag as input to the agent', () => {
@@ -209,21 +239,57 @@ it('goes to wait on each rebase result, and never rebases again on a failed read
   expect(step).not.toContain('make sure')
 })
 
-it('sends a behind result from wait back to step 2, apart from the pending count', () => {
-  const behind = section(AGENT, '- `behind` → ', '4. Classify the failure')
+it('sends a behind result from wait back to step 2, and counts it toward its own skip', () => {
+  const behind = flat(section(AGENT, '- `behind` → ', '4. Classify the failure'))
 
   expect(behind).toContain('Go back to step 2')
   expect(behind).not.toContain('the base moved')
-  expect(behind).toContain('does not count toward the three')
   // Ruling 16: a `behind` after a rebase that moved the head does not count.
   // A rebase whose last read failed has no `result`, so its `behind` counts.
-  expect(behind).toContain(
-    'Count a `behind` result unless the\n     `rebase` before it returned `moved`',
-  )
-  expect(behind).toContain(
-    'Stop after three counted results with no change in\n     `pr.headRefOid`',
-  )
+  expect(behind).toContain('Count a `behind` result unless the `rebase` before it returned `moved`')
+  expect(behind).toContain('Stop after three counted results with no change in `pr.headRefOid`')
   expect(behind).toContain('("rebase did not move a head that stays behind its base")')
+})
+
+// --- checks that stall (#466) -------------------------------------------------
+
+it('calls wait again on pending, and never counts pending toward a skip', () => {
+  // Rule 15 (h). The script decides a stall, so a run whose checks still
+  // finish is never skipped for its count of `pending` results.
+  const pending = flat(section(AGENT, '- `pending` → ', '- `stalled` → '))
+  expect(pending).toContain('call `wait` again')
+  expect(pending).toContain('Never count `pending` results toward a skip')
+  // Ruling 12: one long job moves through its steps.
+  expect(pending).toContain('the stamps of the checks and of their job steps')
+})
+
+it('skips a stalled pull request, with the progress the script read', () => {
+  const stalled = flat(section(AGENT, '- `stalled` → ', '- `failed` → '))
+  expect(stalled).toContain(
+    'no check, job or step started or finished for `progress.stall_bound` seconds',
+  )
+  expect(stalled).toContain('Record the pull request as skipped ("checks made no progress")')
+  expect(stalled).toContain(
+    '`progress.newest`, `progress.idle`, `progress.stall_bound` and `progress.source`',
+  )
+})
+
+it('draws the stalled skip in the skill flow, decided by the script', () => {
+  const body = section(FLOW, '```mermaid', '```')
+  expect(body).toContain('W -->|Still in progress: a check, job or step started or finished| W')
+  expect(body).toContain('Skipped: checks made no progress')
+})
+
+it('draws the jobs read and the head commit fallback in the shepherd-pr flow', () => {
+  // Rulings 12 and 13.
+  const body = section(
+    path.join(FLOWS, 'gh', 'shepherd', 'shepherd-pr-flow.md'),
+    '```mermaid',
+    '```',
+  )
+  expect(body).toContain('Read the jobs of each Actions run with a pending check')
+  expect(body).toContain('The newer of the head commit date and updatedAt')
+  expect(body).toContain('a failed read gives no stall on this poll')
 })
 
 it('decides from the merge state when the compare could not be read', () => {

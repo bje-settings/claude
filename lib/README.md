@@ -602,6 +602,42 @@ GitHub refused, such as one for an unknown commit, quotes GitHub's `message`.
 
 `workstreams pr-state` reads it for the commits after the round 1 head (#356).
 
+### `branchRef`
+
+```ts
+const { sha } = await gh.branchRef({ branch: 'dependabot/npm/dep-1' })
+```
+
+`branchRef` reads `repos/{owner}/{name}/git/ref/heads/{branch}` through REST. It answers
+`{ sha, unavailable }` and never throws. `sha` is the ref's `object.sha`, the commit that the
+branch points at. The name is percent-encoded whole: `%2F` reaches the branch `a/b` (verified
+live on 2026-10-20). The endpoint answers an exact name only, so a prefix of a branch name is a
+404.
+
+A 404 still answers JSON. So a reply with no `object.sha` costs the read, and the reason quotes
+GitHub's `status` and `message`. `shepherd-pr state` compares it with a pull request's
+`headRefOid` (#467).
+
+### `listRunJobs` and `commitDate`
+
+```ts
+const { rows } = await gh.listRunJobs({ run: '39508680057' })
+// rows[0] -> { id, startedAt, completedAt, steps: [{ startedAt, completedAt }] }
+const { date } = await gh.commitDate({ sha: 'eb0ee17' })
+```
+
+`listRunJobs` reads `repos/{owner}/{name}/actions/runs/{run}/jobs?per_page=100` through REST. It
+answers `{ rows, unavailable }` and never throws. Each row is a job with its `started_at` and
+`completed_at`, and the same two stamps for each step. GitHub answers null for a stamp it has not
+set, and so does a row here. A job with no numeric `id` or no `steps` list is left out and counted
+in `unavailable`. So is each job past the first page. A run that does not exist is a 404 body,
+which `unavailable` quotes.
+
+`commitDate` reads `repos/{owner}/{name}/commits/{sha}` and answers `{ date, unavailable }`, with
+the committer date. `shepherd-pr wait` reads a step that starts or finishes as progress, and
+measures a rollup with no stamp from the newer of that date and the pull request's `updatedAt`
+(#466).
+
 ### `listPullRequestStatuses` and `createCommitStatus`
 
 ```ts

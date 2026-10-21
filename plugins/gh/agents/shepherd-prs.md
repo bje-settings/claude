@@ -47,8 +47,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-pr <path> <n> state|rebase|w
   a fix worktree. It never pushes. Remove it with `git worktree remove` before you move to the
   next pull request, whether or not it confirmed anything.
 - **A `skipped` reason names only fields you actually read.** Copy `mergeStateStatus`,
-  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads` and the script's own `reason` out of
-  the JSON in front of you.
+  `reviewDecision`, `autoMerge`, `pr.approval`, `pr.threads`, `pr.headRefOid`, `pr.branchRefOid`,
+  the `progress` fields and the script's own `reason` out of the JSON in front of you.
   Never write that a review requirement, a branch protection rule, or a server-side auto-merge
   setting is the cause. Write that only when the state you read says so. "Checks passed and it
   has not merged yet" is not evidence of any of them. A guess in that field becomes a finding
@@ -65,6 +65,10 @@ number, in the order given:
    and continue. If `pr.autoMerge` is false, record it as skipped ("auto-merge turned off after
    selection") and continue. Auto-merge may have changed since the caller selected this pull
    request. This script never turns it on.
+   If `pr.inSync` is false, record it as skipped ("head out of sync with its branch: headRefOid
+   <pr.headRefOid>, branch at <pr.branchRefOid>") and continue, before any `rebase` or `wait`.
+   GitHub has not moved the pull request to the newest push of its branch, so a `rebase` cannot
+   move it. Copy both SHAs from the JSON. A `null` `pr.inSync` is not a reason to skip.
    Without `--all`, check the review rules next, before any `rebase` or `wait`. A review can be
    dismissed, or a thread opened, during the run. If `pr.approval` is `missing`, record it as
    skipped ("needs an approval"). If `pr.threads` is `unresolved`, record it as skipped ("has
@@ -125,15 +129,18 @@ number, in the order given:
        second `ok:false` is skipped, with the detail as the reason.
      Never merge it yourself.
    - `pending` → call `wait` again. (`waited` is how many seconds `wait` read before its bound.)
-     After three consecutive `pending` results with no change in `pr.headRefOid`, record the pull
-     request as skipped ("checks did not finish"). Then continue.
+     `wait` decides from the stamps of the checks and of their job steps when they stall. Never
+     count `pending` results toward a skip.
+   - `stalled` → no check, job or step started or finished for `progress.stall_bound` seconds.
+     With `progress.source` `head commit`, no check has a stamp, and the head is that old.
+     Record the pull request as skipped ("checks made no progress"), with `progress.newest`,
+     `progress.idle`, `progress.stall_bound` and `progress.source`. Then continue.
    - `failed` → classify the failure (step 4).
-   - `behind` → the head does not contain the tip of its base. Go back to step 2. This result
-     does not count toward the three `pending` results. Count a `behind` result unless the
-     `rebase` before it returned `moved`. Stop after three counted results with no change in
-     `pr.headRefOid`. Record the pull request as skipped, with the reason
-     ("rebase did not move a head that stays behind its base"). `update-branch` can report the
-     branch as up to date while the compare still reads behind.
+   - `behind` → the head does not contain the tip of its base. Go back to step 2. Count a
+     `behind` result unless the `rebase` before it returned `moved`. Stop after three counted
+     results with no change in `pr.headRefOid`. Record the pull request as skipped, with the
+     reason ("rebase did not move a head that stays behind its base"). `update-branch` can report
+     the branch as up to date while the compare still reads behind.
 4. Classify the failure from `pr.checks.failing` and `log_tail`. A `log_error` beside them means
    gh would not hand over the log. In that case, the empty `log_tail` is not evidence about the
    failure. An empty tail with no `log_error` means a job that printed nothing. If the log alone

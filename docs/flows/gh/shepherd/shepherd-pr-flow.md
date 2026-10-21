@@ -4,7 +4,7 @@ description: How `gh.ts shepherd-pr` checks its arguments, then runs one of five
 stale_after: 2027-03-25
 generated:
   by: claude-opus
-  at: 2026-10-19
+  at: 2026-10-20
 ---
 
 # shepherd-pr flow
@@ -27,12 +27,20 @@ flowchart TD
     R -->|No| RU([ok false: could not read, exit 0]):::stop
     R -->|state| SR{Review rules of the base read?}
     SR -->|No: stderr says why| SN[approval from reviewDecision alone;<br/>threads null]
-    SR -->|Yes| ST{Rules ask for resolved threads?}
-    ST -->|Yes| STR[Read the unresolved threads;<br/>a failed read is null, stderr says why]
-    ST -->|No| SV
+    SR -->|Yes| SRT{Rules ask for resolved threads?}
+    SRT -->|Yes| STR[Read the unresolved threads;<br/>a failed read is null, stderr says why]
+    SRT -->|No| SV
     STR --> SV[approval: met, missing or not_required;<br/>threads: resolved, unresolved or not_required]
-    SN --> S
-    SV --> S([ok true: the pull request, whether its head<br/>is behind its base, approval and threads, exit 0])
+    SN --> SY
+    SV --> SY{From this repository,<br/>with headRefName?}
+    SY -->|From a fork: no ref read| S
+    SY -->|gh answered without isCrossRepository<br/>or headRefName: stderr says why| S
+    SY -->|Yes| SY2{Ref of the branch read?}
+    SY2 -->|No: stderr says why| S
+    SY2 -->|Yes| SY3{Ref is headRefOid?}
+    SY3 -->|Yes: inSync true| S
+    SY3 -->|No| SO([ok true: inSync false, the detail names<br/>headRefOid and the ref, exit 0])
+    S([ok true: the pull request, whether its head<br/>is behind its base, approval and threads,<br/>branchRefOid and inSync, exit 0])
     R -->|merged| M([ok true: merged with its commit,<br/>or not merged with its state, exit 0])
 
     subgraph writes [rebase: the only write]
@@ -62,9 +70,15 @@ flowchart TD
         W3 -->|Head behind its base| WBH
         W3 -->|Passed| WP
         W3 -->|A check failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
-        W3 -->|Pending| W9{Bound reached?}
+        W3 -->|Pending| WJ[Read the jobs of each Actions run with a pending check;<br/>a failed read gives no stall on this poll, stderr says why]
+        WJ --> WK{Any stamp on a check, job or step?}
+        WK -->|No| WD[The newer of the head commit date and updatedAt<br/>is the one stamp; neither: idle null, stderr says why]
+        WK -->|Yes| WL
+        WD --> WL{Idle for the stall bound?}
+        WL -->|Yes| WS([ok true: result stalled,<br/>with the progress, exit 0])
+        WL -->|No, or idle null| W9{Bound reached?}
         W9 -->|Yes| W7{Last read attempt succeeded?}
-        W7 -->|Yes| WPE([ok true: result pending,<br/>call wait again, exit 0])
+        W7 -->|Yes| WPE([ok true: result pending, with the progress,<br/>call wait again, exit 0])
         W9 -->|No| W10[Sleep one poll, never past the bound,<br/>then read the pull request and the compare]
         W10 --> W11{That read succeeded?}
         W11 -->|Yes| W3

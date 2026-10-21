@@ -122,6 +122,16 @@ export const UNAVAILABLE: GhResults['compareCommits'] = {
   unavailable: 'gh api compare failed: HTTP 502',
 }
 
+/** A run with no job read yet, as `listRunJobs` answers it. */
+export const NO_JOBS: GhResults['listRunJobs'] = { rows: [], unavailable: null }
+
+/** The date of every head commit in a replay: when the wall clock of the
+ *  test starts (#466). */
+export const HEAD_DATE: GhResults['commitDate'] = {
+  date: '2026-10-20T22:30:00Z',
+  unavailable: null,
+}
+
 /**
  * `gh`, with the compare answered from `replies` in order. The last reply
  * repeats.
@@ -135,7 +145,13 @@ export const comparing = (
   options: GhServerOptions,
   replies: readonly GhResults['compareCommits'][],
 ): GhClient => {
-  const server = createGhServer(options)
+  // A `wait` on pending checks reads the jobs of their runs, and the date of
+  // the head when no stamp exists (#466). A test that is about neither gets
+  // no jobs, and a head committed when its clock starts.
+  const server = createGhServer({
+    ...options,
+    replies: { listRunJobs: NO_JOBS, commitDate: HEAD_DATE, ...options.replies },
+  })
   let taken = 0
   return {
     ...server,
@@ -147,16 +163,24 @@ export const comparing = (
   }
 }
 
+/** Where the test wall clock starts: a time after every stamp in the
+ *  harness rows, on the day of the field test (#466). */
+export const WALL = Date.parse('2026-10-20T22:30:00Z')
+
 /** A clock that moves only when something sleeps. A bound then arrives
- *  without a real wait. */
-export const fakeTime = (): {
+ *  without a real wait. The wall clock moves with it, from {@link WALL}. */
+export const fakeTime = (
+  wall = WALL,
+): {
   now: () => number
+  clock: () => number
   sleep: (ms: number) => Promise<void>
   at: () => number
 } => {
   let elapsed = 0
   return {
     now: () => elapsed,
+    clock: () => wall + elapsed,
     sleep: async (milliseconds: number) => {
       // No action sleeps for zero or less. Such a sleep does not move this
       // clock, so a loop that waits for the clock would hang the test. The
@@ -206,6 +230,8 @@ export interface RunOptions {
   readonly env?: NodeJS.ProcessEnv
   /** A stdout stream of the caller's own, for the reader that went away. */
   readonly reader?: (into: string[]) => OutputStream
+  /** Where the wall clock starts, if not at {@link WALL}. */
+  readonly wall?: number
 }
 
 export interface RunResult {
@@ -233,7 +259,7 @@ export const drive = async (
   const repo = createGitFixtures(sandbox).create(sandbox.join('r'))
   const options = build(sandbox, repo)
   const writers = capture(options.reader)
-  const time = fakeTime()
+  const time = fakeTime(options.wall)
   const gh = options.gh ?? createGhServer({ replies: { viewRepository: REPOSITORY } })
   const ghOptions: unknown[] = []
   const context: ShepherdContext = {
@@ -245,6 +271,7 @@ export const drive = async (
       return gh
     },
     now: time.now,
+    clock: time.clock,
     sleep: time.sleep,
   }
   const status = await runShepherdPr(options.argv, context)
@@ -434,7 +461,10 @@ export const replay = async (name: string): Promise<void> => {
     ),
     env: shepherdEnv(sandbox, expected.env),
     gh: createGhServer({
-      prs: expected.prs ?? [],
+      // `isCrossRepository` is #467's, so no capture recorded it. Every
+      // captured pull request is from the repository itself. The server
+      // answers each branch ref with the head of its row.
+      prs: (expected.prs ?? []).map((row) => ({ isCrossRepository: false, ...row })),
       ...ARRANGEMENTS[name],
       // Merged rather than replaced: an arrangement that registers one reply
       // must not unregister the one every case needs.
@@ -445,6 +475,11 @@ export const replay = async (name: string): Promise<void> => {
         viewRepository: REPOSITORY,
         compareCommits: AHEAD,
         requiredReviews: NO_RULE,
+        // The jobs and the head date are #466's, so no capture recorded
+        // them. Each run has no job to read, and each head was committed
+        // when the clock of the replay starts.
+        listRunJobs: NO_JOBS,
+        commitDate: HEAD_DATE,
         ...ARRANGEMENTS[name]?.replies,
       },
     }),

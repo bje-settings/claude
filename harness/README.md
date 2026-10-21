@@ -87,8 +87,8 @@ change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullReque
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
 `issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
-`requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`,
-`listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
+`requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `branchRef`,
+`listRunJobs`, `commitDate`, `listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
 
 `issueStates` answers with a record, `{ states, unavailable }`. It never throws.
 So a test has nothing else to register beside its one reply.
@@ -100,7 +100,9 @@ with a null pull request for one it could not read. `listWorkflowRuns` answers
 `{ rows, unavailable }`. So does `listOpenPullRequestHeads`, the one read the watch and the
 intersect make for every open head. So does `listOpenPullRequestLinks`, the read of the stack
 links. `compareCommits` answers `{ comparison, unavailable }`, with a null comparison for one it
-could not read. `requiredReviews` answers `{ reviews, unavailable }`, with null `reviews` for rules
+could not read. `branchRef` answers `{ sha, unavailable }`, with a null `sha` for a ref it could
+not read. `listRunJobs` answers `{ rows, unavailable }`. `commitDate` answers `{ date, unavailable }`,
+with a null `date` for a commit it could not read. `requiredReviews` answers `{ reviews, unavailable }`, with null `reviews` for rules
 it could not read. `listPullRequestStatuses` answers `{ rows, unavailable }`. `createCommitStatus`
 is a write, and throws on a failure, as `addComment` does.
 
@@ -219,7 +221,9 @@ simple. Both are things the stub `gh` in the Python suite gave it:
   filter GitHub applies on its own server: `--state` (case-insensitive; a row with no state at
   all counts as merged), `--base`, `--head`, `--label`, and `--limit`. It also resolves
   `pr view <n>` against the same set, and fails a number that resolves to nothing, in gh's own
-  words.
+  words. `branchRef` answers the `headRefOid` of the row whose `headRefName` names the branch,
+  because GitHub keeps the two in step. A branch that no row names is GitHub's 404. A test of a
+  head out of sync with its branch registers its own `branchRef` reply (#467).
 - **The same question twice, with a changing answer.** `settle` reads the pull request until
   GitHub decides. The Python suite arranged this by rewriting the canned file from a background
   thread, gated on the call log.

@@ -20,6 +20,7 @@ import {
   recording,
   settleEnv,
   UPDATED,
+  WALL,
 } from './shepherd-pr.test-support.ts'
 
 it('reports merged when auto-merge lands after the first read', async () => {
@@ -248,6 +249,7 @@ it('measures the time it waited rather than adding up its sleeps', async () => {
     output: writers.output,
     createGh: () => gh,
     now: () => elapsed,
+    clock: () => WALL + elapsed,
     sleep: async (milliseconds) => {
       elapsed += milliseconds
     },

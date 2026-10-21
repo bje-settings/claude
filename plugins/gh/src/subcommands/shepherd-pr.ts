@@ -28,12 +28,15 @@ import { GhError } from '../lib/gh.ts'
 import { toplevel } from '../lib/git.ts'
 import type { Writer } from '../lib/streams.ts'
 import {
+  type CheckProgress,
+  checkProgress,
   directoryRefusal,
   isTruthy,
   jobLink,
   missingField,
   oneLine,
   type PullSummary,
+  pendingRuns,
   readReviewRules,
   readUnresolvedThreads,
   type ShepherdContext,
@@ -64,9 +67,21 @@ const WAIT_BOUND_MAX = 540
 
 /** How often `wait` reads the pull request and the compare, in seconds. Each
  *  read is three `gh` calls: the pull request, the repository and the
- *  compare. A 540 second bound is 19 reads, so at most 57 calls. A failed
- *  check adds one call for its log (#460). */
+ *  compare. A 540 second bound is 19 reads, so 57 calls. A pending read
+ *  adds one call for each Actions run with a pending check, and one for the
+ *  date of the head when no check has a stamp (#466). A failed check adds
+ *  one call for its log (#460). */
 const WAIT_POLL_DEFAULT = 30
+
+/** The least time, in seconds, that the checks of a head may make no
+ *  progress before `wait` reports `stalled` (#466). The bound is the
+ *  largest of this, twice `ci_seconds`, and the run's own time so far. So
+ *  a `ci_seconds` that is too small (#463) cannot make the bound smaller.
+ *  1620 seconds is three default `wait` calls at their longest, 540 seconds
+ *  each (`WAIT_BOUND_MAX`). That is what the agent's old rule of three
+ *  `pending` results allowed, so no healthy long step skips sooner than it
+ *  did before #466 (ruling 14). */
+const STALL_FLOOR_DEFAULT = 1620
 
 /** Compare statuses that say the head does not contain the tip of its base.
  *  `diverged` is in this list too: the base has commits that the head lacks.
@@ -134,6 +149,18 @@ const SETTLED_CHECK_STATES = ['passed', 'none']
  *  `mergeStateStatus`. */
 type PullState = PullSummary & { readonly behind: boolean | null }
 
+/** Whether the head of a pull request is the commit its branch points at
+ *  (#467). Only `state` reads the ref, so only its `pr` carries this.
+ *  `branchRefOid` is the commit of the branch ref. `inSync` is `false` when
+ *  it differs from `headRefOid`. Both are `null` for a pull request from
+ *  another repository, which has no branch here to read, and for a read
+ *  that failed. stderr then says why. */
+type BranchSync =
+  | { readonly branchRefOid: string; readonly inSync: boolean }
+  | { readonly branchRefOid: null; readonly inSync: null }
+
+const NO_SYNC: BranchSync = { branchRefOid: null, inSync: null }
+
 export const HELP = `The deterministic per-pull-request steps of /gh:shepherd.
 
 Usage:
@@ -152,6 +179,12 @@ cannot make it act on the wrong pull request.
             plus \`pr.behind\`. It is true when the compare of baseRefName
             and the head is behind or diverged. It is false when the compare
             is ahead or identical. It is null when the compare could not be
+            read (stderr says why). Then \`pr.branchRefOid\`, the commit of
+            the ref of headRefName, and \`pr.inSync\`. \`inSync\` is false
+            when that commit is not headRefOid: GitHub has not moved the
+            pull request to the newest push of its branch. The detail then
+            names both commits. Both are null for a pull request from
+            another repository (no read), and for a ref that could not be
             read (stderr says why). \`pr.approval\` (met, missing,
             not_required) and \`pr.threads\` (resolved, unresolved,
             not_required) come from the review rules of baseRefName,
@@ -177,13 +210,34 @@ cannot make it act on the wrong pull request.
             until its bound (see below). A head that is behind returns
             \`behind\` at once, with no poll. Otherwise it reads again every
             SHEPHERD_WAIT_POLL seconds. Result is one of: merged; behind;
-            failed (on the first failed rollup); passed; pending (at the
-            bound). On failed, \`failing\` lists the failed checks, and
-            \`log_tail\` carries the failed steps' log. \`log_error\` is
-            beside it when gh would not hand the log over. \`waited\` is
-            measured. \`reads_ok\`, \`read_failures\` and \`read_error\` say
-            how the reads went. As in settle, the LAST read decides. A bound
-            that arrives on a failed read is \`ok: false\`, never \`pending\`.
+            failed (on the first failed rollup); passed; stalled; pending
+            (at the bound). \`stalled\` and \`pending\` carry \`progress\`:
+            \`finished\` and \`checks\` (rows done, and all rows), \`started\`
+            and \`newest\` (the oldest and newest stamp), \`idle\` (seconds
+            from \`newest\` to the wall clock), \`stall_bound\` and \`source\`.
+            The stamps are the startedAt and completedAt of each rollup row,
+            and of each job and step of each Actions run with a pending
+            check (one read of the jobs of each such run, per poll).
+            \`stalled\` means \`idle\` reached \`stall_bound\`: no check, job
+            or step started or finished for that long. The bound is the
+            largest of SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's
+            own time from \`started\` to \`newest\`. So a long run gets a long
+            bound, and a ci_seconds that is too small cannot make the bound
+            smaller. A poll whose jobs read fails, in full or in part, is
+            never \`stalled\`: the steps it missed may have moved (stderr says
+            why). With no stamp at all, the newer of the head commit's date
+            and the pull request's updatedAt is the one stamp, and \`source\`
+            is \`head commit\`. So a check that never starts still ends in
+            \`stalled\`, and a commit made long before its push does not stall
+            at once. With neither date, \`idle\` is null (stderr says why).
+            Each call decides from what it reads, so a caller counts nothing.
+            On failed, \`failing\` lists the failed checks, and \`log_tail\`
+            carries the failed steps' log.
+            \`log_error\` is beside it when gh would not hand the log over.
+            \`waited\` is measured. \`reads_ok\`, \`read_failures\` and
+            \`read_error\` say how the reads went. As in settle, the LAST
+            read decides. A bound that arrives on a failed read is
+            \`ok: false\`, never \`pending\`.
   settle    the grace between "checks passed" and "auto-merge did not fire".
             Reads the pull request until GitHub answers one way or the other:
             \`merged\`; \`closed\` when it was closed while settling; \`blocked\`
@@ -216,6 +270,8 @@ Environment:
   SHEPHERD_WAIT_BOUND    override the computed wait bound, in seconds. For
                          tests and for repos whose CI is far from typical.
   SHEPHERD_WAIT_POLL     interval between two wait reads (default 30).
+  SHEPHERD_STALL_FLOOR   the least \`stall_bound\`, in seconds, when twice
+                         ci_seconds is not larger (default 1620).
   SHEPHERD_SETTLE_BOUND  how long \`settle\` waits with no evidence either way,
                          in seconds (default 90).
   SHEPHERD_SETTLE_POLL   interval between two settle reads (default 5).
@@ -408,6 +464,106 @@ class Shepherd {
     this.emit(false, `refused: pull request is ${String(pull.state)}, not OPEN`, { pr: pull })
   }
 
+  /**
+   * Whether the head of the pull request is the commit its branch points
+   * at, from the branch ref (#467).
+   *
+   * GitHub can keep an old `headRefOid` after a push to the branch. Then
+   * `update-branch` refuses, or says the branch is up to date, and the
+   * compare goes on to read it as behind. A pull request from another
+   * repository has no branch here, so it gets no read. Nor does an answer
+   * that does not say which repository the head is in: `main` of a fork
+   * read as `main` here would differ, and give a false verdict. A read that
+   * failed is `null`, and stderr says why.
+   */
+  async withSync(pull: Record<string, unknown>): Promise<BranchSync> {
+    if (pull.isCrossRepository === true) return NO_SYNC
+    const err = this.options.context.output.err
+    const branch = pull.headRefName
+    const missing =
+      pull.isCrossRepository !== false
+        ? 'isCrossRepository'
+        : !isTruthy(branch)
+          ? 'headRefName'
+          : ''
+    if (missing !== '') {
+      err.write(`inSync is null: gh answered without ${missing}\n`)
+      return NO_SYNC
+    }
+    const name = String(branch)
+    const answer = await this.options.gh.branchRef({ branch: name })
+    if (answer.sha === null) {
+      err.write(`inSync is null: the ref of ${name} is unavailable: ${answer.unavailable}\n`)
+      return NO_SYNC
+    }
+    return { branchRefOid: answer.sha, inSync: answer.sha === pull.headRefOid }
+  }
+
+  /** Each line {@link note} has written in this action, so a poll that
+   *  meets the same failure again does not write it again. */
+  readonly noted = new Set<string>()
+
+  /** Write `line` to stderr, once per action. */
+  note(line: string): void {
+    if (this.noted.has(line)) return
+    this.noted.add(line)
+    this.options.context.output.err.write(`${line}\n`)
+  }
+
+  /**
+   * The progress of the checks of `pull` now, with `least` as the least
+   * stall bound (#466).
+   *
+   * The stamps of one job do not move until it finishes, so this also
+   * reads the steps of each Actions run that has a pending check (ruling
+   * 12 on #466). A step that starts or finishes moves `newest`. A run whose
+   * jobs could not be read, in full or in part, keeps the steps it read,
+   * and stderr says which. `missed` is then true: the steps that were not
+   * read may have moved, so that read is no proof of a stall. A check that
+   * is not an Actions job has only its own stamps.
+   *
+   * A rollup with no stamp at all is measured from the newer of the date of
+   * the head commit and the last update of the pull request (ruling 13 on
+   * #466). So a check that never started still ends in `stalled`. A push
+   * moves `updatedAt`, so a commit made long before its push does not stall
+   * at once. When neither time can be read, `idle` is null, and stderr says
+   * why.
+   */
+  async progressOf(
+    pull: Record<string, unknown>,
+    least: number,
+  ): Promise<{ readonly progress: CheckProgress; readonly missed: boolean }> {
+    const gh = this.options.gh
+    const stamps: (string | null)[] = []
+    let missed = false
+    for (const run of pendingRuns(pull)) {
+      const answer = await gh.listRunJobs({ run })
+      if (answer.unavailable !== null) {
+        missed = true
+        this.note(`progress may miss steps of run ${run}: ${answer.unavailable}`)
+      }
+      for (const job of answer.rows) {
+        stamps.push(job.startedAt, job.completedAt)
+        for (const step of job.steps) stamps.push(step.startedAt, step.completedAt)
+      }
+    }
+    const wall = this.options.context.clock()
+    const progress = checkProgress(pull, wall, least, { stamps })
+    if (progress.idle !== null) return { progress, missed }
+    // `missingField` refuses an answer without `headRefOid`.
+    const sha = String(pull.headRefOid)
+    const commit = await gh.commitDate({ sha })
+    if (commit.date === null) {
+      this.note(`the date of ${sha} is unavailable: ${commit.unavailable}`)
+    }
+    const since = [commit.date, pull.updatedAt]
+    const measured = checkProgress(pull, wall, least, { stamps, since })
+    if (measured.idle === null) {
+      this.note('idle is null: no check has a stamp, and the head has no date to read')
+    }
+    return { progress: measured, missed }
+  }
+
   // ------------------------------------------------------------ actions ---
 
   async state(): Promise<void> {
@@ -422,7 +578,16 @@ class Shepherd {
       rules?.threadResolution === true
         ? await readUnresolvedThreads(this.options.gh, this.options.number, err)
         : null
-    this.emit(true, 'read', { pr: await this.withBehind(summary(pull, rules, unresolved)) })
+    const shaped = await this.withBehind(summary(pull, rules, unresolved))
+    const sync = await this.withSync(pull)
+    // `missingField` refuses an answer without `headRefOid`, so it is a
+    // commit gh named.
+    const detail =
+      sync.inSync === false
+        ? `the pull request's head is out of sync with its branch: headRefOid ` +
+          `${String(pull.headRefOid)}, ${String(pull.headRefName)} at ${sync.branchRefOid}`
+        : 'read'
+    this.emit(true, detail, { pr: { ...shaped, ...sync } })
   }
 
   async merged(): Promise<void> {
@@ -529,8 +694,9 @@ class Shepherd {
   }
 
   async wait(): Promise<void> {
-    const first = await this.readPr()
-    if (first === null) return this.unreadable()
+    let raw = await this.readPull()
+    if (raw === null) return this.unreadable()
+    const first = summary(raw)
     if (first.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: first })
       return
@@ -556,6 +722,20 @@ class Shepherd {
     // `POSITIVE_RE` rejects 0, for settle's reason: a zero interval never
     // reaches the deadline.
     const interval = envInt(env, err, 'SHEPHERD_WAIT_POLL', WAIT_POLL_DEFAULT, POSITIVE_RE)
+    const floor = envInt(env, err, 'SHEPHERD_STALL_FLOOR', STALL_FLOOR_DEFAULT, POSITIVE_RE)
+    // A check with no steps to read, such as one that is not an Actions
+    // job, stamps only when it starts and finishes. So a check as long as
+    // the median run is not a stall (#466).
+    const least = Math.max(floor, this.options.ciSeconds * 2)
+    // The progress of the last read that succeeded, at the time of that
+    // read. It needs no state between two calls: the stamps are GitHub's.
+    // Only pending checks need it, so only a pending read pays its reads.
+    let progress: CheckProgress | null = null
+    const measure = async (): Promise<{ progress: CheckProgress; missed: boolean }> => {
+      const measured = await this.progressOf(raw as Record<string, unknown>, least)
+      progress = measured.progress
+      return measured
+    }
     // Measured, not added up from the sleeps, for settle's reason.
     const started = this.options.context.now()
     const spent = (): number => seconds(this.options.context.now() - started)
@@ -578,13 +758,13 @@ class Shepherd {
           // recovered from is counted, and nothing more.
           read_error: '',
         }
-        if (await this.waitVerdict(pull, reading)) return
+        if (await this.waitVerdict(pull, reading, measure)) return
       }
       const left = bound - spent()
       if (left <= 0) break
       // The last sleep stops at the bound, so no sleep goes past it.
       await this.options.context.sleep(Math.min(interval, left) * 1000)
-      const fresh = await this.readPr()
+      const fresh = await this.readPull()
       if (fresh === null) {
         readsFailed += 1
         stale = true
@@ -592,7 +772,8 @@ class Shepherd {
       }
       readsOk += 1
       stale = false
-      pull = await this.withBehind(fresh)
+      raw = fresh
+      pull = await this.withBehind(summary(raw))
     }
 
     if (stale) {
@@ -621,19 +802,24 @@ class Shepherd {
       reads_ok: readsOk,
       read_failures: readsFailed,
       read_error: '',
+      progress,
     })
   }
 
   /**
    * Report the read that answers `wait`, and say whether one did.
    *
-   * Pending checks answer nothing, so the caller reads again. Every other
-   * read is final. These are merged, a head behind its base, and a rollup
-   * that passed or has no checks. A rollup with a failed check is final too.
-   * It does not wait for the rest of the run, as `--fail-fast` did before
-   * #460.
+   * Pending checks answer nothing, so the caller reads again, unless they
+   * made no progress for the stall bound (#466). Every other read is final.
+   * These are merged, a head behind its base, and a rollup that passed or
+   * has no checks. A rollup with a failed check is final too. It does not
+   * wait for the rest of the run, as `--fail-fast` did before #460.
    */
-  async waitVerdict(pull: PullState, reading: Record<string, unknown>): Promise<boolean> {
+  async waitVerdict(
+    pull: PullState,
+    reading: Record<string, unknown>,
+    measure: () => Promise<{ readonly progress: CheckProgress; readonly missed: boolean }>,
+  ): Promise<boolean> {
     if (pull.state === 'MERGED') {
       this.emit(true, 'merged', { result: 'merged', pr: pull, ...reading })
       return true
@@ -652,7 +838,19 @@ class Shepherd {
       this.emit(true, 'checks passed', { result: 'passed', pr: pull, ...reading })
       return true
     }
-    if (state === 'pending') return false
+    if (state === 'pending') {
+      const { progress, missed } = await measure()
+      // A null `idle` is a rollup with no stamp and no date of the head,
+      // which proves nothing. Nor does a read that missed steps.
+      if (missed || progress.idle === null || progress.idle < progress.stall_bound) return false
+      this.emit(
+        true,
+        `no check started or finished for ${progress.idle}s; the stall bound is ` +
+          `${progress.stall_bound}s`,
+        { result: 'stalled', pr: pull, ...reading, progress },
+      )
+      return true
+    }
 
     // Something failed. This code names the checks. It also pulls the
     // failed steps' log for the first Actions job among them, so the
