@@ -5,7 +5,7 @@ import path from 'node:path'
 import { expect, it } from 'vitest'
 import { captureOutput } from '#harness/output.ts'
 import type { FileReads } from '#shepherd/lib/dependencies.ts'
-import { runSessionStart } from '#shepherd/subcommands/session-start.ts'
+import { DEADLINE_MS, END_GRACE_MS, runSessionStart } from '#shepherd/subcommands/session-start.ts'
 
 const BIN = '/stub/bin'
 const HOME = '/stub/home'
@@ -81,7 +81,7 @@ it('says the plugin cannot run when git is absent', async () => {
   expect(ran.stderr).toBe('git not found on PATH\n')
 })
 
-it('says the plugin cannot run when gh is absent, and checks the extension no further', async () => {
+it('says the plugin cannot run when gh is absent, and reports nothing about the extension', async () => {
   const ran = await run(reads(['git'], 'absent'))
 
   expect(payload(ran.stdout)).toEqual({
@@ -100,6 +100,30 @@ it('names both tools, in table order, when git and gh are absent', async () => {
     context: 'git, GitHub CLI (gh) are absent. The shepherd plugin cannot run.',
     event: 'SessionStart',
   })
+})
+
+it('names only the absent tool in additionalContext when the other could not be checked', async () => {
+  const mixed: FileReads = {
+    ...reads(['gh']),
+    canRun: (target) =>
+      target === path.join(BIN, 'gh') ? never() : Promise.reject(new Error(`ENOENT: ${target}`)),
+  }
+
+  const ran = await run(mixed, ENV, 50)
+
+  expect(payload(ran.stdout)).toEqual({
+    lines: [
+      'shepherd: ⚠️ git not found on PATH',
+      'shepherd: ⚠️ GitHub CLI (gh) could not be checked',
+    ],
+    context: 'git is absent. The shepherd plugin cannot run.',
+    event: 'SessionStart',
+  })
+})
+
+it('keeps the deadline and the end grace under the 3 s that hooks.json gives', () => {
+  expect(DEADLINE_MS).toBe(2_500)
+  expect(DEADLINE_MS + END_GRACE_MS).toBeLessThan(3_000)
 })
 
 it('says the stack merge cannot run when only the gh stack extension is absent', async () => {
