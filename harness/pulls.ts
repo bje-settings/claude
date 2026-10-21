@@ -45,6 +45,7 @@ import {
   ghFails,
   type MergedPullRequestQuery,
   type PullRequestQuery,
+  type PullRequestStack,
 } from './gh.ts'
 
 /** One row of a canned pull-request set: whatever fields the test gives
@@ -290,6 +291,33 @@ export interface GhServerOptions {
   readonly failHead?: Error
 }
 
+/**
+ * The stacks of a canned set. A row joins a stack when it carries
+ * `stack: { number, base }`. Its layers are the rows of that stack, in
+ * the order of the set, each with its `state`. A stack with no open row
+ * is not in the answer: GitHub reads a stack through its open pull
+ * requests.
+ */
+export const stacksOf = (rows: readonly PullRequestRow[]): PullRequestStack[] => {
+  const stacks = new Map<
+    number,
+    { number: number; base: string; layers: PullRequestStack['layers'][number][] }
+  >()
+  for (const row of rows) {
+    const stack = row.stack as { number: number; base: string } | undefined
+    if (stack === undefined) continue
+    const found = stacks.get(stack.number) ?? { number: stack.number, base: stack.base, layers: [] }
+    found.layers.push({
+      number: row.number as number,
+      state: row.state as 'OPEN' | 'CLOSED' | 'MERGED',
+    })
+    stacks.set(stack.number, found)
+  }
+  return [...stacks.values()].filter((stack) =>
+    stack.layers.some((layer) => layer.state === 'OPEN'),
+  )
+}
+
 /** The names of the endpoints, one filter each, as gh applies them. */
 const matchesQuery = (row: PullRequestRow, query: PullRequestQuery): boolean => {
   // `r.get("state") or "MERGED"` (`tests/gh/bin/gh:212`): truthiness, not
@@ -428,6 +456,14 @@ export function createGhServer(options: GhServerOptions = {}): GhClient {
       return { sha: String(found.headRefOid), unavailable: null }
     },
     updateBranch: async (pull) => registered('updateBranch') ?? base.updateBranch(pull),
+    // The stacks of the set, unless the test registered an answer.
+    listOpenStacks: async () => {
+      const sequenced = registered('listOpenStacks')
+      if (sequenced !== undefined) return sequenced
+      if (hasReply('listOpenStacks')) return base.listOpenStacks()
+      return { rows: stacksOf(rowsFor('listOpenStacks')), unavailable: null }
+    },
+    mergeStack: async (query) => registered('mergeStack') ?? base.mergeStack(query),
     addComment: async (comment) => registered('addComment') ?? base.addComment(comment),
   }
 }

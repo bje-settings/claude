@@ -214,6 +214,30 @@ export interface PullRequestLink {
   readonly crossRepository: boolean
 }
 
+/** One entry of a GitHub stack, as {@link GhClient.listOpenStacks} reads
+ *  it. */
+export interface StackLayer {
+  readonly number: number
+  readonly state: IssueState
+}
+
+/**
+ * One GitHub stack of pull requests: its number, the branch its bottom
+ * merges into, and every entry, bottom first.
+ *
+ * A merged entry stays in the stack. A partial `gh stack merge` left the
+ * merged bottom at position 1, and moved the next entry onto the base
+ * (the probe on #469, 2026-10-20).
+ */
+export interface PullRequestStack {
+  readonly number: number
+  readonly base: string
+  readonly layers: readonly StackLayer[]
+}
+
+/** The three ways GitHub can merge a pull request, in GitHub's words. */
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
+
 /**
  * One status check reported on a commit, whichever of the two kinds GitHub
  * reports it as.
@@ -526,6 +550,19 @@ export interface GhResults {
     readonly date: string | null
     readonly unavailable: string | null
   }
+  /** Each stack that holds an open pull request, once. */
+  listOpenStacks: PagedResult<PullRequestStack>
+  /** The merge methods that both the repository and the rules of one branch
+   *  allow, or null when either could not be read. */
+  mergeMethods: {
+    readonly methods: readonly MergeMethod[] | null
+    readonly unavailable: string | null
+  }
+  /** Whether GitHub accepted a stack merge, and what gh said. */
+  mergeStack: {
+    readonly accepted: boolean
+    readonly output: string
+  }
   /** The statuses with one context prefix on a pull request's commits. */
   listPullRequestStatuses: PagedResult<CommitStatus>
   /** The status GitHub created, as its JSON object. */
@@ -777,6 +814,41 @@ export interface GhClient {
    * Never throws, for {@link PagedResult}'s reason.
    */
   commitDate(query: { readonly sha: string }): Promise<GhResults['commitDate']>
+  /**
+   * Each GitHub stack that holds an open pull request, through the
+   * `stack` field of each open pull request. GraphQL has no field that
+   * names a stack by its number, so this is the one way to find one.
+   *
+   * A stack with more entries than one page, an entry with no pull
+   * request, or a row that is not the shape asked for, is left out, and
+   * counted in `unavailable`. A stack cut short could leave out the layer
+   * that is not ready.
+   *
+   * Never throws, for {@link PagedResult}'s reason.
+   */
+  listOpenStacks(): Promise<GhResults['listOpenStacks']>
+  /**
+   * The merge methods that the repository allows and that the
+   * `pull_request` rules of `branch` allow, in GitHub's order: merge,
+   * squash, rebase. A rule with no `allowed_merge_methods` limits nothing.
+   *
+   * Never throws, for {@link PagedResult}'s reason. Either read that failed
+   * is a null `methods`, with the reason beside it.
+   */
+  mergeMethods(query: { readonly branch: string }): Promise<GhResults['mergeMethods']>
+  /**
+   * `gh stack merge <stack> --yes --<method>`, from the checkout. The
+   * `gh stack` extension has no `--repo` flag, so the client must have a
+   * `cwd` in the repository. GitHub merges every layer or none.
+   *
+   * Never throws. A refusal is `accepted: false`, with gh's own words in
+   * `output`. The extension writes its refusals to stderr (the probe on
+   * #469).
+   */
+  mergeStack(query: {
+    readonly stack: number
+    readonly method: MergeMethod
+  }): Promise<GhResults['mergeStack']>
   /**
    * The commit statuses whose context starts with `prefix`, on the first 100
    * commits of one pull request (#377). Each row carries its commit,
@@ -1428,6 +1500,25 @@ const PULL_REQUEST_LINKS_QUERY = `query($owner: String!, $name: String!, $cursor
   }
 }`
 
+/** How many entries of one stack the stacks query reads. A stack with more
+ *  is a short read, and says so. */
+const STACK_ENTRIES = 100
+
+/** Every open pull request's stack, with each entry's number and state. */
+const PULL_REQUEST_STACKS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: ${SWEEP_PAGE}, after: $cursor, orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number stack { number baseRefName entries(first: ${STACK_ENTRIES}) { totalCount nodes { position pullRequest { number state } } } } }
+    }
+  }
+}`
+
+/** The merge settings of the repository. */
+const MERGE_SETTINGS_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed }
+}`
+
 /**
  * One pull request's whole state, in one round trip.
  *
@@ -1716,6 +1807,43 @@ const readPullRequestLink = (node: unknown): PullRequestLink | null => {
   if (number === null || head === null || base === null) return null
   if (typeof crossRepository !== 'boolean') return null
   return { number, head, base, crossRepository }
+}
+
+/** One stack entry, or null when it is not the shape asked for. An entry
+ *  with no pull request, which GraphQL gives for one this token cannot
+ *  see, is null too. */
+const readStackEntry = (node: unknown): { position: number; layer: StackLayer } | null => {
+  const record = asRecord(node)
+  const position = asInteger(record?.position)
+  const pull = asRecord(record?.pullRequest)
+  const number = asInteger(pull?.number)
+  const state = pull?.state
+  if (position === null || number === null || !isIssueState(state)) return null
+  return { position, layer: { number, state } }
+}
+
+/**
+ * One open pull request's stack, or null when the row is not the shape
+ * asked for. A pull request in no stack answers `stack: null`, which is
+ * a real answer, not a short one.
+ */
+const readStackRow = (node: unknown): { stack: PullRequestStack | null } | null => {
+  const record = asRecord(node)
+  if (asInteger(record?.number) === null) return null
+  if (record?.stack === null) return { stack: null }
+  const stack = asRecord(record?.stack)
+  const number = asInteger(stack?.number)
+  const base = asText(stack?.baseRefName)
+  const entries = asRecord(stack?.entries)
+  const nodes = nodesOf(entries)
+  if (number === null || base === null || nodes === null) return null
+  // A stack with more entries than were read is a short read.
+  if (asInteger(entries?.totalCount) !== nodes.length) return null
+  const read = nodes.map(readStackEntry)
+  const layers = read.filter((entry) => entry !== null)
+  if (layers.length < read.length) return null
+  layers.sort((left, right) => left.position - right.position)
+  return { stack: { number, base, layers: layers.map((entry) => entry.layer) } }
 }
 
 /** Whether a connection said it has a page after the one that was read. */
@@ -2038,6 +2166,28 @@ const requiredReviewsOf = (rules: readonly unknown[]): RequiredReviews | null =>
     found.lastPush ||= lastPush
   }
   return found
+}
+
+/** Every merge method, in GitHub's order. */
+const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase']
+
+/**
+ * The merge methods that every `pull_request` rule allows, or null when
+ * one rule names them in a shape this cannot read. GitHub enforces every
+ * rule, so a method must be in each list. A rule with no list limits
+ * nothing.
+ */
+const ruleMergeMethodsOf = (rules: readonly unknown[]): MergeMethod[] | null => {
+  let allowed = [...MERGE_METHODS]
+  for (const entry of rules) {
+    const rule = asRecord(entry)
+    if (rule?.type !== 'pull_request') continue
+    const listed = asRecord(rule.parameters)?.allowed_merge_methods
+    if (listed === undefined) continue
+    if (!Array.isArray(listed)) return null
+    allowed = allowed.filter((method) => listed.includes(method))
+  }
+  return allowed
 }
 
 /** Every value {@link CompareStatus} can hold, for {@link ISSUE_STATES}'
@@ -3000,6 +3150,73 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         }
       }
       return { sha, unavailable: null }
+    },
+
+    // Two open pull requests of one stack answer the same stack. The first
+    // one read is kept.
+    listOpenStacks: async () => {
+      const read = await collect(
+        { kind: 'repository', field: 'pullRequests' },
+        PULL_REQUEST_STACKS_QUERY,
+        [],
+        readStackRow,
+      )
+      const stacks = new Map<number, PullRequestStack>()
+      for (const row of read.rows) {
+        if (row.stack !== null && !stacks.has(row.stack.number)) {
+          stacks.set(row.stack.number, row.stack)
+        }
+      }
+      return { rows: [...stacks.values()], unavailable: read.unavailable }
+    },
+
+    // The settings come from GraphQL, the rules from the same REST read as
+    // `requiredReviews`. A plan limit is "no rule" here too.
+    mergeMethods: async (query) => {
+      const settings = await queryOnce(MERGE_SETTINGS_QUERY, [], 'repository')
+      if (settings.unavailable !== null) return { methods: null, unavailable: settings.unavailable }
+      // `queryOnce` gives a null `data` only with a reason, so this reads
+      // a present repository.
+      const data = asRecord(settings.data)
+      const flags = {
+        merge: data?.mergeCommitAllowed,
+        squash: data?.squashMergeAllowed,
+        rebase: data?.rebaseMergeAllowed,
+      }
+      if (Object.values(flags).some((value) => typeof value !== 'boolean')) {
+        return {
+          methods: null,
+          unavailable: 'the merge settings of the repository could not be read',
+        }
+      }
+      const answer = await restJson(`rules/branches/${encodeURIComponent(query.branch)}`)
+      if (answer.unavailable !== null) return { methods: null, unavailable: answer.unavailable }
+      const rules = isPlanLimit(answer.value) ? [] : answer.value
+      const allowed = Array.isArray(rules) ? ruleMergeMethodsOf(rules) : null
+      if (allowed === null) {
+        return {
+          methods: null,
+          unavailable: `the merge methods of the rules for ${query.branch} could not be read`,
+        }
+      }
+      return { methods: allowed.filter((method) => flags[method] === true), unavailable: null }
+    },
+
+    // No `--repo`: the extension refuses the flag, and reads the
+    // repository from the checkout (the probe on #469). The status decides,
+    // and `accountOf` gives gh's words for a refusal.
+    mergeStack: async (query) => {
+      const result = await invoke([
+        'stack',
+        'merge',
+        String(query.stack),
+        '--yes',
+        `--${query.method}`,
+      ])
+      if (result.status === 0 && result.streamErrors.length === 0) {
+        return { accepted: true, output: result.combined.trim() }
+      }
+      return { accepted: false, output: accountOf(result, options.boundMs) }
     },
 
     listPullRequestStatuses: async (query) => {

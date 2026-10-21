@@ -294,6 +294,55 @@ it('lets a registered ref reply or sequence outrank the pull-request set', async
   await expect(sequenced.branchRef({ branch: 'dependabot/npm/dep-1' })).resolves.toEqual(stale)
 })
 
+it('answers each stack of the set with its rows in order, and drops a stack with no open row', async () => {
+  // The fixture claims a stack whose merged bottom stays in it, as GitHub
+  // keeps it (the probe on #469), and a landed stack that GitHub no longer
+  // reads through an open pull request.
+  const gh = createGhServer({
+    prs: [
+      { number: 4, state: 'MERGED', stack: { number: 6, base: 'main' } },
+      { number: 5, state: 'OPEN', stack: { number: 6, base: 'main' } },
+      { number: 7, state: 'OPEN' },
+      { number: 8, state: 'MERGED', stack: { number: 9, base: 'main' } },
+    ],
+  })
+
+  await expect(gh.listOpenStacks()).resolves.toEqual({
+    rows: [
+      {
+        number: 6,
+        base: 'main',
+        layers: [
+          { number: 4, state: 'MERGED' },
+          { number: 5, state: 'OPEN' },
+        ],
+      },
+    ],
+    unavailable: null,
+  })
+})
+
+it('lets a registered stacks reply or sequence outrank the pull-request set', async () => {
+  const short = { rows: [], unavailable: 'gh: HTTP 502' }
+  const replied = createGhServer({ prs: [], replies: { listOpenStacks: short } })
+  const sequenced = createGhServer({ prs: [], sequences: { listOpenStacks: [short] } })
+
+  await expect(replied.listOpenStacks()).resolves.toEqual(short)
+  await expect(sequenced.listOpenStacks()).resolves.toEqual(short)
+})
+
+it('answers a stack merge from a reply or a sequence, and throws with neither', async () => {
+  const refused = { accepted: false, output: 'gh: stack is not mergeable' }
+  const replied = createGhServer({ replies: { mergeStack: refused } })
+  const sequenced = createGhServer({ sequences: { mergeStack: [refused] } })
+
+  await expect(replied.mergeStack({ stack: 6, method: 'squash' })).resolves.toEqual(refused)
+  await expect(sequenced.mergeStack({ stack: 6, method: 'squash' })).resolves.toEqual(refused)
+  await expect(createGhServer({}).mergeStack({ stack: 6, method: 'squash' })).rejects.toThrow(
+    'no reply registered for mergeStack',
+  )
+})
+
 it('throws for a pull-request endpoint when no set was registered at all', async () => {
   const gh = createGhServer({})
 
@@ -307,6 +356,7 @@ it('throws for a pull-request endpoint when no set was registered at all', async
   await expect(gh.branchRef({ branch: 'main' })).rejects.toThrow(
     'no reply registered for branchRef',
   )
+  await expect(gh.listOpenStacks()).rejects.toThrow('no reply registered for listOpenStacks')
 })
 
 it('answers every endpoint it was given no set for the way createGhMock does', async () => {
