@@ -204,7 +204,7 @@ describe('ghDataDirectory', () => {
 })
 
 describe('hasGhExtension', () => {
-  it('answers true for an extension directory, false for none or a file, null when late', async () => {
+  it('answers true for an extension directory, false for none or a file, null when late or with no home', async () => {
     const sandbox = createSandbox()
     const extensions = sandbox.join('home', '.local', 'share', 'gh', 'extensions')
     mkdirSync(path.join(extensions, 'gh-stack'), { recursive: true })
@@ -215,7 +215,7 @@ describe('hasGhExtension', () => {
     expect(await hasGhExtension('stack', env, nodeFileReads, 1_000, 'darwin')).toBe(true)
     expect(await hasGhExtension('flat', env, nodeFileReads, 1_000, 'darwin')).toBe(false)
     expect(await hasGhExtension('other', env, nodeFileReads, 1_000, 'darwin')).toBe(false)
-    expect(await hasGhExtension('stack', {}, nodeFileReads, 1_000, 'darwin')).toBe(false)
+    expect(await hasGhExtension('stack', {}, nodeFileReads, 1_000, 'darwin')).toBeNull()
     expect(await hasGhExtension('stack', env, hung, 10, 'darwin')).toBeNull()
   })
 })

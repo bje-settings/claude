@@ -154,7 +154,8 @@ const isSet = (value: string | undefined): value is string => value !== undefine
 
 /**
  * Whether the gh extension `name` is installed, or `null` when the read
- * did not finish within `ms`. gh installs each extension in a directory
+ * did not finish within `ms`, or when the environment names no home, so
+ * there is no directory to read. gh installs each extension in a directory
  * of its own, `extensions/gh-<name>` under {@link ghDataDirectory}
  * (gh's `extension.Manager.installDir`). A local install is a symlink to a
  * directory, and this read follows it. A file read, not `gh extension
@@ -168,7 +169,7 @@ export const hasGhExtension = (
   platform: string,
 ): Promise<boolean | null> => {
   const data = ghDataDirectory(env, platform)
-  if (data === null) return Promise.resolve(false)
+  if (data === null) return Promise.resolve(null)
   return withinDeadline(
     files.kindOf(path.join(data, 'extensions', `gh-${name}`)).then(
       (kind) => kind === 'directory',
