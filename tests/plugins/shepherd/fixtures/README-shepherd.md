@@ -178,7 +178,7 @@ So the tests assert the repository half of `gh_calls` as `{ cwd: <target>, repos
 rather than as argv. `subcommands/shepherd-status.test.ts` does the same for its two listings. The
 capture keeps the field because it is the Python's record. Apart from the #216 removals and the
 #460 additions above, and the #465, #466 and #467 additions below, nobody edits the captures.
-#469 edits none.
+#469 and #463 edit none.
 
 ## What #465 changed
 
@@ -224,6 +224,22 @@ byte of a case changed.
   target, and a stack in `not_ready`, show only in `subcommands/shepherd-status.stacks.test.ts`.
 - **`shepherd-pr`.** The output of each action is the same. `shepherd-stack` runs the same steps
   on each layer, with a `report` in place of stdout (`subcommands/shepherd-stack.test.ts`).
+
+## What #463 changed
+
+#463 changes how `ci_seconds` is measured, and edits no capture. No case was added or removed,
+and no byte of a case changed.
+
+- **The longest run of each head.** `ciSeconds` groups the runs by `headSha`, keeps the longest
+  run of each head, and takes the median over the heads. A row with no `headSha` is dropped.
+  `RUN_SAMPLE` is 100, not 20.
+- **The replay.** The Python read no head, so no captured run has one. `runRow` in
+  `subcommands/shepherd-status.test.ts` gives each run a head of its own. With one run on each
+  head, the median over the heads is the captured median. The cases are
+  `the_median_of_recent_run_durations`, `only_completed_runs_on_the_default_branch` and
+  `a_non_positive_duration_falls_back`. The `ciSecondsPerHead` entry in
+  `divergences-shepherd.json` records this. Its `cases` is empty for the reason of
+  `skippedNoAutomerge`.
 
 ## The capture script
 

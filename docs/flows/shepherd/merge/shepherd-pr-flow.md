@@ -70,8 +70,11 @@ flowchart TD
         W3 -->|Head behind its base| WBH
         W3 -->|Passed| WP
         W3 -->|A check failed| WF([ok true: result failed, with<br/>the failed checks and a log tail, exit 0])
-        W3 -->|Pending| WJ[Read the jobs of each Actions run with a pending check;<br/>a failed read gives no stall on this poll, stderr says why]
-        WJ --> WK{Any stamp on a check, job or step?}
+        W3 -->|Pending| WJ[Read every page of the jobs of each Actions run<br/>with a pending check, up to 20 pages]
+        WJ --> WM{Was every jobs read complete?}
+        WM -->|No: a page failed, past 20 pages,<br/>or a job that could not be read| WM2[The stall bound of this poll is doubled;<br/>stderr says why]
+        WM -->|Yes| WK{Any stamp on a check, job or step?}
+        WM2 --> WK
         WK -->|No| WD[The newer of the head commit date and updatedAt<br/>is the one stamp; neither: idle null, stderr says why]
         WK -->|Yes| WL
         WD --> WL{Idle for the stall bound?}

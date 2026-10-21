@@ -65,6 +65,13 @@
       "now": "the key is gone",
       "why": "#216 narrows shepherd-status to targets only. A pull request without auto-merge is left out of the report, rather than listed under a key nothing reads. The replay adds `dependencies` as the label argument, to keep the captured rows' semantics, and its expected stdout is the capture's own document with this one key removed, in every case that had it. This entry names the fact once rather than as a per-case literal, because its cases live only in shepherd-status-output.json, and this array is shared with shepherd-pr's parity test.",
       "cases": []
+    },
+    {
+      "id": "ciSecondsPerHead",
+      "was": "ci_seconds is the median wall time of every completed run on the default branch, over the 20 newest",
+      "now": "ci_seconds is the median over head SHAs of the longest run of each SHA, over the 100 newest; a row with no headSha is dropped",
+      "why": "#463: one push starts several workflows, so a 1 second workflow beside a 20 minute CI pulled the median down to seconds. The Python read no headSha, so the replay gives each captured run its own head. One run per head makes the median over heads the captured median, and the capture's stdout stays byte for byte. The cases are the_median_of_recent_run_durations, only_completed_runs_on_the_default_branch and a_non_positive_duration_falls_back. They are named here, not in `cases`, for skippedNoAutomerge's reason: they live only in shepherd-status-output.json, and this array is shared with shepherd-pr's parity test.",
+      "cases": []
     }
   ],
   "unchanged": {

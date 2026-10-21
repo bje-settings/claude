@@ -49,6 +49,16 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
   readFileSync(path.join(FIXTURES, 'shepherd-status-output.json'), 'utf8'),
 )
 
+/** One row of the divergence record's `sentences`. */
+interface Divergence {
+  readonly id: string
+  readonly was: string
+  readonly now: string
+  readonly prefix?: string
+  readonly why: string
+  readonly cases: string[]
+}
+
 /** This file lists every place this port answers differently from the
  *  Python, as data. Layer 2's rule requires this
  *  (`tests/plugins/gh/fixtures/README.md`). A data list keeps each
@@ -56,10 +66,10 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
  *  literal here cannot add one. */
 const DIVERGENCES: {
   notReplayed: Record<string, Record<string, { why: string; pinnedBy: string }>>
-  sentences: { id: string; was: string; now: string; prefix?: string; cases: string[] }[]
+  sentences: Divergence[]
 } = JSON.parse(readFileSync(path.join(FIXTURES, 'divergences-shepherd.json'), 'utf8'))
 
-const divergence = (id: string): { was: string; now: string; prefix?: string; cases: string[] } => {
+const divergence = (id: string): Divergence => {
   const row = DIVERGENCES.sentences.find((entry) => entry.id === id)
   if (row === undefined) throw new Error(`no divergence recorded as ${id}`)
   return row
@@ -77,8 +87,10 @@ const REPOSITORY = { nameWithOwner: 'acme/widgets', defaultBranchRef: { name: 'm
 /** This builds one `gh run list` row from a
  *  `"<seconds>[:<branch>[:<status>]]"` spec. It is the port of the capture
  *  script's `runs_file`, itself the port of the Python suite's `write_runs`.
- *  It moves the end stamp to set a run's wall time. */
-const runRow = (spec: string): Record<string, unknown> => {
+ *  It moves the end stamp to set a run's wall time. The Python read no
+ *  head, so each row gets its own (`ciSecondsPerHead` in the divergence
+ *  record). */
+const runRow = (spec: string, index: number): Record<string, unknown> => {
   const [seconds = '0', branch = 'main', status = 'completed'] = spec.split(':')
   const end = new Date((1767225600 + Number(seconds)) * 1000).toISOString()
   return {
@@ -86,6 +98,7 @@ const runRow = (spec: string): Record<string, unknown> => {
     status,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: `${end.slice(0, 19)}Z`,
+    headSha: `head-${index}`,
   }
 }
 
@@ -342,6 +355,18 @@ it('has an arrangement for every case it replays, and replays every case', () =>
   }
 })
 
+it('gives each replayed run a head of its own, as the divergence record says', () => {
+  // The median over heads is then the captured median. `divergence` throws
+  // when the record has no row for this.
+  const { why } = divergence('ciSecondsPerHead')
+  for (const [name, arrangement] of Object.entries(ARRANGEMENTS)) {
+    const rows = (arrangement.replies?.listRuns ?? []) as Record<string, unknown>[]
+    if (rows.length === 0) continue
+    expect(why).toContain(name)
+    expect(new Set(rows.map((row) => row.headSha)).size).toBe(rows.length)
+  }
+})
+
 // --- what the captured output does not prove -----------------------------------
 
 it('prints its own usage for --help, naming the command rather than a script', async () => {
@@ -521,7 +546,9 @@ it('asks for the completed runs on the default branch, with the sample size', as
     }
   })
 
-  expect(queries).toEqual([{ branch: 'trunk', status: 'completed', limit: 20 }])
+  // 100 runs, so that several workflows on each head still leave enough
+  // heads (ruling 5 on #463).
+  expect(queries).toEqual([{ branch: 'trunk', status: 'completed', limit: 100 }])
   expect(result.ghOptions).toEqual(clients(target))
 })
 

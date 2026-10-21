@@ -63,9 +63,14 @@ it('writes a problem line and additionalContext when the extension is absent, we
   expect(result.stderr).toBe('gh stack extension not found\n')
 })
 
-it('writes a problem line when gh is absent, well under the deadline', () => {
+it('writes a problem line for an absent gh, then one for an absent extension, well under the deadline', () => {
   const sandbox = createSandbox()
-  const env = { ...sandbox.env, PATH: sandbox.pathWithout('gh') }
+  // gh reads `XDG_DATA_HOME` first, and this one holds no extension.
+  const env = {
+    ...sandbox.env,
+    PATH: sandbox.pathWithout('gh'),
+    XDG_DATA_HOME: sandbox.join('no-data'),
+  }
   const started = Date.now()
 
   const result = runScript(HOOK, { stdin: JSON.stringify({ session_id: 's1' }), env })
@@ -74,7 +79,9 @@ it('writes a problem line when gh is absent, well under the deadline', () => {
   expect(result.status).toBe(0)
   expect(result.stdout).toContain('GitHub CLI (gh) not found on PATH')
   expect(result.stdout).toContain('The shepherd plugin cannot run.')
-  expect(result.stderr).toBe('GitHub CLI (gh) not found on PATH\n')
+  expect(result.stdout).toContain('gh stack extension not found')
+  expect(result.stdout).toContain('/shepherd:merge cannot merge a stack.')
+  expect(result.stderr).toBe('GitHub CLI (gh) not found on PATH\ngh stack extension not found\n')
 })
 
 it('writes one line naming the floor when node is below it, and exits 0', () => {

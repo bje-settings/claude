@@ -746,8 +746,8 @@ export interface GhClient {
    * Workflow runs, newest first, through `actions/runs`.
    *
    * This is not {@link GhClient.listRuns}, whose `--json` field list carries
-   * neither `event` nor the head commit. So a caller cannot tell a
-   * `pull_request` run from a `push` run, nor tell which head either ran on.
+   * no `event`. So a caller cannot tell a `pull_request` run from a `push`
+   * run.
    * `branch` is the filter this REST endpoint applies server-side.
    * `head_sha` is NOT used: it once answered nothing for a head whose runs
    * did exist (round 7 finding 6), while `branch` answered.
@@ -800,8 +800,9 @@ export interface GhClient {
    * `shepherd-pr wait` reads a step that starts or finishes as progress
    * (#466).
    *
-   * It reads one page of 100 jobs. A run with more names the rest in
-   * `unavailable`, and so does a job that is not the shape REST promises.
+   * It reads every page of 100 jobs, up to `JOB_PAGES` (#476). A page
+   * that fails, the jobs past the last page, and a job that is not the
+   * shape REST promises go in `unavailable`. The rows already read stay.
    *
    * Never throws, for {@link PagedResult}'s reason.
    */
@@ -1054,7 +1055,8 @@ export interface GhClientOptions {
  * `RUN_FIELDS` match `gh-shepherd-status.py`'s repository and run queries.
  * The run list adds the run's identity and outcome to the two timestamps
  * that script reads, because a run row with no id cannot be followed to
- * `readFailedRunLog`, the next endpoint in this same interface.
+ * `readFailedRunLog`, the next endpoint in this same interface. It also adds
+ * `headSha`: `shepherd-status` keeps the longest run of each head (#463).
  */
 const PULL_REQUEST_FIELDS =
   'number,title,author,isDraft,labels,autoMergeRequest,mergeStateStatus,mergeable,' +
@@ -1062,7 +1064,7 @@ const PULL_REQUEST_FIELDS =
   'reviews,headRefName,isCrossRepository,updatedAt'
 const MERGED_PULL_REQUEST_FIELDS = 'headRefName,headRefOid,isCrossRepository,number,mergeCommit'
 const REPOSITORY_FIELDS = 'nameWithOwner,defaultBranchRef'
-const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt'
+const RUN_FIELDS = 'databaseId,status,conclusion,createdAt,updatedAt,headSha'
 
 /** How many numbers `issueStates` puts in one `gh api graphql` call. This is
  *  a conservative batch size, not a documented limit. GitHub rejects a
@@ -1096,9 +1098,18 @@ const SWEEP_PAGES = 20
  */
 const RUN_PAGE = 30
 
-/** How many jobs `listRunJobs` asks for: REST's largest page. A run with
- *  more says so in `unavailable`. */
+/** How many jobs one page of `listRunJobs` asks for: REST's largest page. */
 const JOB_PAGE = 100
+
+/**
+ * How many pages of jobs `listRunJobs` reads, before it stops and says so.
+ *
+ * This is the rule of {@link SWEEP_PAGES} (ruling 4 on #476). A reply that
+ * stays full, with no `total_count` to end it, is a loop this process
+ * would never leave. 20 pages is 2,000 jobs in one run. A run with more
+ * says so in `unavailable`, rather than by a silent truncation of the rows.
+ */
+const JOB_PAGES = 20
 
 /** Every value {@link IssueState} can hold, as a `Record`, not a bare array
  *  literal. A new member added to the union with no key here to match it is
@@ -1114,6 +1125,9 @@ const isIssueState = (value: unknown): value is IssueState =>
 /** `unknown` narrowed to a record, or `undefined` when it is not one. */
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined
+
+/** One REST read: whatever JSON it answered, or the reason there is none. */
+type RestAnswer = { value: unknown; unavailable: null } | { value: null; unavailable: string }
 
 /** Several reasons as one sentence, or null when there are none. */
 const joinedReasons = (reasons: readonly string[]): string | null =>
@@ -2726,11 +2740,18 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    * printed is still the best account of which one it was. So the status
    * decides nothing here, and `accountOf` reports what gh said.
    */
-  const restJson = async (
-    path: string,
-  ): Promise<{ value: unknown; unavailable: null } | { value: null; unavailable: string }> => {
+  const restJson = async (path: string): Promise<RestAnswer> => {
     const parts = await repositoryParts()
     if (parts.unavailable !== null) return { value: null, unavailable: parts.unavailable }
+    return restJsonOf(parts, path)
+  }
+
+  /** {@link restJson} with the repository already resolved, so a read of
+   *  several pages resolves it once. */
+  const restJsonOf = async (
+    parts: { readonly owner: string; readonly name: string },
+    path: string,
+  ): Promise<RestAnswer> => {
     const result = await invoke(['api', `repos/${parts.owner}/${parts.name}/${path}`])
     // A bound that fired outranks the body, the same way `collect` guards
     // its own pages (ruling 4, #295).
@@ -3092,32 +3113,49 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
     },
 
     // A run that does not exist answers a 404 body with no `jobs`. The
-    // shape was read live on 2026-10-20.
+    // shape was read live on 2026-10-20. Each page names `total_count`
+    // (#476). A short page, or `total_count` rows, ends the read. A page
+    // that fails ends it too, and the rows of the pages before it stay.
     listRunJobs: async (query) => {
-      const answer = await restJson(
-        `actions/runs/${encodeURIComponent(query.run)}/jobs?per_page=${JOB_PAGE}`,
-      )
-      if (answer.unavailable !== null) return { rows: [], unavailable: answer.unavailable }
-      const reply = asRecord(answer.value)
-      const jobs = reply?.jobs
-      if (!Array.isArray(jobs)) {
-        return {
-          rows: [],
-          unavailable: `the jobs of run ${query.run} were not a list${errorBodyOf(answer.value)}`,
-        }
-      }
+      const parts = await repositoryParts()
+      if (parts.unavailable !== null) return { rows: [], unavailable: parts.unavailable }
+      const path = `actions/runs/${encodeURIComponent(query.run)}/jobs?per_page=${JOB_PAGE}`
       const rows: RunJob[] = []
       const reasons: string[] = []
-      for (const entry of jobs) {
-        const row = readRunJob(entry)
-        if (row !== null) rows.push(row)
+      let listed = 0
+      let total: number | null = null
+      let capped = false
+      for (let page = 1; ; page += 1) {
+        const answer = await restJsonOf(parts, `${path}&page=${page}`)
+        if (answer.unavailable !== null) {
+          reasons.push(answer.unavailable)
+          break
+        }
+        const reply = asRecord(answer.value)
+        const jobs = reply?.jobs
+        if (!Array.isArray(jobs)) {
+          reasons.push(`the jobs of run ${query.run} were not a list${errorBodyOf(answer.value)}`)
+          break
+        }
+        for (const entry of jobs) {
+          const row = readRunJob(entry)
+          if (row !== null) rows.push(row)
+        }
+        listed += jobs.length
+        total = asInteger(reply?.total_count) ?? total
+        if (jobs.length < JOB_PAGE || (total !== null && listed >= total)) break
+        if (page === JOB_PAGES) {
+          capped = true
+          break
+        }
       }
-      if (rows.length < jobs.length) {
-        reasons.push(`${jobs.length - rows.length} job(s) of run ${query.run} could not be read`)
+      if (rows.length < listed) {
+        reasons.push(`${listed - rows.length} job(s) of run ${query.run} could not be read`)
       }
-      const total = asInteger(reply?.total_count) ?? jobs.length
-      if (total > jobs.length) {
-        reasons.push(`run ${query.run} has ${total} jobs; ${jobs.length} were read`)
+      if (total !== null && total > listed) {
+        reasons.push(`run ${query.run} has ${total} jobs; ${listed} were read`)
+      } else if (capped) {
+        reasons.push(`run ${query.run} has more jobs than the ${JOB_PAGES} pages this reads`)
       }
       return { rows, unavailable: joinedReasons(reasons) }
     },

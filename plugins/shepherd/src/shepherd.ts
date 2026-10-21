@@ -727,25 +727,29 @@ const epochSeconds = (stamp: unknown): number | null => {
 }
 
 /**
- * The median wall time of the given workflow runs, or 300 when none are
- * usable.
+ * The median over head SHAs of the longest workflow run of each SHA, or
+ * 300 when no SHA is usable (#463).
+ *
+ * One push starts several workflows on one SHA. A 1 second workflow beside
+ * a 20 minute CI says nothing about how long CI takes. So each SHA counts
+ * once, as its longest run.
  *
  * A run's wall time is `updatedAt - createdAt`. `startedAt` can be null
  * for a run that was queued and never started, so this function does not
  * use it. Failures stay in the count: a failing run took as long as it
  * took, and the loop sizes a wait, not a health check. Runs that miss
- * either stamp, or that have a non-positive duration, are dropped.
+ * either stamp or `headSha`, or that have a non-positive duration, are
+ * dropped.
  *
  * One row that this function cannot read ends the whole measurement at
  * the fallback, the way jq's error on one unparseable stamp did. A
  * listing with a row like that is not a real answer about durations.
  *
  * The median is the upper of the two middles for an even count. This
- * matches what jq's `sort | .[length / 2 | floor]` picked, so the two
- * agree on every input.
+ * matches what jq's `sort | .[length / 2 | floor]` picked.
  */
 export const ciSeconds = (runs: unknown): number => {
-  const durations: number[] = []
+  const longest = new Map<string, number>()
   for (const run of Array.isArray(runs) ? runs : []) {
     const record = asRecord(run)
     // The row that raised `AttributeError` in the Python.
@@ -759,9 +763,11 @@ export const ciSeconds = (runs: unknown): number => {
     const from = epochSeconds(created)
     const to = epochSeconds(updated)
     if (from === null || to === null) return DEFAULT_CI_SECONDS
-    if (to - from > 0) durations.push(to - from)
+    const sha = asText(record.headSha)
+    if (sha === '' || to - from <= 0) continue
+    longest.set(sha, Math.max(longest.get(sha) ?? 0, to - from))
   }
-  durations.sort((left, right) => left - right)
+  const durations = [...longest.values()].sort((left, right) => left - right)
   // One lookup covers both "no usable run" and the index. An empty list
   // has no middle, so the fallback is the same answer for both cases. No
   // second branch is left untested.

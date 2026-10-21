@@ -81,8 +81,8 @@ it('says the plugin cannot run when git is absent', async () => {
   expect(ran.stderr).toBe('git not found on PATH\n')
 })
 
-it('says the plugin cannot run when gh is absent, and reports nothing about the extension', async () => {
-  const ran = await run(reads(['git'], 'absent'))
+it('says the plugin cannot run when gh is absent', async () => {
+  const ran = await run(reads(['git']))
 
   expect(payload(ran.stdout)).toEqual({
     lines: ['shepherd: ⚠️ GitHub CLI (gh) not found on PATH'],
@@ -90,6 +90,39 @@ it('says the plugin cannot run when gh is absent, and reports nothing about the 
     event: 'SessionStart',
   })
   expect(ran.stderr).toBe('GitHub CLI (gh) not found on PATH\n')
+})
+
+it('reports an absent extension beside an absent tool, the #480 field case', async () => {
+  const ran = await run(reads(['gh'], 'absent'))
+
+  expect(ran.status).toBe(0)
+  expect(payload(ran.stdout)).toEqual({
+    lines: ['shepherd: ⚠️ git not found on PATH', 'shepherd: ⚠️ gh stack extension not found'],
+    context:
+      'git is absent. The shepherd plugin cannot run. ' +
+      'gh stack extension is absent. /shepherd:merge cannot merge a stack.',
+    event: 'SessionStart',
+  })
+  expect(ran.stderr).toBe('git not found on PATH\ngh stack extension not found\n')
+})
+
+it('gives only the extension sentence when gh could not be checked and the extension is absent', async () => {
+  const unchecked: FileReads = {
+    ...reads(['git'], 'absent'),
+    canRun: (target) => (target === path.join(BIN, 'gh') ? never() : Promise.resolve()),
+  }
+
+  const ran = await run(unchecked, ENV, 50)
+
+  expect(payload(ran.stdout)).toEqual({
+    lines: [
+      'shepherd: ⚠️ GitHub CLI (gh) could not be checked',
+      'shepherd: ⚠️ gh stack extension not found',
+    ],
+    context: 'gh stack extension is absent. /shepherd:merge cannot merge a stack.',
+    event: 'SessionStart',
+  })
+  expect(ran.stderr).toBe('GitHub CLI (gh) could not be checked\ngh stack extension not found\n')
 })
 
 it('names both tools, in table order, when git and gh are absent', async () => {

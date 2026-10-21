@@ -33,9 +33,11 @@ import {
   threadReads,
 } from '../shepherd.ts'
 
-/** How far back the CI-duration sample reaches. Twenty runs cover a few
- *  days on an active repository, and still cost one API call. */
-const RUN_SAMPLE = 20
+/** How far back the CI-duration sample reaches. One push starts several
+ *  workflows, and `ciSeconds` counts each head SHA once. So 100 runs give
+ *  enough heads for a stable median, in one `gh run list` call (ruling 5
+ *  on #463). */
+const RUN_SAMPLE = 100
 
 /** The listing window for open pull requests. A repository with more than
  *  this open at once needs a label to narrow the window, rather than a
@@ -51,8 +53,9 @@ Prints one JSON document and changes nothing:
 
   repo             owner/name
   default_branch   the branch pull requests are merged into
-  ci_seconds       median wall time of recent completed workflow runs on the
-                   default branch; 300 when there are none
+  ci_seconds       the median, over head commits, of the longest completed
+                   workflow run of each, from the 100 newest runs on the
+                   default branch; 300 when no head is usable
   targets          open, non-draft pull requests that a human has already
                    marked for auto-merge, in the order the loop should take
                    them. A label narrows this list to pull requests that

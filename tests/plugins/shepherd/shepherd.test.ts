@@ -615,17 +615,53 @@ const at = (seconds: number): string => {
   return `${stamp.slice(0, 19)}Z`
 }
 
-const runFor = (seconds: number) => ({ createdAt: '2026-01-01T00:00:00Z', updatedAt: at(seconds) })
+/** One run of `seconds` on the head `sha`. Each duration has its own head
+ *  unless the case names one. */
+const runFor = (seconds: number, sha = `head-${seconds}`) => ({
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: at(seconds),
+  headSha: sha,
+})
 
 describe('ciSeconds', () => {
   it('takes the median, not the mean', () => {
     // Sorted 30 45 50 60 900: the middle one, not the mean the outlier drags up.
-    expect(ciSeconds([30, 900, 60, 45, 50].map(runFor))).toBe(50)
+    expect(ciSeconds([30, 900, 60, 45, 50].map((seconds) => runFor(seconds)))).toBe(50)
   })
 
   it('takes the upper middle of an even count', () => {
     // jq's `sort | .[length / 2 | floor]` picked the upper of the two middles.
-    expect(ciSeconds([10, 20, 30, 40].map(runFor))).toBe(30)
+    expect(ciSeconds([10, 20, 30, 40].map((seconds) => runFor(seconds)))).toBe(30)
+  })
+
+  it('counts each head as its longest run, the #463 field case', () => {
+    // One push starts three 1 to 3 second workflows beside a 20 minute CI.
+    // Over every row, the median is a few seconds. The CI run comes first,
+    // so the longest run is not the last one read.
+    const heads = [
+      ['a', 1200],
+      ['b', 1190],
+      ['c', 1230],
+    ] as const
+    const runs = heads.flatMap(([sha, ci]) => [ci, 1, 2, 3].map((seconds) => runFor(seconds, sha)))
+
+    expect(ciSeconds(runs)).toBe(1200)
+  })
+
+  it('takes the median over the heads, with the upper middle of an even count', () => {
+    // The longest of each head is 100 and 200. Over every row, the upper
+    // middle of 10 20 100 200 would be 100.
+    const runs = [runFor(10, 'a'), runFor(100, 'a'), runFor(20, 'b'), runFor(200, 'b')]
+
+    expect(ciSeconds(runs)).toBe(200)
+  })
+
+  it('drops a run with no head', () => {
+    const headless = { createdAt: '2026-01-01T00:00:00Z', updatedAt: at(900) }
+
+    expect(ciSeconds([runFor(50), headless])).toBe(50)
+    expect(ciSeconds([runFor(50), { ...headless, headSha: 42 }])).toBe(50)
+    expect(ciSeconds([headless])).toBe(300)
   })
 
   it('drops a run missing a stamp', () => {
@@ -635,6 +671,10 @@ describe('ciSeconds', () => {
 
   it('drops a non-positive duration', () => {
     expect(ciSeconds([runFor(0), runFor(50)])).toBe(50)
+    // A run that ends before it starts. Kept, it would be the lower middle
+    // and move the median to 40.
+    expect(ciSeconds([runFor(-5), runFor(40), runFor(50)])).toBe(50)
+    expect(ciSeconds([runFor(-5)])).toBe(300)
   })
 
   it('falls back when nothing is usable', () => {
@@ -658,6 +698,10 @@ describe('ciSeconds', () => {
     // caller then fell back to the default.
     expect(ciSeconds([{ createdAt: 'yesterday', updatedAt: 'today' }])).toBe(300)
     expect(ciSeconds([{ createdAt: '2026-01-01T00:00:00Z', updatedAt: 'today' }])).toBe(300)
+    // One unreadable row ends it beside a usable one, with a head or not
+    // (ruling 6 on #463).
+    expect(ciSeconds([runFor(50), { ...runFor(60), updatedAt: 'today' }])).toBe(300)
+    expect(ciSeconds([runFor(50), { createdAt: 'yesterday', updatedAt: 'today' }])).toBe(300)
   })
 
   it('falls back on a stamp naming a day that does not exist', () => {

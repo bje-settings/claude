@@ -76,15 +76,16 @@ const WAIT_BOUND_MAX = 540
 /** How often `wait` reads the pull request and the compare, in seconds. Each
  *  read is three `gh` calls: the pull request, the repository and the
  *  compare. A 540 second bound is 19 reads, so 57 calls. A pending read
- *  adds one call for each Actions run with a pending check, and one for the
- *  date of the head when no check has a stamp (#466). A failed check adds
- *  one call for its log (#460). */
+ *  adds one call for each page of jobs of each Actions run with a pending
+ *  check (#476), and one for the date of the head when no check has a
+ *  stamp (#466). A failed check adds one call for its log (#460). */
 const WAIT_POLL_DEFAULT = 30
 
 /** The least time, in seconds, that the checks of a head may make no
  *  progress before `wait` reports `stalled` (#466). The bound is the
  *  largest of this, twice `ci_seconds`, and the run's own time so far. So
  *  a `ci_seconds` that is too small (#463) cannot make the bound smaller.
+ *  A read that missed jobs doubles the whole bound (#476).
  *  1620 seconds is three default `wait` calls at their longest, 540 seconds
  *  each (`WAIT_BOUND_MAX`). That is what the agent's old rule of three
  *  `pending` results allowed, so no healthy long step skips sooner than it
@@ -225,20 +226,22 @@ cannot make it act on the wrong pull request.
             from \`newest\` to the wall clock), \`stall_bound\` and \`source\`.
             The stamps are the startedAt and completedAt of each rollup row,
             and of each job and step of each Actions run with a pending
-            check (one read of the jobs of each such run, per poll).
+            check (each poll reads every page of the jobs of each such run,
+            up to 20 pages of 100).
             \`stalled\` means \`idle\` reached \`stall_bound\`: no check, job
             or step started or finished for that long. The bound is the
             largest of SHEPHERD_STALL_FLOOR, twice ci_seconds, and the run's
             own time from \`started\` to \`newest\`. So a long run gets a long
             bound, and a ci_seconds that is too small cannot make the bound
-            smaller. A poll whose jobs read fails, in full or in part, is
-            never \`stalled\`: the steps it missed may have moved (stderr says
-            why). With no stamp at all, the newer of the head commit's date
-            and the pull request's updatedAt is the one stamp, and \`source\`
-            is \`head commit\`. So a check that never starts still ends in
-            \`stalled\`, and a commit made long before its push does not stall
-            at once. With neither date, \`idle\` is null (stderr says why).
-            Each call decides from what it reads, so a caller counts nothing.
+            smaller. A poll whose jobs read fails, in full or in part, has
+            twice that bound as its \`stall_bound\`. The steps it missed may
+            have moved (stderr says why). With no stamp at all, the newer of
+            the head commit's date and the pull request's updatedAt is the
+            one stamp, and \`source\` is \`head commit\`. So a check that never
+            starts still ends in \`stalled\`, and a commit made long before its
+            push does not stall at once. With neither date, \`idle\` is null
+            (stderr says why). Each call decides from what it reads, so a
+            caller counts nothing.
             On failed, \`failing\` lists the failed checks, and \`log_tail\`
             carries the failed steps' log.
             \`log_error\` is beside it when gh would not hand the log over.
@@ -557,8 +560,9 @@ export class Shepherd {
    * reads the steps of each Actions run that has a pending check (ruling
    * 12 on #466). A step that starts or finishes moves `newest`. A run whose
    * jobs could not be read, in full or in part, keeps the steps it read,
-   * and stderr says which. `missed` is then true: the steps that were not
-   * read may have moved, so that read is no proof of a stall. A check that
+   * and stderr says which. The steps that were not read may have moved, so
+   * the `stall_bound` of that read is twice the normal bound (ruling 3 on
+   * #476). The report then names the bound the verdict used. A check that
    * is not an Actions job has only its own stamps.
    *
    * A rollup with no stamp at all is measured from the newer of the date of
@@ -568,13 +572,12 @@ export class Shepherd {
    * at once. When neither time can be read, `idle` is null, and stderr says
    * why.
    */
-  async progressOf(
-    pull: Record<string, unknown>,
-    least: number,
-  ): Promise<{ readonly progress: CheckProgress; readonly missed: boolean }> {
+  async progressOf(pull: Record<string, unknown>, least: number): Promise<CheckProgress> {
     const gh = this.options.gh
     const stamps: (string | null)[] = []
     let missed = false
+    const bounded = (progress: CheckProgress): CheckProgress =>
+      missed ? { ...progress, stall_bound: 2 * progress.stall_bound } : progress
     for (const run of pendingRuns(pull)) {
       const answer = await gh.listRunJobs({ run })
       if (answer.unavailable !== null) {
@@ -588,7 +591,7 @@ export class Shepherd {
     }
     const wall = this.options.context.clock()
     const progress = checkProgress(pull, wall, least, { stamps })
-    if (progress.idle !== null) return { progress, missed }
+    if (progress.idle !== null) return bounded(progress)
     // `missingField` refuses an answer without `headRefOid`.
     const sha = String(pull.headRefOid)
     const commit = await gh.commitDate({ sha })
@@ -600,7 +603,7 @@ export class Shepherd {
     if (measured.idle === null) {
       this.note('idle is null: no check has a stamp, and the head has no date to read')
     }
-    return { progress: measured, missed }
+    return bounded(measured)
   }
 
   // ------------------------------------------------------------ actions ---
@@ -787,10 +790,9 @@ export class Shepherd {
     // read. It needs no state between two calls: the stamps are GitHub's.
     // Only pending checks need it, so only a pending read pays its reads.
     let progress: CheckProgress | null = null
-    const measure = async (): Promise<{ progress: CheckProgress; missed: boolean }> => {
-      const measured = await this.progressOf(raw as Record<string, unknown>, least)
-      progress = measured.progress
-      return measured
+    const measure = async (): Promise<CheckProgress> => {
+      progress = await this.progressOf(raw as Record<string, unknown>, least)
+      return progress
     }
     // Measured, not added up from the sleeps, for settle's reason.
     const started = this.options.context.now()
@@ -884,7 +886,7 @@ export class Shepherd {
   async waitVerdict(
     pull: PullState,
     reading: Record<string, unknown>,
-    measure: () => Promise<{ readonly progress: CheckProgress; readonly missed: boolean }>,
+    measure: () => Promise<CheckProgress>,
     unreported: readonly string[],
   ): Promise<boolean> {
     if (pull.state === 'MERGED') {
@@ -909,10 +911,11 @@ export class Shepherd {
       return true
     }
     if (state === 'pending') {
-      const { progress, missed } = await measure()
+      const progress = await measure()
       // A null `idle` is a rollup with no stamp and no date of the head,
-      // which proves nothing. Nor does a read that missed steps.
-      if (missed || progress.idle === null || progress.idle < progress.stall_bound) return false
+      // which proves nothing. A read that missed steps has a doubled
+      // `stall_bound` already (`progressOf`).
+      if (progress.idle === null || progress.idle < progress.stall_bound) return false
       this.emit(
         true,
         `no check started or finished for ${progress.idle}s; the stall bound is ` +

@@ -251,7 +251,7 @@ describe('argv', () => {
       '--limit',
       '20',
       '--json',
-      'databaseId,status,conclusion,createdAt,updatedAt',
+      'databaseId,status,conclusion,createdAt,updatedAt,headSha',
     ])
   })
 
@@ -262,7 +262,7 @@ describe('argv', () => {
       'run',
       'list',
       '--json',
-      'databaseId,status,conclusion,createdAt,updatedAt',
+      'databaseId,status,conclusion,createdAt,updatedAt,headSha',
     ])
   })
 
@@ -345,7 +345,7 @@ describe('argv', () => {
         '--repo',
         'acme/widgets',
         '--json',
-        'databaseId,status,conclusion,createdAt,updatedAt',
+        'databaseId,status,conclusion,createdAt,updatedAt,headSha',
       ],
     ])
     expect(calls.map((call) => call.args)).toEqual([
@@ -3330,7 +3330,7 @@ describe('listRunJobs and commitDate', () => {
 
     expect(calls[1]?.args).toEqual([
       'api',
-      'repos/acme/widgets/actions/runs/39508680057/jobs?per_page=100',
+      'repos/acme/widgets/actions/runs/39508680057/jobs?per_page=100&page=1',
     ])
     expect(result).toEqual({
       rows: [
@@ -3361,13 +3361,114 @@ describe('listRunJobs and commitDate', () => {
     expect(result.unavailable).toBe('3 job(s) of run 7 could not be read')
   })
 
-  it('names the jobs past the first page', async () => {
+  it('names the jobs a short page left out of its total_count', async () => {
     const { gh } = clientAnsweringEach([REPO, jobsReply([job(1)], { total_count: 120 })])
 
     const result = await gh.listRunJobs({ run: '7' })
 
     expect(result.rows).toHaveLength(1)
     expect(result.unavailable).toBe('run 7 has 120 jobs; 1 were read')
+  })
+
+  /** `count` jobs, with ids from `first`. */
+  const jobs = (count: number, first = 0) =>
+    Array.from({ length: count }, (_, index) => job(first + index))
+
+  it('reads every page of a run with more than 100 jobs', async () => {
+    const { gh, calls } = clientAnsweringEach([
+      REPO,
+      jobsReply(jobs(100), { total_count: 150 }),
+      jobsReply(jobs(50, 100), { total_count: 150 }),
+    ])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows.map((row) => row.id)).toEqual(jobs(150).map((entry) => entry.id))
+    expect(result.unavailable).toBeNull()
+    expect(calls.map((call) => call.args)).toContainEqual([
+      'api',
+      'repos/acme/widgets/actions/runs/7/jobs?per_page=100&page=2',
+    ])
+  })
+
+  it('reads the next page of a full page with no total_count, until a short page', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      { stdout: JSON.stringify({ jobs: jobs(100) }) },
+      { stdout: JSON.stringify({ jobs: jobs(3, 100) }) },
+    ])
+
+    await expect(gh.listRunJobs({ run: '7' })).resolves.toMatchObject({
+      rows: { length: 103 },
+      unavailable: null,
+    })
+  })
+
+  it('stops at a full page that reaches total_count', async () => {
+    // The stub repeats its last reply, so a read of a second page would
+    // read the same 100 jobs again.
+    const { gh } = clientAnsweringEach([REPO, jobsReply(jobs(100))])
+
+    await expect(gh.listRunJobs({ run: '7' })).resolves.toMatchObject({
+      rows: { length: 100 },
+      unavailable: null,
+    })
+  })
+
+  it('stops at the page cap, and names the jobs past it', async () => {
+    const { gh } = clientAnsweringEach([REPO, jobsReply(jobs(100), { total_count: 5000 })])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows).toHaveLength(2000)
+    expect(result.unavailable).toBe('run 7 has 5000 jobs; 2000 were read')
+  })
+
+  it('stops at the page cap with no total_count, and says so', async () => {
+    const { gh } = clientAnsweringEach([REPO, { stdout: JSON.stringify({ jobs: jobs(100) }) }])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows).toHaveLength(2000)
+    expect(result.unavailable).toBe('run 7 has more jobs than the 20 pages this reads')
+  })
+
+  it('keeps the first page when the second page fails', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      jobsReply(jobs(100), { total_count: 150 }),
+      { status: 1, stdout: '', stderr: 'gh: HTTP 502\n' },
+    ])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows).toHaveLength(100)
+    expect(result.unavailable).toBe('gh: HTTP 502; run 7 has 150 jobs; 100 were read')
+  })
+
+  it('keeps the total_count of an earlier page when a later page has none', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      jobsReply(jobs(100), { total_count: 250 }),
+      { stdout: JSON.stringify({ jobs: jobs(100, 100) }) },
+      { status: 1, stdout: '', stderr: 'gh: HTTP 502\n' },
+    ])
+
+    const result = await gh.listRunJobs({ run: '7' })
+
+    expect(result.rows).toHaveLength(200)
+    expect(result.unavailable).toBe('gh: HTTP 502; run 7 has 250 jobs; 200 were read')
+  })
+
+  it('reports a repository it could not resolve, with no jobs', async () => {
+    const { gh } = clientAnsweringEach([
+      { status: 1, stdout: '', stderr: 'gh: Could not resolve to a Repository\n' },
+    ])
+
+    await expect(gh.listRunJobs({ run: '7' })).resolves.toEqual({
+      rows: [],
+      unavailable: expect.stringContaining('Could not resolve to a Repository'),
+    })
   })
 
   it('reads a reply with no total_count by its own list', async () => {
