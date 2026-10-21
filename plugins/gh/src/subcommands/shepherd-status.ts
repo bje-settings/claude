@@ -172,18 +172,32 @@ const readStacks = async (
   for (const stack of answer.rows) {
     const open = openLayers(stack)
     if (labelled && !open.some((number) => listed.has(number))) continue
-    const rows = new Map<number, unknown>()
-    for (const number of open) {
-      const row = listed.get(number) ?? (await readLayer(gh, number, stack.number, err))
-      if (row !== null) rows.set(number, row)
-    }
-    if (rows.size < open.length) continue
+    const rows = await layerRows(gh, listed, stack.number, open, err)
+    if (rows === null) continue
     if (!contexts.has(stack.base)) {
       contexts.set(stack.base, await readRequiredContexts(gh, stack.base, err))
     }
     reads.push({ stack, rows, contexts: contexts.get(stack.base) ?? null })
   }
   return reads
+}
+
+/** The row of each open layer, from the listing or read by itself, or
+ *  `null` when one could not be read. */
+const layerRows = async (
+  gh: ReturnType<ShepherdContext['createGh']>,
+  listed: ReadonlyMap<number, unknown>,
+  stack: number,
+  open: readonly number[],
+  err: ShepherdContext['output']['err'],
+): Promise<Map<number, unknown> | null> => {
+  const rows = new Map<number, unknown>()
+  for (const number of open) {
+    const row = listed.has(number) ? listed.get(number) : await readLayer(gh, number, stack, err)
+    if (row === null) return null
+    rows.set(number, row)
+  }
+  return rows
 }
 
 /** One layer the listing did not hold, or `null` when gh could not read

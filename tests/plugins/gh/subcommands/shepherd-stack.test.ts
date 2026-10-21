@@ -306,13 +306,16 @@ it('names a stack with no open pull request, and a stack read that came back sho
     more: { listOpenStacks: async () => ({ rows: [], unavailable: 'gh: HTTP 502' }) },
   })
 
-  const gone = await stack(none, 'state')
   const unread = await stack(short, 'merge')
 
-  expect(gone.document).toMatchObject({
-    ok: false,
-    detail: 'no open pull request is in stack #472',
-  })
+  for (const action of ['state', 'update', 'wait', 'merge']) {
+    const gone = await stack(none, action)
+    expect(gone.document).toMatchObject({
+      action,
+      ok: false,
+      detail: 'no open pull request is in stack #472',
+    })
+  }
   expect(unread.document).toMatchObject({
     ok: false,
     detail: 'could not read stack #472: gh: HTTP 502',
