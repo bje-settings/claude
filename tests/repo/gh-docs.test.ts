@@ -282,15 +282,15 @@ it('draws the stalled skip in the skill flow, decided by the script', () => {
 })
 
 it('draws the jobs read and the head commit fallback in the shepherd-pr flow', () => {
-  // Rulings 12 and 13.
+  // Rulings 12 and 13 on #466, and rulings 3 and 4 on #476.
   const body = section(
     path.join(FLOWS, 'shepherd', 'merge', 'shepherd-pr-flow.md'),
     '```mermaid',
     '```',
   )
-  expect(body).toContain('Read the jobs of each Actions run with a pending check')
+  expect(body).toContain('Read every page of the jobs of each Actions run')
   expect(body).toContain('The newer of the head commit date and updatedAt')
-  expect(body).toContain('a failed read gives no stall on this poll')
+  expect(body).toContain('The stall bound of this poll is doubled')
 })
 
 it('decides from the merge state when the compare could not be read', () => {
