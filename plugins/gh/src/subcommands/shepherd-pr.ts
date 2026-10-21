@@ -51,7 +51,7 @@ import {
   tailLines,
 } from '../shepherd.ts'
 
-const NUMBER_RE = /^[1-9][0-9]*$/
+export const NUMBER_RE = /^[1-9][0-9]*$/
 const DIGITS_RE = /^[0-9]+$/
 const POSITIVE_RE = /^[1-9][0-9]*$/
 
@@ -336,14 +336,14 @@ export const waitBoundOf = (env: NodeJS.ProcessEnv, err: Writer, ciSeconds: numb
 /** What a `gh` failure said, in one line. For anything else, this
  *  re-throws the error. This uses `GhError.detail`, never `message`: the
  *  message carries the whole argv, and these reports quote gh. */
-const ghAccount = (error: unknown): string => {
+export const ghAccount = (error: unknown): string => {
   if (error instanceof GhError) return oneLine(error.detail)
   throw error
 }
 
 /** The measured seconds of a duration in milliseconds, as `int()` read the
  *  monotonic clock: truncated, never rounded up. */
-const seconds = (milliseconds: number): number => Math.floor(milliseconds / 1000)
+export const seconds = (milliseconds: number): number => Math.floor(milliseconds / 1000)
 
 export interface WorkerOptions {
   readonly repo: string
@@ -1159,6 +1159,43 @@ export class Shepherd {
   }
 }
 
+/** `SHEPHERD_CI_SECONDS` and `SHEPHERD_LOG_LINES`, as both shepherd step
+ *  commands read them. */
+export const readSettings = (
+  env: NodeJS.ProcessEnv,
+  err: Writer,
+): { readonly ciSeconds: number; readonly logLines: number } => ({
+  ciSeconds: envInt(env, err, 'SHEPHERD_CI_SECONDS', DEFAULT_CI_SECONDS),
+  logLines: envInt(env, err, 'SHEPHERD_LOG_LINES', DEFAULT_LOG_LINES, POSITIVE_RE),
+})
+
+/**
+ * The `owner/name` of the checkout at `target`, or the refusal, exit 1.
+ *
+ * This call resolves from the checkout. It is the one call of the five
+ * that names no repository, because it answers what the repository is.
+ * `shepherd-stack` makes the same call (#469).
+ */
+export const resolveRepository = async (
+  target: string,
+  context: ShepherdContext,
+): Promise<string | { readonly refusal: string }> => {
+  let view: Record<string, unknown>
+  try {
+    view = await context.createGh({ cwd: target }).viewRepository()
+  } catch (error) {
+    if (error instanceof GhError && error.status === 127) return { refusal: 'gh is required' }
+    return { refusal: `could not resolve the repository with gh: ${ghAccount(error)}` }
+  }
+  const name = view.nameWithOwner
+  if (!isTruthy(name)) {
+    return {
+      refusal: 'could not resolve the repository with gh: gh answered without nameWithOwner',
+    }
+  }
+  return String(name)
+}
+
 /** The action each name runs, which is also the set the usage advertises: a
  *  name with no entry here is the unknown-action refusal, so the two cannot
  *  drift apart. */
@@ -1200,14 +1237,7 @@ const shepherdPr = async (
   // This code reads these values before it checks the action. A caller who
   // set a value that goes unused still hears about anything else it asked
   // for.
-  const ciSeconds = envInt(context.env, output.err, 'SHEPHERD_CI_SECONDS', DEFAULT_CI_SECONDS)
-  const logLines = envInt(
-    context.env,
-    output.err,
-    'SHEPHERD_LOG_LINES',
-    DEFAULT_LOG_LINES,
-    POSITIVE_RE,
-  )
+  const { ciSeconds, logLines } = readSettings(context.env, output.err)
 
   // This code checks the action before any gh call. An unknown action is a
   // usage error, and a usage error costs nothing (#218 finding 2).
@@ -1222,23 +1252,12 @@ const shepherdPr = async (
     return refuse(HELP, 2)
   }
 
-  // This call resolves from the checkout. It is the one call of the five
-  // that names no repository, because it answers what the repository is.
-  let view: Record<string, unknown>
-  try {
-    view = await context.createGh({ cwd: target }).viewRepository()
-  } catch (error) {
-    if (error instanceof GhError && error.status === 127) return refuse('gh is required', 1)
-    return refuse(`could not resolve the repository with gh: ${ghAccount(error)}`, 1)
-  }
-  const name = view.nameWithOwner
-  if (!isTruthy(name)) {
-    return refuse('could not resolve the repository with gh: gh answered without nameWithOwner', 1)
-  }
+  const name = await resolveRepository(target, context)
+  if (typeof name !== 'string') return refuse(name.refusal, 1)
 
   await handler(
     new Shepherd({
-      repo: String(name),
+      repo: name,
       number: Number(number),
       action,
       ciSeconds,

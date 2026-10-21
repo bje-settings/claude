@@ -793,22 +793,33 @@ export const failedRequired = (pull: unknown, contexts: readonly string[] | null
 }
 
 /**
- * Why one open layer of a stack is not ready, by the rules of the stack
- * base (ruling 4 on #469). `--all` drops the review and thread rules, as
- * it does for a pull request. A draft and a failed required check still
- * count. A rule that could not be read proves nothing missing.
+ * The required contexts with no row at all in the rollup of `pull`.
+ * `shepherd-stack merge` waits for these. `null` contexts name none.
+ */
+export const unreportedRequired = (pull: unknown, contexts: readonly string[] | null): string[] => {
+  const raw = field(pull, 'statusCheckRollup')
+  const names = (Array.isArray(raw) ? raw : []).map(checkName)
+  return (contexts ?? []).filter((name) => !names.includes(name))
+}
+
+/**
+ * Why one open layer of a stack is not ready, from its approval and threads
+ * by the rules of the stack base (ruling 4 on #469). `--all` drops the
+ * review and thread rules, as it does for a pull request. A draft and a
+ * failed required check still count. A null verdict, from a read that
+ * failed, proves nothing missing.
  */
 export const layerReasons = (
   pull: unknown,
-  rules: RequiredReviews | null,
-  unresolved: number | null,
+  approval: Approval | null,
+  threads: Threads | null,
   contexts: readonly string[] | null,
   all: boolean,
 ): string[] => {
   const reasons: string[] = []
   if (isTruthy(field(pull, 'isDraft'))) reasons.push(IS_DRAFT)
-  if (!all && approvalOf(pull, rules) === 'missing') reasons.push(NEEDS_APPROVAL)
-  if (!all && threadsOf(rules, unresolved) === 'unresolved') reasons.push(UNRESOLVED_THREADS)
+  if (!all && approval === 'missing') reasons.push(NEEDS_APPROVAL)
+  if (!all && threads === 'unresolved') reasons.push(UNRESOLVED_THREADS)
   return [...reasons, ...failedRequired(pull, contexts).map(failedCheck)]
 }
 
@@ -865,8 +876,8 @@ export const stackFailing = (
           ? [NOT_OPEN]
           : layerReasons(
               read.rows.get(layer.number),
-              rules,
-              threads.get(layer.number) ?? null,
+              approvalOf(read.rows.get(layer.number), rules),
+              threadsOf(rules, threads.get(layer.number) ?? null),
               read.contexts,
               all,
             ),

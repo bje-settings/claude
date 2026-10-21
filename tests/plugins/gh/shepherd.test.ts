@@ -39,6 +39,7 @@ import {
   tailLines,
   threadReads,
   threadsOf,
+  unreportedRequired,
 } from '#gh/shepherd.ts'
 
 const checkRun = (status: string, conclusion: string | null, name = 'build') => ({
@@ -1230,16 +1231,20 @@ describe('stacks (#469)', () => {
     expect(failedRequired(red, null)).toEqual([])
   })
 
-  it('keeps a draft and a failed check with --all, and drops the review rules', () => {
-    const rules = rule(1, { threadResolution: true })
+  it('names a required check with no row at all as unreported', () => {
+    expect(unreportedRequired(red, ['lint', 'vitest', 'types'])).toEqual(['types'])
+    expect(unreportedRequired({}, ['types'])).toEqual(['types'])
+    expect(unreportedRequired(red, null)).toEqual([])
+  })
 
-    expect(layerReasons(red, rules, 2, ['vitest'], false)).toEqual([
+  it('keeps a draft and a failed check with --all, and drops the review rules', () => {
+    expect(layerReasons(red, 'missing', 'unresolved', ['vitest'], false)).toEqual([
       'is a draft',
       'needs an approval',
       'has unresolved review threads',
       'required check vitest failed',
     ])
-    expect(layerReasons(red, rules, 2, ['vitest'], true)).toEqual([
+    expect(layerReasons(red, 'missing', 'unresolved', ['vitest'], true)).toEqual([
       'is a draft',
       'required check vitest failed',
     ])

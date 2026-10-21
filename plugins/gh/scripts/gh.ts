@@ -26,7 +26,7 @@
 // `hooks/hook-io.py` was. `hooks.json` runs one file this way. The three
 // seams that build the hook stay reachable by hand.
 //
-// The two shepherd commands answer with an exit status, not an envelope.
+// The three shepherd commands answer with an exit status, not an envelope.
 // They have a fourth status (3, an internal error) that `lib/envelope.ts`
 // deliberately does not know. They write their own JSON document through
 // the writers handed to them. `discover` answers with a status for its own
@@ -53,6 +53,8 @@ commands:
                                                   on in one repository
   shepherd-pr <path> <number> <action>            one deterministic step
                                                   against one pull request
+  shepherd-stack <path> <stack> <action>          one deterministic step
+                                                  against one GitHub stack
 
 gh.ts <command> --help prints that command's own usage.`
 
@@ -125,6 +127,10 @@ const run = async (name: string, argv: readonly string[]): Promise<number | null
   if (name === 'shepherd-pr') {
     const { runShepherdPr } = await import('../src/subcommands/shepherd-pr.ts')
     return runShepherdPr(argv, { ...edges, ...shepherdEdges })
+  }
+  if (name === 'shepherd-stack') {
+    const { runShepherdStack } = await import('../src/subcommands/shepherd-stack.ts')
+    return runShepherdStack(argv, { ...edges, ...shepherdEdges })
   }
   return null
 }
