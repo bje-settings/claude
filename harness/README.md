@@ -85,18 +85,13 @@ lets the hook find a GitHub CLI on any machine, and it keeps a spawned run away 
 endpoint is named after its operation, not after gh's own argv. This way, the interface survives a
 change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
-`watchChecks`, `issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
+`issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
 `requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`,
 `listPullRequestStatuses`, `createCommitStatus`, `repositoryStatus`.
 
-`watchChecks` is different. For this one endpoint, the exit status itself is the answer, not a
-failure. The bounded watch answers with `{ status, timedOut, waitedMs, problem }`. This is
-because gh reports on checks through its own exit status, and a test about a red rollup must be
-able to register one.
-
-`issueStates` also answers with a record, `{ states, unavailable }`. Unlike `watchChecks`, it
-never throws. So a test has nothing else to register beside its one reply.
+`issueStates` answers with a record, `{ states, unavailable }`. It never throws.
+So a test has nothing else to register beside its one reply.
 
 The three sweep reads never throw, for the same reason, and each answers `{ rows, unavailable }`.
 The review-loop reads follow the same pattern. `requiredContexts` answers
@@ -139,7 +134,7 @@ does this with its captured replies.
   implementation detail. A test that counts calls would turn a refactor red.
 
 `GhClient`, `GhResults`, `GhEndpoint`, `PullRequestQuery`, `MergedPullRequestQuery`, `RunQuery`,
-`WatchResult`, and `IssueState` live in `lib/gh.ts`. The result shapes that the sweep and the
+and `IssueState` live in `lib/gh.ts`. The result shapes that the sweep and the
 review loop read also live there: `MilestoneSummary`, `IssueSummary`, `PullRequestSummary`,
 `PagedResult`, `PullRequestDetail`, `CheckContext`, `WorkflowRun`, `CommitStatus`. The first of them moved there
 at [#125](https://github.com/bje-settings/claude/issues/125), where `createGhClient` is written

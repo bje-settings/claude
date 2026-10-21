@@ -62,8 +62,8 @@ export interface PullRequestQuery {
  * `mergeCommit`. `head` narrows the query to one branch, which is the
  * single-branch fallback at `gh-sync-repo.py:493`.
  *
- * `limit` is required for the same reason `watchChecks.boundMs` is (round 5's
- * handoff fact 1, one field over). It is the number the caller compares the
+ * `limit` is required, because an omitted field would select a default that
+ * no consumer wants. It is the number the caller compares the
  * row count against, to find out whether the window saturated. Left out, it
  * is gh's own default of 30, with nothing to say so: a truncated list read
  * as a complete one.
@@ -94,48 +94,6 @@ export interface RunQuery {
    *  passes a sample size. It reads the rows, and does not measure the
    *  window. */
   limit?: number
-}
-
-/**
- * What a bounded `gh pr checks --watch` did.
- *
- * The watch reports on the checks **through its exit status**. So, unlike
- * every other endpoint here, a non-zero status is an answer, not a failure:
- * 0 means all passed, 1 means a check failed, 8 means still pending
- * (`gh-shepherd-pr.py:177`'s `WATCHER_CODES`). 1 is also gh's own generic
- * failure code, so "one check failed" and "gh could not reach GitHub" arrive
- * as the same number. The caller needs {@link problem} to tell them apart.
- * That is round 5's handoff fact 2. It is why this endpoint answers with a
- * record, not a list: an endpoint that threw on 1 would report a red rollup
- * as a broken token, and one that swallowed 1 would report a broken token as
- * a red rollup.
- *
- * There is deliberately no check list here. The one consumer,
- * `gh-shepherd-pr.py:668` to `690`, re-reads the pull request afterwards "in
- * every case", and decides "from the rollup rather than the watcher's exit
- * code". That re-read is {@link GhClient.viewPullRequest}. A second
- * `gh pr checks --json` call inside this endpoint would be a round trip that
- * consumer never reads, and it fails outright on a pull request with no
- * checks at all.
- */
-export interface WatchResult {
-  /** gh's own exit status, or `null` when a signal ended the watch. That is
-   *  what it looks like when the bound fires. */
-  readonly status: number | null
-  /** Whether the bound fired. `run_bounded` publishes this as status 124,
-   *  the way coreutils `timeout` does (`gh-shepherd-pr.py:250`). That
-   *  translation belongs to the caller that publishes a status. */
-  readonly timedOut: boolean
-  /** How long the watch actually took. "A watcher that returned early did not
-   *  wait the bound, and saying it did misleads a caller deciding whether to
-   *  wait again" (`gh-shepherd-pr.py:266`). */
-  readonly waitedMs: number
-  /** What the watch said on stderr, whole: "the only place a watcher that
-   *  could not reach GitHub says so, and without it a 502 is
-   *  indistinguishable from checks that are still running"
-   *  (`gh-shepherd-pr.py:255`). To tail this text, or reduce it to one line,
-   *  is the caller's own formatting job, not the transport's. */
-  readonly problem: string
 }
 
 /** The three states GraphQL reports for an issue or a pull request. */
@@ -489,8 +447,6 @@ export interface GhResults {
   updateBranch: string
   /** Whatever gh printed when it posted the comment. */
   addComment: string
-  /** What the bounded watch did. */
-  watchChecks: WatchResult
   /** Every requested number's state, resolved through one or more `gh api
    *  graphql` calls. `not_found` applies only to a number GraphQL names
    *  outright as gone. Any other unresolved number is left out of `states`,
@@ -591,33 +547,11 @@ export interface GhClient {
      *  this flag unconditionally (`gh-shepherd-pr.py:483`; `:19` names the
      *  whole subcommand "rebase    gh pr update-branch --rebase"). `false`
      *  is still an available value, so nothing here asks a caller for
-     *  something it does not already have. This field has the same shape as
-     *  `watchChecks.boundMs`: an optional field whose omission would select
-     *  the behaviour no consumer wants. */
+     *  something it does not already have. An optional field
+     *  would let an omission select the behaviour no consumer wants. */
     rebase: boolean
   }): Promise<GhResults['updateBranch']>
   addComment(comment: { pullRequest: number } & CommentText): Promise<GhResults['addComment']>
-  watchChecks(pull: {
-    pullRequest: number
-    /** gh's refresh interval, in SECONDS, the unit
-     *  `gh pr checks -i, --interval int` takes. This field is named
-     *  `interval` because it sits beside `boundMs`, and a caller that passed
-     *  milliseconds here would get a poll interval measured in hours, with
-     *  nothing to say so. No ported call site sets it: `gh-shepherd-pr.py:645`
-     *  to `655` passes `--watch --fail-fast`, and takes gh's default of 10. */
-    interval?: number
-    /** The bound, in milliseconds. See {@link RunOptions.timeoutMs} for what
-     *  `number` admits that a bound does not. This field is required,
-     *  because round 5's handoff fact 1 is that #154 left this call
-     *  unbounded, and "a watch that cannot return is worse than no watch".
-     *  Made optional, it would be that same defect one line away, and
-     *  `process.ts` only detaches a bounded child, so an unbounded watch
-     *  could not even be group-killed. The one ported call site already has
-     *  a bound (`gh-shepherd-pr.py:637`), so nothing here asks a caller for
-     *  something it does not already have. */
-    boundMs: number
-    failFast?: boolean
-  }): Promise<GhResults['watchChecks']>
   /**
    * Every number's state: open, closed, merged, or not found. This method
    * reads the repository from {@link GhClient.viewRepository}, rather than
@@ -956,7 +890,7 @@ export interface GhClientOptions {
   /**
    * The time limit, in milliseconds, for every call this client makes.
    * A call that already carries its own bound keeps it instead
-   * (`watchChecks.boundMs`, `repositoryStatus`'s second argument).
+   * (`repositoryStatus`'s second argument).
    *
    * Left out, a call waits for `gh` as long as it takes. That was the
    * mode of every endpoint before this option existed. It is still the
@@ -2300,9 +2234,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
   const repositoryArgument = options.repository === undefined ? [] : [options.repository]
 
   /** Run gh, and answer with everything the child did. Nothing here decides
-   *  whether that is a failure. The watch reports through its own status,
-   *  and the other endpoints do not, so each endpoint decides that for
-   *  itself.
+   *  whether that is a failure. Each endpoint decides that for itself.
    *
    *  `boundMs` defaults to `options.boundMs`, the client's own bound. Every
    *  endpoint that reads through this function gets it that way.
@@ -2310,8 +2242,8 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
    *  the three that read through `succeeded`. `restJson`, `queryOnce`,
    *  `collect` and `issueStates` call this function directly, and get the
    *  same default. A
-   *  call that already carries its own bound keeps it: `watchChecks` and
-   *  `repositoryStatus` both pass one (ruling 4, #295). */
+   *  call that already carries its own bound keeps it: `repositoryStatus`
+   *  passes one (ruling 4, #295). */
   const invoke = (
     args: readonly string[],
     boundMs: number | undefined = options.boundMs,
@@ -2686,78 +2618,6 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         ...repository,
         ...filter('body', comment.body),
       ]),
-
-    // The blocking call, and the only one that takes a bound. Round 5's
-    // handoff fact 1: #154 left `gh pr checks --watch` unbounded, while the
-    // Python wraps the same call in `run_bounded`, for the reasons it
-    // records at `gh-shepherd-pr.py:633` to `637`. A watch that cannot
-    // return is worse than no watch.
-    //
-    // gh refuses `--watch` together with `--json`, and refuses `--interval`
-    // without `--watch`, both verified against gh 2.98.0. That is why there
-    // is no `--json` here: this endpoint is the wait, and the caller reads
-    // the rollup afterwards with `viewPullRequest`, exactly as
-    // `gh-shepherd-pr.py:668` does.
-    //
-    // Nothing throws. Every outcome, including gh's failure to start, is
-    // reported through {@link WatchResult}, because the status is an answer
-    // here. A caller that must tell 1 apart from 8 apart from 127 cannot be
-    // handed some of them as values and the rest as exceptions.
-    watchChecks: async (pull) => {
-      const result = await invoke(
-        [
-          'pr',
-          'checks',
-          String(pull.pullRequest),
-          ...repository,
-          '--watch',
-          ...flag('fail-fast', pull.failFast),
-          ...filter('interval', pull.interval),
-        ],
-        pull.boundMs,
-      )
-      return {
-        status: result.status,
-        timedOut: result.timedOut,
-        waitedMs: result.elapsedMs,
-        // gh's own words, when gh managed to say any. Otherwise, an account
-        // of what happened to it.
-        //
-        // A watch a signal ended has no status to report, and, unlike the
-        // Python, nothing on stderr either. `run_bounded` calls
-        // `communicate()` a second time after the kill, specifically to
-        // drain stderr (`gh-shepherd-pr.py:286` to `291`), and this
-        // transport does not. So a watch killed by anything that is not
-        // this process's own bound, such as the OOM killer, a SIGHUP when
-        // the terminal closed, or a supervisor, used to arrive as
-        // `{ status: null, timedOut: false, problem: '' }`. That gave no
-        // status the caller recognised, said nothing about whether it timed
-        // out, and stayed silent in the one field whose contract is to be
-        // "the only place a watcher that could not reach GitHub says so".
-        //
-        // The case where the bound fires alone is exempt, because it
-        // already says so in `timedOut`, which is what the caller at
-        // `gh-shepherd-pr.py:644` reads. `problem` stays empty there
-        // instead of repeating `accountOf`'s own timeout wording.
-        //
-        // `result.stderr` appears WHOLE in the first arm, never
-        // `accountOf`'s trimmed copy. The field's own contract, stated
-        // above, is "what the watch said on stderr, whole", with the
-        // tailing left to the caller. A watch that died with something
-        // already on stderr keeps those words, for the same reason: that is
-        // the `result.stderr !== ''` clause.
-        //
-        // A pipe that failed disqualifies the whole transcript. So it falls
-        // through to `accountOf`, with everything else that is not gh's
-        // own words.
-        problem:
-          result.startFailure === null &&
-          result.streamErrors.length === 0 &&
-          (result.signal === null || result.timedOut || result.stderr !== '')
-            ? result.stderr
-            : accountOf(result, pull.boundMs),
-      }
-    },
 
     // Never throws (the interface's own contract). A failure to resolve
     // the repository, to reach gh at all, or to read what gh printed, is

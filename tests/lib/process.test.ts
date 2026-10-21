@@ -312,11 +312,10 @@ it("detaches a bounded child and leaves an unbounded one in this process's group
 })
 
 it('reports a bounded command that is not there as a start failure, not as a timeout', async () => {
-  // Every production `watchChecks` call is bounded. So on a machine with no
-  // `gh`, this is the shape the shepherd meets first. `timedOut` is the
-  // assertion that matters. If it were true beside a `startFailure`,
-  // `lib/gh.ts` would read `problem` from an empty stderr. It would then
-  // report a missing `gh` as silence.
+  // A bounded call, such as `repositoryStatus`, meets this shape on a
+  // machine with no `gh`. `timedOut` is the assertion that matters. If it
+  // were true beside a `startFailure`, `readStatusBatch` would check it
+  // first. It would then report a missing `gh` as a timeout.
   const result = await run('definitely-not-a-command-127', [], { timeoutMs: TINY_MS })
 
   expect(result.startFailure?.code).toBe('ENOENT')

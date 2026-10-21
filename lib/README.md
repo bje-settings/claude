@@ -131,11 +131,11 @@ ported call site already has a branch for a child that failed. None of them want
 around the call. Three properties are why this exists instead of `execFile`:
 
 - **A bound that stays.** `{ timeoutMs }` starts the child detached. When the bound fires, `run`
-  kills the whole process group, not just the one child this process holds. `gh pr checks --watch`
-  polls in a loop, and the sync fan-out starts one child per repository. A kill of only the parent
+  kills the whole process group, not just the one child this process holds. A `gh` call can
+  poll in a loop, and the sync fan-out starts one child per repository. A kill of only the parent
   would leave those children active on the network long after the caller gave up. `timedOut`
   says whether the bound fired. `elapsedMs` says how long the child actually took, because a
-  watcher that returned early did not wait for the full bound.
+  child that ended early did not wait for the full bound.
 - **"Could not start" apart from "ran and failed."** `startFailure` carries node's own error code.
   `status` carries the shell's convention for the same fact: 127 for a command that is not there,
   126 for one that is there but will not run. That mapping comes from `lib/install.py`, kept so a
@@ -251,25 +251,13 @@ Every member of `GhError` is public. `tsc` sees each file here under two paths: 
 copy in `plugins/<p>/src/lib/`. A `private` or `protected` member would make the class nominal
 per declaration, and the two identities would no longer be assignable to each other.
 
-Three inputs are required, where an optional one would let back in a defect this layer exists to
-close. `watchChecks`'s `boundMs` is one (round 5's handoff fact 1). `listMergedPullRequests`'s
-`limit` is another: left out, gh substitutes 30, and the caller has no number to judge saturation
-against, so a truncated window reads as a complete answer. `updateBranch`'s `rebase` is the third:
-left out, gh writes a merge commit onto someone's head branch. Every ported call site already
-passes all three, so nothing here asks a caller for something it does not have. The two remaining
-`limit` filters stay optional, because neither consumer measures its own window.
-
-`watchChecks` is the one blocking call, and the one exception to "a non-zero status is a failure".
-Its bound is required, not optional: an optional bound is #154's unbounded watch, one line away,
-and `process.ts` detaches only a bounded child, so an unbounded watch could not even be
-group-killed. It answers with `{ status, timedOut, waitedMs, problem }`, and does not throw,
-because the watch reports on the checks through its own exit status: 1 means a check failed, 8
-means still pending. 1 is also gh's generic failure code, so an endpoint that threw on 1 would
-report a red rollup as a broken token.
-
-`watchChecks` carries no `--json`, and returns no check list. gh refuses `--watch` together with
-`--json`. The caller reads the rollup afterwards with `viewPullRequest`, which is what
-`gh-shepherd-pr.py` does.
+Two pull request inputs are required, where an optional one would let back in a defect this layer exists to
+close. `listMergedPullRequests`'s `limit` is one: left out, gh substitutes 30, and the caller has
+no number to judge saturation against, so a truncated window reads as a complete answer.
+`updateBranch`'s `rebase` is the other: left out, gh writes a merge commit onto someone's head
+branch. Every ported call site already passes both, so nothing here asks a caller for something
+it does not have. The two remaining `limit` filters stay optional, because neither consumer
+measures its own window.
 
 `createGhClient` takes the process runner as an option. That option is the seam this directory's
 own test suite substitutes. Through it, the suite exercises every endpoint, and every arm of every
