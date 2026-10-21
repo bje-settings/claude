@@ -251,7 +251,7 @@ read each status against its own command.
 When a session starts, resumes, clears, or compacts, the hook checks that git, the GitHub CLI and
 the `gh stack` extension are present. When all three are present, it writes nothing.
 
-When git or gh is not on `PATH`, each one gets a line of its own, and the hook checks nothing
+When git or gh is not on `PATH`, each one gets a line of its own, and the hook reports nothing
 else. `additionalContext` says that the plugin cannot run:
 
 ```
@@ -270,5 +270,6 @@ shepherd: ⚠️ gh stack extension not found
 ```
 
 A read that does not finish within 2.5 seconds gives `could not be checked` in place of
-`not found`, with no `additionalContext`. The hook always exits 0. The same reason also goes to
-stderr, one line for each item. The hook is `hooks/session-start.ts`.
+`not found`, with no `additionalContext`. An environment with no home directory gives the same
+line for the extension. The hook always exits 0. The same reason also goes to stderr, one line
+for each item. The hook is `hooks/session-start.ts`.

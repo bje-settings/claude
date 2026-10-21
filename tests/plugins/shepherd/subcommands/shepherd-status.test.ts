@@ -50,9 +50,10 @@ const CAPTURE: Record<string, CapturedCase> = JSON.parse(
 )
 
 /** This file lists every place this port answers differently from the
- *  Python, as data. Layer 2's rule requires this (`fixtures/README.md`). A
- *  data list keeps each divergence countable. It also stops a ninth
- *  divergence. An edited literal here cannot add one. */
+ *  Python, as data. Layer 2's rule requires this
+ *  (`tests/plugins/gh/fixtures/README.md`). A data list keeps each
+ *  divergence countable. It also stops a ninth divergence. An edited
+ *  literal here cannot add one. */
 const DIVERGENCES: {
   notReplayed: Record<string, Record<string, { why: string; pinnedBy: string }>>
   sentences: { id: string; was: string; now: string; prefix?: string; cases: string[] }[]

@@ -1,17 +1,18 @@
 // This file is repository discovery as a command. It is the port of the
-// `__main__` block of the Python `lib/discover.py` (deleted at #127).
+// `__main__` block of the gh plugin's `scripts/lib/discover.py` (deleted at
+// #127).
 //
-// `../lib/discover.ts` is the rule itself, and every other command reaches
-// it in process. This is the command line onto it. It exists because one
-// caller is not a command at all: the `/shepherd:merge` skill resolves its
-// scope. It runs discovery and reads one path per line, before it knows
+// `../lib/discover.ts` is the rule itself. The gh plugin's `sync` and its
+// hook reach it in process. This is the command line onto it. It exists
+// because one caller is not a command at all: the `/shepherd:merge` skill
+// resolves its scope. It runs discovery and reads one path per line, before it knows
 // which repositories it will ask `shepherd-status` about. That step ran
 // `python3 "$S/lib/discover.py" "$PWD"` until this port. The plugin then
 // owed it a node form.
 //
-// The `discover` rows of the captured `python-cli-output.json` are what the
-// Python printed for each of these states. The rows were captured before
-// any of it was ported. `tests/plugins/shepherd/subcommands/discover.test.ts`
+// The `discover` rows of `python-cli-output.json`, in the gh plugin's test
+// fixtures, are what the Python printed for each of these states. The rows
+// were captured before any of it was ported. `tests/plugins/shepherd/subcommands/discover.test.ts`
 // compares against them. `tests/plugins/shepherd/fixtures/divergences-discover.json`
 // is what this file deliberately says instead.
 //

@@ -4,9 +4,10 @@
 //
 // It checks the plugin's dependency table with `lib/dependencies.ts`
 // (`.claude/rules/_design-principles.md`, "Dependencies outside a plugin").
-// When everything is present, it writes nothing. A missing git or gh stops
-// the check: the plugin cannot run, and the extension does not matter. A
-// missing `gh stack` extension stops only the stack merge.
+// When everything is present, it writes nothing. When git or gh has a
+// problem, it reports only the tools: the plugin cannot run, and the
+// extension does not matter. A missing `gh stack` extension stops only the
+// stack merge.
 //
 // Every read is local and async, and has a time limit from one clock
 // (#267). A read that did not finish in time reads as "could not be

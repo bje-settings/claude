@@ -9,15 +9,17 @@
 // `src/subcommands/` is the seam a test reaches without a process. This
 // adapter only turns `process.argv` and this process's streams into that
 // function's arguments. It turns the function's answer into an exit code.
-// `tests/plugins/shepherd/bin.test.ts`, through `harness/spawn.ts`, is the
-// one spawned test. It covers the paths that need no `gh` at all.
+// `tests/plugins/shepherd/bin.test.ts`, through `harness/spawn.ts`, spawns
+// this file for the paths that need no `gh` at all. `closed-pipe.test.ts`
+// and `subcommands/discover.test.ts` spawn it too.
 //
 // **The dispatch is `run` below and nothing else.** The import inside each
 // arm is dynamic. A command nobody asked for is never loaded. A new
 // command changes no other line in this file. The `/shepherd:merge`
-// skill's first step resolves its scope with `discover`: it reads one path
-// per line. Its two refusals are exit 1, in the contract that the Python
-// capture `python-cli-output.json` holds.
+// skill's first step resolves its scope with `discover`, and reads one
+// path per line. `discover` exits 1 for its two refusals. The `discover`
+// rows of the gh plugin's test fixture `python-cli-output.json` hold that
+// contract.
 //
 // The hook is not here. `hooks/session-start.ts` is its own entry point.
 //

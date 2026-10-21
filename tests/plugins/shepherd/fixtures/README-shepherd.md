@@ -1,9 +1,10 @@
 # The shepherd captures
 
-This is a second README, rather than new rows in `README.md`. #127 layer 3's file set allows NEW
-files under `plugins/gh/src/fixtures/`, but no edits to what is already here. So this file
-documents the two shepherd captures. `README.md` covers the four sync captures, and still states
-the rule both sets live by: nobody edits a capture after the commit that made it.
+This is a second README, rather than new rows in `tests/plugins/gh/fixtures/README.md`. #127
+layer 3's file set allows NEW files under `plugins/gh/src/fixtures/`, but no edits to what is
+already there. So this file documents the two shepherd captures.
+`tests/plugins/gh/fixtures/README.md` covers the four sync captures, and still states the rule
+both sets live by: nobody edits a capture after the commit that made it.
 
 | File | What it holds |
 | --- | --- |
@@ -89,9 +90,9 @@ Every one of these is a sentence the Python owned that now belongs to `lib/gh.ts
 port reaches differently. The parity test knows about each. None is a silent rewrite.
 
 The capture also records them AS DATA, in `divergences-shepherd.json`, beside this file. That
-follows layer 2's rule (`README.md`, "a divergence stays countable"): the two parity blocks read,
-out of that file rather than out of a literal, which cases they do not replay, and the two
-sentences they assert. So a ninth divergence needs a row there. This sits in a separate file,
+follows layer 2's rule (`tests/plugins/gh/fixtures/README.md`, "a divergence stays countable"):
+the two parity blocks read, out of that file rather than out of a literal, which cases they do
+not replay, and the two sentences they assert. So a ninth divergence needs a row there. This sits in a separate file,
 rather than a section of `divergences.json`, because that one is layer 2's, and this layer's file
 set allows new files here, but no edits to what is already present. The table below is the same
 set, at length.
@@ -102,7 +103,7 @@ set, at length.
 | `gh_is_not_on_path` | `gh is required`, from a `shutil.which` preflight | the same line, off the first `gh` call's start failure (status 127). #158 ports no preflight. |
 | every case where `gh` answered something unreadable | `gh answered with something that is not JSON` | `gh answered gh pr view with something that is not JSON: ...`, which is `GhError.detail` and names the call that could not be read. |
 | `wait_answers_failed_*` with a log `gh` refused | `could not read the failed job's log: <words>` for a refusal, and a bare `cannot run gh: ...` for a `gh` that never started | one prefix for both, because the two are one `GhError` now; to tell them apart would mean a branch on prose. |
-| `help`, `usage_with_too_few_arguments`, `an_unknown_action` | the script's own docstring, which opens `gh-shepherd-pr.py — ...` and spells `gh-shepherd-pr.py <path> <number> <action>` | the command's own usage, which opens with the same sentence and spells `shepherd.ts shepherd-pr <path> <number> <action>`. The test compares the line in FRONT of the usage (`unknown action: dance`) against the Python's. It compares the usage itself against this command's, and asserts that the command accepts every action it advertises. |
+| `help`, `usage_with_too_few_arguments`, `an_unknown_action` | the script's own docstring, which opens `gh-shepherd-pr.py — ...` and spells `gh-shepherd-pr.py <path> <number> <action>` | the command's own usage, which opens with the same sentence, except that it names `/shepherd:merge` where the Python named `/gh:shepherd` (#477), and spells `shepherd.ts shepherd-pr <path> <number> <action>`. The test compares the line in FRONT of the usage (`unknown action: dance`) against the Python's. It compares the usage itself against this command's, and asserts that the command accepts every action it advertises. |
 | `an_internal_error` | `gh-shepherd-pr.py: internal error: <type>: <message>` | `shepherd.ts shepherd-pr: internal error: <name>: <message>`. The file is `scripts/shepherd.ts` for every command now, so the line names the command. The status, 3, and the rule that nothing reaches stdout are unchanged. |
 
 ## What #216 removed

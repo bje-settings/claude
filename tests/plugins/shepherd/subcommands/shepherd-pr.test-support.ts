@@ -53,9 +53,9 @@ export const CAPTURE: Record<string, CapturedCase> = JSON.parse(
 /**
  * Every place this port answers differently from the Python, as data.
  *
- * Layer 2's rule (`fixtures/README.md`) records a divergence where a test
- * reads it. This keeps divergences countable. A literal edited here cannot
- * add a ninth divergence.
+ * Layer 2's rule (`tests/plugins/gh/fixtures/README.md`) records a
+ * divergence where a test reads it. This keeps divergences countable. A
+ * literal edited here cannot add a ninth divergence.
  */
 
 /**
