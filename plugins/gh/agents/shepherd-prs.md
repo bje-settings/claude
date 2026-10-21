@@ -222,8 +222,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|updat
    - On `behind`, go to `update`, then `wait`. Count it as in step 3, from
      `report.pr.headRefOid` of `layer`.
    - On `pending`, call `wait` again. A required check that never reports holds the stack.
-     So a second `pending` in a row whose `report.unreported` names the same checks is
-     skipped, with `layer` and those names.
+     So a second `pending` in a row whose `report.unreported` is not empty, and names the
+     same checks, is skipped, with `layer` and those names. An empty list names no check.
    - On `failed`, classify and fix the failure of `layer`, as steps 4 and 5 do, then `wait`.
      The fix cap is for the whole stack.
    - On `stalled`, record it as skipped, with `layer` and the `report.progress` fields.
@@ -233,7 +233,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/gh.ts" shepherd-stack <path> <s> state|updat
    - On `merged`, record the stack, with each layer and its `mergeCommit` from `layers`.
    - On `accepted`, GitHub took the merge, and a layer is not merged yet. Record the stack as
      skipped, with `result` `accepted` and `layers`.
-   - On `refused`, record it as skipped. Copy `reason` verbatim: it is gh's own words.
+   - On `refused`, record it as skipped. Copy `reason` verbatim: it is gh's own words, or why
+     gh could not run or was killed.
    - On `not_ready`, and "is behind its base", go to `update`. On "checks are pending" or a
      required check that "has not reported", go to `wait`. On any other reason, skip, with
      `detail` and each `failing` layer and its `reasons`. An empty `failing` is a base that

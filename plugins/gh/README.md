@@ -164,9 +164,10 @@ first. A merged entry is no layer. A layer of a stack is never a pull request ta
 layer is judged by the rules of the stack base, as GitHub merges it, not by the rules of its own
 base. A stack is not ready, and goes to `not_ready` with each layer and reason, when a layer "is
 a draft", an entry "is closed", a required check of the stack base failed, or a layer "needs an
-approval" or "has unresolved review threads". `--all` drops the last two. A required check that
-is still pending, or has not reported, is no reason: `shepherd-stack wait` waits for it. With a
-label, a stack is a target when one of its open layers carries it.
+approval" or "has unresolved review threads". `--all` drops the last two from the targets, but
+`shepherd-stack state` and `merge` keep them, because GitHub refuses such a merge. A required
+check that is still pending, or has not reported, is no reason: `shepherd-stack wait` waits for
+it. With a label, a stack is a target when one of its open layers carries it.
 
 ### Flags
 
@@ -334,8 +335,9 @@ answer instead of a refusal, because that answer is exactly what `settle` is ask
 `shepherd-stack` prints one JSON object per action too, with `stack` in place of `number`. A
 read that fails never decides a verdict: it gives `ok: false`, or `result` `unread` from
 `merge`. `merge` gives `merged`, `accepted` (GitHub took the merge, and a layer is not
-merged yet), `refused` with gh's `reason`, or `not_ready` with each layer and reason. A
-`not_ready` with an empty `failing` is a base that allows no merge method, and `detail` says so.
+merged yet), `refused` with gh's `reason` (or why gh could not run or was killed), or
+`not_ready` with each layer and reason. A `not_ready` with an empty `failing` is a base that
+allows no merge method, and `detail` says so.
 `node <plugin>/scripts/gh.ts shepherd-stack --help` has the whole contract.
 
 `node <plugin>/scripts/gh.ts shepherd-pr --help` lists the environment knobs

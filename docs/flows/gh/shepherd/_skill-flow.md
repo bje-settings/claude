@@ -54,7 +54,7 @@ flowchart TD
         P -->|Closed while settle runs| CS([Closed, terminal]):::stop --> S
         W -->|Still in progress: a check, job or step started or finished| W
         W -->|Stalled: no check, job or step started or finished for the stall bound| BP([Skipped: checks made no progress]):::stop --> S
-        S -->|The target is a stack: one unit| SS{Every open layer still ready<br/>by the rules of the stack base?}
+        S -->|The target is a stack: one unit| SS{Every open layer still ready<br/>by the rules of the stack base,<br/>approval and threads too, even with --all?}
         SS -->|No| SSN([Skipped: the layer and the requirement]):::stop --> S
         SS -->|Yes| SU[Merge the base into each layer behind it,<br/>bottom up; never a force push]
         SU -->|Conflict on a layer| SC[Merge its base in a worktree, resolve, verify, plain push] --> SU

@@ -397,8 +397,10 @@ it('ends each stack loop that a read or a rule could hold open', () => {
   const stack = flat(section(AGENT, '## A stack target', '## Report'))
   expect(stack).toContain('`--all` does not change this')
   expect(stack).toContain(
-    'a second `pending` in a row whose `report.unreported` names the same checks is skipped',
+    'a second `pending` in a row whose `report.unreported` is not empty, and names the same ' +
+      'checks, is skipped',
   )
+  expect(stack).toContain('An empty list names no check')
   expect(stack).toContain('An empty `failing` is a base that allows no merge method')
   expect(stack).toContain('On any other `ok:false`, such as a stack that is gone, re-read `state`')
 })
