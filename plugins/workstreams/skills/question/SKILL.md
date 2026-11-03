@@ -46,7 +46,7 @@ reaches step 3 and cannot ask.
    approves or edits the plan there.
 
 7. After approval, check the round's issues once more:
-   `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --issues <n,n> --json`.
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds --all --issues <n,n> --json`.
    Stop, and name the cause, when a round in flight now holds one of them, when
    `unavailable` is not empty, or when the command fails. Another session can have planned
    them first. Then post the plan comment. Its first line names it the plan:

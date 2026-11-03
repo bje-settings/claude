@@ -44,8 +44,10 @@ commands:
   sweep [--milestone 4,5]            what a round could start on: milestones,
     [--issues 12,13] [--json]        open pull requests, the unblocked set,
                                      what it unlocks, and the blocked count
-  rounds [--issues 12,13]            the rounds in flight, each with its
-    [--milestone 4] [--json]         plan line and its issues
+  rounds [--issues 12,13]            the rounds in flight of the current
+    [--milestone 4] [--all] [--json] user, or of everyone with --all, each
+                                     with its plan line, author and issues;
+                                     the others are named apart
   pr-state <number> [--round 0|1|2]  where the review loop is on one pull
     [--substantial] [--rot-checked]  request: its required contexts, its
     [--round-1-head <sha>] [--json]  checks, its unresolved threads, the

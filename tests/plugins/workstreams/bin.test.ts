@@ -33,6 +33,7 @@ it('prints the command list with no arguments at all, and exits 0', () => {
   expect(result.stdout).toMatch(/^usage: workstreams\.ts <command>/)
   expect(result.stdout).toContain('sweep [--milestone 4,5]')
   expect(result.stdout).toContain('rounds [--issues 12,13]')
+  expect(result.stdout).toContain('[--milestone 4] [--all] [--json]')
   expect(result.stdout).toContain('pr-state <number> [--round 0|1|2]')
   expect(result.stdout).toContain('mark <number> <name>')
   expect(result.stdout).toContain('intersect [--json]')
