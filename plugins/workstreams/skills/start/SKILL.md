@@ -11,7 +11,8 @@ Scope: $ARGUMENTS.
 - `issues <n> <n>`: those issues.
 - `pr <n>`: that one pull request, with no sweep and no plan.
 - Nothing: every milestone with open issues.
-- `--all`, with any scope: other people's rounds too. Pass it to `rounds`.
+- `--all`, with a milestone, issues or no scope: other people's rounds too. Pass it to
+  `rounds`.
 - Free words, such as `any LSP related issue` or `all bugs`: an issue list. Get it with
   `gh issue list --limit 1000 --json number,title` and a filter:
   `--search "<key words>"`, `--label <label>` or `--type <issue type>`. Search with the key
@@ -45,23 +46,32 @@ Derive it on each call. Write nothing to disk.
    A round belongs to its `author`. `rounds` puts the person's rounds in `rounds`, and
    another person's in `others`. With `--all`, every round is in `rounds`.
 
-   - One round, with issues, and `outside` empty: it is the round, in flight.
-   - One round, with a milestone: it is the round, in flight. Say that the milestone's
+   - One round, with issues, and `outside` and `others` empty: it is the round, in flight.
+   - One round, with a milestone, and `others` empty: it is the round, in flight. Say that the milestone's
      other open issues are in no round. `outside` is null for a milestone.
    - One round and an `outside` issue: the scope is part in a round and part in none.
      Stop, and name both parts.
    - Two or more, with a scope: the scope holds issues of more than one round. Stop, and
      name each round and its issues.
+   - One or more, with a scope that `others` also holds: the scope holds another person's
+     round too. Stop, and name each round, its `plan` line and `author`.
    - None, and a scope that `others` holds: stop. Name each round in `others`, its `plan`
      line and `author`. Never plan a new round over its issues.
    - One or more, with no scope: ask one `AskUserQuestion`. Give one option for
-     each round, by its `plan` line and issues, and one option to start a new round.
-   - No scope: also name each round in `others`, with its `author`.
-   - With `--all`, a round whose `author` is not `viewer`: before the first tick, ask one
-     `AskUserQuestion`. Name the `author` and `plannedAt`, and say that another session
-     may run the round. A no is a stop.
+     each round, by its `plan` line and issues, and one option to start a new round. Name
+     each round in `others`, with its `author`.
+   - With `--all`, the round to tick has an `author` that is not `viewer`: before the first
+     tick, ask one `AskUserQuestion`. Name the `author`, or "an unknown author" for null,
+     and `plannedAt`. Say that another session may run the round. A no is a stop. With no
+     scope, the question above is that question: its option for the round says all this.
    - None, and an `unended` issue: that round's issues all closed before its round end.
-     Read its plan from that issue, do [round-end.md](round-end.md) for it, and stop.
+     Read its plan from that issue, as below, and the author of that plan comment:
+     `gh issue view <number> --json comments --jq '[.comments[] | select(.body | startswith("<plan>")) | .author.login] | last'`.
+     An author that is not `viewer` is another person's round. Without `--all`, stop, and
+     name the issue and the author. With `--all`, ask the question above first. Then do
+     [round-end.md](round-end.md) for it, and stop.
+   - None, with no scope: no round of the person is in flight. Name each round in
+     `others`, with its `author`.
    - None: no round is in flight in the scope.
 
    `rounds` lists the open issues of a round. The plan is the comment whose first line is
@@ -94,7 +104,8 @@ Derive it on each call. Write nothing to disk.
 
 1. A round in flight: go on at step 3. No round, or a new round: invoke
    `/workstreams:sweep` with the scope. With no scope, also give it the issues of each
-   round that `rounds --all` names, to leave out. If it stops, stop.
+   round in `rounds` and in `others`, to leave out. Together they are the rounds that
+   `rounds --all` names. If it stops, stop.
    Then invoke `/workstreams:question` with the same scope. Its plan mode is the approval.
    With no approved plan, stop.
 2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or

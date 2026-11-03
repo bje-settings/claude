@@ -81,8 +81,8 @@ flight while one of its issues is open, until a `<round> end,` record follows it
 The older `## Round end: <round>` heading ends a round too (#405).
 A scope that is part in a round and part in none is a stop. A round belongs to the person
 who approved its plan. `start` offers only that person's rounds, and stops on a scope that
-only another person's round holds. With `--all`, it can adopt another person's round, after
-one question (#484). `question` checks the issues once more, over every person's rounds,
+another person's round holds, in whole or in part. With `--all`, it can adopt another
+person's round, after one question (#484). `question` checks the issues once more, over every person's rounds,
 before it posts a plan. So two rounds in one repository, on two issue sets,
 never act or comment on each other's issues and pull requests. Each round's watch takes
 `--heads` with its own branches. A collision with another round's pull request is named

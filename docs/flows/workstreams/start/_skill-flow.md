@@ -33,10 +33,13 @@ flowchart TD
     B0 -->|Yes| B0a([Stop: name it]):::stop
     B0 -->|No| B1{how many rounds?}
     B1 -->|None, with a scope that only others holds| B1d([Stop: name each round in others,<br/>its plan line and author]):::stop
-    B1 -->|None| C[Invoke /workstreams:sweep with the scope;<br/>with no scope, leave out the issues<br/>of each round that rounds --all names]
+    B1 -->|None| C[Invoke /workstreams:sweep with the scope;<br/>with no scope, name each round in others,<br/>and leave out the issues of each round in rounds and others]
+    B1 -->|One or more, with a scope that others also holds| B1e([Stop: name each round,<br/>its plan line and author]):::stop
     B1 -->|Two or more, with a scope| B1a([Stop: name each round and its issues]):::stop
     B1 -->|One, and an issue in scope in no round| B1b([Stop: name both parts]):::stop
-    B1 -->|None, and a closed issue whose round did not end| B1c([Read that round's plan;<br/>do the round end for it, then stop]):::stop
+    B1 -->|None, and a closed issue whose round did not end| B1c{Read that round's plan and its author:<br/>another person's round?}
+    B1c -->|No, or --all and a yes to one question| B1f([Do the round end for it, then stop]):::stop
+    B1c -->|Yes, without --all| B1g([Stop: name the issue and the author]):::stop
     B1 -->|One or more, with no scope| B3([Ask one question: which of the person's rounds,<br/>or a new round; name each round in others]):::pause
     B3 -->|a new round| C
     B3 -->|a round| E0
@@ -46,7 +49,7 @@ flowchart TD
     D --> D1{plan approved in plan mode?}
     D1 -->|No| D2([Stop: no approved plan]):::stop
     D1 -->|Yes| E
-    B1 -->|One, with a scope: the round is in flight| E0{the plan read?}
+    B1 -->|One, with a scope, others empty: the round is in flight| E0{the plan read?}
     E0 -->|No| E0a([Stop: name the issue]):::stop
     E0 -->|Yes| AO{--all, and the round's author<br/>is not the person?}
     AO -->|Yes| AQ([Ask one question before the first tick: name the author<br/>and plannedAt; another session may run it]):::pause
@@ -161,4 +164,5 @@ and pull requests.
 
 A round belongs to the person who approved its plan (#484). `start` adopts another person's
 round only with `--all`, and only after one question. A second plan over that round's issues
-would move them out of it, so a scope that only another person's round holds is a stop.
+would move them out of it. So a scope that another person's round holds, in whole or in part,
+is a stop.
