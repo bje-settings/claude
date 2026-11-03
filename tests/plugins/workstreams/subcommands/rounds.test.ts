@@ -225,6 +225,20 @@ describe('the rounds of other people (#484)', () => {
     expect(report.unavailable).toEqual([])
   })
 
+  it('keeps the teammate’s round for the teammate', async () => {
+    // The harness double, which answers every call from one registration.
+    const gh = createGhMock({
+      searchPlanIssues: { rows: searchable(rows), unavailable: null },
+      viewerLogin: { login: 'mate', unavailable: null },
+    })
+
+    const report = await reportOf([], gh)
+
+    expect(plans(report)).toEqual([PLAN_B])
+    expect(report.others.map((round) => round.author)).toEqual([ME, null])
+    expect(report.viewer).toBe('mate')
+  })
+
   it('keeps every round with --all, and names no other', async () => {
     const report = await reportOf(['--all'], ghOver(rows))
 
