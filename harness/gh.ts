@@ -138,6 +138,7 @@ export function createGhMock(replies: GhReplies = {}): GhClient {
     listIssues: async () => answer(replies, 'listIssues'),
     searchPlanIssues: async () => answer(replies, 'searchPlanIssues'),
     readPlanIssues: async () => answer(replies, 'readPlanIssues'),
+    viewerLogin: async () => answer(replies, 'viewerLogin'),
     listOpenPullRequests: async () => answer(replies, 'listOpenPullRequests'),
     listOpenPullRequestHeads: async () => answer(replies, 'listOpenPullRequestHeads'),
     listOpenPullRequestLinks: async () => answer(replies, 'listOpenPullRequestLinks'),

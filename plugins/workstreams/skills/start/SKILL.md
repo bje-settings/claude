@@ -1,7 +1,7 @@
 ---
 name: start
 description: Run a round of issue-tracker work, or continue one, from the sweep to reviewed draft pull requests. A round is a milestone or a set of issues. With `pr <n>`, take one pull request through review to done. The one entry to the workstreams primitives.
-argument-hint: "[optional focus, in your own words]"
+argument-hint: "[optional focus, in your own words] [--all]"
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh issue comment *) Bash(gh issue create *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh pr comment *) Bash(gh stack view *) Bash(git -C * switch *) Bash(git -C * rebase *) Bash(git -C * push *) Bash(gh pr edit *) Bash(gh stack link *) Bash(gh run rerun *) Read Grep Glob Skill SendMessage Monitor TaskStop
 ---
 
@@ -11,6 +11,8 @@ Scope: $ARGUMENTS.
 - `issues <n> <n>`: those issues.
 - `pr <n>`: that one pull request, with no sweep and no plan.
 - Nothing: every milestone with open issues.
+- `--all`, with a milestone, issues or no scope: other people's rounds too. Pass it to
+  `rounds`.
 - Free words, such as `any LSP related issue` or `all bugs`: an issue list. Get it with
   `gh issue list --limit 1000 --json number,title` and a filter:
   `--search "<key words>"`, `--label <label>` or `--type <issue type>`. Search with the key
@@ -36,22 +38,40 @@ Derive it on each call. Write nothing to disk.
 1. **The round.** Find the rounds in flight that hold the scope:
 
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--milestone <n> | --issues <n,n>] --json
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--milestone <n> | --issues <n,n>] [--all] --json
    ```
 
    A non-empty `unavailable` is a fact nobody could read. Say which, and stop.
 
-   - One round, with issues, and `outside` empty: it is the round, in flight.
-   - One round, with a milestone: it is the round, in flight. Say that the milestone's
+   A round belongs to its `author`. `rounds` puts the person's rounds in `rounds`, and
+   another person's in `others`. With `--all`, every round is in `rounds`.
+
+   - One round, with issues, and `outside` and `others` empty: it is the round, in flight.
+   - One round, with a milestone, and `others` empty: it is the round, in flight. Say that the milestone's
      other open issues are in no round. `outside` is null for a milestone.
    - One round and an `outside` issue: the scope is part in a round and part in none.
      Stop, and name both parts.
    - Two or more, with a scope: the scope holds issues of more than one round. Stop, and
      name each round and its issues.
+   - One or more, with a scope that `others` also holds: the scope holds another person's
+     round too. Stop, and name each round, its `plan` line and `author`.
+   - None, and a scope that `others` holds: stop. Name each round in `others`, its `plan`
+     line and `author`. Never plan a new round over its issues.
    - One or more, with no scope: ask one `AskUserQuestion`. Give one option for
-     each round, by its `plan` line and issues, and one option to start a new round.
+     each round, by its `plan` line and issues, and one option to start a new round. Name
+     each round in `others`, with its `author`.
+   - With `--all`, the round to tick has an `author` that is not `viewer`: before the first
+     tick, ask one `AskUserQuestion`. Name the `author`, or "an unknown author" for null,
+     and `plannedAt`. Say that another session may run the round. A no is a stop. With no
+     scope, the question above is that question: its option for the round says all this.
    - None, and an `unended` issue: that round's issues all closed before its round end.
-     Read its plan from that issue, do [round-end.md](round-end.md) for it, and stop.
+     Read its plan from that issue, as below, and the author of that plan comment:
+     `gh issue view <number> --json comments --jq '[.comments[] | select(.body | startswith("<plan>")) | .author.login] | last'`.
+     An author that is not `viewer` is another person's round. Without `--all`, stop, and
+     name the issue and the author. With `--all`, ask the question above first. Then do
+     [round-end.md](round-end.md) for it, and stop.
+   - None, with no scope: no round of the person is in flight. Name each round in
+     `others`, with its `author`.
    - None: no round is in flight in the scope.
 
    `rounds` lists the open issues of a round. The plan is the comment whose first line is
@@ -84,7 +104,8 @@ Derive it on each call. Write nothing to disk.
 
 1. A round in flight: go on at step 3. No round, or a new round: invoke
    `/workstreams:sweep` with the scope. With no scope, also give it the issues of each
-   round in flight, to leave out. If it stops, stop.
+   round in `rounds` and in `others`, to leave out. Together they are the rounds that
+   `rounds --all` names. If it stops, stop.
    Then invoke `/workstreams:question` with the same scope. Its plan mode is the approval.
    With no approved plan, stop.
 2. `pr <n>`: that pull request is the whole round. Read its state first. `merged` or

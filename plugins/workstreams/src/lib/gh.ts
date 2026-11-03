@@ -151,12 +151,15 @@ export interface PullRequestSummary {
   readonly draft: boolean
 }
 
-/** One comment's first line and when it was made. A round reads only the
- *  first line of a plan or a round-end comment, so the rest of the body is
- *  not kept. */
+/** One comment's first line, when it was made, and who made it. A round
+ *  reads only the first line of a plan or a round-end comment, so the rest
+ *  of the body is not kept. */
 export interface CommentLine {
   readonly createdAt: string
   readonly firstLine: string
+  /** The author's login, or null when GitHub names no author. A deleted
+   *  account answers with no author. */
+  readonly author: string | null
 }
 
 /** One issue that carries a round's plan comment, with the first line of
@@ -503,6 +506,12 @@ export interface GhResults {
   searchPlanIssues: PagedResult<IssueComments>
   /** Named issues, open or closed, with their newest comments. */
   readPlanIssues: PagedResult<IssueComments>
+  /** The login of the user gh is signed in as, or null when it could not
+   *  be read. */
+  viewerLogin: {
+    readonly login: string | null
+    readonly unavailable: string | null
+  }
   /** Open pull requests, including ones no round opened. */
   listOpenPullRequests: PagedResult<PullRequestSummary>
   /** Open pull requests with their head commits and the checks on them. */
@@ -667,6 +676,14 @@ export interface GhClient {
    * Never throws, for {@link PagedResult}'s reason.
    */
   readPlanIssues(numbers: readonly number[]): Promise<GhResults['readPlanIssues']>
+  /**
+   * The login of the user gh is signed in as, through REST (`GET /user`).
+   * `rounds` compares it with the author of each plan (#484).
+   *
+   * Never throws, for {@link PagedResult}'s reason. A login that could not
+   * be read is null, with the reason beside it.
+   */
+  viewerLogin(): Promise<GhResults['viewerLogin']>
   /**
    * Every open pull request: number, title, head, base, and draft.
    *
@@ -1419,7 +1436,7 @@ const PLAN_FIELDS = `number
         milestone { number }
         comments(last: ${PLAN_COMMENTS}) {
           pageInfo { hasPreviousPage }
-          nodes { createdAt body }
+          nodes { createdAt body author { login } }
         }`
 
 /**
@@ -1663,14 +1680,19 @@ const readMilestone = (node: unknown): MilestoneSummary | null => {
 }
 
 /** One comment as its first line, or null when it is not the shape asked
- *  for. */
+ *  for. An author GitHub no longer names is a null author, not a comment of
+ *  the wrong shape. */
 const readCommentLine = (node: unknown): CommentLine | null => {
   const record = asRecord(node)
   const createdAt = asText(record?.createdAt)
   const body = asText(record?.body)
   if (createdAt === null || body === null) return null
   const end = body.indexOf('\n')
-  return { createdAt, firstLine: (end === -1 ? body : body.slice(0, end)).trim() }
+  return {
+    createdAt,
+    firstLine: (end === -1 ? body : body.slice(0, end)).trim(),
+    author: asText(asRecord(record?.author)?.login),
+  }
 }
 
 /** One issue that carries a plan comment, or null when it is not the shape
@@ -2961,6 +2983,28 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         })
       }
       return { rows, unavailable: joinedReasons(reasons) }
+    },
+
+    // `user` is not under the repository's path, so this read does not
+    // resolve the repository. A failed call still prints JSON when GitHub
+    // answered, so the body is read whatever gh's exit status.
+    viewerLogin: async () => {
+      const result = await invoke(['api', 'user'])
+      if (result.timedOut) return { login: null, unavailable: accountOf(result, options.boundMs) }
+      let value: unknown
+      try {
+        value = JSON.parse(result.stdout)
+      } catch {
+        return { login: null, unavailable: accountOf(result, options.boundMs) }
+      }
+      const login = asText(asRecord(value)?.login)
+      if (login === null || login === '') {
+        return {
+          login: null,
+          unavailable: `the current user carried no login${errorBodyOf(value)}`,
+        }
+      }
+      return { login, unavailable: null }
     },
 
     listOpenPullRequests: async () =>

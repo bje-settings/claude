@@ -5,7 +5,7 @@
 // and each lookup returns only its own round.
 import { describe, expect, it } from 'vitest'
 
-import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
+import { createGhMock, type GhClient, type GhResults, ghFails } from '#harness/gh.ts'
 import type { IssueComments } from '#workstreams/lib/gh.ts'
 import {
   place,
@@ -19,16 +19,21 @@ import {
 const at = (day: number, hour = 10): string =>
   `2026-10-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00Z`
 
-/** An open issue with these first lines, one day apart, starting on day 1. */
+/** The login of the person who runs `rounds`. */
+const ME = 'me'
+
+/** An open issue with these first lines, one day apart, starting on day 1.
+ *  {@link ME} made each comment, unless `author` names someone else. */
 const issue = (
   number: number,
   lines: readonly string[],
   fields: Partial<IssueComments> = {},
+  author: string | null = ME,
 ): IssueComments => ({
   number,
   state: 'OPEN',
   milestone: null,
-  comments: lines.map((firstLine, index) => ({ createdAt: at(index + 1), firstLine })),
+  comments: lines.map((firstLine, index) => ({ createdAt: at(index + 1), firstLine, author })),
   truncated: false,
   ...fields,
 })
@@ -65,9 +70,11 @@ const ghOver = (
     direct?: readonly IssueComments[]
     searchShort?: string
     directShort?: string
+    viewer?: GhResults['viewerLogin']
   } = {},
 ): GhClient => ({
   ...createGhMock(),
+  viewerLogin: async () => options.viewer ?? { login: ME, unavailable: null },
   searchPlanIssues: async () => ({
     rows: options.searched ?? searchable(rows),
     unavailable: options.searchShort ?? null,
@@ -102,12 +109,15 @@ describe('two rounds on one repository', () => {
           name: 'Round 3',
           plan: PLAN_A,
           plannedAt: at(2),
+          author: ME,
           issues: [
             { number: 12, milestone: null },
             { number: 13, milestone: null },
           ],
         },
       ],
+      others: [],
+      viewer: ME,
       outside: [],
       unended: [],
       unavailable: [],
@@ -171,6 +181,190 @@ describe('two rounds on one repository', () => {
   })
 })
 
+describe('the rounds of other people (#484)', () => {
+  /** Round 3 is mine. Round 4 is a teammate's, on milestone 5. Round 6's
+   *  plan author is a deleted account. Rounds 3 and 4 were planned on one
+   *  day, so they keep the order they came in. */
+  const PLAN_C = 'Round 6 plan, approved 2026-10-04T10:00Z.'
+  const rows: readonly IssueComments[] = [
+    issue(12, ['Sweep.', PLAN_A], { milestone: 4 }),
+    issue(20, ['Sweep.', PLAN_B], { milestone: 5 }, 'mate'),
+    issue(21, ['Sweep.', PLAN_B], { milestone: 5 }, 'mate'),
+    issue(30, [PLAN_C], {}, null),
+  ]
+  const TEAMMATE = {
+    plan: PLAN_B,
+    author: 'mate',
+    plannedAt: at(2),
+    issues: [
+      { number: 20, milestone: 5 },
+      { number: 21, milestone: 5 },
+    ],
+  }
+  const DELETED = {
+    plan: PLAN_C,
+    author: null,
+    plannedAt: at(1),
+    issues: [{ number: 30, milestone: null }],
+  }
+
+  it('keeps my round, with its author, and names the others apart', async () => {
+    const report = await reportOf([], ghOver(rows))
+
+    expect(report.rounds).toEqual([
+      {
+        name: 'Round 3',
+        plan: PLAN_A,
+        plannedAt: at(2),
+        author: ME,
+        issues: [{ number: 12, milestone: 4 }],
+      },
+    ])
+    expect(report.others).toEqual([TEAMMATE, DELETED])
+    expect(report.viewer).toBe(ME)
+    expect(report.unavailable).toEqual([])
+  })
+
+  it('keeps the teammate’s round for the teammate', async () => {
+    // The harness double, which answers every call from one registration.
+    const gh = createGhMock({
+      searchPlanIssues: { rows: searchable(rows), unavailable: null },
+      viewerLogin: { login: 'mate', unavailable: null },
+    })
+
+    const report = await reportOf([], gh)
+
+    expect(plans(report)).toEqual([PLAN_B])
+    expect(report.others.map((round) => round.author)).toEqual([ME, null])
+    expect(report.viewer).toBe('mate')
+  })
+
+  it('keeps every round with --all, and names no other', async () => {
+    const report = await reportOf(['--all'], ghOver(rows))
+
+    expect(plans(report)).toEqual([PLAN_A, PLAN_B, PLAN_C])
+    expect(report.rounds.map((round) => round.author)).toEqual([ME, 'mate', null])
+    expect(report.others).toEqual([])
+    expect(report.viewer).toBe(ME)
+  })
+
+  it('gives a scope that only another person’s round holds no round and no outside issue', async () => {
+    expect(await reportOf(['--issues', '20'], ghOver(rows))).toEqual({
+      rounds: [],
+      others: [TEAMMATE],
+      viewer: ME,
+      outside: [],
+      unended: [],
+      unavailable: [],
+    })
+  })
+
+  it('names a round with a null author as another person’s', async () => {
+    const report = await reportOf(['--issues', '30'], ghOver(rows))
+
+    expect(report.rounds).toEqual([])
+    expect(report.others).toEqual([DELETED])
+    expect(report.outside).toEqual([])
+  })
+
+  it('keeps another person’s round with --all and --issues', async () => {
+    const report = await reportOf(['--all', '--issues', '20'], ghOver(rows))
+
+    expect(plans(report)).toEqual([PLAN_B])
+    expect(report.others).toEqual([])
+    expect(report.outside).toEqual([])
+  })
+
+  it('keeps another person’s round with --all and --milestone', async () => {
+    expect(plans(await reportOf(['--milestone', '5'], ghOver(rows)))).toEqual([])
+
+    const report = await reportOf(['--all', '--milestone', '5'], ghOver(rows))
+
+    expect(plans(report)).toEqual([PLAN_B])
+    expect(report.others).toEqual([])
+  })
+
+  it('takes the author of the earliest copy of the plan', () => {
+    const late = {
+      ...issue(13, [PLAN_A], {}, 'mate'),
+      comments: [{ createdAt: at(5), firstLine: PLAN_A, author: 'mate' }],
+    }
+
+    expect(roundsOf([late, issue(12, [PLAN_A])])[0]?.author).toBe(ME)
+    expect(roundsOf([issue(12, [PLAN_A]), late])[0]?.author).toBe(ME)
+  })
+
+  it('takes the author of the plan comment, not of another comment on the issue', () => {
+    const mixed = {
+      ...issue(12, []),
+      comments: [
+        { createdAt: at(1), firstLine: 'Sweep.', author: 'mate' },
+        { createdAt: at(2), firstLine: PLAN_A, author: ME },
+        { createdAt: at(3), firstLine: 'A note.', author: 'mate' },
+      ],
+    }
+
+    expect(roundsOf([mixed])[0]?.author).toBe(ME)
+  })
+
+  it('names an unparsed plan line on another person’s issue of a round in scope', async () => {
+    const withUnparsed = [
+      issue(20, ['Sweep.', PLAN_B, 'Round 9 plan, approved'], { milestone: 5 }, 'mate'),
+      issue(21, ['Sweep.', PLAN_B], { milestone: 5 }, 'mate'),
+    ]
+
+    const report = await reportOf(['--issues', '21'], ghOver(withUnparsed))
+
+    expect(report.others.map((round) => round.plan)).toEqual([PLAN_B])
+    expect(report.unavailable).toEqual(['#20 has a "plan, approved" line that is not a plan line'])
+  })
+
+  it('names a user it could not read, and keeps none of the rounds as mine', async () => {
+    // A null author must not match a null login.
+    const gh = ghOver(rows, { viewer: { login: null, unavailable: 'gh: not logged in' } })
+
+    const report = await reportOf([], gh)
+
+    expect(report.rounds).toEqual([])
+    expect(report.others.map((round) => round.plan)).toEqual([PLAN_A, PLAN_B, PLAN_C])
+    expect(report.viewer).toBeNull()
+    expect(report.unavailable).toEqual(['gh: not logged in'])
+  })
+
+  it('still keeps every round with --all when the user could not be read', async () => {
+    const gh = ghOver(rows, { viewer: { login: null, unavailable: 'gh: not logged in' } })
+
+    const report = await reportOf(['--all'], gh)
+
+    expect(report.rounds).toHaveLength(3)
+    expect(report.unavailable).toEqual(['gh: not logged in'])
+  })
+
+  it('answers an empty repository when the user could not be read, rather than fail', async () => {
+    const gh = ghOver([], { viewer: { login: null, unavailable: 'gh: not logged in' } })
+
+    expect(await reportOf([], gh)).toMatchObject({ rounds: [], unavailable: ['gh: not logged in'] })
+  })
+
+  it('names each left-out round and its author in the report for a person', async () => {
+    const envelope = await runRounds(['--milestone', '4,5'], { gh: ghOver(rows) })
+
+    expect(envelope).toEqual({
+      outcome: 'ok',
+      value: [
+        'rounds in flight (1)',
+        `  ${PLAN_A}`,
+        '    #12  milestone 4',
+        "rounds left out, not the current user's (1)",
+        `  ${PLAN_B}  by mate`,
+      ].join('\n'),
+    })
+    expect(renderRounds({ ...(await reportOf(['--issues', '30'], ghOver(rows))) })).toContain(
+      `  ${PLAN_C}  by an unknown author`,
+    )
+  })
+})
+
 describe('an issue scope', () => {
   it('names each open issue asked for that no round holds', async () => {
     const rows = [...TWO_ROUNDS, issue(30, ['Sweep.'])]
@@ -186,6 +380,8 @@ describe('an issue scope', () => {
 
     expect(await reportOf(['--issues', '12'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [12],
       unended: [],
       unavailable: [],
@@ -249,6 +445,8 @@ describe('a round whose issues all closed before its round end', () => {
 
     expect(await reportOf(['--issues', '12,13'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [],
       unended: [
         { number: 12, plan: PLAN_A },
@@ -382,6 +580,8 @@ describe('the milestone scope', () => {
   it('gives null outside and unended: a search cannot see the milestone’s other issues', async () => {
     expect(await reportOf(['--milestone', '6'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: null,
       unended: null,
       unavailable: [],
@@ -403,14 +603,14 @@ describe('place and roundsOf', () => {
 
   it('forgets an unparsed line once a plan line follows it', () => {
     expect(place(issue(12, ['Round 3 plan, approved', PLAN_A]))).toEqual({
-      plan: { name: 'Round 3', line: PLAN_A, at: at(2), ended: false },
+      plan: { name: 'Round 3', line: PLAN_A, at: at(2), author: ME, ended: false },
       unparsed: false,
     })
   })
 
   it('keeps an ended plan ended when an unparsed line follows the end record', () => {
     expect(place(issue(12, [PLAN_A, 'Round 3 end, x.', 'Round 9 plan, approved']))).toEqual({
-      plan: { name: 'Round 3', line: PLAN_A, at: at(1), ended: true },
+      plan: { name: 'Round 3', line: PLAN_A, at: at(1), author: ME, ended: true },
       unparsed: true,
     })
   })
@@ -421,7 +621,10 @@ describe('place and roundsOf', () => {
 
   it('takes the earliest copy of the plan as the round’s plannedAt', () => {
     const early = issue(12, [PLAN_A])
-    const late = { ...issue(13, [PLAN_A]), comments: [{ createdAt: at(5), firstLine: PLAN_A }] }
+    const late = {
+      ...issue(13, [PLAN_A]),
+      comments: [{ createdAt: at(5), firstLine: PLAN_A, author: ME }],
+    }
 
     expect(roundsOf([late, early])[0]?.plannedAt).toBe(at(1))
     expect(roundsOf([early, late])[0]?.plannedAt).toBe(at(1))
@@ -468,6 +671,8 @@ describe('what the read could not see', () => {
 
     expect(await reportOf(['--issues', '30'], ghOver([long], { searched: [long] }))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [30],
       unended: [],
       unavailable: ['#30 has more comments than were read, and no plan among them'],
@@ -480,6 +685,8 @@ describe('what the read could not see', () => {
 
     expect(await reportOf(['--issues', '412'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [412],
       unended: [],
       unavailable: [],
@@ -542,6 +749,8 @@ describe('what the read could not see', () => {
   it('answers no rounds when the search found nothing and nothing failed', async () => {
     expect(await reportOf([], ghOver([]))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: null,
       unended: null,
       unavailable: [],
@@ -619,7 +828,14 @@ describe('the report for a person', () => {
 
   it('says first that the list is incomplete', () => {
     expect(
-      renderRounds({ rounds: [], outside: null, unended: null, unavailable: ['gh: rate limit'] }),
+      renderRounds({
+        rounds: [],
+        others: [],
+        viewer: null,
+        outside: null,
+        unended: null,
+        unavailable: ['gh: rate limit'],
+      }),
     ).toBe(
       [
         'INCOMPLETE: the rounds below are short of what was asked for.',

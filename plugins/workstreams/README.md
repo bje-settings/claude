@@ -79,8 +79,11 @@ A round is its issue set. Each issue is in the round of its newest plan comment,
 no other. `start` runs `rounds` with its scope to find the round in flight. A round is in
 flight while one of its issues is open, until a `<round> end,` record follows its plan.
 The older `## Round end: <round>` heading ends a round too (#405).
-A scope that is part in a round and part in none is a stop. `question` checks the issues
-once more before it posts a plan. So two rounds in one repository, on two issue sets,
+A scope that is part in a round and part in none is a stop. A round belongs to the person
+who approved its plan. `start` offers only that person's rounds, and stops on a scope that
+another person's round holds, in whole or in part. With `--all`, it can adopt another
+person's round, after one question (#484). `question` checks the issues once more, over every person's rounds,
+before it posts a plan. So two rounds in one repository, on two issue sets,
 never act or comment on each other's issues and pull requests. Each round's watch takes
 `--heads` with its own branches. A collision with another round's pull request is named
 in the ruling, with no comment on the other round's issues (#376).
@@ -491,11 +494,11 @@ The repository is whatever `gh` resolves from the working directory.
 ### `rounds`
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--issues 12,13 | --milestone 4,5] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/workstreams.ts" rounds [--issues 12,13 | --milestone 4,5] [--all] [--json]
 ```
 
-Names the rounds in flight, each with its name, its plan line, when it was planned, and
-its open issues. It searches the open issues with a `plan, approved` comment, newest
+Names the rounds in flight, each with its name, its plan line, when it was planned, its
+author, and its open issues. It searches the open issues with a `plan, approved` comment, newest
 update first. Each open issue is in the round of its newest plan comment. A round with a
 `<round> end,` comment after its plan, on any of its open issues, has ended, and is left
 out. A round with the older `## Round end: <round>` heading after its plan has ended too.
@@ -514,6 +517,14 @@ that no round in flight holds. `unended` names each closed issue asked for whose
 plan has no end record. Both are null without `--issues`. `--milestone` keeps the rounds
 with an open issue on one of those milestones. The two are not given together. The
 GitHub search can take a minute to see a new comment.
+
+A round belongs to the author of its earliest plan comment (#484). Without `--all`,
+`rounds` keeps only the rounds of the user `gh` is signed in as (`viewer`). It names each
+other round in `others`, with its plan line, author, `plannedAt` and issues. A round whose
+author GitHub no longer names is not the user's. A round in `others` still holds its issues,
+so `outside` does not name them. With `--all`, every round is in `rounds`, and `others` is
+empty. A user that could not be read is a reason in `unavailable`, and without `--all` every
+round is then in `others`.
 
 `unavailable` also names each open issue in the scope, or in a round in the scope, with a
 `plan, approved` line newer than its newest plan line that is not a plan line. It also
