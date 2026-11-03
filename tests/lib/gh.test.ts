@@ -1077,6 +1077,7 @@ it("defaults to the root lib's own process runner", () => {
     'viewPullRequest',
     'viewPullRequestDetail',
     'viewRepository',
+    'viewerLogin',
   ])
 })
 
@@ -1576,10 +1577,16 @@ describe('the issues that carry a plan comment', () => {
     comments: {
       pageInfo: { hasPreviousPage: false },
       nodes: [
-        { createdAt: '2026-10-01T10:00:00Z', body: 'Sweep for milestone 4.\n\nDetails.' },
+        {
+          createdAt: '2026-10-01T10:00:00Z',
+          body: 'Sweep for milestone 4.\n\nDetails.',
+          author: { login: 'octocat' },
+        },
+        // A deleted account: GitHub answers a null author.
         {
           createdAt: '2026-10-02T10:00:00Z',
           body: '  Round 3 plan, approved 2026-10-02.  \nLayers.',
+          author: null,
         },
       ],
     },
@@ -1599,6 +1606,7 @@ describe('the issues that carry a plan comment', () => {
     expect(calls[1]?.args.some((word) => word.startsWith('owner='))).toBe(false)
     expect(calls[1]?.args[5]).toContain('search(query: $q, type: ISSUE')
     expect(calls[1]?.args[5]).toContain('comments(last:')
+    expect(calls[1]?.args[5]).toContain('nodes { createdAt body author { login } }')
     expect(result).toEqual({
       rows: [
         {
@@ -1606,8 +1614,16 @@ describe('the issues that carry a plan comment', () => {
           state: 'OPEN',
           milestone: 4,
           comments: [
-            { createdAt: '2026-10-01T10:00:00Z', firstLine: 'Sweep for milestone 4.' },
-            { createdAt: '2026-10-02T10:00:00Z', firstLine: 'Round 3 plan, approved 2026-10-02.' },
+            {
+              createdAt: '2026-10-01T10:00:00Z',
+              firstLine: 'Sweep for milestone 4.',
+              author: 'octocat',
+            },
+            {
+              createdAt: '2026-10-02T10:00:00Z',
+              firstLine: 'Round 3 plan, approved 2026-10-02.',
+              author: null,
+            },
           ],
           truncated: false,
         },
@@ -1669,6 +1685,28 @@ describe('the issues that carry a plan comment', () => {
     expect(result.unavailable).toBe('7 planIssues row(s) could not be read')
   })
 
+  it('reads a comment with no author field, or an author with no login, as a null author', async () => {
+    const { gh } = clientAnsweringEach([
+      REPO,
+      searchPage([
+        {
+          ...planNode,
+          comments: {
+            nodes: [
+              { createdAt: '2026-10-01T10:00:00Z', body: 'a' },
+              { createdAt: '2026-10-02T10:00:00Z', body: 'b', author: {} },
+            ],
+          },
+        },
+      ]),
+    ])
+
+    const result = await gh.searchPlanIssues()
+
+    expect(result.rows[0]?.comments.map((comment) => comment.author)).toEqual([null, null])
+    expect(result.unavailable).toBeNull()
+  })
+
   it('reads an empty comment body as an empty first line', async () => {
     const { gh } = clientAnsweringEach([
       REPO,
@@ -1679,7 +1717,9 @@ describe('the issues that carry a plan comment', () => {
 
     const result = await gh.searchPlanIssues()
 
-    expect(result.rows[0]?.comments).toEqual([{ createdAt: '2026-10-02T10:00:00Z', firstLine: '' }])
+    expect(result.rows[0]?.comments).toEqual([
+      { createdAt: '2026-10-02T10:00:00Z', firstLine: '', author: null },
+    ])
     expect(result.rows[0]?.truncated).toBe(false)
   })
 
@@ -1711,10 +1751,12 @@ describe('the issues that carry a plan comment', () => {
     ])
     expect(calls[1]?.args[7]).toContain('i0: issue(number: 12)')
     expect(calls[1]?.args[7]).toContain('i1: issue(number: 13)')
+    expect(calls[1]?.args[7]).toContain('nodes { createdAt body author { login } }')
     expect(result.rows.map((row) => [row.number, row.state])).toEqual([
       [12, 'OPEN'],
       [13, 'CLOSED'],
     ])
+    expect(result.rows[0]?.comments.map((comment) => comment.author)).toEqual(['octocat', null])
     expect(result.unavailable).toBeNull()
   })
 
@@ -3552,6 +3594,54 @@ describe('listRunJobs and commitDate', () => {
     await expect(gh.commitDate({ sha: 'a' })).resolves.toEqual({
       date: null,
       unavailable: 'gh: API rate limit exceeded',
+    })
+  })
+})
+
+describe('viewerLogin', () => {
+  it('reads the login of the signed-in user, with no repository read', async () => {
+    const { gh, calls } = clientAnsweringEach([{ stdout: '{"login":"octocat","id":1}' }])
+
+    const result = await gh.viewerLogin()
+
+    expect(calls.map((call) => call.args)).toEqual([['api', 'user']])
+    expect(result).toEqual({ login: 'octocat', unavailable: null })
+  })
+
+  it('reports an answer with no login, and quotes an error body', async () => {
+    const shapes = clientAnsweringEach([{ stdout: '{}' }])
+    await expect(shapes.gh.viewerLogin()).resolves.toEqual({
+      login: null,
+      unavailable: 'the current user carried no login',
+    })
+
+    const denied = clientAnsweringEach([
+      { status: 1, stdout: '{"message":"Requires authentication","status":"401"}' },
+    ])
+    await expect(denied.gh.viewerLogin()).resolves.toEqual({
+      login: null,
+      unavailable: 'the current user carried no login (401: Requires authentication)',
+    })
+  })
+
+  it('reports gh’s own words when the user could not be read', async () => {
+    const { gh } = clientAnsweringEach([{ status: 1, stdout: '', stderr: 'gh: not logged in\n' }])
+
+    await expect(gh.viewerLogin()).resolves.toEqual({
+      login: null,
+      unavailable: 'gh: not logged in',
+    })
+  })
+
+  it('reports a read that timed out as itself', async () => {
+    const { gh } = clientAnsweringEach(
+      [{ timedOut: true, status: null, stdout: '{"login":"octocat"}' }],
+      { boundMs: 5_000 },
+    )
+
+    await expect(gh.viewerLogin()).resolves.toEqual({
+      login: null,
+      unavailable: 'gh did not answer in 5000 ms',
     })
   })
 })

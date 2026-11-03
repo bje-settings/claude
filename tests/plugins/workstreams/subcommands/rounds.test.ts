@@ -19,16 +19,21 @@ import {
 const at = (day: number, hour = 10): string =>
   `2026-10-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00Z`
 
-/** An open issue with these first lines, one day apart, starting on day 1. */
+/** The login of the person who runs `rounds`. */
+const ME = 'me'
+
+/** An open issue with these first lines, one day apart, starting on day 1.
+ *  {@link ME} made each comment, unless `author` names someone else. */
 const issue = (
   number: number,
   lines: readonly string[],
   fields: Partial<IssueComments> = {},
+  author: string | null = ME,
 ): IssueComments => ({
   number,
   state: 'OPEN',
   milestone: null,
-  comments: lines.map((firstLine, index) => ({ createdAt: at(index + 1), firstLine })),
+  comments: lines.map((firstLine, index) => ({ createdAt: at(index + 1), firstLine, author })),
   truncated: false,
   ...fields,
 })
@@ -421,7 +426,10 @@ describe('place and roundsOf', () => {
 
   it('takes the earliest copy of the plan as the round’s plannedAt', () => {
     const early = issue(12, [PLAN_A])
-    const late = { ...issue(13, [PLAN_A]), comments: [{ createdAt: at(5), firstLine: PLAN_A }] }
+    const late = {
+      ...issue(13, [PLAN_A]),
+      comments: [{ createdAt: at(5), firstLine: PLAN_A, author: ME }],
+    }
 
     expect(roundsOf([late, early])[0]?.plannedAt).toBe(at(1))
     expect(roundsOf([early, late])[0]?.plannedAt).toBe(at(1))

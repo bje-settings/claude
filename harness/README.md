@@ -85,7 +85,7 @@ lets the hook find a GitHub CLI on any machine, and it keeps a spawned run away 
 endpoint is named after its operation, not after gh's own argv. This way, the interface survives a
 change to a gh flag. The endpoints are: `listPullRequests`, `listMergedPullRequests`,
 `viewPullRequest`, `viewRepository`, `listRuns`, `readFailedRunLog`, `updateBranch`, `addComment`,
-`issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`,
+`issueStates`, `listMilestones`, `listIssues`, `searchPlanIssues`, `readPlanIssues`, `viewerLogin`,
 `listOpenPullRequests`, `listOpenPullRequestHeads`, `listOpenPullRequestLinks`, `requiredContexts`,
 `requiredReviews`, `viewPullRequestDetail`, `listWorkflowRuns`, `compareCommits`, `branchRef`,
 `listRunJobs`, `commitDate`, `listOpenStacks`, `mergeMethods`, `mergeStack`,
@@ -103,7 +103,8 @@ intersect make for every open head. So does `listOpenPullRequestLinks`, the read
 links. `compareCommits` answers `{ comparison, unavailable }`, with a null comparison for one it
 could not read. `branchRef` answers `{ sha, unavailable }`, with a null `sha` for a ref it could
 not read. `listRunJobs` answers `{ rows, unavailable }`. `commitDate` answers `{ date, unavailable }`,
-with a null `date` for a commit it could not read. `requiredReviews` answers `{ reviews, unavailable }`, with null `reviews` for rules
+with a null `date` for a commit it could not read. `viewerLogin` answers `{ login, unavailable }`, with a null `login` for a
+user it could not read. `requiredReviews` answers `{ reviews, unavailable }`, with null `reviews` for rules
 it could not read. `listOpenStacks` answers `{ rows, unavailable }`, and `mergeMethods` `{ methods, unavailable }`.
 `mergeStack` is a write that never throws: it answers `{ accepted, output }`. The server in
 `pulls.ts` answers `listOpenStacks` from the rows that carry `stack: { number, base }`, in the
