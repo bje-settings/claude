@@ -5,7 +5,7 @@
 // and each lookup returns only its own round.
 import { describe, expect, it } from 'vitest'
 
-import { createGhMock, type GhClient, ghFails } from '#harness/gh.ts'
+import { createGhMock, type GhClient, type GhResults, ghFails } from '#harness/gh.ts'
 import type { IssueComments } from '#workstreams/lib/gh.ts'
 import {
   place,
@@ -70,9 +70,11 @@ const ghOver = (
     direct?: readonly IssueComments[]
     searchShort?: string
     directShort?: string
+    viewer?: GhResults['viewerLogin']
   } = {},
 ): GhClient => ({
   ...createGhMock(),
+  viewerLogin: async () => options.viewer ?? { login: ME, unavailable: null },
   searchPlanIssues: async () => ({
     rows: options.searched ?? searchable(rows),
     unavailable: options.searchShort ?? null,
@@ -107,12 +109,15 @@ describe('two rounds on one repository', () => {
           name: 'Round 3',
           plan: PLAN_A,
           plannedAt: at(2),
+          author: ME,
           issues: [
             { number: 12, milestone: null },
             { number: 13, milestone: null },
           ],
         },
       ],
+      others: [],
+      viewer: ME,
       outside: [],
       unended: [],
       unavailable: [],
@@ -191,6 +196,8 @@ describe('an issue scope', () => {
 
     expect(await reportOf(['--issues', '12'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [12],
       unended: [],
       unavailable: [],
@@ -254,6 +261,8 @@ describe('a round whose issues all closed before its round end', () => {
 
     expect(await reportOf(['--issues', '12,13'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [],
       unended: [
         { number: 12, plan: PLAN_A },
@@ -387,6 +396,8 @@ describe('the milestone scope', () => {
   it('gives null outside and unended: a search cannot see the milestone’s other issues', async () => {
     expect(await reportOf(['--milestone', '6'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: null,
       unended: null,
       unavailable: [],
@@ -408,14 +419,14 @@ describe('place and roundsOf', () => {
 
   it('forgets an unparsed line once a plan line follows it', () => {
     expect(place(issue(12, ['Round 3 plan, approved', PLAN_A]))).toEqual({
-      plan: { name: 'Round 3', line: PLAN_A, at: at(2), ended: false },
+      plan: { name: 'Round 3', line: PLAN_A, at: at(2), author: ME, ended: false },
       unparsed: false,
     })
   })
 
   it('keeps an ended plan ended when an unparsed line follows the end record', () => {
     expect(place(issue(12, [PLAN_A, 'Round 3 end, x.', 'Round 9 plan, approved']))).toEqual({
-      plan: { name: 'Round 3', line: PLAN_A, at: at(1), ended: true },
+      plan: { name: 'Round 3', line: PLAN_A, at: at(1), author: ME, ended: true },
       unparsed: true,
     })
   })
@@ -476,6 +487,8 @@ describe('what the read could not see', () => {
 
     expect(await reportOf(['--issues', '30'], ghOver([long], { searched: [long] }))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [30],
       unended: [],
       unavailable: ['#30 has more comments than were read, and no plan among them'],
@@ -488,6 +501,8 @@ describe('what the read could not see', () => {
 
     expect(await reportOf(['--issues', '412'], ghOver(rows))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: [412],
       unended: [],
       unavailable: [],
@@ -550,6 +565,8 @@ describe('what the read could not see', () => {
   it('answers no rounds when the search found nothing and nothing failed', async () => {
     expect(await reportOf([], ghOver([]))).toEqual({
       rounds: [],
+      others: [],
+      viewer: ME,
       outside: null,
       unended: null,
       unavailable: [],
@@ -627,7 +644,14 @@ describe('the report for a person', () => {
 
   it('says first that the list is incomplete', () => {
     expect(
-      renderRounds({ rounds: [], outside: null, unended: null, unavailable: ['gh: rate limit'] }),
+      renderRounds({
+        rounds: [],
+        others: [],
+        viewer: null,
+        outside: null,
+        unended: null,
+        unavailable: ['gh: rate limit'],
+      }),
     ).toBe(
       [
         'INCOMPLETE: the rounds below are short of what was asked for.',

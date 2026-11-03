@@ -8,6 +8,10 @@
 // issues is open, until a comment after its plan ends it. That comment
 // starts with `<round> end,`, or is the older heading `## Round end: <round>`.
 //
+// A round belongs to the person who approved its plan: the author of the
+// plan comment. Without `--all`, the report keeps only the rounds of the
+// user gh is signed in as, and names the others apart (#484).
+//
 // The command function is the seam (ADR 001): parsed arguments and an
 // injected `GhClient` in, an envelope out, with nothing spawned.
 import { parseArguments } from '../lib/args.ts'
@@ -18,7 +22,7 @@ import { numberList, repeated } from '../number-list.ts'
 export const HELP = `The rounds in flight, read from the plan comments on their open issues.
 
 Usage:
-  workstreams.ts rounds [--issues 12,13 | --milestone 4,5] [--json]
+  workstreams.ts rounds [--issues 12,13 | --milestone 4,5] [--all] [--json]
 
 A plan comment's first line is "<round> plan, approved <time>.", where the
 time is the approval to the minute, in UTC. The round's name starts with a
@@ -31,7 +35,18 @@ round's name may differ in case. For each round in flight, the report gives:
   name        the round's name, from the plan's first line
   plan        the plan's whole first line, which is the round's identity
   plannedAt   when the first copy of the plan on an open issue was made
+  author      the login of the author of that first copy, or null when
+              GitHub names no author
   issues      every open issue of the round, with its milestone
+
+A round belongs to its author. Without --all, "rounds" holds only the
+rounds of the user gh is signed in as. Each other round goes in "others",
+with its plan, author, plannedAt and issues. A round with a null author is
+not the user's. With --all, every round is in "rounds", and "others" is
+empty. "viewer" is the user's login, or null when it could not be read.
+Then "unavailable" says why, and without --all every round is in "others".
+A round in "others" still holds its issues, so "outside" does not name
+them.
 
 The plan comment names every issue of the round, the closed ones too. A
 round whose issues all closed before its round end is not in flight.
@@ -66,6 +81,7 @@ under "unavailable".`
 const SPEC = {
   issues: { type: 'string', default: '' },
   milestone: { type: 'string', default: '' },
+  all: { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const
@@ -96,8 +112,14 @@ export interface Round {
    *  the round's identity: two rounds of one name stay apart. */
   readonly plan: string
   readonly plannedAt: string
+  /** The login of the author of the plan's first copy, the one
+   *  {@link Round.plannedAt} names, or null when GitHub names no author. */
+  readonly author: string | null
   readonly issues: readonly RoundIssue[]
 }
+
+/** A round in flight that is not the current user's. */
+export type OtherRound = Pick<Round, 'plan' | 'author' | 'plannedAt' | 'issues'>
 
 /** A closed issue asked for whose newest plan has no end record. */
 export interface UnendedIssue {
@@ -107,7 +129,13 @@ export interface UnendedIssue {
 
 /** The whole report. */
 export interface RoundsReport {
+  /** The rounds in scope. Without `--all`, only the current user's. */
   readonly rounds: readonly Round[]
+  /** Without `--all`, each round in scope that is not the current user's.
+   *  Empty with `--all`. */
+  readonly others: readonly OtherRound[]
+  /** The current user's login, or null when it could not be read. */
+  readonly viewer: string | null
   /** With `--issues`, each open issue asked for that no round in flight
    *  holds. Null without `--issues`, because a search sees only the issues
    *  with a plan, so it cannot say which other issues a scope holds. */
@@ -128,6 +156,7 @@ interface Placed {
     readonly name: string
     readonly line: string
     readonly at: string
+    readonly author: string | null
     readonly ended: boolean
   } | null
   /** A first line with the plan words, newer than the newest plan line,
@@ -145,13 +174,18 @@ const endsRound = (firstLine: string, name: string): boolean => {
 /** The round of an issue's newest plan comment, and what else its comments
  *  say about it. */
 export const place = (issue: IssueComments): Placed => {
-  let newest: { name: string; line: string; at: string } | null = null
+  let newest: { name: string; line: string; at: string; author: string | null } | null = null
   let ended = false
   let unparsed = false
   for (const comment of issue.comments) {
     const match = PLAN_LINE.exec(comment.firstLine)
     if (match !== null) {
-      newest = { name: match[1] as string, line: comment.firstLine, at: comment.createdAt }
+      newest = {
+        name: match[1] as string,
+        line: comment.firstLine,
+        at: comment.createdAt,
+        author: comment.author,
+      }
       ended = false
       unparsed = false
     } else if (comment.firstLine.includes(PLAN_WORDS)) {
@@ -171,11 +205,12 @@ export const place = (issue: IssueComments): Placed => {
  * because the round end posts it on each issue. An issue with a newer plan
  * that did not parse stays under its last plan line here. `runRounds`
  * names it under `unavailable`, so a caller does not trust that grouping.
+ * The round's author is the author of its earliest copy of the plan.
  */
 export const roundsOf = (issues: readonly IssueComments[]): Round[] => {
   const groups = new Map<
     string,
-    { name: string; at: string; ended: boolean; issues: RoundIssue[] }
+    { name: string; at: string; author: string | null; ended: boolean; issues: RoundIssue[] }
   >()
   for (const issue of issues) {
     if (issue.state !== 'OPEN') continue
@@ -184,12 +219,21 @@ export const roundsOf = (issues: readonly IssueComments[]): Round[] => {
     const entry = { number: issue.number, milestone: issue.milestone }
     const group = groups.get(plan.line)
     if (group === undefined) {
-      groups.set(plan.line, { name: plan.name, at: plan.at, ended: plan.ended, issues: [entry] })
+      groups.set(plan.line, {
+        name: plan.name,
+        at: plan.at,
+        author: plan.author,
+        ended: plan.ended,
+        issues: [entry],
+      })
       continue
     }
     group.issues.push(entry)
     group.ended ||= plan.ended
-    if (plan.at < group.at) group.at = plan.at
+    if (plan.at < group.at) {
+      group.at = plan.at
+      group.author = plan.author
+    }
   }
   const rounds: Round[] = []
   for (const [plan, group] of groups) {
@@ -198,6 +242,7 @@ export const roundsOf = (issues: readonly IssueComments[]): Round[] => {
       name: group.name,
       plan,
       plannedAt: group.at,
+      author: group.author,
       issues: group.issues.sort((left, right) => left.number - right.number),
     })
   }
@@ -223,6 +268,12 @@ export const renderRounds = (report: RoundsReport): string => {
     for (const issue of round.issues) {
       const milestone = issue.milestone === null ? 'no milestone' : `milestone ${issue.milestone}`
       lines.push(`    #${issue.number}  ${milestone}`)
+    }
+  }
+  if (report.others.length > 0) {
+    lines.push(`rounds of other people, left out (${report.others.length})`)
+    for (const round of report.others) {
+      lines.push(`  ${round.plan}  by ${round.author ?? 'an unknown author'}`)
     }
   }
   if (report.outside !== null && report.outside.length > 0) {
@@ -277,14 +328,26 @@ export const runRounds = async (
   if (rows.size === 0 && unavailable.length > 0) {
     return failed(`the rounds read nothing: ${unavailable.join('; ')}`)
   }
+  // After the check above: a user that could not be read is a reason the
+  // answer is short, not a sign that nothing was read.
+  const viewer = await context.gh.viewerLogin()
+  if (viewer.unavailable !== null) unavailable.push(viewer.unavailable)
 
   const inScope = (issue: RoundIssue): boolean =>
     (!byIssues || issues.value.includes(issue.number)) &&
     (milestones.value.length === 0 ||
       (issue.milestone !== null && milestones.value.includes(issue.milestone)))
 
-  const rounds = roundsOf([...rows.values()]).filter((round) => round.issues.some(inScope))
-  const held = new Set(rounds.flatMap((round) => round.issues.map((issue) => issue.number)))
+  const scoped = roundsOf([...rows.values()]).filter((round) => round.issues.some(inScope))
+  // Every round in scope holds its issues, the other people's too.
+  const held = new Set(scoped.flatMap((round) => round.issues.map((issue) => issue.number)))
+  // A null author, or a user that could not be read, is never a match.
+  const mine = (round: Round): boolean =>
+    parsed.value.all || (viewer.login !== null && round.author === viewer.login)
+  const rounds = scoped.filter(mine)
+  const others = scoped
+    .filter((round) => !mine(round))
+    .map(({ plan, author, plannedAt, issues }) => ({ plan, author, plannedAt, issues }))
 
   for (const issue of rows.values()) {
     if (issue.state !== 'OPEN' || !(inScope(issue) || held.has(issue.number))) continue
@@ -310,6 +373,13 @@ export const runRounds = async (
         return plan === null || plan.ended ? [] : [{ number: row.number, plan: plan.line }]
       })
     : null
-  const report: RoundsReport = { rounds, outside, unended, unavailable }
+  const report: RoundsReport = {
+    rounds,
+    others,
+    viewer: viewer.login,
+    outside,
+    unended,
+    unavailable,
+  }
   return ok(parsed.value.json ? JSON.stringify(report) : renderRounds(report))
 }
