@@ -3615,6 +3615,12 @@ describe('viewerLogin', () => {
       unavailable: 'the current user carried no login',
     })
 
+    const empty = clientAnsweringEach([{ stdout: '{"login":""}' }])
+    await expect(empty.gh.viewerLogin()).resolves.toEqual({
+      login: null,
+      unavailable: 'the current user carried no login',
+    })
+
     const denied = clientAnsweringEach([
       { status: 1, stdout: '{"message":"Requires authentication","status":"401"}' },
     ])

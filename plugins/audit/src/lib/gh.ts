@@ -2998,7 +2998,7 @@ export const createGhClient = (options: GhClientOptions = {}): GhClient => {
         return { login: null, unavailable: accountOf(result, options.boundMs) }
       }
       const login = asText(asRecord(value)?.login)
-      if (login === null) {
+      if (login === null || login === '') {
         return {
           login: null,
           unavailable: `the current user carried no login${errorBodyOf(value)}`,
