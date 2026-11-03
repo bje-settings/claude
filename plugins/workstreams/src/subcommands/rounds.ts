@@ -44,7 +44,8 @@ rounds of the user gh is signed in as. Each other round goes in "others",
 with its plan, author, plannedAt and issues. A round with a null author is
 not the user's. With --all, every round is in "rounds", and "others" is
 empty. "viewer" is the user's login, or null when it could not be read.
-Then "unavailable" says why, and without --all every round is in "others".
+When the user could not be read, "unavailable" says why. Without --all,
+every round is then in "others".
 A round in "others" still holds its issues, so "outside" does not name
 them.
 
@@ -72,7 +73,8 @@ not a plan line. It also names each such issue that the search found with
 no plan in its 100 newest comments.
 
 --json prints the report as one JSON object for a skill to read; without it
-the same report is printed for a person.
+a shorter report is printed for a person: the plan lines and issues, and
+the author of each round in "others".
 
 Exits 2 on a usage error, and 1 only when nothing at all could be read. A
 read that partly failed is still an answer, with every reason it is short
@@ -118,7 +120,8 @@ export interface Round {
   readonly issues: readonly RoundIssue[]
 }
 
-/** A round in flight that is not the current user's. */
+/** A round in flight that is not the current user's. It has no `name`,
+ *  because its `plan` line holds the name. */
 export type OtherRound = Pick<Round, 'plan' | 'author' | 'plannedAt' | 'issues'>
 
 /** A closed issue asked for whose newest plan has no end record. */
@@ -271,7 +274,7 @@ export const renderRounds = (report: RoundsReport): string => {
     }
   }
   if (report.others.length > 0) {
-    lines.push(`rounds of other people, left out (${report.others.length})`)
+    lines.push(`rounds left out, not the current user's (${report.others.length})`)
     for (const round of report.others) {
       lines.push(`  ${round.plan}  by ${round.author ?? 'an unknown author'}`)
     }
@@ -341,7 +344,8 @@ export const runRounds = async (
   const scoped = roundsOf([...rows.values()]).filter((round) => round.issues.some(inScope))
   // Every round in scope holds its issues, the other people's too.
   const held = new Set(scoped.flatMap((round) => round.issues.map((issue) => issue.number)))
-  // A null author, or a user that could not be read, is never a match.
+  // Without --all, a null author, or a user that could not be read, is
+  // never a match.
   const mine = (round: Round): boolean =>
     parsed.value.all || (viewer.login !== null && round.author === viewer.login)
   const rounds = scoped.filter(mine)

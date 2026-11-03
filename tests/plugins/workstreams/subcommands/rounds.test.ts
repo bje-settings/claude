@@ -355,7 +355,7 @@ describe('the rounds of other people (#484)', () => {
         'rounds in flight (1)',
         `  ${PLAN_A}`,
         '    #12  milestone 4',
-        'rounds of other people, left out (1)',
+        "rounds left out, not the current user's (1)",
         `  ${PLAN_B}  by mate`,
       ].join('\n'),
     })
