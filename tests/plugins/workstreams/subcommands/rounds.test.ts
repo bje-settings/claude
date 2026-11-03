@@ -294,6 +294,31 @@ describe('the rounds of other people (#484)', () => {
     expect(roundsOf([issue(12, [PLAN_A]), late])[0]?.author).toBe(ME)
   })
 
+  it('takes the author of the plan comment, not of another comment on the issue', () => {
+    const mixed = {
+      ...issue(12, []),
+      comments: [
+        { createdAt: at(1), firstLine: 'Sweep.', author: 'mate' },
+        { createdAt: at(2), firstLine: PLAN_A, author: ME },
+        { createdAt: at(3), firstLine: 'A note.', author: 'mate' },
+      ],
+    }
+
+    expect(roundsOf([mixed])[0]?.author).toBe(ME)
+  })
+
+  it('names an unparsed plan line on another person’s issue of a round in scope', async () => {
+    const withUnparsed = [
+      issue(20, ['Sweep.', PLAN_B, 'Round 9 plan, approved'], { milestone: 5 }, 'mate'),
+      issue(21, ['Sweep.', PLAN_B], { milestone: 5 }, 'mate'),
+    ]
+
+    const report = await reportOf(['--issues', '21'], ghOver(withUnparsed))
+
+    expect(report.others.map((round) => round.plan)).toEqual([PLAN_B])
+    expect(report.unavailable).toEqual(['#20 has a "plan, approved" line that is not a plan line'])
+  })
+
   it('names a user it could not read, and keeps none of the rounds as mine', async () => {
     // A null author must not match a null login.
     const gh = ghOver(rows, { viewer: { login: null, unavailable: 'gh: not logged in' } })
