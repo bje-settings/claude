@@ -175,13 +175,13 @@ lines into one pinned line, with one `gh:` at the start. The next check replaces
 The module starts the first check when the session starts, and the session does not wait for
 it. It checks again every five minutes, and after each Bash command that starts with `git` or
 `gh`, or runs `/gh:sync`. Only one check runs at a time. A request that comes during a check
-starts one more check after it, because that check can have read the counts before the change.
-When every count is zero and nothing failed, the module clears the line.
+starts one more check after it. The first check can read the counts before the change. When
+every count is zero and nothing failed, the module clears the line.
 
-A check that does not run, or that exits with a code other than 0 and writes no line, keeps the
-last line. A crash in `status` exits 1 for this reason. The module writes the reason once to the
-transcript, until a check pins or clears the line again. A check that writes its line and then
-ends with `SIGKILL` (see below) still pins that line.
+A check that does not run keeps the last line. So does a check that exits with a code other than
+0 and writes no line. A crash in `status` exits 1 for this reason. The module writes the reason
+once to the transcript, until a check pins or clears the line again. A check that writes its line
+and then ends with `SIGKILL` (see below) still pins that line.
 
 The line shows only the items above zero.
 

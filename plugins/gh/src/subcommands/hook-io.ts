@@ -26,9 +26,10 @@
 // Claude Code keeps stderr in its debug log.
 //
 // Neither mode changes a branch, a worktree, or a working tree. The fetch
-// changes only remote-tracking refs. Both modes exit 0, so nothing here can
-// stop a session. Anything else writes the usage line to stderr and exits 2.
-// For `session-start`, `hooks.json`'s `; exit 0` absorbs that status.
+// changes only remote-tracking refs. Both modes return 0, so nothing here can
+// stop a session. Anything else writes the usage line to stderr and returns 2.
+// For `session-start`, `hooks.json`'s `; exit 0` absorbs that status. The
+// entry, `hooks/hook-io.ts`, turns a crash into exit 1 for `status` only.
 //
 // The deadline starts when the hook starts. The `PATH` walk is async, and
 // each walk has a time limit from the same clock (#267). A walk that did not

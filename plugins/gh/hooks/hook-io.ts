@@ -15,11 +15,11 @@
 //
 // **Nothing here may stop a session.** An unexpected error inside the `try`
 // block writes its stack to stderr, which Claude Code keeps in its debug
-// log. For `session-start`, the exit status stays 0. For `status`, it is 1,
-// so the hooks module logs a failure and keeps the last line, and does not
-// clear it. The usage error returns 2 from inside the `try` block, on
-// purpose. A failure in an `await import`, or in `createOutput`, is outside
-// the `try` block and exits non-zero. Neither writes to stdout. For
+// log. For `session-start`, the exit status stays 0. For `status`, it is 1.
+// The hooks module then logs a failure and keeps the last line. The usage
+// error returns 2 from inside the `try` block, on purpose. A failure in an
+// `await import`, or in `createOutput`, is outside the `try` block and
+// exits non-zero. Neither writes to stdout. For
 // `session-start`, `hooks.json`'s `; exit 0` absorbs both statuses.
 //
 // **A read that hangs cannot hold this process (#267).** The command

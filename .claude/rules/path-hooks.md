@@ -44,7 +44,8 @@ A plugin hook that shows status writes this pattern, one line after the other:
 - When there is nothing to show, write nothing.
 
 The gh plugin's `hook-io.ts status` writes this pattern, and its hooks module pins it. Its
-`SessionStart` hook writes only the missing-tool lines. `plugins/gh/README.md` shows the lines.
+`SessionStart` hook writes only the lines of its tool check. `plugins/gh/README.md` shows the
+lines.
 
 ## Scope: terminal CLI only
 
