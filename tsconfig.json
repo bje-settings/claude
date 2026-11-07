@@ -48,8 +48,10 @@
   // `scripts` entry above is a different directory: this repository's own
   // tooling.
   //
-  // `plugins/*/hooks` is named the same preemptive way `harness`, `lib`,
-  // and `plugins/*/src` were above, since no plugin carries a hook yet.
+  // `plugins/*/hooks` holds the command hooks, which are plain `.ts`. A
+  // hooks module (`register.*`, `.tsx`) and its `*.test.tsx` tests need
+  // JSX and the `claude-code` types, so `tsconfig.hooks.json` checks them
+  // and the `exclude` below keeps them out of this check (ADR 007).
   "include": [
     "tests",
     "harness",
@@ -60,5 +62,6 @@
     "plugins/*/hooks",
     "eslint.config.ts",
     "vitest.config.ts"
-  ]
+  ],
+  "exclude": ["plugins/*/hooks/register.*", "plugins/*/hooks/**/*.tsx", "tests/**/*.test.tsx"]
 }

@@ -64,6 +64,10 @@ export default defineConfig({
       // still report 100%.
       // Of tests/, only the repository checks' own helper module is measured.
       // The other files there are tests, their helpers and their fixtures.
+      // `plugins/*/hooks/**` is outside the set on purpose (ADR 007 ruling
+      // 2). A hooks module stays thin, and `claude plugin test` runs its
+      // `*.test.tsx` tests. The `include` of tests above matches only
+      // `*.test.ts`, so vitest never loads those tests.
       include: [
         'tests/repo/**/*.ts',
         'harness/**/*.ts',

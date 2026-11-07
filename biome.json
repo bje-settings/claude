@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**/*.json", "**/*.mjs", "**/*.ts", "!.claude/worktrees"]
+    "includes": ["**/*.json", "**/*.mjs", "**/*.ts", "!.claude/worktrees", "!types/claude-code"]
   },
   "linter": {
     "enabled": true,

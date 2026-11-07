@@ -119,6 +119,10 @@ would otherwise cover.
   manifest then reads as its own check, not as a failure inside `ci.yml`. It runs `claude plugin
   validate --strict` over the marketplace manifest and every directory under `plugins/`, on a
   pinned Claude Code version. This check needs no API key or login.
+- `plugin-test` is a second job in `plugin-validate.yml`, so one `CLAUDE_CODE_VERSION` pin
+  serves both jobs. It runs `scripts/plugin-test.ts`, which runs `claude plugin test` on each
+  plugin with hooks modules (ADR 007). It becomes a required check only after it has reported on
+  `main` once. `tsconfig.hooks.json` is the second `tsc` run of the `types` leg.
 
 #### Git hooks
 

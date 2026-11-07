@@ -67,7 +67,7 @@ jobs:
           # same invocation then means the same thing from an editor or a
           # hook.
           - check: types
-            run: pnpm exec tsc -p tsconfig.json
+            run: pnpm exec tsc -p tsconfig.json && pnpm exec tsc -p tsconfig.hooks.json
           # `biome ci` is the read-only verdict, never `check --write`. A gate
           # that edits the tree to pass reports on a tree nobody reviewed.
           # --error-on-warnings stops a recommended rule that only warns from
