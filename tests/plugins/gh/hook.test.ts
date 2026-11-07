@@ -16,7 +16,6 @@ import { findOnPath } from '#harness/sandbox.ts'
 import { runScript } from '#harness/spawn.ts'
 import {
   createRig,
-  expectStatusLines,
   githubRepo,
   hangingFetch,
   wrappedGit,
@@ -101,22 +100,29 @@ it('writes the status and problem lines for a real checkout, end to end, and cha
   // The rig's `gh` always fails, so the GitHub half fails, and a problem
   // line says so.
   const env = rig.sandbox.env
-  const started = Date.now()
 
-  const result = runScript(HOOK, {
+  // `session-start` checks only that git and gh are there (#488). It
+  // writes nothing, and it does not fetch.
+  const start = runScript(HOOK, {
     args: ['session-start'],
     stdin: JSON.stringify({ session_id: 's1', cwd: work }),
     env,
+    cwd: work,
   })
+  expect(start).toMatchObject({ status: 0, stdout: '', stderr: '' })
+  expect(rig.git.tryGit(work, 'rev-parse', '--verify', 'refs/remotes/origin/goner').status).toBe(0)
+
+  // `status` writes the bare lines that the hooks module pins.
+  const started = Date.now()
+  const result = runScript(HOOK, { args: ['status', work], env })
 
   // stderr below names no late task, so the check ended before its 2.5 s
   // deadline. The process must end then too: a deadline timer left set
   // would hold it open until the timer fires.
   expect(Date.now() - started).toBeLessThan(2_500)
   expect(result.status).toBe(0)
-  expectStatusLines(result.stdout)
   expect(result.stdout).toBe(
-    '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind] [✂️ 1]\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: stand-in for tests\\u001b[0m"}\n',
+    'gh: [behind] [✂️ 1]\ngh: ⚠️ GitHub request failed: stand-in for tests\n',
   )
   expect(result.stderr).toBe('GitHub: gh: stand-in for tests\n')
   // The fetch moved `origin/main` and removed `origin/goner`. Nothing else
@@ -129,34 +135,22 @@ it('writes the status and problem lines for a real checkout, end to end, and cha
   expect(
     rig.git.tryGit(work, 'rev-parse', '--verify', 'refs/remotes/origin/goner').status,
   ).not.toBe(0)
-
-  // `status` writes the same line, bare.
-  const status = runScript(HOOK, { args: ['status', work], env })
-  expect(status.stdout).toBe(
-    'gh: [behind] [✂️ 1]\ngh: ⚠️ GitHub request failed: stand-in for tests\n',
-  )
 })
 
-it('stops a fetch that hangs, so the hook ends inside the timeout hooks.json gives it', () => {
+it('stops a fetch that hangs, so the status check ends at its deadline', () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   hangingFetch(rig, work)
   const env = rig.sandbox.env
   const started = Date.now()
 
-  const result = runScript(HOOK, {
-    args: ['session-start'],
-    stdin: JSON.stringify({ session_id: 's1', cwd: work }),
-    env,
-  })
+  const result = runScript(HOOK, { args: ['status', work], env })
 
   // The shipped deadline is 2.5 s. The process ends only when its children
   // do, so the fetch must stop at the deadline too, not when it gives up.
   expect(Date.now() - started).toBeLessThan(5_000)
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe(
-    '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ timed out\\u001b[0m\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: stand-in for tests\\u001b[0m"}\n',
-  )
+  expect(result.stdout).toBe('gh: ⚠️ timed out\ngh: ⚠️ GitHub request failed: stand-in for tests\n')
   expect(result.stderr).toContain('did not finish in 2500 ms\n')
 })
 
@@ -177,8 +171,7 @@ it('gives a late second origin read only the time that is left', () => {
   const started = Date.now()
 
   const result = runScript(HOOK, {
-    args: ['session-start'],
-    stdin: JSON.stringify({ session_id: 's1', cwd: local }),
+    args: ['status', local],
     env: { ...rig.sandbox.env, PATH },
   })
 
@@ -186,9 +179,7 @@ it('gives a late second origin read only the time that is left', () => {
   // time the first read had would live until about 3.5 s.
   expect(Date.now() - started).toBeLessThan(3_000)
   expect(result.status).toBe(0)
-  expect(result.stdout).toBe(
-    '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ timed out\\u001b[0m"}\n',
-  )
+  expect(result.stdout).toBe('gh: ⚠️ timed out\n')
   expect(result.stderr).toContain('did not finish in 2500 ms\n')
 })
 
@@ -197,11 +188,10 @@ it('leaves its account on stderr and still exits 0 when nothing else caught it',
   const doomed = rig.sandbox.join('doomed')
   mkdirSync(doomed, { recursive: true })
 
-  // The fixture enters `doomed`, removes it, and then runs the hook. So
-  // `process.cwd()` throws, and the payload has no cwd to use instead.
+  // The fixture enters `doomed`, removes it, and then runs `status` with
+  // no directory. So `process.cwd()` throws.
   const result = runScript(path.join(FIXTURES, 'deleted-cwd.ts'), {
     args: [doomed, HOOK],
-    stdin: '{"session_id":"s1"}',
     env: rig.sandbox.env,
   })
 
@@ -216,6 +206,7 @@ it('leaves its account on stderr and still exits 0 when nothing else caught it',
 it('runs the hook entry with node, behind the silent guard, on start, resume, clear and compact', () => {
   const config = JSON.parse(readFileSync(HOOKS_JSON, 'utf8')) as {
     description: string
+    modules: string[]
     hooks: { SessionStart: { matcher: string; hooks: { command: string; timeout: number }[] }[] }
   }
   const entries = config.hooks.SessionStart
@@ -233,11 +224,14 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
   ])
   // Well under the hook's own 3 s ceiling (`.claude/rules/_design-principles.md`).
   expect(entries[0]?.hooks.map((hook) => hook.timeout)).toEqual([3])
+  // The hooks module pins the status line (#488, ADR 007 ruling 7).
+  expect(config.modules).toEqual(['./register.ts'])
   expect(config.description).toBe(
-    'One status line when a session starts: commits behind, branches to prune, dependency ' +
-      'pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a ' +
-      'missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or ' +
-      'working tree.',
+    'The SessionStart command hook checks that git and the GitHub CLI are on PATH, and names ' +
+      'each one that is not. The hooks module pins the repo status line under the prompt: ' +
+      'commits behind, branches to prune, dependency pull requests and Dependabot alerts, then ' +
+      'each kind of problem. It refreshes the line on a timer and after a git, gh or sync ' +
+      'command. The check fetches, but never changes a branch, worktree, or working tree.',
   )
 })
 

@@ -1,7 +1,9 @@
-// This file is the entry point for the gh plugin's SessionStart hook.
-// `hooks.json` runs it directly. It holds no decisions:
-// `src/subcommands/hook-io.ts` is the hook, and it takes the process's own
-// edges as arguments. The tests call it there, with no process.
+// This file is the entry point for the gh plugin's hook logic. `hooks.json`
+// runs it as `session-start`, the dependency check. The hooks module
+// (`register.ts`) runs it as `status <dir>`, the line it pins. It holds no
+// decisions: `src/subcommands/hook-io.ts` is the hook, and it takes the
+// process's own edges as arguments. The tests call it there, with no
+// process.
 //
 // **One static import, and it is the floor guard.** Node evaluates every
 // `import` declaration before any statement here runs. A second static
@@ -33,7 +35,7 @@
 import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
-  const { createOutput, readStdinText } = await import('../src/lib/streams.ts')
+  const { createOutput } = await import('../src/lib/streams.ts')
   const { createGhClient } = await import('../src/lib/gh.ts')
   const { endOnceWritten } = await import('../src/lib/process.ts')
   const { nodeFileReads } = await import('../src/lib/dependencies.ts')
@@ -49,7 +51,6 @@ if (meetsNodeFloor(process.version)) {
     process.exitCode = await runHookIo(process.argv.slice(2), {
       cwd: () => process.cwd(),
       env: process.env,
-      stdin: () => readStdinText(process.stdin),
       output,
       createGh: (env) => createGhClient({ env }),
       files: nodeFileReads,
