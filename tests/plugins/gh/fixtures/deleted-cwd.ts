@@ -2,8 +2,9 @@
 // deletes its own working directory.
 //
 // `process.cwd()` raises an error there, and `status` with no directory
-// asks for it. The call fails before any of the hook's own guards run. This error is unexpected, so nothing below can handle it, and it
-// still must not stop a session. This is the exact case the entry point's
+// asks for it. The call fails before any of the hook's own guards run.
+// This error is unexpected, so nothing below can handle it. It still must
+// not stop a session. This is the exact case the entry point's
 // outermost handler exists for. The only way to reach it is from inside a
 // process that has already lost its directory. This fixture creates
 // exactly that case.

@@ -8,24 +8,28 @@
 //
 // The module imports no `node:` module and no `src/lib/` copy (ADR 007,
 // ruling 6). Its decisions are in `src/status-pin.ts`, which vitest
-// measures. A helper that takes `$` is a `function` declaration, because
+// measures. A helper that takes `$` is a `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
 import type { EngineInterface, Register } from 'claude-code'
 import {
   changesCounts,
   failureText,
-  pinnedText,
+  outcomeOf,
   REFRESH_MS,
   RUN_TIMEOUT_MS,
 } from '../src/status-pin.ts'
 
 /** What one session of this module keeps between hooks. */
 interface Pin {
-  /** True while a `status` run is open. A second request then does
-   *  nothing, so two checks never run at once. */
+  /** True while a `status` run is open. A second request then waits in
+   *  `again`, so two checks never run at once. */
   running: boolean
-  /** True after a failed run was logged. A run that gives a line sets it
-   *  back, so each run of failures gets one log line. */
+  /** True when a request came while a run was open. That run may have
+   *  read the counts before the change, so one more run follows it. Any
+   *  number of such requests gives one more run. */
+  again: boolean
+  /** True after a failed run was logged. A run that pins sets it back, so
+   *  each run of failures gets one log line. */
   logged: boolean
   /** The refresh timer. A second `session.start` in the same module
    *  replaces it, so only one timer runs. */
@@ -34,27 +38,35 @@ interface Pin {
 
 /**
  * Run `status` for `cwd` and pin what it writes. A failed run keeps the
- * last line, and logs why once. This never rejects, because no hook waits
- * on it.
+ * last line, and logs once for each run of failures. No hook waits on this
+ * call, so the `catch` turns a run that rejects into a log line.
  */
 async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void> {
-  if (pin.running) return
+  if (pin.running) {
+    pin.again = true
+    return
+  }
   pin.running = true
   try {
     const ran = await $.process.run(['node', `${$.plugin.root}/hooks/hook-io.ts`, 'status', cwd], {
       cwd,
       timeoutMs: RUN_TIMEOUT_MS,
     })
-    if (ran.exitCode === 0) {
+    const outcome = outcomeOf(ran)
+    if (outcome.kind === 'pin') {
       pin.logged = false
-      $.ui.status(pinnedText(ran.stdout))
+      $.ui.status(outcome.text)
     } else {
-      report($, pin, failureText({ exitCode: ran.exitCode, stderr: ran.stderr }))
+      report($, pin, outcome.text)
     }
   } catch (error) {
     report($, pin, failureText({ error }))
   } finally {
     pin.running = false
+  }
+  if (pin.again) {
+    pin.again = false
+    await refreshHere($, pin)
   }
 }
 
@@ -76,7 +88,7 @@ async function refreshHere($: EngineInterface, pin: Pin): Promise<void> {
 }
 
 export const register: Register = (on) => {
-  const pin: Pin = { running: false, logged: false, timer: undefined }
+  const pin: Pin = { running: false, again: false, logged: false, timer: undefined }
 
   on('session.start', ($, e, next) => {
     // Not awaited: the check fetches, and the session must not wait on it.

@@ -15,23 +15,29 @@
 //
 // **Nothing here may stop a session.** An unexpected error inside the `try`
 // block writes its stack to stderr, which Claude Code keeps in its debug
-// log, and the exit status stays 0. The usage error returns 2 from inside
-// the `try` block, on purpose. A failure in an `await import`, or in
-// `createOutput`, is outside the `try` block and exits non-zero. Neither
-// writes to stdout, and `hooks.json`'s `; exit 0` absorbs both statuses.
+// log. For `session-start`, the exit status stays 0. For `status`, it is 1,
+// so the hooks module logs a failure and keeps the last line, and does not
+// clear it. The usage error returns 2 from inside the `try` block, on
+// purpose. A failure in an `await import`, or in `createOutput`, is outside
+// the `try` block and exits non-zero. Neither writes to stdout. For
+// `session-start`, `hooks.json`'s `; exit 0` absorbs both statuses.
 //
 // **A read that hangs cannot hold this process (#267).** The command
 // answers by its deadline, but a hung read still holds a worker thread,
 // and node waits for that thread on every exit path. So once the output
 // has left, `endOnceWritten` ends a process that a read still holds, with
-// `SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0 too.
+// `SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0 for
+// `session-start`. The hooks module reads the signal as exit 1, and pins
+// the line that `status` wrote before it (`outcomeOf` in
+// `src/status-pin.ts`).
 //
 // **Below the floor, this writes one line and exits 0 (#245).** A
 // `SessionStart` hook runs once, not on every tool call. So it may say so,
 // where a per-tool-call hook must stay silent. `belowFloorMessage` builds
-// the line. This file writes the `systemMessage` JSON itself, with no
-// colour and no further import. So the write does not depend on a module
-// graph that the runtime below the floor might not load.
+// the line. For `session-start`, this file writes the `systemMessage` JSON
+// itself, with no colour and no further import. So the write does not
+// depend on a module graph that the runtime below the floor might not
+// load. For `status`, it writes the bare line, which the hooks module pins.
 import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {
@@ -58,7 +64,7 @@ if (meetsNodeFloor(process.version)) {
     })
   } catch (error) {
     output.err.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
-    process.exitCode = 0
+    process.exitCode = process.argv[2] === 'status' ? 1 : 0
   }
   endOnceWritten(
     [process.stdout, process.stderr],
@@ -76,8 +82,11 @@ if (meetsNodeFloor(process.version)) {
   process.stdout.on('error', (error) => {
     if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error
   })
+  const line = `gh: ⚠️ ${belowFloorMessage(process.version)}`
   process.stdout.write(
-    `${JSON.stringify({ systemMessage: `\ngh: ⚠️ ${belowFloorMessage(process.version)}` })}\n`,
+    process.argv[2] === 'status'
+      ? `${line}\n`
+      : `${JSON.stringify({ systemMessage: `\n${line}` })}\n`,
   )
   process.exitCode = 0
 }

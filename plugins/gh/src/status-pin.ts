@@ -15,14 +15,14 @@ export const REFRESH_MS = 300_000
  *  not end. */
 export const RUN_TIMEOUT_MS = 15_000
 
-/** The start of every line that `hook-io.ts status` writes. */
+/** The `gh: ` prefix of each line that `hook-io.ts status` writes, and of
+ *  each log line of the module. */
 const PREFIX = 'gh: '
 
 /**
  * The text to pin for the stdout of `hook-io.ts status`, or `undefined` to
- * clear the line. The status line comes first. Each problem line follows
- * on the same line, with no second `gh:`, so each problem shows once, in
- * the pinned line.
+ * clear the line. The lines join into one. The first line keeps its `gh: `.
+ * Each later line loses it, so the pinned line has one prefix.
  */
 export const pinnedText = (stdout: string): string | undefined => {
   const lines = stdout
@@ -43,9 +43,8 @@ const GIT_OR_GH = /^(?:git|gh)(?:\s|$)/
 const GH_SYNC = /^node\s+"?[^"\s]*\/scripts\/gh\.ts"?\s+sync(?:-repo)?(?:\s|$)/
 
 /**
- * True when a Bash command can change what the line counts: a git or gh
- * command, or the sync of this plugin. Any other command, such as `ls`,
- * does not refresh the line.
+ * True when a Bash command starts with `git` or `gh`, or with the sync of
+ * this plugin. Any other command, such as `ls`, does not refresh the line.
  */
 export const changesCounts = (command: string): boolean => {
   const trimmed = command.trim()
@@ -70,4 +69,27 @@ export const failureText = (failure: RunFailure): string => {
   const first = failure.stderr.trim().split('\n', 1).join('')
   const cause = first === '' ? '' : `: ${first}`
   return `${PREFIX}the status check failed with exit ${failure.exitCode}${cause}`
+}
+
+/** What to do with one `status` run that ended: pin a text (`undefined`
+ *  clears the line), or log a failure and keep the last line. */
+export type RunOutcome =
+  | { readonly kind: 'pin'; readonly text: string | undefined }
+  | { readonly kind: 'failed'; readonly text: string }
+
+/**
+ * The outcome of a `status` run that exited. An exit 0 pins its stdout, or
+ * clears the line when stdout is empty. A run can also write its line and
+ * then exit 1: `endOnceWritten` ends a run that a hung read holds with
+ * `SIGKILL`, and the engine reads a signal as exit 1. So a line on stdout
+ * is pinned for any exit. A failed exit with no line is a failure.
+ */
+export const outcomeOf = (ran: {
+  readonly exitCode: number
+  readonly stdout: string
+  readonly stderr: string
+}): RunOutcome => {
+  const text = pinnedText(ran.stdout)
+  if (ran.exitCode === 0 || text !== undefined) return { kind: 'pin', text }
+  return { kind: 'failed', text: failureText({ exitCode: ran.exitCode, stderr: ran.stderr }) }
 }

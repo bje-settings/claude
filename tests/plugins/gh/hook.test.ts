@@ -73,7 +73,7 @@ it('writes one line naming the floor when node is below it, and exits 0 (#245)',
   const rig = createRig()
 
   const result = runScript(path.join(FIXTURES, 'old-node-version.ts'), {
-    args: [HOOK],
+    args: [HOOK, 'session-start'],
     env: rig.sandbox.env,
   })
 
@@ -81,6 +81,19 @@ it('writes one line naming the floor when node is below it, and exits 0 (#245)',
   expect(result.stdout).toBe(
     '{"systemMessage":"\\ngh: ⚠️ node \\"v20.19.0\\" is below the floor: 22.18.0 or newer."}\n',
   )
+  expect(result.stderr).toBe('')
+})
+
+it('writes the bare floor line from status, for the hooks module to pin (#488)', () => {
+  const rig = createRig()
+
+  const result = runScript(path.join(FIXTURES, 'old-node-version.ts'), {
+    args: [HOOK, 'status'],
+    env: rig.sandbox.env,
+  })
+
+  expect(result.status).toBe(0)
+  expect(result.stdout).toBe('gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.\n')
   expect(result.stderr).toBe('')
 })
 
@@ -183,19 +196,20 @@ it('gives a late second origin read only the time that is left', () => {
   expect(result.stderr).toContain('did not finish in 2500 ms\n')
 })
 
-it('leaves its account on stderr and still exits 0 when nothing else caught it', () => {
+it('leaves its account on stderr and exits 1 from status when nothing else caught it', () => {
   const rig = createRig()
   const doomed = rig.sandbox.join('doomed')
   mkdirSync(doomed, { recursive: true })
 
   // The fixture enters `doomed`, removes it, and then runs `status` with
-  // no directory. So `process.cwd()` throws.
+  // no directory. So `process.cwd()` throws. Exit 1 tells the hooks module
+  // that the run failed, so it keeps the last line and does not clear it.
   const result = runScript(path.join(FIXTURES, 'deleted-cwd.ts'), {
     args: [doomed, HOOK],
     env: rig.sandbox.env,
   })
 
-  expect(result.status).toBe(0)
+  expect(result.status).toBe(1)
   expect(result.stdout).toBe('')
   expect(result.stderr).toContain('ENOENT')
   expect(result.stderr).toMatch(/\n {4}at /)

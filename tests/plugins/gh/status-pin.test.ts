@@ -5,6 +5,7 @@ import { expect, it } from 'vitest'
 import {
   changesCounts,
   failureText,
+  outcomeOf,
   pinnedText,
   REFRESH_MS,
   RUN_TIMEOUT_MS,
@@ -83,4 +84,29 @@ it('names the reason a run did not start', () => {
 it('refreshes every five minutes, and gives a run 15 seconds', () => {
   expect(REFRESH_MS).toBe(300_000)
   expect(RUN_TIMEOUT_MS).toBe(15_000)
+})
+
+it('pins the stdout of an exit 0, and clears the line for an empty one', () => {
+  expect(outcomeOf({ exitCode: 0, stdout: 'gh: [behind]\n', stderr: 'a cause\n' })).toEqual({
+    kind: 'pin',
+    text: 'gh: [behind]',
+  })
+  expect(outcomeOf({ exitCode: 0, stdout: '', stderr: '' })).toEqual({
+    kind: 'pin',
+    text: undefined,
+  })
+})
+
+it('pins a line that a run wrote before a signal ended it, as exit 1', () => {
+  expect(outcomeOf({ exitCode: 1, stdout: 'gh: [✂️ 2]\n', stderr: '' })).toEqual({
+    kind: 'pin',
+    text: 'gh: [✂️ 2]',
+  })
+})
+
+it('fails a run that exits non-zero with no line', () => {
+  expect(outcomeOf({ exitCode: 1, stdout: '\n', stderr: 'Error: ENOENT\n    at x\n' })).toEqual({
+    kind: 'failed',
+    text: 'gh: the status check failed with exit 1: Error: ENOENT',
+  })
 })
