@@ -18,7 +18,8 @@
 //   several plugins run, it is the first status that is not 0. The output of
 //   `claude` goes to the same streams, without a change.
 // - Exit 2: an unknown plugin, a stray argument or flag, or a node with no
-//   `import.meta.main`. Stderr has the usage line.
+//   `import.meta.main`. Stderr says why. For an unknown plugin or a stray
+//   argument, it also has the usage line.
 //
 // This is a root script, not a plugin file (`CLAUDE.md`). It reads the
 // repository by path. It needs `claude` on `PATH` and nothing else.

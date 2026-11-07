@@ -122,7 +122,9 @@ would otherwise cover.
 - `plugin-test` is a second job in `plugin-validate.yml`, so one `CLAUDE_CODE_VERSION` pin
   serves both jobs. It runs `scripts/plugin-test.ts`, which runs `claude plugin test` on each
   plugin with hooks modules (ADR 007). It becomes a required check only after it has reported on
-  `main` once. `tsconfig.hooks.json` is the second `tsc` run of the `types` leg.
+  `main` once.
+- `tsconfig.hooks.json` is the second `tsc` run of the `types` leg. It checks hooks modules and
+  their `*.test.tsx` tests. Vitest never collects those tests, and `plugin-test` runs them.
 
 #### Git hooks
 

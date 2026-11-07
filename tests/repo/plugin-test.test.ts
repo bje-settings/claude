@@ -1,8 +1,8 @@
 // The tests of `scripts/plugin-test.ts`, the root script that runs a
 // function-hooks plugin's tests with `claude plugin test` (ADR 007). A fake
 // `claude` on PATH records the folder it gets and answers a chosen status.
-// The script deletes a folder, so each case also checks that the folder is
-// gone (`CLAUDE.md`, "Fixture quality").
+// The script deletes a folder, so each case that builds a folder also checks
+// that the folder is gone (`CLAUDE.md`, "Fixture quality").
 import {
   chmodSync,
   existsSync,
@@ -78,6 +78,7 @@ const MODS = {
   'plugins/plain/other.txt': 'x',
   'plugins/bare/x.txt': 'x',
   'plugins/odd/hooks/hooks.json': 'null',
+  'plugins/num/hooks/hooks.json': '5',
 }
 
 describe('plugin-test with no argument', () => {
@@ -115,6 +116,23 @@ describe('plugin-test with no argument', () => {
       ].join('\n'),
     )
     expect(existsSync(folder as string)).toBe(false)
+    expect(path.dirname(folder as string)).toBe(path.resolve(tmpdir()))
+    expect(path.basename(folder as string)).toMatch(/^bje-plugin-test-/)
+  })
+
+  it('leaves the source plugin and its tests in place', () => {
+    fakeClaude()
+    const root = build(MODS)
+    pluginTest([], root, runClaude)
+    for (const file of [
+      'plugins/mod/hooks/hooks.json',
+      'plugins/mod/hooks/register.ts',
+      'plugins/mod/skip.txt',
+      'tests/plugins/mod/a.test.tsx',
+      'tests/plugins/mod/deep/b.test.tsx',
+    ]) {
+      expect(existsSync(path.join(root, file))).toBe(true)
+    }
   })
 })
 
@@ -148,6 +166,13 @@ describe('plugin-test with a plugin', () => {
     })
     expect(result.exitCode).toBe(3)
     expect(seen).toHaveLength(2)
+    for (const [first, second, expected] of [
+      [5, 3, 5],
+      [0, 5, 5],
+    ] as const) {
+      const again = [first, second]
+      expect(pluginTest([], root, () => again.shift() as number).exitCode).toBe(expected)
+    }
     for (const folder of seen) expect(existsSync(folder)).toBe(false)
   })
 
@@ -176,7 +201,9 @@ describe('plugin-test with a plugin', () => {
     const stray = pluginTest(['mod', 'bare'], root, runClaude)
     expect(stray.exitCode).toBe(2)
     expect(stray.stderr).toBe('usage: node scripts/plugin-test.ts [<plugin>]')
-    expect(pluginTest(['--nope'], root, runClaude).exitCode).toBe(2)
+    const flag = pluginTest(['--nope'], root, runClaude)
+    expect(flag.exitCode).toBe(2)
+    expect(flag.stderr).toContain('--nope')
     expect(folders()).toEqual([])
   })
 })
@@ -227,7 +254,7 @@ describe('the entry', () => {
     const h = host()
     entry(true, ['nope'], build(MODS), h, () => 9)
     expect(h.out).toBe('')
-    expect(h.err).toContain('unknown plugin nope')
+    expect(h.err).toBe('unknown plugin nope\nusage: node scripts/plugin-test.ts [<plugin>]\n')
     expect(h.exitCode).toBe(2)
   })
 

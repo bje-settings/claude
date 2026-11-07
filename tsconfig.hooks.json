@@ -2,12 +2,13 @@
   // The second type check (ADR 007). A hooks module is JSX on the engine's
   // own factory, and it imports types from `claude-code`. Neither fits the
   // root check: that one has no JSX and loads only node's types. So this
-  // file repeats the root options, adds the JSX settings, and loads no
+  // file inherits the root options, adds the JSX settings, and loads no
   // ambient types. `types/claude-code` is the engine's declaration file,
   // pinned beside `CLAUDE_CODE_VERSION` in `plugin-validate.yml`.
   //
-  // The `types/claude-code` input keeps the config from running on no
-  // input while no plugin has a `register.*` file yet.
+  // The `types/claude-code` input gives the config an input while no
+  // plugin has a `register.*` file yet. The empty `exclude` resets the root
+  // `exclude`, which would hide every file that this config includes.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsx": "react",

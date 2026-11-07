@@ -95,10 +95,10 @@ pre-commit:
         fi
 
     # Not staged-only (ADR 002): `tsc -p tsconfig.json` checks the whole
-    # project, and `tsconfig.hooks.json` checks the hooks modules (ADR 007). A type error that a staged file causes is usually in a file
-    # that was not staged. `*.ts` here matches a nested
-    # staged file too (no leading `**` needed), the same way the `biome` glob
-    # above does.
+    # project, and `tsconfig.hooks.json` checks the hooks modules (ADR 007).
+    # A type error that a staged file causes is usually in a file that was
+    # not staged. `*.ts` and `*.tsx` here match a nested staged file too (no
+    # leading `**` needed), the same way the `biome` glob above does.
     types:
       glob: '{*.ts,*.tsx,tsconfig.json,tsconfig.hooks.json}'
       run: |
