@@ -297,8 +297,8 @@ Everything in this plugin is TypeScript. Node runs it directly, with no build st
 The plugin takes no dependency of its own, and carries no `package.json`, so it needs no install
 to use. Every entry point checks the current version before it loads anything else. A command
 states which version it found. The session-start hook writes one line with the floor version
-instead, and `status` writes the same line for the module to pin. It runs once, and it may say so, unlike a hook on every tool call, which must stay
-silent.
+instead. It runs once, and it may say so, unlike a hook on every tool call, which must stay
+silent. `status` writes the same line, bare, for the module to pin.
 
 ## Tests
 
