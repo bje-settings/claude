@@ -10,7 +10,7 @@
 // ruling 6). Its decisions are in `src/status-pin.ts`, which vitest
 // measures. A helper that takes `$` is a `function` declaration.
 // `claude plugin validate` refused a `const` arrow that took `$` (#392).
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 import {
   changesCounts,
   failureText,
@@ -33,7 +33,7 @@ interface Pin {
   logged: boolean
   /** The refresh timer. A second `session.start` in the same module
    *  replaces it, so only one timer runs. */
-  timer: { cancel: () => void } | undefined
+  timer: Timer | undefined
 }
 
 /**
