@@ -17,7 +17,7 @@ that a hooks module does not follow.
 
 A function-hooks plugin has one hooks module. `hooks/hooks.json` names it under `modules`, and it
 exports `register(on, options)`. The Claude Code engine runs it. The module has "no DOM and no
-Node", and every file it imports from the plugin ends in `.ts`, `.tsx` or a similar suffix
+Node". Every file it imports from the plugin ends in `.ts`, `.tsx` or a similar suffix
 (`plugin-authoring` skill, `reference.md`).
 
 Spike #392 ran two such modules against the gates of this repository. Five rules broke:
@@ -26,7 +26,7 @@ Spike #392 ran two such modules against the gates of this repository. Five rules
   `scripts/<plugin>.ts` and no subcommand.
 - Tests outside the plugin (ADR 004). `claude plugin test` runs only the `*.test.ts` and
   `*.test.tsx` files in the plugin folder. `developmentFiles` in `tests/repo/repo.ts:333` refuses
-  such a file there. `vitest` cannot load a module, because `claude-code` exists only in the
+  a `*.test.ts` file there, and does not refuse a `*.test.tsx` file. `vitest` cannot load a module, because `claude-code` exists only in the
   engine.
 - The coverage source set. `vitest.config.ts:67-73` names `plugins/*/src/**/*.ts` and four other
   roots. A file in `plugins/<plugin>/hooks/` is outside it.
@@ -53,14 +53,16 @@ Four node adapters sit in `plugins/*/hooks/` today: `plugins/gh/hooks/hook-io.ts
    goes in `plugins/<plugin>/src/*.ts`, and no such file imports `claude-code`.
 2. **Coverage.** The pure functions in `src/` stay in the vitest source set at 100. The hooks
    module and the surface modules are outside it, by path and by extension. They stay thin, so
-   little logic goes untested. The enterprise Code Coverage ruleset does not see them.
+   little logic goes untested. The Code Coverage ruleset of the enterprise does not see them.
 3. **Tests.** ADR 004 stands. Tests of a hooks module live in `tests/plugins/<plugin>/`. A root
    script copies the plugin and those tests to a temporary folder. It runs `claude plugin test`
-   there and exits with the status of that run.
+   there and exits with the status of that run. These tests are named `*.test.tsx`. Vitest
+   collects only `tests/**/*.test.ts` (`vitest.config.ts:44`), so it does not load them.
 4. **Types.** The root `tsconfig.json` keeps `plugins/*/hooks`, so the four node adapters stay
-   type-checked. It excludes `plugins/*/hooks/register.*`. A second file, `tsconfig.hooks.json`,
+   type-checked. It excludes `plugins/*/hooks/register.*` and the hooks-module tests, because
+   the root `include` has `tests` (`tsconfig.json:54`). A second file, `tsconfig.hooks.json`,
    sets `jsx: "react"`, `jsxFactory: "h"` and `jsxFragmentFactory: "Fragment"`. It covers
-   `plugins/*/hooks/register.*`, `plugins/*/types` and a committed copy of the engine
+   `plugins/*/hooks/register.*`, those tests, `plugins/*/types` and a committed copy of the engine
    declarations in `types/claude-code/`. A test in `tests/repo/` checks that the first line of
    that copy names the version in `CLAUDE_CODE_VERSION`. The `types` job runs both configs.
 5. **CI pin.** The pull request that adds a hooks module moves `CLAUDE_CODE_VERSION` in
@@ -68,7 +70,7 @@ Four node adapters sit in `plugins/*/hooks/` today: `plugins/gh/hooks/hook-io.ts
    the plugin hooks can need a later move.
 6. **Imports.** A hooks module imports no file that imports a `node:` module, because the engine
    runs it with no Node. It imports no `src/lib/` copy directly. `scripts/sync-lib.ts:68` reads
-   only `.ts` files, so the import of a `.tsx` file would leave a copy out of the sync. Pure
+   only `.ts` files. So a `.tsx` file that imports a copy would leave that copy out of the sync. Pure
    logic that needs `lib/` goes in `src/*.ts`, which the script reads. One rule serves both
    `.ts` and `.tsx` modules.
 7. **A plugin with a command hook and a hooks module.** The dependency check stays a
@@ -85,13 +87,13 @@ A hooks module does not follow these rules:
 - The `SessionStart` command hook, except as ruling 7 says.
 - The output fields in `.claude/rules/path-hooks.md`. A module speaks through `$.ui.toast`,
   `$.ui.log`, `$.ui.status` and `$.session.append`.
-- "Run directly by node on a 22.18 floor". The engine runs the module, and it may be `.tsx`.
+- "run directly by node on a 22.18 floor" (`CLAUDE.md`, "Plugin marketplace"). The engine runs the module, and it may be `.tsx`.
 
 ## Consequences
 
 - **#401 adds the gates.** It adds `tsconfig.hooks.json`, `types/claude-code/index.d.ts`, the
-  root script, the `plugin-test` job and the pin at 2.1.319. It also lets
-  `reservedDirectoryNames` accept `types/` at a plugin root.
+  root script, the `plugin-test` job and the pin at 2.1.319. `reservedDirectoryNames` needs no
+  change for `types/`, because `RESERVED_DIRECTORIES` does not list it (`tests/repo/repo.ts:396-407`).
 - **#488 is the first hooks module.** It adds `plugins/gh/hooks/register.ts` and applies ruling 7
   to the gh plugin.
 - **The module name is a convention.** The root `exclude` matches `register.*`. A hooks module
@@ -101,9 +103,8 @@ A hooks module does not follow these rules:
 - **A new plugin domain is not necessary.** The marketplace installs a function-hooks plugin
   as it installs any other plugin.
 - **Open: the runtime load of `modules` with command `hooks` in one file.** On Claude Code
-  2.1.319, a probe plugin with `"modules"` and a `hooks.SessionStart` command entry in one
-  `hooks/hooks.json` gave this result: `Validation passed` from
-  `claude plugin validate --strict`, exit 0. No session loaded the probe, so the runtime load
+  2.1.319, a probe plugin had `"modules"` and a `hooks.SessionStart` command entry in one
+  `hooks/hooks.json`. `claude plugin validate --strict` gave `Validation passed`, exit 0. No session loaded the probe, so the runtime load
   is not confirmed. #488 must confirm it before ruling 7 is relied on.
 - **Open: a symlink out of the plugin.** ADR 006 removed the symlink. A hooks module never
   imports a copy (ruling 6), so the question does not arise.
