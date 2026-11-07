@@ -20,5 +20,7 @@ time.
 - Do not use a `#` import in a plugin or in `lib/`. Only the root `package.json` resolves it, and
   that file does not ship.
 
+A function-hooks plugin adds `hooks/register.ts` or `register.tsx`, and `types/`. ADR 007 (`docs/adr/007-function-hooks-plugins.md`) says where each goes.
+
 `tests/repo/repo-layout.test.ts` enforces this (`developmentFiles`, `packageImports`,
 `reservedDirectoryNames`).

@@ -94,6 +94,7 @@ It still checks each tool that it uses, so that a user who is not set up gets an
 - The check is one pure function in `lib/` over the plugin's table. Each hook is a thin adapter.
 - A skill has no preflight step. A command that fails still reports its own failure, because a
   check at session start can go stale.
+- A plugin with a hooks module keeps this check as a `SessionStart` command hook (ADR 007, ruling 7).
 - A script cannot report that node is missing. The `hooks.json` command string checks
   `command -v node` and writes the `systemMessage` JSON itself. Shell in a `hooks.json` string is
   not a bash file.
