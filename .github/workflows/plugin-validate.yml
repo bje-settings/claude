@@ -118,7 +118,7 @@ jobs:
       # a child of the binary, and never talks to the API.
       - name: Install Claude Code
         run: |
-          npm install -g "@anthropic-ai/claude-code@"
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
           claude --version
 
       - name: Install dependencies

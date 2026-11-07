@@ -25,6 +25,13 @@ describe('types/claude-code/index.d.ts', () => {
     expect(writtenBy(readFileSync(TYPES, 'utf8'))).toBe(pin)
   })
 
+  it('installs Claude Code at the pin in every job that installs it', () => {
+    const workflow = readFileSync(WORKFLOW, 'utf8')
+    const installs = workflow.match(/claude-code@\S*/g) ?? []
+    expect(installs.length).toBeGreaterThan(1)
+    for (const install of installs) expect(install).toBe(`claude-code@\${CLAUDE_CODE_VERSION}"`)
+  })
+
   it('reads a mismatch as different versions', () => {
     const pin = pinnedVersion('  CLAUDE_CODE_VERSION: "2.1.320"\n')
     expect(writtenBy('// Written by Claude Code 2.1.319.\n')).not.toBe(pin)
