@@ -28,7 +28,7 @@
 // Neither mode changes a branch, a worktree, or a working tree. The fetch
 // changes only remote-tracking refs. Both modes exit 0, so nothing here can
 // stop a session. Anything else writes the usage line to stderr and exits 2.
-// `hooks.json`'s `; exit 0` absorbs that status.
+// For `session-start`, `hooks.json`'s `; exit 0` absorbs that status.
 //
 // The deadline starts when the hook starts. The `PATH` walk is async, and
 // each walk has a time limit from the same clock (#267). A walk that did not
@@ -50,7 +50,7 @@ import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
 /** The time the whole check may take, in milliseconds. `hooks.json` gives
  *  the `SessionStart` hook 3 seconds (`.claude/rules/_design-principles.md`),
  *  and this stays well under it, so the line still arrives when the check
- *  runs out. `status` keeps the same limit, so its output stays the same. */
+ *  runs out. `status` uses the same limit. */
 export const DEADLINE_MS = 2_500
 
 /** How long the entry waits, once its output has left, before it ends a
@@ -603,8 +603,8 @@ interface Status {
 
 /**
  * The dependency check: {@link Status} with one problem line for each tool
- * that is not on PATH, or whose `PATH` walk did not finish in time, or
- * `null` when every tool is there. Each problem also goes to stderr.
+ * that is absent, or that the `PATH` walk did not check in time. It is
+ * `null` when every tool is present. Each problem also goes to stderr.
  */
 const checkDependencies = async (
   edges: HookEdges,

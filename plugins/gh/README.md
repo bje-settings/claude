@@ -161,9 +161,8 @@ The plugin pins a status line under the prompt. Its hooks module, `hooks/registe
 gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1] ⚠️ fetch failed in 15 repos: Invalid username or token ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
 
-`status` writes a status line, then one line for each kind of problem. The module puts the
-problems on the pinned line after the items, with no second `gh:`. So each problem shows once,
-until the next check replaces the line.
+`status` writes a status line, then one line for each kind of problem. The module joins the
+lines into one pinned line, with one `gh:` at the start. The next check replaces the line.
 
 | Item | What it shows |
 | --- | --- |
@@ -175,11 +174,14 @@ until the next check replaces the line.
 
 The module starts the first check when the session starts, and the session does not wait for
 it. It checks again every five minutes, and after each Bash command that starts with `git` or
-`gh`, or runs `/gh:sync`. Only one check runs at a time. When every count is zero and nothing
-failed, the module clears the line.
+`gh`, or runs `/gh:sync`. Only one check runs at a time. A request that comes during a check
+starts one more check after it, because that check can have read the counts before the change.
+When every count is zero and nothing failed, the module clears the line.
 
-A check that does not run, or that exits with a code other than 0, keeps the last line. The
-module writes the reason once to the transcript, until a check gives a line again.
+A check that does not run, or that exits with a code other than 0 and writes no line, keeps the
+last line. A crash in `status` exits 1 for this reason. The module writes the reason once to the
+transcript, until a check pins or clears the line again. A check that writes its line and then
+ends with `SIGKILL` (see below) still pins that line.
 
 The line shows only the items above zero.
 
@@ -238,11 +240,11 @@ nothing, and counts nothing. Its 3 second `timeout` in `hooks.json` covers only 
 Every read of the filesystem here is async (#267). A read that hangs then holds a worker thread, not
 the hook, and the deadline still fires. node waits for that thread before the process can exit. So
 when a read still holds the process 20 ms after the output has left, the hook ends itself with
-`SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`, the shell may add a
-`Killed` line.
+`SIGKILL`. For `session-start`, `hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`,
+the shell may add a `Killed` line. The hooks module reads the signal of `status` as exit 1.
 
 Neither `session-start` nor `status` changes a branch, worktree, or working tree. The fetch of
-`status` changes only remote-tracking refs. Both exit 0, so the hook cannot stop a session.
+`status` changes only remote-tracking refs. Neither can stop a session.
 
 When node is not on PATH at all, `hooks.json`'s own command string writes the alert. No script
 can run to report that:
@@ -295,7 +297,7 @@ Everything in this plugin is TypeScript. Node runs it directly, with no build st
 The plugin takes no dependency of its own, and carries no `package.json`, so it needs no install
 to use. Every entry point checks the current version before it loads anything else. A command
 states which version it found. The session-start hook writes one line with the floor version
-instead. It runs once, and it may say so, unlike a hook on every tool call, which must stay
+instead, and `status` writes the same line for the module to pin. It runs once, and it may say so, unlike a hook on every tool call, which must stay
 silent.
 
 ## Tests
@@ -309,8 +311,9 @@ something (each merge signal, a reused branch name, a fork's pull request, a pul
 into another base, worktrees clean and dirty), every preflight refusal, and the guarantee that
 `--dry-run` changes nothing it says it would change. Each command's tests check it against the
 report its predecessor printed, captured scenario by scenario before the tests deleted that
-version. The session-start hook's tests check that each case writes one JSON document, on one
-line, with `systemMessage`, and `hookSpecificOutput.additionalContext` only when a tool is absent.
+version. The session-start hook's tests check that it writes nothing, or one JSON document on
+one line, with `systemMessage`, and `hookSpecificOutput.additionalContext` only when a tool is
+absent. The `status` tests check the bare status and problem lines.
 The tests of the hooks module, `register.test.tsx`, run under `claude plugin test`.
 
 pnpm's install path has a test that runs a real `pnpm install`. What remains uncovered is

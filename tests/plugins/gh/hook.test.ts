@@ -241,11 +241,12 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
   // The hooks module pins the status line (#488, ADR 007 ruling 7).
   expect(config.modules).toEqual(['./register.ts'])
   expect(config.description).toBe(
-    'The SessionStart command hook checks that git and the GitHub CLI are on PATH, and names ' +
-      'each one that is not. The hooks module pins the repo status line under the prompt: ' +
-      'commits behind, branches to prune, dependency pull requests and Dependabot alerts, then ' +
-      'each kind of problem. It refreshes the line on a timer and after a git, gh or sync ' +
-      'command. The check fetches, but never changes a branch, worktree, or working tree.',
+    'The SessionStart command hook checks that git and the GitHub CLI are on PATH. It names ' +
+      'each tool that is not. The hooks module pins the repo status line under the prompt. ' +
+      'The line shows commits behind, branches to prune, dependency pull requests and ' +
+      'Dependabot alerts. Then it shows each kind of problem. It refreshes the line on a timer ' +
+      'and after a git, gh or sync command. The check fetches, but never changes a branch, ' +
+      'worktree, or working tree.',
   )
 })
 
