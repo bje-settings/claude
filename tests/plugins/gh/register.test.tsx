@@ -316,3 +316,40 @@ test('a session directory that cannot be read logs once and starts no run', asyn
   expect(seen.logs.length).toBe(1)
   expect(seen.logs[0]).toContain('gh: the status check could not run: ')
 })
+
+test('the timer reads the session directory again', async ($, on) => {
+  const { seen, clock } = stub(on, () => ran('gh: [behind]\n'), {
+    cwd: () => '/work/other',
+  })
+
+  await $.session.start(START)
+  await clock.settle()
+  await clock.advance(300_000)
+
+  expect(seen.runs.map((argv) => argv[3])).toEqual([CWD, '/work/other'])
+})
+
+test('a request during a run that fails still gets one more run', async ($, on) => {
+  const { seen, clock } = stub(
+    on,
+    (index) => {
+      if (index === 0) return ran('', 2, 'usage\n')
+      if (index === 1) throw new Error('spawn node ENOENT')
+      return ran('gh: [behind]\n')
+    },
+    { delayMs: 1_000 },
+  )
+
+  // A failed exit, then a run that rejects: each takes a request that came
+  // while it was open.
+  await $.session.start(START)
+  await $.tool.call({ tool: 'Bash', command: 'git pull' })
+  await clock.advance(1_000)
+  expect(seen.runs.length).toBe(2)
+  await $.tool.call({ tool: 'Bash', command: 'git pull' })
+  await clock.advance(1_000)
+  expect(seen.runs.length).toBe(3)
+  await clock.advance(1_000)
+
+  expect(seen.statuses).toEqual(['gh: [behind]'])
+})
