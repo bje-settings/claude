@@ -246,12 +246,13 @@ test('a git call that a hook refused does not refresh the line', async ($, on) =
   expect(seen.runs.length).toBe(1)
 })
 
-test('a call to another tool does not refresh the line', async ($, on) => {
+test('a call to another tool does not refresh the line, even with a git command', async ($, on) => {
   const { seen, clock } = stub(on, () => ran('gh: [behind]\n'))
 
   await $.session.start(START)
   await clock.settle()
-  await $.tool.call({ tool: 'Read', file_path: '/work/repo/git' })
+  // Only the Bash matcher keeps this out: the input names a git command.
+  await $.tool.call({ tool: 'mcp__shell__run', command: 'git pull' })
   await clock.settle()
 
   expect(seen.runs.length).toBe(1)
