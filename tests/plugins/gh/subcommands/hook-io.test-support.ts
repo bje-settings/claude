@@ -108,7 +108,6 @@ export const runHook = async (
   const status = await runHookIo(argv, {
     cwd: () => rig.sandbox.path,
     env: rig.sandbox.env,
-    stdin: () => Promise.resolve(''),
     output,
     createGh: () => gh,
     files: nodeFileReads,
@@ -137,7 +136,8 @@ const PROBLEM = 'gh: ⚠️ '
  * only when a dependency is absent, a `hookSpecificOutput.additionalContext`
  * beside it. `systemMessage` starts with a newline, then at most one status
  * line. Each other line is a problem line, and no kind of problem shows
- * twice.
+ * twice. Since #488 `session-start` writes only problem lines, but the rule
+ * still holds for them.
  */
 export const expectStatusLines = (stdout: string): void => {
   if (stdout === '') return

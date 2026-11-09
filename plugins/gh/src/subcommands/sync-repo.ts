@@ -139,7 +139,7 @@ export interface SyncRepoOptions {
  * The vocabulary of a report line. This file names each term here. It does
  * not write the term out again at each call site that builds a line.
  *
- * No other code reads the report since #230: the SessionStart hook counts
+ * No other code reads the report since #230: `hook-io.ts status` counts
  * from git refs and GitHub, not from this text.
  *
  * `marks` are the three line prefixes, indent included. The indent is what

@@ -27,7 +27,7 @@ Reference: [Claude Code hooks reference](https://code.claude.com/docs/en/hooks)
 
 ## Status line hooks
 
-A plugin hook that shows status writes this pattern in `systemMessage`, one line after the other:
+A plugin hook that shows status writes this pattern, one line after the other:
 
 ```
 <prefix>: [<item>] [<item> N]
@@ -43,7 +43,9 @@ A plugin hook that shows status writes this pattern in `systemMessage`, one line
 - A missing required tool is a problem line of its own. It stops all other checks.
 - When there is nothing to show, write nothing.
 
-The gh plugin's session start hook uses this pattern. `plugins/gh/README.md` shows its lines.
+The gh plugin's `hook-io.ts status` writes this pattern, and its hooks module pins it. Its
+`SessionStart` hook writes only the lines of its tool check. `plugins/gh/README.md` shows the
+lines.
 
 ## Scope: terminal CLI only
 

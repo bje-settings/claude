@@ -1,19 +1,18 @@
-// The SessionStart hook, in process: the `session-start` response, the
-// payload it reads, the usage contract, and the small helpers the check is
-// built from. `hook-io.status.test.ts` covers the check itself, and
+// The hook, in process: the `session-start` dependency check, the usage
+// contract, and the small helpers the check is built from.
+// `hook-io.status.test.ts` covers the `status` check itself, and
 // `hook-io.prune.test.ts` covers the prune rule.
 //
 // The #230 acceptance test is the table at the end. For every state it
-// builds, `systemMessage` holds at most one status line, then one problem
-// line for each kind of failure, and there is no `additionalContext`.
-import { mkdirSync } from 'node:fs'
+// builds, `status` writes at most one status line, then one problem line for
+// each kind of failure. `session-start` writes only the lines of a missing
+// tool, with `additionalContext`, and nothing for every other state (#488).
 import { expect, it } from 'vitest'
 import { type FileReads, nodeFileReads } from '#gh/lib/dependencies.ts'
 import {
   DEADLINE_MS,
   emit,
   parseCount,
-  payloadCwd,
   scrubRepositoryEnv,
   USAGE,
 } from '#gh/subcommands/hook-io.ts'
@@ -33,83 +32,33 @@ import {
 const answering = (repositories: Record<string, ReturnType<typeof side>>): GhClient =>
   createGhMock({ repositoryStatus: { repositories, unavailable: null } })
 
-/** Run `session-start` with `payload` on stdin. */
-const sessionStart = (rig: Rig, payload: string, gh: GhClient, cwd: string = rig.sandbox.path) =>
-  runHook(rig, ['session-start'], gh, { stdin: () => Promise.resolve(payload), cwd: () => cwd })
-
 // --- session-start ------------------------------------------------------------
 
-it('writes the line as the systemMessage of one JSON document, and nothing else', async () => {
+it('writes nothing, fetches nothing and asks GitHub nothing when git and gh are present', async () => {
+  // The hooks module pins the counts now (#488). A repository with counts
+  // gets no line from this mode, and its origin ref stays where it was.
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
   rig.git.remoteAdvance(work)
+  const before = rig.git.sha(work, 'refs/remotes/origin/main')
 
-  const ran = await sessionStart(
-    rig,
-    JSON.stringify({ session_id: 's1', cwd: work }),
-    answering({ 'acme/widgets': side(0, 2) }),
-  )
-
-  expect(ran).toEqual({
-    status: 0,
-    stdout:
-      '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind] [🤖 2]\\u001b[0m"}\n',
-    stderr: '',
-  })
-})
-
-it('writes nothing at all when there is nothing to show', async () => {
-  const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
-
-  const ran = await sessionStart(
-    rig,
-    JSON.stringify({ cwd: work }),
-    answering({ 'acme/widgets': side() }),
-  )
+  // `createGhMock()` throws for any call, so a GitHub request would fail.
+  const ran = await runHook(rig, ['session-start'], createGhMock(), { cwd: () => work })
 
   expect(ran).toEqual({ status: 0, stdout: '', stderr: '' })
+  expect(rig.git.sha(work, 'refs/remotes/origin/main')).toBe(before)
 })
 
-it('still exits 0 when the check found only a failure', async () => {
+it('never asks for its own directory', async () => {
   const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
 
-  const ran = await sessionStart(
-    rig,
-    JSON.stringify({ cwd: work }),
-    createGhMock({ repositoryStatus: ghFails('gh: HTTP 401') }),
-  )
-
-  expect(ran).toEqual({
-    status: 0,
-    stdout:
-      '{"systemMessage":"\\n\\u001b[33m\\u001b[1mgh:\\u001b[22m ⚠️ GitHub request failed: HTTP 401\\u001b[0m"}\n',
-    stderr: 'GitHub: GhError: gh: HTTP 401\n',
+  const ran = await runHook(rig, ['session-start'], createGhMock(), {
+    cwd: () => {
+      throw new Error('the hook asked for its own directory')
+    },
   })
-})
 
-it('falls back to its own directory when the payload names none it can use', async () => {
-  const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
-  rig.git.remoteAdvance(work)
-  const gh = answering({ 'acme/widgets': side() })
-
-  for (const payload of [
-    '',
-    'not json',
-    '["a"]',
-    '{"cwd":3}',
-    '{"cwd":""}',
-    '{}',
-    JSON.stringify({ cwd: rig.sandbox.join('not-there') }),
-  ]) {
-    const ran = await sessionStart(rig, payload, gh, work)
-    expect([payload, ran.stdout]).toEqual([
-      payload,
-      '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
-    ])
-  }
+  expect(ran).toEqual({ status: 0, stdout: '', stderr: '' })
 })
 
 // --- #267: a read that hangs ----------------------------------------------------
@@ -165,70 +114,10 @@ it('writes nothing about the gh stack extension, which no gh command runs', asyn
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
 
   const ran = await runHook(rig, ['session-start'], answering({ 'acme/widgets': side() }), {
-    stdin: () => Promise.resolve(JSON.stringify({ cwd: work })),
-  })
-
-  expect(ran).toEqual({ status: 0, stdout: '', stderr: '' })
-})
-
-it('reports a payload directory that never answers as a folder that could not be read', async () => {
-  // The hook's own directory throws if asked. So a run that fell back to
-  // it would reject, not answer.
-  const rig = createRig()
-  const stated = rig.sandbox.join('slow')
-  const started = performance.now()
-
-  const ran = await runHook(rig, ['session-start'], createGhMock(), {
-    stdin: () => Promise.resolve(JSON.stringify({ cwd: stated })),
-    cwd: () => {
-      throw new Error('the hook asked for its own directory')
-    },
-    files: { ...nodeFileReads, kindOf: () => never() },
-    deadlineMs: SHORT_DEADLINE_MS,
-  })
-
-  expect(performance.now() - started).toBeLessThan(SHORT_DEADLINE_MS + 200)
-  expect(ran).toEqual({
-    status: 0,
-    stdout: emit('gh: ⚠️ folder could not be read'),
-    stderr: `${stated}: did not finish in ${SHORT_DEADLINE_MS} ms\n`,
-  })
-})
-
-it('prefers the payload directory over its own directory', async () => {
-  const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
-  rig.git.remoteAdvance(work)
-  const elsewhere = rig.sandbox.join('elsewhere')
-  mkdirSync(elsewhere, { recursive: true })
-
-  const ran = await sessionStart(
-    rig,
-    JSON.stringify({ cwd: work }),
-    answering({ 'acme/widgets': side() }),
-    elsewhere,
-  )
-
-  expect(ran.stdout).toBe(
-    '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
-  )
-})
-
-it('still runs the whole check when stdin itself cannot be read', async () => {
-  const rig = createRig()
-  const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
-  rig.git.remoteAdvance(work)
-
-  const ran = await runHook(rig, ['session-start'], answering({ 'acme/widgets': side() }), {
-    stdin: () => Promise.reject(new Error('EBADF: bad file descriptor, read')),
     cwd: () => work,
   })
 
-  expect(ran).toEqual({
-    status: 0,
-    stdout: '{"systemMessage":"\\n\\u001b[36m\\u001b[1mgh:\\u001b[22m [behind]\\u001b[0m"}\n',
-    stderr: '',
-  })
+  expect(ran).toEqual({ status: 0, stdout: '', stderr: '' })
 })
 
 it('bounds the whole check well under the 3 second hooks.json timeout', () => {
@@ -265,20 +154,6 @@ it('writes the response with JSON.stringify, and one newline', () => {
   )
   expect(emit('a "quote"')).toBe('{"systemMessage":"\\na \\"quote\\""}\n')
   expect(emit('gh:[🛡️ 1]')).toBe('{"systemMessage":"\\ngh:[🛡️ 1]"}\n')
-})
-
-it('reads a payload cwd only when it is a string in a JSON object', () => {
-  expect(payloadCwd('{"cwd":"/some/where"}')).toBe('/some/where')
-  expect(payloadCwd('{"cwd":3}')).toBe('')
-  expect(payloadCwd('{"cwd":null}')).toBe('')
-  expect(payloadCwd('{"cwd":""}')).toBe('')
-  expect(payloadCwd('{}')).toBe('')
-  // `typeof []` is `'object'`, so `Array.isArray` answers the rest.
-  expect(payloadCwd('["a","b"]')).toBe('')
-  expect(payloadCwd('"a string"')).toBe('')
-  expect(payloadCwd('null')).toBe('')
-  expect(payloadCwd('not json')).toBe('')
-  expect(payloadCwd('')).toBe('')
 })
 
 it('reads a count only where git answered with one', () => {
@@ -486,21 +361,33 @@ for (const example of CASES) {
   it(`writes one status line and one line per kind, and ${contextWords}, for ${example.name}`, async () => {
     const rig = createRig()
     const built = example.build(rig)
-
-    const ran = await runHook(rig, ['session-start'], built.gh, {
-      stdin: () => Promise.resolve(JSON.stringify({ cwd: built.cwd })),
+    const overrides = {
       ...(built.deadlineMs === undefined ? {} : { deadlineMs: built.deadlineMs }),
       ...(built.env === undefined ? {} : { env: built.env }),
-    })
+    }
 
-    expect(ran.status).toBe(0)
-    expectStatusLines(ran.stdout)
-    expect(ran.stdout).toBe(
-      example.line === null ? '' : emit(example.line, example.additionalContext),
-    )
+    // `status` writes the bare lines, which the hooks module pins.
+    const status = await runHook(rig, ['status', built.cwd], built.gh, overrides)
+    expect(status.status).toBe(0)
+    expect(status.stdout).toBe(example.line === null ? '' : `${example.line}\n`)
     // The account on stderr is for the debug log: one line per failure, even
     // when a reason held a newline of its own.
-    expect(ran.stderr === '' ? 0 : ran.stderr.split('\n').length - 1).toBe(example.failures)
-    expect(ran.stderr === '' || ran.stderr.endsWith('\n')).toBe(true)
+    expect(status.stderr === '' ? 0 : status.stderr.split('\n').length - 1).toBe(example.failures)
+    expect(status.stderr === '' || status.stderr.endsWith('\n')).toBe(true)
+
+    // `session-start` writes only a missing tool, with `additionalContext`.
+    const start = await runHook(rig, ['session-start'], built.gh, {
+      ...overrides,
+      cwd: () => built.cwd,
+    })
+    const missing = example.additionalContext !== undefined
+    expect(start.status).toBe(0)
+    expectStatusLines(start.stdout)
+    expect(start.stdout).toBe(
+      missing && example.line !== null ? emit(example.line, example.additionalContext) : '',
+    )
+    expect(start.stderr === '' ? 0 : start.stderr.split('\n').length - 1).toBe(
+      missing ? example.failures : 0,
+    )
   })
 }

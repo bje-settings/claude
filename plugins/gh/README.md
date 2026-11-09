@@ -152,16 +152,17 @@ orgs in one enterprise are different owners. The report gets an `Omitted:` line 
 kinds of detail that it removed. The rule is in
 [`skills/issues/cross-org.md`](skills/issues/cross-org.md).
 
-## Session start hook
+## Status line
 
-When a session starts, resumes, clears, or compacts, the plugin writes a status line. Then it
-writes one line for each kind of problem:
+The plugin pins a status line under the prompt. Its hooks module, `hooks/register.ts`, runs
+`hooks/hook-io.ts status` for the session's directory and shows the output with `$.ui.status`:
 
 ```
-gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1]
-gh: ⚠️ fetch failed in 15 repos: Invalid username or token
-gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
+gh: [repos: 21] [behind] [✂️ 27] [🤖 4] [🛡️ 1] ⚠️ fetch failed in 15 repos: Invalid username or token ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
+
+`status` writes a status line, then one line for each kind of problem. The module joins the
+lines into one pinned line, with one `gh:` at the start. The next check replaces the line.
 
 | Item | What it shows |
 | --- | --- |
@@ -171,12 +172,18 @@ gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 | 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem line. |
 | 🛡️ | Open Dependabot alerts. |
 
-The CLI shows the output under its own `SessionStart:<source> says:` label, which no hook can
-hide. So the output starts on the line after the label. The status line is cyan, each problem
-line is yellow, and `gh:` is bold. `hook-io.ts status` (below) writes the same lines with no colour.
+The module starts the first check when the session starts, and the session does not wait for
+it. It checks again every five minutes, and after each Bash command that starts with `git` or
+`gh`, or runs `/gh:sync`. Only one check runs at a time. A request that comes during a check
+starts one more check after it. The first check can read the counts before the change. When
+every count is zero and nothing failed, the module clears the line.
 
-The status line shows only the items above zero. When every count is zero and nothing failed,
-the hook writes nothing.
+A check that does not run keeps the last line. So does a check that exits with a code other than
+0 and writes no line. A crash in `status` exits 1 for this reason. The module writes the reason
+once to the transcript, until a check pins or clears the line again. A check that writes its line
+and then ends with `SIGKILL` (see below) still pins that line.
+
+The line shows only the items above zero.
 
 A local branch counts for ✂️ when one of these is true. The default branch and the current
 branch never count.
@@ -187,15 +194,14 @@ branch never count.
 - Its tip is the head of one of the last 100 merged pull requests of the repository. A pull
   request from a fork does not count.
 
-The hook checks the repository that holds the session's directory. Outside a repository, it
+The check reads the repository that holds the session's directory. Outside a repository, it
 checks each repository directly inside that directory, and adds the counts. It skips a repository
 whose `origin` is not on github.com. For each repository, it runs `git fetch --prune origin`, then
 reads the local refs. One GraphQL query reads the GitHub items for each group of five
 repositories. The queries and the fetches run at the same time.
 
-The whole check has 2.5 seconds, well under the hook's own 3 second ceiling
-(`.claude/rules/_design-principles.md`). The time starts when the hook starts. So the read of the
-session's directory and the `PATH` walk count against it too. A part that fails, or does not finish
+The whole check has 2.5 seconds. The time starts when `hook-io.ts` starts, so the `PATH` walk
+counts against it too. A part that fails, or does not finish
 in that time, gives no count. It gives a `gh: ⚠️` line instead, one line for each kind of problem,
 never one for each repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In
 a folder of repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1
@@ -204,16 +210,22 @@ repo`.
 A short cause follows when the failure came with a message. It is the first line of the first
 failure's message, up to its first sentence end, at most 80 characters.
 
-The hook writes each failure in full to stderr, one line for each failure, with its repository.
-`claude --debug` shows it.
+The check writes each failure in full to stderr, one line for each failure, with its repository.
 
-The plugin needs git and the GitHub CLI. When one of them is not on PATH, the hook checks
-nothing. Each missing tool gets a line of its own instead, git first:
+## Session start hook
+
+The plugin needs git and the GitHub CLI. When a session starts, resumes, clears, or compacts, the
+`SessionStart` command hook checks that both are on PATH. It does only that check. When both are
+there, it writes nothing. Each missing tool gets a line of its own, git first:
 
 ```
 gh: ⚠️ git not found on PATH
 gh: ⚠️ GitHub CLI (gh) not found on PATH
 ```
+
+The CLI shows the lines under its own `SessionStart:<source> says:` label, so they start on the
+line after the label. Each line is yellow, and `gh:` is bold. The status check writes the same
+lines when a tool is missing, and checks nothing else.
 
 The reason also goes to stderr, without the `gh: ⚠️` prefix, one line for each missing tool. The
 hook also writes `hookSpecificOutput.additionalContext`. It states which tools are absent and
@@ -221,20 +233,18 @@ that the plugin cannot run. The model then does not start work that will fail. W
 present, there is no `additionalContext` at all.
 
 A `PATH` walk that does not finish in time is not a missing tool. That tool gets
-`gh: ⚠️ git could not be checked` or `gh: ⚠️ GitHub CLI (gh) could not be checked`, and the hook
-checks nothing else. `additionalContext` names only the tools that are absent. A read of the
-session's directory that does not finish in time gives `gh: ⚠️ folder could not be read`. The
-hook then does not check its own directory instead, because that directory is most often on the
-same slow filesystem.
+`gh: ⚠️ git could not be checked` or `gh: ⚠️ GitHub CLI (gh) could not be checked`.
+`additionalContext` names only the tools that are absent. The hook reads no payload, fetches
+nothing, and counts nothing. Its 3 second `timeout` in `hooks.json` covers only this check.
 
 Every read of the filesystem here is async (#267). A read that hangs then holds a worker thread, not
 the hook, and the deadline still fires. node waits for that thread before the process can exit. So
 when a read still holds the process 20 ms after the output has left, the hook ends itself with
-`SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`, the shell may add a
-`Killed` line.
+`SIGKILL`. For `session-start`, `hooks.json`'s `; exit 0` makes that exit 0. In `claude --debug`,
+the shell may add a `Killed` line. The hooks module reads the signal of `status` as exit 1.
 
-The hook never changes a branch, worktree, or working tree. The fetch changes only
-remote-tracking refs. `session-start` always exits 0, so the hook cannot stop a session.
+Neither `session-start` nor `status` changes a branch, worktree, or working tree. The fetch of
+`status` changes only remote-tracking refs. Neither can stop a session.
 
 When node is not on PATH at all, `hooks.json`'s own command string writes the alert. No script
 can run to report that:
@@ -249,7 +259,7 @@ Below the node floor, the hook writes one line with the floor name, then exits 0
 gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.
 ```
 
-The hook is `hooks/hook-io.ts`. To see the lines by hand, run it with `status`:
+The hook is `hooks/hook-io.ts`. To see the status lines by hand, run it with `status`:
 
 ```bash
 node <plugin>/hooks/hook-io.ts status /path/to/a/repo-or-folder
@@ -288,7 +298,7 @@ The plugin takes no dependency of its own, and carries no `package.json`, so it 
 to use. Every entry point checks the current version before it loads anything else. A command
 states which version it found. The session-start hook writes one line with the floor version
 instead. It runs once, and it may say so, unlike a hook on every tool call, which must stay
-silent.
+silent. `status` writes the same line, bare, for the module to pin.
 
 ## Tests
 
@@ -301,8 +311,10 @@ something (each merge signal, a reused branch name, a fork's pull request, a pul
 into another base, worktrees clean and dirty), every preflight refusal, and the guarantee that
 `--dry-run` changes nothing it says it would change. Each command's tests check it against the
 report its predecessor printed, captured scenario by scenario before the tests deleted that
-version. The session-start hook's tests check that each case writes one JSON document, on one
-line, with `systemMessage`, and `hookSpecificOutput.additionalContext` only when a tool is absent.
+version. The session-start hook's tests check that it writes nothing, or one JSON document on
+one line, with `systemMessage`, and `hookSpecificOutput.additionalContext` only when a tool is
+absent. The `status` tests check the bare status and problem lines.
+The tests of the hooks module, `register.test.tsx`, run under `claude plugin test`.
 
 pnpm's install path has a test that runs a real `pnpm install`. What remains uncovered is
 defensive branches that guard against states nobody can provoke, such as a ref that resolves

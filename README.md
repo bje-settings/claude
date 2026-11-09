@@ -38,7 +38,8 @@ The plugin's own README has the detail, with the scripts the skills and hooks ru
     <th scope="row">Hooks</th>
     <td>
       <ul>
-        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: one status line on start, resume, clear and compact. It shows commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem gets a line of its own, such as a failed fetch or a missing git. It fetches, but never changes a branch, worktree, or working tree.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#session-start-hook">Session start</a>: on start, resume, clear and compact, a line for each of git and the GitHub CLI that is not on PATH, or that it could not check.</li>
+        <li><a href="https://github.com/bje-settings/claude/tree/main/plugins/gh#status-line">Status line</a>: a hooks module pins one line under the prompt. It shows commits behind, branches to prune, dependency pull requests and Dependabot alerts, then each kind of problem. It fetches, but never changes a branch, worktree, or working tree.</li>
       </ul>
     </td>
   </tr>

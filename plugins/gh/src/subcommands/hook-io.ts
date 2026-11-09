@@ -1,39 +1,45 @@
-// This file is the gh plugin's SessionStart hook (#230). It writes at most
-// one status line, then one problem line for each kind of failure, or
-// nothing. When git or the GitHub CLI is not on PATH, it checks nothing.
-// It writes one problem line for each missing tool, and `additionalContext`
-// that names the missing tools. So the model does not start work that will
-// fail (#243). {@link statusLine} and {@link problemLines} shape the lines,
-// and `plugins/gh/README.md` shows them.
+// This file is the gh plugin's hook logic, in two modes (#230, #488).
 //
-// The hook finds the repository that holds the session's directory, or the
+// `session-start` is the `SessionStart` command hook. It does only the
+// dependency check (ADR 007, ruling 7). When git and the GitHub CLI are on
+// PATH, it writes nothing. For each tool that is not, it writes one problem
+// line in `systemMessage`, and `additionalContext` that names the missing
+// tools. So the model does not start work that will fail (#243). It reads
+// no payload, fetches nothing and counts nothing.
+//
+// `status [dir]` writes the bare status line, then one problem line for each
+// kind of failure, or nothing. The hooks module (`hooks/register.ts`) runs
+// it and pins its stdout under the prompt. A person can also run it by hand.
+// {@link statusLine} and {@link problemLines} shape the lines, and
+// `plugins/gh/README.md` shows them.
+//
+// `status` finds the repository that holds the directory, or the
 // repositories directly inside it (`lib/discover.ts`). It skips a repository
 // whose `origin` is not on github.com. It fetches each repository, then
 // counts from local refs. One GraphQL query per five repositories reads the
-// GitHub counts, at the same time as the fetches.
+// GitHub counts, at the same time as the fetches. It checks git and the
+// GitHub CLI first too, and a missing tool stops the check.
 //
 // One deadline applies to the whole check. A task that fails, or does not
 // finish in time, gives no count. It gives a problem line for its kind
 // instead, and its full reason goes to stderr, one line for each failure.
 // Claude Code keeps stderr in its debug log.
 //
-// The hook never changes a branch, a worktree, or a working tree. The
-// fetch changes only remote-tracking refs. `session-start` always exits 0,
-// so nothing here can stop a session. `status [dir]` writes the bare line,
-// for a person who debugs the hook by hand. Anything else writes the usage
-// line to stderr and exits 2. `hooks.json`'s `; exit 0` absorbs that status.
+// Neither mode changes a branch, a worktree, or a working tree. The fetch
+// changes only remote-tracking refs. Both modes return 0, so nothing here can
+// stop a session. Anything else writes the usage line to stderr and returns 2.
+// For `session-start`, `hooks.json`'s `; exit 0` absorbs that status. The
+// entry, `hooks/hook-io.ts`, turns a crash into exit 1 for `status` only.
 //
-// The deadline starts when the hook starts. The `PATH` walk and the read
-// of the payload's directory are async, and each has a time limit from the
-// same clock (#267). A read that did not finish in time gives a problem
-// line, never "not found" and never another directory.
+// The deadline starts when the hook starts. The `PATH` walk is async, and
+// each walk has a time limit from the same clock (#267). A walk that did not
+// finish in time gives a problem line, never "not found".
 import {
   absentDependencies,
   type Dependency,
   deadlineClock,
   type FileReads,
   onPath,
-  withinDeadline,
 } from '../lib/dependencies.ts'
 import { discoverRepos } from '../lib/discover.ts'
 import { type GhClient, GhError, type GhResults } from '../lib/gh.ts'
@@ -43,8 +49,9 @@ import type { Output } from '../lib/streams.ts'
 import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
 
 /** The time the whole check may take, in milliseconds. `hooks.json` gives
- *  the hook 3 seconds (`.claude/rules/_design-principles.md`), and this
- *  stays well under it, so the line still arrives when the check runs out. */
+ *  the `SessionStart` hook 3 seconds (`.claude/rules/_design-principles.md`),
+ *  and this stays well under it, so the line still arrives when the check
+ *  runs out. `status` uses the same limit. */
 export const DEADLINE_MS = 2_500
 
 /** How long the entry waits, once its output has left, before it ends a
@@ -251,38 +258,17 @@ const PLUGIN_PREFIX = 'gh'
 export const emit = (line: string, additionalContext?: string): string =>
   libEmit(PLUGIN_PREFIX, line, additionalContext)
 
-/**
- * The `cwd` field of a SessionStart payload, or `""` when there is none to
- * read. A malformed payload is not a failure: the caller falls back to its
- * own directory. A `cwd` that is not a string counts as absent.
- * `Array.isArray` is necessary because `typeof []` is `'object'`.
- */
-export const payloadCwd = (text: string): string => {
-  let payload: unknown
-  try {
-    payload = JSON.parse(text)
-  } catch {
-    return ''
-  }
-  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return ''
-  const value = (payload as Record<string, unknown>).cwd
-  return typeof value === 'string' ? value : ''
-}
-
 /** Everything the hook reads that is not a file and not git. */
 export interface HookEdges {
   /** This process's own directory. It is a call, because `process.cwd()`
-   *  throws for a directory that was deleted. The hook asks only when the
-   *  payload names no directory. */
+   *  throws for a directory that was deleted. `status` asks only when it
+   *  was given no directory. */
   readonly cwd: () => string
   readonly env: NodeJS.ProcessEnv
-  /** Everything on stdin. It is a call, because only `session-start` reads
-   *  it. `status` must not wait for a descriptor that nobody writes to. */
-  readonly stdin: () => Promise<string>
   readonly output: Output
   /** Makes the `gh` client, from the environment the hook cleaned. */
   readonly createGh: (env: NodeJS.ProcessEnv) => GhClient
-  /** The `PATH` walk and the read of the payload's directory. */
+  /** The `PATH` walk. */
   readonly files: FileReads
   /** The time the whole check may take, in milliseconds. */
   readonly deadlineMs: number
@@ -608,23 +594,20 @@ const causeOf = (error: unknown): string => {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** What {@link checkStatus} answers: the lines to write, and the
- *  `additionalContext` to write beside them, set only when a dependency
- *  is absent (#243). */
+/** What {@link checkStatus} and {@link checkDependencies} answer: the lines
+ *  to write, and the `additionalContext` to write beside them, set only
+ *  when a dependency is absent (#243). */
 interface Status {
   readonly line: string
   readonly additionalContext?: string
 }
 
 /**
- * {@link Status} for `target`, or `null` when there is nothing to show: the
- * status line, then one problem line for each kind of failure. Each failure
- * also goes to stderr, one line each. A missing tool stops every check, and
- * each missing tool gets a problem line of its own instead. So does a tool
- * whose `PATH` walk did not finish in time.
+ * The dependency check: {@link Status} with one problem line for each tool
+ * that is absent, or that the `PATH` walk did not check in time. It is
+ * `null` when every tool is present. Each problem also goes to stderr.
  */
-const checkStatus = async (
-  target: string,
+const checkDependencies = async (
   edges: HookEdges,
   timeoutMs: () => number,
 ): Promise<Status | null> => {
@@ -645,6 +628,22 @@ const checkStatus = async (
     const line = problems.map(problemLine).join('\n')
     return absent.length > 0 ? { line, additionalContext: dependencyContext(absent) } : { line }
   }
+  return null
+}
+
+/**
+ * {@link Status} for `target`, or `null` when there is nothing to show: the
+ * status line, then one problem line for each kind of failure. Each failure
+ * also goes to stderr, one line each. A missing tool stops every check, and
+ * the lines of {@link checkDependencies} take the place of the status.
+ */
+const checkStatus = async (
+  target: string,
+  edges: HookEdges,
+  timeoutMs: () => number,
+): Promise<Status | null> => {
+  const missing = await checkDependencies(edges, timeoutMs)
+  if (missing !== null) return missing
   const env = scrubRepositoryEnv(edges.env)
   const failures: Failure[] = []
   const failed: Failed = (kind, line, cause) => {
@@ -726,52 +725,12 @@ const checkStatus = async (
   return { line: lines.join('\n') }
 }
 
-/**
- * Everything on stdin, or `""` when it cannot be read at all. A descriptor
- * that fails a read is not a reason to skip the check. The hook then uses
- * its own directory.
- */
-const readPayload = async (edges: HookEdges): Promise<string> => {
-  try {
-    return await edges.stdin()
-  } catch {
-    return ''
-  }
-}
-
-/**
- * Whether `target` is a directory, or `null` when the read did not finish
- * within `ms`. Every other reason it is not gives `false`.
- */
-const isDirectory = (files: FileReads, target: string, ms: number): Promise<boolean | null> =>
-  withinDeadline(
-    files.kindOf(target).then(
-      (kind) => kind === 'directory',
-      () => false,
-    ),
-    ms,
-    null,
-  )
-
-/** The status for a payload directory whose read did not finish in time.
- *  This hook does not then check its own directory instead: that is most
- *  often the same directory, on the same slow filesystem. */
-const unreadFolder = (target: string, edges: HookEdges): Status => {
-  edges.output.err.write(`${target}: did not finish in ${edges.deadlineMs} ms\n`)
-  return { line: problemLine(KINDS.unreadable.words) }
-}
-
 /** The hook: argv in, an exit status out. */
 export const runHookIo = async (argv: readonly string[], edges: HookEdges): Promise<number> => {
   const [mode, dir] = argv
   const remaining = deadlineClock(edges.deadlineMs)
   if (mode === 'session-start' && argv.length === 1) {
-    const stated = payloadCwd(await readPayload(edges))
-    const named = stated === '' ? false : await isDirectory(edges.files, stated, remaining())
-    const status =
-      named === null
-        ? unreadFolder(stated, edges)
-        : await checkStatus(named ? stated : edges.cwd(), edges, remaining)
+    const status = await checkDependencies(edges, remaining)
     if (status !== null) edges.output.out.write(emit(status.line, status.additionalContext))
     return 0
   }

@@ -86,11 +86,10 @@ it('finishes clean when the reader of a sync report never reads at all', async (
 it('finishes clean when the reader of the hook response leaves at once', async () => {
   const rig = createRig()
   const work = githubRepo(rig, rig.sandbox.join('r'), 'acme/widgets')
-  // The rig's `gh` always fails, so the hook has a line to write: the
-  // GitHub half fails.
+  // The rig's `gh` always fails, so `status` has a line to write: the
+  // GitHub half fails. `session-start` writes nothing here since #488.
   const running = startScript(HOOK, {
-    args: ['session-start'],
-    stdin: JSON.stringify({ cwd: work }),
+    args: ['status', work],
     env: rig.sandbox.env,
   })
 

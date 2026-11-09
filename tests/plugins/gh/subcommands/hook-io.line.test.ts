@@ -1,4 +1,4 @@
-// The pure parts of the SessionStart hook: the status line and the origin
+// The pure parts of `hook-io.ts status`: the status line and the origin
 // URL parser. Each is a function of its arguments alone, so these tests
 // start no process and build no repository.
 import { expect, it } from 'vitest'

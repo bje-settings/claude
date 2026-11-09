@@ -1,5 +1,6 @@
 {
-  "description": "One status line when a session starts: commits behind, branches to prune, dependency pull requests and Dependabot alerts. Each kind of problem, such as a failed fetch or a missing git, gets a line of its own. Fetches, but never changes a branch, worktree, or working tree.",
+  "description": "The SessionStart command hook checks that git and the GitHub CLI are on PATH. It names each tool that is not. The hooks module pins the repo status line under the prompt. The line shows commits behind, branches to prune, dependency pull requests and Dependabot alerts. Then it shows each kind of problem. It refreshes the line on a timer and after a git, gh or sync command. The check fetches, but never changes a branch, worktree, or working tree.",
+  "modules": ["./register.ts"],
   "hooks": {
     "SessionStart": [
       {

@@ -1,4 +1,4 @@
-// The prune rule of the SessionStart hook. The pure half takes the three
+// The prune rule of `hook-io.ts status`. The pure half takes the three
 // ref listings and the merged pull requests as arguments. The real half
 // builds the listings with real git (`harness/git.ts`), so ancestry, a gone
 // upstream and a squash merge are the states git itself produces.
