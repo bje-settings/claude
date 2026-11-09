@@ -23,7 +23,13 @@ env:
   # push. Keep it close to what contributors run, since the lefthook
   # `plugin-validate` step uses whatever `claude` is on the contributor's
   # PATH.
-  CLAUDE_CODE_VERSION: "2.1.263"
+  #
+  # A bump also replaces `types/claude-code/index.d.ts` with the file that
+  # the new version lays as its types. Its first line names the version.
+  # `tests/repo/claude-code-types.test.ts` fails when that line and this pin
+  # differ. The `plugin-test` job below runs the hooks modules on the same
+  # pin.
+  CLAUDE_CODE_VERSION: "2.1.319"
 
 jobs:
   # THIS JOB NAME IS A CONTRACT. `plugin-validate` becomes a required check,
@@ -85,3 +91,38 @@ jobs:
             exit 1
           fi
           echo "Validated the marketplace manifest and $found plugin(s)."
+
+  # THIS JOB NAME IS A CONTRACT, the same as `plugin-validate` above. It
+  # becomes a required check only after it has reported on main once. If you
+  # rename it after that, the required check never reports again, and every
+  # pull request waits forever. It lives in this file, so that one
+  # `CLAUDE_CODE_VERSION` serves both jobs that install Claude Code.
+  plugin-test:
+    name: plugin-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The pnpm version comes from package.json packageManager, the same
+      # as in ci.yml.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # engines.node resolves to a 22.x at or above the floor that
+      # `scripts/plugin-test.ts` needs.
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      # No API key and no login. `claude plugin test` runs each test file in
+      # a child of the binary, and never talks to the API.
+      - name: Install Claude Code
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run the tests of each hooks module
+        run: node scripts/plugin-test.ts
