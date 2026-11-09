@@ -2,7 +2,7 @@
 // repo status row under the prompt, and keeps it fresh.
 //
 // The row is the first row of the prompt hint (`ui.render` on
-// `PromptHint`), so it shows under the prompt on the terminal and desktop.
+// `PromptHint`). So it shows under the prompt on the terminal and desktop.
 // No render site of the engine sits between the `statusLine` and the
 // permission mode line (#496). A surface that never draws the prompt hint,
 // such as VS Code or mobile, gets the plain text with `$.ui.status`.
@@ -38,8 +38,8 @@ interface Pin {
    *  read the counts before the change, so one more run follows it. Any
    *  number of such requests gives one more run. */
   again: boolean
-  /** True after a failed run was logged. A run that pins sets it back, so
-   *  each run of failures gets one log line. */
+  /** True after a failed run was logged. A run that gives a report sets
+   *  it back, so each run of failures gets one log line. */
   logged: boolean
   /** The refresh timer. A second `session.start` in the same module
    *  replaces it, so only one timer runs. */
@@ -55,9 +55,10 @@ interface Pin {
 }
 
 /**
- * Run `status` for `cwd` and pin what it writes. A failed run keeps the
- * last line, and logs once for each run of failures. No hook waits on this
- * call, so the `catch` turns a run that rejects into a log line.
+ * Run `status --json` for `cwd` and draw its report. A failed run keeps
+ * the last report, drawn dim, and logs once for each run of failures. No
+ * hook waits on this call, so the `catch` turns a run that rejects into a
+ * log line.
  */
 async function refresh($: EngineInterface, pin: Pin, cwd: string): Promise<void> {
   if (pin.running) {

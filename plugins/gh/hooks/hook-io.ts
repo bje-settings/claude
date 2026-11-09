@@ -16,10 +16,10 @@
 // **Nothing here may stop a session.** An unexpected error inside the `try`
 // block writes its stack to stderr, which Claude Code keeps in its debug
 // log. For `session-start`, the exit status stays 0. For `status`, it is 1.
-// The hooks module then logs a failure and keeps the last line. The usage
-// error returns 2 from inside the `try` block, on purpose. A failure in an
-// `await import`, or in `createOutput`, is outside the `try` block and
-// exits non-zero. Neither writes to stdout. For
+// The hooks module then logs a failure and keeps the last report, drawn
+// dim. The usage error returns 2 from inside the `try` block, on purpose.
+// A failure in an `await import`, or in `createOutput`, is outside the
+// `try` block and exits non-zero. Neither writes to stdout. For
 // `session-start`, `hooks.json`'s `; exit 0` absorbs both statuses.
 //
 // **A read that hangs cannot hold this process (#267).** The command
@@ -27,8 +27,8 @@
 // and node waits for that thread on every exit path. So once the output
 // has left, `endOnceWritten` ends a process that a read still holds, with
 // `SIGKILL`. `hooks.json`'s `; exit 0` makes that exit 0 for
-// `session-start`. The hooks module reads the signal as exit 1, and pins
-// the line that `status` wrote before it (`outcomeOf` in
+// `session-start`. The hooks module reads the signal as exit 1, and draws
+// the report that `status --json` wrote before it (`outcomeOf` in
 // `src/status-pin.ts`).
 //
 // **Below the floor, this writes one line and exits 0 (#245).** A

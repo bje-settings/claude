@@ -4,10 +4,10 @@
 // module with no Node, and this file is part of its module graph (ADR 007,
 // ruling 6).
 
-/** The time between two timed refreshes of the pinned line, in
+/** The time between two timed refreshes of the status row, in
  *  milliseconds. Each check fetches every repository and asks GitHub once
  *  for each five of them. The counts change slowly, and a git or gh call in
- *  the session refreshes the line at once. So five minutes is enough. */
+ *  the session refreshes the row at once. So five minutes is enough. */
 export const REFRESH_MS = 300_000
 
 /** The time one `status` run may take before the engine stops it. The run
@@ -15,8 +15,7 @@ export const REFRESH_MS = 300_000
  *  not end. */
 export const RUN_TIMEOUT_MS = 15_000
 
-/** The `gh: ` prefix of each line that `hook-io.ts status` writes, and of
- *  each log line of the module. */
+/** The `gh: ` prefix of each log line of the module. */
 const PREFIX = 'gh: '
 
 /** A Bash command that starts with `git` or `gh` as a word of its own. */
@@ -28,14 +27,14 @@ const GH_SYNC = /^node\s+"?[^"\s]*\/scripts\/gh\.ts"?\s+sync(?:-repo)?(?:\s|$)/
 
 /**
  * True when a Bash command starts with `git` or `gh`, or with the sync of
- * this plugin. Any other command, such as `ls`, does not refresh the line.
+ * this plugin. Any other command, such as `ls`, does not refresh the row.
  */
 export const changesCounts = (command: string): boolean => {
   const trimmed = command.trim()
   return GIT_OR_GH.test(trimmed) || GH_SYNC.test(trimmed)
 }
 
-/** How one `status` run ended, when it did not give a line. */
+/** How one `status` run ended, when it did not give a report. */
 export type RunFailure =
   | { readonly exitCode: number; readonly stderr: string }
   | { readonly error: unknown }
@@ -84,8 +83,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
 /**
- * The report in `stdout`, or `null` when stdout is not one. The first line
- * that is a JSON document of the right shape is the report.
+ * The report in `stdout`, or `null` when stdout is not one. Only the first
+ * line is read. It is the report when it is a JSON document of the right
+ * shape.
  */
 export const parseReport = (stdout: string): Report | null => {
   const [first = ''] = stdout.split('\n', 1)
@@ -114,9 +114,9 @@ export type RunOutcome =
 
 /**
  * The outcome of a `status --json` run that exited. A report on stdout is
- * drawn for any exit: `endOnceWritten` ends a run that a hung read holds
- * with `SIGKILL`, and the engine reads a signal as exit 1. A run with no
- * report is a failure.
+ * drawn for any exit. The reason: `endOnceWritten` ends a run that a hung
+ * read holds with `SIGKILL`. The engine reads a signal as exit 1. A run
+ * with no report is a failure.
  */
 export const outcomeOf = (ran: {
   readonly exitCode: number
@@ -155,8 +155,8 @@ export const SEGMENT_COLOUR: Readonly<Record<SegmentKind, string>> = {
 /**
  * The brackets of the row, in the order `statusLine` in `hook-io.ts`
  * writes them. A zero count is left out, and `repos` shows only with more
- * than one repository and never alone. With one repository, the
- * Dependabot brackets open its GitHub page. In a folder the counts are
+ * than one repository and never alone. With one repository, the 🔀, 🤖
+ * and 🛡️ brackets open a GitHub page. With more than one, the counts are
  * sums, so no bracket has a page.
  */
 export const segmentsOf = (report: Report): Segment[] => {

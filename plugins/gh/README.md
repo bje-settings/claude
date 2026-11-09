@@ -165,12 +165,12 @@ gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
 
 Each bracket has its own theme colour. Each kind of problem has a row of its own, in the warning
-colour. With one repository, 🔀, 🤖 and 🛡️ are links to their GitHub pages. In a folder, the
-counts are sums, so they are not links. The next check replaces the rows.
+colour. With one repository, 🔀, 🤖 and 🛡️ are links to their GitHub pages. With more than one
+repository, the counts are sums, so they are not links. The next check replaces the rows.
 
 No render site of Claude Code sits between your `statusLine` and the permission mode line. So
-the rows show under the permission mode line. A surface that does not draw the prompt hint,
-such as VS Code or mobile, gets the same items as one line, with `$.ui.status`.
+the rows show under the permission mode line. Some surfaces do not draw the prompt hint, such as
+VS Code or mobile. Those surfaces get the same items as one line, with `$.ui.status`.
 
 | Item | What it shows |
 | --- | --- |
@@ -263,7 +263,7 @@ gh: ⚠️ node not found on PATH
 ```
 
 Below the node floor, the hook writes one line with the floor name, then exits 0. With
-`--json`, that line is the one problem of the report:
+`--json`, the message of that line is the one problem of the report:
 
 ```
 gh: ⚠️ node "v20.19.0" is below the floor: 22.18.0 or newer.
@@ -310,7 +310,8 @@ The plugin takes no dependency of its own, and carries no `package.json`, so it 
 to use. Every entry point checks the current version before it loads anything else. A command
 states which version it found. The session-start hook writes one line with the floor version
 instead. It runs once, and it may say so, unlike a hook on every tool call, which must stay
-silent. `status` writes the same line, bare, for the module to pin.
+silent. `status` writes the same line, bare. `status --json` writes the message as the one
+problem of the report.
 
 ## Tests
 
@@ -325,7 +326,8 @@ into another base, worktrees clean and dirty), every preflight refusal, and the 
 report its predecessor printed, captured scenario by scenario before the tests deleted that
 version. The session-start hook's tests check that it writes nothing, or one JSON document on
 one line, with `systemMessage`, and `hookSpecificOutput.additionalContext` only when a tool is
-absent. The `status` tests check the bare status and problem lines.
+absent. The `status` tests check the bare status and problem lines, and the `status --json`
+report.
 The tests of the hooks module, `register.test.tsx`, run under `claude plugin test`.
 
 pnpm's install path has a test that runs a real `pnpm install`. What remains uncovered is
