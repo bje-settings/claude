@@ -30,6 +30,7 @@
     "eslint-plugin-claude": "0.9.1",
     "lefthook": "2.1.12",
     "typescript": "7.0.2",
+    "vite": "8.3.7",
     "vitest": "4.1.11"
   },
   "pnpm": {
@@ -37,8 +38,11 @@
       "lefthook"
     ],
     "overrides": {
+      "@vitest/mocker": "^4.1.12",
       "katex": "^0.18.2",
-      "source-map-js": "^1.2.2"
+      "minimatch": "^11.0.1",
+      "source-map-js": "^1.2.2",
+      "vite": "^8.3.3"
     }
   }
 }
