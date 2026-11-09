@@ -49,6 +49,7 @@ import { gitLines, gitOut, type RepoOptions, runGit } from '../lib/git.ts'
 import { emit as libEmit } from '../lib/hook-output.ts'
 import type { Output } from '../lib/streams.ts'
 import { hasMatch, ownRows, type PullRequestRow } from '../prs.ts'
+import type { Counts, Report } from '../status-pin.ts'
 
 /** The time the whole check may take, in milliseconds. `hooks.json` gives
  *  the `SessionStart` hook 3 seconds (`.claude/rules/_design-principles.md`),
@@ -100,14 +101,10 @@ export const scrubRepositoryEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
   return scrubbed
 }
 
-/** The four counts the line can show, each summed over every repository. */
-export interface StatusCounts {
-  readonly behind: number
-  readonly prune: number
-  readonly pullRequests: number
-  readonly dependencies: number
-  readonly alerts: number
-}
+/** The five counts the line can show, each summed over every repository.
+ *  `src/status-pin.ts` declares the shape, so the hooks module reads the
+ *  same shape that this file writes. */
+export type StatusCounts = Counts
 
 /** Every count at zero. */
 const ZERO_COUNTS: StatusCounts = {
@@ -620,13 +617,9 @@ interface Missing {
 
 /** What `status --json` writes: the counts, the number of repositories,
  *  the `owner/name` when there is exactly one, and one problem for each
- *  kind of failure, with no `gh: ⚠️ ` prefix. */
-export interface StatusReport {
-  readonly counts: StatusCounts
-  readonly repos: number
-  readonly repository: string | null
-  readonly problems: readonly string[]
-}
+ *  kind of failure, with no `gh: ⚠️ ` prefix. `src/status-pin.ts`
+ *  declares the shape. */
+export type StatusReport = Report
 
 /**
  * The dependency check: {@link Missing} with one problem for each tool

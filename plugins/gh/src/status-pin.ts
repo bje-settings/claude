@@ -54,7 +54,8 @@ export const failureText = (failure: RunFailure): string => {
   return `${PREFIX}the status check failed with exit ${failure.exitCode}${cause}`
 }
 
-/** The counts of `hook-io.ts status --json`, as `StatusCounts` there. */
+/** The counts of `hook-io.ts status --json`. `StatusCounts` there is this
+ *  type. */
 export interface Counts {
   readonly behind: number
   readonly prune: number
@@ -63,7 +64,8 @@ export interface Counts {
   readonly alerts: number
 }
 
-/** What `hook-io.ts status --json` writes, as `StatusReport` there. */
+/** What `hook-io.ts status --json` writes. `StatusReport` there is this
+ *  type. */
 export interface Report {
   readonly counts: Counts
   readonly repos: number
@@ -71,13 +73,15 @@ export interface Report {
   readonly problems: readonly string[]
 }
 
-const COUNT_KEYS: readonly (keyof Counts)[] = [
-  'behind',
-  'prune',
-  'pullRequests',
-  'dependencies',
-  'alerts',
-]
+/** Each key of {@link Counts}. `satisfies` makes a key that `Counts` gets
+ *  and this table does not have a type error. */
+const COUNT_KEYS = Object.keys({
+  behind: 0,
+  prune: 0,
+  pullRequests: 0,
+  dependencies: 0,
+  alerts: 0,
+} satisfies Record<keyof Counts, 0>) as (keyof Counts)[]
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null

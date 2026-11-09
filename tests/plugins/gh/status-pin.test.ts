@@ -116,6 +116,18 @@ it('reads no report from text that is not JSON, or JSON that is not a report', (
   }
 })
 
+it('reads no report when any one count is missing or not a number', () => {
+  const good = report()
+  for (const key of Object.keys(ZERO)) {
+    const all: Record<string, number> = ZERO
+    const { [key]: _, ...without } = all
+    for (const counts of [without, { ...ZERO, [key]: '1' }]) {
+      const stdout = line({ ...good, counts })
+      expect([key, parseReport(stdout)]).toEqual([key, null])
+    }
+  }
+})
+
 // --- outcomeOf -----------------------------------------------------------------
 
 it('draws the report of an exit 0', () => {
