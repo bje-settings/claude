@@ -156,21 +156,25 @@ kinds of detail that it removed. The rule is in
 
 The plugin draws a status row under the prompt. Its hooks module, `hooks/register.ts`, runs
 `hooks/hook-io.ts status --json` for the session's directory, and draws the report as the first
-rows of the prompt hint:
+row of the prompt hint:
 
 ```
 gh: [repos: 21] [behind] [✂️ 27] [🔀 3] [🤖 4] [🛡️ 1]
-gh: ⚠️ fetch failed in 15 repos: Invalid username or token
-gh: ⚠️ GitHub request failed: Bad credentials (HTTP 401)
 ```
 
-Each bracket has its own theme colour. Each kind of problem has a row of its own, in the warning
-colour. With one repository, 🔀, 🤖 and 🛡️ are links to their GitHub pages. With more than one
-repository, the counts are sums, so they are not links. The next check replaces the rows.
+Each bracket has its own theme colour. With one repository, 🔀, 🤖 and 🛡️ are links to their
+GitHub pages. With more than one repository, the counts are sums, so they are not links. The next
+check replaces the row.
+
+When the check reports a problem, the row shows no problem text. It draws dim, with no colour.
+The module writes the problems of the report to the transcript as one line, after `gh: `. After a
+report with no problem, the next problems go to the transcript again. A report with only problems
+draws no row.
 
 No render site of Claude Code sits between your `statusLine` and the permission mode line. So
-the rows show under the permission mode line. Some surfaces do not draw the prompt hint, such as
-VS Code or mobile. Those surfaces get the same items as one line, with `$.ui.status`.
+the row shows under the permission mode line. Some surfaces do not draw the prompt hint, such as
+VS Code or mobile. Those surfaces get the items as one line, with `$.ui.status`. That line also
+shows the problem text.
 
 | Item | What it shows |
 | --- | --- |
@@ -178,19 +182,20 @@ VS Code or mobile. Those surfaces get the same items as one line, with `$.ui.sta
 | `behind` | At least one local `<default>` is behind its `origin/<default>`. |
 | ✂️ | Local branches that `/gh:sync` can remove. See below. |
 | 🔀 | Open pull requests that are not drafts, and that Dependabot did not open. |
-| 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem line for 🔀 and 🤖. |
+| 🤖 | Open pull requests that Dependabot opened. A repository with more than 100 open pull requests gets a problem for 🔀 and 🤖. |
 | 🛡️ | Open Dependabot alerts. |
 
 The module starts the first check when the session starts, and the session does not wait for
 it. It checks again every five minutes, and after each Bash command that starts with `git` or
 `gh`, or runs `/gh:sync`. Only one check runs at a time. A request that comes during a check
 starts one more check after it. The first check can read the counts before the change. When
-every count is zero and nothing failed, the module clears the rows.
+every count is zero, the module clears the row.
 
-A check that does not run keeps the last rows, and draws them dim. So does a check that writes no
-report. A crash in `status` exits 1 for this reason. The module writes the reason once to the
-transcript. The rows are bright again after the next check that gives a report. A check that
-writes its report and then ends with `SIGKILL` (see below) still gives that report.
+A check that does not run keeps the last row, and draws it dim, with no colour. So does a check
+that writes no report. A crash in `status` exits 1 for this reason. The module writes the reason
+once to the transcript. The row has its colours again after the next check that gives a report
+with no problem. A check that writes its report and then ends with `SIGKILL` (see below) still
+gives that report.
 
 The row shows only the items above zero.
 
@@ -210,11 +215,12 @@ reads the local refs. One GraphQL query reads the GitHub items for each group of
 repositories. The queries and the fetches run at the same time.
 
 The whole check has 2.5 seconds. The time starts when `hook-io.ts` starts, so the `PATH` walk
-counts against it too. A part that fails, or does not finish
-in that time, gives no count. It gives a `gh: ⚠️` line instead, one line for each kind of problem,
-never one for each repository. Each kind has fixed words, such as `fetch failed` or `timed out`. In
-a folder of repositories, the line says how many repositories the kind hit: `in 15 repos`, or `in 1
-repo`.
+counts against it too. A part that fails, or does not finish in that time, gives no count. It
+gives a problem instead, one for each kind of problem, never one for each repository.
+
+The `status` command writes each problem as a `gh: ⚠️` line. Each kind has fixed words, such as
+`fetch failed` or `timed out`. In a folder of repositories, the problem says how many
+repositories the kind hit: `in 15 repos`, or `in 1 repo`.
 
 A short cause follows when the failure came with a message. It is the first line of the first
 failure's message, up to its first sentence end, at most 80 characters.

@@ -122,7 +122,43 @@ test('a session start runs the JSON status check, and pins its plain text', asyn
   expect(argv?.slice(2)).toEqual(['status', '--json', CWD])
   expect(seen.inits).toEqual([{ cwd: CWD, timeoutMs: 15_000 }])
   expect(seen.statuses).toEqual(['[behind] [🤖 2] ⚠️ fetch failed: Invalid username or token'])
-  expect(seen.logs).toEqual([])
+  expect(seen.logs).toEqual(['gh: fetch failed: Invalid username or token'])
+})
+
+test('a report with problems logs them once for each run of problems', async ($, on) => {
+  const { seen, clock } = stub(on, (index) =>
+    index === 2 ? ran(report({ behind: 1 })) : ran(report({ behind: 1 }, { problems: ['a', 'b'] })),
+  )
+
+  await $.session.start(START)
+  await clock.settle()
+  await $.tool.call({ tool: 'Bash', command: 'git pull' })
+  await clock.settle()
+  expect(seen.logs).toEqual(['gh: a; b'])
+
+  // A clean report resets the log, so the next problems log again.
+  await $.tool.call({ tool: 'Bash', command: 'git pull' })
+  await clock.settle()
+  await $.tool.call({ tool: 'Bash', command: 'git pull' })
+  await clock.settle()
+  expect(seen.logs).toEqual(['gh: a; b', 'gh: a; b'])
+})
+
+test('a failed run does not hide the problems of a report, and they do not hide it', async ($, on) => {
+  const { seen, clock } = stub(on, (index) =>
+    index % 2 === 0 ? ran('', 2, 'usage\n') : ran(report({ behind: 1 }, { problems: ['a'] })),
+  )
+
+  await $.session.start(START)
+  await clock.settle()
+  for (let run = 1; run < 4; run++) {
+    await $.tool.call({ tool: 'Bash', command: 'git pull' })
+    await clock.settle()
+  }
+
+  // The problems stay the same run of problems, so they log once.
+  const failed = 'gh: the status check failed with exit 2: usage'
+  expect(seen.logs).toEqual([failed, 'gh: a', failed])
 })
 
 test('a session start does not wait for the status run', async ($, on) => {
@@ -396,9 +432,7 @@ test('a request during a run that fails still gets one more run', async ($, on) 
 // --- the row in the prompt hint (#496) ------------------------------------------
 
 test('the prompt hint draws the counts row above the engine line, with links', async ($, on) => {
-  const { clock } = stub(on, () =>
-    ran(report({ behind: 1, pullRequests: 2, alerts: 3 }, { problems: ['timed out'] })),
-  )
+  const { clock } = stub(on, () => ran(report({ behind: 1, pullRequests: 2, alerts: 3 })))
 
   await $.session.start(START)
   await clock.settle()
@@ -422,9 +456,6 @@ test('the prompt hint draws the counts row above the engine line, with links', a
       [['[🛡️ 3]'], ALERTS],
     ])
     // `behind` has no page, so it has no link.
-    const problem = await ui.find({ type: 'Text', text: /timed out/ })
-    expect(problem?.text).toBe('gh: ⚠️ timed out')
-    expect(problem?.props.color).toBe('warning')
     expect((await ui.find({ type: 'Text', text: '? for shortcuts' }))?.text).toBe(
       '? for shortcuts',
     )
@@ -474,17 +505,42 @@ test('the prompt hint draws each bracket in the colour of its kind', async ($, o
   await ui.unmount()
 })
 
-test('the prompt hint draws a row for each problem, and no counts row when no count shows', async ($, on) => {
-  const { clock } = stub(on, () => ran(report({}, { problems: ['first', 'second'] })))
+test('a report with problems draws the counts row dim, with no colour and no problem row', async ($, on) => {
+  const { clock } = stub(on, () =>
+    ran(report({ behind: 1, alerts: 3 }, { problems: ['first', 'second'] })),
+  )
 
   await $.session.start(START)
   await clock.settle()
   const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
 
-  const rows = await ui.findAll({ type: 'Text', text: /^gh: / })
-  expect(rows.map((row) => row.text)).toEqual(['gh: ⚠️ first', 'gh: ⚠️ second'])
-  // The first row is a problem row, not an empty counts row.
-  expect((await ui.find({ type: 'Text', text: /^gh:/ }))?.text).toBe('gh: ⚠️ first')
+  const ALERTS = 'https://github.com/acme/widgets/security/dependabot'
+  const rows = await ui.findAll({ type: 'Text', text: /^gh:/ })
+  expect(rows.map((row) => row.text)).toEqual([`gh: [behind] ${ALERTS}[🛡️ 3]`, 'gh:'])
+  expect(await ui.findAll({ type: 'Text', text: /⚠️|first|second/ })).toEqual([])
+  for (const text of [/^gh:/, '[behind]', `${ALERTS}[🛡️ 3]`]) {
+    const found = await ui.findAll({ type: 'Text', text })
+    expect([String(text), found.length > 0]).toEqual([String(text), true])
+    for (const element of found) {
+      expect([element.text, element.props.dimColor, element.props.color]).toEqual([
+        element.text,
+        true,
+        undefined,
+      ])
+    }
+  }
+  await ui.unmount()
+})
+
+test('a report with only problems draws only the engine line', async ($, on) => {
+  const { clock } = stub(on, () => ran(report({}, { problems: ['first'] })))
+
+  await $.session.start(START)
+  await clock.settle()
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+
+  expect(await ui.find({ type: 'Text', text: /gh:/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('? for shortcuts')
   await ui.unmount()
 })
 
@@ -505,7 +561,7 @@ test('the prompt hint draws only the engine line when there is nothing to show',
 
 test('a failed run draws the last row dim, until a report comes again', async ($, on) => {
   const { clock } = stub(on, (index) =>
-    index === 1 ? ran('', 2, 'usage\n') : ran(report({ prune: index + 1 }, { problems: ['p'] })),
+    index === 1 ? ran('', 2, 'usage\n') : ran(report({ prune: index + 1 })),
   )
 
   await $.session.start(START)
@@ -515,9 +571,15 @@ test('a failed run draws the last row dim, until a report comes again', async ($
 
   await $.tool.call({ tool: 'Bash', command: 'git pull' })
   await clock.settle()
-  const dim = await ui.findAll({ type: 'Text', text: /gh:|✂️|p$/ })
+  const dim = await ui.findAll({ type: 'Text', text: /gh:|✂️/ })
   expect(dim.length).toBeGreaterThan(0)
-  for (const element of dim) expect([element.text, element.props.dimColor]).toEqual([element.text, true])
+  for (const element of dim) {
+    expect([element.text, element.props.dimColor, element.props.color]).toEqual([
+      element.text,
+      true,
+      undefined,
+    ])
+  }
   expect((await ui.find({ type: 'Text', text: /^gh: \[/ }))?.text).toBe('gh: [✂️ 1]')
 
   // A report again draws the row bright.
