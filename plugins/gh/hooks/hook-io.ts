@@ -39,7 +39,7 @@
 // depend on a module graph that the runtime below the floor might not
 // load. For `status`, it writes the bare line. For `status --json`, it
 // writes the report with the line as its one problem, which the hooks
-// module draws.
+// module logs.
 import { belowFloorMessage, meetsNodeFloor } from '../src/lib/node-floor.ts'
 
 if (meetsNodeFloor(process.version)) {

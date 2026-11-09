@@ -50,7 +50,7 @@ interface Pin {
   /** The last report a run gave, or `undefined` before the first one. */
   report: Report | undefined
   /** True after a run failed. The row then draws dim and with no colour,
-   *  with the last good report, until a run gives a report again. */
+   *  with the last report, until a run gives a report again. */
   stale: boolean
   /** True once the surface drew the prompt hint. The row is there, so no
    *  `$.ui.status` pin is needed. */

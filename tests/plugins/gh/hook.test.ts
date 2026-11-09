@@ -264,8 +264,8 @@ it('runs the hook entry with node, behind the silent guard, on start, resume, cl
     'The SessionStart command hook checks that git and the GitHub CLI are on PATH. It names ' +
       'each tool that is not. The hooks module draws the repo status row under the prompt. ' +
       'The row shows commits behind, branches to prune, open pull requests, dependency pull ' +
-      'requests and Dependabot alerts. Then it shows each kind of problem. It refreshes the ' +
-      'row on a timer ' +
+      'requests and Dependabot alerts. The module writes the problems to the transcript. ' +
+      'It refreshes the row on a timer ' +
       'and after a git, gh or sync command. The check fetches, but never changes a branch, ' +
       'worktree, or working tree.',
   )
