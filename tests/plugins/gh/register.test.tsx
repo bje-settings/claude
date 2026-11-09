@@ -125,7 +125,7 @@ test('a session start runs the JSON status check, and pins its plain text', asyn
   expect(seen.logs).toEqual(['gh: fetch failed: Invalid username or token'])
 })
 
-test('a report with problems logs them once for each run of failures', async ($, on) => {
+test('a report with problems logs them once for each run of problems', async ($, on) => {
   const { seen, clock } = stub(on, (index) =>
     index === 2 ? ran(report({ behind: 1 })) : ran(report({ behind: 1 }, { problems: ['a', 'b'] })),
   )
