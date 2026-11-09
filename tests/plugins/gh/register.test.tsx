@@ -446,6 +446,48 @@ test('the prompt hint draws no link in a folder', async ($, on) => {
   await ui.unmount()
 })
 
+test('the prompt hint draws each bracket in the colour of its kind', async ($, on) => {
+  const counts = { behind: 1, prune: 2, pullRequests: 3, dependencies: 4, alerts: 5 }
+  const { clock } = stub(on, () => ran(report(counts, { repos: 2, repository: null })))
+
+  await $.session.start(START)
+  await clock.settle()
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+
+  const row = await ui.find({ type: 'Text', text: /^gh: / })
+  expect(row?.text).toBe('gh: [repos: 2] [behind] [✂️ 2] [🔀 3] [🤖 4] [🛡️ 5]')
+  expect(row?.props.color).toBeUndefined()
+  const colours: [string, unknown][] = []
+  for (const text of ['[repos: 2]', '[behind]', '[✂️ 2]', '[🔀 3]', '[🤖 4]', '[🛡️ 5]']) {
+    // The row, then the bracket inside it: the bracket is the last match.
+    const bracket = (await ui.findAll({ type: 'Text', text })).at(-1)
+    colours.push([text, bracket?.props.color])
+  }
+  expect(colours).toEqual([
+    ['[repos: 2]', 'success'],
+    ['[behind]', 'warning'],
+    ['[✂️ 2]', 'suggestion'],
+    ['[🔀 3]', 'planMode'],
+    ['[🤖 4]', 'merged'],
+    ['[🛡️ 5]', 'error'],
+  ])
+  await ui.unmount()
+})
+
+test('the prompt hint draws a row for each problem, and no counts row when no count shows', async ($, on) => {
+  const { clock } = stub(on, () => ran(report({}, { problems: ['first', 'second'] })))
+
+  await $.session.start(START)
+  await clock.settle()
+  const ui = await $.ui.mount({ ...HINT, surface: 'terminal' })
+
+  const rows = await ui.findAll({ type: 'Text', text: /^gh: / })
+  expect(rows.map((row) => row.text)).toEqual(['gh: ⚠️ first', 'gh: ⚠️ second'])
+  // The first row is a problem row, not an empty counts row.
+  expect((await ui.find({ type: 'Text', text: /^gh:/ }))?.text).toBe('gh: ⚠️ first')
+  await ui.unmount()
+})
+
 test('the prompt hint draws only the engine line when there is nothing to show', async ($, on) => {
   const { clock } = stub(on, () => ran(report()))
 

@@ -46,7 +46,10 @@ it('writes the report of a folder as sums, with no repository name', async () =>
     ['status', '--json', folder],
     createGhMock({
       repositoryStatus: {
-        repositories: { 'acme/a': side(1, 2), 'acme/b': { ...side(3, 4), alerts: null } },
+        repositories: {
+          'acme/a': side(1, 2, [], 3),
+          'acme/b': { ...side(3, 4, [], 4), alerts: null },
+        },
         unavailable: null,
       },
     }),
@@ -54,7 +57,7 @@ it('writes the report of a folder as sums, with no repository name', async () =>
 
   expect(ran.status).toBe(0)
   expect(JSON.parse(ran.stdout)).toEqual({
-    counts: { ...ZERO, dependencies: 6, alerts: 1 },
+    counts: { ...ZERO, pullRequests: 7, dependencies: 6, alerts: 1 },
     repos: 2,
     repository: null,
     problems: ['alerts could not be read in 1 repo'],
